@@ -255,10 +255,10 @@ tox_friend_send_message() (c-toxcore)
 ### 方案三：混合架构（当前使用）
 
 **实现方式**：
-- `main()` 中执行 `setNativeLibraryName('tim2tox_ffi')`
-- `_StartupGate` / `LoginPage` 负责创建并登录 `FfiChatService`
-- `HomePage.initState()` 中设置 `Tim2ToxSdkPlatform`
-- `FakeUIKit`、`CallServiceManager`、UIKit Provider 和插件在客户端侧接入
+- `setNativeLibraryName('tim2tox_ffi')` 由 `main()` → `AppBootstrap.initialize()` → `LoggingBootstrap.initialize()` 设置；
+- `_StartupGate` / `LoginPage` 通过 `AccountService.initializeServiceForAccount(..., startPolling: false)` 创建并登录 `FfiChatService`；
+- 登录成功后调用 `AppBootstrapCoordinator.boot(service)`：依次执行 `SessionRuntimeCoordinator.ensureInitialized()`（在此处安装 `Tim2ToxSdkPlatform`、启动 `FakeUIKit`、调用 `CallServiceManager.initialize()`）、`TimSdkInitializer.ensureInitialized()`（`TIMManager.initSDK`）、`service.startPolling()`；
+- `HomePage._initAfterSessionReady()` 注册 `BinaryReplacementHistoryHook`、群组/好友监听、UIKit `ChatDataProvider` / `ChatMessageProvider` 与贴纸 / 翻译 / 语音插件。
 
 **特点**：
 - 保留二进制替换链路，兼容 UIKit 的 Native 调用习惯
@@ -748,7 +748,7 @@ class EventBusAdapter implements EventBusProvider {
 
 ### 推荐初始化顺序（混合架构）
 
-当前使用的是混合架构。概念顺序为：`FfiChatService.init` → `login` → `updateSelfProfile` → `FakeUIKit.startWithFfi` → `TIMManager.initSDK` → `startPolling` → `HomePage` 设置 `Tim2ToxSdkPlatform` → 初始化 `BinaryReplacementHistoryHook`、通话桥和插件。详见 [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md)。
+当前使用的是混合架构。概念顺序为：`FfiChatService.init` → `login` → `updateSelfProfile` → `SessionRuntimeCoordinator.ensureInitialized`（安装 `FakeUIKit` + `Tim2ToxSdkPlatform`，并调用 `CallServiceManager.initialize()`）→ `TimSdkInitializer.ensureInitialized`（`TIMManager.initSDK`）→ `FfiChatService.startPolling` → `HomePage._initAfterSessionReady` 注册 `BinaryReplacementHistoryHook`、群组/好友监听、UIKit Providers 与插件。详见 [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md)。
 
 ### 完整初始化序列
 
@@ -756,93 +756,99 @@ class EventBusAdapter implements EventBusProvider {
 
 ```
 main()
-   ├─ setNativeLibraryName('tim2tox_ffi')，不设置 Platform
+   ├─ AppBootstrap.initialize()
+   │    ├─ LoggingBootstrap.initialize()   // setNativeLibraryName('tim2tox_ffi')，不设置 Platform
+   │    ├─ PrefsBootstrap.initialize()
+   │    ├─ AppRuntimeBootstrap.initialize()
+   │    └─ DesktopShellBootstrap.initializeIfNeeded()
    └─ EchoUIKitApp → _StartupGate
 
-_StartupGate._decide()（自动登录）
-   ├─ 优先通过 AccountService.initializeServiceForAccount(..., startPolling: false) 完成 init/login/updateSelfProfile
-   ├─ FakeUIKit.startWithFfi(service)
-   ├─ _initTIMManagerSDK()
-   ├─ service.startPolling()
-   ├─ 等待连接或超时
+_StartupGate._runStartup() / StartupSessionUseCase.execute（自动登录）
+   ├─ AccountService.initializeServiceForAccount(toxId, ..., startPolling: false)
+   │    ├─ FfiChatService(prefs, logger, bootstrap, historyDirectory, ...)
+   │    ├─ service.init(profileDirectory)
+   │    ├─ service.login(...)
+   │    └─ service.updateSelfProfile(...)
+   ├─ AppBootstrapCoordinator.boot(service)
+   │    ├─ SessionRuntimeCoordinator(service).ensureInitialized()
+   │    │    ├─ FakeUIKit.instance.startWithFfi(service)
+   │    │    ├─ TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(...)
+   │    │    └─ FakeUIKit.instance.callServiceManager?.initialize()
+   │    ├─ TimSdkInitializer.ensureInitialized()    // TIMManager.initSDK
+   │    └─ service.startPolling()
+   ├─ 等待 connectionStatusStream 或超时
    ├─ 预加载好友与联系人状态
    └─ 导航到 HomePage(service)
 ```
 
-**HomePage.initState()**：
+**手动登录路径（LoginPage / LoginUseCase）**：
 
 ```
-HomePage.initState()
-   ├─ 若 FakeUIKit 未启动则 FakeUIKit.startWithFfi(widget.service)
-   ├─ 若 TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform 则设置 Tim2ToxSdkPlatform
-   ├─ 初始化 CallServiceManager（依赖已设置好的 Tim2ToxSdkPlatform）
-   ├─ _initTIMManagerSDK().then(...)
-   │   ├─ _initBinaryReplacementPersistenceHook()  （依赖 MessageHistoryPersistence、selfId）
-   │   ├─ initGroupListener()
-   │   └─ initFriendListener()
-   ├─ 注册 UIKit Providers（ChatDataProviderRegistry、ChatMessageProviderRegistry 等）
+1. main()
+   └─ AppBootstrap.initialize()   // 与自动登录路径一致
+
+2. LoginPage
+   ├─ 用户输入昵称 / 状态 / Bootstrap 节点
+   ├─ LoginUseCase.execute(...) → AccountService.initializeServiceForAccount(..., startPolling: false)
+   ├─ AppBootstrapCoordinator.boot(service)   // SessionRuntime + TIM init + startPolling
+   └─ 导航到 HomePage(service)
+
+3. HomePage.initState() → unawaited(_initAfterSessionReady())
+   ├─ SessionRuntimeCoordinator(service).ensureInitialized()   // 幂等
+   ├─ TimSdkInitializer.ensureInitialized().then((_) {
+   │    ├─ _initBinaryReplacementPersistenceHook()
+   │    ├─ initGroupListener / initFriendListener
+   │  })
+   ├─ 注册 ChatDataProviderRegistry、ChatMessageProviderRegistry 等
    └─ 注册 sticker / textTranslate / soundToText 等扩展插件
-```
-
-**登录页路径（LoginPage）**：
-
-```
-1. main() 函数
-   ├─ WidgetsFlutterBinding.ensureInitialized()
-   ├─ AppLogger.initialize()
-   └─ setNativeLibraryName('tim2tox_ffi')，不设置 Platform
-
-2. LoginPage（用户未自动登录时）
-   ├─ 用户输入昵称和状态消息
-   ├─ 创建 FfiChatService (带适配器)
-   ├─ ffiService.init()
-   ├─ ffiService.login()
-   └─ 导航到 HomePage
-
-3. HomePage.initState()
-   ├─ FakeUIKit.instance.startWithFfi(service)（若未启动）
-   ├─ 创建接口适配器并设置 Tim2ToxSdkPlatform（若 instance is! Tim2ToxSdkPlatform）
-   ├─ 初始化 CallServiceManager
-   ├─ _initTIMManagerSDK().then(_initBinaryReplacementPersistenceHook、initGroupListener、initFriendListener)
-   └─ 注册 UIKit Providers 与扩展插件
 ```
 
 ### 初始化代码示例
 
+实际上下面的工作几乎全部由 `SessionRuntimeCoordinator.ensureInitialized()` 完成（在进入 `HomePage` 之前由 `AppBootstrapCoordinator.boot()` 调用）；`HomePage` 只需注册 Provider、history hook 与监听器。
+
 ```dart
-@override
-void initState() {
-  super.initState();
-  
-  // 1. 若 FakeUIKit 未启动则初始化（_StartupGate 中可能已调用 startWithFfi）
+// lib/runtime/session_runtime_coordinator.dart（示意 — 详见源码）
+Future<void> ensureInitialized() async {
   if (!FakeUIKit.instance.isStarted) {
-    FakeUIKit.instance.startWithFfi(widget.service);
+    FakeUIKit.instance.startWithFfi(service);
   }
-  
-  // 2. 仅在未设置时设置 Platform（供历史查询与 C++ 特殊回调使用）
+
   if (TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform) {
     final eventBusAdapter = EventBusAdapter(FakeUIKit.instance.eventBusInstance);
     final conversationManagerAdapter = ConversationManagerAdapter(
       FakeUIKit.instance.conversationManager!,
     );
     TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
-      ffiService: widget.service,
+      ffiService: service,
       eventBusProvider: eventBusAdapter,
       conversationManagerProvider: conversationManagerAdapter,
     );
   }
-  
-  // 3. initSDK 完成后初始化 BinaryReplacementHistoryHook、group/friend listener
-  _initTIMManagerSDK().then((_) {
-    _initBinaryReplacementPersistenceHook();
-    TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
-    TencentCloudChat.instance.chatSDKInstance.contactSDK.initFriendListener();
-  });
-  
-  // 4. 注册 UIKit Providers
+
+  await FakeUIKit.instance.callServiceManager?.initialize();
+}
+```
+
+```dart
+// lib/ui/home_page.dart（示意 — 实际流程详见 lib/ui/home_page_bootstrap.dart）
+@override
+void initState() {
+  super.initState();
+  unawaited(_initAfterSessionReady());
+}
+
+Future<void> _initAfterSessionReady() async {
+  await SessionRuntimeCoordinator(service: widget.service).ensureInitialized();
+
+  await TimSdkInitializer.ensureInitialized();
+  _initBinaryReplacementPersistenceHook();
+  TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
+  TencentCloudChat.instance.chatSDKInstance.contactSDK.initFriendListener();
+
   ChatDataProviderRegistry.provider ??= FakeChatDataProvider(ffiService: widget.service);
   ChatMessageProviderRegistry.provider ??= FakeChatMessageProvider();
-  // ...
+  // sticker / textTranslate / soundToText 插件注册随后进行
 }
 ```
 
@@ -903,17 +909,17 @@ void initState() {
 
 ### 5. 延迟初始化
 
-**决策**: 在 `HomePage.initState()` 中初始化 SDK Platform
+**决策**: 在 `FfiChatService.init/login` 完成之后由 `SessionRuntimeCoordinator.ensureInitialized()`（在 `AppBootstrapCoordinator.boot()` 中调用）安装 SDK Platform。
 
 **原因**:
-- 确保在 UIKit 插件注册之后设置
-- 避免被 `TencentCloudChatSdkWeb` 覆盖
-- 可以访问完整的服务实例
+- Platform 必须持有与其它组件完全一致的 `FfiChatService` 实例，而该实例只有在 `AccountService.initializeServiceForAccount(...)` 返回后才存在。
+- 避免被 `TencentCloudChatSdkWeb`（在插件注册过程中自动安装自身）覆盖。
+- 能拿到 `FakeUIKit` 内已构建好的事件总线与会话管理适配器。
 
 **实现**:
-- `main()` 不设置 Platform，仅 `setNativeLibraryName('tim2tox_ffi')`
-- `HomePage.initState()` 中当 `TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform` 时设置 Tim2ToxSdkPlatform
-- **BinaryReplacementHistoryHook** 在 TIMManager.initSDK 完成之后、在 HomePage 的 _initBinaryReplacementPersistenceHook 中完成（由 _initTIMManagerSDK().then 调用）
+- `main()` 不设置 Platform，仅由 `LoggingBootstrap.initialize()` 调用 `setNativeLibraryName('tim2tox_ffi')`。
+- `SessionRuntimeCoordinator.ensureInitialized()` 在 `instance is! Tim2ToxSdkPlatform` 时安装 `Tim2ToxSdkPlatform`。它由 `AppBootstrapCoordinator.boot()` 在导航之前调用，并在 `HomePage._initAfterSessionReady()` 中幂等地再次执行。
+- **BinaryReplacementHistoryHook** 在 `TimSdkInitializer.ensureInitialized()` 完成后由 `HomePage._initBinaryReplacementPersistenceHook()` 安装。
 
 ### 6. 失败消息处理机制
 
@@ -1048,39 +1054,46 @@ void initState() {
 **初始化流程**：
 
 #### 1. 用户登录阶段
+
 ```
-LoginPage._login()
+LoginPage._login() / LoginUseCase.execute()
   ↓
-FfiChatService.init()
+AccountService.initializeServiceForAccount(toxId, ..., startPolling: false)
+  ├─ FfiChatService.init(profileDirectory)
+  ├─ FfiChatService.login(...)
+  └─ FfiChatService.updateSelfProfile(...)
   ↓
-FfiChatService.login(userId, userSig)
+AppBootstrapCoordinator.boot(service)
+  ├─ SessionRuntimeCoordinator(service).ensureInitialized()   // FakeUIKit + Tim2ToxSdkPlatform + CallServiceManager.initialize()
+  ├─ TimSdkInitializer.ensureInitialized()                    // TIMManager.initSDK
+  └─ service.startPolling()
   ↓
 Navigator.pushReplacement(HomePage(service: service))
 ```
 
 #### 2. HomePage 初始化阶段
+
 ```
-HomePage.initState()
+HomePage.initState() → unawaited(_initAfterSessionReady())
   ↓
-若 FakeUIKit 未启动则 FakeUIKit.startWithFfi(widget.service)
+SessionRuntimeCoordinator(service).ensureInitialized()       // 幂等再执行一次
   ↓
-若 TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform 则设置 Tim2ToxSdkPlatform
-  ↓
-_initTIMManagerSDK().then(...)
-  ├─ _initBinaryReplacementPersistenceHook()  （MessageHistoryPersistence、selfId；selfId 为空时监听 connectionStatusStream 再 _setupPersistenceHook）
+TimSdkInitializer.ensureInitialized().then((_) {
+  ├─ _initBinaryReplacementPersistenceHook()  // selfId 为空时监听 connectionStatusStream 再 _setupPersistenceHook
   ├─ initGroupListener()
   └─ initFriendListener()
+})
   ↓
 注册 ChatDataProviderRegistry、ChatMessageProviderRegistry 等
   ↓
-手动注册组件（addUsedComponent）、设置状态等
+addUsedComponent、sticker / textTranslate / soundToText 插件、EventBus 接线
 ```
 
 **关键点**：
-- Platform 在 **HomePage.initState** 中按 `instance is! Tim2ToxSdkPlatform` 条件设置
-- **BinaryReplacementHistoryHook** 在 TIMManager.initSDK 完成之后、在 _initBinaryReplacementPersistenceHook 中完成
-- `TIMManager.instance.initSDK()` 在自动登录路径中可与 login 并行（_StartupGate），或在 HomePage 中调用（若未完成）
-- 所有组件注册和状态设置必须在 SDK 初始化之后进行
+- Platform 由 `SessionRuntimeCoordinator.ensureInitialized()` 安装 —— `AppBootstrapCoordinator.boot()` 在导航之前调用；`_initAfterSessionReady()` 幂等地再次执行作为兜底。
+- `BinaryReplacementHistoryHook` 在 `TimSdkInitializer.ensureInitialized()` 解析完成后由 `_initBinaryReplacementPersistenceHook()` 安装。
+- `TIMManager.instance.initSDK()` 由 `TimSdkInitializer` 仅调用一次，不要直接调用。
+- 所有 UIKit 注册与状态设置必须发生在 SDK 初始化之后。
 
 **与标准流程的差异**：
 - 标准流程使用 `TencentCloudChat.controller.initUIKit()` 统一管理初始化

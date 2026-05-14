@@ -407,6 +407,7 @@ if (result.code == 0) {
 ```
 
 ### Receive messages
+
 ```dart
 // Add message listening
 TencentImSDKPlugin.v2TIMManager
@@ -505,20 +506,18 @@ void dispose() {
 
 ### 4. Resource cleanup
 
-Clean up resources when the app exits:
+In toxee, account-level teardown is centralized in `AccountService.teardownCurrentSession`, which also drives `SessionRuntimeCoordinator.disposeRuntime()` to disposed `FakeUIKit`, restore `TencentCloudChatSdkPlatform.instance` to the default `MethodChannel` implementation, and clear UIKit `ChatDataProviderRegistry` / `ChatMessageProviderRegistry`. Use this path on logout, account switch, or app exit instead of calling `TencentImSDKPlugin.v2TIMManager.logout()` directly:
 
 ```dart
-@override
-void dispose() {
-  // Sign out
-  TencentImSDKPlugin.v2TIMManager.logout();
-  
-  // Deinitialize SDK
-  TencentImSDKPlugin.v2TIMManager.unInitSDK();
-  
-  super.dispose();
-}
+import 'package:toxee/util/account_service.dart';
+
+await AccountService.teardownCurrentSession(
+  service: ffiService,
+  reEncryptProfile: true,  // re-encrypt the on-disk profile before discarding the in-memory key
+);
 ```
+
+If you are integrating Tim2Tox without the toxee adapters (the minimal example at the top of this doc), you still need a matching teardown: dispose your `FfiChatService`, reset `TencentCloudChatSdkPlatform.instance` to `MethodChannelTencentCloudChatSdkPlatform()` (so any later UIKit calls fall back to the method-channel default), and drop your provider registrations.
 
 ### 5. Status management
 

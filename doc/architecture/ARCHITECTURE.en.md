@@ -48,10 +48,10 @@ The current client is using a **hybrid architecture**.
 ### Currently used solution: hybrid architecture
 
 **Features**:
-- The dynamic library is replaced with `libtim2tox_ffi`, and the C++ callback is dispatched by NativeLibraryManager
-- **Must be set** `TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform`: set by `SessionRuntimeCoordinator.ensureInitialized()` when `instance is! Tim2ToxSdkPlatform`; called from `AppBootstrapCoordinator.boot()` before entering HomePage on auto-login, or from `HomePage._initAfterSessionReady()` on manual login; must be done by or before first screen for history query and C++ special callbacks (clearHistoryMessage, groupQuitNotification, etc.).
-- Message sending, session/friend data go directly to FfiChatService via FakeUIKit
-- `CallServiceManager`, TUICallKit adaptation, sticker/translation/voice plug-in are connected at the HomePage stage
+- The dynamic library is replaced with `libtim2tox_ffi`, and the C++ callback is dispatched by NativeLibraryManager.
+- **Required**: `TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform`. This is installed by `SessionRuntimeCoordinator.ensureInitialized()` (the runtime only assigns when `instance is! Tim2ToxSdkPlatform`). The coordinator is called from `AppBootstrapCoordinator.boot()` — both auto-login (`_StartupGate` → `StartupSessionUseCase`) and manual login (`LoginPage` → `LoginUseCase`) run `boot()` **before** navigating to `HomePage`. `HomePage._initAfterSessionReady()` calls the coordinator again as an idempotent safety net. The Platform must be installed by the first screen, otherwise history queries and C++ special callbacks (`clearHistoryMessage`, `groupQuitNotification`, `groupChatIdStored`) fail silently.
+- Message sending, session/friend data go directly to `FfiChatService` via `FakeUIKit`.
+- `CallServiceManager` is built inside `FakeUIKit.startWithFfi`; its `initialize()` is called at the end of `SessionRuntimeCoordinator.ensureInitialized()` (after Platform is set). Sticker / text-translate / sound-to-text plug-ins are registered in `HomePage._initAfterSessionReady()`.
 
 See [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.en.md) for details.
 
@@ -255,10 +255,10 @@ tox_friend_send_message() (c-toxcore)
 ### Option 3: Hybrid architecture (currently used)
 
 **Implementation**:
-- Execute `setNativeLibraryName('tim2tox_ffi')` in `main()`
-- `_StartupGate` / `LoginPage` is responsible for creating and logging in `FfiChatService`
-- Set `Tim2ToxSdkPlatform` in `HomePage.initState()`
-- `FakeUIKit`, `CallServiceManager`, UIKit Provider and plugins are connected on the client side
+- `setNativeLibraryName('tim2tox_ffi')` runs inside `AppBootstrap.initialize()` → `LoggingBootstrap.initialize()` from `main()`.
+- `_StartupGate` / `LoginPage` create and log in `FfiChatService` via `AccountService.initializeServiceForAccount(..., startPolling: false)`.
+- Once login succeeds, the caller runs `AppBootstrapCoordinator.boot(service)`, which calls `SessionRuntimeCoordinator.ensureInitialized()` (this is where `Tim2ToxSdkPlatform` is installed and `FakeUIKit.startWithFfi` runs), then `TimSdkInitializer.ensureInitialized()` (calls `TIMManager.instance.initSDK()`), then `service.startPolling()`.
+- `HomePage._initAfterSessionReady()` registers `BinaryReplacementHistoryHook`, group/friend listeners, UIKit `ChatDataProvider` / `ChatMessageProvider` registries, and the sticker / text-translate / sound-to-text plug-ins.
 
 **Features**:
 - Retain binary replacement links and be compatible with UIKit’s Native calling habits
@@ -328,7 +328,7 @@ Tim2Tox upstream repo: [https://github.com/anonymoussoft/tim2tox](https://github
 - Implement all V2TIM APIs
 - Manage SDK lifecycle
 - Handle messages, friends, and group operations
--Event notification
+- Event notification
 
 **Dependency Injection**:
 - `FfiChatService`: Core Services
@@ -415,7 +415,7 @@ Tim2Tox upstream repo: [https://github.com/anonymoussoft/tim2tox](https://github
 
 #### 2.3 UI layer (`lib/ui/`)
 
-**RESPONSIBILITIES**: User Interface Components
+**Responsibilities**: User interface components.
 
 **Main components**:
 - `login_page.dart`: Login/Registration page
@@ -744,7 +744,7 @@ class EventBusAdapter implements EventBusProvider {
 
 ### Recommended initialization sequence (hybrid architecture)
 
-A hybrid architecture is currently used. The conceptual sequence is: `FfiChatService.init` → `login` → `updateSelfProfile` → `FakeUIKit.startWithFfi` → `TIMManager.initSDK` → `startPolling` → `HomePage` Setting up `Tim2ToxSdkPlatform` → Initializing `BinaryReplacementHistoryHook`, talk bridge and plug-in. See [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.en.md) for details.
+A hybrid architecture is currently used. The conceptual sequence is: `FfiChatService.init` → `login` → `updateSelfProfile` → `SessionRuntimeCoordinator.ensureInitialized` (installs `FakeUIKit` + `Tim2ToxSdkPlatform`, then `CallServiceManager.initialize()`) → `TimSdkInitializer.ensureInitialized` (`TIMManager.initSDK`) → `FfiChatService.startPolling` → `HomePage._initAfterSessionReady` registers `BinaryReplacementHistoryHook`, group/friend listeners, UIKit providers, and plug-ins. See [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.en.md) for the authoritative details.
 
 ### Complete initialization sequence
 
@@ -752,93 +752,99 @@ A hybrid architecture is currently used. The conceptual sequence is: `FfiChatSer
 
 ```
 main()
-   ├─ setNativeLibraryName('tim2tox_ffi'), do not set Platform
+   ├─ AppBootstrap.initialize()
+   │    ├─ LoggingBootstrap.initialize()  // setNativeLibraryName('tim2tox_ffi'); do not set Platform
+   │    ├─ PrefsBootstrap.initialize()
+   │    ├─ AppRuntimeBootstrap.initialize()
+   │    └─ DesktopShellBootstrap.initializeIfNeeded()
    └─ EchoUIKitApp → _StartupGate
 
-_StartupGate._decide() (automatic login)
-   ├─ Prioritize init/login/updateSelfProfile through AccountService.initializeServiceForAccount(..., startPolling: false)
-   ├─ FakeUIKit.startWithFfi(service)
-   ├─ _initTIMManagerSDK()
-   ├─ service.startPolling()
-   ├─ Waiting for connection or timeout
+_StartupGate._runStartup() / StartupSessionUseCase.execute (automatic login)
+   ├─ AccountService.initializeServiceForAccount(toxId, ..., startPolling: false)
+   │    ├─ FfiChatService(prefs, logger, bootstrap, historyDirectory, ...)
+   │    ├─ service.init(profileDirectory)
+   │    ├─ service.login(...)
+   │    └─ service.updateSelfProfile(...)
+   ├─ AppBootstrapCoordinator.boot(service)
+   │    ├─ SessionRuntimeCoordinator(service).ensureInitialized()
+   │    │    ├─ FakeUIKit.instance.startWithFfi(service)
+   │    │    ├─ TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(...)
+   │    │    └─ FakeUIKit.instance.callServiceManager?.initialize()
+   │    ├─ TimSdkInitializer.ensureInitialized()    // TIMManager.initSDK
+   │    └─ service.startPolling()
+   ├─ Wait on connectionStatusStream or timeout
    ├─ Preload friend and contact status
    └─ Navigate to HomePage(service)
 ```
 
-**HomePage.initState()**:
+**Manual login path (LoginPage / LoginUseCase)**:
 
 ```
-HomePage.initState()
-   ├─ If FakeUIKit is not started, then FakeUIKit.startWithFfi(widget.service)
-   ├─ If TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform then set Tim2ToxSdkPlatform
-   ├─ Initialize CallServiceManager (depends on the set Tim2ToxSdkPlatform)
-   ├─ _initTIMManagerSDK().then(...)
-   │ ├─ _initBinaryReplacementPersistenceHook() (depends on MessageHistoryPersistence, selfId)
-   │   ├─ initGroupListener()
-   │   └─ initFriendListener()
-   ├─ Register UIKit Providers (ChatDataProviderRegistry, ChatMessageProviderRegistry, etc.)
-   └─ Register extensions such as sticker / textTranslate / soundToText
-```
+1. main()
+   └─ AppBootstrap.initialize()  // same as auto-login path
 
-**Login page path (LoginPage)**:
+2. LoginPage
+   ├─ User input nickname / status / bootstrap node
+   ├─ LoginUseCase.execute(...) → AccountService.initializeServiceForAccount(..., startPolling: false)
+   ├─ AppBootstrapCoordinator.boot(service)   // SessionRuntime + TIM init + startPolling
+   └─ Navigate to HomePage(service)
 
-```
-1. main() function
-   ├─ WidgetsFlutterBinding.ensureInitialized()
-   ├─ AppLogger.initialize()
-   └─ setNativeLibraryName('tim2tox_ffi'), do not set Platform
-
-2. LoginPage (when the user does not log in automatically)
-   ├─ User input nickname and status message
-   ├─ Create FfiChatService (with adapter)
-   ├─ ffiService.init()
-   ├─ ffiService.login()
-   └─ Navigate to HomePage
-
-3. HomePage.initState()
-   ├─ FakeUIKit.instance.startWithFfi(service) (if not started)
-   ├─ Create interface adapter and set Tim2ToxSdkPlatform (if instance is! Tim2ToxSdkPlatform)
-   ├─ Initialize CallServiceManager
-   ├─ _initTIMManagerSDK().then(_initBinaryReplacementPersistenceHook、initGroupListener、initFriendListener)
-   └─ Register UIKit Providers and extensions
+3. HomePage.initState() → unawaited(_initAfterSessionReady())
+   ├─ SessionRuntimeCoordinator(service).ensureInitialized()  // idempotent
+   ├─ TimSdkInitializer.ensureInitialized().then((_) {
+   │    ├─ _initBinaryReplacementPersistenceHook()
+   │    ├─ initGroupListener / initFriendListener
+   │  })
+   ├─ Register ChatDataProviderRegistry, ChatMessageProviderRegistry, etc.
+   └─ Register sticker / textTranslate / soundToText plug-ins
 ```
 
 ### Initialization code example
 
+In practice almost all of the work below is done by `SessionRuntimeCoordinator.ensureInitialized()` (installed by `AppBootstrapCoordinator.boot()` before `HomePage`); `HomePage` only needs to register providers, the history hook, and listeners.
+
 ```dart
-@override
-void initState() {
-  super.initState();
-  
-  // 1. Initialize if FakeUIKit has not been started (startWithFfi may have been called in _StartupGate)
+// lib/runtime/session_runtime_coordinator.dart (sketch — see source for the real flow)
+Future<void> ensureInitialized() async {
   if (!FakeUIKit.instance.isStarted) {
-    FakeUIKit.instance.startWithFfi(widget.service);
+    FakeUIKit.instance.startWithFfi(service);
   }
-  
-  // 2. Set Platform only if not set (for use by history queries and C++ special callbacks)
+
   if (TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform) {
     final eventBusAdapter = EventBusAdapter(FakeUIKit.instance.eventBusInstance);
     final conversationManagerAdapter = ConversationManagerAdapter(
       FakeUIKit.instance.conversationManager!,
     );
     TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
-      ffiService: widget.service,
+      ffiService: service,
       eventBusProvider: eventBusAdapter,
       conversationManagerProvider: conversationManagerAdapter,
     );
   }
-  
-  // 3. Initialize BinaryReplacementHistoryHook and group/friend listener after initSDK is completed
-  _initTIMManagerSDK().then((_) {
-    _initBinaryReplacementPersistenceHook();
-    TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
-    TencentCloudChat.instance.chatSDKInstance.contactSDK.initFriendListener();
-  });
-  
-  // 4. Register UIKit Providers
+
+  await FakeUIKit.instance.callServiceManager?.initialize();
+}
+```
+
+```dart
+// lib/ui/home_page.dart (sketch — see lib/ui/home_page_bootstrap.dart for the real flow)
+@override
+void initState() {
+  super.initState();
+  unawaited(_initAfterSessionReady());
+}
+
+Future<void> _initAfterSessionReady() async {
+  await SessionRuntimeCoordinator(service: widget.service).ensureInitialized();
+
+  await TimSdkInitializer.ensureInitialized();
+  _initBinaryReplacementPersistenceHook();
+  TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
+  TencentCloudChat.instance.chatSDKInstance.contactSDK.initFriendListener();
+
   ChatDataProviderRegistry.provider ??= FakeChatDataProvider(ffiService: widget.service);
   ChatMessageProviderRegistry.provider ??= FakeChatMessageProvider();
-  // ...
+  // sticker / textTranslate / soundToText plug-in registration follows
 }
 ```
 
@@ -877,7 +883,7 @@ void initState() {
 
 **Reason**:
 - Decoupled components
--Support asynchronous event processing
+- Support asynchronous event processing
 - Easy to expand
 
 **Implementation**:
@@ -899,17 +905,17 @@ void initState() {
 
 ### 5. Lazy initialization
 
-**Decision**: Initialize SDK Platform in `HomePage.initState()`
+**Decision**: Install the SDK `Platform` only after `FfiChatService.init/login` finishes — driven by `SessionRuntimeCoordinator.ensureInitialized()` from `AppBootstrapCoordinator.boot()`.
 
 **Reason**:
-- Make sure to set it after UIKit plugin registration
-- Avoid being overwritten by `TencentCloudChatSdkWeb`
--Has access to full service instances
+- The platform must hold the exact same `FfiChatService` instance used elsewhere; that instance only exists after `AccountService.initializeServiceForAccount(...)` returns.
+- Avoid being overwritten by `TencentCloudChatSdkWeb` (which installs itself during plug-in registration).
+- Give the platform access to fully-built `FakeUIKit` adapters (event bus, conversation manager).
 
 **Implementation**:
-- `main()` does not set Platform, only `setNativeLibraryName('tim2tox_ffi')`
-- Set Tim2ToxSdkPlatform when `TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform` in `HomePage.initState()`
-- **BinaryReplacementHistoryHook** is completed in _initBinaryReplacementPersistenceHook of HomePage after TIMManager.initSDK is completed (called by _initTIMManagerSDK().then)
+- `main()` does not set the Platform — `LoggingBootstrap.initialize()` only sets `setNativeLibraryName('tim2tox_ffi')`.
+- `SessionRuntimeCoordinator.ensureInitialized()` installs `Tim2ToxSdkPlatform` when `TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform`. It runs in `AppBootstrapCoordinator.boot()` before navigation and idempotently again from `HomePage._initAfterSessionReady()`.
+- **`BinaryReplacementHistoryHook`** is installed by `HomePage._initBinaryReplacementPersistenceHook()` after `TimSdkInitializer.ensureInitialized()` completes.
 
 ### 6. Failure message handling mechanism
 
@@ -1041,40 +1047,49 @@ For detailed instructions, please refer to: Persistent storage chapter in [refer
 - Avoid being overwritten by default platforms (such as `TencentCloudChatSdkWeb`)
 - Make sure all dependent services are ready
 
-**Initialization process**:#### 1. User login stage
+**Initialization process**:
+
+#### 1. User login stage
+
 ```
-LoginPage._login()
+LoginPage._login() / LoginUseCase.execute()
   ↓
-FfiChatService.init()
+AccountService.initializeServiceForAccount(toxId, ..., startPolling: false)
+  ├─ FfiChatService.init(profileDirectory)
+  ├─ FfiChatService.login(...)
+  └─ FfiChatService.updateSelfProfile(...)
   ↓
-FfiChatService.login(userId, userSig)
+AppBootstrapCoordinator.boot(service)
+  ├─ SessionRuntimeCoordinator(service).ensureInitialized()  // FakeUIKit + Tim2ToxSdkPlatform + CallServiceManager.initialize()
+  ├─ TimSdkInitializer.ensureInitialized()                   // TIMManager.initSDK
+  └─ service.startPolling()
   ↓
 Navigator.pushReplacement(HomePage(service: service))
 ```
 
 #### 2. HomePage initialization phase
+
 ```
-HomePage.initState()
+HomePage.initState() → unawaited(_initAfterSessionReady())
   ↓
-If FakeUIKit is not started then FakeUIKit.startWithFfi(widget.service)
+SessionRuntimeCoordinator(service).ensureInitialized()       // idempotent re-run
   ↓
-If TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform then set Tim2ToxSdkPlatform
-  ↓
-_initTIMManagerSDK().then(...)
-  ├─ _initBinaryReplacementPersistenceHook() (MessageHistoryPersistence, selfId; when selfId is empty, listen to connectionStatusStream and then _setupPersistenceHook)
+TimSdkInitializer.ensureInitialized().then((_) {
+  ├─ _initBinaryReplacementPersistenceHook()  // when selfId is empty, listens to connectionStatusStream and then _setupPersistenceHook
   ├─ initGroupListener()
   └─ initFriendListener()
+})
   ↓
-Register ChatDataProviderRegistry, ChatMessageProviderRegistry, etc.
+ChatDataProviderRegistry / ChatMessageProviderRegistry registration
   ↓
-Manually register components (addUsedComponent), set status, etc.
+addUsedComponent, sticker / textTranslate / soundToText plug-ins, EventBus wiring
 ```
 
-**Key Points**:
-- Platform is set according to `instance is! Tim2ToxSdkPlatform` condition in **HomePage.initState**
-- **BinaryReplacementHistoryHook** is completed in _initBinaryReplacementPersistenceHook after TIMManager.initSDK is completed
-- `TIMManager.instance.initSDK()` can be paralleled with login in the automatic login path (_StartupGate), or called in HomePage (if not completed)
-- All component registration and state settings must be performed after SDK initialization
+**Key points**:
+- The Platform is installed by `SessionRuntimeCoordinator.ensureInitialized()` — `AppBootstrapCoordinator.boot()` runs it before navigating to `HomePage` on both login paths; `_initAfterSessionReady()` re-runs it idempotently as a safety net.
+- `BinaryReplacementHistoryHook` is set up in `_initBinaryReplacementPersistenceHook()` after `TimSdkInitializer.ensureInitialized()` resolves.
+- `TIMManager.instance.initSDK()` is called by `TimSdkInitializer` exactly once; do not call it directly.
+- All UIKit registration and state setup must happen after SDK initialization.
 
 **Differences from standard process**:
 - Standard process uses `TencentCloudChat.controller.initUIKit()` unified management initialization

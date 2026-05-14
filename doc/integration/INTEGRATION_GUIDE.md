@@ -506,7 +506,20 @@ void dispose() {
 
 ### 4. 资源清理
 
-在应用退出时清理资源：
+在 toxee 中，账号级别的清理统一由 `AccountService.teardownCurrentSession` 处理 —— 它会调用 `SessionRuntimeCoordinator.disposeRuntime()` 释放 `FakeUIKit`、将 `TencentCloudChatSdkPlatform.instance` 还原为默认的 `MethodChannel` 实现，并清空 UIKit 的 `ChatDataProviderRegistry` / `ChatMessageProviderRegistry`。退出登录、切换账号或应用退出时都应走这条路径，而不是直接调用 `TencentImSDKPlugin.v2TIMManager.logout()`：
+
+```dart
+import 'package:toxee/util/account_service.dart';
+
+await AccountService.teardownCurrentSession(
+  service: ffiService,
+  reEncryptProfile: true,  // 释放内存中的密钥前重新加密磁盘上的 profile
+);
+```
+
+如果你是在不使用 toxee 适配层的最小集成场景（见本文档最上面的最小示例），同样需要做对应的清理：dispose 自建的 `FfiChatService`，把 `TencentCloudChatSdkPlatform.instance` 重置回 `MethodChannelTencentCloudChatSdkPlatform()`（以便后续 UIKit 调用回落到默认 method-channel 实现），并清除已注册的 Provider。
+
+旧示例仅供独立参考（不再推荐）：
 
 ```dart
 @override

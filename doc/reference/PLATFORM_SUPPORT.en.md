@@ -8,11 +8,11 @@ This document details toxee's multi-operating system and multi-platform support.
 
 ### Operating system
 
-- ✅ **macOS**: 10.14 or higher
+- ✅ **macOS**: 10.15 or higher (matches `macos/Podfile` `platform :osx, '10.15'` and `MACOSX_DEPLOYMENT_TARGET = 10.15`)
 - ✅ **Linux**: Supports mainstream distributions (Ubuntu 18.04+, Debian 10+, Fedora 30+, etc.)
 - ✅ **Windows**: Windows 10 or higher
 - ✅ **Android**: Android 5.0 (API 21) or higher
-- ✅ **iOS**: iOS 12.0 or higher
+- ✅ **iOS**: iOS 13.0 or higher. Note: the Flutter Xcode project's `IPHONEOS_DEPLOYMENT_TARGET` is still `12.0`, but the Tim2Tox FFI library shipped by CI is built with `-miphoneos-version-min=13.0` and its generated framework `Info.plist` sets `MinimumOSVersion=13.0` (see `tool/ci/build_tim2tox.sh`). 13.0 is the effective runtime minimum.
 
 ### Device type
 
@@ -26,9 +26,10 @@ This document details toxee's multi-operating system and multi-platform support.
 
 #### Build requirements
 
-- Xcode 12.0 or higher
-- macOS SDK 10.14 or higher
+- Xcode 14.0 or higher (matches the Flutter 3.29 toolchain)
+- macOS SDK 10.15 or higher
 - Homebrew (for installing libsodium)
+- CMake 3.16 or higher
 
 #### Install dependencies
 
@@ -65,9 +66,9 @@ In `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlemen
 
 #### Build requirements
 
-- CMake 3.4.1 or higher
+- CMake 3.16 or higher
 - GTK3 development library
--pkg-config
+- pkg-config
 - libsodium development library
 
 #### Install dependencies
@@ -115,8 +116,9 @@ flutter build linux --release
 #### Build requirements
 
 - Visual Studio 2019 or higher (includes C++ tools)
-- CMake 3.14 or higher
+- CMake 3.16 or higher
 - Windows 10 SDK
+- WiX Toolset v3 (for `.msi` packaging via CPack)
 
 #### Install dependencies
 
@@ -184,8 +186,8 @@ In `android/app/src/main/AndroidManifest.xml`:
 
 #### Build requirements
 
-- Xcode 12.0 or higher
-- iOS SDK 12.0 or higher
+- Xcode 14.0 or higher
+- iOS SDK 13.0 or higher (the FFI library is built against the 13.0 SDK; see [Operating system](#operating-system))
 - CocoaPods
 
 #### Install dependencies
@@ -261,9 +263,9 @@ import 'package:toxee/util/responsive_layout.dart';
 if (ResponsiveLayout.isMobile(context)) {
   // Mobile logic
 } else if (ResponsiveLayout.isTablet(context)) {
-  // tablet logic
+  // Tablet logic
 } else if (ResponsiveLayout.isDesktop(context)) {
-  // desktop logic
+  // Desktop logic
 }
 
 // Get responsive value
@@ -372,8 +374,10 @@ flutter build ios --release
 
 ### Build failed
 
-**Issue**: CMake build fails**Solution**:
-1. Check CMake version (requires >= 3.4.1)
+**Issue**: CMake build fails.
+
+**Solution**:
+1. Check CMake version (requires >= 3.16 — see [BUILD_AND_DEPLOY](../operations/BUILD_AND_DEPLOY.en.md))
 2. Verify that all dependent libraries are installed
 3. Check CMake configuration path
 4. Check the build log for detailed error information
@@ -458,6 +462,8 @@ When adding new platform support:
 
 ## Related documents
 
-- [toxee Architecture](./ARCHITECTURE.en.md)
+- [toxee Architecture](../architecture/ARCHITECTURE.en.md)
+- [Hybrid architecture](../architecture/HYBRID_ARCHITECTURE.en.md)
+- [Build and deploy](../operations/BUILD_AND_DEPLOY.en.md)
 - [Implementation details](./IMPLEMENTATION_DETAILS.en.md)
 - [Main README](../../README.md)

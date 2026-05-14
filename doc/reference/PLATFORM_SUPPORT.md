@@ -8,11 +8,11 @@
 
 ### 操作系统
 
-- ✅ **macOS**: 10.14 或更高版本
+- ✅ **macOS**: 10.15 或更高版本（与 `macos/Podfile` 的 `platform :osx, '10.15'` 和 `MACOSX_DEPLOYMENT_TARGET = 10.15` 一致）
 - ✅ **Linux**: 支持主流发行版（Ubuntu 18.04+, Debian 10+, Fedora 30+ 等）
 - ✅ **Windows**: Windows 10 或更高版本
 - ✅ **Android**: Android 5.0 (API 21) 或更高版本
-- ✅ **iOS**: iOS 12.0 或更高版本
+- ✅ **iOS**: iOS 13.0 或更高版本。注意：Flutter Xcode 工程中的 `IPHONEOS_DEPLOYMENT_TARGET` 仍为 `12.0`，但 CI 构建出的 Tim2Tox FFI 库使用 `-miphoneos-version-min=13.0`，生成的 framework `Info.plist` 也设置 `MinimumOSVersion=13.0`（详见 `tool/ci/build_tim2tox.sh`）。运行时的实际最低版本为 13.0。
 
 ### 设备类型
 
@@ -26,9 +26,10 @@
 
 #### 构建要求
 
-- Xcode 12.0 或更高版本
-- macOS SDK 10.14 或更高版本
+- Xcode 14.0 或更高版本（与 Flutter 3.29 工具链匹配）
+- macOS SDK 10.15 或更高版本
 - Homebrew（用于安装 libsodium）
+- CMake 3.16 或更高版本
 
 #### 安装依赖
 
@@ -65,7 +66,7 @@ flutter build macos --release
 
 #### 构建要求
 
-- CMake 3.4.1 或更高版本
+- CMake 3.16 或更高版本
 - GTK3 开发库
 - pkg-config
 - libsodium 开发库
@@ -115,8 +116,9 @@ flutter build linux --release
 #### 构建要求
 
 - Visual Studio 2019 或更高版本（包含 C++ 工具）
-- CMake 3.14 或更高版本
+- CMake 3.16 或更高版本
 - Windows 10 SDK
+- WiX Toolset v3（用于通过 CPack 打包 `.msi`）
 
 #### 安装依赖
 
@@ -184,8 +186,8 @@ flutter build appbundle --release
 
 #### 构建要求
 
-- Xcode 12.0 或更高版本
-- iOS SDK 12.0 或更高版本
+- Xcode 14.0 或更高版本
+- iOS SDK 13.0 或更高版本（FFI 库基于 13.0 SDK 构建；参见 [操作系统](#操作系统)）
 - CocoaPods
 
 #### 安装依赖
@@ -375,7 +377,7 @@ flutter build ios --release
 **问题**: CMake 构建失败
 
 **解决方案**:
-1. 检查 CMake 版本（需要 >= 3.4.1）
+1. 检查 CMake 版本（需要 >= 3.16，参见 [BUILD_AND_DEPLOY](../operations/BUILD_AND_DEPLOY.md)）
 2. 验证所有依赖库已安装
 3. 检查 CMake 配置路径
 4. 查看构建日志获取详细错误信息

@@ -1138,7 +1138,7 @@ UIKit display files
 - Match by file name and file size (fallback solution)
 - Match by path (temporary path or final path)
 - Use the `_extractFileNameFromPath` helper function to extract raw filenames from ID-prefixed paths
-  -Supported format: `ID_fileNumber_chunkSize_originalFileName`
+  - Supported format: `ID_fileNumber_chunkSize_originalFileName`
   - Automatically remove ID prefix and extract original file name for matching
 
 #### 6. Adaptive Polling mechanism
