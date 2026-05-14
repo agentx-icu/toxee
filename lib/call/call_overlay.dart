@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n/app_localizations.dart';
+import '../util/app_spacing.dart';
+import '../util/app_theme_config.dart';
 import 'call_state_notifier.dart';
 import 'call_overlay_manager.dart';
 import 'call_floating_widget.dart';
@@ -89,6 +91,10 @@ class _NoUnderlineScope extends StatelessWidget {
   }
 }
 
+/// Brief "call ended" affordance that surfaces after `endCall()` and auto-clears
+/// in ~2s (see `CallStateNotifier`). Rendered as a centered toast-style card
+/// over a dimmed scrim — hairline border + cardBorderRadius matches the rest
+/// of the messenger refresh, errorColor accent communicates the terminal state.
 class _CallEndedView extends StatelessWidget {
   const _CallEndedView({super.key, required this.callState});
 
@@ -98,12 +104,50 @@ class _CallEndedView extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Material(
-      color: Colors.black54,
+      color: Colors.black.withValues(alpha: 0.55),
       child: SafeArea(
         child: Center(
-          child: Text(
-            l10n.callEnded,
-            style: const TextStyle(color: Colors.white70, fontSize: 18),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 360),
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.lg,
+            ),
+            decoration: BoxDecoration(
+              color: AppThemeConfig.darkScaffoldBackground,
+              borderRadius:
+                  BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+              border: Border.all(
+                color: AppThemeConfig.errorColor.withValues(alpha: 0.4),
+              ),
+              boxShadow: AppThemeConfig.elevationDark,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.call_end,
+                  color: AppThemeConfig.errorColor,
+                  size: 20,
+                ),
+                AppSpacing.horizontalMd,
+                Flexible(
+                  child: Text(
+                    l10n.callEnded,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                          color: AppThemeConfig.primaryTextColorDark,
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

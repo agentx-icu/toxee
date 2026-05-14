@@ -145,6 +145,32 @@ class AppThemeConfig {
     ),
   ];
 
+  // ──────────────────────────────────────────────
+  //  Tinted-primary card recipe
+  // ──────────────────────────────────────────────
+  //
+  // Shared decoration for the "subtle primary-tinted card" pattern used to
+  // emphasize a canonical action (e.g. the create-account path on the login
+  // screen, the primary action card on the upgrade-required screen, the
+  // primary option in add-group). Centralizing the alphas keeps every tinted
+  // card visually consistent — change them here, not at each call site.
+
+  /// Background color for a tinted-primary card: primary @ 8% alpha.
+  static Color tintedPrimaryCardColor(Color primary) =>
+      primary.withValues(alpha: 0.08);
+
+  /// Border color for a tinted-primary card: primary @ 40% alpha.
+  static Color tintedPrimaryCardBorderColor(Color primary) =>
+      primary.withValues(alpha: 0.4);
+
+  /// `RoundedRectangleBorder` shape for a tinted-primary card — pairs the 40%
+  /// alpha border with the standard [cardBorderRadius].
+  static ShapeBorder tintedPrimaryCardShape(Color primary) =>
+      RoundedRectangleBorder(
+        side: BorderSide(color: tintedPrimaryCardBorderColor(primary)),
+        borderRadius: BorderRadius.circular(cardBorderRadius),
+      );
+
   /// Builds the TencentCloudChat UIKit theme model from the tokens above.
   ///
   /// Name kept as `createYouthfulThemeModel` for source compatibility with the

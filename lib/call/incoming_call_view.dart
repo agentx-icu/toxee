@@ -47,6 +47,7 @@ class IncomingCallView extends StatelessWidget {
           CallDockAction(
             icon: Icons.call,
             label: l10n.callAccept,
+            affirmative: true,
             onPressed: () => manager.acceptCall(),
           ),
         ],

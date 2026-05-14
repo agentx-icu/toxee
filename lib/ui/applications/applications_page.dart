@@ -13,6 +13,7 @@ import '../../sdk_fake/fake_models.dart';
 import '../../util/app_theme_config.dart';
 import 'irc_channel_dialog.dart';
 import '../widgets/empty_state_widget.dart';
+import '../widgets/loading_shimmer.dart';
 
 /// Applications page for extension apps
 class ApplicationsPage extends StatefulWidget {
@@ -434,11 +435,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
           ),
           body: SafeArea(
             child: _isLoading
-              ? Center(
-                  child: CircularProgressIndicator(
-                    color: colorTheme.primaryColor,
-                  ),
-                )
+              ? const LoadingShimmer(itemCount: 6, itemHeight: 72)
               : RefreshIndicator(
                   color: colorTheme.primaryColor,
                   onRefresh: _loadAppState,

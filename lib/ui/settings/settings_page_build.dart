@@ -3,8 +3,19 @@ part of 'settings_page.dart';
 extension _SettingsPageBuild on _SettingsPageState {
   List<Widget> _buildSettingsChildren(BuildContext context, dynamic colorTheme) {
     final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+    // Stagger top-level settings sections (Account / Global / Bootstrap) for
+    // a subtle entrance. Respects reduced-motion via MediaQuery.
+    final disableAnims = MediaQuery.disableAnimationsOf(context);
+    Widget wrap(int index, Widget child) {
+      if (disableAnims) return child;
+      return StaggeredListItem(
+        index: index,
+        staggerDelay: const Duration(milliseconds: 50),
+        child: child,
+      );
+    }
     return [
-      Card(
+      wrap(0, Card(
         elevation: 0,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
@@ -313,17 +324,17 @@ extension _SettingsPageBuild on _SettingsPageState {
             ],
           ),
         ),
-      ),
+      )),
       AppSpacing.verticalMd,
-      GlobalSettingsSection(
+      wrap(1, GlobalSettingsSection(
         colorTheme: colorTheme,
         toxId: widget.service.selfId,
-      ),
+      )),
       AppSpacing.verticalMd,
-      BootstrapSettingsSection(
+      wrap(2, BootstrapSettingsSection(
         service: widget.service,
         colorTheme: colorTheme,
-      ),
+      )),
     ];
   }
 }

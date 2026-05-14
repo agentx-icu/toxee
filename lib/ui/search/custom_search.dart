@@ -8,6 +8,7 @@ import 'package:toxee/ui/search/search_chat_history_window.dart';
 import 'package:toxee/ui/widgets/search_utils.dart';
 import 'package:toxee/util/responsive_layout.dart';
 import '../widgets/empty_state_widget.dart';
+import '../widgets/loading_shimmer.dart';
 import 'package:tencent_cloud_chat_common/chat_sdk/components/tencent_cloud_chat_search_sdk.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
@@ -498,23 +499,13 @@ class _CustomSearchState extends State<CustomSearch> {
 
   Widget _buildBody(AppLocalizations l10n) {
     if (_isSearching) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const LoadingShimmer(itemCount: 8, itemHeight: 56);
     }
 
     if (_searchKeyword.trim().isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Text(
-            l10n.enterKeywordToSearch,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-            textAlign: TextAlign.center,
-          ),
-        ),
+      return EmptyStateWidget(
+        icon: Icons.search,
+        title: l10n.enterKeywordToSearch,
       );
     }
 

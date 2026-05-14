@@ -10,6 +10,7 @@ import 'login_settings_page.dart';
 import 'register_page.dart';
 import 'widgets/app_page_route.dart';
 import 'widgets/app_snackbar.dart';
+import 'widgets/bottom_sheet_handle.dart';
 import 'widgets/error_banner.dart';
 import 'widgets/stagger_list_item.dart';
 import '../util/prefs.dart';
@@ -404,7 +405,7 @@ class _LoginPageState extends State<LoginPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _BottomSheetHandle(),
+            const BottomSheetHandle(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Text(
@@ -568,6 +569,7 @@ class _LoginPageState extends State<LoginPage> {
           actions: [
             IconButton(
               icon: const Icon(Icons.settings),
+              tooltip: AppLocalizations.of(context)!.settings,
               onPressed: _openSettings,
             ),
             SizedBox(width: ResponsiveLayout.responsiveHorizontalPadding(context)),
@@ -652,7 +654,8 @@ class _LoginPageState extends State<LoginPage> {
 
                                   return StaggeredListItem(
                                     index: i,
-                                    child: Card(
+                                    child: _PressableScale(
+                                      child: Card(
                                       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                                       elevation: 0,
                                       shape: RoundedRectangleBorder(
@@ -760,6 +763,7 @@ class _LoginPageState extends State<LoginPage> {
                                         ),
                                       ),
                                     ),
+                                    ),
                                   );
                                 }).toList(),
                                 AppSpacing.verticalMd,
@@ -826,14 +830,15 @@ class _LoginActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
+    return _PressableScale(
+      child: Card(
       margin: EdgeInsets.zero,
       elevation: 0,
-      color: isPrimary ? color.withValues(alpha: 0.08) : null,
+      color: isPrimary ? AppThemeConfig.tintedPrimaryCardColor(color) : null,
       shape: RoundedRectangleBorder(
         side: BorderSide(
           color: isPrimary
-              ? color.withValues(alpha: 0.4)
+              ? AppThemeConfig.tintedPrimaryCardBorderColor(color)
               : scheme.outlineVariant,
         ),
         borderRadius:
@@ -864,30 +869,55 @@ class _LoginActionCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Small drag handle for the top of a modal bottom sheet.
-///
-/// 32×4 rounded bar in slate-300 (light) / slate-700 (dark) with
-/// `AppSpacing.sm` vertical margin — the modern iOS / Material 3 affordance
-/// that signals "this sheet is draggable / dismissable".
-class _BottomSheetHandle extends StatelessWidget {
-  const _BottomSheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: 32,
-      height: 4,
-      margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        // slate-300 (light) / slate-700 (dark) — hairline neutral
-        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-        borderRadius: BorderRadius.circular(2),
       ),
     );
   }
 }
+
+/// Subtle scale-down on press for tappable Cards/InkWell rows.
+/// Scales to [pressedScale] (default 0.97) when pressed and back to 1.0 over
+/// 120ms. Respects `MediaQuery.disableAnimations` (no-op when reduced motion
+/// is enabled).
+class _PressableScale extends StatefulWidget {
+  const _PressableScale({
+    required this.child,
+    this.pressedScale = 0.97,
+    this.duration = const Duration(milliseconds: 120),
+  });
+
+  final Widget child;
+  final double pressedScale;
+  final Duration duration;
+
+  @override
+  State<_PressableScale> createState() => _PressableScaleState();
+}
+
+class _PressableScaleState extends State<_PressableScale> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _setPressed(true),
+      onPointerUp: (_) => _setPressed(false),
+      onPointerCancel: (_) => _setPressed(false),
+      child: AnimatedScale(
+        scale: _pressed ? widget.pressedScale : 1.0,
+        duration: widget.duration,
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+

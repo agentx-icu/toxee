@@ -960,31 +960,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           }
                           final displayText = totalUnreadCount > 99 ? "99+" : "$totalUnreadCount";
                           final isLargeText = displayText.length > 2;
-                          return UnconstrainedBox(
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 16),
-                              height: 16,
-                              padding: EdgeInsets.symmetric(horizontal: isLargeText ? 5 : 4),
-                              decoration: BoxDecoration(
-                                color: AppThemeConfig.errorColor,
-                                borderRadius: BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
-                                border: Border.all(
-                                  color: theme.scaffoldBackgroundColor,
-                                  width: 1.5,
+                          return Semantics(
+                            // FOLLOWUP-L10N: needs a `unreadMessagesSemantics`
+                            // string in `lib/i18n/`; hardcoded for now.
+                            label: '$totalUnreadCount unread messages',
+                            container: true,
+                            child: UnconstrainedBox(
+                              child: Container(
+                                constraints: const BoxConstraints(minWidth: 16),
+                                height: 16,
+                                padding: EdgeInsets.symmetric(horizontal: isLargeText ? 5 : 4),
+                                decoration: BoxDecoration(
+                                  color: AppThemeConfig.errorColor,
+                                  borderRadius: BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
+                                  border: Border.all(
+                                    color: theme.scaffoldBackgroundColor,
+                                    width: 1.5,
+                                  ),
                                 ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  displayText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                        height: 1.0,
-                                        fontSize: 10,
-                                      ),
-                                  textAlign: TextAlign.center,
+                                child: Center(
+                                  child: ExcludeSemantics(
+                                    child: Text(
+                                      displayText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.0,
+                                            fontSize: 10,
+                                          ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -1664,7 +1672,9 @@ class _MobileDrawerItem extends StatelessWidget {
     final bg = selected
         ? scheme.primary.withValues(alpha: 0.10)
         : Colors.transparent;
-    return Material(
+    return _HomePressableScale(
+      pressedScale: 0.98,
+      child: Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
@@ -1751,6 +1761,53 @@ class _MobileDrawerItem extends StatelessWidget {
             ],
           ),
         ),
+      ),
+      ),
+    );
+  }
+}
+
+/// Subtle scale-down on press for tappable rows in home_page.
+/// Scales to [pressedScale] (default 0.97) on pointer-down and back to 1.0
+/// over 120ms. Respects `MediaQuery.disableAnimations`.
+class _HomePressableScale extends StatefulWidget {
+  const _HomePressableScale({
+    required this.child,
+    this.pressedScale = 0.97,
+    this.duration = const Duration(milliseconds: 120),
+  });
+
+  final Widget child;
+  final double pressedScale;
+  final Duration duration;
+
+  @override
+  State<_HomePressableScale> createState() => _HomePressableScaleState();
+}
+
+class _HomePressableScaleState extends State<_HomePressableScale> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _setPressed(true),
+      onPointerUp: (_) => _setPressed(false),
+      onPointerCancel: (_) => _setPressed(false),
+      child: AnimatedScale(
+        scale: _pressed ? widget.pressedScale : 1.0,
+        duration: widget.duration,
+        curve: Curves.easeOut,
+        child: widget.child,
       ),
     );
   }

@@ -16,7 +16,9 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
+import '../widgets/bottom_sheet_handle.dart';
 import '../widgets/section_header.dart';
+import '../widgets/stagger_list_item.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/account_switcher.dart';
@@ -282,7 +284,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _BottomSheetHandle(),
+            const BottomSheetHandle(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Text(
@@ -1090,26 +1092,3 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-/// Small drag handle for the top of a modal bottom sheet.
-///
-/// 32×4 rounded bar in slate-300 (light) / slate-700 (dark) with
-/// `AppSpacing.sm` vertical margin — the modern iOS / Material 3 affordance
-/// that signals "this sheet is draggable / dismissable".
-class _BottomSheetHandle extends StatelessWidget {
-  const _BottomSheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: 32,
-      height: 4,
-      margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        // slate-300 (light) / slate-700 (dark) — hairline neutral
-        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-        borderRadius: BorderRadius.circular(2),
-      ),
-    );
-  }
-}

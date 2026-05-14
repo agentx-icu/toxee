@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../util/app_spacing.dart';
 import '../util/responsive_layout.dart';
 
-/// Business-dark background color for call surfaces (near-black graphite).
-const Color kCallBackgroundBase = Color(0xFF1A1A1A);
+/// Slate-900 base background for call surfaces — matches the dark scaffold token
+/// in `AppThemeConfig.darkScaffoldBackground` so the call screen reads as a
+/// continuation of the app, not a separate aesthetic.
+const Color kCallBackgroundBase = Color(0xFF0F172A);
 
 /// Shared page shell for all call screens: dark surface, safe area, top bar, content, bottom dock.
 class CallSceneShell extends StatelessWidget {
@@ -27,9 +30,9 @@ class CallSceneShell extends StatelessWidget {
     );
     final bottomPadding = ResponsiveLayout.responsiveValue<double>(
       context,
-      mobile: 16,
-      tablet: 20,
-      desktop: 24,
+      mobile: AppSpacing.lg,
+      tablet: AppSpacing.xl,
+      desktop: AppSpacing.xl,
     );
     final horizontalPadding =
         ResponsiveLayout.responsiveHorizontalPadding(context);

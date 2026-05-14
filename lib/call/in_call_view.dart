@@ -2,6 +2,8 @@ import 'dart:ui' as ui;
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../i18n/app_localizations.dart';
+import '../util/app_spacing.dart';
+import '../util/app_theme_config.dart';
 import 'call_audio_platform.dart';
 import 'call_state_notifier.dart';
 import 'call_media_capabilities.dart';
@@ -73,13 +75,38 @@ class InCallView extends StatelessWidget {
       CallQuality.unknown => null,
     };
     if (label == null) return null;
+    // Semantic colors: emerald success / amber medium / red poor. Sits on the
+    // dark slate-900 call surface so we tint @ 0.16 for the chip background.
+    final Color accent = switch (quality) {
+      CallQuality.good => AppThemeConfig.successColor,
+      CallQuality.medium => const Color(0xFFF59E0B), // amber-500
+      CallQuality.poor => AppThemeConfig.errorColor,
+      CallQuality.unknown => const Color(0xFF94A3B8),
+    };
     return Semantics(
       label: l10n.callQualityLabel,
       child: Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: Text(
-          label,
-          style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+        padding: const EdgeInsets.only(right: AppSpacing.sm),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: 4,
+          ),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.16),
+            borderRadius:
+                BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
+            border: Border.all(color: accent.withValues(alpha: 0.4)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: accent,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
         ),
       ),
     );
@@ -125,28 +152,72 @@ class InCallView extends StatelessWidget {
     if (!state.canSelectRoutes) return;
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppThemeConfig.formCardBorderRadius),
+        ),
+      ),
       builder: (ctx) {
+        final theme = Theme.of(ctx);
         return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                title: Text(
-                  l10n.routeSelection,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+              const _CallSheetHandle(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.sm,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    l10n.routeSelection,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
+              const Divider(height: 1),
               for (final route in state.routes)
                 ListTile(
-                  leading: Icon(_iconForRoute(route.kind)),
-                  title: Text(route.label),
-                  trailing:
-                      route.selected ? const Icon(Icons.check, size: 20) : null,
+                  leading: Icon(
+                    _iconForRoute(route.kind),
+                    color: route.selected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurface
+                            .withValues(alpha: 0.7),
+                  ),
+                  title: Text(
+                    route.label,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: route.selected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface,
+                      fontWeight:
+                          route.selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                  trailing: route.selected
+                      ? Icon(
+                          Icons.check,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        )
+                      : null,
                   onTap: () async {
                     Navigator.of(ctx).pop();
                     await manager.selectAudioRoute(route.id);
                   },
                 ),
+              const SizedBox(height: AppSpacing.sm),
             ],
           ),
         );
@@ -174,17 +245,60 @@ class InCallView extends StatelessWidget {
     return ValueListenableBuilder<ui.Image?>(
       valueListenable: manager.remoteVideo,
       builder: (context, image, _) {
-        if (image != null) {
-          return RawImage(image: image, fit: BoxFit.contain);
-        }
-        return Center(
-          child: Container(
-            color: Colors.black26,
-            child: Center(
-              child: Text(l10n.callRemoteVideo,
-                  style: const TextStyle(color: Colors.white54)),
+        final Widget content = image != null
+            ? RawImage(image: image, fit: BoxFit.contain)
+            : Center(
+                child: Text(
+                  l10n.callRemoteVideo,
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              );
+        // Pure-black video pane with top + bottom legibility gradients so the
+        // overlaid controls stay readable against bright frames.
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Colors.black),
+            content,
+            // Top scrim under the status bar.
+            IgnorePointer(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  height: 88,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.55),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
+            // Bottom scrim under the action dock.
+            IgnorePointer(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  height: 120,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.55),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -198,32 +312,32 @@ class InCallView extends StatelessWidget {
       builder: (context, _) {
         final preview = manager.localPreview;
         return Positioned(
-          top: 16,
-          right: 16,
+          top: AppSpacing.lg,
+          right: AppSpacing.lg,
           child: KeyedSubtree(
             key: const ValueKey('call-local-preview-card'),
             child: Container(
               width: previewWidth,
               height: previewHeight,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius:
+                    BorderRadius.circular(AppThemeConfig.cardBorderRadius),
                 border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.5), width: 2),
+                  color: Colors.white.withValues(alpha: 0.18),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 8,
-                    spreadRadius: 0,
+                    color: Colors.black.withValues(alpha: 0.45),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: preview ??
-                    const ColoredBox(
-                      color: Color(0xFF2C2C2E),
-                    ),
-              ),
+              clipBehavior: Clip.antiAlias,
+              child: preview ??
+                  const ColoredBox(
+                    color: Color(0xFF1E293B), // slate-800 placeholder
+                  ),
             ),
           ),
         );
@@ -236,10 +350,12 @@ class InCallView extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
+          // Subtle primary-tinted halo — replaces the generic blue glow with the
+          // brand blue-500 token at the same low intensity.
           BoxShadow(
-            color: Colors.blue.withValues(alpha: 0.15),
-            blurRadius: 24,
-            spreadRadius: 8,
+            color: AppThemeConfig.primaryColorDark.withValues(alpha: 0.18),
+            blurRadius: 32,
+            spreadRadius: 6,
           ),
         ],
       ),
@@ -248,6 +364,26 @@ class InCallView extends StatelessWidget {
         name: name,
         radius: radius,
         fontSize: fontSize,
+      ),
+    );
+  }
+}
+
+/// 32×4 drag handle for call-screen bottom sheets. Matches the global
+/// `_BottomSheetHandle` used in `login_page.dart`.
+class _CallSheetHandle extends StatelessWidget {
+  const _CallSheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: 32,
+      height: 4,
+      margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+        borderRadius: BorderRadius.circular(2),
       ),
     );
   }

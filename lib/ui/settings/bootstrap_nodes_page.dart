@@ -10,6 +10,7 @@ import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
 import '../../ui/widgets/loading_shimmer.dart';
+import '../../ui/widgets/stagger_list_item.dart';
 
 class BootstrapNodesPage extends StatefulWidget {
   const BootstrapNodesPage({
@@ -285,7 +286,10 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
                         final statusColor = isOnline
                             ? AppThemeConfig.successColor
                             : Theme.of(context).colorScheme.error;
-                        return Card(
+                        // Stagger entrance for first 10 rows only; respect
+                        // reduced-motion preference (no-op when disabled).
+                        final disableAnims = MediaQuery.disableAnimationsOf(context);
+                        final card = Card(
                           elevation: 0,
                           clipBehavior: Clip.antiAlias,
                           margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
@@ -395,6 +399,12 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
                               ),
                             ),
                           ),
+                        );
+                        if (disableAnims || index >= 10) return card;
+                        return StaggeredListItem(
+                          index: index,
+                          staggerDelay: const Duration(milliseconds: 40),
+                          child: card,
                         );
                       },
                     ),

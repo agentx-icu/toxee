@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import 'package:toxee/i18n/app_localizations.dart';
+import 'package:toxee/ui/widgets/empty_state_widget.dart';
 import 'package:toxee/ui/widgets/search_utils.dart';
+import 'package:toxee/ui/widgets/stagger_list_item.dart';
 import 'package:toxee/util/responsive_layout.dart';
 import 'package:tencent_cloud_chat_common/chat_sdk/components/tencent_cloud_chat_search_sdk.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
@@ -233,17 +235,9 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
       ),
       body: SafeArea(
         child: _filteredResults.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.xl),
-                child: Text(
-                  l10n.noResultsFound,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+          ? EmptyStateWidget(
+              icon: Icons.search_off,
+              title: l10n.noResultsFound,
             )
           : ResponsiveLayout.isMobile(context)
               ? _buildMobileLayout(context, l10n, textStyle, theme)
@@ -336,6 +330,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back),
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                   onPressed: () => setState(() => _showMobileDetail = false),
                 ),
                 Expanded(
@@ -358,6 +353,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
     final highlightBase = textStyle.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
+    final disableAnims = MediaQuery.disableAnimationsOf(context);
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       itemCount: _filteredResults.length,
@@ -376,7 +372,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
         final snippet = topMessage != null
             ? TencentCloudChatUtils.getMessageSummary(message: topMessage, needStatus: false)
             : l10n.relatedChats(count);
-        return InkWell(
+        final row = InkWell(
           onTap: () {
             setState(() {
               _selectedIndex = index;
@@ -418,20 +414,29 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
                             ),
                             if (count > 1) ...[
                               AppSpacing.horizontalSm,
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.10),
-                                  borderRadius: BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
-                                ),
-                                child: Text(
-                                  '$count',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.primary,
-                                    fontWeight: FontWeight.w600,
+                              Semantics(
+                                // FOLLOWUP-L10N: needs a
+                                // `matchingMessagesSemantics` string in
+                                // `lib/i18n/`; hardcoded for now.
+                                label: '$count matching messages',
+                                container: true,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
+                                  ),
+                                  child: ExcludeSemantics(
+                                    child: Text(
+                                      '$count',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -455,6 +460,12 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
               ),
             ),
           ),
+        );
+        if (disableAnims || index >= 10) return row;
+        return StaggeredListItem(
+          index: index,
+          staggerDelay: const Duration(milliseconds: 30),
+          child: row,
         );
       },
     );

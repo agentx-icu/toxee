@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../../i18n/app_localizations.dart';
+import '../../util/app_theme_config.dart';
 
 /// New entry button widget (Add Friend / Create Group / Join IRC Channel)
 class NewEntryButton extends StatefulWidget {
@@ -21,33 +22,56 @@ class NewEntryButton extends StatefulWidget {
 class _NewEntryButtonState extends State<NewEntryButton> {
   final GlobalKey<PopupMenuButtonState<String>> _menuKey = GlobalKey<PopupMenuButtonState<String>>();
 
+  PopupMenuItem<String> _menuItem({
+    required BuildContext context,
+    required String value,
+    required IconData icon,
+    required String label,
+  }) {
+    final theme = Theme.of(context);
+    return PopupMenuItem<String>(
+      value: value,
+      child: ListTile(
+        leading: Icon(icon, color: theme.colorScheme.primary),
+        title: Text(label, style: theme.textTheme.bodyLarge),
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appL10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final tL10n = TencentCloudChatLocalizations.of(context);
     return PopupMenuButton<String>(
       key: _menuKey,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      elevation: 2,
       itemBuilder: (context) => [
-        PopupMenuItem<String>(
+        _menuItem(
+          context: context,
           value: 'add',
-          child: ListTile(
-            leading: const Icon(Icons.person_add_alt),
-            title: Text(TencentCloudChatLocalizations.of(context)?.addContact ?? 'Add Contact'),
-          ),
+          icon: Icons.person_add_alt,
+          label: tL10n?.addContact ?? 'Add Contact',
         ),
-        PopupMenuItem<String>(
+        _menuItem(
+          context: context,
           value: 'group',
-          child: ListTile(
-            leading: const Icon(Icons.group_add),
-            title: Text(TencentCloudChatLocalizations.of(context)?.createGroupChat ?? 'Create Group'),
-          ),
+          icon: Icons.group_add,
+          label: tL10n?.createGroupChat ?? 'Create Group',
         ),
         if (widget.onJoinIrcChannel != null)
-          PopupMenuItem<String>(
+          _menuItem(
+            context: context,
             value: 'irc',
-            child: ListTile(
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: Text(appL10n?.joinIrcChannel ?? 'Join IRC Channel'),
-            ),
+            icon: Icons.chat_bubble_outline,
+            label: appL10n?.joinIrcChannel ?? 'Join IRC Channel',
           ),
       ],
       onSelected: (v) async {
@@ -63,12 +87,21 @@ class _NewEntryButtonState extends State<NewEntryButton> {
         // 44pt minimum tap target for mobile (Apple HIG / Material 48dp).
         height: 44,
         child: OutlinedButton.icon(
-          icon: const Icon(Icons.add),
-          label: Text(TencentCloudChatLocalizations.of(context)?.newChat ?? 'New'),
+          icon: const Icon(Icons.add, size: 18),
+          label: Text(
+            tL10n?.newChat ?? 'New',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           onPressed: () => _menuKey.currentState?.showButtonMenu(),
           style: OutlinedButton.styleFrom(
-            side: BorderSide(color: Theme.of(context).colorScheme.primary),
-            foregroundColor: Theme.of(context).colorScheme.primary,
+            side: BorderSide(color: theme.colorScheme.primary),
+            foregroundColor: theme.colorScheme.primary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+            ),
           ),
         ),
       ),

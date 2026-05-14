@@ -5,6 +5,7 @@ import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.d
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_group_member_list.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/responsive_layout.dart';
+import '../widgets/loading_shimmer.dart';
 
 class GroupMemberListWrapper extends StatefulWidget {
   final V2TimGroupInfo groupInfo;
@@ -150,12 +151,8 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
             ),
             scrolledUnderElevation: 0.0,
           ),
-          body: SafeArea(
-            child: Center(
-            child: CircularProgressIndicator(
-              color: colorTheme.primaryColor,
-            ),
-          ),
+          body: const SafeArea(
+            child: LoadingShimmer(itemCount: 10, itemHeight: 56),
           ),
         ),
       );

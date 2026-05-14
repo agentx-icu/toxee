@@ -36,47 +36,79 @@ Future<String?> promptText(
   String? result;
   await showDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-      ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-      ),
-      content: TextField(
-        controller: controller,
-        textAlignVertical: TextAlignVertical.center,
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius)),
+    builder: (context) {
+      final theme = Theme.of(context);
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         ),
-        minLines: 1,
-        maxLines: 3,
-      ),
-      actions: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(TencentCloudChatLocalizations.of(context)?.cancel ?? 'Cancel'),
-            ),
-            AppSpacing.horizontalSm,
-            ElevatedButton(
-              onPressed: () {
-                result = controller.text;
-                Navigator.pop(context);
-              },
-              child: Text(actionLabel ?? (TencentCloudChatLocalizations.of(context)?.tuiEmojiOk ?? 'OK')),
-            ),
-          ],
+        title: Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ],
-      actionsPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-    ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textAlignVertical: TextAlignVertical.center,
+          style: theme.textTheme.bodyMedium,
+          decoration: InputDecoration(
+            labelText: label,
+            labelStyle: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+              borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+              borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+          ),
+          minLines: 1,
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              TencentCloudChatLocalizations.of(context)?.cancel ?? 'Cancel',
+            ),
+          ),
+          AppSpacing.horizontalSm,
+          ElevatedButton(
+            onPressed: () {
+              result = controller.text;
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+              ),
+            ),
+            child: Text(
+              actionLabel ?? (TencentCloudChatLocalizations.of(context)?.tuiEmojiOk ?? 'OK'),
+            ),
+          ),
+        ],
+        actionsPadding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.md,
+        ),
+      );
+    },
   );
   return result;
 }

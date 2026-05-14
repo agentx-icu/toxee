@@ -1,9 +1,37 @@
 import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
+import '../util/app_spacing.dart';
+import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
 import 'call_avatar_controller.dart';
 import 'call_ui_shell.dart';
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Call-surface palette
+//
+//  The call screen always renders on the dark slate-900 background defined by
+//  `kCallBackgroundBase`, regardless of the app's light/dark mode (consistent
+//  with how Telegram / Signal / Meet handle calls). These constants are the
+//  on-dark equivalents of the slate text + divider tokens in AppThemeConfig.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Primary foreground on the dark call surface — slate-200, the same token
+/// AppThemeConfig uses for `primaryTextColorDark`.
+const Color _kCallForeground = Color(0xFFE2E8F0);
+
+/// Muted foreground for subtitles / metadata on the call surface — slate-400.
+const Color _kCallMutedForeground = Color(0xFF94A3B8);
+
+/// Hairline border on the dark call surface — slate-700.
+const Color _kCallHairline = Color(0xFF334155);
+
+/// Surface for an idle (non-selected) action button — slate-800.
+const Color _kCallDockSurface = Color(0xFF1E293B);
+
+/// Surface for a selected action button — primary tinted (blue-500 @ 16%).
+Color get _kCallDockSelectedSurface =>
+    AppThemeConfig.primaryColorDark.withValues(alpha: 0.16);
 
 /// Returns the first character of [name] for avatar display (uppercase for a–z).
 /// Uses [String.characters] so emoji and CJK work correctly.
@@ -92,7 +120,8 @@ class _CallUserAvatarState extends State<CallUserAvatar> {
     final hasImage = _controller.hasAvatarImage;
     return CircleAvatar(
       radius: widget.radius,
-      backgroundColor: Colors.grey.shade700,
+      // Slate-700 so the fallback initial still feels part of the dark surface.
+      backgroundColor: _kCallHairline,
       backgroundImage: hasImage && path != null ? FileImage(File(path)) : null,
       child: hasImage
           ? null
@@ -100,7 +129,8 @@ class _CallUserAvatarState extends State<CallUserAvatar> {
               callAvatarInitial(widget.name),
               style: TextStyle(
                 fontSize: widget.fontSize,
-                color: Colors.white,
+                color: _kCallForeground,
+                fontWeight: FontWeight.w600,
               ),
             ),
     );
@@ -108,11 +138,16 @@ class _CallUserAvatarState extends State<CallUserAvatar> {
 }
 
 /// Descriptor for a single action in the call dock.
+///
+/// State precedence in the renderer: `destructive` > `affirmative` > `selected`
+/// > neutral. `affirmative` is used for accept-call style buttons (successColor
+/// fill, white icon) — visually weightier than a normal selected toggle.
 class CallDockAction {
   const CallDockAction({
     required this.icon,
     required this.label,
     this.destructive = false,
+    this.affirmative = false,
     this.selected = false,
     this.enabled = true,
     this.onPressed,
@@ -121,6 +156,7 @@ class CallDockAction {
   final IconData icon;
   final String label;
   final bool destructive;
+  final bool affirmative;
   final bool selected;
   final bool enabled;
   final VoidCallback? onPressed;
@@ -149,11 +185,13 @@ class CallTopStatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final fontSize = ResponsiveLayout.responsiveFontSize(context);
     final padding = ResponsiveLayout.responsiveHorizontalPadding(context);
-    const softWhite = Color(0xFFE8E8E8);
-    const mutedGray = Color(0xFF9CA3AF);
+    final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: padding, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: padding,
+        vertical: AppSpacing.md,
+      ),
       child: Row(
         children: [
           if (leading != null) ...[leading!, SizedBox(width: padding)],
@@ -164,10 +202,10 @@ class CallTopStatusBar extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: TextStyle(
-                    color: softWhite,
+                  style: (textTheme.titleMedium ?? const TextStyle()).copyWith(
+                    color: _kCallForeground,
                     fontSize: 16 * fontSize,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -175,8 +213,8 @@ class CallTopStatusBar extends StatelessWidget {
                 if (subtitle != null && subtitle!.isNotEmpty)
                   Text(
                     subtitle!,
-                    style: TextStyle(
-                      color: mutedGray,
+                    style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+                      color: _kCallMutedForeground,
                       fontSize: 13 * fontSize,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -192,8 +230,9 @@ class CallTopStatusBar extends StatelessWidget {
           ],
           if (trailingIcon != null)
             IconButton(
-              icon: Icon(trailingIcon, color: mutedGray, size: 24),
+              icon: Icon(trailingIcon, color: _kCallMutedForeground, size: 22),
               onPressed: onTrailingPressed,
+              splashRadius: 22,
             ),
         ],
       ),
@@ -202,6 +241,11 @@ class CallTopStatusBar extends StatelessWidget {
 }
 
 /// Action dock for call controls: mute, video, speaker, hang up.
+///
+/// Buttons are circular (56–64px depending on viewport), with a slate-800
+/// neutral surface by default, a primary-tinted surface when selected, and a
+/// solid errorColor surface when destructive. The dock itself has no chrome —
+/// each button sits on the call surface directly, in the Telegram/Meet style.
 class CallActionDock extends StatelessWidget {
   const CallActionDock({
     super.key,
@@ -212,83 +256,164 @@ class CallActionDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = ResponsiveLayout.responsiveFontSize(context);
-    const mutedGray = Color(0xFF9CA3AF);
-    const softWhite = Color(0xFFE8E8E8);
-    const destructiveRed = Color(0xFFDC2626);
-    const dockSurface = Color(0xFF20242A);
-    const selectedSurface = Color(0xFF2C3440);
-    const selectedBlue = Color(0xFFD7E3F4);
-    const borderColor = Color(0xFF2F3640);
+    final buttonSize = ResponsiveLayout.responsiveValue<double>(
+      context,
+      mobile: 56,
+      tablet: 60,
+      desktop: 64,
+    );
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: dockSurface,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: borderColor),
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.sm,
       ),
       child: Wrap(
         alignment: WrapAlignment.center,
-        spacing: 12,
-        runSpacing: 10,
-        children: actions.map((a) {
-          final isDestructive = a.destructive;
-          final isSelected = a.selected && !isDestructive;
-          final isEnabled = a.enabled && a.onPressed != null;
-          final foregroundColor = isDestructive
-              ? destructiveRed
-              : isSelected
-                  ? selectedBlue
-                  : isEnabled
-                      ? mutedGray
-                      : mutedGray.withValues(alpha: 0.45);
-          final labelColor = isDestructive
-              ? softWhite
-              : isSelected
-                  ? selectedBlue
-                  : foregroundColor;
-          final buttonColor = isDestructive
-              ? destructiveRed
-              : isSelected
-                  ? selectedSurface
-                  : Colors.transparent;
+        spacing: AppSpacing.lg,
+        runSpacing: AppSpacing.md,
+        children: actions
+            .map((a) => _CallDockButton(action: a, diameter: buttonSize))
+            .toList(),
+      ),
+    );
+  }
+}
 
-          return SizedBox(
-            width: 76,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Material(
-                  color: buttonColor,
-                  shape: const CircleBorder(),
-                  child: IconButton(
-                    icon: Icon(
-                      a.icon,
-                      color: isDestructive ? Colors.white : foregroundColor,
-                      size: 24,
+class _CallDockButton extends StatefulWidget {
+  const _CallDockButton({
+    required this.action,
+    required this.diameter,
+  });
+
+  final CallDockAction action;
+  final double diameter;
+
+  @override
+  State<_CallDockButton> createState() => _CallDockButtonState();
+}
+
+class _CallDockButtonState extends State<_CallDockButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = ResponsiveLayout.responsiveFontSize(context);
+    final textTheme = Theme.of(context).textTheme;
+    final a = widget.action;
+    final isDestructive = a.destructive;
+    final isAffirmative = a.affirmative && !isDestructive;
+    final isSelected = a.selected && !isDestructive && !isAffirmative;
+    final isEnabled = a.enabled && a.onPressed != null;
+
+    // Background fill per state.
+    final Color backgroundColor;
+    if (isDestructive) {
+      backgroundColor = AppThemeConfig.errorColor;
+    } else if (isAffirmative) {
+      backgroundColor = AppThemeConfig.successColor;
+    } else if (isSelected) {
+      backgroundColor = _kCallDockSelectedSurface;
+    } else {
+      backgroundColor = _kCallDockSurface;
+    }
+
+    // Icon color per state.
+    final Color iconColor;
+    if (isDestructive || isAffirmative) {
+      iconColor = Colors.white;
+    } else if (isSelected) {
+      iconColor = AppThemeConfig.primaryColorDark;
+    } else if (isEnabled) {
+      iconColor = _kCallForeground;
+    } else {
+      iconColor = _kCallMutedForeground.withValues(alpha: 0.5);
+    }
+
+    // Hairline border for neutral buttons only — destructive / affirmative /
+    // selected variants are filled and don't need an edge.
+    final Border? border = (isDestructive || isAffirmative || isSelected)
+        ? null
+        : Border.all(color: _kCallHairline);
+
+    final labelColor = isEnabled
+        ? _kCallMutedForeground
+        : _kCallMutedForeground.withValues(alpha: 0.5);
+
+    // Affirmative actions (accept call) get a 12% size bump so they read as
+    // the primary CTA next to the destructive reject button.
+    final double effectiveDiameter =
+        isAffirmative ? widget.diameter * 1.12 : widget.diameter;
+    // Solid (filled) variants get a subtle drop shadow so they feel raised
+    // above the slate-900 surface.
+    final List<BoxShadow>? shadows =
+        (isDestructive || isAffirmative)
+            ? [
+                BoxShadow(
+                  color: backgroundColor.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null;
+
+    return SizedBox(
+      width: widget.diameter + 24,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 150ms press scale to 0.96, matches established interaction feel.
+          AnimatedScale(
+            scale: _pressed && isEnabled ? 0.96 : 1.0,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+            child: GestureDetector(
+              onTapDown: isEnabled ? (_) => _setPressed(true) : null,
+              onTapCancel: isEnabled ? () => _setPressed(false) : null,
+              onTapUp: isEnabled ? (_) => _setPressed(false) : null,
+              child: Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: isEnabled ? a.onPressed : null,
+                  child: Container(
+                    width: effectiveDiameter,
+                    height: effectiveDiameter,
+                    decoration: BoxDecoration(
+                      color: backgroundColor,
+                      shape: BoxShape.circle,
+                      border: border,
+                      boxShadow: shadows,
                     ),
-                    onPressed: isEnabled ? a.onPressed : null,
+                    child: Icon(
+                      a.icon,
+                      color: iconColor,
+                      size: effectiveDiameter * 0.42,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  a.label,
-                  style: TextStyle(
-                    color: labelColor,
-                    fontSize: 11 * fontSize,
-                    fontWeight: isSelected || isDestructive
-                        ? FontWeight.w500
-                        : FontWeight.w400,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ],
+              ),
             ),
-          );
-        }).toList(),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            a.label,
+            style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+              color: labelColor,
+              fontSize: 11 * fontSize,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
@@ -311,42 +436,49 @@ class CallIdentityStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const softWhite = Color(0xFFE8E8E8);
-    const mutedGray = Color(0xFF9CA3AF);
     final fontSize = ResponsiveLayout.responsiveFontSize(context);
+    final textTheme = Theme.of(context).textTheme;
 
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           avatar,
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           Text(
             title,
-            style: TextStyle(
-              color: softWhite,
-              fontSize: 20 * fontSize,
-              fontWeight: FontWeight.w500,
+            style: (textTheme.headlineSmall ?? const TextStyle()).copyWith(
+              color: _kCallForeground,
+              fontSize: 22 * fontSize,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2,
             ),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           if (subtitle != null && subtitle!.isNotEmpty) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               subtitle!,
-              style: TextStyle(color: mutedGray, fontSize: 14 * fontSize),
+              style: (textTheme.bodyMedium ?? const TextStyle()).copyWith(
+                color: _kCallMutedForeground,
+                fontSize: 14 * fontSize,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
           if (secondaryNote != null && secondaryNote!.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: AppSpacing.xs),
             Text(
               secondaryNote!,
-              style: TextStyle(color: mutedGray, fontSize: 12 * fontSize),
+              style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+                color: _kCallMutedForeground.withValues(alpha: 0.8),
+                fontSize: 12 * fontSize,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -398,18 +530,19 @@ class CallCompactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const softWhite = Color(0xFFE8E8E8);
-    const mutedGray = Color(0xFF9CA3AF);
-    const destructiveRed = Color(0xFFDC2626);
+    final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       child: Row(
         children: [
-          if (leading != null) ...[leading!, const SizedBox(width: 8)],
+          if (leading != null) ...[leading!, AppSpacing.horizontalSm],
           if (thumbnail != null && leading == null) ...[
             thumbnail!,
-            const SizedBox(width: 8)
+            AppSpacing.horizontalSm,
           ],
           Expanded(
             child: Column(
@@ -418,36 +551,43 @@ class CallCompactCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: softWhite,
+                  style: (textTheme.bodyMedium ?? const TextStyle()).copyWith(
+                    color: _kCallForeground,
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(color: mutedGray, fontSize: 11),
+                  style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+                    color: _kCallMutedForeground,
+                    fontSize: 11,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          GestureDetector(
-            onTap: onHangUp,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: destructiveRed,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.call_end,
-                color: Colors.white,
-                size: 20,
+          // Compact end-call button — matches the destructive dock-button feel
+          // but sized down for the floating widget footprint.
+          Material(
+            color: AppThemeConfig.errorColor,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onHangUp,
+              child: const SizedBox(
+                width: 36,
+                height: 36,
+                child: Icon(
+                  Icons.call_end,
+                  color: Colors.white,
+                  size: 18,
+                ),
               ),
             ),
           ),
