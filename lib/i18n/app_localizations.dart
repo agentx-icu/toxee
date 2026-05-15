@@ -2574,6 +2574,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'New conversation'**
   String get newConversationTooltip;
+
+  /// Context-menu action — pin a conversation to the top of the list
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get pinConversation;
+
+  /// Context-menu action — remove a conversation from the pinned section
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get unpinConversation;
+
+  /// Context-menu action — clear the unread badge on a conversation
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as read'**
+  String get markConversationAsRead;
+
+  /// Title of the confirmation dialog when deleting a conversation
+  ///
+  /// In en, this message translates to:
+  /// **'Delete conversation?'**
+  String get deleteConversationTitle;
+
+  /// Body of the confirmation dialog when deleting a conversation
+  ///
+  /// In en, this message translates to:
+  /// **'This will remove \"{name}\" from your chat list. Message history stays on disk.'**
+  String deleteConversationBody(String name);
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

@@ -91,7 +91,6 @@ import 'applications/irc_channel_dialog.dart';
 import '../util/responsive_layout.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_tatal_unread_count.dart';
 import 'widgets/app_snackbar.dart';
-import 'widgets/empty_state_widget.dart';
 import 'package:window_manager/window_manager.dart';
 
 part 'home_page_persistence.dart';
@@ -166,9 +165,51 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // - Most operations to use binary replacement (TIMManager.instance -> NativeLibraryManager -> Dart* functions)
     // - History queries to use Platform interface (Tim2ToxSdkPlatform -> FfiChatService -> MessageHistoryPersistence)
     // This ensures history messages are loaded from persistence service instead of returning empty list from C++ layer
-    
+
     // Session runtime (FakeUIKit, platform, CallServiceManager) via coordinator
     unawaited(_initAfterSessionReady());
+    // Register conversation right-click handler — deferred to next frame so
+    // UIKit's conversation event handlers singleton is wired up first (the
+    // `setEventHandlers(onTapConversationItem: ...)` call lives in
+    // `home_page_bootstrap.dart::_buildHomePage`, which runs during build).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        conv_pkg.TencentCloudChatConversationManager.eventHandlers
+            .uiEventHandlers
+            .setEventHandlers(
+          onSecondaryTapConversationItem: ({
+            required V2TimConversation conversation,
+            required Offset position,
+          }) async {
+            if (!mounted) return false;
+            await _showConversationContextMenu(conversation, position);
+            return true;
+          },
+        );
+        _bag.add(() {
+          // Tear down the handler closure on dispose so it can't fire
+          // against a stale State context. There's no "clear" API, so set
+          // it back to a no-op that returns false (default behavior).
+          try {
+            conv_pkg.TencentCloudChatConversationManager.eventHandlers
+                .uiEventHandlers
+                .setEventHandlers(
+              onSecondaryTapConversationItem: ({
+                required V2TimConversation conversation,
+                required Offset position,
+              }) async => false,
+            );
+          } catch (_) {}
+        });
+      } catch (e, st) {
+        AppLogger.logError(
+          '[HomePage] Failed to register onSecondaryTapConversationItem',
+          e,
+          st,
+        );
+      }
+    });
   }
 
 
@@ -667,6 +708,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final showMasterDetail =
                 ResponsiveLayout.shouldShowMasterDetail(context);
 
+            // Drive UIKit's master-detail layout from toxee's responsive
+            // breakpoint. UIKit only renders desktop-mode automatically on
+            // "desktop platform"; `forceDesktopLayout` lets us opt wide
+            // touch devices (e.g. iPad landscape) into the same split.
+            // Post-frame so we don't `setState`-during-build inside UIKit.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              try {
+                TencentCloudChat.instance.dataInstance.conversation
+                    .conversationConfig
+                    .setConfigs(forceDesktopLayout: showMasterDetail);
+              } catch (_) {
+                // Config object may not exist yet on the very first frame
+                // (UIKit init is async); next layout pass will pick it up.
+              }
+            });
+
             Widget content = PopScope(
               canPop: false,
               onPopInvokedWithResult: (didPop, result) {
@@ -717,10 +774,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                       Expanded(
-                        child: _buildMainPane(
-                          context,
-                          showMasterDetail: showMasterDetail,
-                        ),
+                        child: _buildMainPane(context),
                       ),
                     ],
                   ),
@@ -858,10 +912,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                     _OpenSearchIntent: CallbackAction<_OpenSearchIntent>(
                       onInvoke: (_) {
-                        // TODO: wire Cmd/Ctrl+F to open search overlay
-                        // — UIKit owns the search component registration;
-                        // there's no straightforward "show search" entry
-                        // point exposed by `search_pkg.CustomSearchManager`.
+                        // Cmd/Ctrl+F → push toxee's global search overlay.
+                        // `userID`/`groupID` left null so the overlay runs in
+                        // global mode (search all conversations).
+                        final rootCtx = _scaffoldMessengerContext ?? context;
+                        Navigator.of(rootCtx).push(
+                          MaterialPageRoute(
+                            builder: (innerCtx) => search_pkg.CustomSearch(
+                              closeFunc: () => Navigator.of(innerCtx).pop(),
+                            ),
+                          ),
+                        );
                         return null;
                       },
                     ),
@@ -954,10 +1015,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           onTap: (i) {
             if (i == _index) {
               // Re-tap on the active tab — iOS/Android convention: scroll
-              // the active list back to the top.
-              // TODO: scroll-to-top on active tab re-tap — UIKit owns the
-              // conversation/contact list scroll controllers and doesn't
-              // expose them; wire this once we have a controller hook.
+              // the active list back to the top. UIKit exposes the
+              // conversation list scroll controller via the controller
+              // singleton; other tabs (contacts/applications/settings) don't
+              // expose theirs yet — leave them as TODO.
+              if (i == 0) {
+                unawaited(
+                  TencentCloudChatConversationController.instance
+                      .scrollToTop(),
+                );
+              }
+              // TODO: scroll-to-top for tabs 1 (contacts), 2 (applications),
+              // 3 (settings) — needs controller hooks from those widgets.
               return;
             }
             setState(() {
@@ -1064,33 +1133,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Build the central pane of the home page.
   ///
-  /// When `showMasterDetail` is true (viewport >= 900pt), the active tab's
-  /// content sits in a 320pt fixed-width column on the left and a chat
-  /// detail pane fills the rest. When false, the IndexedStack fills the
-  /// entire pane (the historical phone/tablet behavior).
-  Widget _buildMainPane(
-    BuildContext context, {
-    required bool showMasterDetail,
-  }) {
-    final stack = IndexedStack(
+  /// UIKit's `TencentCloudChatConversation` widget owns its own master-detail
+  /// layout (driven by `TencentCloudChatConversationConfig.forceDesktopLayout`)
+  /// — see `build` where we set that config from `shouldShowMasterDetail` on
+  /// every frame. Wrapping the IndexedStack in another Row here would create
+  /// nested master-detail; collapse to the simple stack and let UIKit decide.
+  Widget _buildMainPane(BuildContext context) {
+    return IndexedStack(
       index: _index,
       children: _buildTabChildren(),
-    );
-
-    if (!showMasterDetail) {
-      return stack;
-    }
-
-    return Row(
-      children: [
-        SizedBox(width: 320, child: stack),
-        VerticalDivider(
-          width: 1,
-          thickness: 1,
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-        Expanded(child: _buildChatDetailPane(context)),
-      ],
     );
   }
 
@@ -1177,23 +1228,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ];
   }
 
-  /// Right-hand chat detail pane for the master-detail layout.
-  ///
-  /// UIKit currently owns the chat routing (the conversation list pushes
-  /// a chat route on tap), so on wide layouts we render a placeholder
-  /// empty state in the right pane while the layout pattern (fixed 320pt
-  /// list + flex chat) demonstrates how a future wired-up split would
-  /// behave.
-  // TODO: route tap to chat-detail pane via _sessionController
-  Widget _buildChatDetailPane(BuildContext context) {
-    return Center(
-      child: EmptyStateWidget(
-        icon: Icons.chat_bubble_outline,
-        title: AppLocalizations.of(context)!.selectConversationEmptyState,
-      ),
-    );
-  }
-
   Widget _uikitSidebar() {
     return buildSidebar(
       context: context,
@@ -1210,6 +1244,148 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       service: widget.service,
       connectionStatusStream: widget.service.connectionStatusStream,
     );
+  }
+
+  /// Desktop-style right-click menu for a conversation row.
+  ///
+  /// Anchored at the global cursor `position` reported by UIKit. Keeps the
+  /// item list short (4 actions max — Pin/Unpin, Mark as read, Delete) to
+  /// match the popup-menu density convention.
+  Future<void> _showConversationContextMenu(
+    V2TimConversation conv,
+    Offset position,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final isPinned = conv.isPinned ?? false;
+    final hasUnread = (conv.unreadCount ?? 0) > 0;
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        overlay.size.width - position.dx,
+        overlay.size.height - position.dy,
+      ),
+      items: <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
+          value: 'pin',
+          child: Row(
+            children: [
+              Icon(
+                isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                size: 18,
+                color: scheme.onSurface,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(isPinned ? l10n.unpinConversation : l10n.pinConversation),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'mark_read',
+          enabled: hasUnread,
+          child: Row(
+            children: [
+              Icon(
+                Icons.mark_email_read_outlined,
+                size: 18,
+                color: hasUnread ? scheme.onSurface : scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(l10n.markConversationAsRead),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: scheme.error,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(l10n.delete, style: TextStyle(color: scheme.error)),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (!mounted || selected == null) return;
+
+    final convId = conv.conversationID;
+    switch (selected) {
+      case 'pin':
+        try {
+          await TencentImSDKPlugin.v2TIMManager
+              .getConversationManager()
+              .pinConversation(
+                conversationID: convId,
+                isPinned: !isPinned,
+              );
+        } catch (e, st) {
+          AppLogger.logError(
+              '[HomePage] pinConversation failed for $convId', e, st);
+        }
+        break;
+      case 'mark_read':
+        try {
+          // `cleanConversationUnreadMessageCount` is the non-deprecated entry
+          // point that works for both C2C and group conversations. Passing
+          // 0/0 marks everything currently in the conversation as read.
+          await TencentImSDKPlugin.v2TIMManager
+              .getConversationManager()
+              .cleanConversationUnreadMessageCount(
+                conversationID: convId,
+                cleanTimestamp: 0,
+                cleanSequence: 0,
+              );
+        } catch (e, st) {
+          AppLogger.logError(
+              '[HomePage] cleanConversationUnreadMessageCount failed for $convId',
+              e,
+              st);
+        }
+        break;
+      case 'delete':
+        final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (dialogCtx) => AlertDialog(
+                title: Text(l10n.deleteConversationTitle),
+                content: Text(
+                  l10n.deleteConversationBody(conv.showName ?? convId),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogCtx).pop(false),
+                    child: Text(l10n.cancel),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogCtx).pop(true),
+                    style: TextButton.styleFrom(foregroundColor: scheme.error),
+                    child: Text(l10n.delete),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (!mounted || !confirmed) return;
+        try {
+          await TencentImSDKPlugin.v2TIMManager
+              .getConversationManager()
+              .deleteConversation(conversationID: convId);
+        } catch (e, st) {
+          AppLogger.logError(
+              '[HomePage] deleteConversation failed for $convId', e, st);
+        }
+        break;
+    }
   }
 
   /// Show user profile page - uses router which handles desktop/mobile modes

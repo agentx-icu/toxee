@@ -1368,5 +1368,28 @@
   "newConversationTooltip": "New conversation",
   "@newConversationTooltip": {
     "description": "Tooltip on the New Entry button (compose/start a new conversation)"
+  },
+  "pinConversation": "Pin",
+  "@pinConversation": {
+    "description": "Context-menu action — pin a conversation to the top of the list"
+  },
+  "unpinConversation": "Unpin",
+  "@unpinConversation": {
+    "description": "Context-menu action — remove a conversation from the pinned section"
+  },
+  "markConversationAsRead": "Mark as read",
+  "@markConversationAsRead": {
+    "description": "Context-menu action — clear the unread badge on a conversation"
+  },
+  "deleteConversationTitle": "Delete conversation?",
+  "@deleteConversationTitle": {
+    "description": "Title of the confirmation dialog when deleting a conversation"
+  },
+  "deleteConversationBody": "This will remove \"{name}\" from your chat list. Message history stays on disk.",
+  "@deleteConversationBody": {
+    "description": "Body of the confirmation dialog when deleting a conversation",
+    "placeholders": {
+      "name": {"type": "String"}
+    }
   }
 }

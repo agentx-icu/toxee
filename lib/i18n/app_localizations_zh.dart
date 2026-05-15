@@ -1343,6 +1343,23 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get newConversationTooltip => '新建会话';
+
+  @override
+  String get pinConversation => '置顶';
+
+  @override
+  String get unpinConversation => '取消置顶';
+
+  @override
+  String get markConversationAsRead => '标为已读';
+
+  @override
+  String get deleteConversationTitle => '删除会话？';
+
+  @override
+  String deleteConversationBody(String name) {
+    return '将从聊天列表中移除“$name”。聊天记录仍保留在本地。';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2570,6 +2587,23 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get newConversationTooltip => '新建会话';
+
+  @override
+  String get pinConversation => '置顶';
+
+  @override
+  String get unpinConversation => '取消置顶';
+
+  @override
+  String get markConversationAsRead => '标为已读';
+
+  @override
+  String get deleteConversationTitle => '删除会话？';
+
+  @override
+  String deleteConversationBody(String name) {
+    return '将从聊天列表中移除“$name”。聊天记录仍保留在本地。';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3797,4 +3831,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get newConversationTooltip => '新建會話';
+
+  @override
+  String get pinConversation => '置頂';
+
+  @override
+  String get unpinConversation => '取消置頂';
+
+  @override
+  String get markConversationAsRead => '標為已讀';
+
+  @override
+  String get deleteConversationTitle => '刪除會話？';
+
+  @override
+  String deleteConversationBody(String name) {
+    return '將從聊天清單中移除「$name」。聊天記錄仍保留在本機。';
+  }
 }

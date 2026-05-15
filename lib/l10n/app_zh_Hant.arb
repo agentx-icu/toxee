@@ -744,5 +744,10 @@
   "importedAccountDefaultName": "已匯入帳號",
   "failedToImport": "匯入失敗：{error}",
   "selectConversationEmptyState": "選擇一個會話開始聊天",
-  "newConversationTooltip": "新建會話"
+  "newConversationTooltip": "新建會話",
+  "pinConversation": "置頂",
+  "unpinConversation": "取消置頂",
+  "markConversationAsRead": "標為已讀",
+  "deleteConversationTitle": "刪除會話？",
+  "deleteConversationBody": "將從聊天清單中移除「{name}」。聊天記錄仍保留在本機。"
 }

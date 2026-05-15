@@ -1343,4 +1343,21 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get newConversationTooltip => 'New conversation';
+
+  @override
+  String get pinConversation => 'Pin';
+
+  @override
+  String get unpinConversation => 'Unpin';
+
+  @override
+  String get markConversationAsRead => 'Mark as read';
+
+  @override
+  String get deleteConversationTitle => 'Delete conversation?';
+
+  @override
+  String deleteConversationBody(String name) {
+    return 'This will remove \"$name\" from your chat list. Message history stays on disk.';
+  }
 }

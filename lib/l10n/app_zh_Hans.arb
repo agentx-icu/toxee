@@ -744,5 +744,10 @@
   "importedAccountDefaultName": "已导入账号",
   "failedToImport": "导入失败：{error}",
   "selectConversationEmptyState": "选择一个会话开始聊天",
-  "newConversationTooltip": "新建会话"
+  "newConversationTooltip": "新建会话",
+  "pinConversation": "置顶",
+  "unpinConversation": "取消置顶",
+  "markConversationAsRead": "标为已读",
+  "deleteConversationTitle": "删除会话？",
+  "deleteConversationBody": "将从聊天列表中移除“{name}”。聊天记录仍保留在本地。"
 }
