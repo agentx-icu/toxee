@@ -235,6 +235,7 @@ class _UserAvatarState extends State<_UserAvatar> {
                     right: 4,
                     child: IconButton(
                       icon: const Icon(Icons.close),
+                      tooltip: AppLocalizations.of(context)?.close ?? 'Close',
                       onPressed: () => Navigator.pop(context),
                     ),
                   ),
@@ -252,7 +253,11 @@ class _UserAvatarState extends State<_UserAvatar> {
     final theme = Theme.of(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
-        return InkWell(
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Tooltip(
+            message: _nickname ?? '',
+            child: InkWell(
           onTap: () => _showProfileDialog(context),
           child: Container(
             width: double.infinity,
@@ -359,6 +364,8 @@ class _UserAvatarState extends State<_UserAvatar> {
                   ],
                 );
               },
+            ),
+          ),
             ),
           ),
         );

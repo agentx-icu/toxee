@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../util/app_spacing.dart';
+import '../../util/app_theme_config.dart';
 
 /// Small drag handle for the top of a modal bottom sheet.
 ///
@@ -17,8 +18,12 @@ class BottomSheetHandle extends StatelessWidget {
       height: 4,
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        // slate-300 (light) / slate-700 (dark) — hairline neutral
-        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+        // slate-300 (light) / slate-700 (dark) — hairline neutral, sourced
+        // from AppThemeConfig so the handle stays consistent if the token
+        // ever shifts.
+        color: isDark
+            ? AppThemeConfig.sheetHandleColorDark
+            : AppThemeConfig.sheetHandleColorLight,
         borderRadius: BorderRadius.circular(2),
       ),
     );

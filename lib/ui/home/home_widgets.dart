@@ -48,6 +48,12 @@ class _NewEntryButtonState extends State<NewEntryButton> {
     final tL10n = TencentCloudChatLocalizations.of(context);
     return PopupMenuButton<String>(
       key: _menuKey,
+      // Hover/long-press tooltip — surfaced on desktop hover and assistive
+      // tech. AppLocalizations key is authoritative; falls back to UIKit's
+      // newChat string when AppLocalizations isn't ready yet.
+      tooltip: AppLocalizations.of(context)?.newConversationTooltip
+          ?? tL10n?.newChat
+          ?? 'New conversation',
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         side: BorderSide(color: theme.colorScheme.outlineVariant),

@@ -1337,6 +1337,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String failedToImport(String error) {
     return '导入失败：$error';
   }
+
+  @override
+  String get selectConversationEmptyState => '选择一个会话开始聊天';
+
+  @override
+  String get newConversationTooltip => '新建会话';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2558,6 +2564,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String failedToImport(String error) {
     return '导入失败：$error';
   }
+
+  @override
+  String get selectConversationEmptyState => '选择一个会话开始聊天';
+
+  @override
+  String get newConversationTooltip => '新建会话';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3779,4 +3791,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String failedToImport(String error) {
     return '匯入失敗：$error';
   }
+
+  @override
+  String get selectConversationEmptyState => '選擇一個會話開始聊天';
+
+  @override
+  String get newConversationTooltip => '新建會話';
 }

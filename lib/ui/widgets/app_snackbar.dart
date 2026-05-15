@@ -28,9 +28,15 @@ class AppSnackBar {
       backgroundColor = AppThemeConfig.successColor;
       foregroundColor = Colors.white;
     } else if (isInfo) {
-      // Slate-tinted neutral surface for informational messages.
-      backgroundColor =
-          AppThemeConfig.secondaryTextColorLight.withValues(alpha: 0.12);
+      // Brightness-aware solid surface for informational messages. Previous
+      // implementation used a low-alpha slate tint, which disappeared on the
+      // slate-900 dark scaffold; the dedicated dark token keeps the chip
+      // legible against any background.
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final infoBg = isDark
+          ? AppThemeConfig.infoSnackbarBackgroundDark
+          : AppThemeConfig.infoSnackbarBackgroundLight;
+      backgroundColor = infoBg;
       foregroundColor = Theme.of(context).colorScheme.onSurface;
     }
 

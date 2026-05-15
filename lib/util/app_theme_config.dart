@@ -100,6 +100,44 @@ class AppThemeConfig {
   /// Error — red-600. Slightly desaturated vs the WeChat red.
   static const Color errorColor = Color(0xFFDC2626);
 
+  /// Away / idle — amber. Use for "user hasn't been active for X minutes".
+  static const Color statusAwayColor = Color(0xFFF59E0B); // amber-500
+  /// Busy / do-not-disturb — slate red distinct from errorColor (which is
+  /// reserved for genuine error states).
+  static const Color statusBusyColor = Color(0xFFEF4444); // red-500
+  /// Connecting / syncing — pulses on a neutral blue. Distinct from primary
+  /// CTA color (slightly lighter / desaturated).
+  static const Color statusConnectingColor = Color(0xFF3B82F6); // blue-500
+
+  /// Search keyword highlight background — light mode (yellow-200, gentle).
+  static const Color searchHighlightColorLight = Color(0xFFFEF08A);
+  /// Search keyword highlight background — dark mode (primary @ 30% alpha,
+  /// stays on-brand and visible against slate surfaces).
+  static const Color searchHighlightColorDark = Color(0x4D3B82F6);
+
+  /// Drag-handle color on a bottom sheet — light mode (slate-300).
+  static const Color sheetHandleColorLight = Color(0xFFCBD5E1);
+  /// Drag-handle color on a bottom sheet — dark mode (slate-700).
+  static const Color sheetHandleColorDark = Color(0xFF334155);
+
+  /// Snackbar surface — info variant (light): slate-100 panel.
+  static const Color infoSnackbarBackgroundLight = Color(0xFFE2E8F0);
+  /// Snackbar surface — info variant (dark): slate-700 panel for legibility
+  /// against the slate-900 scaffold (instead of low-alpha slate which
+  /// disappears in dark mode).
+  static const Color infoSnackbarBackgroundDark = Color(0xFF334155);
+
+  /// Hover overlay for an interactive row. Uses 4% alpha of the base color
+  /// (Material 3 state-layer spec). Pair with InkWell or MouseRegion to keep
+  /// hover surfaces visually consistent across the app.
+  static Color hoverSurfaceFor(Color baseForeground) =>
+      baseForeground.withValues(alpha: 0.04);
+
+  /// Pre-baked hover surface on a light scaffold — slate-900 @ 4%.
+  static const Color hoverSurfaceLight = Color(0x0A0F172A);
+  /// Pre-baked hover surface on a dark scaffold — white @ 4%.
+  static const Color hoverSurfaceDark = Color(0x0AFFFFFF);
+
   // ──────────────────────────────────────────────
   //  Spacing scale (4pt grid — for any new screens)
   // ──────────────────────────────────────────────
@@ -282,14 +320,20 @@ class AppThemeConfig {
       textStyle: TencentCloudChatTextStyle(
         // Sizes-only API. Hierarchy comes from these + the Material textTheme
         // in main.dart (which controls weights and tracking).
+        //
+        // Floor raised for `messageSnippet` (14→15) and `standardSmallText`
+        // (13→14): iOS auto-zooms any TextField with computed font size below
+        // 16pt, and these tokens sit next to inputs in the conversation /
+        // contact rows. Bumping them shrinks the trigger surface for that
+        // zoom while still keeping the snippet visibly secondary to body text.
         navigationTitle: 18,
         contactTitle: 17,
         messageBody: 15,
-        messageSnippet: 14,
+        messageSnippet: 15,
         buttonLabel: 15,
         standardText: 15,
         standardLargeText: 17,
-        standardSmallText: 13,
+        standardSmallText: 14,
       ),
     );
   }

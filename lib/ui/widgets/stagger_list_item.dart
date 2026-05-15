@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../util/platform_utils.dart';
+
 /// Wraps a list item with a staggered entrance animation (slide up + fade in).
 class StaggeredListItem extends StatefulWidget {
   const StaggeredListItem({
@@ -44,14 +46,15 @@ class _StaggeredListItemState extends State<StaggeredListItem>
       curve: Curves.easeOut,
     ));
 
-    // Stagger start based on index
+    // Stagger start based on index. Cap is platform-adaptive: desktop users
+    // are mouse-driven and perceive long sub-second tails as sluggish, so we
+    // tighten to 150ms there. On touch, the slower 300ms cap still feels like
+    // a deliberate cascade rather than a snap.
     final delay = widget.staggerDelay * widget.index;
-    // Cap at 300ms (down from 500ms) — beyond ~6 items the tail used to
-    // batch in one visible frame; 300ms keeps the cascade perceptible
-    // without making long lists feel sluggish to settle.
-    final cappedDelay = delay > const Duration(milliseconds: 300)
-        ? const Duration(milliseconds: 300)
-        : delay;
+    final cap = PlatformUtils.isDesktop
+        ? const Duration(milliseconds: 150)
+        : const Duration(milliseconds: 300);
+    final cappedDelay = delay > cap ? cap : delay;
     Future.delayed(cappedDelay, () {
       if (mounted) _controller.forward();
     });

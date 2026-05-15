@@ -269,48 +269,74 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// Show export format chooser, then export.
+  ///
+  /// On mobile we keep the bottom sheet (thumb-friendly, standard mobile
+  /// pattern). On tablet/desktop we present the same options as a centered
+  /// dialog so the chooser doesn't slide up off-canvas on wide screens.
   Future<void> _showExportOptions() async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppThemeConfig.formCardBorderRadius),
+    Widget buildOptions(BuildContext ctx, {required bool isSheet}) {
+      final children = <Widget>[
+        if (isSheet) const BottomSheetHandle(),
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Text(
+            AppLocalizations.of(ctx)!.exportAccount,
+            style: Theme.of(ctx).textTheme.titleMedium,
+          ),
         ),
-      ),
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const BottomSheetHandle(),
-            Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Text(
-                AppLocalizations.of(context)!.exportAccount,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.description),
-              title: Text(AppLocalizations.of(ctx)!.exportOptionProfileTox),
-              subtitle: Text(AppLocalizations.of(ctx)!.exportOptionProfileToxSubtitle),
-              onTap: () => Navigator.of(ctx).pop('tox'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.archive),
-              title: Text(AppLocalizations.of(ctx)!.exportOptionFullBackup),
-              subtitle: Text(AppLocalizations.of(ctx)!.exportOptionFullBackupSubtitle),
-              onTap: () => Navigator.of(ctx).pop('zip'),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
+        const Divider(height: 1),
+        ListTile(
+          leading: const Icon(Icons.description),
+          title: Text(AppLocalizations.of(ctx)!.exportOptionProfileTox),
+          subtitle:
+              Text(AppLocalizations.of(ctx)!.exportOptionProfileToxSubtitle),
+          onTap: () => Navigator.of(ctx).pop('tox'),
         ),
-      ),
-    );
+        ListTile(
+          leading: const Icon(Icons.archive),
+          title: Text(AppLocalizations.of(ctx)!.exportOptionFullBackup),
+          subtitle:
+              Text(AppLocalizations.of(ctx)!.exportOptionFullBackupSubtitle),
+          onTap: () => Navigator.of(ctx).pop('zip'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+      ];
+      final content = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: children,
+      );
+      return isSheet ? SafeArea(top: false, child: content) : content;
+    }
+
+    String? choice;
+    if (ResponsiveLayout.isMobile(context)) {
+      choice = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppThemeConfig.formCardBorderRadius),
+          ),
+        ),
+        builder: (ctx) => buildOptions(ctx, isSheet: true),
+      );
+    } else {
+      choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: buildOptions(ctx, isSheet: false),
+          ),
+        ),
+      );
+    }
 
     if (choice == 'tox') {
       await _exportAccount();

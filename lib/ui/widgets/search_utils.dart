@@ -2,6 +2,8 @@ import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
 
+import '../../util/app_theme_config.dart';
+
 /// Shared utility methods for search UI components.
 class SearchUtils {
   SearchUtils._();
@@ -49,12 +51,15 @@ class SearchUtils {
       if (i > start) {
         spans.add(TextSpan(text: text.substring(start, i), style: baseStyle));
       }
+      // Highlight token sources from AppThemeConfig: yellow-200 in light mode
+      // (gentle, classic search highlight), primary-tinted in dark mode (the
+      // amber-on-slate combo was muddy — on-brand blue reads cleaner).
       spans.add(TextSpan(
         text: text.substring(i, i + keyword.length),
         style: baseStyle.copyWith(
           backgroundColor: isDark
-              ? const Color(0xFF827717).withValues(alpha: 0.4)
-              : const Color(0xFFFFF176).withValues(alpha: 0.6),
+              ? AppThemeConfig.searchHighlightColorDark
+              : AppThemeConfig.searchHighlightColorLight,
           fontWeight: FontWeight.w600,
         ),
       ));

@@ -287,7 +287,16 @@ extension _SettingsPageBuild on _SettingsPageState {
                                 Flexible(
                                   child: Text(
                                     '${AppLocalizations.of(context)!.userId}: ${_getToxIdPrefix(accountToxId)}...',
-                                    style: Theme.of(context).textTheme.bodySmall,
+                                    // Tabular figures so the hex prefix
+                                    // doesn't reflow as digits change width.
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          fontFeatures: const [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
                                   ),
                                 ),
                                 // Copy the full (untruncated) Tox ID. The
@@ -317,7 +326,16 @@ extension _SettingsPageBuild on _SettingsPageState {
                             ),
                             Text(
                               '${AppLocalizations.of(context)!.lastLogin}: ${_formatLastLoginTime(lastLogin, context)}',
-                              style: Theme.of(context).textTheme.bodySmall,
+                              // Tabular figures keep the relative-time digits
+                              // ("3 days ago") from jittering on update.
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
                             ),
                           ],
                         ),

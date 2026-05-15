@@ -2562,6 +2562,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed to import: {error}'**
   String failedToImport(String error);
+
+  /// Empty-state shown in the chat detail pane of the master-detail layout on tablet/desktop before any conversation is selected
+  ///
+  /// In en, this message translates to:
+  /// **'Select a conversation to start chatting'**
+  String get selectConversationEmptyState;
+
+  /// Tooltip on the New Entry button (compose/start a new conversation)
+  ///
+  /// In en, this message translates to:
+  /// **'New conversation'**
+  String get newConversationTooltip;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

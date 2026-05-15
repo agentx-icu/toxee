@@ -1360,5 +1360,13 @@
     "placeholders": {
       "error": {"type": "String"}
     }
+  },
+  "selectConversationEmptyState": "Select a conversation to start chatting",
+  "@selectConversationEmptyState": {
+    "description": "Empty-state shown in the chat detail pane of the master-detail layout on tablet/desktop before any conversation is selected"
+  },
+  "newConversationTooltip": "New conversation",
+  "@newConversationTooltip": {
+    "description": "Tooltip on the New Entry button (compose/start a new conversation)"
   }
 }

@@ -85,9 +85,16 @@ class _AccountCardItemState extends State<_AccountCardItem> {
           ),
           child: ListTile(
             leading: CircleAvatar(
+              // Non-current accounts get a neutral slate fill (20% alpha on
+              // the brightness-aware secondary text token) so they read as
+              // "another identity" rather than a pressed/selected primary
+              // button. Only the active account keeps the primaryColor fill.
               backgroundColor: widget.isCurrentAccount
                   ? widget.colorTheme.primaryColor
-                  : widget.colorTheme.secondaryColor,
+                  : (Theme.of(context).brightness == Brightness.dark
+                          ? AppThemeConfig.secondaryTextColorDark
+                          : AppThemeConfig.secondaryTextColorLight)
+                      .withValues(alpha: 0.20),
               child: Text(
                 accountNickname.isNotEmpty
                     ? accountNickname[0].toUpperCase()
@@ -95,7 +102,9 @@ class _AccountCardItemState extends State<_AccountCardItem> {
                 style: TextStyle(
                   color: widget.isCurrentAccount
                       ? widget.colorTheme.onPrimary
-                      : widget.colorTheme.onSecondary,
+                      : (Theme.of(context).brightness == Brightness.dark
+                          ? AppThemeConfig.primaryTextColorDark
+                          : AppThemeConfig.primaryTextColorLight),
                   fontWeight: FontWeight.w600,
                 ),
               ),

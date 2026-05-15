@@ -742,5 +742,7 @@
   "importNoFileSelected": "未選擇檔案",
   "importCancelled": "已取消",
   "importedAccountDefaultName": "已匯入帳號",
-  "failedToImport": "匯入失敗：{error}"
+  "failedToImport": "匯入失敗：{error}",
+  "selectConversationEmptyState": "選擇一個會話開始聊天",
+  "newConversationTooltip": "新建會話"
 }

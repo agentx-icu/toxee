@@ -407,8 +407,10 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Show bottom sheet menu for account management (long-press on account card).
-  void _showAccountManagementMenu(Map<String, String> account) {
+  /// Show bottom sheet menu for account management (long-press on account card
+  /// on mobile, right-click on desktop). [position] is currently ignored — the
+  /// modal bottom sheet anchors to the bottom edge regardless of pointer pos.
+  void _showAccountManagementMenu(Map<String, String> account, {Offset? position}) {
     final toxId = account['toxId'] ?? '';
     final nickname = account['nickname'] ?? '';
     if (toxId.isEmpty) return;
@@ -697,6 +699,10 @@ class _LoginPageState extends State<LoginPage> {
                                           onTap: () => _quickLogin(account),
                                           onLongPress: () =>
                                               _showAccountManagementMenu(account),
+                                          onSecondaryTapUp: (details) =>
+                                              _showAccountManagementMenu(
+                                                  account,
+                                                  position: details.globalPosition),
                                           child: Padding(
                                             padding: const EdgeInsets.all(
                                                 AppSpacing.lg),

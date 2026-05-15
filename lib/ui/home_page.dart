@@ -91,6 +91,8 @@ import 'applications/irc_channel_dialog.dart';
 import '../util/responsive_layout.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_tatal_unread_count.dart';
 import 'widgets/app_snackbar.dart';
+import 'widgets/empty_state_widget.dart';
+import 'package:window_manager/window_manager.dart';
 
 part 'home_page_persistence.dart';
 part 'home_page_plugins.dart';
@@ -186,7 +188,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             behavior: HitTestBehavior.opaque,
             onTap: () => _onAddFriend(context, userFullInfo.userID ?? ''),
             child: Container(
-              width: MediaQuery.of(context).size.width,
+              // Fill the parent — using `MediaQuery.size.width` made the
+              // button stretch to the full screen even when embedded inside
+              // a constrained pane (master-detail / dialog).
+              width: double.infinity,
               constraints: const BoxConstraints(minHeight: 44),
               decoration: BoxDecoration(
                 border: Border(
@@ -224,16 +229,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await widget.service.addFriend(userID, requestMessage: requestMessage);
       // Show success message
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.friendRequestSent)),
+        AppSnackBar.show(
+          context,
+          AppLocalizations.of(context)!.friendRequestSent,
         );
         // Refresh contacts to update UI
         FakeUIKit.instance.im?.refreshContacts();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.failedToSendFriendRequest(e.toString()))),
+        AppSnackBar.showError(
+          context,
+          AppLocalizations.of(context)!.failedToSendFriendRequest(e.toString()),
         );
       }
     }
@@ -650,10 +657,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return Builder(
           builder: (scaffoldCtx) {
             _scaffoldMessengerContext = scaffoldCtx;
-            final isMobile = ResponsiveLayout.isMobile(context);
-            final isTablet = ResponsiveLayout.isTablet(context);
-            final isDesktop = ResponsiveLayout.isDesktop(context);
-            
+            // `useBottomNav` is the single source of truth for "phone-y"
+            // layouts (< 720pt) — replaces the old `isMobile` gate so
+            // landscape phones (600-720pt) keep the bottom nav instead of
+            // jumping to a sidebar. `useSidebar` is its inverse.
+            final useBottomNav =
+                ResponsiveLayout.shouldShowBottomNav(context);
+            final useSidebar = !useBottomNav;
+            final showMasterDetail =
+                ResponsiveLayout.shouldShowMasterDetail(context);
+
             Widget content = PopScope(
               canPop: false,
               onPopInvokedWithResult: (didPop, result) {
@@ -674,16 +687,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 AppSnackBar.show(_scaffoldMessengerContext ?? context, AppLocalizations.of(context)!.pressBackAgainToExit);
               },
               child: Scaffold(
-              drawer: isMobile ? _buildMobileDrawer() : null,
+              drawer: useBottomNav ? _buildMobileDrawer() : null,
               body: SafeArea(
                 child: Stack(
                 children: [
                   Row(
                     children: [
-                      if (!isMobile) ...[
+                      if (useSidebar) ...[
                         SizedBox(
                           width: ResponsiveLayout.responsiveSidebarWidth(context),
-                          child: _uikitSidebar(),
+                          child: Column(
+                            children: [
+                              // macOS traffic-light reservation — without this
+                              // the avatar at the top of the sidebar sits under
+                              // the window control dots.
+                              if (PlatformUtils.isMacOS)
+                                const SizedBox(
+                                  height: ResponsiveLayout
+                                      .macTitleBarReservedHeight,
+                                ),
+                              Expanded(child: _uikitSidebar()),
+                            ],
+                          ),
                         ),
                         VerticalDivider(
                           width: 1,
@@ -692,90 +717,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                       Expanded(
-                        child: IndexedStack(
-                          index: _index,
-                          children: [
-                        ValueListenableBuilder<Locale>(
-                          valueListenable: AppLocale.locale,
-                          builder: (context, locale, _) {
-                            // Delay setLocale to avoid calling setState during build
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              try {
-                                TencentCloudChatIntl().setLocale(locale);
-                              } catch (_) {}
-                            });
-                            return TencentCloudChatConversation(
-                              key: ValueKey('uikit-conversation-${locale.languageCode}'),
-                            );
-                          },
+                        child: _buildMainPane(
+                          context,
+                          showMasterDetail: showMasterDetail,
                         ),
-                        ValueListenableBuilder<Locale>(
-                          valueListenable: AppLocale.locale,
-                          builder: (context, locale, _) {
-                            // Delay setLocale to avoid calling setState during build
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              try {
-                                TencentCloudChatIntl().setLocale(locale);
-                              } catch (_) {}
-                            });
-                            return ValueListenableBuilder<ThemeMode>(
-                              valueListenable: AppTheme.mode,
-                              builder: (context, themeMode, __) {
-                                return Stack(
-                                  children: [
-                                    TencentCloudChatThemeWidget(
-                                      build: (context, themeColors, textStyles) {
-                                        return TencentCloudChatContact(
-                                          key: ValueKey('uikit-contact-${locale.languageCode}-${themeMode.name}'),
-                                        );
-                                      },
-                                    ),
-                                    Positioned(
-                                      top: AppSpacing.lg,
-                                      right: AppSpacing.xl,
-                                      // Right-edge SafeArea only — guards Dynamic
-                                      // Island / right rounded corners on phones
-                                      // in landscape. Top/left/bottom already
-                                      // handled by the surrounding layout.
-                                      child: SafeArea(
-                                        left: false,
-                                        top: false,
-                                        bottom: false,
-                                        child: NewEntryButton(
-                                          onAddFriend: _showAddFriendDialog,
-                                          onCreateGroup: _showAddGroupDialog,
-                                          onJoinIrcChannel: _ircAppInstalled ? _showJoinIrcChannelDialog : null,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                        ValueListenableBuilder<Locale>(
-                          valueListenable: AppLocale.locale,
-                          builder: (context, locale, _) => ApplicationsPage(
-                            key: ValueKey('applications-${locale.languageCode}'),
-                            service: widget.service,
-                          ),
-                        ),
-                        SettingsPage(
-                          service: widget.service,
-                          connectionStatusStream: widget.service.connectionStatusStream,
-                          autoAcceptFriends: _autoAcceptFriends,
-                          onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
-                          autoAcceptGroupInvites: _autoAcceptGroupInvites,
-                          onAutoAcceptGroupInvitesChanged: _setAutoAcceptGroupInvites,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-                  // Bootstrap service status banner (desktop only)
-                  if (PlatformUtils.isDesktop)
+                  // Bootstrap service status banner — show on native desktop
+                  // and on wide tablet/desktop-class viewports (e.g. iPad in
+                  // landscape) so the LAN status surface isn't hidden on
+                  // bigger touch devices that can act as the LAN host.
+                  if (PlatformUtils.isDesktop ||
+                      ResponsiveLayout.isDesktop(context))
                     Positioned(
                       top: 0,
                       left: 0,
@@ -861,9 +815,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ],
               ),
               ),
-              bottomNavigationBar: isMobile ? _buildBottomNavigationBar() : null,
+              bottomNavigationBar: useBottomNav ? _buildBottomNavigationBar() : null,
             ),
             );
+            // Desktop keyboard shortcuts — meta+/ctrl+ comma/N/W/F.
+            // Setting both `meta` and `control` on the SingleActivator
+            // works for macOS and Win/Linux without a per-platform branch.
+            if (PlatformUtils.isDesktop) {
+              content = Shortcuts(
+                shortcuts: const <ShortcutActivator, Intent>{
+                  SingleActivator(LogicalKeyboardKey.comma,
+                      meta: true, control: true): _OpenSettingsIntent(),
+                  SingleActivator(LogicalKeyboardKey.keyN,
+                      meta: true, control: true): _NewConversationIntent(),
+                  SingleActivator(LogicalKeyboardKey.keyW,
+                      meta: true, control: true): _CloseWindowIntent(),
+                  SingleActivator(LogicalKeyboardKey.keyF,
+                      meta: true, control: true): _OpenSearchIntent(),
+                },
+                child: Actions(
+                  actions: <Type, Action<Intent>>{
+                    _OpenSettingsIntent: CallbackAction<_OpenSettingsIntent>(
+                      onInvoke: (_) {
+                        setState(() => _index = 3);
+                        return null;
+                      },
+                    ),
+                    _NewConversationIntent:
+                        CallbackAction<_NewConversationIntent>(
+                      onInvoke: (_) {
+                        unawaited(_showAddFriendDialog());
+                        return null;
+                      },
+                    ),
+                    _CloseWindowIntent: CallbackAction<_CloseWindowIntent>(
+                      onInvoke: (_) {
+                        if (PlatformUtils.isDesktop) {
+                          unawaited(windowManager.close());
+                        }
+                        return null;
+                      },
+                    ),
+                    _OpenSearchIntent: CallbackAction<_OpenSearchIntent>(
+                      onInvoke: (_) {
+                        // TODO: wire Cmd/Ctrl+F to open search overlay
+                        // — UIKit owns the search component registration;
+                        // there's no straightforward "show search" entry
+                        // point exposed by `search_pkg.CustomSearchManager`.
+                        return null;
+                      },
+                    ),
+                  },
+                  child: Focus(autofocus: true, child: content),
+                ),
+              );
+            }
             return content;
           },
         );
@@ -946,6 +952,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: BottomNavigationBar(
           currentIndex: _index,
           onTap: (i) {
+            if (i == _index) {
+              // Re-tap on the active tab — iOS/Android convention: scroll
+              // the active list back to the top.
+              // TODO: scroll-to-top on active tab re-tap — UIKit owns the
+              // conversation/contact list scroll controllers and doesn't
+              // expose them; wire this once we have a controller hook.
+              return;
+            }
             setState(() {
               _index = i;
             });
@@ -1044,6 +1058,138 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Build the central pane of the home page.
+  ///
+  /// When `showMasterDetail` is true (viewport >= 900pt), the active tab's
+  /// content sits in a 320pt fixed-width column on the left and a chat
+  /// detail pane fills the rest. When false, the IndexedStack fills the
+  /// entire pane (the historical phone/tablet behavior).
+  Widget _buildMainPane(
+    BuildContext context, {
+    required bool showMasterDetail,
+  }) {
+    final stack = IndexedStack(
+      index: _index,
+      children: _buildTabChildren(),
+    );
+
+    if (!showMasterDetail) {
+      return stack;
+    }
+
+    return Row(
+      children: [
+        SizedBox(width: 320, child: stack),
+        VerticalDivider(
+          width: 1,
+          thickness: 1,
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
+        Expanded(child: _buildChatDetailPane(context)),
+      ],
+    );
+  }
+
+  /// The IndexedStack children corresponding to the bottom-nav / sidebar
+  /// tabs. Extracted from the inline `build` because the master-detail
+  /// layout needs to reuse it inside a sized container.
+  List<Widget> _buildTabChildren() {
+    return [
+      ValueListenableBuilder<Locale>(
+        valueListenable: AppLocale.locale,
+        builder: (context, locale, _) {
+          // Delay setLocale to avoid calling setState during build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            try {
+              TencentCloudChatIntl().setLocale(locale);
+            } catch (_) {}
+          });
+          return TencentCloudChatConversation(
+            key: ValueKey('uikit-conversation-${locale.languageCode}'),
+          );
+        },
+      ),
+      ValueListenableBuilder<Locale>(
+        valueListenable: AppLocale.locale,
+        builder: (context, locale, _) {
+          // Delay setLocale to avoid calling setState during build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            try {
+              TencentCloudChatIntl().setLocale(locale);
+            } catch (_) {}
+          });
+          return ValueListenableBuilder<ThemeMode>(
+            valueListenable: AppTheme.mode,
+            builder: (context, themeMode, __) {
+              return Stack(
+                children: [
+                  TencentCloudChatThemeWidget(
+                    build: (context, themeColors, textStyles) {
+                      return TencentCloudChatContact(
+                        key: ValueKey(
+                            'uikit-contact-${locale.languageCode}-${themeMode.name}'),
+                      );
+                    },
+                  ),
+                  Positioned(
+                    top: AppSpacing.lg,
+                    right: AppSpacing.xl,
+                    // Right-edge SafeArea only — guards Dynamic Island /
+                    // right rounded corners on phones in landscape.
+                    child: SafeArea(
+                      left: false,
+                      top: false,
+                      bottom: false,
+                      child: NewEntryButton(
+                        onAddFriend: _showAddFriendDialog,
+                        onCreateGroup: _showAddGroupDialog,
+                        onJoinIrcChannel: _ircAppInstalled
+                            ? _showJoinIrcChannelDialog
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+      ValueListenableBuilder<Locale>(
+        valueListenable: AppLocale.locale,
+        builder: (context, locale, _) => ApplicationsPage(
+          key: ValueKey('applications-${locale.languageCode}'),
+          service: widget.service,
+        ),
+      ),
+      SettingsPage(
+        service: widget.service,
+        connectionStatusStream: widget.service.connectionStatusStream,
+        autoAcceptFriends: _autoAcceptFriends,
+        onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
+        autoAcceptGroupInvites: _autoAcceptGroupInvites,
+        onAutoAcceptGroupInvitesChanged: _setAutoAcceptGroupInvites,
+      ),
+    ];
+  }
+
+  /// Right-hand chat detail pane for the master-detail layout.
+  ///
+  /// UIKit currently owns the chat routing (the conversation list pushes
+  /// a chat route on tap), so on wide layouts we render a placeholder
+  /// empty state in the right pane while the layout pattern (fixed 320pt
+  /// list + flex chat) demonstrates how a future wired-up split would
+  /// behave.
+  // TODO: route tap to chat-detail pane via _sessionController
+  Widget _buildChatDetailPane(BuildContext context) {
+    return Center(
+      child: EmptyStateWidget(
+        icon: Icons.chat_bubble_outline,
+        title: AppLocalizations.of(context)!.selectConversationEmptyState,
       ),
     );
   }
@@ -1400,7 +1546,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // Check if app is installed
     if (!ircAppManager.isInstalled) {
       final appL10n = AppLocalizations.of(context)!;
-      _showSnackBar(appL10n.ircAppNotInstalled);
+      _showErrorSnackBar(appL10n.ircAppNotInstalled);
       return;
     }
 
@@ -1423,18 +1569,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _showSnackBar(appL10n.ircChannelAdded(result.channel));
       } else {
         final appL10n = AppLocalizations.of(context)!;
-        _showSnackBar(appL10n.ircChannelAddFailed);
+        _showErrorSnackBar(appL10n.ircChannelAddFailed);
       }
     } catch (e) {
       final appL10n = AppLocalizations.of(context);
-      _showSnackBar('${appL10n?.failed ?? 'Failed'}: $e');
+      _showErrorSnackBar('${appL10n?.failed ?? 'Failed'}: $e');
     }
   }
 
   void _showSnackBar(String message) {
     final ctx = _scaffoldMessengerContext;
     if (ctx == null) return;
-    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(message)));
+    AppSnackBar.show(ctx, message);
+  }
+
+  /// Error-styled snackbar variant for failure paths (friend request
+  /// failed, IRC join failed, etc). Backed by the same AppSnackBar helper
+  /// so it picks up the central error color + 4s duration.
+  void _showErrorSnackBar(String message) {
+    final ctx = _scaffoldMessengerContext;
+    if (ctx == null) return;
+    AppSnackBar.showError(ctx, message);
   }
 
   Future<void> _showMessageReceiversDialog(BuildContext context, String msgID, String groupID) async {
@@ -1506,6 +1661,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Desktop keyboard shortcut intents
+// ---------------------------------------------------------------------------
+// Each intent is a marker type — the matching `CallbackAction` lives inline
+// in `HomePage.build` so it can close over local state (`setState`,
+// `_showAddFriendDialog`, etc.).
+class _OpenSettingsIntent extends Intent {
+  const _OpenSettingsIntent();
+}
+
+class _NewConversationIntent extends Intent {
+  const _NewConversationIntent();
+}
+
+class _CloseWindowIntent extends Intent {
+  const _CloseWindowIntent();
+}
+
+class _OpenSearchIntent extends Intent {
+  const _OpenSearchIntent();
 }
 
 /// Top section of the mobile drawer — avatar + nickname + connection status.

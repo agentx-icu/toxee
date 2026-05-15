@@ -38,7 +38,6 @@ class ResponsiveScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMobile = ResponsiveLayout.isMobile(context);
-    final isTablet = ResponsiveLayout.isTablet(context);
     final isDesktop = ResponsiveLayout.isDesktop(context);
 
     // On mobile, use bottom navigation if provided
@@ -74,7 +73,7 @@ class ResponsiveScaffold extends StatelessWidget {
       appBar: effectiveAppBar,
       drawer: effectiveDrawer,
       endDrawer: endDrawer,
-      body: _buildBody(context, isMobile, isTablet, isDesktop),
+      body: _buildBody(context, isMobile, isDesktop),
       floatingActionButton: floatingActionButton,
       floatingActionButtonLocation: floatingActionButtonLocation,
       bottomNavigationBar: effectiveBottomNav,
@@ -84,18 +83,22 @@ class ResponsiveScaffold extends StatelessWidget {
     );
   }
 
-  Widget _buildBody(BuildContext context, bool isMobile, bool isTablet, bool isDesktop) {
-    // Apply responsive padding
-    final padding = ResponsiveLayout.responsivePadding(context);
+  Widget _buildBody(BuildContext context, bool isMobile, bool isDesktop) {
+    // Horizontal-only padding — `SafeArea` (typically wrapping `body`) is
+    // already responsible for top/bottom insets. Doubling them up made the
+    // layout feel collapsed on small phones and produced uneven gutters
+    // around the appBar / bottom nav.
+    final horizontalPadding =
+        ResponsiveLayout.responsiveHorizontalPadding(context);
     final maxWidth = ResponsiveLayout.responsiveMaxWidth(context);
 
     Widget content = Padding(
-      padding: padding,
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       child: body,
     );
 
     // On desktop/tablet, center content with max width
-    if (maxWidth != null && (isTablet || isDesktop)) {
+    if (maxWidth != null && !isMobile) {
       content = Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth),

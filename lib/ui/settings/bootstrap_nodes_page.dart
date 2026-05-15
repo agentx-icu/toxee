@@ -6,6 +6,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/bootstrap_nodes.dart';
 import '../../util/lan_bootstrap_service.dart';
+import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
@@ -236,6 +237,22 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
   }
 
 
+  /// Returns [child] verbatim on desktop (no pull-to-refresh affordance there;
+  /// the AppBar already exposes a refresh IconButton); wraps in
+  /// [RefreshIndicator] otherwise.
+  Widget _wrapWithRefresh({
+    required bool isDesktop,
+    required Color color,
+    required Widget child,
+  }) {
+    if (isDesktop) return child;
+    return RefreshIndicator(
+      color: color,
+      onRefresh: _loadNodes,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appL10n = AppLocalizations.of(context)!;
@@ -269,9 +286,9 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
                       ],
                     ),
                   )
-                : RefreshIndicator(
+                : _wrapWithRefresh(
+                    isDesktop: PlatformUtils.isDesktop,
                     color: Theme.of(context).colorScheme.primary,
-                    onRefresh: _loadNodes,
                     child: ListView.builder(
                       padding: const EdgeInsets.all(AppSpacing.md),
                       itemCount: _nodes.length,

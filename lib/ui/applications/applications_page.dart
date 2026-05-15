@@ -11,6 +11,7 @@ import '../../sdk_fake/fake_uikit_core.dart';
 import '../../sdk_fake/fake_im.dart';
 import '../../sdk_fake/fake_models.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/platform_utils.dart';
 import 'irc_channel_dialog.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
@@ -414,6 +415,22 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     }
   }
 
+  /// Returns [child] verbatim on desktop (no pull-to-refresh affordance there;
+  /// the AppBar exposes a refresh button instead); wraps in [RefreshIndicator]
+  /// otherwise.
+  Widget _wrapWithRefresh({
+    required bool isDesktop,
+    required Color color,
+    required Widget child,
+  }) {
+    if (isDesktop) return child;
+    return RefreshIndicator(
+      color: color,
+      onRefresh: _loadAppState,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appL10n = AppLocalizations.of(context)!;
@@ -425,6 +442,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
           color: colorTheme.primaryTextColor,
           fontWeight: FontWeight.w600,
         );
+        // On desktop, pull-to-refresh has no affordance; expose a refresh
+        // IconButton in the AppBar instead and skip the RefreshIndicator wrap.
+        final isDesktop = PlatformUtils.isDesktop;
         return Scaffold(
           backgroundColor: colorTheme.surface,
           appBar: AppBar(
@@ -432,13 +452,21 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             backgroundColor: colorTheme.appBarBackgroundColor,
             foregroundColor: colorTheme.primaryTextColor,
             elevation: 0,
+            actions: [
+              if (isDesktop)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _loadAppState,
+                  tooltip: AppLocalizations.of(context)!.refresh,
+                ),
+            ],
           ),
           body: SafeArea(
             child: _isLoading
               ? const LoadingShimmer(itemCount: 6, itemHeight: 72)
-              : RefreshIndicator(
+              : _wrapWithRefresh(
+                  isDesktop: isDesktop,
                   color: colorTheme.primaryColor,
-                  onRefresh: _loadAppState,
                   child: ListView(
                     padding: const EdgeInsets.all(AppSpacing.lg),
                     children: [

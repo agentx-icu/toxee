@@ -188,7 +188,6 @@ class CallTopStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = ResponsiveLayout.responsiveFontSize(context);
     final padding = ResponsiveLayout.responsiveHorizontalPadding(context);
     final textTheme = Theme.of(context).textTheme;
 
@@ -207,9 +206,8 @@ class CallTopStatusBar extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: (textTheme.titleMedium ?? const TextStyle()).copyWith(
+                  style: textTheme.titleMedium?.copyWith(
                     color: _kCallForeground,
-                    fontSize: 16 * fontSize,
                     fontWeight: FontWeight.w600,
                   ),
                   maxLines: 1,
@@ -218,9 +216,8 @@ class CallTopStatusBar extends StatelessWidget {
                 if (subtitle != null && subtitle!.isNotEmpty)
                   Text(
                     subtitle!,
-                    style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+                    style: textTheme.bodySmall?.copyWith(
                       color: _kCallMutedForeground,
-                      fontSize: 13 * fontSize,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                     maxLines: 1,
@@ -309,7 +306,6 @@ class _CallDockButtonState extends State<_CallDockButton> {
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = ResponsiveLayout.responsiveFontSize(context);
     final textTheme = Theme.of(context).textTheme;
     final a = widget.action;
     final isDestructive = a.destructive;
@@ -410,9 +406,8 @@ class _CallDockButtonState extends State<_CallDockButton> {
           const SizedBox(height: AppSpacing.sm),
           Text(
             a.label,
-            style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+            style: textTheme.labelSmall?.copyWith(
               color: labelColor,
-              fontSize: 11 * fontSize,
               fontWeight: FontWeight.w500,
             ),
             maxLines: 2,
@@ -453,7 +448,6 @@ class CallIdentityStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = ResponsiveLayout.responsiveFontSize(context);
     final textTheme = Theme.of(context).textTheme;
 
     return Center(
@@ -464,9 +458,8 @@ class CallIdentityStage extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           Text(
             title,
-            style: (textTheme.headlineSmall ?? const TextStyle()).copyWith(
+            style: textTheme.headlineSmall?.copyWith(
               color: _kCallForeground,
-              fontSize: 22 * fontSize,
               fontWeight: FontWeight.w600,
               letterSpacing: -0.2,
             ),
@@ -478,9 +471,8 @@ class CallIdentityStage extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             Text(
               subtitle!,
-              style: (textTheme.bodyMedium ?? const TextStyle()).copyWith(
+              style: textTheme.bodyMedium?.copyWith(
                 color: _kCallMutedForeground,
-                fontSize: 14 * fontSize,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
               textAlign: TextAlign.center,
@@ -492,9 +484,8 @@ class CallIdentityStage extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(
               secondaryNote!,
-              style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
+              style: textTheme.bodySmall?.copyWith(
                 color: _kCallMutedForeground.withValues(alpha: 0.8),
-                fontSize: 12 * fontSize,
               ),
               textAlign: TextAlign.center,
             ),

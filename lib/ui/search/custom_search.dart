@@ -12,7 +12,6 @@ import '../widgets/loading_shimmer.dart';
 import 'package:tencent_cloud_chat_common/chat_sdk/components/tencent_cloud_chat_search_sdk.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
-import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
@@ -45,7 +44,7 @@ class _CustomSearchState extends State<CustomSearch> {
   List<V2TimFriendInfoResult> _contactsList = [];
   List<V2TimGroupInfo> _groupsList = [];
   List<V2TimConversation> _conversationFallbackList = [];
-  final isDesktop = TencentCloudChatScreenAdapter.deviceScreenType == DeviceScreenType.desktop;
+  bool _isDesktop(BuildContext context) => ResponsiveLayout.isDesktop(context);
   Timer? _debounceTimer;
   String? _errorMessage;
 
@@ -388,7 +387,7 @@ class _CustomSearchState extends State<CustomSearch> {
       TencentCloudChat.instance.dataInstance.conversation.currentTargetMessage = targetMessage;
     }
     if (TencentCloudChat.instance.dataInstance.basic.usedComponents.contains(TencentCloudChatComponentsEnum.message)) {
-      if (!isDesktop) {
+      if (!_isDesktop(context)) {
         navigateToMessage(
           context: context,
           options: TencentCloudChatMessageOptions(
@@ -420,11 +419,13 @@ class _CustomSearchState extends State<CustomSearch> {
                 if (widget.closeFunc != null)
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
                     onPressed: widget.closeFunc,
                   )
                 else
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 SizedBox(width: ResponsiveLayout.responsiveHorizontalPadding(context)),
@@ -483,11 +484,13 @@ class _CustomSearchState extends State<CustomSearch> {
                 if (widget.closeFunc != null)
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
                     onPressed: widget.closeFunc,
                   )
                 else
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 SizedBox(width: ResponsiveLayout.responsiveHorizontalPadding(context)),
@@ -671,6 +674,7 @@ class _CustomSearchState extends State<CustomSearch> {
           ),
           IconButton(
             icon: const Icon(Icons.close, size: 16),
+            tooltip: l10n.close,
             onPressed: () => setState(() => _errorMessage = null),
             // 44x44 minimum tap area for mobile (Apple HIG / Material 48dp).
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),

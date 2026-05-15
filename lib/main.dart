@@ -210,7 +210,10 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.2),
                   labelSmall: TextStyle(
-                      fontSize: 11,
+                      // 12pt floor for Material 3 (bottom-nav labels use
+                      // labelSmall — anything below 12 fails the legibility
+                      // bar on small phone screens).
+                      fontSize: 12,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.4),
                 ),
@@ -247,6 +250,17 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
                     borderRadius:
                         BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                   ),
+                ),
+                // Thin, always-visible scrollbars on desktop. Flutter still
+                // auto-hides on touch platforms unless a Scrollbar widget is
+                // explicitly wrapped, so this is desktop-friendly without
+                // breaking the mobile feel.
+                scrollbarTheme: ScrollbarThemeData(
+                  thumbVisibility: WidgetStateProperty.resolveWith(
+                      (states) => true),
+                  trackVisibility: WidgetStateProperty.all(false),
+                  thickness: WidgetStateProperty.all(6.0),
+                  radius: const Radius.circular(3.0),
                 ),
               ),
               darkTheme: ThemeData(
@@ -291,7 +305,10 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.2),
                   labelSmall: TextStyle(
-                      fontSize: 11,
+                      // 12pt floor for Material 3 (bottom-nav labels use
+                      // labelSmall — anything below 12 fails the legibility
+                      // bar on small phone screens).
+                      fontSize: 12,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 0.4),
                 ),
@@ -328,6 +345,17 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
                     borderRadius:
                         BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                   ),
+                ),
+                // Thin, always-visible scrollbars on desktop. Flutter still
+                // auto-hides on touch platforms unless a Scrollbar widget is
+                // explicitly wrapped, so this is desktop-friendly without
+                // breaking the mobile feel.
+                scrollbarTheme: ScrollbarThemeData(
+                  thumbVisibility: WidgetStateProperty.resolveWith(
+                      (states) => true),
+                  trackVisibility: WidgetStateProperty.all(false),
+                  thickness: WidgetStateProperty.all(6.0),
+                  radius: const Radius.circular(3.0),
                 ),
               ),
               themeMode: themeMode,

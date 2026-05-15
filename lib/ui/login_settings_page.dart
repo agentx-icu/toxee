@@ -24,6 +24,7 @@ class _LoginSettingsPageState extends State<LoginSettingsPage> {
         padding: EdgeInsets.only(left: horizontal),
         child: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),

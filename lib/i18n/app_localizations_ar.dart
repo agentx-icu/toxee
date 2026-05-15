@@ -1337,4 +1337,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String failedToImport(String error) {
     return 'Failed to import: $error';
   }
+
+  @override
+  String get selectConversationEmptyState => 'Select a conversation to start chatting';
+
+  @override
+  String get newConversationTooltip => 'New conversation';
 }

@@ -147,6 +147,7 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
                 onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.arrow_back_ios_rounded),
                 color: colorTheme.primaryColor,
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
               ),
             ),
             scrolledUnderElevation: 0.0,

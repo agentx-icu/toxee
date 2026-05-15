@@ -14,7 +14,9 @@ import '../util/prefs.dart';
 import '../util/app_theme_config.dart';
 import '../util/qr_card_generator.dart';
 import '../util/locale_controller.dart';
+import '../util/responsive_layout.dart';
 import '../i18n/app_localizations.dart';
+import 'widgets/app_snackbar.dart';
 
 /// Calculate text length where Chinese characters count as 1, and letters/numbers count as 0.5
 double _calculateTextLength(String text) {
@@ -82,8 +84,6 @@ class _ProfilePageState extends State<ProfilePage> {
   int _avatarVersion = 0;
   int _qrCardVersion = 0; // Version counter to force regeneration on refresh
   Locale? _lastLocale; // Track last locale to detect changes
-  final GlobalKey<ScaffoldMessengerState> _messengerKey =
-      GlobalKey<ScaffoldMessengerState>();
   String? _savedNickName; // Track saved nickname
   String? _savedStatusMessage; // Track saved status message
   String? _savedCardText; // Track saved card text
@@ -231,11 +231,12 @@ class _ProfilePageState extends State<ProfilePage> {
         _hasUnsavedChanges = false;
       });
       final tL10n = TencentCloudChatLocalizations.of(context);
-      _showSnack(tL10n?.saveContact ?? AppLocalizations.of(context)!.saved);
+      AppSnackBar.showSuccess(
+          context, tL10n?.saveContact ?? AppLocalizations.of(context)!.saved);
     } catch (e) {
       if (!mounted) return;
       final appL10n = AppLocalizations.of(context)!;
-      _showSnack(appL10n.failedToSave(e.toString()));
+      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
@@ -347,11 +348,12 @@ class _ProfilePageState extends State<ProfilePage> {
         avatarPath: _avatarPath,
       );
       if (!mounted) return;
-      _showSnack('${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath');
+      AppSnackBar.showSuccess(
+          context, '${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath');
     } catch (e) {
       if (!mounted) return;
       final appL10n = AppLocalizations.of(context)!;
-      _showSnack(appL10n.failedToSave(e.toString()));
+      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
     }
   }
 
@@ -407,11 +409,11 @@ class _ProfilePageState extends State<ProfilePage> {
       final imageClipboard = ImageClipboard();
       await imageClipboard.copyImage(path);
       if (!mounted) return;
-      _showSnack(appL10n.idCopiedToClipboard);
+      AppSnackBar.showSuccess(context, appL10n.idCopiedToClipboard);
     } catch (e) {
       if (!mounted) return;
       final appL10n = AppLocalizations.of(context)!;
-      _showSnack(appL10n.copyFailed(e.toString()));
+      AppSnackBar.showError(context, appL10n.copyFailed(e.toString()));
     }
   }
 
@@ -472,7 +474,7 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (!mounted) return;
       final appL10n = AppLocalizations.of(context)!;
-      _showSnack(appL10n.failedToUpdateAvatar(e.toString()));
+      AppSnackBar.showError(context, appL10n.failedToUpdateAvatar(e.toString()));
     }
   }
 
@@ -585,22 +587,10 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  void _showSnack(String message) {
-    _messengerKey.currentState?.hideCurrentSnackBar();
-    _messengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final tL10n = TencentCloudChatLocalizations.of(context);
     return ScaffoldMessenger(
-      key: _messengerKey,
       child: ValueListenableBuilder<Locale>(
         valueListenable: AppLocale.locale,
         builder: (context, locale, _) {
@@ -686,7 +676,9 @@ class _ProfilePageState extends State<ProfilePage> {
         final width = constraints.maxWidth.isFinite && constraints.maxWidth > 0
             ? constraints.maxWidth
             : contentWidth;
-        final isWide = width >= 640;
+        // Align two-column pivot with the project's mobile breakpoint so any
+        // non-mobile device gets the side-by-side profile layout.
+        final isWide = width >= ResponsiveLayout.mobileBreakpoint;
 
         // Main column children (everything except the QR section).
         final mainColumnChildren = <Widget>[
@@ -1030,7 +1022,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           await Clipboard.setData(
                               ClipboardData(text: widget.userId));
                           if (!mounted) return;
-                          _showSnack(copySuccessText);
+                          AppSnackBar.showSuccess(context, copySuccessText);
                         },
                       ),
                     ],

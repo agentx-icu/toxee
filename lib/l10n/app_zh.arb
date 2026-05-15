@@ -581,5 +581,7 @@
   "importNoFileSelected": "未选择文件",
   "importCancelled": "已取消",
   "importedAccountDefaultName": "已导入账号",
-  "failedToImport": "导入失败：{error}"
+  "failedToImport": "导入失败：{error}",
+  "selectConversationEmptyState": "选择一个会话开始聊天",
+  "newConversationTooltip": "新建会话"
 }
