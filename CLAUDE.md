@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common commands
 
+CI pins Flutter **3.29.0** stable (see `.github/workflows/analyze.yml`); match that locally to avoid analyzer/lint drift.
+
 Run all commands from the repo root.
 
 ```bash
@@ -75,9 +77,11 @@ Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.en.md`. Maintaine
 - `lib/call/` — TUICallKit integration, call overlay, in-call view, signaling effects listener. Talks to `Tim2ToxSdkPlatform`.
 - `lib/ui/` — pages and widgets (login, home, conversations, settings, Bootstrap). Mostly UIKit-driven.
 - `lib/util/` — `AppLogger`, `AccountService`, theme/locale controllers, Bootstrap node lists.
+- `lib/models/` — small shared value types (e.g. `AccountSummary`) used across startup, auth, and UI layers.
 - `lib/i18n/`, `lib/l10n/` — app localizations (UIKit has its own delegate; both are registered in `main.dart`).
 - `tool/` — `bootstrap_deps.dart` (the single source of truth for "what must happen before `flutter pub get`"), `check_complexity.dart`, `ci/` helpers used by GitHub Actions.
 - `third_party/` — vendored deps. `tim2tox` and `chat-uikit-flutter` are git submodules; the Tencent Cloud Chat SDK is fetched + patched into `pubspec_overrides.yaml` by the bootstrap tool. Never edit `third_party/` without understanding the patch flow (`doc/operations/PATCH_MAINTENANCE.en.md`).
+- `doc/` is the canonical documentation tree (architecture, integration, operations, reference). All new docs go here.
 
 ### Logging
 
