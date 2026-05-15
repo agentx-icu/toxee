@@ -2412,6 +2412,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Call quality'**
   String get callQualityLabel;
+
+  /// No description provided for @unreadMessagesSemantics.
+  String unreadMessagesSemantics(int count);
+
+  /// No description provided for @matchingMessagesSemantics.
+  String matchingMessagesSemantics(int count);
+
+  /// Online status label (title case).
+  String get statusOnline;
+
+  /// Offline status label (title case).
+  String get statusOffline;
+
+  /// No description provided for @noIrcChannels.
+  String get noIrcChannels;
+
+  /// No description provided for @joinChannelToGetStarted.
+  String get joinChannelToGetStarted;
+
+  /// No description provided for @ircUsersCount.
+  String ircUsersCount(int count);
+
+  /// No description provided for @ircNoUsers.
+  String get ircNoUsers;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

@@ -701,7 +701,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  'Users (${_channelUsers[channel]!.length})',
+                                                  appL10n.ircUsersCount(_channelUsers[channel]!.length),
                                                   style: theme.textTheme.labelLarge?.copyWith(
                                                     color: colorTheme.primaryTextColor,
                                                     fontWeight: FontWeight.w600,
@@ -731,7 +731,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                                             )
                                           else
                                             Text(
-                                              'No users',
+                                              appL10n.ircNoUsers,
                                               style: theme.textTheme.bodySmall?.copyWith(
                                                 color: colorTheme.secondaryTextColor,
                                               ),
@@ -741,10 +741,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                                     )),
                               ] else ...[
                                 AppSpacing.verticalLg,
-                                const EmptyStateWidget(
+                                EmptyStateWidget(
                                   icon: Icons.forum_outlined,
-                                  title: 'No IRC channels',
-                                  subtitle: 'Join a channel to get started',
+                                  title: appL10n.noIrcChannels,
+                                  subtitle: appL10n.joinChannelToGetStarted,
                                 ),
                               ],
                             ],

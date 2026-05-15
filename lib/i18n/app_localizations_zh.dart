@@ -1244,6 +1244,30 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get callQualityLabel => '通话质量';
+
+  @override
+  String unreadMessagesSemantics(int count) => '$count条未读消息';
+
+  @override
+  String matchingMessagesSemantics(int count) => '$count条匹配消息';
+
+  @override
+  String get statusOnline => '在线';
+
+  @override
+  String get statusOffline => '离线';
+
+  @override
+  String get noIrcChannels => '没有IRC频道';
+
+  @override
+  String get joinChannelToGetStarted => '加入频道开始使用';
+
+  @override
+  String ircUsersCount(int count) => '用户 ($count)';
+
+  @override
+  String get ircNoUsers => '暂无用户';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).

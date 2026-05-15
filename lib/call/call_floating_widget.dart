@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../i18n/app_localizations.dart';
+import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
 import 'call_state_notifier.dart';
 import 'ringing_call_manager.dart';
@@ -80,8 +81,8 @@ class _CallFloatingWidgetState extends State<CallFloatingWidget> {
         onTap: () => widget.callState.restore(),
         child: Material(
           elevation: 8,
-          borderRadius: BorderRadius.circular(12),
-          color: const Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+          color: AppThemeConfig.darkGradientEnd,
           child: SizedBox(
             width: widgetWidth,
             height: widgetHeight,

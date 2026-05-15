@@ -679,25 +679,17 @@ class _ProfilePageState extends State<ProfilePage> {
     final contentWidth =
         (screenWidth > 0 && screenWidth < 440) ? screenWidth - 32 : 440.0;
 
-    // Use optimal width for profile content; on narrow screens use available width
-    // Wrap in SingleChildScrollView to handle overflow
+    // Use optimal width for profile content; on narrow screens use available width.
+    // Wide screens use a two-column layout (info + QR side-by-side) to avoid scrolling.
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth.isFinite && constraints.maxWidth > 0
             ? constraints.maxWidth
             : contentWidth;
-        return SizedBox(
-          width: width,
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: (660.0)
-                    .clamp(400.0, MediaQuery.sizeOf(context).height - 120),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+        final isWide = width >= 640;
+
+        // Main column children (everything except the QR section).
+        final mainColumnChildren = <Widget>[
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1149,15 +1141,19 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                     AppSpacing.verticalMd,
                   ],
-                  // QR Code
-                  Center(
+        ];
+
+        // QR section, rendered standalone so it can be placed either on the
+        // right (wide) or appended at the bottom of the column (narrow).
+        final qrSection = Center(
                     child: LayoutBuilder(
                       builder: (context, qrConstraints) {
                         // Compute responsive QR dimensions preserving card aspect ratio (640:860)
                         final availWidth = qrConstraints.maxWidth.isFinite
                             ? qrConstraints.maxWidth
                             : 300.0;
-                        final qrWidth = (availWidth * 0.6).clamp(160.0, 280.0);
+                        final qrWidth =
+                            (availWidth * (isWide ? 0.85 : 0.6)).clamp(160.0, 260.0);
                         final qrHeight =
                             qrWidth * (860.0 / 640.0); // aspect ratio ~1.344
 
@@ -1267,8 +1263,44 @@ class _ProfilePageState extends State<ProfilePage> {
                         );
                       },
                     ),
+                  );
+
+        if (isWide) {
+          return SizedBox(
+            width: width,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: AppSpacing.lg),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: mainColumnChildren,
+                      ),
+                    ),
                   ),
-                ],
+                ),
+                SizedBox(width: 280, child: qrSection),
+              ],
+            ),
+          );
+        }
+
+        return SizedBox(
+          width: width,
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (660.0)
+                    .clamp(400.0, MediaQuery.sizeOf(context).height - 120),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [...mainColumnChildren, qrSection],
               ),
             ),
           ),

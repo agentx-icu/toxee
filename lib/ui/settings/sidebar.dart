@@ -166,7 +166,8 @@ class _UserAvatarState extends State<_UserAvatar> {
       context: context,
       builder: (dialogContext) {
         final size = MediaQuery.sizeOf(dialogContext);
-        final maxW = (size.width - 32).clamp(280.0, 500.0);
+        final isWide = size.width > 900;
+        final maxW = (size.width - 32).clamp(280.0, isWide ? 680.0 : 500.0);
         final maxH = (size.height - 100).clamp(400.0, 800.0);
         return Dialog(
           child: ClipRRect(
@@ -342,7 +343,9 @@ class _UserAvatarState extends State<_UserAvatar> {
                       ),
                       AppSpacing.verticalXs,
                       Text(
-                        isConnected ? 'Online' : 'Offline',
+                        isConnected
+                            ? (AppLocalizations.of(context)?.statusOnline ?? 'Online')
+                            : (AppLocalizations.of(context)?.statusOffline ?? 'Offline'),
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: isConnected
                               ? AppThemeConfig.successColor

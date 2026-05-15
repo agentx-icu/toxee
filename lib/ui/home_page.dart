@@ -39,12 +39,15 @@ import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart';
 import 'contact/contact_builder_override.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile.dart';
 import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
+import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../i18n/app_localizations.dart';
 import '../util/logger.dart';
 import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_contact_event_handlers.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_config.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_common_defines.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_layout/special_case/tencent_cloud_chat_message_no_chat.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_header/tencent_cloud_chat_message_header.dart' as msg_header;
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_utils.dart' as tcc_utils;
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_callback.dart';
@@ -961,9 +964,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           final displayText = totalUnreadCount > 99 ? "99+" : "$totalUnreadCount";
                           final isLargeText = displayText.length > 2;
                           return Semantics(
-                            // FOLLOWUP-L10N: needs a `unreadMessagesSemantics`
-                            // string in `lib/i18n/`; hardcoded for now.
-                            label: '$totalUnreadCount unread messages',
+                            label: AppLocalizations.of(context)!.unreadMessagesSemantics(totalUnreadCount),
                             container: true,
                             child: UnconstrainedBox(
                               child: Container(

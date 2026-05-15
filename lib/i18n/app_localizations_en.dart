@@ -1244,4 +1244,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get callQualityLabel => 'Call quality';
+
+  @override
+  String unreadMessagesSemantics(int count) => '$count unread messages';
+
+  @override
+  String matchingMessagesSemantics(int count) => '$count matching messages';
+
+  @override
+  String get statusOnline => 'Online';
+
+  @override
+  String get statusOffline => 'Offline';
+
+  @override
+  String get noIrcChannels => 'No IRC channels';
+
+  @override
+  String get joinChannelToGetStarted => 'Join a channel to get started';
+
+  @override
+  String ircUsersCount(int count) => 'Users ($count)';
+
+  @override
+  String get ircNoUsers => 'No users';
 }

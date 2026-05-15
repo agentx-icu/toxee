@@ -415,10 +415,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
                             if (count > 1) ...[
                               AppSpacing.horizontalSm,
                               Semantics(
-                                // FOLLOWUP-L10N: needs a
-                                // `matchingMessagesSemantics` string in
-                                // `lib/i18n/`; hardcoded for now.
-                                label: '$count matching messages',
+                                label: AppLocalizations.of(context)!.matchingMessagesSemantics(count),
                                 container: true,
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(

@@ -1250,5 +1250,40 @@
   "callQualityMedium": "Fair connection",
   "callQualityPoor": "Poor connection",
   "callQualityUnknown": "—",
-  "callQualityLabel": "Call quality"
+  "callQualityLabel": "Call quality",
+  "unreadMessagesSemantics": "{count} unread messages",
+  "@unreadMessagesSemantics": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "matchingMessagesSemantics": "{count} matching messages",
+  "@matchingMessagesSemantics": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "statusOnline": "Online",
+  "@statusOnline": {
+    "description": "Online status label (title case)"
+  },
+  "statusOffline": "Offline",
+  "@statusOffline": {
+    "description": "Offline status label (title case)"
+  },
+  "noIrcChannels": "No IRC channels",
+  "@noIrcChannels": {
+    "description": "Empty state title when no IRC channels are joined"
+  },
+  "joinChannelToGetStarted": "Join a channel to get started",
+  "@joinChannelToGetStarted": {
+    "description": "Empty state subtitle for IRC channels"
+  },
+  "ircUsersCount": "Users ({count})",
+  "@ircUsersCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "ircNoUsers": "No users"
 }
