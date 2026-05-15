@@ -14,6 +14,7 @@ import '../util/prefs.dart';
 import '../util/app_theme_config.dart';
 import '../util/qr_card_generator.dart';
 import '../util/locale_controller.dart';
+import '../util/logger.dart';
 import '../util/responsive_layout.dart';
 import '../i18n/app_localizations.dart';
 import 'widgets/app_snackbar.dart';
@@ -81,6 +82,9 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<String>? _qrCardFuture;
   String? _qrKey;
   String? _avatarPath;
+  // Cached `File(_avatarPath).existsSync()` result. Re-checking on every build
+  // hits the filesystem; we only need to verify when the path actually changes.
+  bool _avatarFileExists = false;
   int _avatarVersion = 0;
   int _qrCardVersion = 0; // Version counter to force regeneration on refresh
   Locale? _lastLocale; // Track last locale to detect changes
@@ -114,10 +118,13 @@ class _ProfilePageState extends State<ProfilePage> {
         return Prefs.getAvatarPath();
       }
 
-      loadPath().then((value) {
+      loadPath().then((value) async {
+        final exists =
+            value != null && value.isNotEmpty && await File(value).exists();
         if (mounted) {
           setState(() {
             _avatarPath = value;
+            _avatarFileExists = exists;
           });
         }
       });
@@ -363,25 +370,37 @@ class _ProfilePageState extends State<ProfilePage> {
     final currentStatus = _statusController.text.trim();
     final cardText = _cardTextController.text.trim();
 
-    // Save nickname and status if widget.onSave is available
-    if (widget.onSave != null &&
-        (currentNick != (_savedNickName ?? '') ||
-            currentStatus != (_savedStatusMessage ?? ''))) {
-      await widget.onSave!(
-        currentNick,
-        currentStatus,
-      );
-      _savedNickName = currentNick;
-      _savedStatusMessage = currentStatus;
-    }
+    try {
+      // Save nickname and status if widget.onSave is available
+      if (widget.onSave != null &&
+          (currentNick != (_savedNickName ?? '') ||
+              currentStatus != (_savedStatusMessage ?? ''))) {
+        await widget.onSave!(
+          currentNick,
+          currentStatus,
+        );
+        _savedNickName = currentNick;
+        _savedStatusMessage = currentStatus;
+      }
 
-    // Save card text
-    if (cardText.isNotEmpty) {
-      await Prefs.setCardText(cardText);
-    } else {
-      await Prefs.setCardText(null);
+      // Save card text
+      if (cardText.isNotEmpty) {
+        await Prefs.setCardText(cardText);
+      } else {
+        await Prefs.setCardText(null);
+      }
+      _savedCardText = cardText.isNotEmpty ? cardText : null;
+    } catch (e, st) {
+      AppLogger.logError(
+        '[ProfilePage] _handleRefreshCard save failed',
+        e,
+        st,
+      );
+      if (!mounted) return;
+      final appL10n = AppLocalizations.of(context)!;
+      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
+      return;
     }
-    _savedCardText = cardText.isNotEmpty ? cardText : null;
 
     // Invalidate QR card to force regeneration with latest values
     // Increment version to ensure key changes and QR card regenerates
@@ -465,6 +484,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         setState(() {
           _avatarPath = destPath;
+          _avatarFileExists = true;
           _avatarVersion++;
         });
       }
@@ -487,9 +507,13 @@ class _ProfilePageState extends State<ProfilePage> {
   }) {
     final scheme = Theme.of(context).colorScheme;
     const double size = 88;
-    final bool hasCustomAvatar = _avatarPath != null &&
-        _avatarPath!.isNotEmpty &&
-        File(_avatarPath!).existsSync();
+    final bool hasCustomAvatar =
+        _avatarPath != null && _avatarPath!.isNotEmpty && _avatarFileExists;
+    // 3× DPR target so the decoded image is sized for hi-DPI displays without
+    // wasting memory on full-res source files (typical avatar source is 1024+
+    // and we render at 88pt). 88 × 3 ≈ 264; round up to 270.
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheDim = (size * dpr).ceil();
 
     Widget avatar = Container(
       width: size,
@@ -511,6 +535,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
+                cacheWidth: cacheDim,
+                cacheHeight: cacheDim,
               ),
             )
           : Text(
@@ -535,8 +561,8 @@ class _ProfilePageState extends State<ProfilePage> {
     ];
 
     if (showOnlineDot) {
-      stackChildren.add(Positioned(
-        right: 2,
+      stackChildren.add(PositionedDirectional(
+        end: 2,
         bottom: 2,
         child: Container(
           width: 16,
@@ -553,8 +579,8 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     if (widget.isEditable) {
-      stackChildren.add(Positioned(
-        right: 0,
+      stackChildren.add(PositionedDirectional(
+        end: 0,
         bottom: 0,
         child: Material(
           color: Colors.transparent,
@@ -614,7 +640,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       .online, // Use widget.online as initial value to show correct status immediately
                   builder: (context, snapshot) {
                     final isConnected = snapshot.data ?? widget.online;
-                    if (snapshot.hasError) {}
+                    if (snapshot.hasError) {
+                      // Surface the error to AppLogger so silent-swallow
+                      // doesn't hide upstream connection-stream failures.
+                      AppLogger.logError(
+                        '[ProfilePage] connection status stream error',
+                        snapshot.error,
+                      );
+                    }
                     return _wrapContentScaffold(_buildContent(
                         context, colorTheme, tL10n, isConnected, locale));
                   },
@@ -641,6 +674,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildContent(BuildContext context, colorTheme, tL10n,
       bool isConnected, Locale locale) {
+    // Cache the theme lookup once per build — `_buildContent` referenced
+    // `Theme.of(context)` 20+ times, each of which walked the InheritedWidget
+    // chain.
+    final theme = Theme.of(context);
     final displayName = widget.isEditable
         ? _effectiveDisplayName
         : (widget.nickName?.isNotEmpty == true
@@ -707,7 +744,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     children: [
                                       Text(
                                         displayName,
-                                        style: Theme.of(context)
+                                        style: theme
                                             .textTheme
                                             .headlineSmall
                                             ?.copyWith(
@@ -718,7 +755,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                       AppSpacing.verticalXs,
                                       Text(
                                         statusText,
-                                        style: Theme.of(context)
+                                        style: theme
                                             .textTheme
                                             .bodyMedium
                                             ?.copyWith(
@@ -771,7 +808,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     borderRadius: BorderRadius.circular(
                                         AppThemeConfig.inputBorderRadius),
                                     borderSide: BorderSide(
-                                        color: Theme.of(context)
+                                        color: theme
                                             .colorScheme
                                             .outlineVariant),
                                   ),
@@ -812,7 +849,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     borderRadius: BorderRadius.circular(
                                         AppThemeConfig.inputBorderRadius),
                                     borderSide: BorderSide(
-                                        color: Theme.of(context)
+                                        color: theme
                                             .colorScheme
                                             .outlineVariant),
                                   ),
@@ -873,7 +910,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                                 AppThemeConfig
                                                     .buttonBorderRadius),
                                           ),
-                                          textStyle: Theme.of(context)
+                                          textStyle: theme
                                               .textTheme
                                               .labelLarge
                                               ?.copyWith(
@@ -927,7 +964,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     // can't distinguish the dot still read it.
                                     color: isConnected
                                         ? AppThemeConfig.successColor
-                                        : (Theme.of(context).brightness ==
+                                        : (theme.brightness ==
                                                 Brightness.dark
                                             ? AppThemeConfig
                                                 .secondaryTextColorDark
@@ -942,7 +979,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                   isConnected
                                       ? appL10n.statusOnline
                                       : appL10n.statusOffline,
-                                  style: Theme.of(context)
+                                  style: theme
                                       .textTheme
                                       .labelMedium
                                       ?.copyWith(
@@ -978,7 +1015,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             borderRadius: BorderRadius.circular(
                                 AppThemeConfig.buttonBorderRadius),
                           ),
-                          textStyle: Theme.of(context)
+                          textStyle: theme
                               .textTheme
                               .labelLarge
                               ?.copyWith(fontWeight: FontWeight.w600),
@@ -995,7 +1032,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: [
                       Text(
                         tL10n?.userID ?? 'User ID:',
-                        style: Theme.of(context)
+                        style: theme
                             .textTheme
                             .labelMedium
                             ?.copyWith(
@@ -1019,10 +1056,21 @@ class _ProfilePageState extends State<ProfilePage> {
                         icon: const Icon(Icons.copy_rounded, size: 16),
                         label: Text(tL10n?.copy ?? appL10n.copy),
                         onPressed: () async {
-                          await Clipboard.setData(
-                              ClipboardData(text: widget.userId));
-                          if (!mounted) return;
-                          AppSnackBar.showSuccess(context, copySuccessText);
+                          try {
+                            await Clipboard.setData(
+                                ClipboardData(text: widget.userId));
+                            if (!mounted) return;
+                            AppSnackBar.showSuccess(context, copySuccessText);
+                          } catch (e, st) {
+                            AppLogger.logError(
+                              '[ProfilePage] Failed to copy Tox ID to clipboard',
+                              e,
+                              st,
+                            );
+                            if (!mounted) return;
+                            AppSnackBar.showError(
+                                context, appL10n.copyFailed(e.toString()));
+                          }
                         },
                       ),
                     ],
@@ -1033,26 +1081,32 @@ class _ProfilePageState extends State<ProfilePage> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.md, vertical: AppSpacing.md),
                     decoration: BoxDecoration(
-                      color: Theme.of(context)
+                      color: theme
                           .colorScheme
                           .surfaceContainerHighest
                           .withValues(alpha: 0.4),
                       border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant),
+                          color: theme.colorScheme.outlineVariant),
                       borderRadius: BorderRadius.circular(
                           AppThemeConfig.inputBorderRadius),
                     ),
-                    child: SelectableText(
-                      widget.userId,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(
-                            fontFamily: 'monospace',
-                            color: colorTheme.primaryTextColor,
-                            letterSpacing: 0.2,
-                            height: 1.4,
-                          ),
+                    // Pin LTR so Arabic / Hebrew locales don't visually
+                    // reorder the hex Tox ID — the value itself is direction-
+                    // neutral data, not localized prose.
+                    child: Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: SelectableText(
+                        widget.userId,
+                        style: theme
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(
+                              fontFamily: 'monospace',
+                              color: colorTheme.primaryTextColor,
+                              letterSpacing: 0.2,
+                              height: 1.4,
+                            ),
+                      ),
                     ),
                   ),
                   AppSpacing.verticalMd,
@@ -1076,7 +1130,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     borderRadius: BorderRadius.circular(
                                         AppThemeConfig.inputBorderRadius),
                                     borderSide: BorderSide(
-                                        color: Theme.of(context)
+                                        color: theme
                                             .colorScheme
                                             .outlineVariant),
                                   ),
@@ -1107,7 +1161,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                       borderRadius: BorderRadius.circular(
                                           AppThemeConfig.buttonBorderRadius),
                                     ),
-                                    textStyle: Theme.of(context)
+                                    textStyle: theme
                                         .textTheme
                                         .labelLarge
                                         ?.copyWith(fontWeight: FontWeight.w600),
@@ -1137,7 +1191,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     vertical: AppSpacing.md),
                                 decoration: BoxDecoration(
                                   border: Border.all(
-                                      color: Theme.of(context)
+                                      color: theme
                                           .colorScheme
                                           .outlineVariant),
                                   borderRadius: BorderRadius.circular(
@@ -1152,7 +1206,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                                 .isNotEmpty
                                             ? _cardTextController.text.trim()
                                             : appL10n.scanQrCodeToAddContact,
-                                        style: Theme.of(context)
+                                        style: theme
                                             .textTheme
                                             .bodyMedium
                                             ?.copyWith(
@@ -1232,7 +1286,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             final outlinedStyle = OutlinedButton.styleFrom(
                               foregroundColor: colorTheme.primaryColor,
                               side: BorderSide(
-                                  color: Theme.of(context)
+                                  color: theme
                                       .colorScheme
                                       .outlineVariant),
                               shape: RoundedRectangleBorder(
@@ -1242,7 +1296,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: AppSpacing.lg,
                                   vertical: AppSpacing.sm),
-                              textStyle: Theme.of(context)
+                              textStyle: theme
                                   .textTheme
                                   .labelLarge
                                   ?.copyWith(fontWeight: FontWeight.w500),
@@ -1253,11 +1307,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                 Container(
                                   padding: const EdgeInsets.all(AppSpacing.sm),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context)
+                                    color: theme
                                         .colorScheme
                                         .surface,
                                     border: Border.all(
-                                        color: Theme.of(context)
+                                        color: theme
                                             .colorScheme
                                             .outlineVariant),
                                     borderRadius: BorderRadius.circular(
@@ -1317,7 +1371,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   flex: 2,
                   child: SingleChildScrollView(
                     child: Padding(
-                      padding: const EdgeInsets.only(right: AppSpacing.lg),
+                      padding: const EdgeInsetsDirectional.only(
+                          end: AppSpacing.lg),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,

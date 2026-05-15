@@ -179,7 +179,7 @@ class _RegisterPageState extends State<RegisterPage> {
         appBar: AppBar(
           leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
           leading: Padding(
-            padding: EdgeInsets.only(left: ResponsiveLayout.responsiveHorizontalPadding(context)),
+            padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
             child: IconButton(
               icon: const Icon(Icons.arrow_back),
               tooltip: MaterialLocalizations.of(context).backButtonTooltip,
@@ -327,6 +327,10 @@ class _RegisterPageState extends State<RegisterPage> {
                     AppSpacing.verticalLg,
                     ErrorBanner(
                       message: _error!,
+                      onRetry: () {
+                        setState(() => _error = null);
+                        _register();
+                      },
                       onDismiss: () => setState(() => _error = null),
                     ),
                   ],

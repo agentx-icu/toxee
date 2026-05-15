@@ -6,9 +6,11 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/bootstrap_nodes.dart';
 import '../../util/lan_bootstrap_service.dart';
+import '../../util/logger.dart';
 import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
 import '../../i18n/app_localizations.dart';
+import '../widgets/app_snackbar.dart';
 import '../widgets/section_header.dart';
 import 'bootstrap_nodes_page.dart';
 
@@ -122,7 +124,18 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         onlineNode.publicKey,
       );
       await _loadCurrentBootstrapNode();
-    } catch (_) {}
+    } catch (e, st) {
+      // Previously swallowed silently. Users hit "auto mode" and saw nothing
+      // happen on failure (e.g. nodes.tox.chat unreachable). Surface it.
+      AppLogger.logError(
+          '[BootstrapSettingsSection] _loadAndUseAutoNode failed', e, st);
+      if (!mounted) return;
+      // TODO(l10n): key=failedToLoadBootstrapNodes
+      AppSnackBar.showError(
+        context,
+        'Failed to load bootstrap nodes',
+      );
+    }
   }
 
   Future<void> _loadCurrentBootstrapNode() async {
@@ -356,6 +369,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
           content: Text(
             success
                 ? AppLocalizations.of(context)!.serviceRunning
+                // TODO(l10n): key=failedToStartBootstrapService
                 : 'Failed to start bootstrap service',
           ),
           backgroundColor: success
@@ -521,9 +535,14 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                     AppSpacing.horizontalSm,
                                     Text(
                                       '${_nodeLatency}ms',
+                                      // Tabular figures so latency numerics
+                                      // don't reflow as digits change width.
                                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                             color: secondaryTextColor,
                                             fontFamily: 'monospace',
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures(),
+                                            ],
                                           ),
                                     ),
                                   ],
@@ -820,9 +839,14 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                   AppSpacing.horizontalSm,
                                   Text(
                                     '${_manualNodeLatency}ms',
+                                    // Tabular figures keep the latency display
+                                    // from reflowing when the value updates.
                                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                                           color: secondaryTextColor,
                                           fontFamily: 'monospace',
+                                          fontFeatures: const [
+                                            FontFeature.tabularFigures(),
+                                          ],
                                         ),
                                   ),
                                 ],

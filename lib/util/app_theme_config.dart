@@ -138,6 +138,15 @@ class AppThemeConfig {
   /// Pre-baked hover surface on a dark scaffold — white @ 4%.
   static const Color hoverSurfaceDark = Color(0x0AFFFFFF);
 
+  /// Lock digit width on numeric Text so values like "9 → 10", "9:59 → 10:00",
+  /// "999 KB → 1.0 MB" don't reflow. Pair with any base TextStyle (typically
+  /// from Theme.of(context).textTheme).
+  static TextStyle numericStyle(TextStyle? base, {Color? color}) =>
+      (base ?? const TextStyle()).copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+        color: color,
+      );
+
   // ──────────────────────────────────────────────
   //  Spacing scale (4pt grid — for any new screens)
   // ──────────────────────────────────────────────

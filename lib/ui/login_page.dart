@@ -24,6 +24,15 @@ import '../util/app_bootstrap_coordinator.dart';
 import '../auth/login_use_case.dart';
 import 'login/login_page_controller.dart';
 
+/// Returns the appropriate trailing chevron for the current text direction.
+/// In LTR locales this is `chevron_right`; in RTL locales it flips to
+/// `chevron_left` so the affordance always points "forward" in reading order.
+IconData _trailingChevron(BuildContext context) {
+  return Directionality.of(context) == TextDirection.rtl
+      ? Icons.chevron_left
+      : Icons.chevron_right;
+}
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, this.loginUseCase});
 
@@ -637,7 +646,7 @@ class _LoginPageState extends State<LoginPage> {
                         // Saved accounts list (main content)
                         if (_accountList.isNotEmpty) ...[
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(
+                            padding: const EdgeInsetsDirectional.fromSTEB(
                                 AppSpacing.xs, 0, 0, AppSpacing.md),
                             child: Text(
                               AppLocalizations.of(context)!.savedAccounts,
@@ -663,12 +672,19 @@ class _LoginPageState extends State<LoginPage> {
                                       final now = DateTime.now();
                                       final difference = now.difference(dateTime);
 
+                                      // TODO(i18n): replace daysAgo/hoursAgo/minutesAgo with
+                                      // ICU {count, plural, ...} forms in next round. Passing
+                                      // an empty string for the {plural} placeholder so RTL/Arabic
+                                      // doesn't render a stray ASCII "s" inside the localized
+                                      // string. English degrades to "1 day ago / 2 day ago"
+                                      // (the singular "day" baked into the en string) until ICU
+                                      // plural support is wired up.
                                       if (difference.inDays > 0) {
-                                        return AppLocalizations.of(context)!.daysAgo(difference.inDays, difference.inDays > 1 ? 's' : '');
+                                        return AppLocalizations.of(context)!.daysAgo(difference.inDays, '');
                                       } else if (difference.inHours > 0) {
-                                        return AppLocalizations.of(context)!.hoursAgo(difference.inHours, difference.inHours > 1 ? 's' : '');
+                                        return AppLocalizations.of(context)!.hoursAgo(difference.inHours, '');
                                       } else if (difference.inMinutes > 0) {
-                                        return AppLocalizations.of(context)!.minutesAgo(difference.inMinutes, difference.inMinutes > 1 ? 's' : '');
+                                        return AppLocalizations.of(context)!.minutesAgo(difference.inMinutes, '');
                                       } else {
                                         return AppLocalizations.of(context)!.justNow;
                                       }
@@ -779,7 +795,7 @@ class _LoginPageState extends State<LoginPage> {
                                                   ),
                                                 ),
                                                 Icon(
-                                                  Icons.chevron_right,
+                                                  _trailingChevron(context),
                                                   size: 20,
                                                   color: Theme.of(context)
                                                       .iconTheme
@@ -796,6 +812,51 @@ class _LoginPageState extends State<LoginPage> {
                                   );
                                 }).toList(),
                                 AppSpacing.verticalMd,
+                        ],
+                        if (_accountList.isEmpty) ...[
+                          // First-run welcome: only shown to brand-new users
+                          // (no saved accounts). Returning users with cached
+                          // accounts skip this and go straight to the picker.
+                          Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 360),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.shield_outlined,
+                                    size: 56,
+                                    color: colorTheme.primaryColor,
+                                  ),
+                                  AppSpacing.verticalLg,
+                                  Text(
+                                    AppLocalizations.of(context)?.appTitle ?? 'toxee',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  AppSpacing.verticalLg,
+                                  Text(
+                                    // TODO(l10n): key=appTagline
+                                    'A private, peer-to-peer messenger',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          AppSpacing.verticalLg,
                         ],
                         _LoginActionCard(
                           icon: Icons.download_outlined,
@@ -821,7 +882,13 @@ class _LoginPageState extends State<LoginPage> {
                         if (_error != null)
                           Padding(
                             padding: const EdgeInsets.only(top: AppSpacing.md),
-                            child: ErrorBanner(message: _error!),
+                            child: ErrorBanner(
+                              message: _error!,
+                              onRetry: () {
+                                setState(() => _error = null);
+                                _login();
+                              },
+                            ),
                           ),
                       ],
                     ),
@@ -891,7 +958,7 @@ class _LoginActionCard extends StatelessWidget {
               ),
               const Spacer(),
               Icon(
-                Icons.chevron_right,
+                _trailingChevron(context),
                 size: 20,
                 color: Theme.of(context).iconTheme.color?.withValues(alpha: 0.4),
               ),

@@ -118,6 +118,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _autoAcceptGroupInvites = false;
   List<V2TimFriendApplication> _pendingFriendApps = [];
   bool _stickerPluginRegistered = false;
+  // Set the instant we enqueue a sticker-plugin postFrame callback, so back-
+  // to-back rebuilds before the callback fires don't queue duplicates.
+  bool _stickerPluginRegistrationScheduled = false;
   bool _textTranslatePluginRegistered = false;
   bool _soundToTextPluginRegistered = false;
   StreamSubscription? _msgSub;
@@ -153,6 +156,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _disposed = false;
   ContactBuilderOverrideHandle? _contactBuilderOverride;
   late final HomeSessionController _sessionController;
+  // Tracks the last computed `shouldShowMasterDetail` so we only schedule the
+  // UIKit `setConfigs(forceDesktopLayout: ...)` post-frame callback when the
+  // breakpoint actually crosses, instead of on every rebuild.
+  bool? _lastShouldShowMasterDetail;
 
   @override
   void initState() {
@@ -168,6 +175,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     // Session runtime (FakeUIKit, platform, CallServiceManager) via coordinator
     unawaited(_initAfterSessionReady());
+    // React to locale changes once, instead of scheduling a post-frame
+    // setLocale in every `build()`. Listener fires only on value change.
+    AppLocale.locale.addListener(_handleAppLocaleChanged);
+    _bag.add(() => AppLocale.locale.removeListener(_handleAppLocaleChanged));
     // Register conversation right-click handler — deferred to next frame so
     // UIKit's conversation event handlers singleton is wired up first (the
     // `setEventHandlers(onTapConversationItem: ...)` call lives in
@@ -216,6 +227,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Used by home_page_bootstrap.dart extension to call setState (avoids invalid_use_of_protected_member).
   void _bootstrapSetState(VoidCallback fn) {
     setState(fn);
+  }
+
+  /// Fires when `AppLocale.locale` actually changes — pushes the new locale
+  /// into UIKit's intl cache. Replaces the previous per-build post-frame
+  /// scheduling pattern in `build()`.
+  void _handleAppLocaleChanged() {
+    if (!mounted) return;
+    try {
+      TencentCloudChatIntl().setLocale(AppLocale.locale.value);
+    } catch (e, st) {
+      AppLogger.logError('[HomePage] Failed to update chat locale', e, st);
+    }
   }
 
   // Build "Add Friend" button widget for non-friends
@@ -289,11 +312,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _loadBootstrapServiceStatus() async {
     if (!mounted) return;
-    
+
     final running = await Prefs.getLanBootstrapServiceRunning();
     if (running) {
       final info = await LanBootstrapServiceManager.instance.getBootstrapServiceInfo();
-      if (mounted) {
+      if (!mounted) return;
+      // Only call setState if anything actually changed — this method is
+      // driven by a 2-second periodic timer; without the equality gate we
+      // were forcing a full HomePage rebuild every tick.
+      final newIp = info?.ip;
+      final newPort = info?.port;
+      if (running != _lanBootstrapServiceRunning ||
+          newIp != _lanBootstrapServiceIP ||
+          newPort != _lanBootstrapServicePort) {
         setState(() {
           _lanBootstrapServiceRunning = running;
           if (info != null) {
@@ -303,7 +334,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } else {
-      if (mounted) {
+      if (!mounted) return;
+      if (_lanBootstrapServiceRunning != false ||
+          _lanBootstrapServiceIP != null ||
+          _lanBootstrapServicePort != null) {
         setState(() {
           _lanBootstrapServiceRunning = false;
           _lanBootstrapServiceIP = null;
@@ -633,18 +667,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Keep UIKit intl in sync with app locale
+    // Keep UIKit intl in sync with app locale. `setLocale` itself is driven
+    // by `_handleAppLocaleChanged` (registered in initState) so it only fires
+    // on actual locale-value changes — not every build.
     try {
       TencentCloudChatIntl().init(context);
-      // Also force set to current app locale to update caches immediately
-      // Delay setLocale to avoid calling setState during build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        try {
-          TencentCloudChatIntl().setLocale(AppLocale.locale.value);
-        } catch (e, st) {
-          AppLogger.logError('[HomePage] Failed to update chat locale', e, st);
-        }
-      });
     } catch (e, st) {
       AppLogger.logError('[HomePage] Global adapter init failed', e, st);
     }
@@ -712,17 +739,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // breakpoint. UIKit only renders desktop-mode automatically on
             // "desktop platform"; `forceDesktopLayout` lets us opt wide
             // touch devices (e.g. iPad landscape) into the same split.
-            // Post-frame so we don't `setState`-during-build inside UIKit.
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              try {
-                TencentCloudChat.instance.dataInstance.conversation
-                    .conversationConfig
-                    .setConfigs(forceDesktopLayout: showMasterDetail);
-              } catch (_) {
-                // Config object may not exist yet on the very first frame
-                // (UIKit init is async); next layout pass will pick it up.
-              }
-            });
+            //
+            // Only schedule the post-frame callback when the value actually
+            // crosses the breakpoint — `build` runs on every `setState`, but
+            // `setConfigs` only needs to be called on threshold transitions.
+            if (showMasterDetail != _lastShouldShowMasterDetail) {
+              _lastShouldShowMasterDetail = showMasterDetail;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                try {
+                  TencentCloudChat.instance.dataInstance.conversation
+                      .conversationConfig
+                      .setConfigs(forceDesktopLayout: showMasterDetail);
+                } catch (_) {
+                  // Config object may not exist yet on the very first frame
+                  // (UIKit init is async); next layout pass will pick it up.
+                }
+              });
+            }
 
             Widget content = PopScope(
               canPop: false,
@@ -1093,6 +1126,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                             fontWeight: FontWeight.w600,
                                             height: 1.0,
                                             fontSize: 10,
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures(),
+                                            ],
                                           ),
                                       textAlign: TextAlign.center,
                                     ),
@@ -1153,12 +1189,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ValueListenableBuilder<Locale>(
         valueListenable: AppLocale.locale,
         builder: (context, locale, _) {
-          // Delay setLocale to avoid calling setState during build
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            try {
-              TencentCloudChatIntl().setLocale(locale);
-            } catch (_) {}
-          });
+          // `setLocale` is driven by the global locale listener installed in
+          // `initState` — no per-build scheduling needed here.
           return TencentCloudChatConversation(
             key: ValueKey('uikit-conversation-${locale.languageCode}'),
           );
@@ -1167,12 +1199,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ValueListenableBuilder<Locale>(
         valueListenable: AppLocale.locale,
         builder: (context, locale, _) {
-          // Delay setLocale to avoid calling setState during build
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            try {
-              TencentCloudChatIntl().setLocale(locale);
-            } catch (_) {}
-          });
           return ValueListenableBuilder<ThemeMode>(
             valueListenable: AppTheme.mode,
             builder: (context, themeMode, __) {
@@ -2109,6 +2135,9 @@ class _MobileDrawerItem extends StatelessWidget {
                                       color: Colors.white,
                                       fontWeight: FontWeight.w600,
                                       height: 1.0,
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
                                     ),
                                     textAlign: TextAlign.center,
                                   ),

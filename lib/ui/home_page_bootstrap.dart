@@ -434,6 +434,9 @@ extension _HomePageBootstrap on _HomePageState {
                                   color: scheme.onPrimary,
                                   fontWeight: FontWeight.w600,
                                   height: 1.0,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
                                 ),
                           ),
                         ],
@@ -477,8 +480,13 @@ extension _HomePageBootstrap on _HomePageState {
     AppLogger.debug('[HomePage] _buildHomePage: Setting current user info, selfId=$selfId');
     basic.updateCurrentUserInfo(userFullInfo: V2TimUserFullInfo(userID: selfId));
 
-    if (!_stickerPluginRegistered && selfId.isNotEmpty) {
+    if (!_stickerPluginRegistered &&
+        !_stickerPluginRegistrationScheduled &&
+        selfId.isNotEmpty) {
       AppLogger.debug('[HomePage] _buildHomePage: Scheduling sticker plugin registration, selfId=$selfId');
+      // Set the scheduled flag immediately so any rebuilds before the post-
+      // frame callback fires don't enqueue more callbacks.
+      _stickerPluginRegistrationScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           AppLogger.debug('[HomePage] _buildHomePage: PostFrameCallback executing, calling _tryRegisterStickerPlugin');
@@ -552,7 +560,9 @@ extension _HomePageBootstrap on _HomePageState {
     _msgSub = widget.service.messages.listen((m) {
       if (widget.service.selfId == m.fromUserId) return;
       if (!mounted) return;
-      _bootstrapSetState(() {});
+      // Note: no setState here — UIKit's own data layer drives unread badges
+      // and conversation rows via EventBus. The previous empty setState() was
+      // a no-op that forced a full HomePage rebuild every message.
       unawaited(_updateTray());
     });
     _bag.add(() => _msgSub?.cancel());
@@ -637,7 +647,8 @@ extension _HomePageBootstrap on _HomePageState {
           // Silently handle errors during async friend acceptance
         });
       }
-      if (mounted) _bootstrapSetState(() {});
+      // No setState — UIKit's contact data layer drives application-row UI;
+      // tray update still needs to fire on each apps event.
       unawaited(_updateTray());
     });
     _bag.add(() => _appsSub?.cancel());

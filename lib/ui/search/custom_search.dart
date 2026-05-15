@@ -509,6 +509,8 @@ class _CustomSearchState extends State<CustomSearch> {
       return EmptyStateWidget(
         icon: Icons.search,
         title: l10n.enterKeywordToSearch,
+        // TODO(l10n): key=searchHintBody
+        subtitle: 'Search contacts, groups, and messages',
       );
     }
 
@@ -525,6 +527,8 @@ class _CustomSearchState extends State<CustomSearch> {
             child: EmptyStateWidget(
               icon: Icons.search_off,
               title: l10n.noResultsFound,
+              // TODO(l10n): key=noResultsFoundHint
+              subtitle: 'Try a shorter keyword or check spelling',
             ),
           ),
         ],

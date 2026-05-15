@@ -21,7 +21,7 @@ class _LoginSettingsPageState extends State<LoginSettingsPage> {
     return AppBar(
       leadingWidth: 56 + horizontal,
       leading: Padding(
-        padding: EdgeInsets.only(left: horizontal),
+        padding: EdgeInsetsDirectional.only(start: horizontal),
         child: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,

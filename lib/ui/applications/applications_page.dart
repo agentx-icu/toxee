@@ -968,6 +968,11 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 icon: Icons.forum_outlined,
                 title: appL10n.noIrcChannels,
                 subtitle: appL10n.joinChannelToGetStarted,
+                action: ElevatedButton.icon(
+                  onPressed: _handleAddChannel,
+                  icon: const Icon(Icons.add),
+                  label: Text(appL10n.addIrcChannel),
+                ),
               ),
             ],
           ],

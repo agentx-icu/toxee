@@ -1256,10 +1256,10 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get statusOnline => 'Online';
+  String get statusOnline => 'متصل';
 
   @override
-  String get statusOffline => 'Offline';
+  String get statusOffline => 'غير متصل';
 
   @override
   String get noIrcChannels => 'No IRC channels';
@@ -1276,88 +1276,88 @@ class AppLocalizationsAr extends AppLocalizations {
   String get ircNoUsers => 'No users';
 
   @override
-  String get passwordVisibility => 'Toggle password visibility';
+  String get passwordVisibility => 'تبديل رؤية كلمة المرور';
 
   @override
-  String get nicknameHintExample => 'e.g. Alice';
+  String get nicknameHintExample => 'مثلاً: Alice';
 
   @override
-  String get callAudioRouteSystem => 'Audio route managed by system on this platform';
+  String get callAudioRouteSystem => 'يدير النظام مسار الصوت على هذه المنصة';
 
   @override
-  String get copyFullToxId => 'Copy full ID';
+  String get copyFullToxId => 'نسخ المعرّف الكامل';
 
   @override
-  String get themeSystem => 'System';
+  String get themeSystem => 'النظام';
 
   @override
-  String get themeLight => 'Light';
+  String get themeLight => 'فاتح';
 
   @override
-  String get themeDark => 'Dark';
+  String get themeDark => 'داكن';
 
   @override
-  String get idLabel => 'ID:';
+  String get idLabel => 'المعرّف:';
 
   @override
   String errorBannerLabel(String message) {
-    return 'Error: $message';
+    return 'خطأ: $message';
   }
 
   @override
   String searchResultContactSemantics(String name) {
-    return '$name, contact';
+    return '$name، جهة اتصال';
   }
 
   @override
   String searchResultGroupSemantics(String name) {
-    return '$name, group';
+    return '$name، مجموعة';
   }
 
   @override
   String searchResultMessageSemantics(String name) {
-    return '$name, message';
+    return '$name، رسالة';
   }
 
   @override
   String searchResultConversationSemantics(String name) {
-    return '$name, conversation';
+    return '$name، محادثة';
   }
 
   @override
-  String get importNoFileSelected => 'No file selected';
+  String get importNoFileSelected => 'لم يتم تحديد ملف';
 
   @override
-  String get importCancelled => 'Cancelled';
+  String get importCancelled => 'تم الإلغاء';
 
   @override
-  String get importedAccountDefaultName => 'Imported account';
+  String get importedAccountDefaultName => 'حساب مستورد';
 
   @override
   String failedToImport(String error) {
-    return 'Failed to import: $error';
+    return 'فشل الاستيراد: $error';
   }
 
   @override
-  String get selectConversationEmptyState => 'Select a conversation to start chatting';
+  String get selectConversationEmptyState => 'اختر محادثة لبدء الدردشة';
 
   @override
-  String get newConversationTooltip => 'New conversation';
+  String get newConversationTooltip => 'محادثة جديدة';
 
   @override
-  String get pinConversation => 'Pin';
+  String get pinConversation => 'تثبيت';
 
   @override
-  String get unpinConversation => 'Unpin';
+  String get unpinConversation => 'إلغاء التثبيت';
 
   @override
-  String get markConversationAsRead => 'Mark as read';
+  String get markConversationAsRead => 'وضع علامة كمقروء';
 
   @override
-  String get deleteConversationTitle => 'Delete conversation?';
+  String get deleteConversationTitle => 'حذف المحادثة؟';
 
   @override
   String deleteConversationBody(String name) {
-    return 'This will remove \"$name\" from your chat list. Message history stays on disk.';
+    return 'ستتم إزالة \"$name\" من قائمة الدردشة. سيبقى سجل الرسائل على القرص.';
   }
 }

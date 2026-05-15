@@ -54,6 +54,12 @@ class CallServiceManager implements CallOverlayManager {
   final ValueNotifier<CallUiNotice?> uiNotice = ValueNotifier(null);
   int _nextNoticeId = 0;
 
+  /// Active reconnect-window timer. When non-null, the call is currently in
+  /// the [CallUIState.reconnecting] state; the timer fires after a grace
+  /// period and tears the call down if recovery has not been observed.
+  Timer? _reconnectTimer;
+  static const Duration _reconnectGrace = Duration(seconds: 8);
+
   CallServiceManager(this._chatService, this._callState);
 
   bool get isInitialized => _initialized;
@@ -125,7 +131,54 @@ class CallServiceManager implements CallOverlayManager {
       }
       return false; // Friend not found → treat as offline
     } catch (_) {
-      return true; // Assume online if check fails
+      // Fail-closed: previously returned `true` to be permissive, but that
+      // causes outgoing calls to ring forever against unreachable peers when
+      // the friend list lookup transiently fails. Better UX is to surface the
+      // problem immediately than to leave the user staring at a dead ringer.
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reconnect handling
+  // ---------------------------------------------------------------------------
+
+  /// Mark the call as reconnecting and start the grace-period timer.
+  /// If [_reconnectGrace] elapses without [clearReconnecting] being called,
+  /// the call is force-ended.
+  ///
+  /// Public so callers (e.g. ToxAV quality/disconnect event listeners) can
+  /// drive the state from outside.
+  // TODO: wire to SDK reconnect events when c-toxcore exposes a discrete
+  // "transport down / re-establishing" callback. The ToxAV friend_call_state
+  // bitfield (toxav.h) does not currently distinguish "reconnecting" from
+  // "ended", so we expose this API for higher-level callers to drive.
+  void markReconnecting() {
+    if (_callState.state != CallUIState.inCall &&
+        _callState.state != CallUIState.reconnecting) {
+      return;
+    }
+    _callState.setState(CallUIState.reconnecting);
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(_reconnectGrace, () {
+      if (_callState.state == CallUIState.reconnecting) {
+        debugPrint(
+            '[CallServiceManager] reconnect grace expired, ending call');
+        _emitCallRecord('hangup');
+        _callState.endCall();
+        _cleanupNativeCall();
+      }
+      _reconnectTimer = null;
+    });
+  }
+
+  /// Cancel any pending reconnect timer and (optionally) move the call back
+  /// to [CallUIState.inCall]. Idempotent.
+  void clearReconnecting() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    if (_callState.state == CallUIState.reconnecting) {
+      _callState.setState(CallUIState.inCall);
     }
   }
 
@@ -311,8 +364,11 @@ class CallServiceManager implements CallOverlayManager {
       _ringtone.stop();
       _audioHandler.stop();
       _videoHandler.stop();
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
       // Emit call record before clearing state
-      if (_callState.state == CallUIState.inCall) {
+      if (_callState.state == CallUIState.inCall ||
+          _callState.state == CallUIState.reconnecting) {
         _emitCallRecord('hangup');
       } else if (_callState.state == CallUIState.ringing) {
         _emitCallRecord(_callState.direction == CallDirection.outgoing
@@ -333,6 +389,9 @@ class CallServiceManager implements CallOverlayManager {
         _ringtone.stop();
         _callState.enterCall();
         _startMediaCapture(friendNumber);
+      } else if (_callState.state == CallUIState.reconnecting) {
+        // Media is flowing again — recover from reconnecting state.
+        clearReconnecting();
       }
     }
   }
@@ -605,6 +664,8 @@ class CallServiceManager implements CallOverlayManager {
     _ringtone.dispose();
     _audioHandler.stop();
     _videoHandler.stop();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     uiNotice.dispose();
     _audioPlatformSub?.cancel();
     unawaited(_callAudioPlatform.dispose());

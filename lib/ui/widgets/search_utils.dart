@@ -16,7 +16,16 @@ class SearchUtils {
     if (isLocalFile) {
       try {
         final path = url.startsWith('file://') ? url.substring(7) : url;
-        return CircleAvatar(backgroundImage: FileImage(File(path)));
+        // Wrap in ResizeImage so the decoded raster is sized for a small
+        // search-row avatar — `CircleAvatar.backgroundImage` doesn't expose
+        // cacheWidth/cacheHeight directly. 96px covers up to 32pt @ 3× DPR.
+        return CircleAvatar(
+          backgroundImage: ResizeImage(
+            FileImage(File(path)),
+            width: 96,
+            height: 96,
+          ),
+        );
       } catch (_) {
         return CircleAvatar(child: defaultChild);
       }

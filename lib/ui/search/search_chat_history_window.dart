@@ -228,7 +228,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
                   ),
                 ),
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.arrow_forward, size: 20),
+                  icon: const Icon(Icons.search, size: 20),
                   tooltip: l10n.searchHint,
                   onPressed: () => _applySearchFromField(),
                 ),

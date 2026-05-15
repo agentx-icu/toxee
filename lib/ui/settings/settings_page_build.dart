@@ -64,6 +64,70 @@ extension _SettingsPageBuild on _SettingsPageState {
                   ],
                 ),
                 AppSpacing.verticalMd,
+                // Prominent Tox ID row: pushes the truncated ID and a copy
+                // affordance above the action buttons so new users can grab
+                // their ID without expanding the account card below.
+                _HoverableSettingsRow(
+                  child: Builder(builder: (context) {
+                    final toxId =
+                        _currentAccountToxId ?? widget.service.selfId;
+                    final prefix = _getToxIdPrefix(toxId);
+                    return Row(
+                      children: [
+                        Icon(
+                          Icons.fingerprint,
+                          size: 18,
+                          color: colorTheme.secondaryTextColor,
+                        ),
+                        AppSpacing.horizontalSm,
+                        Text(
+                          '${AppLocalizations.of(context)!.userId}:',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colorTheme.secondaryTextColor,
+                              ),
+                        ),
+                        AppSpacing.horizontalSm,
+                        // Tox IDs are hex — always render LTR so RTL UI does
+                        // not visually flip the prefix.
+                        Expanded(
+                          child: Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: Text(
+                              '$prefix…',
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    fontFamily: 'monospace',
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.copy_outlined, size: 18),
+                          tooltip: AppLocalizations.of(context)!.copyFullToxId,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () async {
+                            await Clipboard.setData(
+                                ClipboardData(text: toxId));
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(AppLocalizations.of(context)!
+                                    .idCopiedToClipboard),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  }),
+                ),
+                AppSpacing.verticalMd,
                 Wrap(
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.sm,

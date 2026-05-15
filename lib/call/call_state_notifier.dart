@@ -27,6 +27,7 @@ class CallStateNotifier extends ChangeNotifier {
   Timer? _endedResetTimer;
   bool _isMinimized = false;
   Offset _floatingPosition = const Offset(16, 80);
+  CallQuality _callQuality = CallQuality.unknown;
 
   CallUIState get state => _state;
   CallMode get mode => _mode;
@@ -41,8 +42,27 @@ class CallStateNotifier extends ChangeNotifier {
   bool get isMinimized => _isMinimized;
   Offset get floatingPosition => _floatingPosition;
 
-  /// Call quality for in-call indicator. Defaults to [CallQuality.unknown]; wire from AV layer when available.
-  CallQuality get callQuality => CallQuality.unknown;
+  /// Call quality for in-call indicator. Defaults to [CallQuality.unknown];
+  /// CallServiceManager pushes updates via [setCallQuality] from AV-layer events.
+  CallQuality get callQuality => _callQuality;
+
+  /// Update the call-quality indicator. Safe to call from any state — UI
+  /// observers re-render only when the value actually changes.
+  void setCallQuality(CallQuality q) {
+    if (_callQuality == q) return;
+    _callQuality = q;
+    _safeNotifyListeners();
+  }
+
+  /// Push a UI-level call state from outside (e.g. SDK reconnect/recovery
+  /// events). Most transitions still go through dedicated methods like
+  /// [startRinging] / [enterCall] / [endCall]; this is intended for the
+  /// reconnecting intermediate state.
+  void setState(CallUIState state) {
+    if (_state == state) return;
+    _state = state;
+    _safeNotifyListeners();
+  }
 
   /// True when the underlying transport is briefly down mid-call — UI should
   /// surface a "Reconnecting…" affordance while we wait for recovery rather
@@ -100,6 +120,7 @@ class CallStateNotifier extends ChangeNotifier {
   void endCall() {
     _state = CallUIState.ended;
     _isMinimized = false;
+    _callQuality = CallQuality.unknown;
     _durationTimer?.cancel();
     _endedResetTimer?.cancel();
     _safeNotifyListeners();

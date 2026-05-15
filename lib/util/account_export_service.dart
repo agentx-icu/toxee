@@ -10,6 +10,17 @@ import 'app_paths.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'logger.dart';
 
+/// Thrown by [AccountExportService.importAccountData] and
+/// [AccountExportService.importFullBackup] when the source file is encrypted
+/// and no password was supplied. Lets callers branch on a typed exception
+/// instead of fragile string-matching the message.
+class PasswordRequiredException implements Exception {
+  const PasswordRequiredException([this.message = 'Password required for encrypted .tox file']);
+  final String message;
+  @override
+  String toString() => 'PasswordRequiredException: $message';
+}
+
 /// Account export/import service for .tox file format (compatible with qTox)
 class AccountExportService {
   // TOX_PASS_ENCRYPTION_EXTRA_LENGTH constant (80 bytes)
@@ -33,36 +44,43 @@ class AccountExportService {
 
     // Normalize toxId (trim whitespace, ensure consistent format)
     final normalizedToxId = toxId.trim();
-    print('Export: Looking for account with toxId: "$normalizedToxId" (length: ${normalizedToxId.length})');
+    AppLogger.log(
+        '[AccountExportService] Export: Looking for account with toxId: "$normalizedToxId" (length: ${normalizedToxId.length})');
 
     // Get account info - Prefs.getAccountByToxId now handles normalization
     var account = await Prefs.getAccountByToxId(normalizedToxId);
     
     // If not found, try to get from account list and find by partial match
     if (account == null) {
-      print('Export: Account not found by getAccountByToxId, checking account list manually...');
+      AppLogger.log(
+          '[AccountExportService] Export: Account not found by getAccountByToxId, checking account list manually...');
       final allAccounts = await Prefs.getAccountList();
-      print('Export: Found ${allAccounts.length} accounts in list');
+      AppLogger.log(
+          '[AccountExportService] Export: Found ${allAccounts.length} accounts in list');
       for (final acc in allAccounts) {
         final accToxId = acc['toxId']?.trim() ?? '';
-        print('Export: Checking account: toxId="$accToxId" (length: ${accToxId.length}), nickname="${acc['nickname']}"');
+        AppLogger.log(
+            '[AccountExportService] Export: Checking account: toxId="$accToxId" (length: ${accToxId.length}), nickname="${acc['nickname']}"');
         // Try exact match
         if (accToxId == normalizedToxId) {
           account = acc;
-          print('Export: Found account by exact match');
+          AppLogger.log(
+              '[AccountExportService] Export: Found account by exact match');
           break;
         }
         // Try case-insensitive match
         if (accToxId.toLowerCase() == normalizedToxId.toLowerCase()) {
           account = acc;
-          print('Export: Found account by case-insensitive match');
+          AppLogger.log(
+              '[AccountExportService] Export: Found account by case-insensitive match');
           break;
         }
         // Try partial match (first 64 chars, as toxId might be longer)
         if (accToxId.length >= 64 && normalizedToxId.length >= 64) {
           if (accToxId.substring(0, 64) == normalizedToxId.substring(0, 64)) {
             account = acc;
-            print('Export: Found account by partial match (first 64 chars)');
+            AppLogger.log(
+                '[AccountExportService] Export: Found account by partial match (first 64 chars)');
             break;
           }
         }
@@ -71,11 +89,12 @@ class AccountExportService {
     
     // If still not found, try to create account data from current session
     if (account == null) {
-      print('Export: Account still not found, attempting to create from current session data...');
+      AppLogger.log(
+          '[AccountExportService] Export: Account still not found, attempting to create from current session data...');
       // Try to get nickname and status from Prefs (backward compatibility)
       final nickname = await Prefs.getNickname();
       final statusMessage = await Prefs.getStatusMessage();
-      
+
       if (nickname != null && nickname.isNotEmpty) {
         // Create account data from current session
         account = {
@@ -87,7 +106,8 @@ class AccountExportService {
           'notificationSoundEnabled': 'true',
           'lastLoginTime': DateTime.now().toIso8601String(),
         };
-        print('Export: Created account data from current session: nickname="$nickname"');
+        AppLogger.log(
+            '[AccountExportService] Export: Created account data from current session: nickname="$nickname"');
       } else {
         // Last resort: create minimal account data
         account = {
@@ -99,10 +119,12 @@ class AccountExportService {
           'notificationSoundEnabled': 'true',
           'lastLoginTime': DateTime.now().toIso8601String(),
         };
-        print('Export: Created minimal account data');
+        AppLogger.log(
+            '[AccountExportService] Export: Created minimal account data');
       }
     } else {
-      print('Export: Found account: nickname="${account['nickname']}"');
+      AppLogger.log(
+          '[AccountExportService] Export: Found account: nickname="${account['nickname']}"');
     }
     
     final nickname = account['nickname'] ?? '';
@@ -125,7 +147,8 @@ class AccountExportService {
       if (toxProfileData.isEmpty) {
         throw Exception('Tox profile file is empty');
       }
-      print('Export: Read tox profile from $resolvedPath: ${toxProfileData.length} bytes');
+      AppLogger.log(
+          '[AccountExportService] Export: Read tox profile from $resolvedPath: ${toxProfileData.length} bytes');
     } catch (e, stackTrace) {
       AppLogger.logError('Export: Error reading tox profile file', e, stackTrace);
       rethrow;
@@ -134,7 +157,7 @@ class AccountExportService {
     // Encrypt if password is provided
     Uint8List finalData;
     if (password != null && password.isNotEmpty) {
-      print('Export: Encrypting with password...');
+      AppLogger.log('[AccountExportService] Export: Encrypting with password...');
       try {
         final ffiLib = Tim2ToxFfi.open();
         final passwordBytes = utf8.encode(password);
@@ -162,7 +185,8 @@ class AccountExportService {
           }
           
           finalData = Uint8List.sublistView(ciphertextPtr.asTypedList(encryptedLen));
-          print('Export: Encrypted to ${finalData.length} bytes');
+          AppLogger.log(
+              '[AccountExportService] Export: Encrypted to ${finalData.length} bytes');
         } finally {
           pkgffi.malloc.free(plaintextPtr);
           pkgffi.malloc.free(ciphertextPtr);
@@ -174,7 +198,8 @@ class AccountExportService {
       }
     } else {
       finalData = toxProfileData;
-      print('Export: No encryption, using plain profile');
+      AppLogger.log(
+          '[AccountExportService] Export: No encryption, using plain profile');
     }
 
     // Determine file path
@@ -206,7 +231,8 @@ class AccountExportService {
       }
       
       await exportFile.writeAsBytes(finalData);
-      print('Account export successful: $finalFilePath (${finalData.length} bytes)');
+      AppLogger.log(
+          '[AccountExportService] Account export successful: $finalFilePath (${finalData.length} bytes)');
       return finalFilePath;
     } catch (e, stackTrace) {
       AppLogger.logError('Error writing export file: Target path: $finalFilePath', e, stackTrace);
@@ -235,7 +261,8 @@ class AccountExportService {
       throw Exception('File is empty');
     }
 
-    print('Import: Read file: ${fileData.length} bytes');
+    AppLogger.log(
+        '[AccountExportService] Import: Read file: ${fileData.length} bytes');
 
     // Check if encrypted
     bool isEncrypted = false;
@@ -256,13 +283,14 @@ class AccountExportService {
       }
     }
 
-    print('Import: File is ${isEncrypted ? "encrypted" : "not encrypted"}');
+    AppLogger.log(
+        '[AccountExportService] Import: File is ${isEncrypted ? "encrypted" : "not encrypted"}');
 
     // Decrypt if encrypted
     Uint8List decryptedData;
     if (isEncrypted) {
       if (password == null || password.isEmpty) {
-        throw Exception('Password required for encrypted .tox file');
+        throw const PasswordRequiredException();
       }
 
       try {
@@ -292,7 +320,8 @@ class AccountExportService {
           }
           
           decryptedData = Uint8List.sublistView(plaintextPtr.asTypedList(decryptedLen));
-          print('Import: Decrypted to ${decryptedData.length} bytes');
+          AppLogger.log(
+              '[AccountExportService] Import: Decrypted to ${decryptedData.length} bytes');
         } finally {
           pkgffi.malloc.free(ciphertextPtr);
           pkgffi.malloc.free(plaintextPtr);
@@ -337,7 +366,7 @@ class AccountExportService {
         }
         
         toxId = toxIdBuffer.cast<pkgffi.Utf8>().toDartString(length: toxIdLen);
-        print('Import: Extracted toxId: $toxId');
+        AppLogger.log('[AccountExportService] Import: Extracted toxId: $toxId');
         
         if (passphrasePtr != null) {
           pkgffi.malloc.free(passphrasePtr);
@@ -604,6 +633,12 @@ class AccountExportService {
 
     // 5. Encode archive to ZIP
     final zipData = ZipEncoder().encode(archive);
+    // Defensive guard: surface a clean error if encoding produced nothing,
+    // so callers don't silently write a zero-byte backup file.
+    // ignore: unnecessary_null_comparison
+    if (zipData == null || zipData.isEmpty) {
+      throw Exception('Export produced empty archive');
+    }
 
     // 6. Determine file path
     String finalFilePath;

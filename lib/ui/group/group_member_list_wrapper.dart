@@ -5,6 +5,7 @@ import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.d
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_group_member_list.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/responsive_layout.dart';
+import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
 
 class GroupMemberListWrapper extends StatefulWidget {
@@ -142,7 +143,8 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
           appBar: AppBar(
             leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
             leading: Padding(
-              padding: EdgeInsets.only(left: ResponsiveLayout.responsiveHorizontalPadding(context)),
+              // EdgeInsetsDirectional so the back-button gutter flips for RTL.
+              padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.arrow_back_ios_rounded),
@@ -154,6 +156,36 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
           ),
           body: const SafeArea(
             child: LoadingShimmer(itemCount: 10, itemHeight: 56),
+          ),
+        ),
+      );
+    }
+
+    // Empty-state guard: when both the freshly-loaded list and the
+    // widget-provided list are empty, UIKit's member list falls through to a
+    // blank panel. Render a real empty state instead.
+    if (_currentMemberList.isEmpty && widget.memberInfoList.isEmpty) {
+      return TencentCloudChatThemeWidget(
+        build: (context, colorTheme, textStyle) => Scaffold(
+          appBar: AppBar(
+            leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
+            leading: Padding(
+              padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_ios_rounded),
+                color: colorTheme.primaryColor,
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              ),
+            ),
+            scrolledUnderElevation: 0.0,
+          ),
+          body: const SafeArea(
+            child: EmptyStateWidget(
+              icon: Icons.group_outlined,
+              // TODO(l10n): key=noGroupMembers
+              title: 'No members yet',
+            ),
           ),
         ),
       );

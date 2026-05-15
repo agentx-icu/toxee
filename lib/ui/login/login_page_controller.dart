@@ -122,7 +122,11 @@ class LoginPageController {
             password: password,
           );
         } catch (e) {
-          if (e.toString().contains('Password required') ||
+          // Primary check: typed exception. Fallback string check kept as a
+          // defensive layer in case some lower-level error surface keeps the
+          // legacy `Exception('Password required …')` message.
+          if (e is PasswordRequiredException ||
+              e.toString().contains('Password required') ||
               e.toString().contains('password')) {
             password = await requestPassword();
             if (password == null) return const ImportFailure(ImportFailureKind.cancelled);
@@ -141,7 +145,8 @@ class LoginPageController {
             password: password,
           );
         } catch (e) {
-          if (e.toString().contains('Password required') ||
+          if (e is PasswordRequiredException ||
+              e.toString().contains('Password required') ||
               e.toString().contains('password')) {
             password = await requestPassword();
             if (password == null) return const ImportFailure(ImportFailureKind.cancelled);

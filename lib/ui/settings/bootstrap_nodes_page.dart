@@ -10,6 +10,7 @@ import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
+import '../../ui/widgets/empty_state_widget.dart';
 import '../../ui/widgets/loading_shimmer.dart';
 import '../../ui/widgets/stagger_list_item.dart';
 
@@ -273,17 +274,24 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
           child: _loading
             ? const LoadingShimmer(itemCount: 5, itemHeight: 56)
             : _error != null
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(_error!),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _loadNodes,
-                          child: Text(appL10n.retry),
-                        ),
-                      ],
+                ? EmptyStateWidget(
+                    icon: Icons.cloud_off,
+                    // TODO(l10n): key=failedToLoadNodes
+                    title: 'Failed to load nodes',
+                    subtitle: _error,
+                    action: ElevatedButton(
+                      onPressed: _loadNodes,
+                      child: Text(appL10n.retry),
+                    ),
+                  )
+                : _nodes.isEmpty
+                ? EmptyStateWidget(
+                    icon: Icons.dns_outlined,
+                    // TODO(l10n): key=noBootstrapNodes
+                    title: 'No bootstrap nodes',
+                    action: ElevatedButton(
+                      onPressed: _loadNodes,
+                      child: Text(appL10n.retry),
                     ),
                   )
                 : _wrapWithRefresh(

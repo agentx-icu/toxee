@@ -110,6 +110,9 @@ class _UserAvatar extends StatefulWidget {
 class _UserAvatarState extends State<_UserAvatar> {
   String? _nickname; // Used for avatar display
   String? _avatarPath;
+  // Cached existence check — refreshed on every avatar load so the build()
+  // path doesn't call `File.existsSync` every frame.
+  bool _avatarFileExists = false;
   int _avatarVersion = 0;
   StreamSubscription<String>? _avatarUpdatedSubscription;
   final _nickController = TextEditingController();
@@ -148,12 +151,15 @@ class _UserAvatarState extends State<_UserAvatar> {
     final nick = await Prefs.getNickname();
     final status = await Prefs.getStatusMessage();
     final avatar = await Prefs.getAvatarPath();
+    final exists =
+        avatar != null && avatar.isNotEmpty && await File(avatar).exists();
     if (mounted) {
       setState(() {
         _nickname = nick;
         if (nick != null) _nickController.text = nick;
         if (status != null) _statusController.text = status;
         _avatarPath = avatar;
+        _avatarFileExists = exists;
         _avatarVersion++;
       });
     }
@@ -211,9 +217,15 @@ class _UserAvatarState extends State<_UserAvatar> {
                           if (path != null && path.isNotEmpty) {
                             await FileImage(File(path)).evict();
                           }
+                          // Re-check existence on the new path so the avatar
+                          // existence cache stays accurate.
+                          final exists = path != null &&
+                              path.isNotEmpty &&
+                              await File(path).exists();
                           if (mounted) {
                             setState(() {
                               _avatarPath = path;
+                              _avatarFileExists = exists;
                               _avatarVersion++;
                             });
                           }
@@ -284,7 +296,7 @@ class _UserAvatarState extends State<_UserAvatar> {
                           backgroundColor: colorTheme.primaryColor,
                           child: _avatarPath != null &&
                                   _avatarPath!.isNotEmpty &&
-                                  File(_avatarPath!).existsSync()
+                                  _avatarFileExists
                               ? ClipOval(
                                   child: Image.file(
                                     File(_avatarPath!),
@@ -293,6 +305,11 @@ class _UserAvatarState extends State<_UserAvatar> {
                                     width: 56,
                                     height: 56,
                                     fit: BoxFit.cover,
+                                    // 56pt × 3× DPR = 168px raster — caps the
+                                    // decoded buffer instead of decoding the
+                                    // source avatar file at full resolution.
+                                    cacheWidth: 168,
+                                    cacheHeight: 168,
                                   ),
                                 )
                               : ClipOval(
@@ -494,6 +511,9 @@ class _SidebarItemState extends State<_SidebarItem> {
                                               fontWeight: FontWeight.w600,
                                               height: 1.0,
                                               fontSize: 10,
+                                              fontFeatures: const [
+                                                FontFeature.tabularFigures(),
+                                              ],
                                             ),
                                             textAlign: TextAlign.center,
                                           ),

@@ -725,5 +725,66 @@
   "callQualityMedium": "اتصال مقبول",
   "callQualityPoor": "اتصال ضعيف",
   "callQualityUnknown": "—",
-  "callQualityLabel": "جودة المكالمة"
+  "callQualityLabel": "جودة المكالمة",
+  "statusOnline": "متصل",
+  "statusOffline": "غير متصل",
+  "pinConversation": "تثبيت",
+  "unpinConversation": "إلغاء التثبيت",
+  "markConversationAsRead": "وضع علامة كمقروء",
+  "deleteConversationTitle": "حذف المحادثة؟",
+  "deleteConversationBody": "ستتم إزالة \"{name}\" من قائمة الدردشة. سيبقى سجل الرسائل على القرص.",
+  "@deleteConversationBody": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "selectConversationEmptyState": "اختر محادثة لبدء الدردشة",
+  "newConversationTooltip": "محادثة جديدة",
+  "themeSystem": "النظام",
+  "themeLight": "فاتح",
+  "themeDark": "داكن",
+  "passwordVisibility": "تبديل رؤية كلمة المرور",
+  "idLabel": "المعرّف:",
+  "errorBannerLabel": "خطأ: {message}",
+  "@errorBannerLabel": {
+    "placeholders": {
+      "message": {"type": "String"}
+    }
+  },
+  "importNoFileSelected": "لم يتم تحديد ملف",
+  "importCancelled": "تم الإلغاء",
+  "importedAccountDefaultName": "حساب مستورد",
+  "failedToImport": "فشل الاستيراد: {error}",
+  "@failedToImport": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "nicknameHintExample": "مثلاً: Alice",
+  "callAudioRouteSystem": "يدير النظام مسار الصوت على هذه المنصة",
+  "copyFullToxId": "نسخ المعرّف الكامل",
+  "searchResultContactSemantics": "{name}، جهة اتصال",
+  "@searchResultContactSemantics": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "searchResultGroupSemantics": "{name}، مجموعة",
+  "@searchResultGroupSemantics": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "searchResultMessageSemantics": "{name}، رسالة",
+  "@searchResultMessageSemantics": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "searchResultConversationSemantics": "{name}، محادثة",
+  "@searchResultConversationSemantics": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  }
 }
