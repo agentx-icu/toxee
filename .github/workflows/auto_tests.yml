@@ -1,0 +1,105 @@
+name: Tim2Tox Auto Tests (Virtual)
+
+# Runs a safe subset of the tim2tox auto_tests scenario suite in virtual-clock
+# mode (RUN_VIRTUAL=1) so PRs get fast feedback without DHT / wall-clock flake.
+#
+# Scope: Phase 1 (basic), Phase 4 (group), Phase 12 (other). ~17 tests, ~10-15
+# min wall time. Phases excluded on purpose:
+#   - Phase 5  (ToxAV): needs BUILD_TOXAV=ON; CI build_tim2tox.sh ships TOXAV=OFF
+#   - Phase 9  (conference): known flake
+#   - Phase 10 (group_ext): runtime > CI budget
+#   - Phase 11 (network/DHT): real-network dependent
+#
+# Trigger: PRs + pushes to main/master only. Ubuntu only to keep CI cost low.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  auto-tests-virtual:
+    name: auto_tests (virtual, phases 1+4+12)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Linux native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libsodium-dev
+
+      - name: Bootstrap dependencies
+        run: dart run tool/bootstrap_deps.dart
+
+      - name: Install toxee Flutter packages
+        run: flutter pub get
+
+      - name: Build libtim2tox_ffi.so (Linux)
+        run: bash tool/ci/build_tim2tox.sh --target linux --mode release
+
+      - name: Stage libtim2tox_ffi.so for runtime loader
+        id: stage_lib
+        run: |
+          set -euo pipefail
+          src_dir="$GITHUB_WORKSPACE/build/native-artifacts/linux"
+          if [[ ! -f "$src_dir/libtim2tox_ffi.so" ]]; then
+            echo "::error::libtim2tox_ffi.so not found under $src_dir"
+            ls -la "$src_dir" || true
+            exit 1
+          fi
+          # Tim2ToxFfi._openLinux() falls back to DynamicLibrary.open('libtim2tox_ffi.so'),
+          # which honours LD_LIBRARY_PATH. Export it for subsequent steps.
+          echo "LD_LIBRARY_PATH=$src_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "lib_dir=$src_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Install auto_tests Flutter packages
+        working-directory: third_party/tim2tox/auto_tests
+        run: flutter pub get
+
+      - name: Run auto_tests (RUN_VIRTUAL=1, phases 1,4,12)
+        working-directory: third_party/tim2tox/auto_tests
+        env:
+          RUN_VIRTUAL: '1'
+          # Skip the in-script `flutter pub get` since we just ran it above.
+          SKIP_PUB_GET: 'auto'
+          # Some assertion guard checks shell out; leave default behaviour.
+        run: |
+          chmod +x ./run_tests_ordered.sh
+          ./run_tests_ordered.sh 1,4,12
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-tests-virtual-logs
+          if-no-files-found: warn
+          path: |
+            third_party/tim2tox/auto_tests/test_results_*.log
+            third_party/tim2tox/auto_tests/test_summary_*.txt
+            third_party/tim2tox/auto_tests/merged_results/
