@@ -588,5 +588,16 @@
   "unpinConversation": "取消置顶",
   "markConversationAsRead": "标为已读",
   "deleteConversationTitle": "删除会话？",
-  "deleteConversationBody": "将从聊天列表中移除“{name}”。聊天记录仍保留在本地。"
+  "deleteConversationBody": "将从聊天列表中移除“{name}”。聊天记录仍保留在本地。",
+  "firstRunBackupWizardTitle": "保存你的账户文件",
+  "firstRunBackupWizardBody": "你的账户仅存在于这台设备。请将 .tox 文件保存到安全的位置（云盘、密码管理器、U 盘）。一旦丢失这台设备而又没有备份，账户和所有联系人都将无法恢复。",
+  "firstRunBackupWizardExportNow": "立即导出",
+  "firstRunBackupWizardLater": "稍后再说",
+  "firstRunBackupWizardDismissTitle": "跳过备份？",
+  "firstRunBackupWizardDismissBody": "如果丢失此设备，你将失去账户和所有联系人。没有任何恢复方式。",
+  "firstRunBackupWizardDismissConfirm": "我已了解，继续",
+  "firstRunBackupWizardExportFailed": "无法保存账户文件：{error}",
+  "restoreFromToxFile": "从 .tox 文件恢复",
+  "restoreFromToxFileSuccess": "已恢复账户：{nickname}",
+  "restoreFromToxFileInvalidFile": "该文件不是有效的 Tox 配置文件。"
 }

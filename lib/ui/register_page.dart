@@ -5,6 +5,7 @@ import 'package:tencent_cloud_chat_sdk/enum/log_level_enum.dart';
 
 import '../util/prefs.dart';
 import '../i18n/app_localizations.dart';
+import '../util/feature_flags.dart';
 import '../util/responsive_layout.dart';
 import '../util/app_theme_config.dart';
 import '../util/logger.dart';
@@ -13,6 +14,7 @@ import '../util/app_spacing.dart';
 import 'home_page.dart';
 import 'widgets/app_page_route.dart';
 import 'widgets/error_banner.dart';
+import 'widgets/first_run_backup_wizard.dart';
 
 /// Standalone page for registering a new account (opened from login page).
 /// Mirrors the layout of [LoginSettingsPage]: AppBar with back + title, form in body.
@@ -120,6 +122,22 @@ class _RegisterPageState extends State<RegisterPage> {
       await Prefs.getAccountList(); // refresh list
 
       if (!mounted) return;
+
+      // First-run backup wizard: blocks navigation to HomePage until the user
+      // either exports their .tox file or explicitly acknowledges the
+      // data-loss consequence. Only shown for brand-new accounts (the
+      // registration flow is the only caller; existing-account logins do
+      // not pass through here). Gated by the feature flag so we can flip
+      // the wizard off in a hotfix if a user-reported issue appears.
+      if (FeatureFlags.enableFirstRunBackupWizard) {
+        await FirstRunBackupWizard.show(
+          context,
+          toxId: result.toxId,
+          nickname: nickname,
+        );
+        if (!mounted) return;
+      }
+
       Navigator.of(context).pushReplacement(AppPageRoute(
         page: HomePage(service: result.service),
       ));

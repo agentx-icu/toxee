@@ -378,6 +378,58 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// First-class "Restore from .tox file" action. Mirrors the Login affordance
+  /// in prominence — peer to the saved-accounts picker and to "Register new
+  /// account" — so a user who has lost their previous device finds the
+  /// recovery path immediately. On success, the imported account is added to
+  /// the saved-accounts list (and the user can tap it to log in); on
+  /// invalid-password the user can retry without dismissing the action.
+  Future<void> _restoreFromToxFile() async {
+    if (_busy) return;
+    final l10n = AppLocalizations.of(context)!;
+    while (true) {
+      final result = await _loginController.restoreFromToxFile(
+        requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
+        importedAccountDefaultName: l10n.importedAccountDefaultName,
+      );
+      if (!mounted) return;
+      switch (result) {
+        case RestoreSuccess(:final nickname):
+          await _loadAccountList();
+          if (!mounted) return;
+          setState(() => _error = null);
+          AppSnackBar.showSuccess(
+            context,
+            l10n.restoreFromToxFileSuccess(nickname),
+          );
+          return;
+        case RestoreFailure(:final kind, :final detail):
+          final message = switch (kind) {
+            RestoreFailureKind.noFileSelected => l10n.importNoFileSelected,
+            RestoreFailureKind.cancelled => l10n.importCancelled,
+            RestoreFailureKind.invalidPassword => l10n.invalidPassword,
+            RestoreFailureKind.accountAlreadyExists =>
+              l10n.accountAlreadyExists,
+            RestoreFailureKind.notAToxProfile =>
+              l10n.restoreFromToxFileInvalidFile,
+            RestoreFailureKind.generalError =>
+              l10n.failedToImport(detail ?? ''),
+          };
+          if (kind == RestoreFailureKind.invalidPassword) {
+            // Allow the user to retry the password without dismissing.
+            AppSnackBar.showError(context, message);
+            continue;
+          }
+          setState(() => _error = message);
+          if (kind != RestoreFailureKind.noFileSelected &&
+              kind != RestoreFailureKind.cancelled) {
+            AppSnackBar.showError(context, message);
+          }
+          return;
+      }
+    }
+  }
+
   /// Import a tox_profile.tox or .zip file via [LoginPageController].
   Future<void> _importToxProfile() async {
     final l10n = AppLocalizations.of(context)!;
@@ -858,6 +910,19 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                           AppSpacing.verticalLg,
                         ],
+                        // Restore-from-.tox is a top-level, peer-prominence
+                        // action with Register: a user who has just lost a
+                        // device must find this entry without digging into
+                        // "Import account…" or settings.
+                        _LoginActionCard(
+                          key: const Key('loginPage.restoreFromToxFile'),
+                          icon: Icons.restore_outlined,
+                          label: AppLocalizations.of(context)!.restoreFromToxFile,
+                          color: colorTheme.primaryColor,
+                          isPrimary: true,
+                          onTap: _busy ? null : _restoreFromToxFile,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
                         _LoginActionCard(
                           icon: Icons.download_outlined,
                           label: AppLocalizations.of(context)!.importAccount,
@@ -910,6 +975,7 @@ class _LoginPageState extends State<LoginPage> {
 /// canonical create-account path.
 class _LoginActionCard extends StatelessWidget {
   const _LoginActionCard({
+    super.key,
     required this.icon,
     required this.label,
     required this.color,

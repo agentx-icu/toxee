@@ -2604,6 +2604,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This will remove \"{name}\" from your chat list. Message history stays on disk.'**
   String deleteConversationBody(String name);
+
+  /// Title of the first-run wizard shown after successful registration, prompting the user to back up their .tox file
+  ///
+  /// In en, this message translates to:
+  /// **'Save your account file'**
+  String get firstRunBackupWizardTitle;
+
+  /// Body text of the first-run backup wizard explaining the data-loss consequence
+  ///
+  /// In en, this message translates to:
+  /// **'Your account lives only on this device. Save the .tox file somewhere safe (cloud storage, password manager, USB stick). Without it, losing this device means losing your account and all your contacts permanently.'**
+  String get firstRunBackupWizardBody;
+
+  /// Primary action button on the first-run backup wizard — opens the file save dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Export now'**
+  String get firstRunBackupWizardExportNow;
+
+  /// Secondary action on the first-run backup wizard — opens the data-loss-consequence confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'I\'ll do it later'**
+  String get firstRunBackupWizardLater;
+
+  /// Title of the secondary confirmation when the user picks "I'll do it later" on the first-run backup wizard
+  ///
+  /// In en, this message translates to:
+  /// **'Skip backup?'**
+  String get firstRunBackupWizardDismissTitle;
+
+  /// Body text of the data-loss confirmation when dismissing the first-run backup wizard
+  ///
+  /// In en, this message translates to:
+  /// **'If you lose this device, you will lose your account and all contacts. There is no recovery.'**
+  String get firstRunBackupWizardDismissBody;
+
+  /// Destructive confirmation button on the dismiss-the-wizard dialog
+  ///
+  /// In en, this message translates to:
+  /// **'I understand, continue'**
+  String get firstRunBackupWizardDismissConfirm;
+
+  /// Error message shown inline in the first-run backup wizard when the export call fails
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save your account file: {error}'**
+  String firstRunBackupWizardExportFailed(String error);
+
+  /// Top-level action on the login page — restores an account from a .tox file (e.g. after device loss)
+  ///
+  /// In en, this message translates to:
+  /// **'Restore from .tox file'**
+  String get restoreFromToxFile;
+
+  /// Toast message after a successful .tox restore
+  ///
+  /// In en, this message translates to:
+  /// **'Restored account: {nickname}'**
+  String restoreFromToxFileSuccess(String nickname);
+
+  /// Error shown when the user picks a file that isn't a valid .tox profile
+  ///
+  /// In en, this message translates to:
+  /// **'This file doesn\'t look like a valid Tox profile.'**
+  String get restoreFromToxFileInvalidFile;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

@@ -1360,4 +1360,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String deleteConversationBody(String name) {
     return 'This will remove \"$name\" from your chat list. Message history stays on disk.';
   }
+
+  @override
+  String get firstRunBackupWizardTitle => 'Save your account file';
+
+  @override
+  String get firstRunBackupWizardBody => 'Your account lives only on this device. Save the .tox file somewhere safe (cloud storage, password manager, USB stick). Without it, losing this device means losing your account and all your contacts permanently.';
+
+  @override
+  String get firstRunBackupWizardExportNow => 'Export now';
+
+  @override
+  String get firstRunBackupWizardLater => 'I\'ll do it later';
+
+  @override
+  String get firstRunBackupWizardDismissTitle => 'Skip backup?';
+
+  @override
+  String get firstRunBackupWizardDismissBody => 'If you lose this device, you will lose your account and all contacts. There is no recovery.';
+
+  @override
+  String get firstRunBackupWizardDismissConfirm => 'I understand, continue';
+
+  @override
+  String firstRunBackupWizardExportFailed(String error) {
+    return 'Couldn\'t save your account file: $error';
+  }
+
+  @override
+  String get restoreFromToxFile => 'Restore from .tox file';
+
+  @override
+  String restoreFromToxFileSuccess(String nickname) {
+    return 'Restored account: $nickname';
+  }
+
+  @override
+  String get restoreFromToxFileInvalidFile => 'This file doesn\'t look like a valid Tox profile.';
 }

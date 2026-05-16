@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import '../../auth/login_use_case.dart';
@@ -51,6 +51,38 @@ final class ImportFailure extends ImportResult {
 
   /// Raw underlying error string for [ImportFailureKind.generalError]; null
   /// for cancellation / file-not-selected / duplicate-account cases.
+  final String? detail;
+}
+
+/// Reason a restore failed. Mirrors [ImportFailureKind] but is scoped to the
+/// .tox-only "Restore from .tox file" first-class login entry. Kept as a
+/// separate enum so the UI can show restore-specific copy ("This file doesn't
+/// look like a valid Tox profile") without bleeding restore strings into the
+/// generic import path.
+enum RestoreFailureKind {
+  noFileSelected,
+  cancelled,
+  invalidPassword,
+  accountAlreadyExists,
+  notAToxProfile,
+  generalError,
+}
+
+/// Result of [LoginPageController.restoreFromToxFile].
+sealed class RestoreResult {
+  const RestoreResult();
+}
+
+final class RestoreSuccess extends RestoreResult {
+  const RestoreSuccess({required this.toxId, required this.nickname, this.password});
+  final String toxId;
+  final String nickname;
+  final String? password;
+}
+
+final class RestoreFailure extends RestoreResult {
+  const RestoreFailure(this.kind, {this.detail});
+  final RestoreFailureKind kind;
   final String? detail;
 }
 
@@ -198,6 +230,126 @@ class LoginPageController {
     } catch (e, st) {
       AppLogger.logError('[LoginPageController] Import failed', e, st);
       return ImportFailure(ImportFailureKind.generalError, detail: e.toString());
+    }
+  }
+
+  /// Restore an account from a single `.tox` file. This is the first-class
+  /// "lose your phone, get your account back" entry point invoked from the
+  /// login page top-level "Restore from .tox file" action.
+  ///
+  /// Unlike [importAccount], this:
+  /// - filters the file picker to `.tox` only,
+  /// - returns typed [RestoreFailureKind]s the UI can map to restore-specific
+  ///   copy (notAToxProfile / invalidPassword vs the generic generalError),
+  /// - keeps the resolved [toxId] + [nickname] in the success payload so the
+  ///   caller can pre-fill the login form and chain into login without a
+  ///   second file picker pass.
+  ///
+  /// Encrypted .tox files prompt via [requestPassword]; wrong passwords
+  /// surface as [RestoreFailureKind.invalidPassword] (the caller is expected
+  /// to allow retry). qTox-format files pass through the existing
+  /// [AccountExportService.importAccountData] code path.
+  Future<RestoreResult> restoreFromToxFile({
+    required Future<String?> Function() requestPassword,
+    required String importedAccountDefaultName,
+    @visibleForTesting String? filePathOverride,
+  }) async {
+    String? filePath;
+    try {
+      if (filePathOverride != null) {
+        filePath = filePathOverride;
+      } else {
+        final picked = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['tox'],
+        );
+        if (picked == null || picked.files.single.path == null) {
+          return const RestoreFailure(RestoreFailureKind.noFileSelected);
+        }
+        filePath = picked.files.single.path!;
+      }
+      if (!filePath.toLowerCase().endsWith('.tox')) {
+        return const RestoreFailure(RestoreFailureKind.notAToxProfile);
+      }
+
+      String? password;
+      Map<String, dynamic> accountData;
+      try {
+        accountData = await AccountExportService.importAccountData(
+          filePath: filePath,
+        );
+      } on PasswordRequiredException {
+        password = await requestPassword();
+        if (password == null) {
+          return const RestoreFailure(RestoreFailureKind.cancelled);
+        }
+        try {
+          accountData = await AccountExportService.importAccountData(
+            filePath: filePath,
+            password: password,
+          );
+        } catch (e) {
+          // Decryption failure with a supplied password is virtually always
+          // a wrong password (the only other failure is corruption AFTER the
+          // password gate, which is exceedingly rare). Surface as
+          // invalidPassword so the UI can show the retry-friendly copy.
+          AppLogger.logError(
+              '[LoginPageController] Restore: decrypt failed with password', e, null);
+          return RestoreFailure(RestoreFailureKind.invalidPassword,
+              detail: e.toString());
+        }
+      } catch (e) {
+        // Non-password errors at this point (e.g. corrupt header) mean the
+        // file is not a valid Tox profile.
+        AppLogger.logError(
+            '[LoginPageController] Restore: invalid tox file', e, null);
+        return RestoreFailure(RestoreFailureKind.notAToxProfile,
+            detail: e.toString());
+      }
+
+      final toxId = accountData['toxId'] as String;
+      final toxProfile = accountData['toxProfile'] as Uint8List?;
+      final importedNickname = (accountData['nickname'] as String?) ?? '';
+
+      // Duplicate-account guard: account already registered on this device.
+      final existingAccount = await Prefs.getAccountByToxId(toxId);
+      if (existingAccount != null) {
+        return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
+      }
+
+      if (toxProfile == null || toxProfile.isEmpty) {
+        return const RestoreFailure(RestoreFailureKind.notAToxProfile);
+      }
+
+      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+      final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
+      if (await File(profileFilePath).exists()) {
+        return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
+      }
+      await Directory(profileDir).create(recursive: true);
+      await File(profileFilePath).writeAsBytes(toxProfile);
+
+      final displayNickname =
+          importedNickname.isNotEmpty ? importedNickname : importedAccountDefaultName;
+      await Prefs.addAccount(
+        toxId: toxId,
+        nickname: displayNickname,
+        statusMessage: '',
+        autoLogin: false,
+        autoAcceptFriends: false,
+        notificationSoundEnabled: true,
+      );
+      if (password != null && password.isNotEmpty) {
+        await Prefs.setAccountPassword(toxId, password);
+      }
+      return RestoreSuccess(
+        toxId: toxId,
+        nickname: displayNickname,
+        password: password,
+      );
+    } catch (e, st) {
+      AppLogger.logError('[LoginPageController] Restore failed', e, st);
+      return RestoreFailure(RestoreFailureKind.generalError, detail: e.toString());
     }
   }
 }

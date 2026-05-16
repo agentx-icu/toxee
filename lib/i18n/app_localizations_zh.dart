@@ -1360,6 +1360,43 @@ class AppLocalizationsZh extends AppLocalizations {
   String deleteConversationBody(String name) {
     return '将从聊天列表中移除“$name”。聊天记录仍保留在本地。';
   }
+
+  @override
+  String get firstRunBackupWizardTitle => '保存你的账户文件';
+
+  @override
+  String get firstRunBackupWizardBody => '你的账户仅存在于这台设备。请将 .tox 文件保存到安全的位置（云盘、密码管理器、U 盘）。一旦丢失这台设备而又没有备份，账户和所有联系人都将无法恢复。';
+
+  @override
+  String get firstRunBackupWizardExportNow => '立即导出';
+
+  @override
+  String get firstRunBackupWizardLater => '稍后再说';
+
+  @override
+  String get firstRunBackupWizardDismissTitle => '跳过备份？';
+
+  @override
+  String get firstRunBackupWizardDismissBody => '如果丢失此设备，你将失去账户和所有联系人。没有任何恢复方式。';
+
+  @override
+  String get firstRunBackupWizardDismissConfirm => '我已了解，继续';
+
+  @override
+  String firstRunBackupWizardExportFailed(String error) {
+    return '无法保存账户文件：$error';
+  }
+
+  @override
+  String get restoreFromToxFile => '从 .tox 文件恢复';
+
+  @override
+  String restoreFromToxFileSuccess(String nickname) {
+    return '已恢复账户：$nickname';
+  }
+
+  @override
+  String get restoreFromToxFileInvalidFile => '该文件不是有效的 Tox 配置文件。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).

@@ -1391,5 +1391,55 @@
     "placeholders": {
       "name": {"type": "String"}
     }
+  },
+  "firstRunBackupWizardTitle": "Save your account file",
+  "@firstRunBackupWizardTitle": {
+    "description": "Title of the first-run wizard shown after successful registration, prompting the user to back up their .tox file"
+  },
+  "firstRunBackupWizardBody": "Your account lives only on this device. Save the .tox file somewhere safe (cloud storage, password manager, USB stick). Without it, losing this device means losing your account and all your contacts permanently.",
+  "@firstRunBackupWizardBody": {
+    "description": "Body text of the first-run backup wizard explaining the data-loss consequence"
+  },
+  "firstRunBackupWizardExportNow": "Export now",
+  "@firstRunBackupWizardExportNow": {
+    "description": "Primary action button on the first-run backup wizard — opens the file save dialog"
+  },
+  "firstRunBackupWizardLater": "I'll do it later",
+  "@firstRunBackupWizardLater": {
+    "description": "Secondary action on the first-run backup wizard — opens the data-loss-consequence confirmation"
+  },
+  "firstRunBackupWizardDismissTitle": "Skip backup?",
+  "@firstRunBackupWizardDismissTitle": {
+    "description": "Title of the secondary confirmation when the user picks \"I'll do it later\" on the first-run backup wizard"
+  },
+  "firstRunBackupWizardDismissBody": "If you lose this device, you will lose your account and all contacts. There is no recovery.",
+  "@firstRunBackupWizardDismissBody": {
+    "description": "Body text of the data-loss confirmation when dismissing the first-run backup wizard"
+  },
+  "firstRunBackupWizardDismissConfirm": "I understand, continue",
+  "@firstRunBackupWizardDismissConfirm": {
+    "description": "Destructive confirmation button on the dismiss-the-wizard dialog"
+  },
+  "firstRunBackupWizardExportFailed": "Couldn't save your account file: {error}",
+  "@firstRunBackupWizardExportFailed": {
+    "description": "Error message shown inline in the first-run backup wizard when the export call fails",
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "restoreFromToxFile": "Restore from .tox file",
+  "@restoreFromToxFile": {
+    "description": "Top-level action on the login page — restores an account from a .tox file (e.g. after device loss)"
+  },
+  "restoreFromToxFileSuccess": "Restored account: {nickname}",
+  "@restoreFromToxFileSuccess": {
+    "description": "Toast message after a successful .tox restore",
+    "placeholders": {
+      "nickname": {"type": "String"}
+    }
+  },
+  "restoreFromToxFileInvalidFile": "This file doesn't look like a valid Tox profile.",
+  "@restoreFromToxFileInvalidFile": {
+    "description": "Error shown when the user picks a file that isn't a valid .tox profile"
   }
 }
