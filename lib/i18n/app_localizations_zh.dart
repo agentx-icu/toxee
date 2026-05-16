@@ -1397,6 +1397,84 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get restoreFromToxFileInvalidFile => '该文件不是有效的 Tox 配置文件。';
+
+  @override
+  String get pairDeviceHostTitle => '配对另一台设备';
+
+  @override
+  String get pairDeviceClientTitle => '与另一台设备配对';
+
+  @override
+  String get pairingHostInstructions => '在另一台设备上打开 toxee，选择“与另一台设备配对”，然后扫描此二维码。';
+
+  @override
+  String get pairingClientScanInstructions => '将摄像头对准另一台设备上显示的二维码。';
+
+  @override
+  String get pairingClientPasteInstructions => '此设备不支持摄像头扫描。请将另一台设备显示的配对链接粘贴到下方。';
+
+  @override
+  String get pairingPasteUrlLabel => '配对链接';
+
+  @override
+  String get pairingConnectButton => '连接';
+
+  @override
+  String get pairingWaitingForPeer => '等待另一台设备连接……';
+
+  @override
+  String get pairingVerifyCodeHeader => '请确认两台设备显示的验证码相同';
+
+  @override
+  String get pairingVerifyCodeInstructions => '如果验证码与另一台设备显示的一致，请点击下方按钮。如果不一致，请取消——可能有人在拦截连接。';
+
+  @override
+  String get pairingCodesMatch => '验证码一致';
+
+  @override
+  String get pairingHostCompleted => '账号已发送。另一台设备现在拥有你的账号。';
+
+  @override
+  String get pairingClientCompleted => '账号已接收。配对完成。';
+
+  @override
+  String get pairingCancelled => '已取消配对。';
+
+  @override
+  String get pairingTimeout => '配对超时，请重试。';
+
+  @override
+  String pairingNetworkError(String detail) {
+    return '配对时发生网络错误：$detail';
+  }
+
+  @override
+  String pairingProtocolError(String detail) {
+    return '配对握手失败：$detail';
+  }
+
+  @override
+  String pairingInvalidUrl(String detail) {
+    return '此二维码不是有效的配对邀请：$detail';
+  }
+
+  @override
+  String get pairingDecryptFailed => '无法解密接收到的资料。配对过程可能被篡改——请在可信网络上重试。';
+
+  @override
+  String get pairingNoLanInterface => '未检测到局域网。请连接 WiFi 或以太网后重试。';
+
+  @override
+  String get pairThisAccountToAnotherDevice => '将此账号配对到另一台设备';
+
+  @override
+  String get pairWithAnotherDevice => '与已有此账号的另一台设备配对';
+
+  @override
+  String get devicesSectionTitle => '设备';
+
+  @override
+  String get done => '完成';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).

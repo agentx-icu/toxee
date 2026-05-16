@@ -2670,6 +2670,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This file doesn\'t look like a valid Tox profile.'**
   String get restoreFromToxFileInvalidFile;
+
+  /// AppBar title on the pairing-host (sender) page
+  ///
+  /// In en, this message translates to:
+  /// **'Pair another device'**
+  String get pairDeviceHostTitle;
+
+  /// AppBar title on the pairing-client (receiver) page
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with another device'**
+  String get pairDeviceClientTitle;
+
+  /// No description provided for @pairingHostInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'Open toxee on your other device, choose \"Pair with another device\", and scan this QR code.'**
+  String get pairingHostInstructions;
+
+  /// No description provided for @pairingClientScanInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'Point your camera at the QR code on your other device.'**
+  String get pairingClientScanInstructions;
+
+  /// No description provided for @pairingClientPasteInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'Camera scanning isn\'t supported on this device. Paste the pairing URL shown on your other device below.'**
+  String get pairingClientPasteInstructions;
+
+  /// No description provided for @pairingPasteUrlLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing URL'**
+  String get pairingPasteUrlLabel;
+
+  /// No description provided for @pairingConnectButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get pairingConnectButton;
+
+  /// No description provided for @pairingWaitingForPeer.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the other device to connect…'**
+  String get pairingWaitingForPeer;
+
+  /// No description provided for @pairingVerifyCodeHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify both devices show the same code'**
+  String get pairingVerifyCodeHeader;
+
+  /// No description provided for @pairingVerifyCodeInstructions.
+  ///
+  /// In en, this message translates to:
+  /// **'If the code matches what\'s shown on your other device, tap below. If they differ, cancel — someone may be intercepting the connection.'**
+  String get pairingVerifyCodeInstructions;
+
+  /// No description provided for @pairingCodesMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The codes match'**
+  String get pairingCodesMatch;
+
+  /// No description provided for @pairingHostCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Account sent. The other device now has your account.'**
+  String get pairingHostCompleted;
+
+  /// No description provided for @pairingClientCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Account received. You\'re paired.'**
+  String get pairingClientCompleted;
+
+  /// No description provided for @pairingCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing cancelled.'**
+  String get pairingCancelled;
+
+  /// No description provided for @pairingTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing timed out — try again.'**
+  String get pairingTimeout;
+
+  /// No description provided for @pairingNetworkError.
+  ///
+  /// In en, this message translates to:
+  /// **'Network error during pairing: {detail}'**
+  String pairingNetworkError(String detail);
+
+  /// No description provided for @pairingProtocolError.
+  ///
+  /// In en, this message translates to:
+  /// **'Pairing handshake failed: {detail}'**
+  String pairingProtocolError(String detail);
+
+  /// No description provided for @pairingInvalidUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'That QR code isn\'t a valid pairing invitation: {detail}'**
+  String pairingInvalidUrl(String detail);
+
+  /// No description provided for @pairingDecryptFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.'**
+  String get pairingDecryptFailed;
+
+  /// No description provided for @pairingNoLanInterface.
+  ///
+  /// In en, this message translates to:
+  /// **'No LAN network detected. Connect to WiFi or Ethernet and try again.'**
+  String get pairingNoLanInterface;
+
+  /// Settings → Devices entry on the host (sender) flow
+  ///
+  /// In en, this message translates to:
+  /// **'Pair this account to another device'**
+  String get pairThisAccountToAnotherDevice;
+
+  /// Login page entry on the client (receiver) flow
+  ///
+  /// In en, this message translates to:
+  /// **'Pair with another device that has my account'**
+  String get pairWithAnotherDevice;
+
+  /// Settings section header for device-pairing
+  ///
+  /// In en, this message translates to:
+  /// **'Devices'**
+  String get devicesSectionTitle;
+
+  /// No description provided for @done.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get done;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

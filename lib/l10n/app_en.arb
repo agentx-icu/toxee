@@ -1441,5 +1441,75 @@
   "restoreFromToxFileInvalidFile": "This file doesn't look like a valid Tox profile.",
   "@restoreFromToxFileInvalidFile": {
     "description": "Error shown when the user picks a file that isn't a valid .tox profile"
-  }
+  },
+  "pairDeviceHostTitle": "Pair another device",
+  "@pairDeviceHostTitle": {
+    "description": "AppBar title on the pairing-host (sender) page"
+  },
+  "pairDeviceClientTitle": "Pair with another device",
+  "@pairDeviceClientTitle": {
+    "description": "AppBar title on the pairing-client (receiver) page"
+  },
+  "pairingHostInstructions": "Open toxee on your other device, choose \"Pair with another device\", and scan this QR code.",
+  "@pairingHostInstructions": {},
+  "pairingClientScanInstructions": "Point your camera at the QR code on your other device.",
+  "@pairingClientScanInstructions": {},
+  "pairingClientPasteInstructions": "Camera scanning isn't supported on this device. Paste the pairing URL shown on your other device below.",
+  "@pairingClientPasteInstructions": {},
+  "pairingPasteUrlLabel": "Pairing URL",
+  "@pairingPasteUrlLabel": {},
+  "pairingConnectButton": "Connect",
+  "@pairingConnectButton": {},
+  "pairingWaitingForPeer": "Waiting for the other device to connect…",
+  "@pairingWaitingForPeer": {},
+  "pairingVerifyCodeHeader": "Verify both devices show the same code",
+  "@pairingVerifyCodeHeader": {},
+  "pairingVerifyCodeInstructions": "If the code matches what's shown on your other device, tap below. If they differ, cancel — someone may be intercepting the connection.",
+  "@pairingVerifyCodeInstructions": {},
+  "pairingCodesMatch": "The codes match",
+  "@pairingCodesMatch": {},
+  "pairingHostCompleted": "Account sent. The other device now has your account.",
+  "@pairingHostCompleted": {},
+  "pairingClientCompleted": "Account received. You're paired.",
+  "@pairingClientCompleted": {},
+  "pairingCancelled": "Pairing cancelled.",
+  "@pairingCancelled": {},
+  "pairingTimeout": "Pairing timed out — try again.",
+  "@pairingTimeout": {},
+  "pairingNetworkError": "Network error during pairing: {detail}",
+  "@pairingNetworkError": {
+    "placeholders": {
+      "detail": {"type": "String"}
+    }
+  },
+  "pairingProtocolError": "Pairing handshake failed: {detail}",
+  "@pairingProtocolError": {
+    "placeholders": {
+      "detail": {"type": "String"}
+    }
+  },
+  "pairingInvalidUrl": "That QR code isn't a valid pairing invitation: {detail}",
+  "@pairingInvalidUrl": {
+    "placeholders": {
+      "detail": {"type": "String"}
+    }
+  },
+  "pairingDecryptFailed": "Couldn't decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.",
+  "@pairingDecryptFailed": {},
+  "pairingNoLanInterface": "No LAN network detected. Connect to WiFi or Ethernet and try again.",
+  "@pairingNoLanInterface": {},
+  "pairThisAccountToAnotherDevice": "Pair this account to another device",
+  "@pairThisAccountToAnotherDevice": {
+    "description": "Settings → Devices entry on the host (sender) flow"
+  },
+  "pairWithAnotherDevice": "Pair with another device that has my account",
+  "@pairWithAnotherDevice": {
+    "description": "Login page entry on the client (receiver) flow"
+  },
+  "devicesSectionTitle": "Devices",
+  "@devicesSectionTitle": {
+    "description": "Settings section header for device-pairing"
+  },
+  "done": "Done",
+  "@done": {}
 }

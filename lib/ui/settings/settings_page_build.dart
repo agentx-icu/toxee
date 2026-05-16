@@ -449,6 +449,26 @@ extension _SettingsPageBuild on _SettingsPageState {
                     ),
                   ],
                 ),
+                if (FeatureFlags.enableQRPairing) ...[
+                  AppSpacing.verticalLg,
+                  Divider(height: 1, color: outlineVariant),
+                  AppSpacing.verticalMd,
+                  SectionHeader(
+                      title: AppLocalizations.of(context)!.devicesSectionTitle),
+                  AppSpacing.verticalSm,
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.qr_code, size: 18),
+                        label: Text(AppLocalizations.of(context)!
+                            .pairThisAccountToAnotherDevice),
+                        onPressed: _startPairingAsHost,
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ],
           ),

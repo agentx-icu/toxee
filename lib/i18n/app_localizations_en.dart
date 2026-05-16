@@ -1397,4 +1397,82 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get restoreFromToxFileInvalidFile => 'This file doesn\'t look like a valid Tox profile.';
+
+  @override
+  String get pairDeviceHostTitle => 'Pair another device';
+
+  @override
+  String get pairDeviceClientTitle => 'Pair with another device';
+
+  @override
+  String get pairingHostInstructions => 'Open toxee on your other device, choose \"Pair with another device\", and scan this QR code.';
+
+  @override
+  String get pairingClientScanInstructions => 'Point your camera at the QR code on your other device.';
+
+  @override
+  String get pairingClientPasteInstructions => 'Camera scanning isn\'t supported on this device. Paste the pairing URL shown on your other device below.';
+
+  @override
+  String get pairingPasteUrlLabel => 'Pairing URL';
+
+  @override
+  String get pairingConnectButton => 'Connect';
+
+  @override
+  String get pairingWaitingForPeer => 'Waiting for the other device to connect…';
+
+  @override
+  String get pairingVerifyCodeHeader => 'Verify both devices show the same code';
+
+  @override
+  String get pairingVerifyCodeInstructions => 'If the code matches what\'s shown on your other device, tap below. If they differ, cancel — someone may be intercepting the connection.';
+
+  @override
+  String get pairingCodesMatch => 'The codes match';
+
+  @override
+  String get pairingHostCompleted => 'Account sent. The other device now has your account.';
+
+  @override
+  String get pairingClientCompleted => 'Account received. You\'re paired.';
+
+  @override
+  String get pairingCancelled => 'Pairing cancelled.';
+
+  @override
+  String get pairingTimeout => 'Pairing timed out — try again.';
+
+  @override
+  String pairingNetworkError(String detail) {
+    return 'Network error during pairing: $detail';
+  }
+
+  @override
+  String pairingProtocolError(String detail) {
+    return 'Pairing handshake failed: $detail';
+  }
+
+  @override
+  String pairingInvalidUrl(String detail) {
+    return 'That QR code isn\'t a valid pairing invitation: $detail';
+  }
+
+  @override
+  String get pairingDecryptFailed => 'Couldn\'t decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.';
+
+  @override
+  String get pairingNoLanInterface => 'No LAN network detected. Connect to WiFi or Ethernet and try again.';
+
+  @override
+  String get pairThisAccountToAnotherDevice => 'Pair this account to another device';
+
+  @override
+  String get pairWithAnotherDevice => 'Pair with another device that has my account';
+
+  @override
+  String get devicesSectionTitle => 'Devices';
+
+  @override
+  String get done => 'Done';
 }

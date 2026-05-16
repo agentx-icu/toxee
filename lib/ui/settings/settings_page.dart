@@ -23,6 +23,7 @@ import '../widgets/stagger_list_item.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/account_switcher.dart';
+import '../../util/feature_flags.dart';
 
 import '../../util/account_service.dart';
 import '../../util/tox_utils.dart';
@@ -31,6 +32,7 @@ import '../../util/responsive_layout.dart';
 import '../login_page.dart';
 import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
+import '../pairing/pairing_host_page.dart';
 
 part 'settings_page_widgets.dart';
 part 'settings_page_build.dart';
@@ -903,6 +905,18 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Used by settings_page_build.dart extension to call setState (avoids invalid_use_of_protected_member).
   void _settingsSetState(VoidCallback fn) {
     setState(fn);
+  }
+
+  /// Launch the QR pairing host page for the currently active account.
+  /// Gated on [FeatureFlags.enableQRPairing].
+  Future<void> _startPairingAsHost() async {
+    final toxId = widget.service.selfId;
+    if (toxId.isEmpty) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PairingHostPage(toxId: toxId),
+      ),
+    );
   }
 
   @override

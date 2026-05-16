@@ -21,8 +21,10 @@ import '../util/account_export_service.dart';
 
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
+import '../util/feature_flags.dart';
 import '../auth/login_use_case.dart';
 import 'login/login_page_controller.dart';
+import 'pairing/pairing_client_page.dart';
 
 /// Returns the appropriate trailing chevron for the current text direction.
 /// In LTR locales this is `chevron_right`; in RTL locales it flips to
@@ -638,6 +640,25 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Launch the QR pairing client page. On successful pair, the receiving
+  /// device materialized a new account on disk via [AccountExportService]; we
+  /// refresh the account list so the new entry shows up immediately and the
+  /// user can tap-to-login. Gated on [FeatureFlags.enableQRPairing].
+  Future<void> _startPairingAsClient() async {
+    final result = await Navigator.of(context).push<bool>(
+      AppPageRoute(page: const PairingClientPage()),
+    );
+    if (!mounted) return;
+    if (result == true) {
+      await _loadAccountList();
+      if (!mounted) return;
+      AppSnackBar.showSuccess(
+        context,
+        AppLocalizations.of(context)!.pairingClientCompleted,
+      );
+    }
+  }
+
   void _openSettings() async {
     await Navigator.of(context).push<void>(AppPageRoute(
       page: const LoginSettingsPage(),
@@ -929,6 +950,16 @@ class _LoginPageState extends State<LoginPage> {
                           color: colorTheme.primaryColor,
                           onTap: _busy ? null : _importToxProfile,
                         ),
+                        if (FeatureFlags.enableQRPairing) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          _LoginActionCard(
+                            icon: Icons.qr_code_scanner_outlined,
+                            label: AppLocalizations.of(context)!
+                                .pairWithAnotherDevice,
+                            color: colorTheme.primaryColor,
+                            onTap: _busy ? null : _startPairingAsClient,
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.sm),
                         _LoginActionCard(
                           icon: Icons.person_add_outlined,
