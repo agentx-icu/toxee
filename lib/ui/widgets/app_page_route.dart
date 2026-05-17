@@ -2,21 +2,44 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../util/app_theme_config.dart';
+
 /// Custom page route with platform-aware transitions.
-/// Mobile: slide from right + fade. Desktop: fade only.
+///
+/// - **Mobile** (iOS / Android): subtle slide-from-right + fade,
+///   duration [AppDurations.medium].
+/// - **Desktop / web / tablet**: fade only, duration [AppDurations.fast].
+/// - **Reduced motion**: when `MediaQuery.disableAnimationsOf(context)` is
+///   true at the moment of [createAnimationController], the transition
+///   collapses to [Duration.zero] so the new page appears instantly.
+///
+/// Public API kept stable: `AppPageRoute<T>({required Widget page})`.
 class AppPageRoute<T> extends PageRouteBuilder<T> {
   AppPageRoute({required Widget page})
       : super(
           pageBuilder: (context, animation, secondaryAnimation) => page,
           transitionsBuilder: _buildTransition,
           transitionDuration: _isMobilePlatform
-              ? const Duration(milliseconds: 250)
-              : const Duration(milliseconds: 200),
-          reverseTransitionDuration: const Duration(milliseconds: 200),
+              ? AppDurations.medium
+              : AppDurations.fast,
+          reverseTransitionDuration: AppDurations.fast,
         );
 
   static bool get _isMobilePlatform =>
       !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+
+  @override
+  AnimationController createAnimationController() {
+    final controller = super.createAnimationController();
+    // Honour reduced-motion: if the user has disabled animations system-wide,
+    // collapse both directions to zero so the transition is effectively a cut.
+    final ctx = navigator?.context;
+    if (ctx != null && MediaQuery.maybeDisableAnimationsOf(ctx) == true) {
+      controller.duration = Duration.zero;
+      controller.reverseDuration = Duration.zero;
+    }
+    return controller;
+  }
 
   static Widget _buildTransition(
     BuildContext context,
@@ -26,12 +49,12 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
   ) {
     final curved = CurvedAnimation(
       parent: animation,
-      curve: Curves.easeOut,
-      reverseCurve: Curves.easeIn,
+      curve: AppCurves.enter,
+      reverseCurve: AppCurves.exit,
     );
 
     if (_isMobilePlatform) {
-      // Mobile: subtle slide from right + fade
+      // Mobile: subtle slide from right + fade.
       return FadeTransition(
         opacity: curved,
         child: SlideTransition(
@@ -43,7 +66,7 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
         ),
       );
     }
-    // Desktop/tablet: fade only
+    // Desktop / tablet: fade only.
     return FadeTransition(opacity: curved, child: child);
   }
 }

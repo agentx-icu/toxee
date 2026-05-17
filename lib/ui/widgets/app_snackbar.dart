@@ -3,6 +3,19 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 
 /// Centralized SnackBar helper with consistent styling.
+///
+/// Visual choices:
+/// - **Error**: `cs.errorContainer` background, `cs.onErrorContainer`
+///   foreground, prefixed with `Icons.error_outline`.
+/// - **Success**: `cs.tertiaryContainer` background, `cs.onTertiaryContainer`
+///   foreground, prefixed with `Icons.check_circle_outline`. Tertiary is the
+///   emerald success token in this app's Material 3 scheme.
+/// - **Info**: defers to the global `snackBarTheme` (no explicit background),
+///   prefixed with `Icons.info_outline`.
+/// - **Neutral** (no flag): defers to the global `snackBarTheme` entirely.
+///
+/// Public API (`show`, `showError`, `showSuccess`, `showInfo`) is intentionally
+/// kept stable — other agents reference these from across the app.
 class AppSnackBar {
   AppSnackBar._();
 
@@ -16,43 +29,49 @@ class AppSnackBar {
     String? actionLabel,
     VoidCallback? onAction,
   }) {
+    final cs = Theme.of(context).colorScheme;
+
     Color? backgroundColor;
     Color? foregroundColor;
+    IconData? icon;
     if (isError) {
-      backgroundColor = AppThemeConfig.errorColor;
-      foregroundColor = Colors.white;
+      backgroundColor = cs.errorContainer;
+      foregroundColor = cs.onErrorContainer;
+      icon = Icons.error_outline;
     } else if (isSuccess) {
-      // Success uses the dedicated success token (emerald) — was previously
-      // using the primary brand color, which conflated "this happened" with
-      // "this is the brand action".
-      backgroundColor = AppThemeConfig.successColor;
-      foregroundColor = Colors.white;
+      // Tertiary = emerald success token in our M3 scheme. Container pair is
+      // designer-friendly and theme-driven (no hardcoded hex).
+      backgroundColor = cs.tertiaryContainer;
+      foregroundColor = cs.onTertiaryContainer;
+      icon = Icons.check_circle_outline;
     } else if (isInfo) {
-      // Brightness-aware solid surface for informational messages. Previous
-      // implementation used a low-alpha slate tint, which disappeared on the
-      // slate-900 dark scaffold; the dedicated dark token keeps the chip
-      // legible against any background.
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final infoBg = isDark
-          ? AppThemeConfig.infoSnackbarBackgroundDark
-          : AppThemeConfig.infoSnackbarBackgroundLight;
-      backgroundColor = infoBg;
-      foregroundColor = Theme.of(context).colorScheme.onSurface;
+      // Let the global snackBarTheme own the surface; we only contribute the
+      // icon affordance so info messages are still scannable at a glance.
+      icon = Icons.info_outline;
     }
+
+    final content = icon == null
+        ? Text(message, style: TextStyle(color: foregroundColor))
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: foregroundColor),
+              AppSpacing.horizontalSm,
+              Expanded(
+                child: Text(message, style: TextStyle(color: foregroundColor)),
+              ),
+            ],
+          );
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            message,
-            style: TextStyle(color: foregroundColor),
-          ),
+          content: content,
           backgroundColor: backgroundColor,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.card),
           ),
           margin: const EdgeInsets.all(AppSpacing.lg),
           duration: isError ? const Duration(seconds: 4) : duration,
@@ -60,7 +79,7 @@ class AppSnackBar {
               ? SnackBarAction(
                   label: actionLabel,
                   onPressed: onAction,
-                  textColor: foregroundColor ?? Colors.white,
+                  textColor: foregroundColor,
                 )
               : null,
         ),

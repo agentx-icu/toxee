@@ -68,6 +68,12 @@ class _StaggeredListItemState extends State<StaggeredListItem>
 
   @override
   Widget build(BuildContext context) {
+    // Honour reduced-motion: skip the cascade entirely so the list appears at
+    // rest. The controller is still constructed (cheap), but we short-circuit
+    // both the slide and the fade.
+    if (MediaQuery.maybeDisableAnimationsOf(context) == true) {
+      return widget.child;
+    }
     return FadeTransition(
       opacity: _fadeAnimation,
       child: SlideTransition(

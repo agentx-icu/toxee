@@ -1,41 +1,24 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../util/app_spacing.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
-import '../util/app_paths.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:image_clipboard/image_clipboard.dart';
-import '../util/prefs.dart';
-import '../util/app_theme_config.dart';
-import '../util/qr_card_generator.dart';
+
+import '../i18n/app_localizations.dart';
+import '../util/app_spacing.dart';
 import '../util/locale_controller.dart';
 import '../util/logger.dart';
+import '../util/prefs.dart';
 import '../util/responsive_layout.dart';
-import '../i18n/app_localizations.dart';
+import 'profile/profile_avatar_picker.dart';
+import 'profile/profile_edit_fields.dart';
+import 'profile/profile_header.dart';
+import 'profile/profile_layout.dart';
+import 'profile/profile_qr_controller.dart';
+import 'profile/profile_qr_section.dart';
 import 'widgets/app_snackbar.dart';
-
-/// Calculate text length where Chinese characters count as 1, and letters/numbers count as 0.5
-double _calculateTextLength(String text) {
-  double length = 0;
-  for (int i = 0; i < text.length; i++) {
-    final char = text[i];
-    // Check if character is Chinese (CJK Unified Ideographs range)
-    if (char.codeUnitAt(0) >= 0x4E00 && char.codeUnitAt(0) <= 0x9FFF) {
-      length += 1.0;
-    } else if (RegExp(r'[a-zA-Z0-9]').hasMatch(char)) {
-      length += 0.5;
-    } else {
-      // Other characters (punctuation, spaces, etc.) count as 0.5
-      length += 0.5;
-    }
-  }
-  return length;
-}
 
 /// A reusable profile page widget that can be used for both self and peer profiles.
 ///
@@ -62,8 +45,7 @@ class ProfilePage extends StatefulWidget {
   final bool isEditable;
   final Stream<bool>? connectionStatusStream;
   final Future<void> Function(String nickname, String statusMessage)? onSave;
-  final VoidCallback?
-      onChat; // Callback when chat button is clicked (for peer profiles)
+  final VoidCallback? onChat;
   final ValueChanged<String?>? onAvatarChanged;
 
   @override
@@ -76,82 +58,73 @@ class _ProfilePageState extends State<ProfilePage> {
   late final TextEditingController _cardTextController;
   bool _isSaving = false;
   bool _editMode = false;
-  bool _cardTextEditMode = false; // Track if card text is in edit mode
-  bool _hasUnsavedChanges =
-      false; // Track if nickname/status/card text has been modified
-  Future<String>? _qrCardFuture;
-  String? _qrKey;
+  bool _cardTextEditMode = false;
+  final QrCardCache _qrCache = QrCardCache();
   String? _avatarPath;
   // Cached `File(_avatarPath).existsSync()` result. Re-checking on every build
   // hits the filesystem; we only need to verify when the path actually changes.
   bool _avatarFileExists = false;
   int _avatarVersion = 0;
-  int _qrCardVersion = 0; // Version counter to force regeneration on refresh
-  Locale? _lastLocale; // Track last locale to detect changes
-  String? _savedNickName; // Track saved nickname
-  String? _savedStatusMessage; // Track saved status message
-  String? _savedCardText; // Track saved card text
+  int _qrCardVersion = 0;
+  Locale? _lastLocale;
+  String? _savedNickName;
+  String? _savedStatusMessage;
 
   @override
   void initState() {
     super.initState();
     _nickController = TextEditingController(text: widget.nickName ?? '');
     _statusController = TextEditingController(text: widget.statusMessage ?? '');
-    // Initialize card text controller empty; default text set in didChangeDependencies
     _cardTextController = TextEditingController(text: '');
-    // Listen to changes to track unsaved modifications
     _nickController.addListener(_handleEditableFieldChanged);
     _statusController.addListener(_handleEditableFieldChanged);
     _cardTextController.addListener(_handleEditableFieldChanged);
-    // Initialize saved values
     _savedNickName = widget.nickName;
     _savedStatusMessage = widget.statusMessage;
     if (widget.isEditable) {
-      Future<String?> loadPath() async {
-        if (widget.userId.isNotEmpty) {
-          final account = await Prefs.getAccountByToxId(widget.userId);
-          final path = account?['avatarPath'];
-          if (path != null && path.isNotEmpty && await File(path).exists()) {
-            return path;
-          }
-        }
-        return Prefs.getAvatarPath();
-      }
+      _loadAvatar();
+      _loadCardText();
+    }
+  }
 
-      loadPath().then((value) async {
-        final exists =
-            value != null && value.isNotEmpty && await File(value).exists();
-        if (mounted) {
-          setState(() {
-            _avatarPath = value;
-            _avatarFileExists = exists;
-          });
-        }
-      });
-      // Load saved card text first, before didChangeDependencies sets default
-      Prefs.getCardText().then((value) {
-        if (mounted) {
-          if (value != null && value.isNotEmpty) {
-            _cardTextController.text = value;
-            _savedCardText = value;
-          } else {
-            // Only set default if no saved value exists
-            final appL10n = AppLocalizations.of(context);
-            if (appL10n != null) {
-              final defaultText = appL10n.scanQrCodeToAddContact;
-              _cardTextController.text = defaultText;
-              _savedCardText = defaultText;
-            }
-          }
-        }
+  Future<void> _loadAvatar() async {
+    String? path;
+    if (widget.userId.isNotEmpty) {
+      final account = await Prefs.getAccountByToxId(widget.userId);
+      final accountPath = account?['avatarPath'];
+      if (accountPath != null &&
+          accountPath.isNotEmpty &&
+          await File(accountPath).exists()) {
+        path = accountPath;
+      }
+    }
+    path ??= await Prefs.getAvatarPath();
+    final exists = path != null && path.isNotEmpty && await File(path).exists();
+    if (mounted) {
+      setState(() {
+        _avatarPath = path;
+        _avatarFileExists = exists;
       });
     }
+  }
+
+  void _loadCardText() {
+    Prefs.getCardText().then((value) {
+      if (!mounted) return;
+      if (value != null && value.isNotEmpty) {
+        _cardTextController.text = value;
+      } else {
+        final appL10n = AppLocalizations.of(context);
+        if (appL10n != null) {
+          _cardTextController.text = appL10n.scanQrCodeToAddContact;
+        }
+      }
+    });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Set localized default for card text when empty (Prefs.getCardText() may override later)
     final appL10n = AppLocalizations.of(context);
     if (appL10n != null &&
         widget.isEditable &&
@@ -173,26 +146,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _handleEditableFieldChanged() {
     if (!widget.isEditable || !mounted) return;
-    // Check if any field has been modified
+    // Auto-invalidate QR card when nickname or status changes (but not card
+    // text — that requires explicit "Generate Card").
     final nickChanged = _nickController.text.trim() != (_savedNickName ?? '');
     final statusChanged =
         _statusController.text.trim() != (_savedStatusMessage ?? '');
-    final cardTextChanged =
-        _cardTextController.text.trim() != (_savedCardText ?? '');
-    final hasChanges = nickChanged || statusChanged || cardTextChanged;
-
-    // Auto-regenerate QR card when nickname or status changes (but not card text)
-    // Card text changes require explicit "Generate Card" button click
-    if (nickChanged || statusChanged) {
-      // Auto-invalidate QR card when nickname or status changes
-      _invalidateQrCard();
-    }
-
-    if (hasChanges != _hasUnsavedChanges) {
-      setState(() {
-        _hasUnsavedChanges = hasChanges;
-      });
-    }
+    if (nickChanged || statusChanged) _invalidateQrCard();
   }
 
   @override
@@ -219,58 +178,32 @@ class _ProfilePageState extends State<ProfilePage> {
         _nickController.text.trim(),
         _statusController.text.trim(),
       );
-      // Save card text to preferences
       final cardText = _cardTextController.text.trim();
-      if (cardText.isNotEmpty) {
-        await Prefs.setCardText(cardText);
-      } else {
-        await Prefs.setCardText(null);
-      }
-      // Update saved values
+      await Prefs.setCardText(cardText.isNotEmpty ? cardText : null);
       _savedNickName = _nickController.text.trim();
       _savedStatusMessage = _statusController.text.trim();
-      _savedCardText = cardText.isNotEmpty ? cardText : null;
-      // Invalidate QR card after saving to force regeneration with new data
       _invalidateQrCard();
       if (!mounted) return;
-      setState(() {
-        _editMode = false;
-        _hasUnsavedChanges = false;
-      });
+      setState(() => _editMode = false);
       final tL10n = TencentCloudChatLocalizations.of(context);
       AppSnackBar.showSuccess(
           context, tL10n?.saveContact ?? AppLocalizations.of(context)!.saved);
     } catch (e) {
       if (!mounted) return;
-      final appL10n = AppLocalizations.of(context)!;
-      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
+      AppSnackBar.showError(
+          context, AppLocalizations.of(context)!.failedToSave(e.toString()));
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   Future<void> _handleSaveCardText() async {
     if (!widget.isEditable) return;
-    // Save card text to preferences
     final cardText = _cardTextController.text.trim();
-    if (cardText.isNotEmpty) {
-      await Prefs.setCardText(cardText);
-    } else {
-      await Prefs.setCardText(null);
-    }
-    // Update saved value
-    _savedCardText = cardText.isNotEmpty ? cardText : null;
-    // Invalidate QR card to force regeneration
+    await Prefs.setCardText(cardText.isNotEmpty ? cardText : null);
     _invalidateQrCard();
     if (!mounted) return;
-    setState(() {
-      _cardTextEditMode = false;
-      _hasUnsavedChanges =
-          _nickController.text.trim() != (_savedNickName ?? '') ||
-              _statusController.text.trim() != (_savedStatusMessage ?? '');
-    });
+    setState(() => _cardTextEditMode = false);
   }
 
   String get _effectiveDisplayName {
@@ -282,54 +215,30 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _invalidateQrCard() {
-    // Increment version to force regeneration and FutureBuilder rebuild
     _qrCardVersion++;
-    _qrKey = null;
-    _qrCardFuture = null;
-    // Force immediate rebuild if mounted
-    if (mounted) {
-      setState(() {});
-    }
+    _qrCache.invalidate();
+    if (mounted) setState(() {});
   }
 
-  Future<String> _getQrCardPath({
-    required Color primaryColor,
-    required Color textColor,
-    required Locale locale,
-  }) {
-    // Always use current controller values to ensure latest nickname and card text are used
-    // This ensures that after saving, the QR card reflects the updated values
-    final displayName = _effectiveDisplayName;
-    final avatarKey =
-        (_avatarPath ?? '').isNotEmpty ? _avatarPath! : 'no-avatar';
-    // Use current card text from controller
+  QrCardRenderInputs _qrInputs(
+      {required Color primaryColor,
+      required Color textColor,
+      required Locale locale}) {
     final cardText = _cardTextController.text.trim().isNotEmpty
         ? _cardTextController.text.trim()
         : (AppLocalizations.of(context)?.scanQrCodeToAddContact ?? '');
-    final key =
-        '$displayName|${locale.languageCode}|${_colorKey(primaryColor)}|${_colorKey(textColor)}|$avatarKey|$_avatarVersion|$cardText|$_qrCardVersion';
-    // Always regenerate if key changed or if future is null
-    // This ensures that after refresh, the QR card uses the latest values
-    // Also check if the version changed to force regeneration even if other values are the same
-    if (_qrCardFuture == null || _qrKey != key) {
-      _qrKey = key;
-      // Always create a new future to ensure fresh generation with latest values
-      // Create a completely new future object to force FutureBuilder to rebuild
-      _qrCardFuture = ContactQrCardGenerator.generateTempCard(
-        userId: widget.userId,
-        displayName: displayName,
-        locale: locale,
-        bottomText: cardText,
-        primaryColor: primaryColor,
-        textColor: textColor,
-        avatarPath: _avatarPath,
-      );
-    } else {}
-    return _qrCardFuture!;
+    return QrCardRenderInputs(
+      userId: widget.userId,
+      displayName: _effectiveDisplayName,
+      locale: locale,
+      bottomText: cardText,
+      primaryColor: primaryColor,
+      textColor: textColor,
+      avatarPath: _avatarPath,
+      avatarVersion: _avatarVersion,
+      qrCardVersion: _qrCardVersion,
+    );
   }
-
-  String _colorKey(Color color) =>
-      '${color.alpha}-${color.red}-${color.green}-${color.blue}';
 
   Future<void> _handleSaveQr({
     required Color primaryColor,
@@ -339,278 +248,68 @@ class _ProfilePageState extends State<ProfilePage> {
     final tL10n = TencentCloudChatLocalizations.of(context);
     final appL10n = AppLocalizations.of(context)!;
     try {
-      final directoryPath = await FilePicker.platform.getDirectoryPath();
-      if (directoryPath == null) return;
-      final cardText = _cardTextController.text.trim().isNotEmpty
-          ? _cardTextController.text.trim()
-          : appL10n.scanQrCodeToAddContact;
-      final savedPath = await ContactQrCardGenerator.saveToDirectory(
-        directory: Directory(directoryPath),
-        userId: widget.userId,
-        displayName: _effectiveDisplayName,
-        locale: locale,
-        bottomText: cardText,
-        primaryColor: primaryColor,
-        textColor: textColor,
-        avatarPath: _avatarPath,
-      );
+      final inputs = _qrInputs(
+          primaryColor: primaryColor, textColor: textColor, locale: locale);
+      final savedPath = await pickDirectoryAndSaveQr(inputs);
+      if (savedPath == null) return;
       if (!mounted) return;
       AppSnackBar.showSuccess(
           context, '${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath');
     } catch (e) {
       if (!mounted) return;
-      final appL10n = AppLocalizations.of(context)!;
-      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
+      AppSnackBar.showError(
+          context, AppLocalizations.of(context)!.failedToSave(e.toString()));
     }
-  }
-
-  void _handleRefreshCard() async {
-    // Always save all current values to ensure they're persisted
-    final currentNick = _nickController.text.trim();
-    final currentStatus = _statusController.text.trim();
-    final cardText = _cardTextController.text.trim();
-
-    try {
-      // Save nickname and status if widget.onSave is available
-      if (widget.onSave != null &&
-          (currentNick != (_savedNickName ?? '') ||
-              currentStatus != (_savedStatusMessage ?? ''))) {
-        await widget.onSave!(
-          currentNick,
-          currentStatus,
-        );
-        _savedNickName = currentNick;
-        _savedStatusMessage = currentStatus;
-      }
-
-      // Save card text
-      if (cardText.isNotEmpty) {
-        await Prefs.setCardText(cardText);
-      } else {
-        await Prefs.setCardText(null);
-      }
-      _savedCardText = cardText.isNotEmpty ? cardText : null;
-    } catch (e, st) {
-      AppLogger.logError(
-        '[ProfilePage] _handleRefreshCard save failed',
-        e,
-        st,
-      );
-      if (!mounted) return;
-      final appL10n = AppLocalizations.of(context)!;
-      AppSnackBar.showError(context, appL10n.failedToSave(e.toString()));
-      return;
-    }
-
-    // Invalidate QR card to force regeneration with latest values
-    // Increment version to ensure key changes and QR card regenerates
-    _qrCardVersion++;
-    _qrKey = null; // Clear key so it will be recalculated with new version
-    _qrCardFuture = null; // Clear future to force regeneration
-
-    // Force immediate rebuild to ensure FutureBuilder gets new future
-    if (!mounted) return;
-    setState(() {
-      _hasUnsavedChanges = false;
-      _editMode = false;
-      _cardTextEditMode = false;
-    });
-
-    // After setState, ensure the future is recreated by calling _getQrCardPath
-    // This ensures that when build() is called again, a new future is available
-    // We need to get the current theme and locale from context, but we can't access it here
-    // So we'll rely on the build() method to call _getQrCardPath() which will create the new future
   }
 
   Future<void> _copyQrImage(String path) async {
     final appL10n = AppLocalizations.of(context)!;
     try {
-      final imageClipboard = ImageClipboard();
-      await imageClipboard.copyImage(path);
+      await ImageClipboard().copyImage(path);
       if (!mounted) return;
       AppSnackBar.showSuccess(context, appL10n.idCopiedToClipboard);
     } catch (e) {
       if (!mounted) return;
-      final appL10n = AppLocalizations.of(context)!;
+      AppSnackBar.showError(
+          context, AppLocalizations.of(context)!.copyFailed(e.toString()));
+    }
+  }
+
+  Future<void> _copyToxId() async {
+    final appL10n = AppLocalizations.of(context)!;
+    try {
+      await Clipboard.setData(ClipboardData(text: widget.userId));
+      if (!mounted) return;
+      AppSnackBar.showSuccess(context, appL10n.idCopiedToClipboard);
+    } catch (e, st) {
+      AppLogger.logError(
+          '[ProfilePage] Failed to copy Tox ID to clipboard', e, st);
+      if (!mounted) return;
       AppSnackBar.showError(context, appL10n.copyFailed(e.toString()));
     }
   }
 
   Future<void> _pickAvatar() async {
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.image);
-      final pickedPath = result?.files.single.path;
-      if (pickedPath == null) return;
-      // Use per-account avatars directory if current account is known
-      final currentToxId = await Prefs.getCurrentAccountToxId();
-      String avatarsDirPath;
-      if (currentToxId != null && currentToxId.isNotEmpty) {
-        avatarsDirPath = await AppPaths.getAccountAvatarsPath(currentToxId);
-      } else {
-        avatarsDirPath = (await AppPaths.avatars).path;
-      }
-      final avatarsDir = Directory(avatarsDirPath);
-      if (!await avatarsDir.exists()) {
-        await avatarsDir.create(recursive: true);
-      }
-      final ext = p.extension(pickedPath);
-      final ts = DateTime.now().millisecondsSinceEpoch;
-      final baseName = widget.isEditable && widget.userId.isNotEmpty
-          ? 'avatar_${widget.userId}'
-          : 'self_avatar';
-      final fileName = '${baseName}_$ts$ext';
-      final destPath = p.join(avatarsDirPath, fileName);
-
-      // Remove previous self-avatar files so stale versions don't accumulate.
-      try {
-        final dir = Directory(avatarsDirPath);
-        if (await dir.exists()) {
-          await for (final entity in dir.list()) {
-            if (entity is File &&
-                p.basename(entity.path).startsWith(baseName)) {
-              try {
-                await entity.delete();
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-
-      await File(pickedPath).copy(destPath);
-      await Prefs.setAvatarPath(destPath);
-      if (widget.isEditable && widget.userId.isNotEmpty) {
-        await Prefs.setAccountAvatarPath(widget.userId, destPath);
-      }
+      final picked = await pickAndPersistAvatar(
+        isEditable: widget.isEditable,
+        userId: widget.userId,
+      );
+      if (picked == null) return;
       if (mounted) {
         setState(() {
-          _avatarPath = destPath;
+          _avatarPath = picked.destPath;
           _avatarFileExists = true;
           _avatarVersion++;
         });
       }
-      widget.onAvatarChanged?.call(destPath);
-      // Auto-regenerate QR card when avatar changes
+      widget.onAvatarChanged?.call(picked.destPath);
       _invalidateQrCard();
     } catch (e) {
       if (!mounted) return;
-      final appL10n = AppLocalizations.of(context)!;
-      AppSnackBar.showError(context, appL10n.failedToUpdateAvatar(e.toString()));
+      AppSnackBar.showError(context,
+          AppLocalizations.of(context)!.failedToUpdateAvatar(e.toString()));
     }
-  }
-
-  Widget _buildAvatar({
-    required Color primaryColor,
-    required Color onPrimary,
-    required String displayInitial,
-    bool showOnlineDot = false,
-    bool isConnected = false,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    const double size = 88;
-    final bool hasCustomAvatar =
-        _avatarPath != null && _avatarPath!.isNotEmpty && _avatarFileExists;
-    // 3× DPR target so the decoded image is sized for hi-DPI displays without
-    // wasting memory on full-res source files (typical avatar source is 1024+
-    // and we render at 88pt). 88 × 3 ≈ 264; round up to 270.
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheDim = (size * dpr).ceil();
-
-    Widget avatar = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: hasCustomAvatar ? Colors.transparent : primaryColor,
-        border: Border.all(
-          color: scheme.outlineVariant,
-          width: 1,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: hasCustomAvatar
-          ? ClipOval(
-              child: Image.file(
-                File(_avatarPath!),
-                key: ValueKey('avatar-$_avatarVersion'),
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                cacheWidth: cacheDim,
-                cacheHeight: cacheDim,
-              ),
-            )
-          : Text(
-              displayInitial,
-              style: TextStyle(
-                fontSize: 32,
-                color: onPrimary,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.5,
-              ),
-            ),
-    );
-
-    final List<Widget> stackChildren = [
-      if (widget.isEditable)
-        GestureDetector(
-          onTap: _pickAvatar,
-          child: avatar,
-        )
-      else
-        avatar,
-    ];
-
-    if (showOnlineDot) {
-      stackChildren.add(PositionedDirectional(
-        end: 2,
-        bottom: 2,
-        child: Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: isConnected
-                ? AppThemeConfig.successColor
-                : scheme.outlineVariant,
-            shape: BoxShape.circle,
-            border: Border.all(color: scheme.surface, width: 2),
-          ),
-        ),
-      ));
-    }
-
-    if (widget.isEditable) {
-      stackChildren.add(PositionedDirectional(
-        end: 0,
-        bottom: 0,
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: _pickAvatar,
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: primaryColor,
-                shape: BoxShape.circle,
-                border: Border.all(color: scheme.surface, width: 2),
-              ),
-              child: Icon(Icons.camera_alt, size: 14, color: onPrimary),
-            ),
-          ),
-        ),
-      ));
-    }
-
-    if (stackChildren.length == 1) {
-      return avatar;
-    }
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: stackChildren,
-    );
   }
 
   @override
@@ -620,796 +319,169 @@ class _ProfilePageState extends State<ProfilePage> {
       child: ValueListenableBuilder<Locale>(
         valueListenable: AppLocale.locale,
         builder: (context, locale, _) {
-          // Invalidate QR card when locale changes
           if (_lastLocale != null &&
               _lastLocale!.languageCode != locale.languageCode) {
-            // Immediately invalidate and clear the future
             _invalidateQrCard();
           }
           _lastLocale = locale;
           return TencentCloudChatThemeWidget(
-            build: (context, colorTheme, textStyle) {
-              // Determine connection status: use stream for self, use online flag for peer
-              if (widget.isEditable && widget.connectionStatusStream != null) {
-                // For self profile, use StreamBuilder with initial data from service
-                // Note: We can't access service directly here, so we rely on the stream
-                // The stream should emit the current status when subscribed
-                return StreamBuilder<bool>(
-                  stream: widget.connectionStatusStream,
-                  initialData: widget
-                      .online, // Use widget.online as initial value to show correct status immediately
-                  builder: (context, snapshot) {
-                    final isConnected = snapshot.data ?? widget.online;
-                    if (snapshot.hasError) {
-                      // Surface the error to AppLogger so silent-swallow
-                      // doesn't hide upstream connection-stream failures.
-                      AppLogger.logError(
-                        '[ProfilePage] connection status stream error',
-                        snapshot.error,
-                      );
-                    }
-                    return _wrapContentScaffold(_buildContent(
-                        context, colorTheme, tL10n, isConnected, locale));
-                  },
-                );
-              } else {
-                // For peer profile, use online flag
-                final isConnected = widget.online;
-                return _wrapContentScaffold(_buildContent(
-                    context, colorTheme, tL10n, isConnected, locale));
-              }
-            },
+            build: (context, colorTheme, textStyle) => Scaffold(
+              backgroundColor: Colors.transparent,
+              body: _buildConnectionAware(context, colorTheme, tL10n, locale),
+            ),
           );
         },
       ),
     );
   }
 
-  Widget _wrapContentScaffold(Widget child) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: child,
-    );
+  Widget _buildConnectionAware(
+      BuildContext context, colorTheme, tL10n, Locale locale) {
+    final stream = widget.connectionStatusStream;
+    if (widget.isEditable && stream != null) {
+      return StreamBuilder<bool>(
+        stream: stream,
+        initialData: widget.online,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            AppLogger.logError(
+                '[ProfilePage] connection status stream error', snapshot.error);
+          }
+          return _buildContent(
+              context, colorTheme, tL10n, snapshot.data ?? widget.online, locale);
+        },
+      );
+    }
+    return _buildContent(context, colorTheme, tL10n, widget.online, locale);
   }
 
   Widget _buildContent(BuildContext context, colorTheme, tL10n,
       bool isConnected, Locale locale) {
-    // Cache the theme lookup once per build — `_buildContent` referenced
-    // `Theme.of(context)` 20+ times, each of which walked the InheritedWidget
-    // chain.
-    final theme = Theme.of(context);
+    final appL10n = AppLocalizations.of(context)!;
     final displayName = widget.isEditable
         ? _effectiveDisplayName
         : (widget.nickName?.isNotEmpty == true
             ? widget.nickName!.trim()
             : widget.userId);
-    final appStatusLabel = AppLocalizations.of(context)!.statusMessage;
-    final statusText = widget.isEditable
-        ? (_statusController.text.trim().isNotEmpty
-            ? _statusController.text.trim()
-            : (widget.statusMessage?.trim().isNotEmpty == true
-                ? widget.statusMessage!.trim()
-                : appStatusLabel))
-        : (widget.statusMessage?.trim().isNotEmpty == true
-            ? widget.statusMessage!.trim()
-            : appStatusLabel);
+    final statusText = _resolveStatusText(appL10n);
     final displayInitial =
         displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
-    final qrFuture = _getQrCardPath(
+    final qrFuture = _qrCache.getOrGenerate(_qrInputs(
       primaryColor: colorTheme.primaryColor,
       textColor: colorTheme.primaryTextColor,
       locale: locale,
-    );
-    final appL10n = AppLocalizations.of(context)!;
-    final copySuccessText = appL10n.idCopiedToClipboard;
+    ));
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final contentWidth =
+    final fallbackContentWidth =
         (screenWidth > 0 && screenWidth < 440) ? screenWidth - 32 : 440.0;
 
-    // Use optimal width for profile content; on narrow screens use available width.
-    // Wide screens use a two-column layout (info + QR side-by-side) to avoid scrolling.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth.isFinite && constraints.maxWidth > 0
-            ? constraints.maxWidth
-            : contentWidth;
-        // Align two-column pivot with the project's mobile breakpoint so any
-        // non-mobile device gets the side-by-side profile layout.
-        final isWide = width >= ResponsiveLayout.mobileBreakpoint;
-
-        // Main column children (everything except the QR section).
-        final mainColumnChildren = <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildAvatar(
-                        primaryColor: colorTheme.primaryColor,
-                        onPrimary: colorTheme.onPrimary,
-                        displayInitial: displayInitial,
-                        showOnlineDot: true,
-                        isConnected: isConnected,
-                      ),
-                      AppSpacing.horizontalLg,
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        displayName,
-                                        style: theme
-                                            .textTheme
-                                            .headlineSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: -0.4,
-                                            ),
-                                      ),
-                                      AppSpacing.verticalXs,
-                                      Text(
-                                        statusText,
-                                        style: theme
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                                color: colorTheme
-                                                    .secondaryTextColor),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (widget.isEditable)
-                                  IconButton(
-                                    icon: Icon(
-                                        _editMode ? Icons.close : Icons.edit,
-                                        size: 20),
-                                    tooltip: _editMode
-                                        ? (tL10n?.cancel ?? appL10n.cancel)
-                                        : (tL10n?.edit ?? 'Edit'),
-                                    onPressed: () =>
-                                        setState(() => _editMode = !_editMode),
-                                  ),
-                              ],
-                            ),
-                            // Animated grow/collapse for the edit-fields block.
-                            // Respects MediaQuery.disableAnimationsOf so users
-                            // with reduced-motion preferences see no transition.
-                            AnimatedSize(
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 220),
-                              curve: Curves.easeOut,
-                              alignment: Alignment.topCenter,
-                              child: _editMode
-                                  ? Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                              AppSpacing.verticalMd,
-                              TextField(
-                                controller: _nickController,
-                                textAlignVertical: TextAlignVertical.center,
-                                decoration: InputDecoration(
-                                  labelText:
-                                      tL10n?.setNickname ?? appL10n.nickname,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                        color: theme
-                                            .colorScheme
-                                            .outlineVariant),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                      color: colorTheme.primaryColor,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  errorText: _calculateTextLength(
-                                              _nickController.text) >
-                                          12
-                                      ? AppLocalizations.of(context)!
-                                          .nicknameTooLong
-                                      : null,
-                                ),
-                                maxLength:
-                                    24, // Allow up to 24 characters for input
-                                onChanged: (value) {
-                                  setState(
-                                      () {}); // Rebuild to update error text
-                                },
-                              ),
-                              AppSpacing.verticalMd,
-                              TextField(
-                                controller: _statusController,
-                                textAlignVertical: TextAlignVertical.center,
-                                decoration: InputDecoration(
-                                  labelText: tL10n?.setSignature ??
-                                      appL10n.statusMessage,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                        color: theme
-                                            .colorScheme
-                                            .outlineVariant),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                      color: colorTheme.primaryColor,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  errorText: _calculateTextLength(
-                                              _statusController.text) >
-                                          24
-                                      ? AppLocalizations.of(context)!
-                                              .statusMessageTooLong
-                                      : null,
-                                ),
-                                minLines: 1,
-                                maxLines: 3,
-                                maxLength:
-                                    48, // Allow up to 48 characters for input
-                                onChanged: (value) {
-                                  setState(
-                                      () {}); // Rebuild to update error text
-                                },
-                              ),
-                              AppSpacing.verticalMd,
-                              Row(
-                                children: [
-                                  // Explicit labeled Cancel — the icon-toggle
-                                  // alone is too easy to miss as an escape
-                                  // path.
-                                  TextButton(
-                                    onPressed: _isSaving
-                                        ? null
-                                        : () => setState(
-                                            () => _editMode = false),
-                                    child: Text(tL10n?.cancel ?? appL10n.cancel),
-                                  ),
-                                  AppSpacing.horizontalSm,
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 44,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              colorTheme.primaryColor,
-                                          foregroundColor: colorTheme.onPrimary,
-                                          disabledBackgroundColor: colorTheme
-                                              .primaryColor
-                                              .withValues(alpha: 0.4),
-                                          disabledForegroundColor:
-                                              colorTheme.onPrimary,
-                                          elevation: 0,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                                AppThemeConfig
-                                                    .buttonBorderRadius),
-                                          ),
-                                          textStyle: theme
-                                              .textTheme
-                                              .labelLarge
-                                              ?.copyWith(
-                                                  fontWeight: FontWeight.w600),
-                                        ),
-                                        onPressed: (_isSaving ||
-                                                _calculateTextLength(
-                                                        _nickController.text) >
-                                                    12 ||
-                                                _calculateTextLength(
-                                                        _statusController
-                                                            .text) >
-                                                    24)
-                                            ? null
-                                            : _handleSave,
-                                        child: _isSaving
-                                            ? SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  valueColor:
-                                                      AlwaysStoppedAnimation<
-                                                              Color>(
-                                                          colorTheme.onPrimary),
-                                                ),
-                                              )
-                                            : Text(tL10n?.saveContact ??
-                                                appL10n.save),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              AppSpacing.verticalSm,
-                                      ],
-                                    )
-                                  : const SizedBox(width: double.infinity),
-                            ),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    // Dot uses success/secondary token so the
-                                    // color signal is still present, but the
-                                    // adjacent label always carries primary
-                                    // text contrast (see below) so users who
-                                    // can't distinguish the dot still read it.
-                                    color: isConnected
-                                        ? AppThemeConfig.successColor
-                                        : (theme.brightness ==
-                                                Brightness.dark
-                                            ? AppThemeConfig
-                                                .secondaryTextColorDark
-                                            : AppThemeConfig
-                                                .secondaryTextColorLight),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                AppSpacing.horizontalXs,
-                                AppSpacing.horizontalXs,
-                                Text(
-                                  isConnected
-                                      ? appL10n.statusOnline
-                                      : appL10n.statusOffline,
-                                  style: theme
-                                      .textTheme
-                                      .labelMedium
-                                      ?.copyWith(
-                                        // Always full body-text contrast so
-                                        // status is readable even if the dot
-                                        // color cue is missed.
-                                        color: colorTheme.primaryTextColor,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.2,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (!widget.isEditable || !_editMode)
-                    AppSpacing.verticalLg,
-                  // Chat Button (only for non-editable peer profiles)
-                  if (!widget.isEditable && widget.onChat != null) ...[
-                    AppSpacing.verticalMd,
-                    SizedBox(
-                      width: double.infinity,
-                      height: 44,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: colorTheme.primaryColor,
-                          foregroundColor: colorTheme.onPrimary,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                AppThemeConfig.buttonBorderRadius),
-                          ),
-                          textStyle: theme
-                              .textTheme
-                              .labelLarge
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        icon: const Icon(Icons.message_rounded, size: 18),
-                        label: Text(tL10n?.sendMsg ?? appL10n.startChat),
-                        onPressed: widget.onChat,
-                      ),
-                    ),
-                    AppSpacing.verticalLg,
-                  ],
-                  // User ID
-                  Row(
-                    children: [
-                      Text(
-                        tL10n?.userID ?? 'User ID:',
-                        style: theme
-                            .textTheme
-                            .labelMedium
-                            ?.copyWith(
-                              color: colorTheme.secondaryTextColor,
-                              letterSpacing: 0.3,
-                            ),
-                      ),
-                      const Spacer(),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: colorTheme.primaryColor,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.sm,
-                              vertical: AppSpacing.xs),
-                          minimumSize: const Size(0, 44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                AppThemeConfig.buttonBorderRadius),
-                          ),
-                        ),
-                        icon: const Icon(Icons.copy_rounded, size: 16),
-                        label: Text(tL10n?.copy ?? appL10n.copy),
-                        onPressed: () async {
-                          try {
-                            await Clipboard.setData(
-                                ClipboardData(text: widget.userId));
-                            if (!mounted) return;
-                            AppSnackBar.showSuccess(context, copySuccessText);
-                          } catch (e, st) {
-                            AppLogger.logError(
-                              '[ProfilePage] Failed to copy Tox ID to clipboard',
-                              e,
-                              st,
-                            );
-                            if (!mounted) return;
-                            AppSnackBar.showError(
-                                context, appL10n.copyFailed(e.toString()));
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  AppSpacing.verticalXs,
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md, vertical: AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: theme
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.4),
-                      border: Border.all(
-                          color: theme.colorScheme.outlineVariant),
-                      borderRadius: BorderRadius.circular(
-                          AppThemeConfig.inputBorderRadius),
-                    ),
-                    // Pin LTR so Arabic / Hebrew locales don't visually
-                    // reorder the hex Tox ID — the value itself is direction-
-                    // neutral data, not localized prose.
-                    child: Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: SelectableText(
-                        widget.userId,
-                        style: theme
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(
-                              fontFamily: 'monospace',
-                              color: colorTheme.primaryTextColor,
-                              letterSpacing: 0.2,
-                              height: 1.4,
-                            ),
-                      ),
-                    ),
-                  ),
-                  AppSpacing.verticalMd,
-                  // Custom card text input (clickable to edit, Enter to save, with generate button)
-                  if (widget.isEditable) ...[
-                    _cardTextEditMode
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextField(
-                                controller: _cardTextController,
-                                textAlignVertical: TextAlignVertical.center,
-                                decoration: InputDecoration(
-                                  labelText: appL10n.customCardText,
-                                  hintText: appL10n.scanQrCodeToAddContact,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                        color: theme
-                                            .colorScheme
-                                            .outlineVariant),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.inputBorderRadius),
-                                    borderSide: BorderSide(
-                                      color: colorTheme.primaryColor,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                ),
-                                maxLines: 2,
-                                autofocus: true,
-                                onSubmitted: (_) => _handleSaveCardText(),
-                                onEditingComplete: _handleSaveCardText,
-                              ),
-                              AppSpacing.verticalSm,
-                              SizedBox(
-                                width: double.infinity,
-                                height: 44,
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: colorTheme.primaryColor,
-                                    foregroundColor: colorTheme.onPrimary,
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          AppThemeConfig.buttonBorderRadius),
-                                    ),
-                                    textStyle: theme
-                                        .textTheme
-                                        .labelLarge
-                                        ?.copyWith(fontWeight: FontWeight.w600),
-                                  ),
-                                  icon: const Icon(Icons.refresh, size: 18),
-                                  label: Text(appL10n.generateCard),
-                                  onPressed: _handleSaveCardText,
-                                ),
-                              ),
-                            ],
-                          )
-                        : Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(
-                                AppThemeConfig.inputBorderRadius),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(
-                                  AppThemeConfig.inputBorderRadius),
-                              onTap: () {
-                                setState(() {
-                                  _cardTextEditMode = true;
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.md,
-                                    vertical: AppSpacing.md),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: theme
-                                          .colorScheme
-                                          .outlineVariant),
-                                  borderRadius: BorderRadius.circular(
-                                      AppThemeConfig.inputBorderRadius),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        _cardTextController.text
-                                                .trim()
-                                                .isNotEmpty
-                                            ? _cardTextController.text.trim()
-                                            : appL10n.scanQrCodeToAddContact,
-                                        style: theme
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              color: _cardTextController.text
-                                                      .trim()
-                                                      .isNotEmpty
-                                                  ? colorTheme.primaryTextColor
-                                                  : colorTheme
-                                                      .secondaryTextColor,
-                                              fontStyle: _cardTextController
-                                                      .text
-                                                      .trim()
-                                                      .isEmpty
-                                                  ? FontStyle.italic
-                                                  : FontStyle.normal,
-                                            ),
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.edit_outlined,
-                                      size: 16,
-                                      color: colorTheme.secondaryTextColor,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                    AppSpacing.verticalMd,
-                  ],
-        ];
-
-        // QR section, rendered standalone so it can be placed either on the
-        // right (wide) or appended at the bottom of the column (narrow).
-        final qrSection = Center(
-                    child: LayoutBuilder(
-                      builder: (context, qrConstraints) {
-                        // Compute responsive QR dimensions preserving card aspect ratio (640:860)
-                        final availWidth = qrConstraints.maxWidth.isFinite
-                            ? qrConstraints.maxWidth
-                            : 300.0;
-                        final qrWidth =
-                            (availWidth * (isWide ? 0.85 : 0.6)).clamp(160.0, 260.0);
-                        final qrHeight =
-                            qrWidth * (860.0 / 640.0); // aspect ratio ~1.344
-
-                        return FutureBuilder<String>(
-                          // Use version in key to force FutureBuilder to rebuild when version changes
-                          // This ensures that even if the future object is the same, the FutureBuilder will rebuild
-                          key: ValueKey(
-                              'qr_${locale.languageCode}_v$_qrCardVersion'), // Force rebuild when locale or version changes
-                          future: qrFuture,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState !=
-                                ConnectionState.done) {
-                              return SizedBox(
-                                height: qrHeight,
-                                width: qrWidth,
-                                child: const Center(
-                                    child: CircularProgressIndicator()),
-                              );
-                            }
-                            if (!snapshot.hasData || snapshot.hasError) {
-                              return SizedBox(
-                                height: qrHeight,
-                                width: qrWidth,
-                                child: Center(
-                                  child: Text(
-                                    AppLocalizations.of(context)!
-                                        .failedToLoadQr,
-                                    style: TextStyle(color: colorTheme.error),
-                                  ),
-                                ),
-                              );
-                            }
-                            final qrPath = snapshot.data!;
-                            final outlinedStyle = OutlinedButton.styleFrom(
-                              foregroundColor: colorTheme.primaryColor,
-                              side: BorderSide(
-                                  color: theme
-                                      .colorScheme
-                                      .outlineVariant),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    AppThemeConfig.buttonBorderRadius),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.lg,
-                                  vertical: AppSpacing.sm),
-                              textStyle: theme
-                                  .textTheme
-                                  .labelLarge
-                                  ?.copyWith(fontWeight: FontWeight.w500),
-                            );
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(AppSpacing.sm),
-                                  decoration: BoxDecoration(
-                                    color: theme
-                                        .colorScheme
-                                        .surface,
-                                    border: Border.all(
-                                        color: theme
-                                            .colorScheme
-                                            .outlineVariant),
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.cardBorderRadius),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(
-                                        AppThemeConfig.cardBorderRadius - 2),
-                                    child: Image.file(
-                                      File(qrPath),
-                                      width: qrWidth,
-                                      height: qrHeight,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                ),
-                                AppSpacing.verticalMd,
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    OutlinedButton.icon(
-                                      style: outlinedStyle,
-                                      icon: const Icon(Icons.download_rounded,
-                                          size: 16),
-                                      label: Text(appL10n.saveImage),
-                                      onPressed: () => _handleSaveQr(
-                                        primaryColor: colorTheme.primaryColor,
-                                        textColor: colorTheme.primaryTextColor,
-                                        locale: locale,
-                                      ),
-                                    ),
-                                    AppSpacing.horizontalSm,
-                                    OutlinedButton.icon(
-                                      style: outlinedStyle,
-                                      icon: const Icon(Icons.copy_rounded,
-                                          size: 16),
-                                      label: Text(appL10n.copy),
-                                      onPressed: () => _copyQrImage(qrPath),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  );
-
-        if (isWide) {
-          return SizedBox(
-            width: width,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsetsDirectional.only(
-                          end: AppSpacing.lg),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: mainColumnChildren,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 360),
-                    child: qrSection,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return SizedBox(
-          width: width,
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: (660.0)
-                    .clamp(400.0, MediaQuery.sizeOf(context).height - 120),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [...mainColumnChildren, qrSection],
-              ),
-            ),
-          ),
-        );
-      },
+    final header = ProfileHeader(
+      displayName: displayName,
+      displayInitial: displayInitial,
+      statusText: statusText,
+      isEditable: widget.isEditable,
+      editMode: _editMode,
+      isConnected: isConnected,
+      primaryColor: colorTheme.primaryColor,
+      onPrimary: colorTheme.onPrimary,
+      primaryTextColor: colorTheme.primaryTextColor,
+      secondaryTextColor: colorTheme.secondaryTextColor,
+      avatarPath: _avatarPath,
+      avatarFileExists: _avatarFileExists,
+      avatarVersion: _avatarVersion,
+      onAvatarTap: _pickAvatar,
+      onToggleEdit: () => setState(() => _editMode = !_editMode),
+      onlineLabel: appL10n.statusOnline,
+      offlineLabel: appL10n.statusOffline,
+      editTooltip: tL10n?.edit ?? 'Edit',
+      cancelTooltip: tL10n?.cancel ?? appL10n.cancel,
+      editFields: _editMode
+          ? ProfileEditFields(
+              nickController: _nickController,
+              statusController: _statusController,
+              isSaving: _isSaving,
+              primaryColor: colorTheme.primaryColor,
+              onPrimary: colorTheme.onPrimary,
+              nicknameLabel: tL10n?.setNickname ?? appL10n.nickname,
+              statusLabel: tL10n?.setSignature ?? appL10n.statusMessage,
+              saveLabel: tL10n?.saveContact ?? appL10n.save,
+              cancelLabel: tL10n?.cancel ?? appL10n.cancel,
+              nicknameTooLong: appL10n.nicknameTooLong,
+              statusTooLong: appL10n.statusMessageTooLong,
+              onCancel: () => setState(() => _editMode = false),
+              onSave: _handleSave,
+              onAnyFieldChanged: () => setState(() {}),
+            )
+          : null,
     );
+
+    final mainColumnChildren = <Widget>[
+      header,
+      if (!widget.isEditable || !_editMode) AppSpacing.verticalLg,
+      if (!widget.isEditable && widget.onChat != null) ...[
+        AppSpacing.verticalMd,
+        ProfileChatButton(
+          label: tL10n?.sendMsg ?? appL10n.startChat,
+          onPressed: widget.onChat!,
+        ),
+        AppSpacing.verticalLg,
+      ],
+      ProfileToxIdSection(
+        userId: widget.userId,
+        label: tL10n?.userID ?? 'User ID:',
+        copyLabel: tL10n?.copy ?? appL10n.copy,
+        primaryColor: colorTheme.primaryColor,
+        secondaryTextColor: colorTheme.secondaryTextColor,
+        primaryTextColor: colorTheme.primaryTextColor,
+        onCopy: _copyToxId,
+      ),
+      AppSpacing.verticalMd,
+      if (widget.isEditable) ...[
+        ProfileCardTextField(
+          controller: _cardTextController,
+          editMode: _cardTextEditMode,
+          primaryColor: colorTheme.primaryColor,
+          onPrimary: colorTheme.onPrimary,
+          secondaryTextColor: colorTheme.secondaryTextColor,
+          primaryTextColor: colorTheme.primaryTextColor,
+          onEnterEditMode: () => setState(() => _cardTextEditMode = true),
+          onSave: _handleSaveCardText,
+          placeholderText: appL10n.scanQrCodeToAddContact,
+          labelText: appL10n.customCardText,
+          generateLabel: appL10n.generateCard,
+        ),
+        AppSpacing.verticalMd,
+      ],
+    ];
+
+    final qrSection = ProfileQrSection(
+      qrFuture: qrFuture,
+      versionKey: '${locale.languageCode}_v$_qrCardVersion',
+      isWide: MediaQuery.sizeOf(context).width >=
+          ResponsiveLayout.mobileBreakpoint,
+      primaryColor: colorTheme.primaryColor,
+      onSave: () => _handleSaveQr(
+        primaryColor: colorTheme.primaryColor,
+        textColor: colorTheme.primaryTextColor,
+        locale: locale,
+      ),
+      onCopy: _copyQrImage,
+    );
+
+    return ProfileLayout(
+      mainColumnChildren: mainColumnChildren,
+      qrSection: qrSection,
+      fallbackContentWidth: fallbackContentWidth,
+    );
+  }
+
+  String _resolveStatusText(AppLocalizations appL10n) {
+    if (widget.isEditable) {
+      final current = _statusController.text.trim();
+      if (current.isNotEmpty) return current;
+    }
+    final widgetStatus = widget.statusMessage?.trim();
+    if (widgetStatus != null && widgetStatus.isNotEmpty) return widgetStatus;
+    return appL10n.statusMessage;
   }
 }

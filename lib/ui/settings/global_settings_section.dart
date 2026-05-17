@@ -12,6 +12,7 @@ import '../../util/theme_controller.dart';
 import '../../util/prefs.dart';
 import '../../i18n/app_localizations.dart';
 import '../widgets/section_header.dart';
+import '_hoverable_settings_row.dart';
 
 /// Global app settings (appearance, language, notification sound, downloads, auto-download).
 /// Shown on both login settings and main settings. When [toxId] is null (login page),
@@ -387,7 +388,7 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
               // auto-accept friends, auto-accept group invites). Previously
               // this row used a bare SwitchListTile which rendered subtly
               // differently (denser, different padding, different hover).
-              child: _HoverableSettingsRow(
+              child: HoverableSettingsRow(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -546,37 +547,3 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
   }
 }
 
-/// Mirror of `_HoverableSettingsRow` in settings_page_widgets.dart.
-/// Kept local here so this section can reuse the same hover/padding pattern
-/// without exporting a private widget from `settings_page.dart`.
-class _HoverableSettingsRow extends StatefulWidget {
-  const _HoverableSettingsRow({required this.child});
-  final Widget child;
-  @override
-  State<_HoverableSettingsRow> createState() => _HoverableSettingsRowState();
-}
-
-class _HoverableSettingsRowState extends State<_HoverableSettingsRow> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hoverColor =
-        Theme.of(context).colorScheme.primary.withValues(alpha: 0.04);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-        decoration: BoxDecoration(
-          color: _isHovered ? hoverColor : Colors.transparent,
-          borderRadius:
-              BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-        ),
-        child: widget.child,
-      ),
-    );
-  }
-}

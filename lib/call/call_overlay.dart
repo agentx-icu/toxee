@@ -56,14 +56,24 @@ class CallOverlay extends StatelessWidget {
                 // pattern: a slightly slower entrance feels deliberate while a
                 // snappier exit keeps the next view from feeling stuck. The
                 // explicit FadeTransition replaces the implicit cross-fade.
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  reverseDuration: const Duration(milliseconds: 150),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  transitionBuilder: (child, animation) =>
-                      FadeTransition(opacity: animation, child: child),
-                  child: _buildCallView(),
+                child: Builder(
+                  builder: (innerCtx) {
+                    final reduceMotion =
+                        MediaQuery.maybeDisableAnimationsOf(innerCtx) == true;
+                    return AnimatedSwitcher(
+                      duration: reduceMotion
+                          ? Duration.zero
+                          : const Duration(milliseconds: 220),
+                      reverseDuration: reduceMotion
+                          ? Duration.zero
+                          : const Duration(milliseconds: 150),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      transitionBuilder: (child, animation) =>
+                          FadeTransition(opacity: animation, child: child),
+                      child: _buildCallView(),
+                    );
+                  },
                 ),
               ),
             ),

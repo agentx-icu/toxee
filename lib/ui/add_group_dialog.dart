@@ -7,6 +7,14 @@ import '../util/prefs.dart';
 import '../util/app_theme_config.dart';
 import '../i18n/app_localizations.dart';
 
+/// Desktop / wide-window max dialog width.
+const double _kDesktopMaxDialogWidth = 560;
+
+double _dialogMaxWidth(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  return (w - 32).clamp(280.0, _kDesktopMaxDialogWidth);
+}
+
 class AddGroupDialog extends StatefulWidget {
   const AddGroupDialog({
     super.key,
@@ -16,7 +24,8 @@ class AddGroupDialog extends StatefulWidget {
   });
 
   final FfiChatService service;
-  final Future<void> Function(String groupId, {String? displayName})? onGroupChanged;
+  final Future<void> Function(String groupId, {String? displayName})?
+      onGroupChanged;
   final void Function(String message)? onShowSnackBar;
 
   @override
@@ -39,7 +48,8 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_requestController.text.isEmpty) {
-      _requestController.text = AppLocalizations.of(context)!.defaultJoinRequestMessage;
+      _requestController.text =
+          AppLocalizations.of(context)!.defaultJoinRequestMessage;
     }
   }
 
@@ -58,17 +68,30 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     final gid = _groupIdController.text.trim();
     final wording = _requestController.text.trim();
     final alias = _aliasController.text.trim();
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final navigator = Navigator.of(context);
+    final successText =
+        _localeText(context, 'joinSuccess', fallback: 'Join request sent');
+    final failurePrefix =
+        _localeText(context, 'joinFailed', fallback: 'Join failed');
+
     setState(() => _isJoining = true);
     try {
       await widget.service.joinGroup(gid, requestMessage: wording);
       if (alias.isNotEmpty) {
         await Prefs.setGroupName(gid, alias);
       }
-      await widget.onGroupChanged?.call(gid, displayName: alias.isNotEmpty ? alias : null);
-      _notify(_localeText(context, 'joinSuccess', fallback: 'Join request sent'));
-      if (mounted) Navigator.of(context).maybePop();
+      await widget.onGroupChanged?.call(gid,
+          displayName: alias.isNotEmpty ? alias : null);
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, successText);
+      if (mounted) {
+        await navigator.maybePop();
+      }
     } catch (e) {
-      _notify('${_localeText(context, 'joinFailed', fallback: 'Join failed')}: $e');
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, '$failurePrefix: $e');
     } finally {
       if (mounted) setState(() => _isJoining = false);
     }
@@ -78,21 +101,36 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     if (_isCreating) return;
     if (!_createFormKey.currentState!.validate()) return;
     final name = _createNameController.text.trim();
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final navigator = Navigator.of(context);
+    final createFailedText = _localeText(context, 'createFailed',
+        fallback: 'Failed to create group');
+    final createSuccessText =
+        _localeText(context, 'createSuccess', fallback: 'Group created');
+
     setState(() => _isCreating = true);
     try {
-      final gid = await widget.service.createGroup(name, groupType: _selectedGroupType);
+      final gid = await widget.service
+          .createGroup(name, groupType: _selectedGroupType);
       if (gid == null || gid.isEmpty) {
-        _notify(_localeText(context, 'createFailed', fallback: 'Failed to create group'));
+        await HapticFeedback.lightImpact();
+        _notifyVia(messenger, createFailedText);
         return;
       }
       await Prefs.setGroupName(gid, name);
       await widget.onGroupChanged?.call(gid, displayName: name);
+      if (!mounted) return;
       setState(() => _createdGroupId = gid);
-      _notify(_localeText(context, 'createSuccess', fallback: 'Group created'));
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, createSuccessText);
       // Close dialog after successful creation
-      if (mounted) Navigator.of(context).maybePop();
+      if (mounted) {
+        await navigator.maybePop();
+      }
     } catch (e) {
-      _notify('${_localeText(context, 'createFailed', fallback: 'Failed to create group')}: $e');
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, '$createFailedText: $e');
     } finally {
       if (mounted) setState(() => _isCreating = false);
     }
@@ -102,9 +140,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   Widget build(BuildContext context) {
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: (MediaQuery.sizeOf(context).width - 48).clamp(280.0, 560.0),
-        ),
+        constraints: BoxConstraints(maxWidth: _dialogMaxWidth(context)),
         child: Material(
           color: Colors.transparent,
           child: SingleChildScrollView(
@@ -115,16 +151,20 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _localeText(context, 'addGroup', fallback: 'Add or Create Group'),
-                    style: Theme.of(context).textTheme.titleLarge,
+                    _localeText(context, 'addGroup',
+                        fallback: 'Add or Create Group'),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 18,
+                        ),
                   ),
                   AppSpacing.verticalLg,
-                  _buildJoinCard(colorTheme),
+                  _buildJoinCard(),
                   AppSpacing.verticalLg,
-                  _buildCreateCard(colorTheme),
+                  _buildCreateCard(),
                   if (_createdGroupId != null) ...[
                     AppSpacing.verticalLg,
-                    _buildCreatedInfo(colorTheme),
+                    _buildCreatedInfo(),
                   ],
                 ],
               ),
@@ -135,13 +175,13 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     );
   }
 
-  Widget _buildJoinCard(colorTheme) {
+  Widget _buildJoinCard() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
@@ -153,7 +193,8 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _localeText(context, 'joinGroup', fallback: 'Join Group by ID'),
+                _localeText(context, 'joinGroup',
+                    fallback: 'Join Group by ID'),
                 style: theme.textTheme.titleMedium,
               ),
               AppSpacing.verticalMd,
@@ -161,15 +202,17 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _groupIdController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(context, 'groupId', fallback: 'Group ID'),
+                  labelText: _localeText(context, 'groupId',
+                      fallback: 'Group ID'),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                    borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
                 ),
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
                   if (trimmed.isEmpty) {
-                    return _localeText(context, 'enterGroupId', fallback: 'Please enter group ID');
+                    return _localeText(context, 'enterGroupId',
+                        fallback: 'Please enter group ID');
                   }
                   return null;
                 },
@@ -179,9 +222,10 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _requestController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(context, 'requestMessage', fallback: 'Request Message'),
+                  labelText: _localeText(context, 'requestMessage',
+                      fallback: 'Request Message'),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                    borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
                 ),
                 minLines: 1,
@@ -192,36 +236,21 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _aliasController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(context, 'groupAlias', fallback: 'Local group name (optional)'),
+                  labelText: _localeText(context, 'groupAlias',
+                      fallback: 'Local group name (optional)'),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                    borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
                 ),
               ),
               AppSpacing.verticalLg,
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
-                    ),
-                  ),
-                  icon: _isJoining
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
-                          ),
-                        )
-                      : const Icon(Icons.group_add),
-                  label: Text(_localeText(context, 'joinAction', fallback: 'Send Join Request')),
-                  onPressed: _isJoining ? null : _joinGroup,
-                ),
+              _buildPrimaryAction(
+                scheme: scheme,
+                busy: _isJoining,
+                icon: Icons.group_add,
+                label: _localeText(context, 'joinAction',
+                    fallback: 'Send Join Request'),
+                onPressed: _joinGroup,
               ),
             ],
           ),
@@ -230,17 +259,14 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     );
   }
 
-  Widget _buildCreateCard(colorTheme) {
+  Widget _buildCreateCard() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Card(
       elevation: 0,
       // Tinted-primary variant signals this is the canonical "create" path.
-      color: scheme.primary.withValues(alpha: 0.08),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-        side: BorderSide(color: scheme.primary.withValues(alpha: 0.4)),
-      ),
+      color: AppThemeConfig.tintedPrimaryCardColor(scheme.primary),
+      shape: AppThemeConfig.tintedPrimaryCardShape(scheme.primary),
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -250,7 +276,8 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _localeText(context, 'createGroup', fallback: 'Create New Group'),
+                _localeText(context, 'createGroup',
+                    fallback: 'Create New Group'),
                 style: theme.textTheme.titleMedium,
               ),
               AppSpacing.verticalMd,
@@ -258,14 +285,16 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _createNameController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(context, 'groupName', fallback: 'Group Name'),
+                  labelText: _localeText(context, 'groupName',
+                      fallback: 'Group Name'),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                    borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
                 ),
                 validator: (value) {
                   if ((value ?? '').trim().isEmpty) {
-                    return _localeText(context, 'enterGroupName', fallback: 'Please enter a group name');
+                    return _localeText(context, 'enterGroupName',
+                        fallback: 'Please enter a group name');
                   }
                   return null;
                 },
@@ -297,29 +326,13 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 },
               ),
               AppSpacing.verticalLg,
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
-                    ),
-                  ),
-                  icon: _isCreating
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
-                          ),
-                        )
-                      : const Icon(Icons.group),
-                  label: Text(_localeText(context, 'createAction', fallback: 'Create Group')),
-                  onPressed: _isCreating ? null : _createGroup,
-                ),
+              _buildPrimaryAction(
+                scheme: scheme,
+                busy: _isCreating,
+                icon: Icons.group,
+                label: _localeText(context, 'createAction',
+                    fallback: 'Create Group'),
+                onPressed: _createGroup,
               ),
             ],
           ),
@@ -328,16 +341,52 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     );
   }
 
-  Widget _buildCreatedInfo(colorTheme) {
+  Widget _buildPrimaryAction({
+    required ColorScheme scheme,
+    required bool busy,
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: Tooltip(
+        message: busy ? _localeText(context, 'sending', fallback: 'Sending...') : '',
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadii.button),
+            ),
+          ),
+          icon: busy
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                  ),
+                )
+              : Icon(icon),
+          label: Text(label),
+          onPressed: busy ? null : onPressed,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCreatedInfo() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.4)),
+        color: AppThemeConfig.tintedPrimaryCardColor(scheme.primary),
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(
+          color: AppThemeConfig.tintedPrimaryCardBorderColor(scheme.primary),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -349,24 +398,32 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           AppSpacing.verticalSm,
           SelectableText(
             _createdGroupId ?? '',
-            style: theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace'),
+            style:
+                theme.textTheme.bodyMedium?.copyWith(fontFamily: 'monospace'),
           ),
           AppSpacing.verticalSm,
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: scheme.primary,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                borderRadius: BorderRadius.circular(AppRadii.button),
               ),
-              side: BorderSide(color: scheme.primary.withValues(alpha: 0.4)),
+              side: BorderSide(
+                color: AppThemeConfig
+                    .tintedPrimaryCardBorderColor(scheme.primary),
+              ),
             ),
             icon: const Icon(Icons.copy),
             label: Text(_localeText(context, 'copyId', fallback: 'Copy ID')),
             onPressed: _createdGroupId == null
                 ? null
                 : () async {
-                    await Clipboard.setData(ClipboardData(text: _createdGroupId!));
-                    _notify(_localeText(context, 'copied', fallback: 'Copied to clipboard'));
+                    final messenger = ScaffoldMessenger.maybeOf(context);
+                    final copiedText = _localeText(context, 'copied',
+                        fallback: 'Copied to clipboard');
+                    await Clipboard.setData(
+                        ClipboardData(text: _createdGroupId!));
+                    _notifyVia(messenger, copiedText);
                   },
           ),
         ],
@@ -374,16 +431,16 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     );
   }
 
-  void _notify(String message) {
+  void _notifyVia(ScaffoldMessengerState? messenger, String message) {
     if (widget.onShowSnackBar != null) {
       widget.onShowSnackBar!(message);
     } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
-  String _localeText(BuildContext context, String key, {required String fallback}) {
+  String _localeText(BuildContext context, String key,
+      {required String fallback}) {
     final appL10n = AppLocalizations.of(context)!;
     switch (key) {
       case 'addGroup':
@@ -422,8 +479,9 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
         return appL10n.copyId;
       case 'copied':
         return appL10n.copied;
+      case 'sending':
+        return fallback;
     }
     return fallback;
   }
 }
-

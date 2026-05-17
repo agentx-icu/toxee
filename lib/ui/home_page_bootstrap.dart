@@ -411,7 +411,9 @@ extension _HomePageBootstrap on _HomePageState {
                 Positioned(
                   right: 0,
                   bottom: 0,
-                  child: GestureDetector(
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
                     onTap: () => _showMessageReceiversDialog(context, msgID, data.groupID!),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs + 2, vertical: 2),
@@ -442,6 +444,7 @@ extension _HomePageBootstrap on _HomePageState {
                         ],
                       ),
                     ),
+                  ),
                   ),
                 ),
               ],
@@ -760,6 +763,10 @@ class _ToxeeMessageHeaderInfoState extends State<_ToxeeMessageHeaderInfo> {
               fontSize: textStyle.standardLargeText,
               fontWeight: FontWeight.bold,
               color: colorTheme.primaryTextColor,
+              // Tight line-height: app-bar header sits inside a fixed-height
+              // row, so the default body `height: 1.5` would push the two
+              // stacked lines past the available vertical space.
+              height: 1.15,
             ),
           ),
           if (widget.showUserOnlineStatus && statusText.isNotEmpty)
@@ -770,6 +777,7 @@ class _ToxeeMessageHeaderInfoState extends State<_ToxeeMessageHeaderInfo> {
               style: TextStyle(
                 fontSize: textStyle.standardSmallText,
                 color: colorTheme.secondaryTextColor,
+                height: 1.15,
               ),
             ),
         ],

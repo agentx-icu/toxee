@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../util/app_spacing.dart';
-import '../../util/app_theme_config.dart';
 
 // 4pt matches AppSpacing.xs grid — keeps skeleton bars aligned to the
 // same rhythm as live content.
 const double _kSkeletonRadius = 4.0;
 
+// 1.2s linear cycle — feels lively without becoming a distraction.
+const Duration _kShimmerCycle = Duration(milliseconds: 1200);
+
 /// A skeleton/shimmer loading placeholder for lists.
 /// Uses pure Flutter animations without external packages.
+///
+/// Base / highlight colors derive from the active `ColorScheme`:
+/// - base = `cs.surfaceContainerHighest`
+/// - highlight = `cs.surface`
+///
+/// Respects `MediaQuery.disableAnimationsOf`: when reduced motion is on the
+/// shimmer holds at the base color (no animation, no flashing) but the
+/// skeleton layout still renders so the loading affordance is preserved.
 class LoadingShimmer extends StatefulWidget {
   const LoadingShimmer({
     super.key,
@@ -31,8 +41,9 @@ class _LoadingShimmerState extends State<LoadingShimmer>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
+      duration: _kShimmerCycle,
+    );
+    // Start/stop is decided at build time based on MediaQuery — see build().
   }
 
   @override
@@ -43,30 +54,21 @@ class _LoadingShimmerState extends State<LoadingShimmer>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Token-derived shimmer palette:
-    //   dark  base = othersMessageBubbleColorDark (slate-800, our surface-1)
-    //   dark  highlight = base lerped 20% toward the slate-400 secondary
-    //                     text color — gives a perceptible shimmer band
-    //                     without introducing a new color token.
-    //   light base = dividerColorLight (slate-200 / cool blue tint, our
-    //                hairline divider; reads as a "muted surface").
-    //   light highlight = base lerped 50% toward white — softer than the
-    //                     old slate-50 hex but still clearly above base.
-    final baseColor = isDark
-        ? AppThemeConfig.othersMessageBubbleColorDark
-        : AppThemeConfig.dividerColorLight;
-    final highlightColor = isDark
-        ? Color.lerp(
-            AppThemeConfig.othersMessageBubbleColorDark,
-            AppThemeConfig.secondaryTextColorDark,
-            0.20,
-          )!
-        : Color.lerp(
-            AppThemeConfig.dividerColorLight,
-            Colors.white,
-            0.50,
-          )!;
+    final cs = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+
+    // Scheme-driven shimmer palette — adapts automatically to dark mode.
+    final baseColor = cs.surfaceContainerHighest;
+    final highlightColor = cs.surface;
+
+    // Gate the animation behind reduced-motion. When motion is reduced we
+    // stop and hold at the base color (no shimmer band, no flashing).
+    if (reduceMotion) {
+      if (_controller.isAnimating) _controller.stop();
+      _controller.value = 0.0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
 
     return AnimatedBuilder(
       animation: _controller,
@@ -74,7 +76,8 @@ class _LoadingShimmerState extends State<LoadingShimmer>
         return Column(
           children: List.generate(widget.itemCount, (index) {
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
               child: SizedBox(
                 height: widget.itemHeight,
                 child: Row(
@@ -87,6 +90,7 @@ class _LoadingShimmerState extends State<LoadingShimmer>
                       baseColor: baseColor,
                       highlightColor: highlightColor,
                       progress: _controller.value,
+                      animate: !reduceMotion,
                     ),
                     AppSpacing.horizontalMd,
                     Expanded(
@@ -101,6 +105,7 @@ class _LoadingShimmerState extends State<LoadingShimmer>
                             baseColor: baseColor,
                             highlightColor: highlightColor,
                             progress: _controller.value,
+                            animate: !reduceMotion,
                             widthFraction: 0.6 + (index % 3) * 0.1,
                           ),
                           AppSpacing.verticalSm,
@@ -111,6 +116,7 @@ class _LoadingShimmerState extends State<LoadingShimmer>
                             baseColor: baseColor,
                             highlightColor: highlightColor,
                             progress: _controller.value,
+                            animate: !reduceMotion,
                             widthFraction: 0.4 + (index % 2) * 0.2,
                           ),
                         ],
@@ -136,6 +142,7 @@ class _ShimmerBox extends StatelessWidget {
     required this.progress,
     this.isCircle = false,
     this.widthFraction = 1.0,
+    this.animate = true,
   });
 
   final double width;
@@ -145,14 +152,18 @@ class _ShimmerBox extends StatelessWidget {
   final double progress;
   final bool isCircle;
   final double widthFraction;
+  final bool animate;
 
   @override
   Widget build(BuildContext context) {
-    final color = Color.lerp(
-      baseColor,
-      highlightColor,
-      (0.5 + 0.5 * (progress * 2 - 1).abs()).clamp(0.0, 1.0),
-    )!;
+    // When reduced-motion is on, pin to the base color (no shimmer band).
+    final color = animate
+        ? Color.lerp(
+            baseColor,
+            highlightColor,
+            (0.5 + 0.5 * (progress * 2 - 1).abs()).clamp(0.0, 1.0),
+          )!
+        : baseColor;
     return FractionallySizedBox(
       widthFactor: isCircle ? null : widthFraction,
       child: Container(

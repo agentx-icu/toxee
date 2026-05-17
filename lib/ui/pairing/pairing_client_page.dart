@@ -9,8 +9,18 @@ import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/app_spacing.dart';
+import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_client.dart';
+import 'pairing_status_indicator.dart';
+
+/// Max horizontal width for the pairing client surface — mirrors the host
+/// page so the two flows feel symmetric on tablet / desktop windows.
+const double _kMaxContentWidth = 480;
+
+/// Color of the camera viewfinder frame overlay. White-on-camera-preview is
+/// the universal scanner convention regardless of theme.
+const Color _kViewfinderStroke = Color(0x99FFFFFF);
 
 /// Device B page: scans the QR code emitted by Device A's [PairingHostPage]
 /// (or accepts a pasted URL on desktop where camera scanning is awkward).
@@ -171,16 +181,41 @@ class _PairingClientPageState extends State<PairingClientPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final reduceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) == true;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.pairDeviceClientTitle)),
-      body: SafeArea(child: _buildBody(l10n)),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
+            child: AnimatedSwitcher(
+              duration: reduceMotion ? Duration.zero : AppDurations.medium,
+              switchInCurve: AppCurves.standard,
+              switchOutCurve: AppCurves.standard,
+              child: KeyedSubtree(
+                key: ValueKey(_currentStateKey()),
+                child: _buildBody(l10n),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+  }
+
+  String _currentStateKey() {
+    if (_completedToxId != null) return 'completed';
+    if (_error != null) return 'error';
+    if (_sas != null) return 'sas';
+    if (_connecting) return 'connecting';
+    return 'scan';
   }
 
   Widget _buildBody(AppLocalizations l10n) {
     if (_completedToxId != null) {
       return _CenteredMessage(
-        icon: Icons.check_circle_outline,
+        state: PairingState.connected,
         message: l10n.pairingClientCompleted,
         actionLabel: l10n.done,
         onAction: () => Navigator.of(context).maybePop(true),
@@ -188,7 +223,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
     }
     if (_error != null) {
       return _CenteredMessage(
-        icon: Icons.error_outline,
+        state: PairingState.error,
         message: _error!,
         actionLabel: l10n.cancel,
         onAction: () => Navigator.of(context).maybePop(),
@@ -198,12 +233,16 @@ class _PairingClientPageState extends State<PairingClientPage> {
       return _buildSasView(l10n);
     }
     if (_connecting) {
-      return const Center(child: CircularProgressIndicator());
+      return _CenteredMessage(
+        state: PairingState.connecting,
+        message: l10n.pairingClientCompleted, // generic "working" string
+      );
     }
     return _buildScannerOrPaste(l10n);
   }
 
   Widget _buildScannerOrPaste(AppLocalizations l10n) {
+    final theme = Theme.of(context);
     return Column(
       children: [
         if (_supportsCameraScan && _scannerController != null)
@@ -217,12 +256,25 @@ class _PairingClientPageState extends State<PairingClientPage> {
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Container(
+                      margin: const EdgeInsets.all(AppSpacing.xxl),
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.6),
+                          color: _kViewfinderStroke,
                           width: 2,
                         ),
+                        borderRadius: BorderRadius.circular(AppRadii.card),
                       ),
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  top: AppSpacing.lg,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: PairingStatusIndicator(
+                      state: PairingState.scanning,
+                      size: 32,
                     ),
                   ),
                 ),
@@ -234,7 +286,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Text(
               l10n.pairingClientPasteInstructions,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium,
             ),
           ),
         Padding(
@@ -246,19 +298,19 @@ class _PairingClientPageState extends State<PairingClientPage> {
                 Text(
                   l10n.pairingClientScanInstructions,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: theme.textTheme.bodyMedium,
                 ),
-              AppSpacing.verticalSm,
+              AppSpacing.verticalMd,
               TextField(
                 controller: _pasteController,
+                textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
                   labelText: l10n.pairingPasteUrlLabel,
                   hintText: 'tox://pair?key=...',
-                  border: const OutlineInputBorder(),
                 ),
                 onSubmitted: _onUrlReceived,
               ),
-              AppSpacing.verticalSm,
+              AppSpacing.verticalMd,
               Row(
                 children: [
                   Expanded(
@@ -287,30 +339,35 @@ class _PairingClientPageState extends State<PairingClientPage> {
   }
 
   Widget _buildSasView(AppLocalizations l10n) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          const PairingStatusIndicator(state: PairingState.connecting, size: 48),
+          AppSpacing.verticalLg,
           Text(
             l10n.pairingVerifyCodeHeader,
-            style: Theme.of(context).textTheme.titleSmall,
+            style: theme.textTheme.titleSmall,
             textAlign: TextAlign.center,
           ),
           AppSpacing.verticalMd,
           Text(
             _formatSasForDisplay(_sas!),
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  letterSpacing: 8,
-                  fontWeight: FontWeight.w600,
-                ),
+            style: theme.textTheme.displaySmall?.copyWith(
+              fontFamily: 'monospace',
+              fontFeatures: const [FontFeature.tabularFigures()],
+              letterSpacing: 8,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
           ),
           AppSpacing.verticalMd,
           Text(
             l10n.pairingVerifyCodeInstructions,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: theme.textTheme.bodySmall,
           ),
           AppSpacing.verticalLg,
           FilledButton.icon(
@@ -336,15 +393,15 @@ class _PairingClientPageState extends State<PairingClientPage> {
 
 class _CenteredMessage extends StatelessWidget {
   const _CenteredMessage({
-    required this.icon,
+    required this.state,
     required this.message,
-    required this.actionLabel,
-    required this.onAction,
+    this.actionLabel,
+    this.onAction,
   });
-  final IconData icon;
+  final PairingState state;
   final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -354,15 +411,17 @@ class _CenteredMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: Theme.of(context).colorScheme.primary),
-            AppSpacing.verticalMd,
+            PairingStatusIndicator(state: state, size: 56),
+            AppSpacing.verticalLg,
             Text(
               message,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
-            AppSpacing.verticalLg,
-            FilledButton(onPressed: onAction, child: Text(actionLabel)),
+            if (actionLabel != null && onAction != null) ...[
+              AppSpacing.verticalLg,
+              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
           ],
         ),
       ),

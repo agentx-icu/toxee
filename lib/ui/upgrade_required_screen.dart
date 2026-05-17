@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../i18n/app_localizations.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
+import '../util/logger.dart';
 import '../util/prefs.dart';
+
+/// Canonical release page for toxee. Hardcoded rather than wired to a remote
+/// config: this screen is shown precisely when the local app is behind the
+/// data file, so any "fetch the URL from the server" approach would be racy.
+const String _kReleasesUrl = 'https://github.com/anonymoussoft/toxee/releases';
 
 /// Shown when stored preferences were saved by a newer app version.
 /// Prompts the user to upgrade the app and does not overwrite their data.
@@ -24,7 +31,7 @@ class UpgradeRequiredApp extends StatelessWidget {
         scaffoldBackgroundColor: AppThemeConfig.lightScaffoldBackground,
         cardTheme: CardThemeData(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.card),
           ),
           // Flat surface + hairline border, matches the rest of the app.
           elevation: 0,
@@ -32,19 +39,19 @@ class UpgradeRequiredApp extends StatelessWidget {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+              borderRadius: BorderRadius.circular(AppRadii.button),
             ),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
         ),
       );
@@ -56,7 +63,7 @@ class UpgradeRequiredApp extends StatelessWidget {
         scaffoldBackgroundColor: AppThemeConfig.darkScaffoldBackground,
         cardTheme: CardThemeData(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.card),
           ),
           // Flat surface + hairline border, matches the rest of the app.
           elevation: 0,
@@ -64,19 +71,19 @@ class UpgradeRequiredApp extends StatelessWidget {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+              borderRadius: BorderRadius.circular(AppRadii.button),
             ),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.input),
           ),
         ),
       );
@@ -123,6 +130,19 @@ class UpgradeRequiredScreen extends StatelessWidget {
   final int storedVersion;
   final int currentVersion;
 
+  Future<void> _openReleasesPage() async {
+    final uri = Uri.parse(_kReleasesUrl);
+    try {
+      final ok =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) {
+        AppLogger.log('[UpgradeRequiredScreen] launchUrl returned false for $_kReleasesUrl');
+      }
+    } catch (e, st) {
+      AppLogger.logError('[UpgradeRequiredScreen] Failed to open releases page', e, st);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -131,8 +151,10 @@ class UpgradeRequiredScreen extends StatelessWidget {
     return Scaffold(
       body: SafeArea(
         child: Center(
+          // Tighter constraint (480 → 440) keeps the eye anchored on the
+          // single message and primary action even on tablet widths.
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(maxWidth: 440),
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xl),
               child: Column(
@@ -141,19 +163,25 @@ class UpgradeRequiredScreen extends StatelessWidget {
                 children: [
                   // Tinted-primary chip for the status icon — same visual
                   // language as the primary action card on the login page.
+                  // Note on color choice: `cs.error` would alarm users (their
+                  // data is fine, the app is just out of date), and
+                  // `cs.tertiary` (success-emerald in this scheme) reads too
+                  // positive for "blocked from using the app". Primary tint
+                  // reads as "important info, action needed" — the right
+                  // semantic for an out-of-date client.
                   Container(
                     width: 96,
                     height: 96,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: scheme.primary.withValues(alpha: 0.08),
+                      color: AppThemeConfig.tintedPrimaryCardColor(scheme.primary),
                       border: Border.all(
-                        color: scheme.primary.withValues(alpha: 0.4),
+                        color: AppThemeConfig.tintedPrimaryCardBorderColor(scheme.primary),
                       ),
                     ),
                     child: Icon(
-                      Icons.info_outline,
+                      Icons.system_update,
                       size: 48,
                       color: scheme.primary,
                     ),
@@ -161,7 +189,9 @@ class UpgradeRequiredScreen extends StatelessWidget {
                   AppSpacing.verticalXl,
                   Text(
                     l10n.upgradeRequiredTitle,
-                    style: theme.textTheme.headlineSmall,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   AppSpacing.verticalMd,
@@ -171,6 +201,23 @@ class UpgradeRequiredScreen extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                     textAlign: TextAlign.center,
+                  ),
+                  AppSpacing.verticalXl,
+                  // Primary action: open the releases page in the system
+                  // browser so the user can download the latest build.
+                  FilledButton.icon(
+                    onPressed: _openReleasesPage,
+                    icon: const Icon(Icons.open_in_new),
+                    label: Text(l10n.update),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.md,
+                        horizontal: AppSpacing.lg,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.button),
+                      ),
+                    ),
                   ),
                 ],
               ),

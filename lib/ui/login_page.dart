@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../util/app_spacing.dart';
 
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
@@ -148,11 +150,10 @@ class _LoginPageState extends State<LoginPage> {
             controller: passwordController,
             obscureText: obscure,
             textAlignVertical: TextAlignVertical.center,
+            keyboardType: TextInputType.visiblePassword,
             decoration: InputDecoration(
               labelText: AppLocalizations.of(context)!.password,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-              ),
+              prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
                 icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
                 onPressed: () => setLocal(() => obscure = !obscure),
@@ -191,12 +192,11 @@ class _LoginPageState extends State<LoginPage> {
               controller: passwordController,
               obscureText: true,
               textAlignVertical: TextAlignVertical.center,
+              keyboardType: TextInputType.visiblePassword,
               decoration: InputDecoration(
                 labelText: AppLocalizations.of(context)!.password,
                 hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                ),
+                prefixIcon: const Icon(Icons.lock_outline),
               ),
             ),
             AppSpacing.verticalMd,
@@ -204,11 +204,10 @@ class _LoginPageState extends State<LoginPage> {
               controller: confirmController,
               obscureText: true,
               textAlignVertical: TextAlignVertical.center,
+              keyboardType: TextInputType.visiblePassword,
               decoration: InputDecoration(
                 labelText: AppLocalizations.of(context)!.confirmPassword,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                ),
+                prefixIcon: const Icon(Icons.lock_outline),
               ),
             ),
           ],
@@ -368,11 +367,13 @@ class _LoginPageState extends State<LoginPage> {
         _service = service;
         await AppBootstrapCoordinator.boot(service);
         if (!mounted) return;
+        unawaited(HapticFeedback.lightImpact());
         Navigator.of(context).pushReplacement(
           AppPageRoute(page: HomePage(service: service)),
         );
         break;
       case LoginControllerFailure(:final message):
+        unawaited(HapticFeedback.lightImpact());
         setState(() => _error = message);
         AppSnackBar.showError(context, message);
         FocusScope.of(context).requestFocus(_nicknameFocusNode);
@@ -482,12 +483,6 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppThemeConfig.formCardBorderRadius),
-        ),
-      ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Column(
@@ -557,35 +552,29 @@ class _LoginPageState extends State<LoginPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(AppLocalizations.of(ctx)!.deleteAccountConfirmMessage),
-              const SizedBox(height: 12),
+              AppSpacing.verticalMd,
               if (hasPassword) ...[
                 Text(AppLocalizations.of(ctx)!.deleteAccountEnterPasswordToConfirm),
-                const SizedBox(height: 8),
+                AppSpacing.verticalSm,
                 TextField(
                   controller: inputController,
                   obscureText: true,
+                  keyboardType: TextInputType.visiblePassword,
                   decoration: InputDecoration(
                     labelText: AppLocalizations.of(ctx)!.password,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                    ),
+                    prefixIcon: const Icon(Icons.lock_outline),
                   ),
                 ),
               ] else ...[
                 Text(AppLocalizations.of(ctx)!.deleteAccountTypeWordToConfirm),
-                const SizedBox(height: 8),
+                AppSpacing.verticalSm,
                 Text(
                   AppLocalizations.of(ctx)!.deleteAccountConfirmWordPrompt('delete'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 8),
+                AppSpacing.verticalSm,
                 TextField(
                   controller: inputController,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                    ),
-                  ),
                 ),
               ],
             ],
@@ -696,12 +685,13 @@ class _LoginPageState extends State<LoginPage> {
           child: Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: ResponsiveLayout.responsiveValue<double>(
-                  context,
-                  mobile: 500.0,
-                  tablet: 600.0,
-                  desktop: 700.0,
-                ),
+                // Mobile uses full width (500 cap above mobile breakpoint
+                // is effectively a no-op); tablet/desktop tighten to 440 so
+                // the form reads like a focused card rather than stretching
+                // edge-to-edge on wide screens.
+                maxWidth: ResponsiveLayout.isMobile(context)
+                    ? double.infinity
+                    : 440.0,
               ),
               child: Padding(
                 padding: ResponsiveLayout.isMobile(context)

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../i18n/app_localizations.dart';
 import 'call_state_notifier.dart';
 import 'ringing_call_manager.dart';
@@ -43,7 +45,10 @@ class OutgoingCallView extends StatelessWidget {
             icon: Icons.call_end,
             label: l10n.callHangUp,
             destructive: true,
-            onPressed: () => manager.hangUp(),
+            onPressed: () {
+              unawaited(HapticFeedback.lightImpact());
+              manager.hangUp();
+            },
           ),
         ],
       ),

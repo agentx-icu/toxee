@@ -7,6 +7,20 @@ import '../../i18n/app_localizations.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 
+// TOX_MAX_FRIEND_REQUEST_LENGTH — used for both inline counter and validation.
+const int _kMaxFriendRequestLength = 921;
+
+/// Desktop / wide-window max dialog width. Mobile dialogs use the system width
+/// minus 32px gutter (see [_dialogMaxWidth]).
+const double _kDesktopMaxDialogWidth = 480;
+
+double _dialogMaxWidth(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  // On narrow viewports, hug the screen with a 32-px gutter. On wide viewports,
+  // cap to the desktop dialog width so the dialog doesn't sprawl.
+  return (w - 32).clamp(280.0, _kDesktopMaxDialogWidth);
+}
+
 class AddFriendDialog extends StatefulWidget {
   const AddFriendDialog({
     super.key,
@@ -32,17 +46,17 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   @override
   void initState() {
     super.initState();
-    // Initialize message controller with default message
-    // Use a default English message as fallback, will be updated in build
+    // Default request message is locale-dependent, so initialize empty here
+    // and fill in didChangeDependencies once we have a BuildContext.
     _messageController = TextEditingController();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Set default message after context is available
     if (_messageController.text.isEmpty) {
-      _messageController.text = AppLocalizations.of(context)!.defaultFriendRequestMessage;
+      _messageController.text =
+          AppLocalizations.of(context)!.defaultFriendRequestMessage;
     }
   }
 
@@ -58,24 +72,36 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     if (!_formKey.currentState!.validate()) return;
     final rawId = _idController.text.trim();
     final message = _messageController.text.trim();
-    
-    // Ensure message is not empty
+
     if (message.isEmpty) {
-      _notify(_localeText(context, 'enterMessage', fallback: 'Please enter a message'));
+      _notify(_localeText(context, 'enterMessage',
+          fallback: 'Please enter a message'));
       return;
     }
-    
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final navigator = Navigator.of(context);
+    final defaultMessage =
+        AppLocalizations.of(context)!.defaultFriendRequestMessage;
+    final successText = _localeText(context, 'requestSent',
+        fallback: 'Friend request sent');
+    final failurePrefix =
+        _localeText(context, 'requestFailed', fallback: 'Failed');
+
     setState(() => _isSubmitting = true);
     try {
       await widget.service.addFriend(rawId, requestMessage: message);
       await widget.onFriendAdded?.call(rawId);
-      _notify(_localeText(context, 'requestSent', fallback: 'Friend request sent'));
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, successText);
       _idController.clear();
-      _messageController.text = AppLocalizations.of(context)!.defaultFriendRequestMessage;
-      // Close dialog after successful submission
-      if (mounted) Navigator.of(context).maybePop();
+      _messageController.text = defaultMessage;
+      if (mounted) {
+        await navigator.maybePop();
+      }
     } catch (e) {
-      _notify('${_localeText(context, 'requestFailed', fallback: 'Failed')}: $e');
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, '$failurePrefix: $e');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -84,16 +110,19 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   String? _validateToxId(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return _localeText(context, 'enterId', fallback: 'Please enter a Tox ID');
+      return _localeText(context, 'enterId',
+          fallback: 'Please enter a Tox ID');
     }
-    // Accept 64 (public key) or 76 (full address). Keep 76 as-is - Tox friend request
-    // spam mechanism relies on nospam+checksum in the full address.
+    // Accept 64 (public key) or 76 (full address). Keep 76 as-is - Tox friend
+    // request spam mechanism relies on nospam+checksum in the full address.
     if (trimmed.length < 64) {
-      return _localeText(context, 'invalidLength', fallback: 'ID must be at least 64 hex characters');
+      return _localeText(context, 'invalidLength',
+          fallback: 'ID must be at least 64 hex characters');
     }
     final hexRegex = RegExp(r'^[0-9A-Fa-f]+$');
     if (!hexRegex.hasMatch(trimmed)) {
-      return _localeText(context, 'invalidHex', fallback: 'Only hexadecimal characters are allowed');
+      return _localeText(context, 'invalidHex',
+          fallback: 'Only hexadecimal characters are allowed');
     }
     return null;
   }
@@ -101,11 +130,10 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   String? _validateMessage(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return _localeText(context, 'enterMessage', fallback: 'Please enter a message');
+      return _localeText(context, 'enterMessage',
+          fallback: 'Please enter a message');
     }
-    // TOX_MAX_FRIEND_REQUEST_LENGTH = 921
-    const maxLength = 921;
-    if (trimmed.length > maxLength) {
+    if (trimmed.length > _kMaxFriendRequestLength) {
       return AppLocalizations.of(context)!.friendRequestMessageTooLong;
     }
     return null;
@@ -113,6 +141,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
 
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData('text/plain');
+    if (!mounted) return;
     if (data?.text != null) {
       setState(() {
         _idController.text = data!.text!.trim();
@@ -127,9 +156,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
         final theme = Theme.of(context);
         final scheme = theme.colorScheme;
         return ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: (MediaQuery.sizeOf(context).width - 48).clamp(280.0, 520.0),
-          ),
+          constraints: BoxConstraints(maxWidth: _dialogMaxWidth(context)),
           child: Material(
             color: Colors.transparent,
             child: Card(
@@ -137,7 +164,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 side: BorderSide(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+                borderRadius: BorderRadius.circular(AppRadii.dialog),
               ),
               clipBehavior: Clip.antiAlias,
               child: Padding(
@@ -149,15 +176,20 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _localeText(context, 'addContact', fallback: 'Add Contact'),
-                        style: theme.textTheme.titleLarge,
+                        _localeText(context, 'addContact',
+                            fallback: 'Add Contact'),
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 18,
+                        ),
                       ),
                       AppSpacing.verticalSm,
                       Text(
                         _localeText(
                           context,
                           'addContactHint',
-                          fallback: 'Enter the peer Tox ID (at least 64 hex characters, or 76 for full address).',
+                          fallback:
+                              'Enter the peer Tox ID (at least 64 hex characters, or 76 for full address).',
                         ),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
@@ -168,13 +200,16 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                         controller: _idController,
                         textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
-                          labelText: _localeText(context, 'friendUserID', fallback: 'Friend Tox ID'),
+                          labelText: _localeText(context, 'friendUserID',
+                              fallback: 'Friend Tox ID'),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.input),
                           ),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.paste),
-                            tooltip: _localeText(context, 'paste', fallback: 'Paste'),
+                            tooltip: _localeText(context, 'paste',
+                                fallback: 'Paste'),
                             onPressed: _pasteFromClipboard,
                           ),
                         ),
@@ -187,46 +222,24 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                         controller: _messageController,
                         textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
-                          labelText: _localeText(context, 'requestMessage', fallback: 'Request Message'),
+                          labelText: _localeText(context, 'requestMessage',
+                              fallback: 'Request Message'),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.input),
                           ),
-                          helperText: '${_messageController.text.length}/921',
+                          helperText:
+                              '${_messageController.text.length}/$_kMaxFriendRequestLength',
                         ),
                         validator: _validateMessage,
                         minLines: 1,
                         maxLines: 4,
                         onChanged: (value) {
-                          setState(() {}); // Update helper text
+                          setState(() {}); // refresh inline counter
                         },
                       ),
                       AppSpacing.verticalXl,
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: scheme.primary,
-                            foregroundColor: scheme.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
-                            ),
-                          ),
-                          icon: _isSubmitting
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      scheme.onPrimary,
-                                    ),
-                                  ),
-                                )
-                              : const Icon(Icons.person_add_alt_1),
-                          label: Text(_localeText(context, 'addContact', fallback: 'Add Contact')),
-                          onPressed: _isSubmitting ? null : _submit,
-                        ),
-                      ),
+                      _buildActions(context, scheme),
                     ],
                   ),
                 ),
@@ -238,7 +251,50 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     );
   }
 
-  String _localeText(BuildContext context, String key, {required String fallback}) {
+  Widget _buildActions(BuildContext context, ColorScheme scheme) {
+    final cancelLabel = MaterialLocalizations.of(context).cancelButtonLabel;
+    final submitLabel =
+        _localeText(context, 'addContact', fallback: 'Add Contact');
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        TextButton(
+          onPressed:
+              _isSubmitting ? null : () => Navigator.of(context).maybePop(),
+          child: Text(cancelLabel),
+        ),
+        AppSpacing.horizontalSm,
+        Tooltip(
+          message: _isSubmitting
+              ? _localeText(context, 'sending', fallback: 'Sending...')
+              : '',
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadii.button),
+              ),
+            ),
+            icon: _isSubmitting
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                    ),
+                  )
+                : const Icon(Icons.person_add_alt_1),
+            label: Text(submitLabel),
+            onPressed: _isSubmitting ? null : _submit,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _localeText(BuildContext context, String key,
+      {required String fallback}) {
     final t = TencentCloudChatLocalizations.of(context);
     final appL10n = AppLocalizations.of(context)!;
     switch (key) {
@@ -264,16 +320,21 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
         return appL10n.verificationMessage;
       case 'enterMessage':
         return appL10n.enterMessage;
+      case 'sending':
+        return fallback;
     }
     return fallback;
   }
 
   void _notify(String message) {
+    _notifyVia(ScaffoldMessenger.maybeOf(context), message);
+  }
+
+  void _notifyVia(ScaffoldMessengerState? messenger, String message) {
     if (widget.onShowSnackBar != null) {
       widget.onShowSnackBar!(message);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
     }
   }
 }
-

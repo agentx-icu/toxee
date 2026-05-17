@@ -7,9 +7,34 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'app_theme_config.dart';
-import 'logger.dart';
 
 class ContactQrCardGenerator {
+  // ──────────────────────────────────────────────
+  //  Exported PNG palette — locked to a light brand
+  //  composition regardless of the runtime theme.
+  //
+  //  The card is rendered to a PNG that lives outside
+  //  the app (saved to disk, shared, exported), so it
+  //  must read consistently on any background. These
+  //  constants are pinned to the same values used by
+  //  AppThemeConfig where the brand intent matches.
+  // ──────────────────────────────────────────────
+
+  /// Card surface — always pure white so the QR is high-contrast in any host.
+  static const Color _kCardBg = Colors.white;
+  /// Soft drop-shadow tint under the card.
+  static const Color _kCardShadow = Colors.black12;
+  /// Avatar ring stroke on top of a photo avatar (white @ 90%).
+  static const Color _kAvatarRing = Color(0xE6FFFFFF);
+  /// Foreground for the initial letter inside the accent-filled avatar circle.
+  static const Color _kAvatarInitialFg = Colors.white;
+  /// Fallback body-text color in [_drawText] when callers don't override.
+  static const Color _kDefaultTextColor = Colors.black87;
+
+  /// Outer card radius (custom for the exported card — slightly more rounded
+  /// than [AppRadii.card] to read as a "card" in shared previews/galleries).
+  static const double _kCardRadius = 36;
+
   static const Color _defaultPrimary = AppThemeConfig.primaryColor;
   static const Color _defaultText = AppThemeConfig.primaryTextColorLight;
 
@@ -27,17 +52,18 @@ class ContactQrCardGenerator {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
 
-    final bgPaint = ui.Paint()..color = Colors.white;
+    final bgPaint = ui.Paint()..color = _kCardBg;
     final shadowPaint = ui.Paint()
-      ..color = Colors.black12
+      ..color = _kCardShadow
       ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6);
-    final rect = ui.Rect.fromLTWH(0, 0, width, height);
-    final rrect = ui.RRect.fromRectAndRadius(rect, const ui.Radius.circular(36));
+    const rect = ui.Rect.fromLTWH(0, 0, width, height);
+    final rrect = ui.RRect.fromRectAndRadius(
+        rect, const ui.Radius.circular(_kCardRadius));
     canvas.drawRRect(rrect.shift(const ui.Offset(0, 4)), shadowPaint);
     canvas.drawRRect(rrect, bgPaint);
 
     final accentPaint = ui.Paint()..color = primaryColor;
-    final avatarCenter = ui.Offset(width / 2, 110);
+    const avatarCenter = ui.Offset(width / 2, 110);
     final avatarImage = await _loadAvatarImage(avatarPath);
     if (avatarImage != null) {
       final avatarRect = ui.Rect.fromCircle(center: avatarCenter, radius: 60);
@@ -50,7 +76,7 @@ class ContactQrCardGenerator {
       canvas.drawCircle(avatarCenter, 60, ui.Paint()
         ..style = ui.PaintingStyle.stroke
         ..strokeWidth = 4
-        ..color = Colors.white.withValues(alpha: 0.9));
+        ..color = _kAvatarRing);
     } else {
       canvas.drawCircle(avatarCenter, 60, accentPaint);
       final displayInitial = displayName.trim().isNotEmpty ? displayName.trim()[0].toUpperCase() : '?';
@@ -60,7 +86,7 @@ class ContactQrCardGenerator {
         offset: ui.Offset(avatarCenter.dx - 60, avatarCenter.dy - 38),
         width: 120,
         fontSize: 56,
-        color: Colors.white,
+        color: _kAvatarInitialFg,
         weight: FontWeight.bold,
         align: TextAlign.center,
       );
@@ -85,7 +111,10 @@ class ContactQrCardGenerator {
       gapless: true,
     );
     final qrImage = await qrPainter.toImage(380);
-    final qrRect = ui.Rect.fromCenter(center: ui.Offset(width / 2, 480), width: 380, height: 380);
+    final qrRect = ui.Rect.fromCenter(
+        center: const ui.Offset(width / 2, 480),
+        width: 380,
+        height: 380);
     paintImage(canvas: canvas, rect: qrRect, image: qrImage);
 
     _drawText(
@@ -114,7 +143,7 @@ class ContactQrCardGenerator {
     required ui.Offset offset,
     required double width,
     double fontSize = 24,
-    Color color = Colors.black87,
+    Color color = _kDefaultTextColor,
     FontWeight weight = FontWeight.w500,
     TextAlign align = TextAlign.left,
   }) {

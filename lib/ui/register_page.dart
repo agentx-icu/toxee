@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/adapter/tim_manager.dart';
 import 'package:tencent_cloud_chat_sdk/enum/log_level_enum.dart';
@@ -138,12 +141,14 @@ class _RegisterPageState extends State<RegisterPage> {
         if (!mounted) return;
       }
 
+      unawaited(HapticFeedback.lightImpact());
       Navigator.of(context).pushReplacement(AppPageRoute(
         page: HomePage(service: result.service),
       ));
     } catch (e, stackTrace) {
       AppLogger.logError('[RegisterPage] Register failed: $e', e, stackTrace);
       if (mounted) {
+        unawaited(HapticFeedback.lightImpact());
         setState(() {
           _error = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
         });
@@ -164,24 +169,29 @@ class _RegisterPageState extends State<RegisterPage> {
 
   Widget _buildPasswordStrengthBar(BuildContext context) {
     final strength = _passwordStrength(_passwordController.text);
-    // Decorative semantic ramp: weak → strong (red → orange → amber → primary).
-    // Intentionally not themed — these are status colors, not brand colors.
+    final cs = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    // Decorative semantic ramp: weak → strong. The two middle segments are
+    // status colors (amber-500 / amber-300 from the design system) and are
+    // intentionally kept hex — they live alongside cs.error and cs.primary
+    // as a visual gradient, not a themed brand surface.
     final colors = [
-      Colors.red,
-      Colors.orange,
-      Colors.amber,
-      Theme.of(context).colorScheme.primary,
+      cs.error,
+      AppThemeConfig.statusAwayColor, // amber-500
+      const Color(0xFFFCD34D),         // amber-300 (lighter than statusAway)
+      cs.primary,
     ];
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.sm),
       child: Row(
         children: List.generate(4, (i) => Expanded(
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
+            duration: reduceMotion ? Duration.zero : AppDurations.medium,
+            curve: AppCurves.standard,
             height: 4,
             margin: EdgeInsets.only(right: i < 3 ? AppSpacing.xs : 0),
             decoration: BoxDecoration(
-              color: i < strength ? colors[i] : Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+              color: i < strength ? colors[i] : cs.outline.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -207,24 +217,29 @@ class _RegisterPageState extends State<RegisterPage> {
           title: Text(AppLocalizations.of(context)!.registerNewAccount),
         ),
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: ResponsiveLayout.responsivePadding(context),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: ResponsiveLayout.isMobile(context)
+                    ? double.infinity
+                    : 440.0,
+              ),
+              child: SingleChildScrollView(
+                padding: ResponsiveLayout.responsivePadding(context),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                   AppSpacing.verticalLg,
                   TextFormField(
                     controller: _nicknameController,
                     focusNode: _nicknameFocusNode,
                     textAlignVertical: TextAlignVertical.center,
+                    keyboardType: TextInputType.name,
                     decoration: InputDecoration(
                       labelText: AppLocalizations.of(context)!.nickname,
                       hintText: AppLocalizations.of(context)!.nicknameHintExample,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                      ),
                       prefixIcon: Icon(Icons.person, color: _nicknameFocused ? Theme.of(context).colorScheme.primary : null),
                       errorText: calculateTextLength(_nicknameController.text) > 12
                           ? AppLocalizations.of(context)!.nicknameTooLong
@@ -247,12 +262,10 @@ class _RegisterPageState extends State<RegisterPage> {
                     controller: _statusMessageController,
                     focusNode: _statusFocusNode,
                     textAlignVertical: TextAlignVertical.center,
+                    keyboardType: TextInputType.text,
                     decoration: InputDecoration(
                       labelText: AppLocalizations.of(context)!.statusMessage,
                       hintText: AppLocalizations.of(context)!.statusMessage,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                      ),
                       prefixIcon: Icon(Icons.info_outline, color: _statusFocused ? Theme.of(context).colorScheme.primary : null),
                       errorText: calculateTextLength(_statusMessageController.text) > 24
                           ? AppLocalizations.of(context)!.statusMessageTooLong
@@ -276,12 +289,10 @@ class _RegisterPageState extends State<RegisterPage> {
                     focusNode: _passwordFocusNode,
                     obscureText: _passwordObscure,
                     textAlignVertical: TextAlignVertical.center,
+                    keyboardType: TextInputType.visiblePassword,
                     decoration: InputDecoration(
                       labelText: AppLocalizations.of(context)!.password,
                       hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                      ),
                       prefixIcon: Icon(Icons.lock_outline, color: _passwordFocused ? Theme.of(context).colorScheme.primary : null),
                       suffixIcon: IconButton(
                         icon: Icon(_passwordObscure ? Icons.visibility_off : Icons.visibility),
@@ -300,11 +311,9 @@ class _RegisterPageState extends State<RegisterPage> {
                     focusNode: _confirmPasswordFocusNode,
                     obscureText: _confirmPasswordObscure,
                     textAlignVertical: TextAlignVertical.center,
+                    keyboardType: TextInputType.visiblePassword,
                     decoration: InputDecoration(
                       labelText: AppLocalizations.of(context)!.confirmPassword,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                      ),
                       prefixIcon: Icon(Icons.lock_outline, color: _confirmPasswordFocused ? Theme.of(context).colorScheme.primary : null),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -355,27 +364,29 @@ class _RegisterPageState extends State<RegisterPage> {
                   AppSpacing.verticalXl,
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius)),
-                      ),
+                    child: FilledButton(
                       onPressed: (_busy ||
                               calculateTextLength(_nicknameController.text) > 12 ||
                               calculateTextLength(_statusMessageController.text) > 24)
                           ? null
                           : _register,
                       child: _busy
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Theme.of(context).colorScheme.onPrimary,
+                                ),
+                              ),
                             )
                           : Text(AppLocalizations.of(context)!.register),
                     ),
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

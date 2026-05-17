@@ -652,10 +652,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: colorTheme.primaryColor.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                    color: AppThemeConfig.tintedPrimaryCardColor(colorTheme.primaryColor),
+                    borderRadius: BorderRadius.circular(AppRadii.button),
                     border: Border.all(
-                      color: colorTheme.primaryColor.withValues(alpha: 0.4),
+                      color: AppThemeConfig.tintedPrimaryCardBorderColor(colorTheme.primaryColor),
                     ),
                   ),
                   child: Icon(
@@ -692,15 +692,15 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 if (!data.isInstalled)
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton.icon(
+                    child: FilledButton.icon(
                       onPressed: _handleInstall,
                       icon: const Icon(Icons.install_mobile, size: 18),
                       label: Text(appL10n.install),
-                      style: ElevatedButton.styleFrom(
+                      style: FilledButton.styleFrom(
                         backgroundColor: colorTheme.primaryColor,
                         foregroundColor: colorTheme.onPrimary,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                          borderRadius: BorderRadius.circular(AppRadii.button),
                         ),
                       ),
                     ),
@@ -717,22 +717,22 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                             foregroundColor: colorTheme.primaryColor,
                             side: BorderSide(color: scheme.outlineVariant),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                              borderRadius: BorderRadius.circular(AppRadii.button),
                             ),
                           ),
                         ),
                       ),
                       AppSpacing.horizontalSm,
                       Expanded(
-                        child: ElevatedButton.icon(
+                        child: FilledButton.icon(
                           onPressed: _handleAddChannel,
                           icon: const Icon(Icons.add, size: 18),
                           label: Text(appL10n.addIrcChannel),
-                          style: ElevatedButton.styleFrom(
+                          style: FilledButton.styleFrom(
                             backgroundColor: colorTheme.primaryColor,
                             foregroundColor: colorTheme.onPrimary,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                              borderRadius: BorderRadius.circular(AppRadii.button),
                             ),
                           ),
                         ),
@@ -762,7 +762,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
@@ -787,7 +787,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                       labelText: appL10n.ircServer,
                       hintText: 'irc.libera.chat',
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                        borderRadius: BorderRadius.circular(AppRadii.input),
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                     ),
@@ -804,7 +804,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                       labelText: appL10n.ircPort,
                       hintText: '6667',
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                        borderRadius: BorderRadius.circular(AppRadii.input),
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                     ),
@@ -835,15 +835,15 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             AppSpacing.verticalSm,
             Align(
               alignment: AlignmentDirectional.centerStart,
-              child: ElevatedButton.icon(
+              child: FilledButton.icon(
                 onPressed: _saveIrcConfig,
                 icon: const Icon(Icons.save, size: 18),
                 label: Text(appL10n.save),
-                style: ElevatedButton.styleFrom(
+                style: FilledButton.styleFrom(
                   backgroundColor: colorTheme.primaryColor,
                   foregroundColor: colorTheme.onPrimary,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                    borderRadius: BorderRadius.circular(AppRadii.button),
                   ),
                 ),
               ),
@@ -860,7 +860,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
               ..._channels.map((channel) => Container(
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+                      borderRadius: BorderRadius.circular(AppRadii.card),
                       border: Border.all(color: scheme.outlineVariant),
                     ),
                     clipBehavior: Clip.antiAlias,
@@ -944,7 +944,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                                   backgroundColor: colorTheme.surface,
                                   side: BorderSide(color: scheme.outlineVariant),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(AppThemeConfig.badgeBorderRadius),
+                                    borderRadius: BorderRadius.circular(AppRadii.small),
                                   ),
                                   padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
                                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -968,7 +968,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 icon: Icons.forum_outlined,
                 title: appL10n.noIrcChannels,
                 subtitle: appL10n.joinChannelToGetStarted,
-                action: ElevatedButton.icon(
+                action: FilledButton.icon(
                   onPressed: _handleAddChannel,
                   icon: const Icon(Icons.add),
                   label: Text(appL10n.addIrcChannel),
@@ -1037,18 +1037,18 @@ class _HoverableAppCardState extends State<_HoverableAppCard> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
+        duration: AppDurations.fast,
+        curve: AppCurves.standard,
         decoration: BoxDecoration(
           color: _hovered ? hoverSurface : null,
-          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+          borderRadius: BorderRadius.circular(AppRadii.card),
         ),
         child: Card(
           elevation: 0,
           color: Colors.transparent,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(AppRadii.card),
             side: BorderSide(color: widget.borderColor),
           ),
           clipBehavior: Clip.antiAlias,
@@ -1088,6 +1088,14 @@ class _ConstrainedSliver extends StatelessWidget {
 }
 
 
+/// Status dot that pulses while the channel is in a transient state
+/// (connecting / authenticating / reconnecting) and holds steady otherwise.
+/// Pulse duration is [AppDurations.medium] in each direction (full cycle ≈
+/// 500ms), giving a gentle "this is alive" affordance.
+///
+/// Respects `MediaQuery.disableAnimationsOf`: when reduced motion is on the
+/// pulse is suppressed and the dot is shown at full opacity — the semantic
+/// (green / amber / red) still conveys state without animation.
 class _AnimatedStatusDot extends StatefulWidget {
   const _AnimatedStatusDot({required this.status, required this.color});
   final int status;
@@ -1107,26 +1115,21 @@ class _AnimatedStatusDotState extends State<_AnimatedStatusDot>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      // Half-cycle of the pulse — repeat(reverse: true) doubles this for the
+      // full breath, landing near 500ms which reads as "alive, not anxious".
+      duration: AppDurations.medium,
     );
     _animation = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      CurvedAnimation(parent: _controller, curve: AppCurves.standard),
     );
-    _updateAnimation();
   }
 
   @override
   void didUpdateWidget(covariant _AnimatedStatusDot old) {
     super.didUpdateWidget(old);
-    if (old.status != widget.status) _updateAnimation();
-  }
-
-  void _updateAnimation() {
-    if (widget.status == 1 || widget.status == 3 || widget.status == 4) {
-      _controller.repeat(reverse: true);
-    } else {
-      _controller.stop();
-      _controller.value = 1.0;
+    if (old.status != widget.status) {
+      // Re-evaluate on next build so we can read MediaQuery for reduced motion.
+      setState(() {});
     }
   }
 
@@ -1136,8 +1139,17 @@ class _AnimatedStatusDotState extends State<_AnimatedStatusDot>
     super.dispose();
   }
 
+  bool _isTransient(int s) => s == 1 || s == 3 || s == 4;
+
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_isTransient(widget.status) && !reduceMotion) {
+      if (!_controller.isAnimating) _controller.repeat(reverse: true);
+    } else {
+      if (_controller.isAnimating) _controller.stop();
+      _controller.value = 1.0;
+    }
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {

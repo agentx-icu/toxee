@@ -9,9 +9,21 @@ import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/app_spacing.dart';
+import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_host.dart';
 import '../../util/pairing/pairing_lan.dart';
+import 'pairing_status_indicator.dart';
+
+/// Maximum content width for the pairing flow on wide screens. Above this we
+/// pad the surrounding scaffold so the QR + verification code never spreads
+/// across a 1600pt window.
+const double _kMaxContentWidth = 480;
+
+/// Cosmetic background applied to the white QR plate. Even in dark mode the
+/// QR scanner expects a high-contrast white surface, so this is intentionally
+/// theme-independent (mirrors the same pin in [ContactQrCardGenerator]).
+const Color _kQrPlateBackground = Colors.white;
 
 /// Device A page: shows a QR code that Device B scans to pair. Once Device B
 /// connects, displays the 6-digit SAS and the "the codes match" confirm
@@ -154,21 +166,44 @@ class _PairingHostPageState extends State<PairingHostPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final reduceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) == true;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.pairDeviceHostTitle)),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: _buildBody(l10n),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: AnimatedSwitcher(
+                duration: reduceMotion ? Duration.zero : AppDurations.medium,
+                switchInCurve: AppCurves.standard,
+                switchOutCurve: AppCurves.standard,
+                child: KeyedSubtree(
+                  key: ValueKey(_currentStateKey()),
+                  child: _buildBody(l10n),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
+  String _currentStateKey() {
+    if (_completed) return 'completed';
+    if (_error != null) return 'error';
+    if (_startingUp || _qrUrl == null) return 'startup';
+    if (_sas != null) return 'sas';
+    return 'qr-ready';
+  }
+
   Widget _buildBody(AppLocalizations l10n) {
     if (_completed) {
       return _CenteredMessage(
-        icon: Icons.check_circle_outline,
+        state: PairingState.connected,
         message: l10n.pairingHostCompleted,
         actionLabel: l10n.done,
         onAction: () => Navigator.of(context).maybePop(),
@@ -176,14 +211,17 @@ class _PairingHostPageState extends State<PairingHostPage> {
     }
     if (_error != null) {
       return _CenteredMessage(
-        icon: Icons.error_outline,
+        state: PairingState.error,
         message: _error!,
         actionLabel: l10n.cancel,
         onAction: () => Navigator.of(context).maybePop(),
       );
     }
     if (_startingUp || _qrUrl == null) {
-      return const Center(child: CircularProgressIndicator());
+      return _CenteredMessage(
+        state: PairingState.scanning,
+        message: l10n.pairingWaitingForPeer,
+      );
     }
 
     return SingleChildScrollView(
@@ -195,57 +233,22 @@ class _PairingHostPageState extends State<PairingHostPage> {
             style: Theme.of(context).textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
-          AppSpacing.verticalLg,
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: QrImageView(
-                data: _qrUrl!,
-                version: QrVersions.auto,
-                size: 280,
-                gapless: true,
-                backgroundColor: Colors.white,
-              ),
-            ),
-          ),
-          AppSpacing.verticalLg,
+          AppSpacing.verticalXl,
+          Center(child: _QrPlate(url: _qrUrl!)),
+          AppSpacing.verticalXl,
           if (_sas != null) ...[
-            Text(
-              l10n.pairingVerifyCodeHeader,
-              style: Theme.of(context).textTheme.titleSmall,
-              textAlign: TextAlign.center,
-            ),
-            AppSpacing.verticalSm,
-            Center(
-              child: Text(
-                _formatSasForDisplay(_sas!),
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      letterSpacing: 8,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-            AppSpacing.verticalMd,
-            FilledButton.icon(
-              icon: const Icon(Icons.check),
-              label: Text(l10n.pairingCodesMatch),
-              onPressed: () => _host?.confirmSas(),
-            ),
-            AppSpacing.verticalSm,
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              child: Text(l10n.cancel),
+            _SasBlock(
+              sas: _sas!,
+              header: l10n.pairingVerifyCodeHeader,
+              onConfirm: () => _host?.confirmSas(),
+              confirmLabel: l10n.pairingCodesMatch,
+              cancelLabel: l10n.cancel,
+              onCancel: () => Navigator.of(context).maybePop(),
             ),
           ] else ...[
-            Text(
-              l10n.pairingWaitingForPeer,
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
+            _StatusRow(
+              state: PairingState.waiting,
+              label: l10n.pairingWaitingForPeer,
             ),
             AppSpacing.verticalSm,
             Center(
@@ -259,25 +262,143 @@ class _PairingHostPageState extends State<PairingHostPage> {
       ),
     );
   }
+}
 
-  /// "123456" → "123 456" so users can read it aloud cleanly.
-  String _formatSasForDisplay(String sas) {
+/// White QR plate with rounded corners and a subtle accent dot in the center.
+class _QrPlate extends StatelessWidget {
+  const _QrPlate({required this.url});
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: _kQrPlateBackground,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        boxShadow: AppThemeConfig.elevationLight,
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          QrImageView(
+            data: url,
+            version: QrVersions.auto,
+            size: 260,
+            gapless: true,
+            backgroundColor: _kQrPlateBackground,
+            errorCorrectionLevel: QrErrorCorrectLevel.H,
+          ),
+          // Tiny brand accent at center — H-level EC tolerates ~30% occlusion.
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _kQrPlateBackground,
+              shape: BoxShape.circle,
+              border: Border.all(color: cs.primary, width: 2),
+            ),
+            child: Icon(Icons.lock_outline, size: 14, color: cs.primary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Big monospace short-authentication-string display + confirm/cancel actions.
+class _SasBlock extends StatelessWidget {
+  const _SasBlock({
+    required this.sas,
+    required this.header,
+    required this.onConfirm,
+    required this.confirmLabel,
+    required this.onCancel,
+    required this.cancelLabel,
+  });
+
+  final String sas;
+  final String header;
+  final VoidCallback onConfirm;
+  final String confirmLabel;
+  final VoidCallback onCancel;
+  final String cancelLabel;
+
+  String _format(String sas) {
     if (sas.length != 6) return sas;
     return '${sas.substring(0, 3)} ${sas.substring(3)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          header,
+          style: theme.textTheme.titleSmall,
+          textAlign: TextAlign.center,
+        ),
+        AppSpacing.verticalMd,
+        Center(
+          child: Text(
+            _format(sas),
+            style: theme.textTheme.displaySmall?.copyWith(
+              fontFamily: 'monospace',
+              fontFeatures: const [FontFeature.tabularFigures()],
+              letterSpacing: 8,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ),
+        AppSpacing.verticalLg,
+        FilledButton.icon(
+          icon: const Icon(Icons.check),
+          label: Text(confirmLabel),
+          onPressed: onConfirm,
+        ),
+        AppSpacing.verticalSm,
+        OutlinedButton(onPressed: onCancel, child: Text(cancelLabel)),
+      ],
+    );
+  }
+}
+
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({required this.state, required this.label});
+  final PairingState state;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        PairingStatusIndicator(state: state, size: 18),
+        AppSpacing.horizontalSm,
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
   }
 }
 
 class _CenteredMessage extends StatelessWidget {
   const _CenteredMessage({
-    required this.icon,
+    required this.state,
     required this.message,
-    required this.actionLabel,
-    required this.onAction,
+    this.actionLabel,
+    this.onAction,
   });
-  final IconData icon;
+  final PairingState state;
   final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -285,8 +406,8 @@ class _CenteredMessage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 56, color: Theme.of(context).colorScheme.primary),
-          AppSpacing.verticalMd,
+          PairingStatusIndicator(state: state, size: 56),
+          AppSpacing.verticalLg,
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
             child: Text(
@@ -295,11 +416,12 @@ class _CenteredMessage extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           ),
-          AppSpacing.verticalLg,
-          FilledButton(onPressed: onAction, child: Text(actionLabel)),
+          if (actionLabel != null && onAction != null) ...[
+            AppSpacing.verticalLg,
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
         ],
       ),
     );
   }
 }
-

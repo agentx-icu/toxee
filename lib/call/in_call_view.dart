@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../i18n/app_localizations.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
@@ -10,6 +12,56 @@ import 'call_media_capabilities.dart';
 import 'call_ui_shell.dart';
 import 'call_ui_components.dart';
 import 'in_call_manager.dart';
+
+// ──────────────────────────────────────────────
+//  Call surface palette (INTENTIONALLY hardcoded)
+// ──────────────────────────────────────────────
+//
+// The in-call UI is dark-mode-only by industry convention — calls always render
+// against a dark backdrop regardless of the system theme so users don't get
+// blinded mid-call. That means we do NOT pull from `Theme.of(context)`; we keep
+// a small, stable palette right here so the surface stays cohesive.
+//
+// Do NOT "fix" this by making it theme-aware. If you want to tweak the look,
+// adjust the constants below — every call-surface tint should flow from them.
+
+/// Pure-black video stage backdrop.
+const Color _kCallStageBg = Colors.black;
+
+/// Slate-800 placeholder when local preview hasn't bound a frame yet.
+const Color _kCallLocalPreviewPlaceholder = Color(0xFF1E293B);
+
+/// Amber-500 (quality "medium" chip accent). Shared with the design system
+/// elsewhere as the away/warning hue, but the call surface keeps its own
+/// constant so we don't accidentally inherit theme-aware variations.
+const Color _kCallAmberAccent = Color(0xFFF59E0B);
+
+/// Slate-400 (quality "unknown" chip accent, sheet copy de-emphasis).
+const Color _kCallSlate400 = Color(0xFF94A3B8);
+
+/// Slate-700 (bottom-sheet drag handle in dark — matches the global sheet
+/// handle but locked to dark since call sheets are dark-only).
+const Color _kCallSheetHandleDark = Color(0xFF334155);
+
+/// Slate-300 (bottom-sheet drag handle in light — only reachable from the
+/// system-light theme variant of audio-route picker).
+const Color _kCallSheetHandleLight = Color(0xFFCBD5E1);
+
+/// Legibility scrim color over remote video. 55% black at the top under the
+/// status bar and at the bottom under the action dock keeps the overlaid
+/// controls readable against bright frames.
+const Color _kCallScrim = Colors.black;
+const double _kCallScrimAlpha = 0.55;
+const double _kCallScrimTopHeight = 88;
+const double _kCallScrimBottomHeight = 120;
+
+/// Local-preview PiP card border — white @ 18% alpha. Subtle hairline so the
+/// card edge reads on bright or dark remote frames.
+const Color _kCallLocalPreviewBorder = Colors.white;
+const double _kCallLocalPreviewBorderAlpha = 0.18;
+
+/// Remote-video placeholder copy color (white @ 54%).
+const Color _kCallRemoteVideoFallbackText = Colors.white54;
 
 /// Drop shadow for the floating local-preview (PiP) card on the call surface.
 /// Named so other call-surface PiP-style cards can share the same elevation.
@@ -89,9 +141,9 @@ class InCallView extends StatelessWidget {
     // dark slate-900 call surface so we tint @ 0.16 for the chip background.
     final Color accent = switch (quality) {
       CallQuality.good => AppThemeConfig.successColor,
-      CallQuality.medium => const Color(0xFFF59E0B), // amber-500
+      CallQuality.medium => _kCallAmberAccent,
       CallQuality.poor => AppThemeConfig.errorColor,
-      CallQuality.unknown => const Color(0xFF94A3B8),
+      CallQuality.unknown => _kCallSlate400,
     };
     return Semantics(
       label: l10n.callQualityLabel,
@@ -163,7 +215,10 @@ class InCallView extends StatelessWidget {
         icon: Icons.call_end,
         label: l10n.callHangUp,
         destructive: true,
-        onPressed: () => manager.hangUp(),
+        onPressed: () {
+          unawaited(HapticFeedback.lightImpact());
+          manager.hangUp();
+        },
       ),
     ];
     return actions;
@@ -179,7 +234,7 @@ class InCallView extends StatelessWidget {
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppThemeConfig.formCardBorderRadius),
+          top: Radius.circular(AppRadii.sheet),
         ),
       ),
       builder: (ctx) {
@@ -272,7 +327,7 @@ class InCallView extends StatelessWidget {
             : Center(
                 child: Text(
                   l10n.callRemoteVideo,
-                  style: const TextStyle(color: Colors.white54),
+                  style: const TextStyle(color: _kCallRemoteVideoFallbackText),
                 ),
               );
         // Pure-black video pane with top + bottom legibility gradients so the
@@ -280,20 +335,20 @@ class InCallView extends StatelessWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-            const ColoredBox(color: Colors.black),
+            const ColoredBox(color: _kCallStageBg),
             content,
             // Top scrim under the status bar.
             IgnorePointer(
               child: Align(
                 alignment: Alignment.topCenter,
                 child: Container(
-                  height: 88,
+                  height: _kCallScrimTopHeight,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withValues(alpha: 0.55),
+                        _kCallScrim.withValues(alpha: _kCallScrimAlpha),
                         Colors.transparent,
                       ],
                     ),
@@ -306,13 +361,13 @@ class InCallView extends StatelessWidget {
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Container(
-                  height: 120,
+                  height: _kCallScrimBottomHeight,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        Colors.black.withValues(alpha: 0.55),
+                        _kCallScrim.withValues(alpha: _kCallScrimAlpha),
                         Colors.transparent,
                       ],
                     ),
@@ -345,17 +400,18 @@ class InCallView extends StatelessWidget {
               width: previewWidth,
               height: previewHeight,
               decoration: BoxDecoration(
-                borderRadius:
-                    BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+                borderRadius: BorderRadius.circular(AppRadii.card),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: _kCallLocalPreviewBorder.withValues(
+                    alpha: _kCallLocalPreviewBorderAlpha,
+                  ),
                 ),
                 boxShadow: kCallPipShadow,
               ),
               clipBehavior: Clip.antiAlias,
               child: preview ??
                   const ColoredBox(
-                    color: Color(0xFF1E293B), // slate-800 placeholder
+                    color: _kCallLocalPreviewPlaceholder,
                   ),
             ),
           ),
@@ -401,7 +457,7 @@ class _CallSheetHandle extends StatelessWidget {
       height: 4,
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+        color: isDark ? _kCallSheetHandleDark : _kCallSheetHandleLight,
         borderRadius: BorderRadius.circular(2),
       ),
     );

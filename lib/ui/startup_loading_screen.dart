@@ -355,6 +355,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
 
   Widget _buildStepDots(
       ThemeData theme, Color primaryColor, int currentIndex) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(_kStepCount, (i) {
@@ -363,7 +364,8 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
+            duration: reduceMotion ? Duration.zero : AppDurations.medium,
+            curve: AppCurves.standard,
             width: isCurrent ? 24 : 6,
             height: 6,
             decoration: BoxDecoration(
@@ -404,20 +406,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
             ),
             const SizedBox(height: AppSpacing.xxl),
             if (widget.onRetry != null)
-              ElevatedButton.icon(
+              FilledButton.icon(
                 onPressed: widget.onRetry,
                 icon: const Icon(Icons.refresh),
                 label: Text(l10n.retry),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl,
-                    vertical: AppSpacing.md,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
-                  ),
-                ),
               ),
             if (widget.onRetry != null && widget.onGoToLogin != null)
               AppSpacing.verticalMd,
@@ -426,16 +418,6 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                 onPressed: widget.onGoToLogin,
                 icon: const Icon(Icons.login),
                 label: Text(l10n.goToLogin),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl,
-                    vertical: AppSpacing.md,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
-                  ),
-                ),
               ),
           ],
         ),

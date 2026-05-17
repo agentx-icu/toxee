@@ -1,32 +1,14 @@
 part of 'settings_page.dart';
 
-class _HoverableSettingsRow extends StatefulWidget {
+/// Part-private alias for the shared [HoverableSettingsRow] so existing call
+/// sites in this file (and `settings_page_build.dart`) keep their underscore
+/// reference. The implementation lives in `_hoverable_settings_row.dart`.
+class _HoverableSettingsRow extends StatelessWidget {
   const _HoverableSettingsRow({required this.child});
   final Widget child;
-  @override
-  State<_HoverableSettingsRow> createState() => _HoverableSettingsRowState();
-}
-
-class _HoverableSettingsRowState extends State<_HoverableSettingsRow> {
-  bool _isHovered = false;
 
   @override
-  Widget build(BuildContext context) {
-    final hoverColor = Theme.of(context).colorScheme.primary.withValues(alpha: 0.04);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-        decoration: BoxDecoration(
-          color: _isHovered ? hoverColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-        ),
-        child: widget.child,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => HoverableSettingsRow(child: child);
 }
 
 class _AccountCardItem extends StatefulWidget {
@@ -57,12 +39,13 @@ class _AccountCardItemState extends State<_AccountCardItem> {
     final accountNickname = widget.account['nickname'] ?? '';
     final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
     final primary = widget.colorTheme.primaryColor as Color;
+    final disableAnims = MediaQuery.disableAnimationsOf(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: disableAnims ? Duration.zero : AppDurations.fast,
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../i18n/app_localizations.dart';
 import 'call_state_notifier.dart';
 import 'ringing_call_manager.dart';
@@ -42,13 +44,19 @@ class IncomingCallView extends StatelessWidget {
             icon: Icons.call_end,
             label: l10n.callReject,
             destructive: true,
-            onPressed: () => manager.rejectCall(),
+            onPressed: () {
+              unawaited(HapticFeedback.lightImpact());
+              manager.rejectCall();
+            },
           ),
           CallDockAction(
             icon: Icons.call,
             label: l10n.callAccept,
             affirmative: true,
-            onPressed: () => manager.acceptCall(),
+            onPressed: () {
+              unawaited(HapticFeedback.mediumImpact());
+              manager.acceptCall();
+            },
           ),
         ],
       ),

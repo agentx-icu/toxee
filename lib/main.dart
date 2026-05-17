@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_skill/flutter_skill.dart';
 
 import 'ui/widgets/app_page_route.dart';
@@ -23,6 +24,7 @@ import 'util/logger.dart';
 import 'call/call_overlay.dart';
 import 'call/call_effects_listener.dart';
 import 'util/app_theme_config.dart';
+import 'util/app_component_themes.dart';
 import 'util/account_service.dart';
 import 'package:tencent_cloud_chat_common/data/theme/tencent_cloud_chat_theme.dart';
 import 'startup/startup_outcome.dart';
@@ -212,192 +214,8 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
               debugShowCheckedModeBanner: false,
               scrollBehavior: const _AppScrollBehavior(),
               themeAnimationDuration: const Duration(milliseconds: 400),
-              theme: ThemeData(
-                useMaterial3: true,
-                brightness: Brightness.light,
-                colorSchemeSeed: AppThemeConfig.primaryColor,
-                scaffoldBackgroundColor: AppThemeConfig.lightScaffoldBackground,
-                // Inter-style hierarchy: titles use weight + tight tracking
-                // for presence, body sits at 15-16pt for comfortable reading,
-                // small labels gain positive tracking for legibility.
-                textTheme: const TextTheme(
-                  headlineSmall: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      height: 1.25),
-                  titleLarge: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.3,
-                      height: 1.3),
-                  titleMedium: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.2,
-                      height: 1.35),
-                  titleSmall: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.1,
-                      height: 1.4),
-                  bodyLarge: TextStyle(fontSize: 16, height: 1.5),
-                  bodyMedium: TextStyle(fontSize: 15, height: 1.5),
-                  bodySmall: TextStyle(
-                      fontSize: 13, letterSpacing: 0.1, height: 1.45),
-                  labelLarge: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.1),
-                  labelMedium: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.2),
-                  labelSmall: TextStyle(
-                      // 12pt floor for Material 3 (bottom-nav labels use
-                      // labelSmall — anything below 12 fails the legibility
-                      // bar on small phone screens).
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.4),
-                ),
-                appBarTheme: const AppBarTheme(
-                  elevation: 0,
-                  surfaceTintColor: Colors.transparent,
-                  centerTitle: false,
-                ),
-                cardTheme: CardThemeData(
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-                  ),
-                  elevation: 1,
-                ),
-                elevatedButtonTheme: ElevatedButtonThemeData(
-                  style: ElevatedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                          AppThemeConfig.buttonBorderRadius),
-                    ),
-                  ),
-                ),
-                inputDecorationTheme: InputDecorationTheme(
-                  border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                ),
-                // Thin scrollbars across the app. We deliberately leave
-                // thumbVisibility unset (rather than always-on) because some
-                // UIKit-owned Scrollables don't have a tightly-bound
-                // ScrollController, and forcing the Scrollbar to paint there
-                // floods the log with "ScrollController has no ScrollPosition
-                // attached" assertions on every frame.
-                scrollbarTheme: ScrollbarThemeData(
-                  trackVisibility: WidgetStateProperty.all(false),
-                  thickness: WidgetStateProperty.all(6.0),
-                  radius: const Radius.circular(3.0),
-                ),
-              ),
-              darkTheme: ThemeData(
-                useMaterial3: true,
-                brightness: Brightness.dark,
-                colorSchemeSeed: AppThemeConfig.primaryColorDark,
-                scaffoldBackgroundColor: AppThemeConfig.darkScaffoldBackground,
-                // Inter-style hierarchy: titles use weight + tight tracking
-                // for presence, body sits at 15-16pt for comfortable reading,
-                // small labels gain positive tracking for legibility.
-                textTheme: const TextTheme(
-                  headlineSmall: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      height: 1.25),
-                  titleLarge: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.3,
-                      height: 1.3),
-                  titleMedium: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.2,
-                      height: 1.35),
-                  titleSmall: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.1,
-                      height: 1.4),
-                  bodyLarge: TextStyle(fontSize: 16, height: 1.5),
-                  bodyMedium: TextStyle(fontSize: 15, height: 1.5),
-                  bodySmall: TextStyle(
-                      fontSize: 13, letterSpacing: 0.1, height: 1.45),
-                  labelLarge: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.1),
-                  labelMedium: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.2),
-                  labelSmall: TextStyle(
-                      // 12pt floor for Material 3 (bottom-nav labels use
-                      // labelSmall — anything below 12 fails the legibility
-                      // bar on small phone screens).
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.4),
-                ),
-                appBarTheme: const AppBarTheme(
-                  elevation: 0,
-                  surfaceTintColor: Colors.transparent,
-                  centerTitle: false,
-                ),
-                cardTheme: CardThemeData(
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-                  ),
-                  elevation: 1,
-                ),
-                elevatedButtonTheme: ElevatedButtonThemeData(
-                  style: ElevatedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                          AppThemeConfig.buttonBorderRadius),
-                    ),
-                  ),
-                ),
-                inputDecorationTheme: InputDecorationTheme(
-                  border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-                  ),
-                ),
-                // Thin scrollbars across the app. See light-theme comment
-                // above for why thumbVisibility is intentionally unset.
-                scrollbarTheme: ScrollbarThemeData(
-                  trackVisibility: WidgetStateProperty.all(false),
-                  thickness: WidgetStateProperty.all(6.0),
-                  radius: const Radius.circular(3.0),
-                ),
-              ),
+              theme: _buildLightTheme(),
+              darkTheme: _buildDarkTheme(),
               themeMode: themeMode,
               locale: locale,
               supportedLocales: AppLocalizations.supportedLocales,
@@ -446,6 +264,134 @@ class _EchoUIKitAppState extends State<EchoUIKitApp> {
       },
     );
   }
+}
+
+// ──────────────────────────────────────────────
+//  Theme builders
+// ──────────────────────────────────────────────
+//
+// Both light and dark trees share the same text hierarchy + component-level
+// theming surface; the only differences are brightness, color seed, and
+// scaffold background. Component themes are sourced from [AppComponentThemes]
+// so each surface (AppBar, Button, Card, Dialog, Sheet, Input, etc.) gets
+// the same radius/padding/elevation rhythm in both modes.
+
+ThemeData _buildLightTheme() {
+  final base = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    colorSchemeSeed: AppThemeConfig.primaryColor,
+    scaffoldBackgroundColor: AppThemeConfig.lightScaffoldBackground,
+  );
+  return _applyAppTheming(base);
+}
+
+ThemeData _buildDarkTheme() {
+  final base = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.dark,
+    colorSchemeSeed: AppThemeConfig.primaryColorDark,
+    scaffoldBackgroundColor: AppThemeConfig.darkScaffoldBackground,
+  );
+  return _applyAppTheming(base);
+}
+
+/// Apply the toxee text hierarchy + component themes on top of a brightness-
+/// seeded [ThemeData]. Component themes are merged with the prior manual
+/// overrides via `copyWith` so any explicit value on the existing AppBar /
+/// Card / Button / Input themes still wins. (`scrolledUnderElevation: 1` from
+/// the AppBar component theme is preserved because the prior config didn't
+/// set it; `elevation: 1` from the prior Card config is preserved because the
+/// `.copyWith(elevation: 1)` chain applies after the new base.)
+ThemeData _applyAppTheming(ThemeData base) {
+  final cs = base.colorScheme;
+  final brightness = base.brightness;
+  return base.copyWith(
+    // Inter-style hierarchy: titles use weight + tight tracking for
+    // presence, body sits at 15-16pt for comfortable reading, small labels
+    // gain positive tracking for legibility. We `merge` onto the base text
+    // theme so M3's brightness-aware colors (onSurface for titles/body,
+    // onSurfaceVariant for labels) are preserved while we override only
+    // font size/weight/tracking/leading.
+    textTheme: base.textTheme.merge(const TextTheme(
+      headlineSmall: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.5,
+          height: 1.25),
+      titleLarge: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.3,
+          height: 1.3),
+      titleMedium: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+          height: 1.35),
+      titleSmall: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.1,
+          height: 1.4),
+      bodyLarge: TextStyle(fontSize: 16, height: 1.5),
+      bodyMedium: TextStyle(fontSize: 15, height: 1.5),
+      bodySmall:
+          TextStyle(fontSize: 13, letterSpacing: 0.1, height: 1.45),
+      labelLarge: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.1),
+      labelMedium: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.2),
+      labelSmall: TextStyle(
+          // 12pt floor for Material 3 (bottom-nav labels use
+          // labelSmall — anything below 12 fails the legibility
+          // bar on small phone screens).
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.4),
+    )),
+    // Component themes: the base values come from [AppComponentThemes];
+    // any prior manual overrides are reapplied via `copyWith` so existing
+    // behavior (e.g. Card elevation: 1, AppBar centerTitle: false) wins.
+    appBarTheme: AppComponentThemes.appBarTheme(cs, brightness).copyWith(
+      centerTitle: false,
+    ),
+    elevatedButtonTheme: AppComponentThemes.elevatedButtonTheme(cs),
+    filledButtonTheme: AppComponentThemes.filledButtonTheme(cs),
+    outlinedButtonTheme: AppComponentThemes.outlinedButtonTheme(cs),
+    textButtonTheme: AppComponentThemes.textButtonTheme(cs),
+    dialogTheme: AppComponentThemes.dialogTheme(cs),
+    bottomSheetTheme: AppComponentThemes.bottomSheetTheme(cs),
+    inputDecorationTheme:
+        AppComponentThemes.inputDecorationTheme(cs, brightness),
+    cardTheme: AppComponentThemes.cardTheme(cs).copyWith(
+      // Preserve the prior soft single-layer elevation on cards.
+      elevation: 1,
+    ),
+    chipTheme: AppComponentThemes.chipTheme(cs, brightness),
+    snackBarTheme: AppComponentThemes.snackBarTheme(cs),
+    dividerTheme: AppComponentThemes.dividerTheme(cs),
+    tabBarTheme: AppComponentThemes.tabBarTheme(cs),
+    switchTheme: AppComponentThemes.switchTheme(cs),
+    checkboxTheme: AppComponentThemes.checkboxTheme(cs),
+    radioTheme: AppComponentThemes.radioTheme(cs),
+    tooltipTheme: AppComponentThemes.tooltipTheme(cs),
+    listTileTheme: AppComponentThemes.listTileTheme(cs),
+    // Thin scrollbars across the app. We deliberately leave thumbVisibility
+    // unset (rather than always-on) because some UIKit-owned Scrollables
+    // don't have a tightly-bound ScrollController, and forcing the
+    // Scrollbar to paint there floods the log with "ScrollController has
+    // no ScrollPosition attached" assertions on every frame.
+    scrollbarTheme: ScrollbarThemeData(
+      trackVisibility: WidgetStateProperty.all(false),
+      thickness: WidgetStateProperty.all(6.0),
+      radius: const Radius.circular(3.0),
+    ),
+  );
 }
 
 class _StartupGate extends StatefulWidget {
@@ -509,6 +455,7 @@ class _StartupGateState extends State<_StartupGate> {
         });
         break;
       case StartupOpenHome(:final service):
+        unawaited(HapticFeedback.lightImpact());
         unawaited(Navigator.of(context).pushReplacement(
           AppPageRoute(page: HomePage(service: service)),
         ).then((_) {}));
@@ -553,6 +500,7 @@ class _StartupGateState extends State<_StartupGate> {
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
     _serviceWaitingForConnection = null;
+    unawaited(HapticFeedback.lightImpact());
     unawaited(Navigator.of(context).pushReplacement(
       AppPageRoute(page: HomePage(service: service)),
     ).then((_) {}));

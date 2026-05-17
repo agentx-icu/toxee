@@ -4,6 +4,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../models/account_summary.dart';
 import '../ui/home_page.dart';
 import '../ui/login_page.dart';
+import '../ui/widgets/app_page_route.dart';
 import '../i18n/app_localizations.dart';
 import 'account_service.dart';
 import 'prefs.dart';
@@ -74,7 +75,7 @@ class AccountSwitcher {
       // 6. Navigate to HomePage
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => HomePage(service: newService!)),
+          AppPageRoute(page: HomePage(service: newService)),
           (route) => false,
         );
       }
@@ -92,7 +93,7 @@ class AccountSwitcher {
         );
         if (currentSessionDisposed) {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const LoginPage()),
+            AppPageRoute(page: const LoginPage()),
             (route) => false,
           );
         }

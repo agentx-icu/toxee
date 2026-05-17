@@ -7,6 +7,7 @@ import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/search/search_chat_history_window.dart';
 import 'package:toxee/ui/widgets/search_utils.dart';
 import 'package:toxee/util/responsive_layout.dart';
+import '../widgets/app_page_route.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
 import 'package:tencent_cloud_chat_common/chat_sdk/components/tencent_cloud_chat_search_sdk.dart';
@@ -603,8 +604,8 @@ class _CustomSearchState extends State<CustomSearch> {
                 subtitle: Text(l10n.messageCount(count)),
                 onTap: () {
                   Navigator.of(context).push<String>(
-                    MaterialPageRoute<String>(
-                      builder: (context) => SearchChatHistoryWindow(
+                    AppPageRoute<String>(
+                      page: SearchChatHistoryWindow(
                         initialKeyword: _searchKeyword.trim(),
                         messageSearchResults: _messageSearchResults,
                         initialSelectedResult: result,

@@ -6,6 +6,24 @@ import 'call_state_notifier.dart';
 import 'ringing_call_manager.dart';
 import 'call_ui_components.dart';
 
+// ──────────────────────────────────────────────
+//  Floating-widget palette (INTENTIONALLY dark)
+// ──────────────────────────────────────────────
+//
+// The floating call PiP sits on top of every other surface in the app and
+// follows the dark-mode-only call surface convention (see `in_call_view.dart`
+// for the same rationale). Tokens live here so the look stays consistent and
+// future changes have a single dial.
+
+/// Card background — slate-800. Matches `AppThemeConfig.darkGradientEnd`, which
+/// is the in-call surface elevation-1 color, so the PiP visually belongs to the
+/// call subsystem and not to the app's general dark theme.
+const Color _kFloatingCallBg = AppThemeConfig.darkGradientEnd;
+
+/// Drag-handle pip color — slate-400. Affordance hint; intentionally low
+/// contrast so it doesn't compete with the avatar + name + duration.
+const Color _kFloatingDragPipColor = Color(0xFF94A3B8);
+
 /// Small draggable floating card showing active call info.
 /// Tap to restore full-screen, drag to reposition, red button to hang up.
 class CallFloatingWidget extends StatefulWidget {
@@ -75,10 +93,10 @@ class _CallFloatingWidgetState extends State<CallFloatingWidget>
     _snapController?.dispose();
     final controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 250),
+      duration: AppDurations.medium,
     );
     final animation = Tween<Offset>(begin: _position, end: target).animate(
-      CurvedAnimation(parent: controller, curve: Curves.easeOut),
+      CurvedAnimation(parent: controller, curve: AppCurves.exit),
     );
     animation.addListener(() {
       setState(() => _position = animation.value);
@@ -153,38 +171,43 @@ class _CallFloatingWidgetState extends State<CallFloatingWidget>
           );
         },
         onTap: () => widget.callState.restore(),
-        child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-          color: AppThemeConfig.darkGradientEnd,
-          child: SizedBox(
-            width: widgetWidth,
-            height: widgetHeight,
-            child: Stack(
-              children: [
-                CallCompactCard(
-                  key: const ValueKey('floating-call-card'),
-                  title: name,
-                  subtitle: subtitle,
-                  leading: CallUserAvatar(
-                    userId: cs.remoteUserID,
-                    name: name,
-                    radius: widgetHeight * 0.3,
-                    fontSize: widgetHeight * 0.25,
+        child: MouseRegion(
+          // Desktop affordance: tapping the floating widget restores full-screen
+          // call. Show the click cursor so the interaction reads as a button.
+          cursor: SystemMouseCursors.click,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            color: _kFloatingCallBg,
+            child: SizedBox(
+              width: widgetWidth,
+              height: widgetHeight,
+              child: Stack(
+                children: [
+                  CallCompactCard(
+                    key: const ValueKey('floating-call-card'),
+                    title: name,
+                    subtitle: subtitle,
+                    leading: CallUserAvatar(
+                      userId: cs.remoteUserID,
+                      name: name,
+                      radius: widgetHeight * 0.3,
+                      fontSize: widgetHeight * 0.25,
+                    ),
+                    onHangUp: widget.manager.hangUp,
                   ),
-                  onHangUp: widget.manager.hangUp,
-                ),
-                // Drag-handle pip: small slate-400 bar at top-center signals
-                // "this is draggable" without competing with the content.
-                const Positioned(
-                  top: 4,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: Center(child: _FloatingDragPip()),
+                  // Drag-handle pip: small slate-400 bar at top-center signals
+                  // "this is draggable" without competing with the content.
+                  const Positioned(
+                    top: 4,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Center(child: _FloatingDragPip()),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -204,7 +227,7 @@ class _FloatingDragPip extends StatelessWidget {
       width: 24,
       height: 3,
       decoration: BoxDecoration(
-        color: const Color(0xFF94A3B8), // slate-400
+        color: _kFloatingDragPipColor,
         borderRadius: BorderRadius.circular(1.5),
       ),
     );

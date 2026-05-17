@@ -10,6 +10,7 @@ import '../../util/logger.dart';
 import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
 import '../../i18n/app_localizations.dart';
+import '../widgets/app_page_route.dart';
 import '../widgets/app_snackbar.dart';
 import '../widgets/section_header.dart';
 import 'bootstrap_nodes_page.dart';
@@ -509,27 +510,13 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: _nodeTestResult == 'success'
-                                          ? AppThemeConfig.successColor
-                                          : Theme.of(context).colorScheme.error,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  AppSpacing.horizontalXs,
-                                  Text(
-                                    _nodeTestResult == 'success'
+                                  _StatusPill(
+                                    label: _nodeTestResult == 'success'
                                         ? l10n.online
                                         : l10n.offline,
-                                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          color: _nodeTestResult == 'success'
-                                              ? AppThemeConfig.successColor
-                                              : Theme.of(context).colorScheme.error,
-                                        ),
+                                    color: _nodeTestResult == 'success'
+                                        ? AppThemeConfig.successColor
+                                        : Theme.of(context).colorScheme.error,
                                   ),
                                   if (_nodeLatency != null && _nodeTestResult == 'success') ...[
                                     AppSpacing.horizontalSm,
@@ -571,14 +558,14 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                           onPressed: !_testingCurrentNode ? _testCurrentNode : null,
                         ),
                       if (_bootstrapNodeMode == 'auto') ...[
-                        if (_currentBootstrapNode != null) const SizedBox(height: 8),
+                        if (_currentBootstrapNode != null) AppSpacing.verticalSm,
                         OutlinedButton.icon(
                             icon: const Icon(Icons.network_check, size: 18),
                             label: Text(l10n.routeSelection),
                             onPressed: () async {
                               await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => BootstrapNodesPage(
+                                AppPageRoute<void>(
+                                  page: BootstrapNodesPage(
                                     service: widget.service,
                                     onNodeSelected: () async {
                                       if (mounted) await _loadCurrentBootstrapNode();
@@ -595,7 +582,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                           ),
                       ],
                       if (_bootstrapNodeMode == 'manual') ...[
-                        const SizedBox(height: 8),
+                        AppSpacing.verticalSm,
                         OutlinedButton.icon(
                           icon: Icon(
                             _manualInputExpanded ? Icons.expand_less : Icons.expand_more,
@@ -613,16 +600,16 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
               ),
             ],
             if (_bootstrapNodeMode == 'lan') ...[
-              const SizedBox(height: 16),
+              AppSpacing.verticalLg,
               const Divider(),
-              const SizedBox(height: 12),
+              AppSpacing.verticalMd,
               Text(
                 l10n.startLocalBootstrapService,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               if (PlatformUtils.isWindows)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(
                     'On Windows, the firewall may block incoming connections; allow the app if prompted.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -633,7 +620,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                 ),
               if (PlatformUtils.isLinux)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(
                     'On Linux, network operations may require appropriate permissions or firewall rules.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -642,7 +629,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
+              AppSpacing.verticalSm,
               Row(
                 children: [
                   Expanded(
@@ -656,11 +643,11 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  AppSpacing.horizontalSm,
                   ElevatedButton.icon(
                     icon: _lanBootstrapServiceRunning
                         ? const Icon(Icons.stop, size: 18)
@@ -676,7 +663,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              AppSpacing.verticalSm,
               Row(
                 children: [
                   Text(
@@ -745,9 +732,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 16),
+                          AppSpacing.verticalLg,
                           const Divider(),
-                          const SizedBox(height: 12),
+                          AppSpacing.verticalMd,
                           Row(
                             children: [
                               Expanded(
@@ -763,11 +750,11 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                           BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                                     ),
                                     contentPadding:
-                                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              AppSpacing.horizontalSm,
                               Expanded(
                                 flex: 1,
                                 child: TextField(
@@ -782,13 +769,13 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                           BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                                     ),
                                     contentPadding:
-                                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          AppSpacing.verticalSm,
                           TextField(
                             controller: _manualPubkeyController,
                             maxLines: 2,
@@ -801,38 +788,24 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                     BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                               ),
                               contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                               labelStyle: Theme.of(context).textTheme.bodyLarge,
                             ),
                             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                               fontFamily: 'monospace',
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          AppSpacing.verticalMd,
                           if (_manualNodeTestResult != null) ...[
                             Row(
                               children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: _manualNodeTestResult == 'success'
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Theme.of(context).colorScheme.error,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _manualNodeTestResult == 'success'
+                                _StatusPill(
+                                  label: _manualNodeTestResult == 'success'
                                       ? l10n.nodeTestSuccess
                                       : l10n.nodeTestFailed,
-                                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                        color: _manualNodeTestResult == 'success'
-                                            ? AppThemeConfig.successColor
-                                            : Theme.of(context).colorScheme.error,
-                                      ),
+                                  color: _manualNodeTestResult == 'success'
+                                      ? AppThemeConfig.successColor
+                                      : Theme.of(context).colorScheme.error,
                                 ),
                                 if (_manualNodeLatency != null &&
                                     _manualNodeTestResult == 'success') ...[
@@ -852,7 +825,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 ],
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            AppSpacing.verticalMd,
                           ],
                           Row(
                             children: [
@@ -870,7 +843,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 ),
                               ),
                               if (_manualNodeTestResult == 'success') ...[
-                                const SizedBox(width: 8),
+                                AppSpacing.horizontalSm,
                                 Expanded(
                                   child: ElevatedButton.icon(
                                     icon: const Icon(Icons.check_circle, size: 18),
@@ -1103,3 +1076,47 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     );
   }
 }
+
+/// Pill-shaped status badge used for online/offline/test-result indicators in
+/// the bootstrap settings UI. Background is a 10% tint of [color]; text + dot
+/// are full [color]; outer shape is a Stadium pill so it reads as a status
+/// chip rather than a button or list-tile leading marker.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: ShapeDecoration(
+        color: color.withValues(alpha: 0.10),
+        shape: const StadiumBorder(),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          AppSpacing.horizontalXs,
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

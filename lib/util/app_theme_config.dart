@@ -347,3 +347,68 @@ class AppThemeConfig {
     );
   }
 }
+
+// ──────────────────────────────────────────────
+//  Radii / Motion tokens (Phase 1 component theme tokens)
+// ──────────────────────────────────────────────
+//
+// New canonical names for radii + motion. Existing radii in [AppThemeConfig]
+// stay where they are (other code already imports them); [AppRadii] re-exports
+// them so future code can use one consistent name surface.
+
+/// Radius tokens. Re-exports the values already defined on [AppThemeConfig]
+/// where possible so we don't accidentally introduce two sources of truth.
+class AppRadii {
+  AppRadii._();
+
+  /// Fully rounded ("pill" / capsule) — Stadium-equivalent radius.
+  static const double pill = 999;
+
+  /// Card surfaces — same value as [AppThemeConfig.cardBorderRadius].
+  static double get card => AppThemeConfig.cardBorderRadius;
+
+  /// Dialog surfaces — slightly tighter than the form-card.
+  static const double dialog = 16;
+
+  /// Modal bottom sheets — matches [dialog] for visual consistency.
+  static const double sheet = 16;
+
+  /// Buttons — same value as [AppThemeConfig.buttonBorderRadius].
+  static double get button => AppThemeConfig.buttonBorderRadius;
+
+  /// Inputs (text fields, search, etc.) — same value as
+  /// [AppThemeConfig.inputBorderRadius].
+  static double get input => AppThemeConfig.inputBorderRadius;
+
+  /// Small surfaces (tooltips, badges, chips' inner pills if non-stadium).
+  static const double small = 6;
+}
+
+/// Motion duration tokens — keep transitions on a consistent rhythm.
+class AppDurations {
+  AppDurations._();
+
+  /// Fast — for hover/press state-layer fades.
+  static const Duration fast = Duration(milliseconds: 150);
+
+  /// Medium — for most page-internal transitions (sheets, dialogs, list
+  /// reorders).
+  static const Duration medium = Duration(milliseconds: 250);
+
+  /// Slow — for full-screen transitions and gentle hero-style moves.
+  static const Duration slow = Duration(milliseconds: 350);
+}
+
+/// Motion curve tokens.
+class AppCurves {
+  AppCurves._();
+
+  /// Entrances: decelerate into final position.
+  static const Curve enter = Curves.easeOutCubic;
+
+  /// Exits: accelerate away.
+  static const Curve exit = Curves.easeInCubic;
+
+  /// Standard / continuous transitions (e.g. an interactive drag releasing).
+  static const Curve standard = Curves.easeInOutCubic;
+}

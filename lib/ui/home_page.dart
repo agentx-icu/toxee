@@ -90,6 +90,7 @@ import '../util/irc_app_manager.dart';
 import 'applications/irc_channel_dialog.dart';
 import '../util/responsive_layout.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_tatal_unread_count.dart';
+import 'widgets/app_page_route.dart';
 import 'widgets/app_snackbar.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -246,37 +247,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return Builder(
       builder: (context) {
         return TencentCloudChatThemeWidget(
-          build: (context, colorTheme, textStyle) => GestureDetector(
-            // Whole-bar hit target so the entire row is tappable (min 44pt
-            // height enforced below for mobile ergonomics).
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _onAddFriend(context, userFullInfo.userID ?? ''),
-            child: Container(
-              // Fill the parent — using `MediaQuery.size.width` made the
-              // button stretch to the full screen even when embedded inside
-              // a constrained pane (master-detail / dialog).
-              width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 44),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    width: 1,
-                    color: colorTheme.backgroundColor,
+          build: (context, colorTheme, textStyle) => MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              // Whole-bar hit target so the entire row is tappable (min 44pt
+              // height enforced below for mobile ergonomics).
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _onAddFriend(context, userFullInfo.userID ?? ''),
+              child: Container(
+                // Fill the parent — using `MediaQuery.size.width` made the
+                // button stretch to the full screen even when embedded inside
+                // a constrained pane (master-detail / dialog).
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 44),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      width: 1,
+                      color: colorTheme.backgroundColor,
+                    ),
                   ),
+                  color: colorTheme.contactAddContactFriendInfoStateButtonBackgroundColor,
                 ),
-                color: colorTheme.contactAddContactFriendInfoStateButtonBackgroundColor,
-              ),
-              padding: EdgeInsets.symmetric(
-                vertical: TencentCloudChatScreenAdapter.getHeight(10),
-                horizontal: TencentCloudChatScreenAdapter.getWidth(16),
-              ),
-              alignment: Alignment.centerLeft,
-              child: Text(
-                AppLocalizations.of(context)!.addFriend,
-                style: TextStyle(
-                  color: colorTheme.primaryColor,
-                  fontSize: textStyle.fontsize_16,
-                  fontWeight: FontWeight.w400,
+                padding: EdgeInsets.symmetric(
+                  vertical: TencentCloudChatScreenAdapter.getHeight(10),
+                  horizontal: TencentCloudChatScreenAdapter.getWidth(16),
+                ),
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  AppLocalizations.of(context)!.addFriend,
+                  style: TextStyle(
+                    color: colorTheme.primaryColor,
+                    fontSize: textStyle.fontsize_16,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
               ),
             ),
@@ -826,8 +830,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       // online, faster 150ms out (easeIn) so dismissing feels
                       // responsive and doesn't linger.
                       child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        reverseDuration: const Duration(milliseconds: 150),
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 250),
+                        reverseDuration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 150),
                         switchInCurve: Curves.easeOut,
                         switchOutCurve: Curves.easeIn,
                         transitionBuilder: (child, animation) {
@@ -950,9 +958,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         // global mode (search all conversations).
                         final rootCtx = _scaffoldMessengerContext ?? context;
                         Navigator.of(rootCtx).push(
-                          MaterialPageRoute(
-                            builder: (innerCtx) => search_pkg.CustomSearch(
-                              closeFunc: () => Navigator.of(innerCtx).pop(),
+                          AppPageRoute(
+                            page: Builder(
+                              builder: (innerCtx) => search_pkg.CustomSearch(
+                                closeFunc: () => Navigator.of(innerCtx).pop(),
+                              ),
                             ),
                           ),
                         );
@@ -1122,7 +1132,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.labelSmall?.copyWith(
-                                            color: Colors.white,
+                                            color: scheme.onError,
                                             fontWeight: FontWeight.w600,
                                             height: 1.0,
                                             fontSize: 10,
@@ -2132,7 +2142,7 @@ class _MobileDrawerItem extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.labelSmall?.copyWith(
-                                      color: Colors.white,
+                                      color: scheme.onError,
                                       fontWeight: FontWeight.w600,
                                       height: 1.0,
                                       fontFeatures: const [

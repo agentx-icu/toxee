@@ -173,7 +173,10 @@ class _UserAvatarState extends State<_UserAvatar> {
       builder: (dialogContext) {
         final size = MediaQuery.sizeOf(dialogContext);
         final isWide = size.width > 900;
-        final maxW = (size.width - 32).clamp(280.0, isWide ? 680.0 : 500.0);
+        // Wide screens get a dialog wide enough to host the 2-column profile
+        // layout (form + QR card side-by-side); narrow screens keep the
+        // single-column dialog at ~480.
+        final maxW = (size.width - 32).clamp(280.0, isWide ? 880.0 : 500.0);
         final maxH = (size.height - 100).clamp(400.0, 800.0);
         return Dialog(
           child: ClipRRect(
@@ -186,8 +189,12 @@ class _UserAvatarState extends State<_UserAvatar> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(AppSpacing.xl),
+                    // Inner content fills the full dialog width so the profile
+                    // layout has room for its 2-column shell; the cap is the
+                    // dialog's own ceiling minus padding, no separate fixed
+                    // 440px clamp.
                     child: SizedBox(
-                      width: (maxW - 48).clamp(256.0, 440.0),
+                      width: (maxW - 48).clamp(256.0, 840.0),
                       height: (maxH - 40).clamp(360.0, 760.0),
                       child: ProfilePage(
                         userId: widget.service.selfId,
@@ -418,6 +425,7 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final disableAnims = MediaQuery.disableAnimationsOf(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
         final baseColor = colorTheme.secondaryTextColor;
@@ -437,7 +445,7 @@ class _SidebarItemState extends State<_SidebarItem> {
           child: InkWell(
             onTap: widget.onTap,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: disableAnims ? Duration.zero : AppDurations.fast,
               width: double.infinity,
               constraints: const BoxConstraints(minHeight: 56),
               padding: const EdgeInsets.symmetric(
@@ -570,6 +578,7 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
   StreamSubscription<TencentCloudChatContactData<dynamic>>? _contactDataSub;
   int _applicationUnreadCount = 0;
   bool _isHovered = false;
+  bool get _disableAnims => MediaQuery.disableAnimationsOf(context);
 
   @override
   void initState() {
@@ -620,7 +629,7 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
           child: InkWell(
             onTap: widget.onTap,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: _disableAnims ? Duration.zero : AppDurations.fast,
               width: double.infinity,
               constraints: const BoxConstraints(minHeight: 56),
               padding: const EdgeInsets.symmetric(

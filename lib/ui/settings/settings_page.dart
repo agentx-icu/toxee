@@ -17,9 +17,11 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
+import '../widgets/app_page_route.dart';
 import '../widgets/bottom_sheet_handle.dart';
 import '../widgets/section_header.dart';
 import '../widgets/stagger_list_item.dart';
+import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/account_switcher.dart';
@@ -891,12 +893,13 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (confirmed == true && mounted) {
+      unawaited(HapticFeedback.heavyImpact());
       await AccountService.teardownCurrentSession(service: widget.service);
       await Prefs.setCurrentAccountToxId(null);
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
+        AppPageRoute<void>(page: const LoginPage()),
         (route) => false,
       );
     }
@@ -913,9 +916,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final toxId = widget.service.selfId;
     if (toxId.isEmpty) return;
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => PairingHostPage(toxId: toxId),
-      ),
+      AppPageRoute<void>(page: PairingHostPage(toxId: toxId)),
     );
   }
 
@@ -1073,6 +1074,7 @@ class _SettingsPageState extends State<SettingsPage> {
     inputController.dispose();
 
     if (confirmed == true && mounted) {
+      unawaited(HapticFeedback.heavyImpact());
       await _deleteAccount(context);
     }
   }
@@ -1113,7 +1115,7 @@ class _SettingsPageState extends State<SettingsPage> {
       // Navigate to login page and clear navigation stack
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
+        AppPageRoute<void>(page: const LoginPage()),
         (route) => false,
       );
     } catch (e) {
