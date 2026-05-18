@@ -4,6 +4,7 @@ import 'package:tencent_cloud_chat_common/tencent_cloud_chat_common.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_group_member_list.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
+import '../../util/group_member_last_seen_cache.dart';
 import '../../util/responsive_layout.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
@@ -54,23 +55,12 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
   }
 
   Map<String, int> _buildLastMessageTimeMap(String groupID) {
-    try {
-      final ffi = FakeUIKit.instance.im?.ffi;
-      if (ffi == null) return {};
-      final persistence = ffi.messageHistoryPersistence;
-      final messages = persistence.getHistory(groupID);
-      final map = <String, int>{};
-      for (final msg in messages) {
-        final sec = msg.timestamp.millisecondsSinceEpoch ~/ 1000;
-        final prev = map[msg.fromUserId];
-        if (prev == null || sec > prev) {
-          map[msg.fromUserId] = sec;
-        }
-      }
-      return map;
-    } catch (_) {
-      return {};
-    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) return {};
+    // Cached: built lazily on first read for this group, then kept up to
+    // date by the FakeIM message bus. Saves re-iterating the full group
+    // history on every member-list mount.
+    return GroupMemberLastSeenCache.instance.getOrBuild(groupID, ffi);
   }
 
   @override

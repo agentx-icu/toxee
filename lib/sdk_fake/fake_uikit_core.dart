@@ -6,6 +6,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
 import '../call/call_state_notifier.dart';
 import '../call/call_service_manager.dart';
+import '../util/group_member_last_seen_cache.dart';
 import 'fake_event_bus.dart';
 import 'fake_im.dart';
 import 'fake_managers.dart';
@@ -41,6 +42,10 @@ class FakeUIKit {
       ..start();
     messageManager = FakeMessageManager(eventBusInstance, service)..start();
     contactManager = FakeContactManager(eventBusInstance, service)..start();
+    // Group-member last-seen cache subscribes to the message bus so new
+    // group messages live-update the per-group recency map without a
+    // full history re-scan.
+    GroupMemberLastSeenCache.instance.attach(eventBusInstance);
     messageProvider = FakeChatMessageProvider();
     callStateNotifier = CallStateNotifier();
     callServiceManager = CallServiceManager(service, callStateNotifier!);
@@ -208,6 +213,7 @@ class FakeUIKit {
     callServiceManager = null;
     callStateNotifier?.dispose();
     callStateNotifier = null;
+    GroupMemberLastSeenCache.instance.clear();
     _im?.dispose();
     _im = null;
     conversationManager?.dispose();
