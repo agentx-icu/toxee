@@ -82,14 +82,26 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
   @override
   void didUpdateWidget(GroupMemberListWrapper oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Only refresh if groupID changed and we haven't loaded yet
-    if (oldWidget.groupInfo.groupID != widget.groupInfo.groupID && !_hasLoaded) {
+    // When the same widget element is reused for a DIFFERENT group (Flutter
+    // recycles State across config changes), we must drop the old member
+    // list and re-fetch. Previously we gated this on `!_hasLoaded`, which
+    // meant we never re-fetched after the first load and the user kept
+    // seeing the previous group's members.
+    if (oldWidget.groupInfo.groupID != widget.groupInfo.groupID) {
+      setState(() {
+        _currentMemberList = [];
+        _lastMessageTimeMap = {};
+        _isLoading = true;
+        _hasLoaded = false;
+      });
       _refreshMemberList();
     }
   }
 
   Future<void> _refreshMemberList() async {
-    // Prevent duplicate calls - only load once per widget instance
+    // Prevent duplicate calls within the same widget instance + groupID.
+    // didUpdateWidget resets _hasLoaded when the groupID changes so this
+    // guard does not block legitimate cross-group refreshes.
     if (_isRefreshing || _hasLoaded) {
       return;
     }
