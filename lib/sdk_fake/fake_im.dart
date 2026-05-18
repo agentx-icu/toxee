@@ -36,6 +36,15 @@ class FakeIM {
   bool _toxFriendListReceived = false; // True once Tox has returned a non-empty friend list
   bool _disposed = false;
 
+  // Cold-start grace window. After we restore the friend list from Prefs
+  // (because Tox hasn't returned anything yet), Tox usually loads friends
+  // incrementally over the next few seconds. During this window we must NOT
+  // treat "in previous set but not in current Tox list" as a deletion —
+  // those friends may simply not be loaded yet. We also keep rendering them
+  // from cache so the contact list doesn't flicker.
+  DateTime? _coldStartRestoreAt;
+  static const Duration _kColdStartGrace = Duration(seconds: 15);
+
   void start() {
     // When a friend's avatar is received and saved, refresh conversations and contact list so the UI updates
     _avatarUpdatedSub = ffi.avatarUpdated.listen((uid) {
@@ -253,6 +262,7 @@ class FakeIM {
     _previousContactList = null;
     _emitContactsRunning = false;
     _toxFriendListReceived = false;
+    _coldStartRestoreAt = null;
   }
 
   Future<void> _refreshConversations() async {
@@ -470,11 +480,15 @@ class FakeIM {
         bus.emit(topicContacts, restoredList);
         _previousContactList = List.from(restoredList);
       }
-      // Update previous friend IDs to include restored friends
+      // Update previous friend IDs to include restored friends and start the
+      // cold-start grace window. The next non-empty Tox poll will compare its
+      // partial list against this restored set, and during the grace window we
+      // suppress deletions to avoid wiping not-yet-loaded friends.
       _previousFriendIds = normalizedLocalFriends;
+      _coldStartRestoreAt = DateTime.now();
       return;
     }
-    
+
     // Build the Tox-only friend set FIRST for accurate deletion detection.
     // Deletion must be detected against Tox state (the source of truth), NOT the merged
     // set that includes local persistence — otherwise local persistence re-adds the deleted
@@ -495,13 +509,41 @@ class FakeIM {
       );
     }
 
-    // Detect friends deleted from Tox by comparing previous IDs against Tox-only set.
-    // A friend that was in _previousFriendIds but is no longer in Tox was deleted via C++.
-    // We must remove it from local persistence BEFORE merging local persistence into friendMap,
-    // otherwise local persistence re-adds the deleted friend and the UI never removes it.
-    final deletedFriendIds = _previousFriendIds.isNotEmpty
+    // Compute the diff between what we previously believed the friend list
+    // was and what Tox returned now.
+    final missingFromTox = _previousFriendIds.isNotEmpty
         ? _previousFriendIds.difference(toxFriendIds)
         : <String>{};
+
+    // Cold-start grace: Tox may return friends incrementally for the first
+    // few seconds after restore. During that window, do NOT treat
+    // "previously known, not in Tox yet" as deletion — render those friends
+    // from Prefs cache instead so they don't disappear from the UI.
+    final inColdStartGrace = _coldStartRestoreAt != null &&
+        DateTime.now().difference(_coldStartRestoreAt!) < _kColdStartGrace;
+    final deletedFriendIds = inColdStartGrace ? <String>{} : missingFromTox;
+
+    if (inColdStartGrace && missingFromTox.isNotEmpty) {
+      // Re-hydrate missing friends from cache so the UI stays stable while
+      // Tox finishes loading. They will be marked offline.
+      for (final pendingId in missingFromTox) {
+        if (friendMap.containsKey(pendingId)) continue;
+        final cachedNick = await Prefs.getFriendNickname(pendingId);
+        final cachedStatus = await Prefs.getFriendStatusMessage(pendingId);
+        final cachedAvatar = await Prefs.getFriendAvatarPath(pendingId);
+        friendMap[pendingId] = FakeUser(
+          userID: pendingId,
+          nickName: cachedNick ?? '',
+          status: cachedStatus ?? '',
+          online: false,
+          faceUrl: cachedAvatar,
+        );
+      }
+    } else if (_coldStartRestoreAt != null && !inColdStartGrace) {
+      // Grace expired: clear the timestamp so we don't keep checking.
+      _coldStartRestoreAt = null;
+    }
+
     if (deletedFriendIds.isNotEmpty) {
       final updatedLocalFriends = await Prefs.getLocalFriends();
       for (final deletedId in deletedFriendIds) {
@@ -517,13 +559,16 @@ class FakeIM {
       await Prefs.setLocalFriends(updatedLocalFriends);
     }
 
-    // Clean up Prefs: replace local friends with the authoritative Tox list.
-    // This ensures stale friends from previous sessions are removed.
-    // The Tox friend list is the single source of truth once received.
-    await Prefs.setLocalFriends(toxFriendIds);
-    
-    // Update previous friend IDs to Tox-only friends (the single source of truth)
-    _previousFriendIds = toxFriendIds;
+    // Persist whatever we currently believe the friend list is. During grace
+    // we keep the union (Tox + still-pending) so a crash mid-grace doesn't
+    // lose the restored entries. Outside grace, Tox is authoritative.
+    final authoritativeIds = inColdStartGrace
+        ? toxFriendIds.union(missingFromTox)
+        : toxFriendIds;
+    await Prefs.setLocalFriends(authoritativeIds);
+
+    // Update previous friend IDs for next-poll diff.
+    _previousFriendIds = authoritativeIds;
     
     // Emit merged list only if it actually changed
     final list = friendMap.values.toList();
