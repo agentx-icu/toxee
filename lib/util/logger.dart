@@ -21,6 +21,16 @@ class AppLogger {
   static String? _customLogPath;
   static bool _hasLoggedError = false;
 
+  /// P11 (`local-storage-review-2026-05-18.md`): the logger creates a new
+  /// `app_<timestamp>.log` per launch. Without bounds the `logs/` directory
+  /// grows for the lifetime of the install. We keep the most recent N files
+  /// and within a session rotate when the current file exceeds [_maxLogBytes].
+  static const int _maxLogFiles = 10;
+  static const int _maxLogBytes = 10 * 1024 * 1024; // 10 MB
+  static int _currentLogBytes = 0;
+  static int _rotationIndex = 0;
+  static DateTime? _sessionTimestamp;
+
   static const String _tid = 'main'; // Dart main isolate; use Isolate.current.debugName if needed
 
   static int _getPid() {
@@ -78,15 +88,116 @@ class AppLogger {
           if (!await logDir.exists()) {
             await logDir.create(recursive: true);
           }
-          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          _sessionTimestamp = DateTime.now();
+          final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
           _logFile = File('${logDir.path}/app_$timestamp.log');
         }
         await _logFile!.writeAsString('=== App Log Started ===\n', mode: FileMode.append);
+        _currentLogBytes = await _safeFileLength(_logFile!);
+
+        // P11: clean up old log files. Keep the most recent [_maxLogFiles]
+        // app_*.log files; never delete the file we just opened.
+        await _pruneOldLogFiles();
       }
       _initialized = true;
     } catch (e) {
       stderr.writeln('Warning: Failed to initialize file logging: $e');
       _enableFileLogging = false;
+    }
+  }
+
+  /// Length of [file] in bytes, or 0 if it does not exist / cannot be stat'd.
+  static Future<int> _safeFileLength(File file) async {
+    try {
+      if (await file.exists()) {
+        return await file.length();
+      }
+    } catch (_) {
+      // Ignore stat failures; treat as zero.
+    }
+    return 0;
+  }
+
+  /// P11: Delete the oldest `app_*.log` files in the same directory as the
+  /// current log, keeping only the most recent [_maxLogFiles] entries by
+  /// modification time. Never deletes the currently open log file.
+  static Future<void> _pruneOldLogFiles() async {
+    final current = _logFile;
+    if (current == null) return;
+    try {
+      final dir = current.parent;
+      if (!await dir.exists()) return;
+
+      final logFiles = <File>[];
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.isNotEmpty
+            ? entity.uri.pathSegments.last
+            : entity.path.split(Platform.pathSeparator).last;
+        if (!name.startsWith('app_') || !name.endsWith('.log')) continue;
+        logFiles.add(entity);
+      }
+      if (logFiles.length <= _maxLogFiles) return;
+
+      // Sort by mtime descending (newest first). Files that fail to stat
+      // sort to the back so they're the first candidates for deletion.
+      final stats = <File, DateTime>{};
+      for (final f in logFiles) {
+        try {
+          stats[f] = (await f.stat()).modified;
+        } catch (_) {
+          stats[f] = DateTime.fromMillisecondsSinceEpoch(0);
+        }
+      }
+      logFiles.sort((a, b) => stats[b]!.compareTo(stats[a]!));
+
+      final currentPath = current.path;
+      var kept = 0;
+      for (final f in logFiles) {
+        if (f.path == currentPath) {
+          kept++;
+          continue;
+        }
+        if (kept < _maxLogFiles) {
+          kept++;
+          continue;
+        }
+        try {
+          await f.delete();
+        } catch (_) {
+          // Ignore — file may be locked or already gone.
+        }
+      }
+    } catch (e) {
+      stderr.writeln('AppLogger: log pruning failed: $e');
+    }
+  }
+
+  /// P11: rotate the active log when it exceeds [_maxLogBytes]. Only applies
+  /// when a session timestamp is set (i.e., the default `app_<ts>.log` path).
+  /// Custom paths (CI / test) keep the previous append-forever behaviour.
+  static void _rotateIfNeeded() {
+    if (_sessionTimestamp == null) return;
+    final current = _logFile;
+    if (current == null) return;
+    if (_currentLogBytes < _maxLogBytes) return;
+    try {
+      final dir = current.parent;
+      _rotationIndex++;
+      final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
+      final next = File('${dir.path}/app_${timestamp}_$_rotationIndex.log');
+      _logFile = next;
+      _currentLogBytes = 0;
+      try {
+        next.writeAsStringSync(
+          '=== App Log Rotated (segment $_rotationIndex) ===\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {
+        // Ignore; the next _writeToFile will surface the error path.
+      }
+    } catch (e) {
+      stderr.writeln('AppLogger: log rotation failed: $e');
     }
   }
 
@@ -112,7 +223,10 @@ class AppLogger {
       return;
     }
     try {
-      _logFile!.writeAsStringSync('$line\n', mode: FileMode.append);
+      final bytes = '$line\n';
+      _logFile!.writeAsStringSync(bytes, mode: FileMode.append);
+      _currentLogBytes += bytes.length;
+      _rotateIfNeeded();
       _hasLoggedError = false;
     } catch (e, stackTrace) {
       if (!_hasLoggedError) {
