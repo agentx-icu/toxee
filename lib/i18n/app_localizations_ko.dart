@@ -279,6 +279,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get enterMessage => '메시지를 입력하세요';
 
   @override
+  String get noGroupMembers => '아직 멤버가 없습니다';
+
+  @override
   String get autoAcceptedNewFriendRequest => '새 친구 요청을 자동으로 수락했습니다';
 
   @override

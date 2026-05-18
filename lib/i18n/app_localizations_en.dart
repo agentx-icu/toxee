@@ -279,6 +279,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enterMessage => 'Please enter a message';
 
   @override
+  String get noGroupMembers => 'No members yet';
+
+  @override
   String get autoAcceptedNewFriendRequest => 'Auto-accepted new friend request';
 
   @override

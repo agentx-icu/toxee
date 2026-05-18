@@ -631,6 +631,12 @@ abstract class AppLocalizations {
   /// **'Please enter a message'**
   String get enterMessage;
 
+  /// Empty state shown when a group has zero loaded members
+  ///
+  /// In en, this message translates to:
+  /// **'No members yet'**
+  String get noGroupMembers;
+
   /// No description provided for @autoAcceptedNewFriendRequest.
   ///
   /// In en, this message translates to:

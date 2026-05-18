@@ -106,6 +106,7 @@
   "defaultFriendRequestMessage": "你好，我想添加你为好友。",
   "friendRequestMessageTooLong": "好友请求消息不能超过 921 个字符",
   "enterMessage": "请输入消息",
+  "noGroupMembers": "暂无成员",
   "autoAcceptedNewFriendRequest": "已自动接受新的好友申请",
   "scanQrCodeToAddContact": "扫描二维码，添加我为联系人",
   "generateCard": "生成名片",

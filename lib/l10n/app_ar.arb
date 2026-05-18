@@ -106,6 +106,7 @@
   "defaultFriendRequestMessage": "مرحباً، أود إضافتك كصديق.",
   "friendRequestMessageTooLong": "لا يمكن أن تتجاوز رسالة طلب الصداقة 921 حرفاً",
   "enterMessage": "يرجى إدخال رسالة",
+  "noGroupMembers": "لا يوجد أعضاء بعد",
   "autoAcceptedNewFriendRequest": "تم قبول طلب الصداقة الجديد تلقائياً",
   "scanQrCodeToAddContact": "امسح رمز QR لإضافتي كجهة اتصال",
   "generateCard": "إنشاء بطاقة",

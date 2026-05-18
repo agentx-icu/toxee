@@ -106,6 +106,7 @@
   "defaultFriendRequestMessage": "안녕하세요, 친구로 추가하고 싶습니다.",
   "friendRequestMessageTooLong": "친구 요청 메시지는 921자를 초과할 수 없습니다",
   "enterMessage": "메시지를 입력하세요",
+  "noGroupMembers": "아직 멤버가 없습니다",
   "autoAcceptedNewFriendRequest": "새 친구 요청을 자동으로 수락했습니다",
   "scanQrCodeToAddContact": "QR 코드를 스캔하여 연락처에 추가",
   "generateCard": "명함 생성",

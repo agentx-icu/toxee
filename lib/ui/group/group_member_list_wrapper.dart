@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat_common.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_group_member_list.dart';
+import '../../i18n/app_localizations.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/group_member_last_seen_cache.dart';
 import '../../util/responsive_layout.dart';
@@ -182,11 +183,11 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
             ),
             scrolledUnderElevation: 0.0,
           ),
-          body: const SafeArea(
+          body: SafeArea(
             child: EmptyStateWidget(
               icon: Icons.group_outlined,
-              // TODO(l10n): key=noGroupMembers
-              title: 'No members yet',
+              title: AppLocalizations.of(context)?.noGroupMembers ??
+                  'No members yet',
             ),
           ),
         ),

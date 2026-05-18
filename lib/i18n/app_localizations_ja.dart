@@ -279,6 +279,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get enterMessage => 'メッセージを入力してください';
 
   @override
+  String get noGroupMembers => 'メンバーはまだいません';
+
+  @override
   String get autoAcceptedNewFriendRequest => '新しい友達リクエストを自動承認しました';
 
   @override

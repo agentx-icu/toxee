@@ -279,6 +279,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get enterMessage => 'يرجى إدخال رسالة';
 
   @override
+  String get noGroupMembers => 'لا يوجد أعضاء بعد';
+
+  @override
   String get autoAcceptedNewFriendRequest => 'تم قبول طلب الصداقة الجديد تلقائياً';
 
   @override

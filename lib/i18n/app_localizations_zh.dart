@@ -279,6 +279,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get enterMessage => '请输入消息';
 
   @override
+  String get noGroupMembers => '暂无成员';
+
+  @override
   String get autoAcceptedNewFriendRequest => '已自动接受新的好友申请';
 
   @override
@@ -1752,6 +1755,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get enterMessage => '请输入消息';
 
   @override
+  String get noGroupMembers => '暂无成员';
+
+  @override
   String get autoAcceptedNewFriendRequest => '已自动接受新的好友申请';
 
   @override
@@ -2994,6 +3000,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get enterMessage => '請輸入訊息';
+
+  @override
+  String get noGroupMembers => '暫無成員';
 
   @override
   String get autoAcceptedNewFriendRequest => '已自動接受新的好友申請';

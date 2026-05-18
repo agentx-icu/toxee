@@ -106,6 +106,7 @@
   "defaultFriendRequestMessage": "こんにちは、友達として追加したいです。",
   "friendRequestMessageTooLong": "友達リクエストメッセージは921文字を超えることはできません",
   "enterMessage": "メッセージを入力してください",
+  "noGroupMembers": "メンバーはまだいません",
   "autoAcceptedNewFriendRequest": "新しい友達リクエストを自動承認しました",
   "scanQrCodeToAddContact": "QRコードをスキャンして連絡先に追加",
   "generateCard": "名刺を生成",

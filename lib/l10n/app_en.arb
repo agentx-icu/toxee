@@ -131,6 +131,10 @@
   "@enterMessage": {
     "description": "Error message when message is empty"
   },
+  "noGroupMembers": "No members yet",
+  "@noGroupMembers": {
+    "description": "Empty state shown when a group has zero loaded members"
+  },
   "autoAcceptedNewFriendRequest": "Auto-accepted new friend request",
   "scanQrCodeToAddContact": "Scan QR code to add me as contact",
   "@scanQrCodeToAddContact": {
