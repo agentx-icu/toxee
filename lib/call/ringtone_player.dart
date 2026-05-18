@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 /// Plays a ringtone (generated tone) when there is an incoming call. Stops when call is accepted/rejected.
@@ -101,7 +102,8 @@ class RingtonePlayer {
       pos += 2;
     }
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/ringtone_${DateTime.now().millisecondsSinceEpoch}.wav');
+    final file = File(p.join(
+        dir.path, 'ringtone_${DateTime.now().millisecondsSinceEpoch}.wav'));
     await file.writeAsBytes(bytes.buffer.asUint8List());
     return file.path;
   }

@@ -5,9 +5,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
-import '../../util/app_paths.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
@@ -158,7 +159,11 @@ class _PairingHostPageState extends State<PairingHostPage> {
   }
 
   static Future<String> _tempExportPath(String toxId) async {
-    final dir = await AppPaths.toxProfileDir;
+    // Use OS temp dir, not the persistent tim2tox profile dir: this file is
+    // exported, read, and deleted within a single `_start()` call. Living in
+    // `getTemporaryDirectory()` means the OS will clean it up if we crash
+    // mid-flow and it won't be backed up to iCloud / iTunes.
+    final dir = await getTemporaryDirectory();
     final prefix = toxId.length >= 8 ? toxId.substring(0, 8) : toxId;
     return '${dir.path}${Platform.pathSeparator}pairing_$prefix.tox';
   }

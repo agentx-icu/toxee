@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'logger.dart';
 import 'prefs.dart';
 
 /// Centralized paths for app data (settings dir, avatars, downloads, history).
@@ -68,9 +70,13 @@ abstract final class AppPaths {
   /// Persistent root directory for multi-account tox profiles (outside app dir when possible).
   /// Uses [Prefs.getProfileStorageRoot] if set; otherwise platform default:
   /// macOS: ~/Library/Application Support/toxee/profiles
-  /// Linux: ~/.config/toxee/profiles or $XDG_DATA_HOME
+  /// Linux: $XDG_DATA_HOME/toxee/profiles or ~/.local/share/toxee/profiles (XDG Base Dir spec)
   /// Windows: %APPDATA%/toxee/profiles
   /// Fallback: app Application Support when custom root not set.
+  ///
+  /// On Linux, a one-time best-effort migration from the legacy
+  /// `~/.config/toxee/profiles` location (used pre-XDG-compliance) is
+  /// attempted on first call when the new location is empty.
   static Future<String> getProfileStorageRoot() async {
     final custom = await Prefs.getProfileStorageRoot();
     if (custom != null && custom.isNotEmpty) return custom;
@@ -82,12 +88,21 @@ abstract final class AppPaths {
     }
     if (Platform.isLinux) {
       final dataHome = Platform.environment['XDG_DATA_HOME'];
+      String? root;
       if (dataHome != null && dataHome.isNotEmpty) {
-        return p.join(dataHome, 'toxee', 'profiles');
+        root = p.join(dataHome, 'toxee', 'profiles');
+      } else {
+        final home = Platform.environment['HOME'];
+        if (home != null && home.isNotEmpty) {
+          // XDG spec default: $XDG_DATA_HOME defaults to $HOME/.local/share
+          // (NOT $HOME/.config — that's $XDG_CONFIG_HOME, which is for
+          // app configuration, not user data).
+          root = p.join(home, '.local', 'share', 'toxee', 'profiles');
+        }
       }
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        return p.join(home, '.config', 'toxee', 'profiles');
+      if (root != null) {
+        await _maybeMigrateLegacyLinuxProfileRoot(root);
+        return root;
       }
     }
     if (Platform.isWindows) {
@@ -98,6 +113,47 @@ abstract final class AppPaths {
     }
     final base = await applicationSupportPath;
     return p.join(base, 'profiles');
+  }
+
+  /// One-shot migration: if the XDG-correct profile root is empty (or
+  /// missing) and the legacy `~/.config/toxee/profiles` exists with content,
+  /// rename the legacy directory to the new location. Idempotent — skips
+  /// when the new root already has any entries.
+  static Future<void> _maybeMigrateLegacyLinuxProfileRoot(String newRoot) async {
+    try {
+      final home = Platform.environment['HOME'];
+      if (home == null || home.isEmpty) return;
+      final legacy = Directory(p.join(home, '.config', 'toxee', 'profiles'));
+      if (!await legacy.exists()) return;
+      final newDir = Directory(newRoot);
+      if (await newDir.exists()) {
+        // Skip if the new location is already populated.
+        final entries = await newDir.list().take(1).toList();
+        if (entries.isNotEmpty) return;
+      }
+      // New location is empty / missing — migrate.
+      AppLogger.warn(
+          '[AppPaths] Migrating legacy Linux profile root '
+          '${legacy.path} -> $newRoot (XDG spec compliance). '
+          'This is a one-time operation.');
+      await Directory(p.dirname(newRoot)).create(recursive: true);
+      if (await newDir.exists()) {
+        // Empty placeholder — remove so rename can succeed.
+        await newDir.delete();
+      }
+      try {
+        await legacy.rename(newRoot);
+      } on FileSystemException catch (e) {
+        // Cross-filesystem rename can fail; fall back to recursive copy.
+        AppLogger.warn(
+            '[AppPaths] rename() failed ($e); will leave legacy in place '
+            'and not auto-migrate. Manual fix: '
+            '`mv ${legacy.path} $newRoot`');
+      }
+    } catch (e, st) {
+      AppLogger.logError(
+          '[AppPaths] Linux profile migration failed (non-fatal)', e, st);
+    }
   }
 
   /// Short directory name for one account: p_<first 16 hex chars of toxId>.
@@ -302,18 +358,19 @@ abstract final class AppPaths {
       }
     }
 
-    // 3. Android: use external storage Download via path_provider
+    // 3. Android: use the app's own documents/Downloads directory.
+    //
+    // Why not the shared /storage/emulated/0/Download anymore?
+    //   - WRITE_EXTERNAL_STORAGE is capped at maxSdkVersion=28 in
+    //     android/app/src/main/AndroidManifest.xml.
+    //   - On API 29+ (Android 10), scoped storage blocks direct writes to
+    //     the shared Downloads folder; the previous 4-parent traversal
+    //     (`extDir.parent.parent.parent.parent / 'Download'`) silently
+    //     failed and we ended up in this fallback anyway.
+    //   - User-visible "save to Downloads" should go through MediaStore or
+    //     the SAF document picker. That's intentionally out of scope here;
+    //     the share-sheet export path already covers user-visible exports.
     if (Platform.isAndroid) {
-      try {
-        final extDir = await getExternalStorageDirectory();
-        if (extDir != null) {
-          // extDir is <appExternalDir>/files; navigate up to shared storage Download
-          final downloadDir = Directory(
-              p.join(extDir.parent.parent.parent.parent.path, 'Download'));
-          if (await downloadDir.exists()) return downloadDir.path;
-        }
-      } catch (_) {}
-      // Fallback: app documents/Downloads
       final appDir = await getApplicationDocumentsDirectory();
       final fallback = Directory(p.join(appDir.path, 'Downloads'));
       if (!await fallback.exists()) await fallback.create(recursive: true);
@@ -339,5 +396,37 @@ abstract final class AppPaths {
   static Future<String> get logFilePath async {
     final base = await applicationSupportPath;
     return p.join(base, 'flutter_client.log');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // iOS backup-exclusion helper
+  //
+  // Apple's review guidelines forbid storing regenerable data (caches,
+  // received files, log scratch space) in a directory that gets backed up
+  // to iCloud / iTunes. The OS gives us `NSURLIsExcludedFromBackupResourceKey`
+  // for fine-grained control on directories under Application Support.
+  //
+  // Dart-side: call AppPaths.markExcludedFromBackup(<path>) on directories
+  // that hold derivable / ephemeral content (logs, file_recv, QR cache).
+  // iOS-side: AppDelegate.swift handles the MethodChannel and applies the
+  // resource value. Android/macOS/Linux/Windows: no-op.
+  // ─────────────────────────────────────────────────────────────────────
+  static const MethodChannel _backupChannel =
+      MethodChannel('toxee/ios_backup');
+
+  /// Marks a directory or file as excluded from iOS backups. No-op on
+  /// non-iOS platforms. Safe to call multiple times; the underlying API
+  /// is idempotent. Errors are logged at debug level and swallowed —
+  /// failing to set this attribute should never prevent the app from
+  /// running.
+  static Future<void> markExcludedFromBackup(String path) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _backupChannel.invokeMethod<void>(
+          'markExcludedFromBackup', <String, String>{'path': path});
+    } catch (e) {
+      // Log but never throw — this is a defensive housekeeping call.
+      AppLogger.warn('[AppPaths] markExcludedFromBackup($path) failed: $e');
+    }
   }
 }

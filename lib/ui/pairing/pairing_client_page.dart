@@ -5,9 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
-import '../../util/app_paths.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
@@ -86,8 +87,11 @@ class _PairingClientPageState extends State<PairingClientPage> {
         // Write to a temp file then hand to the audited importAccountData
         // path. That extracts the toxId, prompts for an inner password if
         // the blob itself is password-encrypted, and writes the profile to
-        // the per-account directory.
-        final tmpDir = await AppPaths.toxProfileDir;
+        // the per-account directory. The temp blob lives in
+        // getTemporaryDirectory() (not application support / tim2tox dir)
+        // so the OS is free to clean it up and it never gets backed up if
+        // we crash before the `finally` delete runs.
+        final tmpDir = await getTemporaryDirectory();
         final tmpPath =
             '${tmpDir.path}${Platform.pathSeparator}pairing_incoming.tox';
         await File(tmpPath).writeAsBytes(plaintext);

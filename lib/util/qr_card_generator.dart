@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'app_paths.dart';
 import 'app_theme_config.dart';
 
 class ContactQrCardGenerator {
@@ -178,13 +180,20 @@ class ContactQrCardGenerator {
       textColor: textColor,
       avatarPath: avatarPath,
     );
-    // Use application support directory instead of temporary directory
-    // This ensures the file persists and is accessible
-    final dir = await getApplicationSupportDirectory();
+    // QR card PNGs are derivable from the user's tox ID + display name, so
+    // they belong in the OS cache directory — not application support.
+    // On iOS this also keeps them out of the iCloud/iTunes backup set, and
+    // the OS is free to evict them under pressure. We mark the directory
+    // excluded-from-backup defensively (no-op on non-iOS).
+    final dir = await getApplicationCacheDirectory();
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    await AppPaths.markExcludedFromBackup(dir.path);
     final shortId = userId.length > 10 ? userId.substring(0, 10) : userId;
     // Use a more unique filename to avoid conflicts
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final filePath = '${dir.path}/qr_card_${shortId}_$timestamp.png';
+    final filePath = p.join(dir.path, 'qr_card_${shortId}_$timestamp.png');
     final file = File(filePath);
     await file.writeAsBytes(bytes, flush: true);
     // Clean up old QR card files (keep only the latest 5)

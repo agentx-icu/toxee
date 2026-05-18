@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
@@ -16,7 +17,7 @@ class LoggingBootstrap {
       String? logPath;
       bool useSymlink = false;
       if (logDirEnv != null && logDirEnv.isNotEmpty) {
-        final testPath = '$logDirEnv/flutter_client.log';
+        final testPath = p.join(logDirEnv, 'flutter_client.log');
         try {
           final testFile = File(testPath);
           final testDir = testFile.parent;
@@ -39,7 +40,7 @@ class LoggingBootstrap {
       if (logPath == null && !useSymlink) {
         try {
           final currentDir = Directory.current;
-          final testPath = '${currentDir.path}/build/flutter_client.log';
+          final testPath = p.join(currentDir.path, 'build', 'flutter_client.log');
           final testFile = File(testPath);
           final testDir = testFile.parent;
           if (testDir.existsSync() || testDir.parent.existsSync()) {
@@ -118,5 +119,17 @@ class LoggingBootstrap {
     setNativeLibraryName('tim2tox_ffi');
     AppLogger.log(
         '[LoggingBootstrap] BINARY REPLACEMENT MODE: Using NativeLibraryManager with tim2tox_ffi');
+
+    // iOS: mark the log directory excluded from iCloud / iTunes backups.
+    // Logs are operational scratch data; they should not appear in user
+    // backups. No-op on every other platform.
+    if (logPath != null) {
+      try {
+        final logDir = File(logPath).parent.path;
+        await AppPaths.markExcludedFromBackup(logDir);
+      } catch (e) {
+        AppLogger.warn('Could not mark log directory excluded from backup: $e');
+      }
+    }
   }
 }
