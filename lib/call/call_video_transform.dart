@@ -109,6 +109,13 @@ class OutgoingVideoTransform {
     required CameraDescription camera,
   }) {
     if (platform != TargetPlatform.android) {
+      // iOS / macOS / Linux / Windows: the camera plugin delivers frames
+      // pre-rotated to portraitUp via the underlying AVFoundation /
+      // platform pipeline, so a second client-side rotation would
+      // double-rotate. If a future iPad/iPhone variant ever delivers
+      // unrotated frames (e.g. some external accessory cameras), surface a
+      // dedicated platform path here rather than enabling Android's
+      // sensor-orientation math by accident.
       return const OutgoingVideoTransform(
         quarterTurns: 0,
         shouldMirror: false,

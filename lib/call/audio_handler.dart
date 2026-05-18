@@ -159,6 +159,13 @@ class AudioHandler {
     pcm_sound.FlutterPcmSound.start();
   }
 
+  /// Single-isolate marker for "this block touches a shared buffer that's
+  /// also touched by the playback feed callback." Dart's single-threaded
+  /// event loop means there's no actual cross-thread interleaving — but the
+  /// PCM feed/drain pattern reads more clearly when the critical sections
+  /// are visually delimited. Do **not** add real locking here without first
+  /// converting the buffer to a typed-data circular and benchmarking; the
+  /// audio path runs at 50Hz and any mutex contention shows up immediately.
   static void synchronized(Object lock, void Function() action) => action();
 
   void _setupPlayback() {
