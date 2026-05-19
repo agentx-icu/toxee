@@ -107,6 +107,53 @@ void main() {
       service = FfiChatService(preferencesService: prefs);
     });
 
+    test(
+        'a fingerprint refused in a previous session still filters after '
+        'restart (cross-restart round-trip)', () async {
+      // The whole point of the PR1 fix: refused friend applications must
+      // stay dismissed across an app restart, not just across polls in the
+      // current session. Simulate this without FFI by:
+      //   1. Seeding prefs with a fingerprint, as if a prior session's
+      //      `refuseFriendApplication` had persisted it.
+      //   2. Constructing a *fresh* FfiChatService with the same prefs —
+      //      this is the "restart" surface: in-memory caches (e.g.
+      //      `_observedApplicationWordings`) are empty, but the persistent
+      //      dismissed set is read from prefs.
+      //   3. Asserting that the filter still drops a request carrying that
+      //      same `(userId, wording)`.
+      const peer = 'peer-refused-last-session';
+      await prefs.setStringList(
+        FfiChatService.dismissedFriendApplicationsKey,
+        ['$peer|original wording'],
+      );
+
+      // The original `service` was constructed in setUp before any prefs
+      // mutation. The "restart" is this fresh instance.
+      final restartedService = FfiChatService(preferencesService: prefs);
+
+      final dismissed = await restartedService
+          .getFriendApplicationsDismissedSetForTest();
+      expect(dismissed, {'$peer|original wording'},
+          reason: 'restarted service must read the previous session\'s '
+              'dismissed set from prefs');
+
+      // Filter still applies — the refused application stays hidden.
+      final apps = [(userId: peer, wording: 'original wording')];
+      expect(
+        FfiChatService.filterDismissedApplications(apps, dismissed),
+        isEmpty,
+      );
+
+      // And a fresh wording from the same peer still surfaces — the
+      // wording-aware fingerprint is the whole reason we don't permanently
+      // mute a peer with a single refusal.
+      final fresh = [(userId: peer, wording: 'second try please')];
+      expect(
+        FfiChatService.filterDismissedApplications(fresh, dismissed),
+        fresh,
+      );
+    });
+
     test('legacy bare-userId entries are dropped on read', () async {
       // Pre-populate prefs with the pre-fingerprint format. After the read
       // path runs once, legacy entries (no `|` separator) are stripped and

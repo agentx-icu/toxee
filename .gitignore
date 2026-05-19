@@ -56,3 +56,7 @@ tool/vendor_state.json
 .claude/
 .cache/
 dist/
+
+# Canonical docs live in `doc/` (singular). Block accidental writes to the
+# plural variant so scratch design notes (CEO plans, audits) don't sneak in.
+docs/

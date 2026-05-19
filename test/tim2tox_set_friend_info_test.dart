@@ -80,19 +80,116 @@ void main() {
       expect(await prefs.getFriendRemark(userID), isNull);
     });
 
-    test('friendCustomInfo is accepted but not yet persisted (TODO)', () async {
-      // Documenting current behavior: the interface has no per-friend custom
-      // map yet, so we accept the call to keep UIKit happy and drop the map
-      // silently. If/when we widen `ExtendedPreferencesService`, this test
-      // should be flipped to assert the value is stored.
+    test(
+        'friendCustomInfo without friendRemark returns failure — caller-supplied '
+        'data was dropped', () async {
+      // Previously this returned code:0 "success" while silently discarding
+      // the customInfo map. The fix surfaces the silent-drop as a real
+      // failure when no other piece of input succeeded, so integrators
+      // notice when their data is going nowhere.
       const userID = 'peer-carol';
       final cb = await platform.setFriendInfo(
         userID: userID,
         friendCustomInfo: const {'department': 'eng'},
       );
+      expect(cb.code, isNot(0),
+          reason: 'caller asked for customInfo to be persisted, but we '
+              'have nowhere to put it — must not pretend it succeeded');
+      expect(cb.desc.toLowerCase(), contains('friendcustominfo'));
+    });
+
+    test(
+        'friendCustomInfo with friendRemark succeeds (remark persisted, '
+        'customInfo dropped with warning)', () async {
+      // The remark side is the implemented path. customInfo is still
+      // dropped on the floor (TODO), but because remark persisted, the
+      // overall call counts as success — the alias is the user-visible
+      // half of the operation.
+      const userID = 'peer-dave';
+      const remark = 'Dave (sales)';
+      final cb = await platform.setFriendInfo(
+        userID: userID,
+        friendRemark: remark,
+        friendCustomInfo: const {'team': 'sales'},
+      );
       expect(cb.code, 0);
+      expect(await prefs.getFriendRemark(userID), remark);
+    });
+
+    test('empty-string friendRemark clears the stored remark', () async {
+      // The _InMemoryPrefs adapter treats "" as a clear (matching the
+      // production toxee adapter's behavior). Pin that round-trip via the
+      // platform call so a future change to the prefs adapter that breaks
+      // it shows up here.
+      const userID = 'peer-erin';
+      await prefs.setFriendRemark(userID, 'old alias');
+      expect(await prefs.getFriendRemark(userID), 'old alias');
+
+      final cb = await platform.setFriendInfo(userID: userID, friendRemark: '');
+      expect(cb.code, 0);
+      expect(await prefs.getFriendRemark(userID), isNull,
+          reason: 'empty string should clear, not store an empty alias');
+    });
+
+    test('returns failure when the preferences adapter throws', () async {
+      // If the host's setFriendRemark throws (e.g. disk full, scope
+      // resolution failure), the platform must surface that as a non-zero
+      // code with the error description — not silently swallow.
+      final faulty = _ThrowingPrefs();
+      final faultyFfi = FfiChatService(preferencesService: faulty);
+      final faultyPlatform = Tim2ToxSdkPlatform(
+        ffiService: faultyFfi,
+        preferencesService: faulty,
+      );
+
+      final cb = await faultyPlatform.setFriendInfo(
+        userID: 'peer-frank',
+        friendRemark: 'will explode',
+      );
+      expect(cb.code, isNot(0));
+      expect(cb.desc, contains('setFriendInfo failed'));
     });
   });
+
+  group(
+    'Tim2ToxSdkPlatform.setFriendInfo with no preferences service',
+    skip: skipReason,
+    () {
+      test(
+          'returns failure (not 0) when friendRemark is requested but no '
+          'preferences service is wired up', () async {
+        // Latent footgun: a misconfigured integration that forgot to
+        // inject ExtendedPreferencesService would previously get
+        // code:0 "success" back while nothing was persisted. The fix
+        // returns -1 so the misconfiguration is loud.
+        final ffi = FfiChatService();
+        final platform = Tim2ToxSdkPlatform(ffiService: ffi);
+
+        final cb = await platform.setFriendInfo(
+          userID: 'peer-gwen',
+          friendRemark: 'will be lost',
+        );
+        expect(cb.code, isNot(0),
+            reason: 'no prefs available — must not silently drop the remark');
+        expect(cb.desc.toLowerCase(), contains('preferences'));
+      });
+    },
+  );
+}
+
+/// ExtendedPreferencesService implementation whose `setFriendRemark` throws.
+/// Used to test that platform-side error handling surfaces failures.
+class _ThrowingPrefs implements ExtendedPreferencesService {
+  @override
+  Future<void> setFriendRemark(String friendId, String? remark) {
+    throw StateError('simulated prefs failure');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    throw UnimplementedError(
+        '_ThrowingPrefs does not implement ${invocation.memberName}');
+  }
 }
 
 class _InMemoryPrefs implements ExtendedPreferencesService {
