@@ -67,6 +67,18 @@ abstract final class AppPaths {
     return p.join(dir.path, 'tox_profile_$toxId.tox');
   }
 
+  /// Path for the LAN bootstrap service profile file:
+  /// `<appSupport>/tim2tox/bootstrap_service_profile.tox`.
+  ///
+  /// Single source of truth shared with `LanBootstrapService`. Kept at the
+  /// same on-disk location as the historical inline construction so existing
+  /// installs continue to find their bootstrap profile (X6 from the
+  /// 2026-05-18 local-storage review).
+  static Future<String> get lanBootstrapProfilePath async {
+    final dir = await toxProfileDir;
+    return p.join(dir.path, 'bootstrap_service_profile.tox');
+  }
+
   /// Persistent root directory for multi-account tox profiles (outside app dir when possible).
   /// Uses [Prefs.getProfileStorageRoot] if set; otherwise platform default:
   /// macOS: ~/Library/Application Support/toxee/profiles
@@ -392,10 +404,21 @@ abstract final class AppPaths {
     return dir.path;
   }
 
-  /// Path for the main app log file: `<appSupport>/flutter_client.log`.
+  /// Path for the production app log file. Convention is the **timestamped
+  /// path** under `<appSupport>/logs/app_<sessionTimestamp>.log`, matching
+  /// `AppLogger.initialize()`'s built-in default. This deprecates the flat
+  /// `<appSupport>/flutter_client.log` convention (X6 from the 2026-05-18
+  /// local-storage review).
+  ///
+  /// The development dev-loop scripts (`run_toxee.sh`) tail a flat
+  /// `flutter_client.log` under `TOXEE_LOG_DIR` or `Directory.current/build/`.
+  /// That is intentional — see `LoggingBootstrap.initialize()`. It only
+  /// applies when those locations are writable; production / CI / mobile
+  /// always end up here at the timestamped convention.
   static Future<String> get logFilePath async {
-    final base = await applicationSupportPath;
-    return p.join(base, 'flutter_client.log');
+    final logDir = await logsDir;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return p.join(logDir.path, 'app_$timestamp.log');
   }
 
   // ─────────────────────────────────────────────────────────────────────

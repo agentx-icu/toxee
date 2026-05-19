@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Current schema version for global preferences.
@@ -6,7 +8,14 @@ const int currentGlobalPrefsVersion = 2;
 
 /// Current schema version for per-account preferences.
 /// Bump when adding per-account migration steps.
-const int currentAccountPrefsVersion = 1;
+///
+/// v0 → v1: groups/quitGroups from unscoped to account-scoped keys.
+/// v1 → v2: eagerly migrate per-account bool settings (autoAcceptFriends,
+/// autoAcceptGroupInvites, autoLogin, notificationSoundEnabled) from the
+/// `account_list` JSON blob into account-scoped boolean prefs. Previously
+/// these were migrated lazily inside the getters on each read; consolidating
+/// them here is X3 (single migration registry) from the local-storage review.
+const int currentAccountPrefsVersion = 2;
 
 /// Key used to store the global schema version in SharedPreferences.
 const String _kPrefsSchemaVersion = 'prefs_schema_version';
@@ -14,6 +23,23 @@ const String _kPrefsSchemaVersion = 'prefs_schema_version';
 /// Key prefix for per-account schema version.
 String _accountPrefsVersionKey(String accountPrefix) =>
     'account_prefs_version_$accountPrefix';
+
+/// `account_list` JSON blob key (mirrors `Prefs._kAccountList`). Duplicated
+/// here so the upgrader stays standalone — Prefs depends on this file, not
+/// the other way around.
+const String _kAccountList = 'account_list';
+
+// Scoped per-account boolean keys — these must match the prefixes used by
+// Prefs.getAutoAcceptFriends / getAutoAcceptGroupInvites / getAutoLogin /
+// getNotificationSoundEnabled. If those keys change, change them here too.
+const String _kAccountAutoAcceptFriendsPrefix = 'acct_auto_accept_friends';
+const String _kAccountAutoAcceptGroupInvitesPrefix =
+    'acct_auto_accept_group_invites';
+const String _kAccountAutoLoginPrefix = 'acct_auto_login';
+const String _kAccountNotificationSoundPrefix = 'acct_notification_sound';
+
+/// Length of the toxId prefix used for scoped keys (mirrors `Prefs._scopedKey`).
+const int _scopedToxIdPrefixLen = 16;
 
 /// Thrown when stored preferences were saved by a newer app version.
 /// The app should prompt the user to upgrade and not overwrite data.
@@ -32,6 +58,10 @@ class PrefsStorageNewerThanAppException implements Exception {
 ///
 /// Handles both global migrations (theme defaults, etc.) and per-account
 /// migrations (moving data from unscoped to account-scoped keys).
+///
+/// Single source of truth for prefs migrations — there must not be any
+/// inline lazy migrations inside individual Prefs getters. If you find
+/// one, fold it into [_runAccountMigration] under a new version bump.
 class PrefsUpgrader {
   PrefsUpgrader._();
 
@@ -85,9 +115,9 @@ class PrefsUpgrader {
       return;
     }
     if (from == 1 && to == 2) {
-      // v1→v2: no-op placeholder. Per-account settings migration is now
-      // handled lazily via read-time fallback in Prefs (scoped bool keys),
-      // so no eager migration is needed at this step.
+      // v1→v2: no-op placeholder. Per-account settings migration was moved
+      // from read-time fallback into eager runAccountMigrations() v1→v2 (see
+      // _runAccountMigration), so no global eager migration is needed here.
       return;
     }
   }
@@ -118,5 +148,71 @@ class PrefsUpgrader {
       }
       return;
     }
+    if (from == 1 && to == 2) {
+      // v1→v2: Eagerly migrate per-account boolean settings from the
+      // `account_list` JSON blob into scoped boolean prefs. Previously, each
+      // of the four getters (getAutoAcceptFriends, getAutoAcceptGroupInvites,
+      // getAutoLogin, getNotificationSoundEnabled) ran this same logic lazily
+      // on every read. Folded into a single eager migration here (X3 from
+      // the 2026-05-18 local-storage review).
+      //
+      // Behavior is identical to the old lazy path: the scoped key is only
+      // written if (a) it is not already set AND (b) the account_list entry
+      // contains the corresponding key. The JSON entry is intentionally
+      // left untouched — the lazy path never cleared it, and we mirror that
+      // so downstream code paths that still read `account_list` keep working.
+      await _migrateAccountBoolSettings(p, accountPrefix);
+      return;
+    }
+  }
+
+  /// Find the account-list entry whose toxId begins with [accountPrefix] (the
+  /// first 16 chars Prefs uses for scoped keys) and copy its bool-shaped
+  /// settings into scoped boolean prefs. Best-effort: malformed JSON or
+  /// missing entries are silent no-ops.
+  static Future<void> _migrateAccountBoolSettings(
+      SharedPreferences p, String accountPrefix) async {
+    final raw = p.getString(_kAccountList);
+    if (raw == null || raw.isEmpty) return;
+    List<dynamic> decoded;
+    try {
+      decoded = jsonDecode(raw) as List<dynamic>;
+    } catch (_) {
+      return; // malformed; nothing we can migrate
+    }
+
+    Map<String, dynamic>? account;
+    for (final entry in decoded) {
+      if (entry is! Map) continue;
+      final toxId = entry['toxId']?.toString().trim();
+      if (toxId == null || toxId.isEmpty) continue;
+      final prefix = toxId.length >= _scopedToxIdPrefixLen
+          ? toxId.substring(0, _scopedToxIdPrefixLen)
+          : toxId;
+      if (prefix == accountPrefix) {
+        account = Map<String, dynamic>.from(entry);
+        break;
+      }
+    }
+    if (account == null) return;
+
+    Future<void> copyBool(String jsonKey, String prefKeyPrefix) async {
+      if (!account!.containsKey(jsonKey)) return;
+      final scopedKey = '${prefKeyPrefix}_$accountPrefix';
+      // Don't overwrite a value the user (or a write since the lazy era) set.
+      if (p.containsKey(scopedKey)) return;
+      // The JSON path historically stored these as the string 'true' / 'false';
+      // be permissive in case future writers store actual booleans.
+      final raw = account[jsonKey];
+      final boolVal = raw is bool ? raw : raw?.toString() == 'true';
+      await p.setBool(scopedKey, boolVal);
+    }
+
+    await copyBool('autoAcceptFriends', _kAccountAutoAcceptFriendsPrefix);
+    await copyBool(
+        'autoAcceptGroupInvites', _kAccountAutoAcceptGroupInvitesPrefix);
+    await copyBool('autoLogin', _kAccountAutoLoginPrefix);
+    await copyBool(
+        'notificationSoundEnabled', _kAccountNotificationSoundPrefix);
   }
 }

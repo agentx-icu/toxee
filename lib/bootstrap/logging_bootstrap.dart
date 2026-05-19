@@ -8,6 +8,22 @@ import '../util/app_paths.dart';
 import '../util/logger.dart';
 
 /// Log path detection, AppLogger initialization, FFI log file, and native library name.
+///
+/// Log path discovery is intentionally multi-branch (X6 from the 2026-05-18
+/// local-storage review). The branches exist to support two distinct
+/// audiences:
+///
+///   1. **Developer dev-loop** — `run_toxee.sh` tails a flat
+///      `flutter_client.log` from either `$TOXEE_LOG_DIR` (if exported) or
+///      `Directory.current/build/`. These two branches MUST keep that exact
+///      filename or the tail-and-grep dev workflow breaks.
+///   2. **Production / CI / mobile** — falls through to `AppPaths.logFilePath`
+///      which returns the timestamped path under `<appSupport>/logs/`
+///      (`app_<ts>.log`). This is the canonical convention. The flat
+///      `<appSupport>/flutter_client.log` previously returned by
+///      `AppPaths.logFilePath` is deprecated.
+///
+/// If you're adding a new discovery branch, document which audience it serves.
 class LoggingBootstrap {
   LoggingBootstrap._();
 
@@ -16,6 +32,8 @@ class LoggingBootstrap {
     try {
       String? logPath;
       bool useSymlink = false;
+      // (1) Dev-loop branch: `flutter_client.log` filename is required so
+      // `run_toxee.sh`'s `tail -F` keeps working.
       if (logDirEnv != null && logDirEnv.isNotEmpty) {
         final testPath = p.join(logDirEnv, 'flutter_client.log');
         try {
@@ -37,6 +55,8 @@ class LoggingBootstrap {
         }
       }
 
+      // (1, cont.) Second dev-loop branch: `Directory.current/build/flutter_client.log`.
+      // Same flat filename for the same reason.
       if (logPath == null && !useSymlink) {
         try {
           final currentDir = Directory.current;
@@ -59,6 +79,8 @@ class LoggingBootstrap {
         }
       }
 
+      // (2) Production / fallback branch: timestamped path under
+      // `<appSupport>/logs/`. This is the canonical convention.
       if (logPath == null || useSymlink) {
         try {
           logPath = await AppPaths.logFilePath;

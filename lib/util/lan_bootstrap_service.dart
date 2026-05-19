@@ -1,16 +1,31 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:ffi/ffi.dart' as pkgffi;
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../adapters/shared_prefs_adapter.dart';
 import '../adapters/logger_adapter.dart';
+import 'app_paths.dart';
 import 'prefs.dart';
 import 'logger.dart';
 import 'platform_utils.dart';
+
+/// FfiChatPathResolver adapter that routes the file_recv / avatars fallbacks
+/// through toxee's `AppPaths`. Used so `FfiChatService` does not need to call
+/// `getApplicationSupportDirectory()` directly when toxee is the integrator
+/// (X6 from the 2026-05-18 local-storage review). Tim2Tox standalone tests
+/// can still omit a resolver and get the built-in defaults.
+class _AppPathsFfiChatResolver implements FfiChatPathResolver {
+  const _AppPathsFfiChatResolver();
+
+  @override
+  Future<String> resolveFileRecvDirectory() => AppPaths.fileRecvPath;
+
+  @override
+  Future<String> resolveAvatarsDirectory() => AppPaths.avatarsPath;
+}
 
 /// LAN Bootstrap Service information
 class LanBootstrapService {
@@ -208,8 +223,10 @@ class LanBootstrapServiceManager {
       return false;
     }
 
-    final appSupportDir = await getApplicationSupportDirectory();
-    final profilePath = p.join(appSupportDir.path, 'tim2tox', 'bootstrap_service_profile.tox');
+    // X6: route through the central path authority instead of constructing
+    // the bootstrap profile path inline. AppPaths.lanBootstrapProfilePath is
+    // the single source of truth for this location.
+    final profilePath = await AppPaths.lanBootstrapProfilePath;
     final profileDir = p.dirname(profilePath);
     final profileDirFile = Directory(profileDir);
     if (!await profileDirFile.exists()) {
@@ -239,6 +256,7 @@ class LanBootstrapServiceManager {
       preferencesService: SharedPreferencesAdapter(prefs),
       loggerService: AppLoggerAdapter(),
       bootstrapService: null,
+      pathResolver: const _AppPathsFfiChatResolver(),
     );
 
     await _bootstrapService!.init();

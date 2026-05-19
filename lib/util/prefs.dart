@@ -538,8 +538,10 @@ class Prefs {
   }
 
   /// Get auto-accept friends setting for a specific account.
-  /// Priority: scoped key > account_list JSON fallback > global fallback.
-  /// When [toxId] is null, uses current account so callers get the right account's setting.
+  /// Reads the scoped key only; the previous read-time fallback into
+  /// `account_list` JSON is now an eager migration (see
+  /// PrefsUpgrader.runAccountMigrations v1→v2). When [toxId] is null, uses
+  /// the current account so callers get the right account's setting.
   static Future<bool> getAutoAcceptFriends([String? toxId]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
@@ -550,14 +552,6 @@ class Prefs {
       final key = _scopedKey(_kAccountAutoAcceptFriends, effectiveToxId);
       final val = p.getBool(key);
       if (val != null) return val;
-      // Fallback: check account_list JSON (pre-migration data)
-      final account = await getAccountByToxId(effectiveToxId);
-      if (account != null && account.containsKey('autoAcceptFriends')) {
-        final result = account['autoAcceptFriends'] == 'true';
-        // Migrate to scoped key
-        await p.setBool(key, result);
-        return result;
-      }
     }
     return p.getBool(_kAutoAcceptFriends) ?? false;
   }
@@ -579,7 +573,10 @@ class Prefs {
   }
 
   /// Get auto-accept group invites setting for a specific account.
-  /// When [toxId] is null, uses current account.
+  /// Reads the scoped key only; the previous read-time fallback into
+  /// `account_list` JSON is now an eager migration (see
+  /// PrefsUpgrader.runAccountMigrations v1→v2). When [toxId] is null, uses
+  /// the current account.
   static Future<bool> getAutoAcceptGroupInvites([String? toxId]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
@@ -590,12 +587,6 @@ class Prefs {
       final key = _scopedKey(_kAccountAutoAcceptGroupInvites, effectiveToxId);
       final val = p.getBool(key);
       if (val != null) return val;
-      final account = await getAccountByToxId(effectiveToxId);
-      if (account != null && account.containsKey('autoAcceptGroupInvites')) {
-        final result = account['autoAcceptGroupInvites'] == 'true';
-        await p.setBool(key, result);
-        return result;
-      }
     }
     return p.getBool(_kAutoAcceptGroupInvites) ?? false;
   }
@@ -617,7 +608,11 @@ class Prefs {
   }
 
   /// Get auto-login setting for a specific account.
-  /// When [toxId] is null, uses current account (e.g. on startup after current is set).
+  /// Reads the scoped key only; the previous read-time fallback into
+  /// `account_list` JSON is now an eager migration (see
+  /// PrefsUpgrader.runAccountMigrations v1→v2). When [toxId] is null, uses
+  /// the current account (e.g. on startup after current is set).
+  /// Default for new accounts is `true` — preserved from the prior behavior.
   static Future<bool> getAutoLogin([String? toxId]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
@@ -628,12 +623,6 @@ class Prefs {
       final key = _scopedKey(_kAccountAutoLogin, effectiveToxId);
       final val = p.getBool(key);
       if (val != null) return val;
-      final account = await getAccountByToxId(effectiveToxId);
-      if (account != null && account.containsKey('autoLogin')) {
-        final result = account['autoLogin'] == 'true';
-        await p.setBool(key, result);
-        return result;
-      }
       return true; // Default for new accounts
     }
     return p.getBool(_kAutoLogin) ?? true;
@@ -656,7 +645,11 @@ class Prefs {
   }
 
   /// Get notification sound enabled setting for a specific account.
-  /// When [toxId] is null, uses current account.
+  /// Reads the scoped key only; the previous read-time fallback into
+  /// `account_list` JSON is now an eager migration (see
+  /// PrefsUpgrader.runAccountMigrations v1→v2). When [toxId] is null, uses
+  /// the current account. Default for new accounts is `true` — preserved
+  /// from the prior behavior.
   static Future<bool> getNotificationSoundEnabled([String? toxId]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
@@ -667,12 +660,6 @@ class Prefs {
       final key = _scopedKey(_kAccountNotificationSound, effectiveToxId);
       final val = p.getBool(key);
       if (val != null) return val;
-      final account = await getAccountByToxId(effectiveToxId);
-      if (account != null && account.containsKey('notificationSoundEnabled')) {
-        final result = account['notificationSoundEnabled'] == 'true';
-        await p.setBool(key, result);
-        return result;
-      }
       return true; // Default
     }
     return p.getBool(_kNotificationSoundEnabled) ?? true;
