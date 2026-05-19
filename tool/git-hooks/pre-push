@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# pre-push hook — refuse to push the toxee superproject if any submodule
+# pointer is unreachable on the submodule's own remote. See
+# tool/verify_submodule_remote.sh for the actual check.
+#
+# Bypass intentionally with `git push --no-verify`.
+#
+# Compatible with bash 3.2 (macOS default).
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+VERIFIER="$ROOT/tool/verify_submodule_remote.sh"
+
+if [ ! -x "$VERIFIER" ]; then
+  echo "pre-push: $VERIFIER missing or not executable; skipping submodule check." >&2
+  exit 0
+fi
+
+ZERO="0000000000000000000000000000000000000000"
+
+# Collect submodule paths once. Only run the (network-touching) verifier if
+# the push actually advances the recorded submodule SHA for at least one
+# submodule, vs. what the remote already has.
+SUB_PATHS_RAW="$(git -C "$ROOT" config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}' || true)"
+
+needs_check=0
+pushed_anything=0
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  if [ "$local_sha" = "$ZERO" ]; then
+    # Branch deletion — nothing to verify.
+    continue
+  fi
+  pushed_anything=1
+
+  if [ -z "$SUB_PATHS_RAW" ]; then
+    continue
+  fi
+
+  while IFS= read -r sub; do
+    [ -z "$sub" ] && continue
+    local_sub_sha="$(git -C "$ROOT" ls-tree "$local_sha" -- "$sub" 2>/dev/null | awk '{print $3}')"
+    [ -z "$local_sub_sha" ] && continue
+
+    if [ -z "${remote_sha:-}" ] || [ "$remote_sha" = "$ZERO" ]; then
+      # New branch on remote — be safe, verify.
+      needs_check=1
+      break
+    fi
+
+    remote_sub_sha="$(git -C "$ROOT" ls-tree "$remote_sha" -- "$sub" 2>/dev/null | awk '{print $3}' || true)"
+    if [ -z "$remote_sub_sha" ] || [ "$local_sub_sha" != "$remote_sub_sha" ]; then
+      needs_check=1
+      break
+    fi
+  done <<EOF
+$SUB_PATHS_RAW
+EOF
+
+  [ "$needs_check" -eq 1 ] && break
+done
+
+if [ "$pushed_anything" -eq 0 ]; then
+  exit 0
+fi
+
+if [ "$needs_check" -eq 0 ]; then
+  # No submodule pointer moved relative to the remote — skip the network check.
+  exit 0
+fi
+
+if ! "$VERIFIER"; then
+  echo "pre-push: submodule pointer not reachable on remote. Push the submodule first, or re-run with --no-verify to override." >&2
+  exit 1
+fi
+
+exit 0

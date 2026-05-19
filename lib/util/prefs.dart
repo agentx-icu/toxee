@@ -122,26 +122,42 @@ class Prefs {
   /// secure-storage behavior. Also swallow [PlatformException] so a missing
   /// keychain entitlement degrades to "no persistent secret" rather than
   /// crashing the app.
-  static Future<void> _secureWrite(String key, String value) async {
+  ///
+  /// Returns true when the value was actually persisted to secure storage,
+  /// false when the call was swallowed. Callers performing legacy-prefs
+  /// migration MUST gate the legacy `remove(...)` on this return value —
+  /// deleting the legacy entry after a silent write failure is data loss.
+  static Future<bool> _secureWrite(String key, String value) async {
     try {
       await _secureStorage.write(key: key, value: value);
+      return true;
     } on MissingPluginException {
       // Plugin unavailable (test env without mock). Caller's legacy-prefs
       // fallback is still in place for read paths.
+      return false;
     } on PlatformException {
       // Keychain refused (e.g. sandboxed macOS without entitlement).
+      return false;
     }
   }
 
   /// Delete from secure storage; swallow [MissingPluginException] and
   /// [PlatformException] (keychain entitlement missing).
-  static Future<void> _secureDelete(String key) async {
+  ///
+  /// Returns true when the delete actually executed against secure storage,
+  /// false when it was swallowed. Callers that also clear a legacy
+  /// SharedPreferences entry should gate that removal on this return value
+  /// to avoid destroying the only remaining copy of a credential.
+  static Future<bool> _secureDelete(String key) async {
     try {
       await _secureStorage.delete(key: key);
+      return true;
     } on MissingPluginException {
       // Plugin unavailable; nothing to delete in secure storage anyway.
+      return false;
     } on PlatformException {
       // Keychain refused.
+      return false;
     }
   }
 
@@ -1249,12 +1265,16 @@ class Prefs {
     // Prefer secure storage
     final fromSecure = await _secureRead(key);
     if (fromSecure != null && fromSecure.isNotEmpty) return fromSecure;
-    // Migrate from legacy SharedPreferences
+    // Migrate from legacy SharedPreferences. Only drop the legacy entry once
+    // the secure write actually succeeded — otherwise a swallowed keychain
+    // failure would erase the only copy of the password.
     final p = await _getPrefs();
     final legacy = p.getString(key);
     if (legacy != null) {
-      await _secureWrite(key, legacy);
-      await p.remove(key);
+      final wrote = await _secureWrite(key, legacy);
+      if (wrote) {
+        await p.remove(key);
+      }
       return legacy;
     }
     return null;
@@ -1336,11 +1356,15 @@ class Prefs {
     final fromSecure = await _secureRead(secureKey);
     if (fromSecure != null && fromSecure.isNotEmpty) return fromSecure;
     // Migrate from legacy SharedPreferences (S1: was plain-text on disk).
+    // Only remove the legacy entry once the secure write actually persisted —
+    // a swallowed keychain failure here would lose the user's password hash.
     final p = await _getPrefs();
     final legacy = p.getString(_accountPasswordKey(toxId));
     if (legacy != null && legacy.isNotEmpty) {
-      await _secureWrite(secureKey, legacy);
-      await p.remove(_accountPasswordKey(toxId));
+      final wrote = await _secureWrite(secureKey, legacy);
+      if (wrote) {
+        await p.remove(_accountPasswordKey(toxId));
+      }
       return legacy;
     }
     return null;
@@ -1356,8 +1380,12 @@ class Prefs {
     final p = await _getPrefs();
     final legacy = p.getString(_passwordSaltKey(toxId));
     if (legacy != null && legacy.isNotEmpty) {
-      await _secureWrite(secureKey, legacy);
-      await p.remove(_passwordSaltKey(toxId));
+      // Only drop the legacy salt once the secure write actually persisted —
+      // losing the salt while keeping the hash makes the password unverifiable.
+      final wrote = await _secureWrite(secureKey, legacy);
+      if (wrote) {
+        await p.remove(_passwordSaltKey(toxId));
+      }
       return legacy;
     }
     return null;
@@ -1596,13 +1624,18 @@ class Prefs {
   /// Set account password (stores PBKDF2 hash + salt in secure storage).
   /// New accounts use PBKDF2; legacy SHA256 hashes are migrated on next
   /// successful verify. Also clears any legacy plain-prefs entries.
-  static Future<void> setAccountPassword(String toxId, String password) async {
+  ///
+  /// Returns true when both the hash and salt were persisted to secure
+  /// storage; false when either secure write was swallowed (in which case
+  /// the legacy plain-prefs entries are intentionally left intact so a
+  /// subsequent attempt can recover). The empty-password short-circuit
+  /// (which removes any existing password) returns true on full cleanup.
+  static Future<bool> setAccountPassword(String toxId, String password) async {
     if (toxId.isEmpty) {
       throw ArgumentError('toxId cannot be empty');
     }
     if (password.isEmpty) {
-      await removeAccountPassword(toxId);
-      return;
+      return removeAccountPassword(toxId);
     }
     final salt = List<int>.generate(32, (_) => Random.secure().nextInt(256));
     final pbkdf2 = Pbkdf2(
@@ -1618,27 +1651,42 @@ class Prefs {
     final storedHash = '$_kPbkdf2Prefix${base64Encode(hashBytes)}';
     final storedSalt = base64Encode(salt);
 
-    await _secureWrite(_securePasswordKey(toxId), storedHash);
-    await _secureWrite(_securePasswordSaltKey(toxId), storedSalt);
+    final hashWrote = await _secureWrite(_securePasswordKey(toxId), storedHash);
+    final saltWrote = await _secureWrite(_securePasswordSaltKey(toxId), storedSalt);
+    if (!hashWrote || !saltWrote) {
+      // Secure storage refused. Don't touch the legacy plain-prefs entries —
+      // they remain the only durable copy until secure storage works again.
+      return false;
+    }
     // Drop legacy plain-prefs entries if a prior install left them behind.
     final p = await _getPrefs();
     await Future.wait([
       p.remove(_accountPasswordKey(toxId)),
       p.remove(_passwordSaltKey(toxId)),
     ]);
+    return true;
   }
 
   /// Remove account password and its salt from both secure storage and any
   /// remaining legacy SharedPreferences entries.
-  static Future<void> removeAccountPassword(String toxId) async {
-    if (toxId.isEmpty) return;
-    await _secureDelete(_securePasswordKey(toxId));
-    await _secureDelete(_securePasswordSaltKey(toxId));
+  ///
+  /// Returns true when both secure deletes succeeded (and the legacy
+  /// plain-prefs entries were also cleared); false when either secure
+  /// delete was swallowed, in which case the legacy entries are left in
+  /// place so we don't destroy the last remaining copy.
+  static Future<bool> removeAccountPassword(String toxId) async {
+    if (toxId.isEmpty) return true;
+    final hashDeleted = await _secureDelete(_securePasswordKey(toxId));
+    final saltDeleted = await _secureDelete(_securePasswordSaltKey(toxId));
+    if (!hashDeleted || !saltDeleted) {
+      return false;
+    }
     final p = await _getPrefs();
     await Future.wait([
       p.remove(_accountPasswordKey(toxId)),
       p.remove(_passwordSaltKey(toxId)),
     ]);
+    return true;
   }
 
   /// Verify account password.
@@ -1680,7 +1728,14 @@ class Prefs {
       final bytes = utf8.encode('$saltBase64$password');
       final hash = crypto.sha256.convert(bytes);
       if (storedHash == hash.toString()) {
-        await setAccountPassword(toxId, password);
+        final migrated = await setAccountPassword(toxId, password);
+        if (!migrated) {
+          // Verify still succeeded; the legacy hash remains valid for the
+          // next attempt. Surface the failure via print (main() reroutes
+          // print to AppLogger).
+          // ignore: avoid_print
+          print('[prefs] WARN: PBKDF2 migration after legacy salted-SHA256 verify failed for toxId=$toxId (secure storage unavailable); legacy entry retained.');
+        }
         return true;
       }
       return false;
@@ -1688,7 +1743,11 @@ class Prefs {
     final bytes = utf8.encode(password);
     final hash = crypto.sha256.convert(bytes);
     if (storedHash == hash.toString()) {
-      await setAccountPassword(toxId, password);
+      final migrated = await setAccountPassword(toxId, password);
+      if (!migrated) {
+        // ignore: avoid_print
+        print('[prefs] WARN: PBKDF2 migration after legacy unsalted-SHA256 verify failed for toxId=$toxId (secure storage unavailable); legacy entry retained.');
+      }
       return true;
     }
     return false;

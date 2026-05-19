@@ -12,6 +12,8 @@ CI pins Flutter **3.29.0** stable (see `.github/workflows/analyze.yml`); match t
 
 Run all commands from the repo root.
 
+One-time per clone: run `./tool/install_git_hooks.sh` to opt into the in-tree pre-push hook. It catches the footgun of pushing a toxee commit whose submodule SHA (`third_party/tim2tox` or `third_party/chat-uikit-flutter`) has not been pushed to the submodule's own remote yet, which would break `git clone --recursive` for everyone else.
+
 ```bash
 # Bootstrap dependencies (submodules + vendored Tencent SDK + patches + pubspec_overrides).
 # REQUIRED after a fresh clone or when submodules / pubspec change.
