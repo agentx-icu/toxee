@@ -1,6 +1,24 @@
 # Local Storage Review — 2026-05-18
 
-> **Status (2026-05-18):** Tier 0 + Tier 1 fully verified by reading cited code. PR1 (Tier 0 security + data-loss) **landed**: S1, S2, S3a, S4, S6, S10 + A3. PR2 (Tier 0 stubs: S7, S8, S9) and PRs 3-6 to follow.
+> **Status (2026-05-18 end-of-session):** All six implementation PRs landed on `fix/call-pr1`.
+>
+> | PR  | Scope | Commits |
+> |-----|-------|---------|
+> | PR1 | Tier 0 security + data-loss (S1, S2, S3a, S4, S6, S10, A3) | `0012857` |
+> | PR2 | Tier 0 stubs (S7, S8, S9) | `4af4dcc` + tim2tox `2fb4e16` |
+> | PR3 | Tier 1 correctness (A2, A7, A8, A9) | `11089d9` |
+> | PR4 | Tier 2 perf (P2, P3, P4, P5, P11) | `2da9e97` + tim2tox `9beccd5` |
+> | PR5 | Architecture (X2, X3, X4, X5, X6, X8, X9, X10, X11) | `176d7d4`, `1f62cd0`, `7646e79`, `d48101d` + tim2tox `46386e5`, `3b3131c` |
+> | PR6 | Cross-platform polish (C1, C2, C4, C5, C6, C8, C9, C10 + iOS backup exclusion) | `6363975` |
+>
+> **Deferred to TODOS.md:**
+> - X1 (Prefs god-class split) — large mechanical refactor.
+> - X7 (attachment lifecycle / refcount / eviction) — needs manifest layer.
+> - P1 (history cursor pagination) and P9 (streaming ZIP) — storage-format migrations.
+> - P8 / P10 — couplet to X1; land together.
+> - iOS `file_recv/` backup exclusion — pickup left from PR6 scope cap.
+>
+> **Already-fixed-in-current-code** (re-verified during the review): A6 (pinned-set drift between two builders) and A10 (`isTempPath` / `isFinalPath` overlap) were either already fixed or never as broken as the initial scan suggested.
 
 
 
