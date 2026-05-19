@@ -9,6 +9,170 @@ import 'fake_im.dart';
 import 'fake_uikit_core.dart';
 import '../util/logger.dart';
 
+/// Friend record shape used by the shared conversation-list builder. Matches the
+/// `FfiChatService.getFriendList()` element record so callers can pass results
+/// straight in without copying.
+typedef ConvBuilderFriend = ({String userId, String nickName, bool online});
+
+/// Single conversation-list builder used by both `FakeConversationManager.getConversationList()`
+/// and `FakeIM._refreshConversationsWithFriends()`.
+///
+/// X5 (local-storage review 2026-05-18): previously the two callers built the
+/// conversation list independently with subtly different normalization, pinned
+/// checks, and group filtering. Drift between the two paths produced concrete
+/// bugs (A6: pinned flag dropped on bus emit). This helper is the single source
+/// of truth for the per-conversation shape — all variability lives in the
+/// parameters.
+///
+/// Inputs:
+/// - [friends]: friend records returned by FFI (already-loaded; caller decides
+///   whether to merge with `Prefs.localFriends` via [mergeLocalFriendsAsOffline]).
+/// - [groupIds]: candidate group IDs (typically `ffi.knownGroups`, optionally
+///   merged with `Prefs.getGroups()` for the polling path).
+/// - [pinned]: normalized pinned set. C2C entries are bare normalized userIDs;
+///   group entries are `'group_${normalizedGid}'`. Use `Prefs.getPinned()`.
+/// - [quitGroups]: group IDs that have been quit and must be filtered out.
+/// - [pendingFriendIds]: friend application IDs we sent but the peer hasn't
+///   accepted yet — these are filtered out unless the friend now appears in
+///   the friend list (i.e. the application was accepted).
+/// - [sortingMode]: when `'activity'`, C2C entries are sorted by last activity
+///   timestamp (newest first); otherwise by title.
+/// - [getUnreadOf]: hook so we don't depend on `FfiChatService` directly.
+/// - [mergeLocalFriendsAsOffline]: when true, locally-persisted friends not in
+///   the Tox friend list are added with `online: false` (used by the cold-start
+///   sync read path in `getConversationList()`). When false, Tox is the sole
+///   authority (used by the steady-state bus-emit path).
+/// - [emitGroupType]: when true, `FakeConversation.groupType` is populated
+///   (`'conference'` for `tox_conf_*`, `'group'` otherwise).
+///
+/// The function does not mutate any of its inputs or call into `Prefs`/`ffi`
+/// outside the read-side helpers. All Prefs reads happen in parallel (batched
+/// `Future.wait`) per friend/group to keep the cost O(1) round-trips.
+Future<List<FakeConversation>> buildConversationsFromFriends({
+  required List<ConvBuilderFriend> friends,
+  required Iterable<String> groupIds,
+  required Set<String> pinned,
+  required Set<String> quitGroups,
+  required Set<String> pendingFriendIds,
+  required String sortingMode,
+  required int Function(String id) getUnreadOf,
+  bool mergeLocalFriendsAsOffline = false,
+  bool emitGroupType = false,
+}) async {
+  // ---- C2C: build the normalized friend map ----
+  final friendMap = <String, ConvBuilderFriend>{};
+  for (final f in friends) {
+    final normalized = normalizeToxId(f.userId);
+    friendMap[normalized] =
+        (userId: normalized, nickName: f.nickName, online: f.online);
+  }
+
+  // Optionally merge in locally-persisted friends not yet in the Tox list, so
+  // cold-start renders can show offline friends with cached metadata.
+  if (mergeLocalFriendsAsOffline) {
+    final localFriends = await Prefs.getLocalFriends();
+    for (final raw in localFriends) {
+      final normalized = normalizeToxId(raw);
+      if (normalized.isEmpty || friendMap.containsKey(normalized)) continue;
+      final cachedNick = await Prefs.getFriendNickname(normalized);
+      friendMap[normalized] = (
+        userId: normalized,
+        nickName: cachedNick ?? '',
+        online: false,
+      );
+    }
+  }
+
+  // Build the normalized friend-id set used by the pending-app filter so a
+  // newly-accepted friend (in the friend list AND still in pending apps) is
+  // emitted instead of suppressed.
+  final normalizedFriendIds = friendMap.keys.toSet();
+  final normalizedPendingIds =
+      pendingFriendIds.map(normalizeToxId).toSet();
+
+  // Filter pending-but-not-yet-accepted friends.
+  final emitFriends = friendMap.values.where((f) {
+    final normalizedUserId = normalizeToxId(f.userId);
+    if (normalizedPendingIds.contains(normalizedUserId) &&
+        !normalizedFriendIds.contains(normalizedUserId)) {
+      return false;
+    }
+    return true;
+  }).toList();
+
+  // Parallel-fetch avatar + activity for each friend so N friends collapse to
+  // one batch round-trip instead of 2N sequential awaits.
+  final c2cMeta = await Future.wait(emitFriends.map((f) async {
+    final res = await Future.wait<Object?>([
+      Prefs.getFriendAvatarPath(f.userId),
+      Prefs.getFriendActivity(f.userId),
+    ]);
+    return (avatar: res[0] as String?, activity: res[1] as DateTime?);
+  }));
+
+  final list = <FakeConversation>[];
+  final activityByC2cId = <String, DateTime?>{};
+  for (int i = 0; i < emitFriends.length; i++) {
+    final f = emitFriends[i];
+    final normalizedUserId = normalizeToxId(f.userId);
+    activityByC2cId['c2c_${f.userId}'] = c2cMeta[i].activity;
+    list.add(FakeConversation(
+      conversationID: 'c2c_${f.userId}',
+      title: f.nickName.isNotEmpty ? f.nickName : f.userId,
+      faceUrl: c2cMeta[i].avatar,
+      unreadCount: getUnreadOf(f.userId),
+      isGroup: false,
+      isPinned: pinned.contains(normalizedUserId),
+    ));
+  }
+
+  // ---- Groups: dedupe candidate set, drop quit groups, batch-fetch metadata.
+  final emitGroups =
+      groupIds.toSet().where((g) => !quitGroups.contains(g)).toList();
+  final groupMeta = await Future.wait(emitGroups.map((gid) async {
+    final res = await Future.wait<Object?>([
+      Prefs.resolveGroupDisplayName(gid),
+      Prefs.getGroupAvatar(gid),
+    ]);
+    return (name: res[0] as String, avatar: res[1] as String?);
+  }));
+  for (int i = 0; i < emitGroups.length; i++) {
+    final gid = emitGroups[i];
+    final groupPinnedKey = 'group_${normalizeToxId(gid)}';
+    list.add(FakeConversation(
+      conversationID: 'group_$gid',
+      title: groupMeta[i].name,
+      faceUrl: groupMeta[i].avatar,
+      unreadCount: getUnreadOf(gid),
+      isGroup: true,
+      isPinned: pinned.contains(groupPinnedKey),
+      groupType: emitGroupType
+          ? (gid.startsWith('tox_conf_') ? 'conference' : 'group')
+          : null,
+    ));
+  }
+
+  // ---- Sort: pinned first, then by mode (activity-by-c2c-timestamp or title).
+  list.sort((a, b) {
+    final aPinned = a.isPinned ? 0 : 1;
+    final bPinned = b.isPinned ? 0 : 1;
+    if (aPinned != bPinned) return aPinned.compareTo(bPinned);
+    if (sortingMode == 'activity') {
+      final aMs = a.conversationID.startsWith('c2c_')
+          ? (activityByC2cId[a.conversationID]?.millisecondsSinceEpoch ?? 0)
+          : 0;
+      final bMs = b.conversationID.startsWith('c2c_')
+          ? (activityByC2cId[b.conversationID]?.millisecondsSinceEpoch ?? 0)
+          : 0;
+      final cmp = bMs.compareTo(aMs);
+      if (cmp != 0) return cmp;
+    }
+    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+  });
+
+  return list;
+}
+
 class FakeConversationListener {
   FakeConversationListener({
     this.onNewConversation,
@@ -65,136 +229,41 @@ class FakeConversationManager {
     final friends = await _ffi.getFriendList();
     AppLogger.debug(
         '[FakeConversationManager] getConversationList: Retrieved ${friends.length} friends from FFI');
-    final pinned = await Prefs.getPinned();
-    // Note: pinned contains normalized IDs (for C2C) or 'group_${normalizedGid}' (for groups)
-    // We need to check against the original pinned set, not a normalized version
-    // Filter out empty strings from legacy/corrupted data
-    _pinned = pinned.where((s) => s.isNotEmpty).toSet();
-    // Get pending friend applications (requests we sent that haven't been accepted yet)
-    // These should not appear in the conversation list
+    // pinned contains normalized IDs (for C2C) or 'group_${normalizedGid}'
+    // (for groups). Filter empty strings from legacy/corrupted data and cache
+    // the result so the sync setPinned() path sees the latest set.
+    final pinned = (await Prefs.getPinned())
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    _pinned = pinned;
+
+    // Pending friend applications (requests we sent, peer hasn't accepted yet)
+    // are dropped from the list unless the friend now appears in the Tox list.
     final pendingApps = await _ffi.getFriendApplications();
     final pendingFriendIds = pendingApps.map((a) => a.userId).toSet();
 
-    // Create a set of normalized friend IDs from the friend list
-    // This is used to check if a pending application has been accepted
-    final normalizedFriendIds =
-        friends.map((f) => normalizeToxId(f.userId)).toSet();
-
-    // Merge with locally persisted friends to ensure all friends with history are shown
-    // But only if they are still in local persistence (not deleted)
-    // Re-read local friends to ensure we have the latest state after deletion
-    final currentLocalFriends = await Prefs.getLocalFriends();
-    final currentNormalizedLocalFriends =
-        currentLocalFriends.map((uid) => normalizeToxId(uid)).toSet();
-
-    // Create a map of normalized IDs to friend info for easy lookup
-    final friendMap =
-        <String, ({String userId, String nickName, bool online})>{};
-    for (final f in friends) {
-      final normalizedId = normalizeToxId(f.userId);
-      friendMap[normalizedId] =
-          (userId: normalizedId, nickName: f.nickName, online: f.online);
-    }
-
-    // Add locally persisted friends that are not in service list
-    // But only if they are still in current local persistence (not deleted)
-    // Use currentNormalizedLocalFriends for iteration instead of normalizedLocalFriends
-    // Load cached nicknames for offline friends
-    for (final localId in currentNormalizedLocalFriends) {
-      if (!friendMap.containsKey(localId)) {
-        // Load nickname from cache for offline friends
-        final cachedNick = await Prefs.getFriendNickname(localId);
-        friendMap[localId] =
-            (userId: localId, nickName: cachedNick ?? '', online: false);
-      }
-    }
-
-    final list = <FakeConversation>[];
-    final activityByC2cId = <String, DateTime?>{};
-    final sortingMode = await Prefs.getFriendListSortingMode();
-    AppLogger.debug(
-        '[FakeConversationManager] getConversationList: Processing ${friendMap.length} friends from friendMap');
-    // Filter pending-friend-request entries that aren't accepted yet.
-    final emitFriends = friendMap.values.where((f) {
-      final normalizedUserId = normalizeToxId(f.userId);
-      if (pendingFriendIds.contains(f.userId) &&
-          !normalizedFriendIds.contains(normalizedUserId)) {
-        return false;
-      }
-      return true;
-    }).toList();
-    // Parallel-fetch avatar path + activity timestamp so the N friends don't
-    // generate 2N sequential awaits per call.
-    final c2cMeta = await Future.wait(emitFriends.map((f) async {
-      final res = await Future.wait<Object?>([
-        Prefs.getFriendAvatarPath(f.userId),
-        Prefs.getFriendActivity(f.userId),
-      ]);
-      return (avatar: res[0] as String?, activity: res[1] as DateTime?);
-    }));
-    for (int i = 0; i < emitFriends.length; i++) {
-      final f = emitFriends[i];
-      final normalizedUserId = normalizeToxId(f.userId);
-      activityByC2cId['c2c_${f.userId}'] = c2cMeta[i].activity;
-      final isPinned = _pinned.contains(normalizedUserId);
-      list.add(FakeConversation(
-        conversationID: 'c2c_${f.userId}',
-        title: f.nickName.isNotEmpty ? f.nickName : f.userId,
-        faceUrl: c2cMeta[i].avatar,
-        unreadCount: _ffi.getUnreadOf(f.userId),
-        isGroup: false,
-        isPinned: isPinned,
-      ));
-    }
-    // Get quit groups to filter them out
     final quitGroups = await Prefs.getQuitGroups();
+    final sortingMode = await Prefs.getFriendListSortingMode();
 
-    final emitGroups = _ffi.knownGroups
-        .where((g) => !quitGroups.contains(g))
+    // X5: route through the shared builder so this path can never drift from
+    // FakeIM._refreshConversationsWithFriends. The cold-start merge-with-local
+    // is `getConversationList`-specific (sync read for the UIKit caller), so
+    // it's gated on the [mergeLocalFriendsAsOffline] flag.
+    final builderFriends = friends
+        .map((f) => (userId: f.userId, nickName: f.nickName, online: f.online))
         .toList();
-    final groupMeta = await Future.wait(emitGroups.map((gid) async {
-      final res = await Future.wait<Object?>([
-        Prefs.resolveGroupDisplayName(gid),
-        Prefs.getGroupAvatar(gid),
-      ]);
-      return (name: res[0] as String, avatar: res[1] as String?);
-    }));
-    for (int i = 0; i < emitGroups.length; i++) {
-      final gid = emitGroups[i];
-      final name = groupMeta[i].name;
-      final savedAvatar = groupMeta[i].avatar;
-      // Check if this group is pinned using 'group_${normalizedGid}' format
-      // to match what setPinned stores
-      final groupPinnedKey = 'group_${normalizeToxId(gid)}';
-      final isPinned = _pinned.contains(groupPinnedKey);
-      list.add(
-        FakeConversation(
-          conversationID: 'group_$gid',
-          title: name,
-          faceUrl: savedAvatar,
-          unreadCount: _ffi.getUnreadOf(gid),
-          isGroup: true,
-          isPinned: isPinned,
-        ),
-      );
-    }
-    // Sort: pinned first, then by sorting mode (activity = most recent first, name = by title)
-    list.sort((a, b) {
-      final aPinned = a.isPinned ? 0 : 1;
-      final bPinned = b.isPinned ? 0 : 1;
-      if (aPinned != bPinned) return aPinned.compareTo(bPinned);
-      if (sortingMode == 'activity') {
-        final aMs = a.conversationID.startsWith('c2c_')
-            ? (activityByC2cId[a.conversationID]?.millisecondsSinceEpoch ?? 0)
-            : 0;
-        final bMs = b.conversationID.startsWith('c2c_')
-            ? (activityByC2cId[b.conversationID]?.millisecondsSinceEpoch ?? 0)
-            : 0;
-        final cmp = bMs.compareTo(aMs);
-        if (cmp != 0) return cmp;
-      }
-      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-    });
+    final list = await buildConversationsFromFriends(
+      friends: builderFriends,
+      groupIds: _ffi.knownGroups,
+      pinned: pinned,
+      quitGroups: quitGroups,
+      pendingFriendIds: pendingFriendIds,
+      sortingMode: sortingMode,
+      getUnreadOf: _ffi.getUnreadOf,
+      mergeLocalFriendsAsOffline: true,
+      // Sync read path historically did not set groupType — preserve that.
+      emitGroupType: false,
+    );
     AppLogger.log(
         '[FakeConversationManager] getConversationList: END - Returning ${list.length} conversations (${list.where((c) => !c.isGroup).length} C2C, ${list.where((c) => c.isGroup).length} groups), sort=$sortingMode');
     return list;

@@ -5,6 +5,7 @@ import '../util/prefs.dart';
 import '../util/tox_utils.dart';
 import '../util/logger.dart';
 import 'fake_event_bus.dart';
+import 'fake_managers.dart' show buildConversationsFromFriends;
 import 'fake_models.dart';
 
 class FakeIM {
@@ -44,6 +45,56 @@ class FakeIM {
   // from cache so the contact list doesn't flicker.
   DateTime? _coldStartRestoreAt;
   static const Duration _kColdStartGrace = Duration(seconds: 15);
+
+  /// X9 — pending friend adds (local-storage review 2026-05-18).
+  ///
+  /// `Prefs.localFriends` plays two roles that conflict during the race
+  /// between an app-side friend accept/add and the first Tox poll that
+  /// confirms it: (1) cold-start cache, (2) authoritative mirror that
+  /// `_emitContactsWithFriendsImpl` overwrites every ~5 s with whatever Tox
+  /// returns. The `_toxFriendListReceived` flag mediates the cold-start case
+  /// but does NOT protect against the steady-state overwrite — an accept that
+  /// happens between two poll cycles is discarded when the next poll arrives
+  /// and Tox hasn't yet propagated the new friend.
+  ///
+  /// `_pendingFriendAdds` is the explicit "I accepted/added X, Tox hasn't
+  /// confirmed yet" buffer. Stored as `{normalizedId: expiresAt}` so old
+  /// entries get evicted automatically — Tox will normally confirm in
+  /// seconds, but if confirmation never arrives we don't want the cache to
+  /// be haunted forever.
+  final Map<String, DateTime> _pendingFriendAdds = {};
+  static const Duration _kPendingFriendAddTtl = Duration(seconds: 30);
+
+  /// Register a friend ID as just-accepted/added but not yet confirmed by
+  /// Tox. Caller should pass the raw or normalized ID; we always normalize.
+  /// Entry expires automatically after [_kPendingFriendAddTtl] so that a
+  /// never-confirmed accept does not leak into the persistent friend list
+  /// forever.
+  ///
+  /// Tests may pass [ttlOverride] to exercise the eviction path without
+  /// having to wait the full production TTL.
+  void registerPendingFriendAdd(String userId, {Duration? ttlOverride}) {
+    final normalized = normalizeToxId(userId);
+    if (normalized.isEmpty) return;
+    _pendingFriendAdds[normalized] =
+        DateTime.now().add(ttlOverride ?? _kPendingFriendAddTtl);
+    AppLogger.log(
+        '[FakeIM] registerPendingFriendAdd: $normalized (now=${_pendingFriendAdds.length} pending)');
+  }
+
+  /// Returns the currently-live (non-expired) pending friend IDs. Used by the
+  /// poll path to merge into the authoritative Tox set when writing back to
+  /// `Prefs.localFriends`. Also prunes expired entries as a side effect.
+  Set<String> _livePendingFriendAdds() {
+    final now = DateTime.now();
+    _pendingFriendAdds.removeWhere((_, expiresAt) => expiresAt.isBefore(now));
+    return _pendingFriendAdds.keys.toSet();
+  }
+
+  /// Test/inspection hook: snapshot of the current pending-add map. Returns a
+  /// copy so callers cannot mutate internal state.
+  Map<String, DateTime> get debugPendingFriendAdds =>
+      Map.unmodifiable(_pendingFriendAdds);
 
   static bool _setEquals(Set<String> a, Set<String> b) {
     if (identical(a, b)) return true;
@@ -253,6 +304,7 @@ class FakeIM {
     _emitContactsRunning = false;
     _toxFriendListReceived = false;
     _coldStartRestoreAt = null;
+    _pendingFriendAdds.clear();
   }
 
   Future<void> _refreshConversations() async {
@@ -264,134 +316,75 @@ class FakeIM {
       List<({String userId, String nickName, String status, bool online})> friends) async {
     // `pinned` stores **normalized** keys: bare normalized userID for C2C and
     // 'group_${normalizedGid}' for groups (see FakeConversationManager.setPinned).
-    // We must check membership using the same shape — using raw 76-char IDs or
-    // bare gids would silently lose the pinned flag and let it disagree with
-    // FakeConversationManager.getConversationList.
     final pinned = (await Prefs.getPinned())
         .where((s) => s.isNotEmpty)
         .toSet();
-    // Get pending friend applications (requests we sent that haven't been accepted yet)
-    // These should not appear in the conversation list
+    // Pending friend applications (we sent, peer hasn't accepted yet): hide
+    // from conversation list until they appear in the friend list.
     final pendingApps = await ffi.getFriendApplications();
     final pendingFriendIds = pendingApps.map((a) => a.userId).toSet();
-
-    // Create a set of normalized friend IDs from the friend list
-    // This is used to check if a pending application has been accepted
-    final normalizedFriendIds = friends.map((f) => normalizeToxId(f.userId)).toSet();
-
-    // Build Tox-only friend map keyed by **normalized** ID. Tox is the single
-    // source of truth for friends. No longer merge from Prefs — stale Prefs
-    // entries caused ghost contacts. Normalization here MUST match what
-    // FakeConversationManager.getConversationList emits, otherwise the same
-    // friend will produce two different conversationIDs depending on which
-    // emitter fired last.
-    final friendMap = <String, ({String userId, String nickName, bool online})>{};
-    for (final f in friends) {
-      final normalizedId = normalizeToxId(f.userId);
-      friendMap[normalizedId] = (userId: normalizedId, nickName: f.nickName, online: f.online);
-    }
-
-    // Filter pending-friend-request entries first, then parallel-fetch
-    // avatars. The pending filter skips entries whose application is still
-    // outstanding (raw or normalized form) and not yet in the friend list.
-    final emitFriends = friendMap.entries
-        .map((e) => e.value)
-        .where((f) {
-      if ((pendingFriendIds.contains(f.userId) ||
-              pendingFriendIds.any((p) => normalizeToxId(p) == f.userId)) &&
-          !normalizedFriendIds.contains(f.userId)) {
-        return false;
-      }
-      return true;
-    }).toList();
-    final c2cAvatars = await Future.wait(
-        emitFriends.map((f) => Prefs.getFriendAvatarPath(f.userId)));
-    for (int i = 0; i < emitFriends.length; i++) {
-      final f = emitFriends[i];
-      final conv = FakeConversation(
-        conversationID: 'c2c_${f.userId}',
-        title: f.nickName.isNotEmpty ? f.nickName : f.userId,
-        faceUrl: c2cAvatars[i],
-        unreadCount: ffi.getUnreadOf(f.userId),
-        isGroup: false,
-        isPinned: pinned.contains(f.userId),
-      );
-      bus.emit(topicConversation, conv);
-    }
-    // Get quit groups first to filter them out
     final quitGroups = await Prefs.getQuitGroups();
-    
-    // Get groups from knownGroups, but also merge with persisted groups to ensure all groups are shown
-    // This is important on startup when knownGroups might not be fully loaded yet
-    // Filter out quit groups from persisted groups and knownGroups
+    final sortingMode = await Prefs.getFriendListSortingMode();
+
+    // The polling path merges persisted groups with `knownGroups` so groups
+    // that haven't fully loaded back into the runtime yet still render on
+    // startup. The sync `getConversationList()` path does NOT merge (it trusts
+    // the live `knownGroups`), so this merge lives here, not in the builder.
     final persistedGroups = await Prefs.getGroups();
-    final persistedGroupsFiltered = persistedGroups.where((g) => !quitGroups.contains(g)).toSet();
-    final knownGroups = ffi.knownGroups;
-    final knownGroupsFiltered = knownGroups.where((g) => !quitGroups.contains(g)).toSet();
-    // Merge persisted groups with knownGroups to ensure all groups are included
-    // But exclude quit groups
-    final groups = {...knownGroupsFiltered, ...persistedGroupsFiltered};
-    final currentGroupIds = groups.toSet();
-    
-    // Detect groups that were deleted (by checking if they were in previous list but not in current)
+    final mergedGroupCandidates =
+        {...ffi.knownGroups, ...persistedGroups};
+    final currentGroupIds = mergedGroupCandidates
+        .where((g) => !quitGroups.contains(g))
+        .toSet();
+
+    // Group-deletion detection — must run BEFORE we hand the merged set to the
+    // builder so we can persist the change and emit topicGroupDeleted exactly
+    // once. Compare against the previous non-quit set.
     final deletedGroupIds = _previousGroupIds.difference(currentGroupIds);
     if (deletedGroupIds.isNotEmpty && _previousGroupIds.isNotEmpty) {
-      // Emit group deletion events
       for (final deletedId in deletedGroupIds) {
-        // Remove from local groups persistence
+        // Remove from local groups persistence (the source of truth Prefs sees).
         final localGroups = await Prefs.getGroups();
         localGroups.remove(deletedId);
         await Prefs.setGroups(localGroups);
-        // Emit deletion event
         bus.emit(topicGroupDeleted, FakeGroupDeleted(groupID: deletedId));
       }
     }
-    
-    // Update previous group IDs (only non-quit groups)
+    final previousGroupIdsSnapshot = _previousGroupIds;
     _previousGroupIds = currentGroupIds;
-    
-    // Emit deletion events for groups that are in quitGroups but were previously active
-    // This ensures conversations are removed from the conversation list when groups are quit
+
+    // Mirror the historical behavior: groups that were previously known but
+    // have since landed in quitGroups also get a deletion event.
     for (final quitGid in quitGroups) {
-      if (_previousGroupIds.contains(quitGid) && !currentGroupIds.contains(quitGid)) {
-        // Group was quit and is no longer in current list, emit deletion event
+      if (previousGroupIdsSnapshot.contains(quitGid) &&
+          !currentGroupIds.contains(quitGid)) {
         bus.emit(topicGroupDeleted, FakeGroupDeleted(groupID: quitGid));
       }
     }
-    
-    // Build the list of groups to emit, then parallel-fetch display name
-    // (alias > canonical name > gid) + avatar instead of 2N sequential
-    // awaits.
-    final emitGroups = groups.where((g) => !quitGroups.contains(g)).toList();
-    final groupMeta = await Future.wait(emitGroups.map((gid) async {
-      final res = await Future.wait<Object?>([
-        Prefs.resolveGroupDisplayName(gid),
-        Prefs.getGroupAvatar(gid),
-      ]);
-      return (name: res[0] as String, avatar: res[1] as String?);
-    }));
-    for (int i = 0; i < emitGroups.length; i++) {
-      final gid = emitGroups[i];
-      final name = groupMeta[i].name;
-      final savedAvatar = groupMeta[i].avatar;
-      // Pinned key for groups is 'group_${normalizedGid}' (matches FakeConversationManager.setPinned).
-      // Group IDs like 'tox_0' / 'tox_conf_xyz' are short enough to pass through
-      // normalizeToxId unchanged, but normalizing keeps the rule uniform.
-      final groupPinnedKey = 'group_${normalizeToxId(gid)}';
-      final conv = FakeConversation(
-        conversationID: 'group_$gid',
-        title: name,
-        faceUrl: savedAvatar,
-        unreadCount: ffi.getUnreadOf(gid),
-        isGroup: true,
-        isPinned: pinned.contains(groupPinnedKey),
-        groupType: gid.startsWith('tox_conf_') ? 'conference' : 'group',
-      );
+
+    // X5: route through the shared builder so the polling emit and the sync
+    // `getConversationList()` cannot drift on normalization / pinned check /
+    // group filter again. Steady-state path is Tox-authoritative — no
+    // local-friends merge — and emits groupType for the UI.
+    final builderFriends = friends
+        .map((f) => (userId: f.userId, nickName: f.nickName, online: f.online))
+        .toList();
+    final convs = await buildConversationsFromFriends(
+      friends: builderFriends,
+      groupIds: currentGroupIds,
+      pinned: pinned,
+      quitGroups: quitGroups,
+      pendingFriendIds: pendingFriendIds,
+      sortingMode: sortingMode,
+      getUnreadOf: ffi.getUnreadOf,
+      mergeLocalFriendsAsOffline: false,
+      emitGroupType: true,
+    );
+    for (final conv in convs) {
       bus.emit(topicConversation, conv);
     }
     // Note: _emitUnreadTotal() is now called automatically by FakeChatDataProvider
-    // when conversation list updates, so we don't need to call it here
-    // This ensures immediate synchronization between conversation list and sidebar
+    // when conversation list updates, so we don't need to call it here.
   }
 
   Future<void> refreshConversations() async {
@@ -490,6 +483,9 @@ class FakeIM {
     _toxFriendListReceived = true; // Tox returned a non-empty list; trust it from now on
     final friendMap = <String, FakeUser>{};
     final toxFriendIds = <String>{};
+    // X9: snapshot pending adds before we touch the Tox set; entries that
+    // appear in Tox below are confirmed and dropped from pending.
+    final pendingBefore = _livePendingFriendAdds();
     // Parallel-fetch avatar paths instead of N sequential awaits. With ~100
     // friends this collapses the loop from N microtasks to a single batch.
     final normalizedTox = friends
@@ -511,6 +507,15 @@ class FakeIM {
         online: f.online,
         faceUrl: toxAvatars[i],
       );
+      // X9: a confirmed friend is no longer pending — drop it so the next
+      // localFriends-write doesn't include duplicate semantics.
+      _pendingFriendAdds.remove(normalizedId);
+    }
+    // Recompute live pending after the confirmations above.
+    final livePending = _livePendingFriendAdds();
+    if (pendingBefore.isNotEmpty || livePending.isNotEmpty) {
+      AppLogger.log(
+          '[FakeIM] X9 pending friend adds: before=${pendingBefore.length} live=${livePending.length}');
     }
 
     // Compute the diff between what we previously believed the friend list
@@ -525,7 +530,13 @@ class FakeIM {
     // from Prefs cache instead so they don't disappear from the UI.
     final inColdStartGrace = _coldStartRestoreAt != null &&
         DateTime.now().difference(_coldStartRestoreAt!) < _kColdStartGrace;
-    final deletedFriendIds = inColdStartGrace ? <String>{} : missingFromTox;
+    // X9: a friend that's currently pending (recent accept/add, Tox not yet
+    // confirmed) must NOT be flagged for deletion. Removing it would emit
+    // topicFriendDeleted and wipe its prefs/avatar, defeating the whole
+    // purpose of the pending buffer.
+    final deletedFriendIds = inColdStartGrace
+        ? <String>{}
+        : missingFromTox.difference(livePending);
 
     if (inColdStartGrace && missingFromTox.isNotEmpty) {
       // Re-hydrate missing friends from cache so the UI stays stable while
@@ -573,10 +584,12 @@ class FakeIM {
 
     // Persist whatever we currently believe the friend list is. During grace
     // we keep the union (Tox + still-pending) so a crash mid-grace doesn't
-    // lose the restored entries. Outside grace, Tox is authoritative.
+    // lose the restored entries. Outside grace, Tox is authoritative — except
+    // we also merge X9 pending-adds so a friend the app just accepted does
+    // not get destroyed by this overwrite before Tox confirms.
     final authoritativeIds = inColdStartGrace
-        ? toxFriendIds.union(missingFromTox)
-        : toxFriendIds;
+        ? toxFriendIds.union(missingFromTox).union(livePending)
+        : toxFriendIds.union(livePending);
     // Only write to SharedPreferences when the set actually changed. The
     // steady-state poll runs every 5s and most cycles see no friend churn —
     // unconditional writes were doing one disk/IPC write per tick for no
@@ -588,7 +601,10 @@ class FakeIM {
       await Prefs.setLocalFriends(authoritativeIds);
     }
 
-    // Update previous friend IDs for next-poll diff.
+    // Update previous friend IDs for next-poll diff. Include pending so the
+    // next-poll deletion detection doesn't treat the still-pending entries as
+    // "previously known, missing now" (they would otherwise become a
+    // false-positive deletion the moment they expire).
     _previousFriendIds = authoritativeIds;
     
     // Emit merged list only if it actually changed
