@@ -281,7 +281,7 @@ package_macos() {
   release_version="$(resolve_release_version)"
   pkg_path="$DIST_DIR/toxee-$release_version-Darwin-$PACKAGE_ARCH.pkg"
   pkgbuild \
-    --identifier "com.example.toxee" \
+    --identifier "com.toxee.app" \
     --version "$release_version" \
     --install-location "/Applications" \
     --component "$app_bundle" \

@@ -14,7 +14,7 @@ FLUTTER_APP_DIR="$SCRIPT_DIR"
 BUILD_DIR="$FLUTTER_APP_DIR/build/android_mobile"
 FLUTTER_BUILD_LOG="$BUILD_DIR/flutter_android_build.log"
 DEPLOY_LOG="$BUILD_DIR/flutter_android_deploy.log"
-APP_PACKAGE_ID="com.example.toxee"
+APP_PACKAGE_ID="com.toxee.app"
 JNI_LIBS_DIR="$FLUTTER_APP_DIR/android/app/src/main/jniLibs"
 
 ACTION="run"                # package | deploy | run

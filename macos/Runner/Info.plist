@@ -32,5 +32,7 @@
 	<string>This app needs microphone access for voice and video calls.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access for video calls.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Toxee needs access to your photo library to send photos and videos.</string>
 </dict>
 </plist>

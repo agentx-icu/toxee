@@ -1,4 +1,4 @@
-package com.example.toxee
+package com.toxee.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
