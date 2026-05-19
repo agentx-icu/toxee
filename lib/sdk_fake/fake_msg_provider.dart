@@ -36,6 +36,29 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   // Track file receive progress: msgID -> (received, total, path)
   final Map<String, ({int received, int total, String? path})> _fileProgress = {};
 
+  /// P1-22 (degraded): mirror of FfiChatService.progressUpdates for messages
+  /// that are *being sent* (isSend == true), exposed so call-site UI can
+  /// optionally subscribe in a future PR. The full UIKit-facing
+  /// `sendMessageProgress` event still fires from UIKit's own send-side
+  /// hooks; this stream is additive and unused by UIKit today.
+  /// TODO(P1-22): forward each event into UIKit's onSendMessageProgress
+  /// once the routing path is stable.
+  final _sendProgressCtrl = StreamController<
+      ({String? msgID, int received, int total})>.broadcast();
+  Stream<({String? msgID, int received, int total})>
+      get sendProgressStream => _sendProgressCtrl.stream;
+
+  /// P2-6/P2-7: lazy cache of failed-message IDs for the current account so
+  /// the routing layer can answer "is this msgID failed?" without
+  /// re-reading SharedPreferences on every incoming event. The cache is
+  /// invalidated on any save/remove via [invalidateFailedMsgCache].
+  Set<String>? _failedMsgIDsCache;
+  bool _failedCacheDirty = true;
+  /// Mark the failed-message cache as stale; the next read refreshes it.
+  void invalidateFailedMsgCache() {
+    _failedCacheDirty = true;
+  }
+
   FakeChatMessageProvider() {
     // Load self avatar path on initialization
     Prefs.getAvatarPath().then((path) {
@@ -47,6 +70,39 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     final ffi = FakeUIKit.instance.im?.ffi;
     if (ffi != null) {
       ffi.progressUpdates.listen(_onFileProgress);
+      // P1-22: also fan out send-side progress into a public stream that
+      // higher layers can subscribe to. Keeps the integration additive
+      // until a real onSendMessageProgress bridge is wired up.
+      ffi.progressUpdates.listen((p) {
+        if (p.isSend) {
+          if (!_sendProgressCtrl.isClosed) {
+            _sendProgressCtrl.add((
+              msgID: p.msgID,
+              received: p.received,
+              total: p.total,
+            ));
+          }
+        }
+      });
+      // P1-5 (degraded): auto-accept every large-file request that
+      // FfiChatService emits on `fileRequests`. The default size limit
+      // (currently 30MB) leaves recipients with no way to receive larger
+      // files at all; until a real "tap to download" UI exists, blindly
+      // accepting is strictly better than the file silently sitting in
+      // limbo. A user-driven accept gate (with optional bandwidth/size
+      // confirmation) should replace this.
+      // TODO(P1-5): replace with user-driven accept UI; this auto-accepts
+      // all incoming large files to unblock receivers.
+      ffi.fileRequests.listen((req) async {
+        try {
+          AppLogger.log(
+              '[FakeMessageProvider] P1-5 auto-accept large file: peer=${req.peerId}, fileNumber=${req.fileNumber}, size=${req.fileSize}, name=${req.fileName}');
+          await ffi.acceptFileTransfer(req.peerId, req.fileNumber);
+        } catch (e) {
+          AppLogger.log(
+              '[FakeMessageProvider] P1-5 auto-accept failed for ${req.fileName}: $e');
+        }
+      });
       // When a friend's avatar is received and saved, invalidate our in-memory cache
       // and re-emit the stream for their conversation so message bubbles update immediately.
       ffi.avatarUpdated.listen((uid) async {
@@ -175,6 +231,27 @@ class FakeChatMessageProvider implements ChatMessageProvider {
       return;
     }
 
+    // P1-19: pre-check group transfers. The Tox group layer does not
+    // support file transfer; failing fast here prevents UIKit from
+    // inserting a SENDING bubble that will never resolve.
+    if (groupID != null && groupID.isNotEmpty) {
+      throw StateError('Group file transfer is not supported in toxee');
+    }
+
+    // P1-21 (degraded): no compression / no EXIF strip (would require new
+    // pubspec deps for a real fix). Surface large images in the log so
+    // ops can spot the situation; rely on Tox's file_transfer flow
+    // otherwise.
+    try {
+      final size = await File(imagePath).length();
+      if (size > 5 * 1024 * 1024) {
+        AppLogger.log(
+            '[sendImage] large image (${size ~/ 1024}KB) sent without compression — TODO(P1-21)');
+      }
+    } catch (_) {
+      // File-size check is best-effort.
+    }
+
     // Check if friend is online BEFORE attempting to send (only for C2C, not groups)
     if (userID != null && groupID == null) {
       final ffi = FakeUIKit.instance.im?.ffi;
@@ -225,6 +302,13 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     final mgr = FakeUIKit.instance.messageManager;
     if (mgr == null) {
       return;
+    }
+
+    // P1-19: pre-check group transfers. The Tox group layer does not
+    // support file transfer; failing fast here prevents UIKit from
+    // inserting a SENDING bubble that will never resolve.
+    if (groupID != null && groupID.isNotEmpty) {
+      throw StateError('Group file transfer is not supported in toxee');
     }
 
     // Check if friend is online BEFORE attempting to send (only for C2C, not groups)
@@ -492,5 +576,10 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     _cachedSelfAvatarPath = null;
     _cachedFriendAvatars.clear();
     _fileProgress.clear();
+    // P1-22: close the additive send-progress stream so subscribers
+    // unsubscribe cleanly during logout.
+    if (!_sendProgressCtrl.isClosed) {
+      _sendProgressCtrl.close();
+    }
   }
 }

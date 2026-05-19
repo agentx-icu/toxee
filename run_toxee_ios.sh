@@ -333,11 +333,16 @@ inject_ios_ffi_artifacts() {
     info "Injecting framework: $framework_src"
     rm -rf "$frameworks_dir/tim2tox_ffi.framework"
     cp -R "$framework_src" "$frameworks_dir/"
+    # Re-sign with an ad-hoc signature so the simulator loader accepts the
+    # freshly copied framework (the original signature is invalidated by cp).
+    codesign --force --sign - "$frameworks_dir/tim2tox_ffi.framework" 2>/dev/null || true
   fi
 
   if [[ -n "$dylib_src" ]]; then
     info "Injecting dylib: $dylib_src"
     cp "$dylib_src" "$frameworks_dir/libtim2tox_ffi.dylib"
+    # Re-sign ad-hoc after copy; same reason as the framework above.
+    codesign --force --sign - "$frameworks_dir/libtim2tox_ffi.dylib" 2>/dev/null || true
   fi
 
   if [[ ! -d "$frameworks_dir/tim2tox_ffi.framework" && ! -f "$frameworks_dir/libtim2tox_ffi.dylib" ]]; then

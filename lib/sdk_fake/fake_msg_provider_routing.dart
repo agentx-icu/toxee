@@ -571,9 +571,11 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
   Future<V2TimMessage> _mapMsgWithFailedCheck(FakeMessage m) async {
     final msg = _mapMsg(m);
 
-    // CRITICAL: Check if message is in failed persistence list before setting status
-    // This ensures that failed messages (emitted from updateMessageInBuffer) maintain their failed status
-    // even if isPending=false, isReceived=false, isRead=false
+    // P2-7: every incoming message used to re-read SharedPreferences and
+    // re-decode the failed-message JSON to check a single msgID. We now
+    // keep an in-memory Set<String> of failed IDs and only refresh it
+    // when it's marked dirty (initial load, save, remove). Hot incoming
+    // paths are now O(1).
     try {
       // Extract userID/groupID from conversationID
       String? userID;
@@ -584,24 +586,32 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
         groupID = m.conversationID.substring(6);
       }
 
-      final currentToxId = await Prefs.getCurrentAccountToxId();
-      final failedMessagesData = await Tim2ToxFailedMessagePersistence.loadFailedMessages(
-        userID: userID,
-        groupID: groupID,
-        accountToxId: currentToxId,
-      );
-
-      // Check if this message is in the failed list
-      for (final failedMsgData in failedMessagesData) {
-        final failedMsgID = failedMsgData['msgID'] as String?;
-        final failedID = failedMsgData['id'] as String?;
-
-        if ((failedMsgID != null && failedMsgID == m.msgID) ||
-            (failedID != null && failedID == m.msgID)) {
-          // Message is in failed list - preserve failed status
-          msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
-          break;
+      // Refresh the cache when dirty. We pre-load *all* keys so the
+      // single Set covers every conversation in this account; the
+      // marginal cost is the same as the previous per-conversation
+      // read, but amortised across the whole session.
+      if (_failedCacheDirty || _failedMsgIDsCache == null) {
+        final currentToxId = await Prefs.getCurrentAccountToxId();
+        final failedMessagesData =
+            await Tim2ToxFailedMessagePersistence.loadFailedMessages(
+          userID: userID,
+          groupID: groupID,
+          accountToxId: currentToxId,
+        );
+        final fresh = <String>{};
+        for (final data in failedMessagesData) {
+          final mid = data['msgID'] as String?;
+          final id = data['id'] as String?;
+          if (mid != null && mid.isNotEmpty) fresh.add(mid);
+          if (id != null && id.isNotEmpty) fresh.add(id);
         }
+        _failedMsgIDsCache = fresh;
+        _failedCacheDirty = false;
+      }
+
+      if (_failedMsgIDsCache != null &&
+          _failedMsgIDsCache!.contains(m.msgID)) {
+        msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
       }
     } catch (e) {
       // If check fails, continue with normal mapping

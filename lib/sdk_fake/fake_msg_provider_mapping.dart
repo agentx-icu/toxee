@@ -85,6 +85,16 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       }
     }
 
+    // P2-4: surface unknown mediaKind payloads with a placeholder text
+    // instead of silently falling through as an empty text message. This
+    // lets users see *something* even when a new sender uses an
+    // unrecognised media kind. Known kinds (image/video/audio/file/
+    // call_record) are excluded by the if above.
+    const knownKinds = {'image', 'video', 'audio', 'file', 'call_record'};
+    final isUnknownCustom = m.mediaKind != null &&
+        !knownKinds.contains(m.mediaKind) &&
+        elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT;
+
     final msg = V2TimMessage(elemType: elemType);
     msg.msgID = m.msgID;
     msg.timestamp = (m.timestampMs ~/ 1000);
@@ -181,6 +191,13 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             if (fileExists && m.filePath != null) {
               thumbImage.size = file.lengthSync();
             }
+            // P2-2: real width/height parsing would require decoding JPEG/PNG
+            // headers — non-trivial without adding a media-decoding dep.
+            // Set 0 so the SDK image cache key isn't `nullnull_*` (which
+            // collides across distinct images). TODO(P2-2): parse actual
+            // dimensions and replace with real values.
+            thumbImage.width = 0;
+            thumbImage.height = 0;
             imageList.add(thumbImage);
             // Also create origin image with localUrl
             final originImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN);
@@ -192,6 +209,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             if (fileExists && m.filePath != null) {
               originImage.size = file.lengthSync();
             }
+            originImage.width = 0; // P2-2: see thumb comment above.
+            originImage.height = 0;
             imageList.add(originImage);
           } else {
             // Even if localUrl is null, create imageList with uuid for downloadMessage
@@ -350,7 +369,11 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             videoPath: videoElemPath,
             UUID: videoUuid,
             videoSize: videoFileSize ?? (videoProgress != null ? videoProgress.total : null),
-            duration: 0, // Duration unknown from Tox protocol
+            // TODO(P1-11): real duration is not available from the Tox file
+            // transfer envelope. Probing via dart:io is non-trivial without
+            // adding a media-decoding dep; leave as 0 and wire a real
+            // duration after _handleFileDone once a decode helper exists.
+            duration: 0,
             videoUrl: videoUrl,
             localVideoUrl: localVideoUrl,
           );
@@ -402,7 +425,12 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             path: soundElemPath,
             UUID: audioUuid,
             dataSize: audioFileSize ?? (audioProgress != null ? audioProgress.total : null),
-            duration: 0, // Duration unknown from Tox protocol
+            // TODO(P1-11): real duration is not available from the Tox file
+            // transfer envelope. Probing audio length via dart:io is
+            // non-trivial without adding a media-decoding dep; leave as 0
+            // and wire a real duration after _handleFileDone once a
+            // decode helper exists.
+            duration: 0,
             url: audioUrl,
             localUrl: audioLocalUrl,
           );
@@ -436,14 +464,40 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       }
     }
 
+    // P2-4: if mediaKind landed on an unknown value (e.g. a new sender
+    // emitted a kind we don't yet recognise), render a placeholder
+    // instead of an empty bubble. Preserves the original text in the
+    // brackets so power users / log readers can still see what arrived.
+    if (isUnknownCustom && (msg.textElem == null || (msg.textElem!.text ?? '').isEmpty)) {
+      final preview = m.text.isNotEmpty
+          ? (m.text.length > 32 ? m.text.substring(0, 32) : m.text)
+          : (m.mediaKind ?? 'unknown');
+      msg.textElem = V2TimTextElem(text: '[Unsupported message: $preview]');
+    }
+
     final selfId = UikitDataFacade.currentUser?.userID;
     // Normalize IDs for comparison (Tox IDs can be 64 or 76 characters)
     msg.isSelf = (selfId != null && compareToxIds(m.fromUser, selfId));
 
-    // Set custom data for pending status (if message is pending)
-    // Note: V2TimCustomElem.data expects String, not Uint8List
+    // Set custom data for pending status (if message is pending).
+    //
+    // P2-3: previously we always overwrote customElem.data, which
+    // clobbered legitimate payloads (e.g. call_record JSON) when a
+    // pending file/text message happened to also carry customElem.
+    // Today the call_record path runs through `_mapCallRecordMsg` and
+    // never reaches this branch, but the safety guard makes the
+    // invariant explicit: only set the pending marker when there is no
+    // existing customElem.data we'd be destroying. We also surface
+    // `isPending` via `localCustomInt` so downstream code can read it
+    // without parsing JSON. TODO(P2-3): migrate all downstream readers
+    // of `'"isPending":true'` to `localCustomInt == 1` and drop the
+    // string sentinel entirely.
     if (m.isPending) {
-      msg.customElem = V2TimCustomElem(data: '{"isPending":true}');
+      msg.localCustomInt = 1;
+      final existing = msg.customElem?.data;
+      if (existing == null || existing.isEmpty) {
+        msg.customElem = V2TimCustomElem(data: '{"isPending":true}');
+      }
     }
 
     // Set message status and read receipt status
@@ -548,15 +602,29 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         groupID = conversationID.substring(6);
       }
 
-      // Restore failed messages from persistence
+      // P2-6: load the failed-message persistence once and reuse across
+      // both passes (restore-missing + restore-failed-status). The
+      // previous code re-read SharedPreferences and re-parsed JSON twice
+      // per page open; this is now a single fetch.
+      List<Map<String, dynamic>> cachedFailedMessages = <Map<String, dynamic>>[];
       try {
         final currentToxId = await Prefs.getCurrentAccountToxId();
-        final failedMessagesData = await Tim2ToxFailedMessagePersistence.loadFailedMessages(
+        cachedFailedMessages =
+            await Tim2ToxFailedMessagePersistence.loadFailedMessages(
           userID: userID,
           groupID: groupID,
           accountToxId: currentToxId,
         );
+      } catch (e) {
+        AppLogger.logError(
+            '[FakeChatMessageProvider] _loadHistoryForConversation: Error loading failed messages: $e',
+            e);
+      }
 
+      // Restore failed messages from persistence (pass 1: backfill missing
+      // history entries with their persisted failed copy).
+      try {
+        final failedMessagesData = cachedFailedMessages;
         if (failedMessagesData.isNotEmpty) {
           // Create a set of existing message IDs for quick lookup
           // FakeMessage only has msgID, not id
@@ -639,30 +707,22 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         list.clear();
         V2TimMessage? latestMessage; // Track the latest message for conversation list update
 
-        // Create a set of failed message IDs for quick lookup
+        // Create a set of failed message IDs for quick lookup.
+        // P2-6: reuse the already-loaded `cachedFailedMessages` instead
+        // of re-reading SharedPreferences.
         final failedMsgIDs = <String>{};
         final failedMsgDataMap = <String, Map<String, dynamic>>{};
-        try {
-          final currentToxId = await Prefs.getCurrentAccountToxId();
-          final failedMessagesData = await Tim2ToxFailedMessagePersistence.loadFailedMessages(
-            userID: userID,
-            groupID: groupID,
-            accountToxId: currentToxId,
-          );
-          for (final failedMsgData in failedMessagesData) {
-            final msgID = failedMsgData['msgID'] as String?;
-            final id = failedMsgData['id'] as String?;
-            if (msgID != null) {
-              failedMsgIDs.add(msgID);
-              failedMsgDataMap[msgID] = failedMsgData;
-            }
-            if (id != null && id != msgID) {
-              failedMsgIDs.add(id);
-              failedMsgDataMap[id] = failedMsgData;
-            }
+        for (final failedMsgData in cachedFailedMessages) {
+          final msgID = failedMsgData['msgID'] as String?;
+          final id = failedMsgData['id'] as String?;
+          if (msgID != null) {
+            failedMsgIDs.add(msgID);
+            failedMsgDataMap[msgID] = failedMsgData;
           }
-        } catch (e) {
-          AppLogger.logError('[FakeChatMessageProvider] _loadHistoryForConversation: Error loading failed messages for status check: $e', e);
+          if (id != null && id != msgID) {
+            failedMsgIDs.add(id);
+            failedMsgDataMap[id] = failedMsgData;
+          }
         }
 
         for (final h in hist) {

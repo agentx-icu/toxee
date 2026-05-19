@@ -106,3 +106,21 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Install the tim2tox FFI shared library next to the Flutter runner so the
+# Dart FFI loader can find it via the executable directory at runtime.
+# We try several plausible build output locations because the tim2tox CMake
+# project may emit the DLL in different subdirectories depending on the
+# generator (single-config Ninja vs. multi-config Visual Studio).
+set(_TIM2TOX_FFI_DLL_CANDIDATES
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/ffi/tim2tox_ffi.dll"
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/ffi/Release/tim2tox_ffi.dll"
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/ffi/Debug/tim2tox_ffi.dll"
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/bin/tim2tox_ffi.dll"
+)
+foreach(_dll IN LISTS _TIM2TOX_FFI_DLL_CANDIDATES)
+  install(FILES "${_dll}"
+          DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+          COMPONENT Runtime
+          OPTIONAL)
+endforeach()

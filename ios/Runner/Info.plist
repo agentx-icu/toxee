@@ -59,6 +59,7 @@
 	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- Tox bootstrap may use plain UDP/TCP to known DHT nodes; ATS does not apply to UDP, kept for HTTP fallback paths -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
@@ -76,5 +77,9 @@
 	<string>This app needs microphone access for voice calls.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access for video calls and to scan pairing QR codes from your other device.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Toxee needs access to your photo library to send photos and videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Toxee saves received photos and videos to your library when you choose to.</string>
 </dict>
 </plist>

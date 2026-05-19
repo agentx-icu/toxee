@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import '../util/account_reconciliation.dart';
+import '../util/app_paths.dart';
 import 'app_bootstrap_result.dart';
 import 'app_runtime_bootstrap.dart';
 import 'desktop_shell_bootstrap.dart';
@@ -23,6 +27,17 @@ class AppBootstrap {
     await AccountReconciliation.reconcileOrphanedProfiles();
     await AppRuntimeBootstrap.initialize();
     await DesktopShellBootstrap.initializeIfNeeded();
+    // iOS: keep received-file scratch space out of iCloud / iTunes backups.
+    // file_recv holds derivable / re-transferable content; Apple's review
+    // guidelines forbid letting it be backed up. markExcludedFromBackup is
+    // a no-op on every other platform. The global file_recv path is used
+    // here (per-account dirs are marked when their AccountService boots).
+    if (Platform.isIOS) {
+      unawaited(() async {
+        final path = await AppPaths.fileRecvPath;
+        await AppPaths.markExcludedFromBackup(path);
+      }());
+    }
     return const AppBootstrapSuccess();
   }
 }

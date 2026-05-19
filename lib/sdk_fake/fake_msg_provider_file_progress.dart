@@ -28,6 +28,22 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
 
       // Priority 1: Match by msgID if available (most reliable, avoids fileNumber conflicts)
       if (progress.msgID != null && progress.msgID!.isNotEmpty) {
+        // P1-23: always record the latest progress in `_fileProgress`,
+        // even if the message isn't in `_buffers` yet (it may arrive a
+        // tick later via the FakeMessage event). Previously a missing
+        // buffer entry caused us to drop the progress entirely and the
+        // message never advanced past 0%.
+        final isComplete =
+            progress.received >= progress.total && progress.total > 0;
+        if (isComplete) {
+          _fileProgress.remove(progress.msgID);
+        } else {
+          _fileProgress[progress.msgID!] = (
+            received: progress.received,
+            total: progress.total,
+            path: progress.path,
+          );
+        }
         for (final entry in _buffers.entries) {
           final convID = entry.key;
           final messages = entry.value;
@@ -44,11 +60,12 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
           }
         }
         if (matchedMsg == null) {
-          // CRITICAL: If msgID is provided but not found, don't fall back to path matching
-          // This prevents fileNumber reuse from causing false matches when msgID is stale
-          // The message may have been removed or the progress update is for a different file
-          AppLogger.log('[FakeMessageProvider] ⚠️ msgID=${progress.msgID} not found in any conversation, ignoring progress update to prevent false matches');
-          return; // Skip this progress update
+          // P1-23: progress is now cached above; just bail out of the
+          // emit/update phase. When the FakeMessage event lands, _mapMsg
+          // will read `_fileProgress[msgID]` and reflect the right state.
+          AppLogger.log(
+              '[FakeMessageProvider] msgID=${progress.msgID} not yet in any conversation buffer; cached progress and deferred emit');
+          return;
         }
       } else {
         AppLogger.log('[FakeMessageProvider] ⚠️ progress.msgID is null or empty, will use path matching');

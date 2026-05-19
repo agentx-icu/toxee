@@ -46,10 +46,14 @@ if [ -d "$TIM2TOX_DIR" ]; then
         (cd "$TIM2TOX_DIR" && git submodule update --init --recursive)
     fi
     cd "$TIM2TOX_DIR"
-    if [ -f "build.sh" ]; then
+    if [ -f "build_ffi.sh" ]; then
+        ./build_ffi.sh
+    elif [ -f "build.sh" ]; then
+        print_warn "build_ffi.sh not found in tim2tox, falling back to build.sh"
+        print_warn "Note: build.sh does NOT produce libtim2tox_ffi (no toxav, no FFI shim)."
         ./build.sh
     else
-        print_warn "build.sh not found in tim2tox, skipping native library build"
+        print_warn "Neither build_ffi.sh nor build.sh found in tim2tox, skipping native library build"
         print_warn "Please build tim2tox manually before building the Flutter app"
     fi
     cd "$SCRIPT_DIR"
