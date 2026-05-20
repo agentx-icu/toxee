@@ -48,14 +48,15 @@ jobs:
           - runner: ubuntu-24.04
             package_arch: x86_64
             flutter_setup: action
-          # subosito/flutter-action@v2 supports Linux ARM64 since v2.18 and
-          # has working engine-version + Dart-SDK plumbing for the arch.
-          # The manual `git clone stable + checkout -B stable <tag>` path
-          # was leaving `flutter --version` unable to determine engine
-          # version even with origin/master + on-branch HEAD.
+          # subosito/flutter-action@v2 does NOT publish Flutter 3.29.0 for
+          # linux/arm64 ("Unable to determine Flutter version for channel:
+          # stable version: 3.29.0 architecture: arm64") — Flutter's CDN
+          # only ships the linux x64 tarball for this version, and the
+          # action falls over instead of falling back to git clone. So we
+          # keep the manual git-clone path for arm64 with verbose diags.
           - runner: ubuntu-24.04-arm
             package_arch: aarch64
-            flutter_setup: action
+            flutter_setup: manual
 
     steps:
       - name: Checkout
@@ -70,9 +71,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      # The Linux ARM64 path used to fall through here; it now uses
-      # subosito/flutter-action@v2 above. This block is kept for any other
-      # `flutter_setup == 'manual'` target that might appear in the future.
       - name: Set up Flutter (manual ARM)
         if: matrix.target.flutter_setup == 'manual'
         run: |
@@ -83,10 +81,26 @@ jobs:
           git -C "$FLUTTER_DIR" fetch --depth 1 origin master:refs/remotes/origin/master
           git -C "$FLUTTER_DIR" fetch --depth 1 origin "refs/tags/${FLUTTER_VERSION}:refs/tags/${FLUTTER_VERSION}"
           git -C "$FLUTTER_DIR" -c advice.detachedHead=false checkout -B stable "${FLUTTER_VERSION}"
-          echo "Engine version file:"
-          ls -la "$FLUTTER_DIR/bin/internal/engine.version" || true
-          cat "$FLUTTER_DIR/bin/internal/engine.version" || true
+          echo "=== engine.version diagnostic ==="
+          ls -la "$FLUTTER_DIR/bin/internal/engine.version" || echo "MISSING"
+          echo "Content:"
+          cat "$FLUTTER_DIR/bin/internal/engine.version" || echo "(unreadable)"
+          echo "=== HEAD diagnostic ==="
+          git -C "$FLUTTER_DIR" rev-parse HEAD
+          git -C "$FLUTTER_DIR" describe --tags --abbrev=0 || true
           echo "$FLUTTER_DIR/bin" >> "$GITHUB_PATH"
+          # Force first-run Dart SDK download with the official tool by
+          # invoking update_dart_sdk.sh directly so any failure surfaces
+          # with stderr instead of `flutter --version` exiting 1 silently.
+          set +e
+          bash -x "$FLUTTER_DIR/bin/internal/update_dart_sdk.sh" 2>&1
+          rc=$?
+          set -e
+          echo "update_dart_sdk.sh exit code: $rc"
+          if [[ $rc -ne 0 ]]; then
+            echo "Dart SDK download failed (rc=$rc); aborting."
+            exit $rc
+          fi
           "$FLUTTER_DIR/bin/flutter" --version 2>&1
           "$FLUTTER_DIR/bin/flutter" config --no-analytics 2>&1
           "$FLUTTER_DIR/bin/flutter" precache --linux 2>&1
@@ -212,34 +226,51 @@ jobs:
         if: matrix.target.flutter_setup == 'manual'
         shell: pwsh
         run: |
-          # subosito/flutter-action@v2 doesn't support Windows ARM64, so this
-          # path stays. Engine-version diagnostics are printed before the
-          # first flutter invocation so the next regression has something
-          # actionable in the log instead of just three identical
-          # "Unable to determine engine version..." lines.
+          # subosito/flutter-action@v2 doesn't support Windows ARM64.
           $FlutterDir = "$env:RUNNER_TEMP\flutter"
           git clone --depth 1 --branch stable `
             https://github.com/flutter/flutter.git $FlutterDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C $FlutterDir fetch --depth 1 origin master:refs/remotes/origin/master
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C $FlutterDir fetch --depth 1 origin "refs/tags/$($env:FLUTTER_VERSION):refs/tags/$($env:FLUTTER_VERSION)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C $FlutterDir -c advice.detachedHead=false checkout -B stable $env:FLUTTER_VERSION
-          Write-Host "=== diagnostic: engine.version file ==="
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           $engineFile = Join-Path $FlutterDir "bin\internal\engine.version"
+          Write-Host "=== engine.version diagnostic ==="
+          Write-Host "Path: $engineFile"
+          Write-Host "Exists: $(Test-Path $engineFile)"
           if (Test-Path $engineFile) {
-            Write-Host "Path: $engineFile"
-            Write-Host "Size: $((Get-Item $engineFile).Length)"
-            Write-Host "Content: $(Get-Content $engineFile -Raw)"
-          } else {
-            Write-Host "engine.version not found at $engineFile"
+            $item = Get-Item $engineFile
+            Write-Host "Size bytes: $($item.Length)"
+            $raw = Get-Content $engineFile -Raw
+            $trimmed = if ($raw) { $raw.Trim() } else { '<null>' }
+            Write-Host "Content (trimmed): [$trimmed]"
           }
-          Write-Host "=== diagnostic: HEAD + branch ==="
+          Write-Host "=== HEAD diagnostic ==="
           git -C $FlutterDir rev-parse HEAD
-          git -C $FlutterDir branch --show-current
+          git -C $FlutterDir describe --tags --abbrev=0
+
           "$FlutterDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $ErrorActionPreference = 'Stop'
+
+          # Run update_dart_sdk.ps1 directly so its failure surfaces before
+          # `flutter.bat` shadows it. Native exit codes don't trip
+          # $ErrorActionPreference, so check $LASTEXITCODE manually after
+          # each external invocation.
+          & powershell.exe -ExecutionPolicy unrestricted -File "$FlutterDir\bin\internal\update_dart_sdk.ps1"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "update_dart_sdk.ps1 failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
           & "$FlutterDir\bin\flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$FlutterDir\bin\flutter.bat" config --no-analytics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$FlutterDir\bin\flutter.bat" precache --windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install vcpkg and native dependencies
         shell: pwsh
