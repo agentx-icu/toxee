@@ -33,7 +33,10 @@ android {
         applicationId = "com.toxee.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // androidx.camera:camera-video 1.5.0 requires minSdk >= 23, so we raise
+        // the floor above Flutter's default (21). The manifest merger rejects
+        // the build otherwise.
+        minSdk = maxOf(23, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

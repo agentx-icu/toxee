@@ -68,30 +68,45 @@ jobs:
       - name: Set up Flutter (manual ARM)
         if: matrix.target.flutter_setup == 'manual'
         run: |
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          # Pin to FLUTTER_VERSION tag (matches the subosito action path) so
+          # both arches compile against the same SDK. `stable` HEAD drifts.
+          git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics
           "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
           "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Install Linux dependencies
+        # ports.ubuntu.com is occasionally flaky from the ARM runners; retry
+        # a few times with backoff before giving up.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            libgtk-3-dev \
-            libsodium-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libsecret-1-dev \
-            libayatana-appindicator3-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            ninja-build \
-            patchelf \
-            pkg-config \
+          set -e
+          packages=(
+            build-essential
+            cmake
+            libgtk-3-dev
+            libsodium-dev
+            libgstreamer1.0-dev
+            libgstreamer-plugins-base1.0-dev
+            libsecret-1-dev
+            libayatana-appindicator3-dev
+            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-good
+            ninja-build
+            patchelf
+            pkg-config
             rpm
+          )
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get update && sudo apt-get install -y "${packages[@]}"; then
+              exit 0
+            fi
+            echo "apt-get attempt $attempt failed; retrying in $((attempt * 20))s" >&2
+            sleep $((attempt * 20))
+          done
+          echo "apt-get install failed after 5 attempts" >&2
+          exit 1
 
       - name: Enable Linux desktop
         run: flutter config --enable-linux-desktop
@@ -177,7 +192,10 @@ jobs:
         if: matrix.target.flutter_setup == 'manual'
         shell: pwsh
         run: |
-          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
+          # Pin to FLUTTER_VERSION tag (matches the subosito action path) so
+          # both arches compile against the same SDK. `stable` HEAD drifts.
+          git clone --depth 1 --branch "$env:FLUTTER_VERSION" `
+            https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
           "$env:RUNNER_TEMP\flutter\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & "$env:RUNNER_TEMP\flutter\bin\flutter.bat" config --no-analytics
           & "$env:RUNNER_TEMP\flutter\bin\flutter.bat" precache --windows
@@ -195,15 +213,49 @@ jobs:
       - name: Add WiX to PATH
         shell: pwsh
         run: |
-          $wixCandidates = @(
-            "C:\Program Files (x86)\WiX Toolset v3.14\bin",
-            "C:\Program Files\WiX Toolset v3.14\bin"
-          )
+          # WiX v3 may land in any of several places depending on whether the
+          # runner image preinstalled it, whether choco was used, or whether a
+          # vendored archive ended up under ProgramData. Scan all of them, and
+          # fall back to a direct GitHub release download if the package
+          # manager refuses to cooperate.
+          function Find-WixBin {
+            $patterns = @(
+              "C:\Program Files (x86)\WiX Toolset v3.*\bin",
+              "C:\Program Files\WiX Toolset v3.*\bin",
+              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\*\bin",
+              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\bin",
+              "$env:RUNNER_TEMP\wix\*\bin",
+              "$env:RUNNER_TEMP\wix\bin"
+            )
+            foreach ($p in $patterns) {
+              $hit = Get-ChildItem -Path $p -ErrorAction SilentlyContinue |
+                     Where-Object { Test-Path (Join-Path $_.FullName "candle.exe") } |
+                     Select-Object -First 1
+              if ($hit) { return $hit.FullName }
+              if (Test-Path (Join-Path $p "candle.exe")) { return $p }
+            }
+            return $null
+          }
 
-          $wixDir = $wixCandidates | Where-Object { Test-Path (Join-Path $_ "candle.exe") } | Select-Object -First 1
+          $wixDir = Find-WixBin
           if (-not $wixDir) {
-            choco install wixtoolset --yes --no-progress
-            $wixDir = $wixCandidates | Where-Object { Test-Path (Join-Path $_ "candle.exe") } | Select-Object -First 1
+            Write-Host "Installing WiX via Chocolatey..."
+            choco install wixtoolset --yes --no-progress --version 3.14.1 2>&1 | Write-Host
+            $wixDir = Find-WixBin
+          }
+          if (-not $wixDir) {
+            Write-Host "Chocolatey path empty; downloading WiX v3.14 release directly..."
+            $wixZip = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
+            $wixOut = Join-Path $env:RUNNER_TEMP "wix"
+            Invoke-WebRequest `
+              -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" `
+              -OutFile $wixZip -UseBasicParsing
+            Expand-Archive -Path $wixZip -DestinationPath $wixOut -Force
+            if (Test-Path (Join-Path $wixOut "candle.exe")) {
+              $wixDir = $wixOut
+            } else {
+              $wixDir = Find-WixBin
+            }
           }
 
           if (-not $wixDir) {
@@ -211,6 +263,7 @@ jobs:
             exit 1
           }
 
+          Write-Host "Using WiX at: $wixDir"
           echo "$wixDir" >> $env:GITHUB_PATH
 
       - name: Enable Windows desktop
