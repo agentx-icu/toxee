@@ -115,37 +115,34 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
     }
   }
 
+  /// True on platforms where FilePicker.platform.getDirectoryPath() works.
+  /// Android/iOS surface a directory picker that returns content:// URIs we
+  /// can't write through dart:io File APIs, so we hide the picker entirely
+  /// on mobile rather than show a button that does nothing useful.
+  bool get _supportsDirectoryPicker =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
   Future<void> _selectDownloadsDirectory() async {
     if (!mounted) return;
-    final currentContext = context;
     try {
-      String? selectedDirectory;
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(currentContext).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(currentContext)!.directorySelectionNotSupported),
-            ),
-          );
-        }
-        return;
-      }
+      final selectedDirectory =
+          await FilePicker.platform.getDirectoryPath();
       if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
         await Prefs.setDownloadsDirectory(selectedDirectory);
         widget.onDownloadsConfigChanged?.call();
-        if (mounted) setState(() => _downloadsDirectoryController.text = selectedDirectory!);
+        if (mounted) {
+          setState(() =>
+              _downloadsDirectoryController.text = selectedDirectory);
+        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${AppLocalizations.of(context)!.failedToSelectDirectory}: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${AppLocalizations.of(context)!.failedToSelectDirectory}: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
@@ -474,17 +471,25 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
                         ),
                       ),
                     ),
-                    AppSpacing.horizontalSm,
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.folder_open, size: 18),
-                      label: Text(AppLocalizations.of(context)!.selectDownloadsDirectory),
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                    // Mobile platforms can't usefully pick a directory through
+                    // FilePicker (Android returns content:// URIs we can't
+                    // write through dart:io; iOS lacks a directory picker
+                    // altogether). The field above still shows the default
+                    // app-sandbox Downloads directory so the user knows
+                    // where files land.
+                    if (_supportsDirectoryPicker) ...[
+                      AppSpacing.horizontalSm,
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.folder_open, size: 18),
+                        label: Text(AppLocalizations.of(context)!.selectDownloadsDirectory),
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                          ),
                         ),
+                        onPressed: _selectDownloadsDirectory,
                       ),
-                      onPressed: _selectDownloadsDirectory,
-                    ),
+                    ],
                   ],
                 ),
                 AppSpacing.verticalXs,
@@ -523,7 +528,9 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
                         textAlignVertical: TextAlignVertical.center,
                         decoration: InputDecoration(
                           labelText: AppLocalizations.of(context)!.sizeLimitInMB,
-                          hintText: '30',
+                          // Hint reflects the platform default — 5 MB on
+                          // mobile (cellular-friendly), 30 MB on desktop.
+                          hintText: (Platform.isAndroid || Platform.isIOS) ? '5' : '30',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
                           ),

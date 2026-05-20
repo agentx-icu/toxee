@@ -50,6 +50,13 @@ class NotificationService {
   static const String _androidFriendReqChannelDescription =
       'Notifications when someone sends you a friend request.';
 
+  // Dedicated channel for missed-call banners — separate from message and
+  // friend-request channels so users can tune importance/sound independently.
+  static const String _androidMissedCallChannelId = 'toxee_missed_calls';
+  static const String _androidMissedCallChannelName = 'Missed calls';
+  static const String _androidMissedCallChannelDescription =
+      'Notifications when an incoming call could not be reached or was missed.';
+
   /// Body truncation cap — keep tight to avoid OS-level ellipsis on Android
   /// (Material You collapses long lines on the lock screen) and macOS Big
   /// Sur-era banners that hard-truncate around 100 chars.
@@ -157,12 +164,20 @@ class NotificationService {
         final androidImpl = _plugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
         if (androidImpl != null) {
+          // NOTE: Android notification channels are immutable once created.
+          // Existing installs that already have these channels keep whatever
+          // sound/vibration/importance settings the channel was first created
+          // with — only fresh installs (or after a clear-data) pick up these
+          // explicit values. We set them anyway so new users get sane defaults
+          // and so the contract is visible here.
           await androidImpl.createNotificationChannel(
             const AndroidNotificationChannel(
               _androidChannelId,
               _androidChannelName,
               description: _androidChannelDescription,
               importance: Importance.high,
+              playSound: true,
+              enableVibration: true,
             ),
           );
           await androidImpl.createNotificationChannel(
@@ -171,6 +186,18 @@ class NotificationService {
               _androidFriendReqChannelName,
               description: _androidFriendReqChannelDescription,
               importance: Importance.high,
+              playSound: true,
+              enableVibration: true,
+            ),
+          );
+          await androidImpl.createNotificationChannel(
+            const AndroidNotificationChannel(
+              _androidMissedCallChannelId,
+              _androidMissedCallChannelName,
+              description: _androidMissedCallChannelDescription,
+              importance: Importance.high,
+              playSound: true,
+              enableVibration: true,
             ),
           );
         }
@@ -471,7 +498,83 @@ class NotificationService {
     _grouped.clear();
     _conversationIdHashCache.clear();
     _conversationCounter = 0;
+    // Reset the Android POST_NOTIFICATIONS cache so the next signed-in
+    // account re-queries OS state (or re-prompts). Without this, "account A
+    // denied notifications" silently suppresses banners for account B in
+    // the same process.
+    _androidPermissionGranted = null;
     await cancelAll();
+  }
+
+  /// Post a missed-call notification — used when an incoming call rings out,
+  /// is dropped by the network, or the user does not reach the device in time.
+  /// Routes through a dedicated Android channel so it is separately tunable
+  /// from message/friend-request banners. The payload uses the
+  /// `missed_call:<peerId>` form so the existing route handler can dispatch
+  /// to the chat with the caller (or, in future, the call history page).
+  ///
+  /// Best-effort like the other show* methods: failures are logged and
+  /// swallowed.
+  Future<void> showMissedCallNotification({
+    required String peerId,
+    required String displayName,
+    required bool wasVideo,
+  }) async {
+    if (!_initialized) {
+      await init();
+    }
+    if (!_initialized || !_platformSupported) return;
+
+    if (Platform.isAndroid) {
+      await _ensureAndroidPermission();
+      if (_androidPermissionGranted == false) {
+        AppLogger.debug(
+            '[NotificationService] Android notifications denied; skipping missed-call notify for $peerId');
+        return;
+      }
+    }
+
+    try {
+      final title = wasVideo ? 'Missed video call' : 'Missed call';
+      final body = displayName.isEmpty ? peerId : displayName;
+      final id = _idFor('missed_call:$peerId');
+
+      const androidDetails = AndroidNotificationDetails(
+        _androidMissedCallChannelId,
+        _androidMissedCallChannelName,
+        channelDescription: _androidMissedCallChannelDescription,
+        importance: Importance.high,
+        priority: Priority.high,
+        category: AndroidNotificationCategory.missedCall,
+        groupKey: 'toxee.missed_calls',
+      );
+      const darwinDetails = DarwinNotificationDetails(
+        threadIdentifier: 'toxee.missed_calls',
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      const linuxDetails = LinuxNotificationDetails(
+        category: LinuxNotificationCategory.imReceived,
+      );
+
+      await _plugin.show(
+        id,
+        title,
+        body,
+        const NotificationDetails(
+          android: androidDetails,
+          iOS: darwinDetails,
+          macOS: darwinDetails,
+          linux: linuxDetails,
+        ),
+        payload: 'missed_call:$peerId',
+      );
+    } catch (e, st) {
+      AppLogger.warn(
+          '[NotificationService] showMissedCallNotification failed for $peerId: $e');
+      AppLogger.debug('[NotificationService] stack: $st');
+    }
   }
 
   String _clampBody(String preview) {
@@ -549,24 +652,33 @@ class NotificationService {
     }
   }
 
-  /// Best-effort Android API level check. Parses [Platform.operatingSystemVersion]
-  /// for the leading integer — on Android the string is of the form
-  /// `"<release> <kernel>"` (e.g. `"13 5.10.81-android13-..."`). When the
-  /// parse fails we conservatively return true so the permission gate still
-  /// runs — the plugin's [requestNotificationsPermission] is itself a no-op
-  /// on pre-Android-13, so an unnecessary call costs nothing.
+  /// Returns true if the Android release suggests we're at or above [minApi].
+  ///
+  /// Currently only used for `minApi == 33` (POST_NOTIFICATIONS), where
+  /// `release >= 13` is the correct check. The `30 + (release - 11)` formula
+  /// IS NOT a general release→API mapping (Android 12.1 = API 32, Android 15
+  /// = API 35, etc. would all be off by 1). Do not reuse this for other
+  /// thresholds without first validating against the actual API level via
+  /// a native platform channel.
+  ///
+  /// Parses [Platform.operatingSystemVersion] for the leading integer — on
+  /// Android the string is of the form `"<release> <kernel>"` (e.g.
+  /// `"13 5.10.81-android13-..."`). When the parse fails we conservatively
+  /// return true so the permission gate still runs — the plugin's
+  /// [requestNotificationsPermission] is itself a no-op on pre-Android-13,
+  /// so an unnecessary call costs nothing.
   bool _androidApiLevelAtLeast(int minApi) {
     if (!Platform.isAndroid) return false;
     try {
       final version = Platform.operatingSystemVersion;
       // The first whitespace-delimited token is the release version on
-      // Android (e.g. "13"). Map release -> API level using the well-known
-      // mapping for release >= 11 (API 30) which is the floor we ship to.
+      // Android (e.g. "13").
       final match = RegExp(r'^\s*(\d+)').firstMatch(version);
       final release = int.tryParse(match?.group(1) ?? '');
       if (release == null) return true; // Unknown — let the plugin decide.
       // Release -> API: 11->30, 12->31/32, 13->33, 14->34, 15->35.
-      // Conservative floor: release N corresponds to API >= 30 + (N - 11).
+      // This is a coarse approximation; see doc comment above for the
+      // strict constraint on which `minApi` values are safe.
       final estimatedApi = 30 + (release - 11);
       return estimatedApi >= minApi;
     } catch (_) {

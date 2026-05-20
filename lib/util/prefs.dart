@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:ui';
 import 'package:collection/collection.dart';
@@ -71,6 +72,7 @@ class Prefs {
   static const _kAutoAcceptGroupInvites = 'auto_accept_group_invites';
   static const _kAutoLogin = 'auto_login';
   static const _kNotificationSoundEnabled = 'notification_sound_enabled';
+  static const _kCallPermissionsPrewarmed = 'call_permissions_prewarmed';
   static const _kCardText = 'self_card_text';
   static const _kCurrentAccountToxId = 'current_account_tox_id'; // Which account is active (for per-account avatar/pinned/localFriends)
   static const _kDownloadsDirectory = 'downloads_directory';
@@ -796,6 +798,16 @@ class Prefs {
     await p.setBool(_kNotificationSoundEnabled, value);
   }
 
+  static Future<bool> getCallPermissionsPrewarmed() async {
+    final p = await _getPrefs();
+    return p.getBool(_kCallPermissionsPrewarmed) ?? false;
+  }
+
+  static Future<void> setCallPermissionsPrewarmed(bool value) async {
+    final p = await _getPrefs();
+    await p.setBool(_kCallPermissionsPrewarmed, value);
+  }
+
   static Future<String?> getCardText() async {
     final p = await _getPrefs();
     return p.getString(_kCardText);
@@ -838,10 +850,18 @@ class Prefs {
     }
   }
 
+  /// Default auto-download size limit when the user has not picked one.
+  /// Mobile (Android/iOS) gets a much tighter cap — cellular data is the
+  /// common path and 30 MB silently consumed by a single image/video is
+  /// hostile UX. Desktop keeps the historical 30 MB default.
+  static int get _defaultAutoDownloadSizeLimitMb {
+    if (Platform.isAndroid || Platform.isIOS) return 5;
+    return 30;
+  }
+
   static Future<int> getAutoDownloadSizeLimit() async {
     final p = await _getPrefs();
-    // Default to 30MB if not set
-    return p.getInt(_kAutoDownloadSizeLimit) ?? 30;
+    return p.getInt(_kAutoDownloadSizeLimit) ?? _defaultAutoDownloadSizeLimitMb;
   }
 
   static Future<void> setAutoDownloadSizeLimit(int sizeInMB) async {
@@ -1958,5 +1978,4 @@ class Prefs {
     await p.setInt(key, time.millisecondsSinceEpoch);
   }
 }
-
 
