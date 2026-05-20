@@ -5,13 +5,28 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  // Held as instance properties so the delegates stay alive for the app's
+  // lifetime — both CallKit (`CXProvider`) and BGTaskScheduler retain weak
+  // references back into us via their handlers.
+  private let callKitProvider = CallKitProvider()
+  private let backgroundTasks = BackgroundTaskController()
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // BGTaskScheduler launch handlers MUST be registered before
+    // `application(_:didFinishLaunchingWithOptions:)` returns or iOS traps.
+    // The Dart-side handler is wired later via the MethodChannel; before
+    // Dart connects, the task will simply call `setTaskCompleted(false)`
+    // when its expiration handler fires (~30s), which is fine.
+    backgroundTasks.registerLaunchHandlers()
+
     GeneratedPluginRegistrant.register(with: self)
     if let controller = window?.rootViewController as? FlutterViewController {
       CallAudioChannel.shared.register(binaryMessenger: controller.binaryMessenger)
+      callKitProvider.register(binaryMessenger: controller.binaryMessenger)
+      backgroundTasks.register(binaryMessenger: controller.binaryMessenger)
 
       // iOS backup-exclusion channel — used by Dart-side AppPaths to mark
       // derivable / ephemeral directories (logs, file_recv, QR cache) with
@@ -66,5 +81,12 @@ import UIKit
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    // Whenever we leave foreground, queue up the next BG refresh window.
+    // Without this the system would only ever run the first refresh.
+    backgroundTasks.scheduleNextRefresh()
+    super.applicationDidEnterBackground(application)
   }
 }

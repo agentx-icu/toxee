@@ -81,5 +81,36 @@
 	<string>Toxee needs access to your photo library to send photos and videos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Toxee saves received photos and videos to your library when you choose to.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Toxee uses notifications to alert you to new messages, friend requests, and incoming calls.</string>
+	<!--
+	     iOS background execution modes:
+	     - `voip`: keeps the VoIP socket alive when the app is backgrounded
+	       so calls already in progress (or invitations received while
+	       socket is still warm) can be handled. NOTE: this does NOT enable
+	       terminated-app receive — that requires PushKit + a relay server,
+	       which toxee doesn't have because Tox is pure P2P. See
+	       doc/architecture/MOBILE_BACKGROUND.en.md.
+	     - `audio`: keeps the audio session running during calls and
+	       ringtone playback when the app is backgrounded.
+	     - `fetch`: lets iOS occasionally wake the app to give the Tox
+	       polling loop a brief CPU slice via BGAppRefreshTask. Throttled
+	       by iOS based on usage patterns (no SLA).
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>audio</string>
+		<string>fetch</string>
+	</array>
+	<!--
+	     BGAppRefreshTask identifier registered by BackgroundTaskController.
+	     iOS only invokes handlers for identifiers listed here. Keep in
+	     sync with `BackgroundTaskController.refreshIdentifier`.
+	-->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.toxee.app.refresh</string>
+	</array>
 </dict>
 </plist>
