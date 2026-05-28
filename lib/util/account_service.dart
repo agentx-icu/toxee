@@ -190,8 +190,12 @@ class AccountService {
             await AccountExportService.isProfileFileEncrypted(profileFile);
         if (isEncrypted) {
           await AccountExportService.decryptProfileFile(profileFile, password);
+          // Only mark as decrypted if we actually performed the decrypt — the
+          // finally re-encrypt path uses this flag to decide whether to restore
+          // on-disk encryption, and must not encrypt a profile that was already
+          // plaintext.
+          profileWasDecrypted = true;
         }
-        profileWasDecrypted = true;
       }
 
       final prefs = await SharedPreferences.getInstance();
