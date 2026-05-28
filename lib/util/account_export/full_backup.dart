@@ -22,6 +22,7 @@ import '../app_paths.dart';
 import '../logger.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
+import 'backup_path_safety.dart';
 import 'tox_file_io.dart';
 
 /// Current full-backup metadata schema version. Bump when the on-disk
@@ -29,38 +30,6 @@ import 'tox_file_io.dart';
 /// non-backward-compatible way. Backups without `formatVersion` are treated
 /// as v1 for legacy compatibility (older toxee builds shipped without it).
 const int _kBackupFormatVersion = 1;
-
-String _safeBackupRestorePath({
-  required String baseDir,
-  required String relativePath,
-}) {
-  if (relativePath.contains('\\')) {
-    throw Exception('Unsafe backup path: $relativePath');
-  }
-  if (relativePath.contains(':')) {
-    throw Exception('Unsafe backup path: $relativePath');
-  }
-
-  final normalizedRelative = p.url.normalize(relativePath);
-  if (normalizedRelative == '.' ||
-      normalizedRelative == '..' ||
-      normalizedRelative.startsWith('../') ||
-      p.url.isAbsolute(normalizedRelative)) {
-    throw Exception('Unsafe backup path: $relativePath');
-  }
-
-  final normalizedBase = p.normalize(p.absolute(baseDir));
-  final targetPath = p.normalize(
-    p.joinAll(<String>[
-      normalizedBase,
-      ...p.url.split(normalizedRelative),
-    ]),
-  );
-  if (targetPath != normalizedBase && !p.isWithin(normalizedBase, targetPath)) {
-    throw Exception('Unsafe backup path: $relativePath');
-  }
-  return targetPath;
-}
 
 /// Export a comprehensive .zip backup containing:
 /// - `tox_profile.tox` (the Tox identity/profile, optionally encrypted)
@@ -401,7 +370,7 @@ Future<Map<String, dynamic>> importFullBackup({
     if (entry.name.startsWith('chat_history/')) {
       final relativePath = entry.name.substring('chat_history/'.length);
       if (relativePath.isNotEmpty) {
-        _safeBackupRestorePath(
+        safeBackupRestorePath(
           baseDir: historyDir,
           relativePath: relativePath,
         );
@@ -409,7 +378,7 @@ Future<Map<String, dynamic>> importFullBackup({
     } else if (entry.name.startsWith('avatars/')) {
       final relativePath = entry.name.substring('avatars/'.length);
       if (relativePath.isNotEmpty) {
-        _safeBackupRestorePath(
+        safeBackupRestorePath(
           baseDir: avatarsDir,
           relativePath: relativePath,
         );
@@ -431,7 +400,7 @@ Future<Map<String, dynamic>> importFullBackup({
     if (entry.name.startsWith('chat_history/') && entry.isFile) {
       final relativePath = entry.name.substring('chat_history/'.length);
       if (relativePath.isEmpty) continue;
-      final targetPath = _safeBackupRestorePath(
+      final targetPath = safeBackupRestorePath(
         baseDir: historyDir,
         relativePath: relativePath,
       );
@@ -447,7 +416,7 @@ Future<Map<String, dynamic>> importFullBackup({
     if (entry.name.startsWith('avatars/') && entry.isFile) {
       final relativePath = entry.name.substring('avatars/'.length);
       if (relativePath.isEmpty) continue;
-      final targetPath = _safeBackupRestorePath(
+      final targetPath = safeBackupRestorePath(
         baseDir: avatarsDir,
         relativePath: relativePath,
       );
@@ -482,7 +451,7 @@ Future<Map<String, dynamic>> importFullBackup({
             // crafted `@account_data/../../../etc/...` value would otherwise
             // be stored as a pref pointing outside the account data root and
             // read later when rendering the avatar.
-            scopedPrefs[key] = _safeBackupRestorePath(
+            scopedPrefs[key] = safeBackupRestorePath(
               baseDir: accountDataRoot,
               relativePath: relPath,
             );
