@@ -183,6 +183,14 @@ bash tool/ci/package_artifacts.sh --target ios --mode release
 - 目前最稳定、默认可发布到 GitHub Releases 的资产仍然是桌面端安装包。
 - 打包脚本会尝试把 Tim2Tox FFI 和 `libsodium` 一起带进桌面端产物，并把准确结果写进各平台 `NOTES.txt`。
 
+## 桌面端 runner 原生库装载（开发构建）
+
+打包脚本（`tool/ci/package_artifacts.sh`）会为**所有**桌面平台装载 Tim2Tox FFI 库和 `libsodium`。对于直接用 `flutter build <platform>`（不经过打包脚本）的**开发**构建，各平台的装载方式不同——无论哪种，都必须先构建原生库（`tool/ci/build_tim2tox.sh --target <platform>`，或 `build_all.sh`）：
+
+- **Windows** — `windows/CMakeLists.txt` 会在构建时把 `tim2tox_ffi.dll` + `libsodium.dll` 自动装载到 runner 旁，因此 runner 可直接运行。
+- **Linux** — `linux/CMakeLists.txt` 会把 `libtim2tox_ffi.so` 自动装载到 `bundle/lib`，并用 patchelf 把它的 `RUNPATH` 改为 `$ORIGIN`。当 `build/native-artifacts/linux` 中存在 `libsodium.so*` 时也会一并装载；`build_all.sh` 路径（`build_ffi.sh`）不会捕获 `libsodium`，因此那种 bundle 依赖系统 `libsodium`（经 `ldconfig`）——需要完全自包含的 bundle 请运行 `tool/ci/build_tim2tox.sh --target linux`。
+- **macOS** — `flutter build macos` **不会**装载原生库。开发请用 `./run_toxee.sh`（它会把 `libtim2tox_ffi.dylib` 及依赖复制进 `Toxee.app/Contents/MacOS`，并用 `install_name_tool` 改写 install name），发布用 `tool/ci/package_artifacts.sh`。单独运行 `flutter build macos` 的产物**按设计**会缺少 Tox 原生库：刻意没有添加 Xcode build phase，以避免重复这两个脚本已经维护的 `install_name_tool`/签名逻辑。
+
 ## 常用命令
 
 ```bash

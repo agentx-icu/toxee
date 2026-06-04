@@ -126,3 +126,80 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Install the tim2tox FFI shared library and its libsodium dependency into the
+# bundle's lib/ dir so `flutter build linux` produces a self-contained bundle
+# (mirrors windows/CMakeLists.txt and tool/ci/package_artifacts.sh release
+# staging). The native library can come from two scripts in different layouts:
+#   * tool/ci/build_tim2tox.sh — canonical path — emits build/native-artifacts/
+#     linux/ (libtim2tox_ffi.so + the libsodium SONAME symlink and real file,
+#     captured from the FFI's ldd) and the raw cmake output under
+#     third_party/tim2tox/build/ci-linux/.
+#   * third_party/tim2tox/build_ffi.sh — dev convenience — emits build/ffi/.
+# Install the candidate with the newest mtime so whichever build ran most
+# recently wins. The native lib MUST be built before `flutter build linux`
+# (build_all.sh does this first), so it is present at configure time normally.
+set(_TIM2TOX_NATIVE_ARTIFACTS_DIR "${CMAKE_SOURCE_DIR}/../build/native-artifacts/linux")
+set(_TIM2TOX_FFI_SO_CANDIDATES
+  "${_TIM2TOX_NATIVE_ARTIFACTS_DIR}/libtim2tox_ffi.so"
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/ci-linux/ffi/libtim2tox_ffi.so"
+  "${CMAKE_SOURCE_DIR}/../third_party/tim2tox/build/ffi/libtim2tox_ffi.so"
+)
+set(_best_ffi "")
+set(_best_ffi_ts "0")
+foreach(_so IN LISTS _TIM2TOX_FFI_SO_CANDIDATES)
+  if(EXISTS "${_so}")
+    file(TIMESTAMP "${_so}" _ts "%Y%m%d%H%M%S")
+    if(_ts STRGREATER _best_ffi_ts)
+      set(_best_ffi_ts "${_ts}")
+      set(_best_ffi "${_so}")
+    endif()
+  endif()
+endforeach()
+if(_best_ffi)
+  install(FILES "${_best_ffi}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+  message(STATUS "toxee: bundling libtim2tox_ffi.so from ${_best_ffi}")
+
+  # libsodium: build_tim2tox.sh stages both the SONAME symlink (e.g.
+  # libsodium.so) and the resolved real file (e.g. libsodium.so.26.x.y) into
+  # native-artifacts/linux, so bundling the glob makes the NEEDED soname
+  # resolve. On a dev box without native-artifacts this is simply skipped and
+  # the system libsodium (via ldconfig) is used instead — which is fine.
+  file(GLOB _sodium_libs "${_TIM2TOX_NATIVE_ARTIFACTS_DIR}/libsodium.so*")
+  if(_sodium_libs)
+    install(FILES ${_sodium_libs} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+    message(STATUS "toxee: bundling libsodium from ${_TIM2TOX_NATIVE_ARTIFACTS_DIR}")
+  else()
+    # build_all.sh's tim2tox path (build_ffi.sh) does NOT capture libsodium, so
+    # for that flow the bundle relies on the system libsodium via ldconfig (fine
+    # on a dev box). Only tool/ci/build_tim2tox.sh --target linux stages a
+    # libsodium copy, yielding a fully self-contained bundle.
+    message(STATUS "toxee: no libsodium in ${_TIM2TOX_NATIVE_ARTIFACTS_DIR}; the "
+      "linux bundle will rely on the system libsodium (ldconfig). Run "
+      "tool/ci/build_tim2tox.sh --target linux for a fully self-contained bundle.")
+  endif()
+
+  # The runner's RPATH ($ORIGIN/lib, set at the top of this file) resolves
+  # runner -> libtim2tox_ffi.so, but libtim2tox_ffi.so -> libsodium needs the
+  # FFI lib's OWN RUNPATH to point at its directory. Patch it to $ORIGIN after
+  # install (mirrors patchelf in tool/ci/package_artifacts.sh). execute_process
+  # runs patchelf directly (no shell), so "$ORIGIN" is passed as a literal and
+  # written verbatim into the ELF RUNPATH rather than being shell-expanded.
+  find_program(_TOXEE_PATCHELF patchelf)
+  get_filename_component(_ffi_name "${_best_ffi}" NAME)
+  if(_TOXEE_PATCHELF)
+    install(CODE
+      "execute_process(COMMAND \"${_TOXEE_PATCHELF}\" --set-rpath \"\$ORIGIN\" \"${INSTALL_BUNDLE_LIB_DIR}/${_ffi_name}\")"
+      COMPONENT Runtime)
+  else()
+    message(WARNING "toxee: patchelf not found; libtim2tox_ffi.so RUNPATH will "
+      "not be set to \$ORIGIN. A bundled libsodium next to it may not resolve "
+      "at runtime (the system libsodium via ldconfig will still work). Install "
+      "patchelf to make the bundle fully self-contained.")
+  endif()
+else()
+  message(WARNING "toxee: libtim2tox_ffi.so not found in any known build output "
+    "location; the bundle will be missing the Tox native library. Run "
+    "tool/ci/build_tim2tox.sh --target linux (or build_all.sh) before "
+    "`flutter build linux`.")
+endif()

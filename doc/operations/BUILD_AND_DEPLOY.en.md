@@ -185,6 +185,14 @@ The current desktop release assets are:
 - Desktop packages are the only assets currently guaranteed to land on GitHub Releases without extra mobile signing/native-library prerequisites.
 - Release packaging attempts to bundle Tim2Tox FFI and `libsodium` into the app/package output, then records the exact result in `NOTES.txt`.
 
+## Desktop runner native-library staging (dev builds)
+
+The release packager (`tool/ci/package_artifacts.sh`) stages the Tim2Tox FFI library and `libsodium` for **all** desktop platforms. For **dev** builds run straight from `flutter build <platform>` (not through the packager), staging differs per platform — in every case the native library must be built first (`tool/ci/build_tim2tox.sh --target <platform>`, or `build_all.sh`):
+
+- **Windows** — `windows/CMakeLists.txt` auto-stages `tim2tox_ffi.dll` + `libsodium.dll` next to the runner during the build, so the runner is directly runnable.
+- **Linux** — `linux/CMakeLists.txt` auto-stages `libtim2tox_ffi.so` into `bundle/lib` and patchelf's its `RUNPATH` to `$ORIGIN`. It also bundles `libsodium.so*` when present in `build/native-artifacts/linux`; the `build_all.sh` path (`build_ffi.sh`) does not capture `libsodium`, so that bundle relies on the system `libsodium` via `ldconfig` — run `tool/ci/build_tim2tox.sh --target linux` for a fully self-contained bundle.
+- **macOS** — `flutter build macos` does **not** stage the native library. Use `./run_toxee.sh` for dev (it copies `libtim2tox_ffi.dylib` + dependencies into `Toxee.app/Contents/MacOS` and rewrites install names via `install_name_tool`) or `tool/ci/package_artifacts.sh` for release. A raw `flutter build macos` artifact run on its own is missing the Tox native library **by design**: an Xcode build phase was deliberately not added, to avoid duplicating the `install_name_tool`/codesign logic those two scripts already own.
+
 ## Useful commands
 
 ```bash
