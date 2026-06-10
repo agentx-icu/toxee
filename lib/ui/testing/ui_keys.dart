@@ -106,6 +106,31 @@ class UiKeys {
   static const Key newEntryCreateGroupItem = Key('new_entry_create_group_item');
   static const Key newEntryJoinIrcItem = Key('new_entry_join_irc_item');
 
+  // Applications page (lib/ui/applications/applications_page.dart).
+  static const Key applicationsIrcCard = Key('applications_irc_card');
+  static const Key applicationsIrcInstallButton = Key(
+    'applications_irc_install_button',
+  );
+  static const Key applicationsIrcUninstallButton = Key(
+    'applications_irc_uninstall_button',
+  );
+  static const Key applicationsIrcAddChannelButton = Key(
+    'applications_irc_add_channel_button',
+  );
+  static const Key applicationsIrcServerField = Key(
+    'applications_irc_server_field',
+  );
+  static const Key applicationsIrcPortField = Key(
+    'applications_irc_port_field',
+  );
+  static const Key applicationsIrcSaveConfigButton = Key(
+    'applications_irc_save_config_button',
+  );
+  static Key applicationsIrcChannelTile(String channel) =>
+      Key('applications_irc_channel_tile:$channel');
+  static Key applicationsIrcRemoveChannelButton(String channel) =>
+      Key('applications_irc_remove_channel_button:$channel');
+
   // Profile page edit form (lib/ui/profile/profile_header.dart,
   // lib/ui/profile/profile_edit_fields.dart).
   static const Key profileEditToggle = Key('profile_edit_toggle');
@@ -185,6 +210,12 @@ class UiKeys {
       Key('search_result_group:$groupId');
   static Key searchResultConversation(String conversationId) =>
       Key('search_result_conversation:$conversationId');
+  // Contact (friend) result ROWS in the global search (custom_search.dart).
+  // Keyed for the same reason as the group/conversation rows: the highlighted
+  // title renders as a RichText (not a plain Text) and tapping by name collides
+  // with the query text in the search field.
+  static Key searchResultContact(String userId) =>
+      Key('search_result_contact:$userId');
   static Key searchHistoryMessage(String messageId) =>
       Key('search_history_message_$messageId');
 

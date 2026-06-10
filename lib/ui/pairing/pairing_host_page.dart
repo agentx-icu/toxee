@@ -34,6 +34,7 @@ class PairingHostPage extends StatefulWidget {
     super.key,
     required this.toxId,
     this.exportServiceForTest,
+    this.lanAddressForTest,
   });
 
   /// Tox ID of the account this device is sharing. Used to look up the
@@ -44,6 +45,11 @@ class PairingHostPage extends StatefulWidget {
   /// to write the bytes to a temp file and read them back. The integration
   /// test injects a fixed byte payload.
   final Future<Uint8List> Function()? exportServiceForTest;
+
+  /// Test seam for the QR-advertised address. Production discovers a real LAN
+  /// address and intentionally rejects loopback; WidgetTester can inject
+  /// 127.0.0.1 to drive a single-process host/client handshake.
+  final String? lanAddressForTest;
 
   @override
   State<PairingHostPage> createState() => _PairingHostPageState();
@@ -74,7 +80,8 @@ class _PairingHostPageState extends State<PairingHostPage> {
 
   Future<void> _start() async {
     try {
-      final lanIp = await PairingLan.findLanAddress();
+      final lanIp =
+          widget.lanAddressForTest ?? await PairingLan.findLanAddress();
       if (lanIp == null) {
         if (!mounted) return;
         setState(() {
@@ -112,10 +119,13 @@ class _PairingHostPageState extends State<PairingHostPage> {
         bindAddress: '0.0.0.0',
       );
       _host = host;
-      _sub = host.events.listen(_onEvent, onError: (Object e, StackTrace _) {
-        if (!mounted) return;
-        setState(() => _error = '$e');
-      });
+      _sub = host.events.listen(
+        _onEvent,
+        onError: (Object e, StackTrace _) {
+          if (!mounted) return;
+          setState(() => _error = '$e');
+        },
+      );
       final url = await host.start(advertiseAddress: lanIp);
       if (!mounted) return;
       setState(() {
@@ -177,7 +187,8 @@ class _PairingHostPageState extends State<PairingHostPage> {
       return;
     } catch (e) {
       AppLogger.warn(
-          '[PairingHostPage] initial delete of temp export failed for $path: $e');
+        '[PairingHostPage] initial delete of temp export failed for $path: $e',
+      );
     }
     try {
       if (await file.exists()) {
@@ -189,7 +200,8 @@ class _PairingHostPageState extends State<PairingHostPage> {
       }
     } catch (e) {
       AppLogger.warn(
-          '[PairingHostPage] zero-fill+delete of temp export failed for $path: $e');
+        '[PairingHostPage] zero-fill+delete of temp export failed for $path: $e',
+      );
     }
   }
 
@@ -206,8 +218,7 @@ class _PairingHostPageState extends State<PairingHostPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final reduceMotion =
-        MediaQuery.maybeDisableAnimationsOf(context) == true;
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) == true;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.pairDeviceHostTitle)),
       body: SafeArea(
@@ -269,15 +280,15 @@ class _PairingHostPageState extends State<PairingHostPage> {
     // between a scan-legible floor (180) and the original aesthetic ceiling
     // (260). AppSpacing.lg accounts for outer padding on both sides + the
     // _QrPlate's own internal padding on both sides.
-    final qrSize = (MediaQuery.sizeOf(context).width - AppSpacing.lg * 4)
-        .clamp(180.0, 260.0);
+    final qrSize = (MediaQuery.sizeOf(context).width - AppSpacing.lg * 4).clamp(
+      180.0,
+      260.0,
+    );
     return SingleChildScrollView(
       // Pad above the keyboard so the SAS / confirm buttons stay reachable
       // when the soft keyboard is active (e.g. if a screen reader gesture or
       // future input opens it on this page).
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -287,7 +298,9 @@ class _PairingHostPageState extends State<PairingHostPage> {
             textAlign: TextAlign.center,
           ),
           AppSpacing.verticalXl,
-          Center(child: _QrPlate(url: _qrUrl!, size: qrSize)),
+          Center(
+            child: _QrPlate(url: _qrUrl!, size: qrSize),
+          ),
           AppSpacing.verticalXl,
           if (_sas != null) ...[
             _SasBlock(
@@ -340,6 +353,7 @@ class _QrPlate extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           QrImageView(
+            key: ValueKey('pairing_qr_url:$url'),
             data: url,
             version: QrVersions.auto,
             size: size,
@@ -436,10 +450,7 @@ class _StatusRow extends StatelessWidget {
       children: [
         PairingStatusIndicator(state: state, size: 18),
         AppSpacing.horizontalSm,
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
