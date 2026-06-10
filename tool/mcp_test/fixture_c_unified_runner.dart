@@ -73,8 +73,25 @@ const _validRealUiScenarios = {
   'custom_message',
   'call_voice',
   'call_reject',
+  // Batch 1 — settings sweep 2 (single-instance, no-friend). The 12 cases are
+  // individually runnable; sweep_settings2 chains them on one launch.
+  'sweep_settings2',
+  'settings_surface_sections',
+  'settings_theme_dark',
+  'settings_theme_light_back',
+  'settings_locale_zh_roundtrip',
+  'settings_download_limit_edit',
+  'settings_bootstrap_mode_cycle',
+  'settings_bootstrap_manual_add_node',
+  'settings_bootstrap_manual_remove_node',
+  'settings_autologin_toggle_hard',
+  'settings_notifsound_toggle_hard',
+  'settings_password_mismatch_error',
+  'settings_logout_cancel',
 };
 const _realUiCampaigns = <String, List<String>>{
+  // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
+  'rui-settings2': ['sweep_settings2'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -948,6 +965,21 @@ String _requiredRealUiState(String scenario) {
     case 'group_menu_pin_unpin':
     case 'group_menu_mark_read':
     case 'group_menu_delete_confirm':
+    // Batch 1 — settings sweep 2: single-instance (drive only A, B idle), no
+    // friendship required, so they run from a fresh no-friend launch.
+    case 'sweep_settings2':
+    case 'settings_surface_sections':
+    case 'settings_theme_dark':
+    case 'settings_theme_light_back':
+    case 'settings_locale_zh_roundtrip':
+    case 'settings_download_limit_edit':
+    case 'settings_bootstrap_mode_cycle':
+    case 'settings_bootstrap_manual_add_node':
+    case 'settings_bootstrap_manual_remove_node':
+    case 'settings_autologin_toggle_hard':
+    case 'settings_notifsound_toggle_hard':
+    case 'settings_password_mismatch_error':
+    case 'settings_logout_cancel':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -982,6 +1014,20 @@ String _resultRealUiState(String scenario) {
     case 'group_menu_pin_unpin':
     case 'group_menu_mark_read':
     case 'group_menu_delete_confirm':
+    // Batch 1 — settings sweep 2: single-instance, leaves friendship untouched.
+    case 'sweep_settings2':
+    case 'settings_surface_sections':
+    case 'settings_theme_dark':
+    case 'settings_theme_light_back':
+    case 'settings_locale_zh_roundtrip':
+    case 'settings_download_limit_edit':
+    case 'settings_bootstrap_mode_cycle':
+    case 'settings_bootstrap_manual_add_node':
+    case 'settings_bootstrap_manual_remove_node':
+    case 'settings_autologin_toggle_hard':
+    case 'settings_notifsound_toggle_hard':
+    case 'settings_password_mismatch_error':
+    case 'settings_logout_cancel':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');

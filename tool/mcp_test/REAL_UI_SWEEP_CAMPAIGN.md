@@ -107,20 +107,22 @@ restored/established friendship (plan after handshake or restore `paired_for_e2e
 
 | # | Case (scenario id) | Mode | Spec | Drives / asserts | Status |
 |---|---|---|---|---|---|
-| 1 | settings_surface_sections | 1i | — | open settings via sidebar; scroll through; all section headers render | TODO |
-| 2 | settings_theme_dark | 1i | S57 | tap theme control → dark applied (widget-tree brightness) + dump persisted | TODO |
-| 3 | settings_theme_light_back | 1i | S57 | revert to light; UI re-renders | TODO |
-| 4 | settings_locale_zh_roundtrip | 1i | S38 | switch language to 中文 → visible label asserted in Chinese → back to English | TODO |
-| 5 | settings_download_limit_edit | 1i | S98 | real field input + save → dump_state threshold | TODO |
-| 6 | settings_bootstrap_mode_cycle | 1i | S99/S85 | segmented auto→manual→lan→auto, dump after each | TODO |
-| 7 | settings_bootstrap_manual_add_node | 1i | S89 | manual node form: host/port/key input → add → row renders | TODO |
-| 8 | settings_bootstrap_manual_remove_node | 1i | S89 | remove the added node → row gone | TODO |
-| 9 | settings_autologin_toggle_hard | 1i | S96 | scrollUntilKey + real tap → dump flips (upgrades documented soft case) | TODO |
-| 10 | settings_notifsound_toggle_hard | 1i | S97 | same for notification-sound switch | TODO |
-| 11 | settings_password_mismatch_error | 1i | S40 | password dialog: mismatched confirm → inline error, dialog stays | TODO |
-| 12 | settings_logout_cancel | 1i | S44 | logout confirm → Cancel → still sessionReady | TODO |
+| 1 | settings_surface_sections | 1i | — | open settings via sidebar; scroll through; all section headers render | WRITTEN |
+| 2 | settings_theme_dark | 1i | S57 | tap theme control → dark applied (widget-tree brightness) + dump persisted | WRITTEN |
+| 3 | settings_theme_light_back | 1i | S57 | revert to light; UI re-renders | WRITTEN |
+| 4 | settings_locale_zh_roundtrip | 1i | S38 | switch language to 中文 → visible label asserted in Chinese → back to English | WRITTEN |
+| 5 | settings_download_limit_edit | 1i | S98 | real field input + save → dump_state threshold | WRITTEN |
+| 6 | settings_bootstrap_mode_cycle | 1i | S99/S85 | segmented auto→manual→lan→auto, dump after each | WRITTEN |
+| 7 | settings_bootstrap_manual_add_node | 1i | S89 | manual node form: host/port/key input → add → row renders | WRITTEN (form-mount, see log) |
+| 8 | settings_bootstrap_manual_remove_node | 1i | S89 | remove the added node → row gone | WRITTEN (collapse-form, see log) |
+| 9 | settings_autologin_toggle_hard | 1i | S96 | scrollUntilKey + real tap → dump flips (upgrades documented soft case) | WRITTEN |
+| 10 | settings_notifsound_toggle_hard | 1i | S97 | same for notification-sound switch | WRITTEN |
+| 11 | settings_password_mismatch_error | 1i | S40 | password dialog: mismatched confirm → inline error, dialog stays | WRITTEN |
+| 12 | settings_logout_cancel | 1i | S44 | logout confirm → Cancel → still sessionReady | WRITTEN |
 
-Sweep: `sweep_settings2` · Campaign: `rui-settings2`. **Batch 1 STATUS: TODO**
+Sweep: `sweep_settings2` · Campaign: `rui-settings2`. **Batch 1 STATUS: DONE** (12/12
+cases WRITTEN+unrun; analyze 0-new; planner + campaign-list green; touched-settings
+hermetic tests 59/59 still green)
 
 #### Batch 2 — Self profile (8 cases, 1i, same-launch chain)
 
@@ -338,6 +340,110 @@ AppleScript System Events window resize, SKIP with reason if refused)
     batch if a hover-only surface appears. (2) `scrollUntilKey`'s signature uses
     `dyPerStep`/`maxSteps` (negative dy = wheel up to reveal earlier content) matching the
     spec; it foreground()s first like other UI phases.
+
+- 2026-06-10 **Batch 1 DONE** (settings sweep 2 — 12 single-instance cases, WRITTEN +
+  hermetically verified; NOT live-run, per write-phase protocol). New part file
+  `tool/mcp_test/drive_real_ui_pair_settings2.dart` (~560 LOC) declared in
+  `drive_real_ui_pair.dart`'s part list; 12 per-case scenario functions + `runSettingsSweep2`
+  (chains all 12 on ONE launch, per-case `[sweep] <case>: PASS|FAIL` + final counts, exits
+  non-zero if any HARD case fails — all 12 are hard). Each case also dispatchable individually
+  in `drive_real_ui_pair.dart` (scenario ids = the campaign table ids). Runner: 13 ids
+  (`sweep_settings2` + the 12) added to `_validRealUiScenarios` + both state tables
+  (`_requiredRealUiState`/`_resultRealUiState` → `no-friend`, single-instance like
+  `group_create`); campaign `rui-settings2 = [sweep_settings2]`. Gates green:
+  `flutter analyze lib tool` 222 issues (0 NEW — matches Batch-0 baseline; the new part file
+  is clean); `--plan-json --class=2proc-ui` exits 0; `--list-real-ui-campaigns` shows
+  `rui-settings2`; `--validate-only` 0; driver `--self-test-shell-recovery` PASS; touched
+  settings hermetic tests `flutter test test/ui/settings/` 59/59 PASS (incl. the
+  password-mismatch case that mirrors case 11's snackbar + dialog-stays assertions).
+
+  **Key discoveries / production keys used (for later batches):**
+  - **Theme (cases 2/3, S57):** the Appearance `SegmentedButton<ThemeMode>` segments carry
+    **NO per-segment key** (`global_settings_section.dart` — ButtonSegment takes none), so
+    drive by the localized visible label (`tapText('Dark'|'Light'|'System')`). Assert the
+    flip via dump `themeMode` (`light|dark|system`, persisted) + label-still-visible (the
+    Appearance card didn't crash on rebuild). l3 dump field is `themeMode` (string).
+  - **Locale (case 4, S38):** the Language card is an InkWell-collapsing list (NOT a
+    SegmentedButton): the collapsed row shows the CURRENT selection's NATIVE label; tapping
+    it expands; option labels are language-native literals (`'English'`, `'简体中文'`, …)
+    that DON'T change across locale (`appL10n.english => 'English'` even while in zh). So
+    revert-to-English works by tapping `English` while the UI is Chinese. dump field is
+    `languageCode`; 简体中文 → `zh-Hans`. Chinese label to assert post-switch: `外观`
+    (Appearance header). en `Language` header = `语言` in zh (used for re-locating the
+    selector to revert).
+  - **Download limit (case 5, S98):** `settings_download_limit_field` +
+    `settings_download_limit_save_button` (keyed). Save validates `1..10000`. dump field
+    `autoDownloadSizeLimit` (int MB). Field is below the fold — scroll onstage first.
+  - **Bootstrap mode (case 6, S99/S85):** on DESKTOP the modes are `RadioListTile`s keyed
+    `settings_bootstrap_mode_{manual,auto,lan}` (NOT a SegmentedButton — that's the MOBILE
+    layout, and it's only manual/auto, NO lan on mobile). dump field `bootstrapNodeMode`.
+  - **Manual node form (cases 7/8, S89) — SCOPE DEVIATION, faithful:** the manual node form
+    (`manual_node_{host,port,pubkey}_field` + `manual_node_test_button`) only appears in
+    manual mode AFTER tapping `manual_node_input_button` to expand. The "Set as Current Node"
+    button only renders AFTER a LIVE `addBootstrapNode` TEST SUCCEEDS (needs real DHT
+    reachability — non-deterministic in-harness), and there is **NO per-node REMOVE
+    affordance anywhere** (manual mode only overwrites the single "current node" card;
+    auto-mode "Route selection" → `bootstrap_nodes_page.dart` is a READ-ONLY fetched-node
+    list with test/select only). So case 7 asserts the real form MOUNTS + accepts input
+    (mode→manual is a real persisted mutation, the S89 surface); case 8 asserts the inverse —
+    collapsing the form via the same `manual_node_input_button` toggle makes the field row
+    GONE (`waitKeyGone`), then restores mode→auto. Both clearly noted in-code. If a later
+    batch needs a true node add/remove, it has to be added to production first.
+  - **Switch toggles (cases 9/10, S96/S97) — UPGRADE of the documented soft cases:** the
+    OLD `settings_sweep` marked autologin/notification as SOFT because (a) below the fold
+    (flutter_skill has no scroll) and (b) flutter_skill's synthetic `tap` doesn't reliably
+    toggle a Material `Switch`. Both fixed: (a) Batch-0 `scrollUntilKey` brings the switch
+    onstage; (b) `Inst.tapKeyCenter` dispatches a REAL `tapAt` at the switch center (a
+    genuine pointer tap, distinct from flutter_skill's synthetic tap) which toggles the
+    Switch. Keys: `settings_auto_login_switch` (Account card, upper-mid) /
+    `settings_notification_sound_switch` (GlobalSettingsSection, lower). dump bools
+    `autoLogin` / `notificationSound`. Both restore the prior value on a pass.
+  - **Password mismatch (case 11, S40):** `_showSetPasswordDialog` shows the
+    `Passwords do not match` snackbar AND returns WITHOUT `Navigator.pop` on a mismatch — so
+    the dialog STAYS open (its `settings_set_password_new_field` key stays in the tree) and
+    flutter_skill's double-fire `tap` is SAFE here (no route to double-pop). Confirmed by the
+    existing hermetic test `settings_account_password_real_ui_test.dart` ("Mismatched fields:
+    do not match SnackBar, dialog stays, nothing saved"). ESC-dismiss after, so no password
+    is left set (case 12 relies on a password-free account).
+  - **Logout cancel (case 12, S44):** the logout confirm dialog's **Cancel button has NO
+    key** (only `settings_logout_confirm_button` is keyed); tap the `Cancel` LABEL. Cancel =
+    `popDialogIfCurrent(context, false)` (pops only the dialog, no page-pop), so double-fire
+    `tapText` is safe. Assert dialog gone (`waitKeyGone` on the confirm button) + dump
+    `sessionReady` STILL true (Cancel must not tear down). The below-fold openers
+    (`settings_logout_button`, `settings_set_password_button`) stay on `tapKey` (their direct
+    `_tryInvokeCallback` opens the dialog once even off-screen).
+  - **PRODUCTION CHANGE (allowed, precedented):** added a stable `ValueKey('settings_scroll_view')`
+    (`UiKeys.settingsScrollView`) to the SettingsPage root `ListView` (`settings_page.dart`'s
+    build) so `scrollUntilKey`/`scrollAt` have a scroll anchor for the below-fold Global /
+    Bootstrap sections. The ListView carries no semantic content, so keying it is
+    automation-only and safe; shared Dart, so mobile is covered. Batches 5/6/7 that need to
+    scroll other long lists should look for (or add) a similar scrollable key.
+  - **Ordering rationale (state-poisoning avoidance):** surface-read first; theme dark→light
+    (ends LIGHT, a known state); locale zh→en roundtrip reverts BEFORE the later
+    English-text cases so it can't poison them; download-limit + the two switches RESTORE
+    their prior values; bootstrap mode cycle ends on `auto`; manual add → remove (collapse)
+    leaves the form collapsed + mode auto; password-mismatch ESC-dismisses (no password set);
+    `settings_logout_cancel` LAST (only ever taps Cancel → session survives).
+  - **No `--boot-restored` / no friendship:** all 12 are single-instance no-friend (like
+    `group_create`); the planner launches a FRESH pair (drives only A; B idle) and never
+    needs `paired_for_e2e`.
+  - **Codex review (2 rounds, mandatory):** round 1 found 5 issues — all applied: (P1)
+    locale-expander + theme-segment + manual-node toggles double-fire under flutter_skill's
+    `tap` → added a SINGLE-FIRE `_tapTextCenter` (text-matched `tapAt`, twin of
+    `Inst.tapKeyCenter`; verified against the flutter_skill 0.9.36
+    `interactiveStructured → data.elements[].{key?,text?,bounds{x,y,w,h}}` schema) for the
+    label-only controls, and `tapKeyCenter` for the keyed manual-node toggle; (P2) password
+    case now requires `dismissed` (dialog gone) in its return; (P2) download-limit +
+    bootstrap-remove now require their RESTORE to succeed in the return; (P3) surface_sections
+    now asserts the AutoDownload header TEXT (not just the keyed field). Round 2 flagged
+    cross-case poison on a mid-sweep FAILURE (a stuck-in-zh locale would false-fail the later
+    English-text cases) → added `_normalizeBetweenCases` (idempotent, best-effort, runs after
+    EVERY case: reverts locale→en + bootstrap→auto if a prior case left them mutated; never
+    throws). Round-2 residual (low severity, ACCEPTED): an individual case that fails its OWN
+    restore leaves `autoDownloadSizeLimit` mutated — but the planner launches a FRESH pair per
+    campaign run (no same-launch rerun), so it cannot poison a real run; the
+    `_normalizeBetweenCases` guard covers the only same-launch poison that actually matters
+    (locale + bootstrap mode, which gate later text assertions).
 
 ## Run phase (after ALL batches written) — protocol
 

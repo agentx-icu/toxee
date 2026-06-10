@@ -144,6 +144,13 @@ class UiKeys {
   );
 
   // Settings export flow (lib/ui/settings/settings_page*.dart).
+  //
+  // Stable anchor for the SettingsPage scrollable (the root ListView in
+  // settings_page.dart's build). Real-UI automation wheel-scrolls this to reach
+  // the lower Global / Bootstrap sections that sit below the fold on narrow
+  // windows (the campaign's scrollUntilKey target). The ListView itself carries
+  // no semantic content, so keying it is automation-only and safe.
+  static const Key settingsScrollView = Key('settings_scroll_view');
   static const Key settingsExportAccountButton = Key(
     'settings_export_account_button',
   );

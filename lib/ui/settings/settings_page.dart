@@ -1156,6 +1156,10 @@ class _SettingsPageState extends State<SettingsPage> {
         return TencentCloudChatThemeWidget(
           build: (context, colorTheme, textStyle) => SafeArea(
             child: ListView(
+              // Stable scroll anchor for real-UI automation (wheel-scroll to the
+              // below-the-fold Global / Bootstrap sections). See
+              // UiKeys.settingsScrollView.
+              key: UiKeys.settingsScrollView,
               padding: ResponsiveLayout.responsivePadding(context),
               children: _buildSettingsChildren(context, colorTheme),
             ),

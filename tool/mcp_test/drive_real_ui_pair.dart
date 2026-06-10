@@ -84,6 +84,9 @@ import 'fixture_c_bootstrap.dart';
 //   message_call  — C2C messaging, the composer, and voice-call scenarios.
 //   group         — group create/invite/join + group messaging.
 //   settings      — login/settings real-UI scenarios (copy-id, export, logout…).
+//   settings2     — Batch-1 settings sweep 2 (theme/locale/download/bootstrap/
+//                   switch-toggle/password-mismatch/logout-cancel) + the
+//                   sweep_settings2 chain.
 //   group_profile — group profile, rename, search, add-member, member list.
 //   group_menu    — conversation-row menu (pin/mark-read/clear/delete) + bursts.
 part 'drive_real_ui_pair_inst.dart';
@@ -92,6 +95,7 @@ part 'drive_real_ui_pair_friends.dart';
 part 'drive_real_ui_pair_message_call.dart';
 part 'drive_real_ui_pair_group.dart';
 part 'drive_real_ui_pair_settings.dart';
+part 'drive_real_ui_pair_settings2.dart';
 part 'drive_real_ui_pair_group_profile.dart';
 part 'drive_real_ui_pair_group_menu.dart';
 
@@ -196,6 +200,58 @@ Future<int> _main(List<String> args) async {
     if (scenario == 'settings_logout_double_fire') {
       await ensureHome(a, nickA);
       return await _settingsLogoutDoubleFire(a) ? 0 : 1;
+    }
+    // Batch 1 — settings sweep 2 (single-instance; drive only A).
+    if (scenario == 'sweep_settings2') {
+      return await runSettingsSweep2(a, nickA);
+    }
+    if (scenario == 'settings_surface_sections') {
+      await ensureHome(a, nickA);
+      return await _settingsSurfaceSections(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_theme_dark') {
+      await ensureHome(a, nickA);
+      return await _settingsThemeDark(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_theme_light_back') {
+      await ensureHome(a, nickA);
+      return await _settingsThemeLightBack(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_locale_zh_roundtrip') {
+      await ensureHome(a, nickA);
+      return await _settingsLocaleZhRoundtrip(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_download_limit_edit') {
+      await ensureHome(a, nickA);
+      return await _settingsDownloadLimitEdit(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_bootstrap_mode_cycle') {
+      await ensureHome(a, nickA);
+      return await _settingsBootstrapModeCycle(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_bootstrap_manual_add_node') {
+      await ensureHome(a, nickA);
+      return await _settingsBootstrapManualAddNode(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_bootstrap_manual_remove_node') {
+      await ensureHome(a, nickA);
+      return await _settingsBootstrapManualRemoveNode(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_autologin_toggle_hard') {
+      await ensureHome(a, nickA);
+      return await _settingsAutologinToggleHard(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_notifsound_toggle_hard') {
+      await ensureHome(a, nickA);
+      return await _settingsNotifSoundToggleHard(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_password_mismatch_error') {
+      await ensureHome(a, nickA);
+      return await _settingsPasswordMismatchError(a) ? 0 : 1;
+    }
+    if (scenario == 'settings_logout_cancel') {
+      await ensureHome(a, nickA);
+      return await _settingsLogoutCancel(a) ? 0 : 1;
     }
     if (scenario == 'group_profile_open') {
       return await runGroupProfileOpen(a, nickA);
