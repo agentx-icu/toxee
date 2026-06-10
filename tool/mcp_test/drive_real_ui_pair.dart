@@ -101,6 +101,12 @@ import 'fixture_c_bootstrap.dart';
 //                   (TWO-PROCESS: one handshake at the top, delete-friend last).
 //   group_profile — group profile, rename, search, add-member, member list.
 //   group_menu    — conversation-row menu (pin/mark-read/clear/delete) + bursts.
+//   conv          — Batch-5 conversation-list C2C sweep (right-click row menu
+//                   surface, pin/unpin reorder, mark-read, delete-row,
+//                   clear-history, clear-preserves-pin, unread bump/clear,
+//                   preview-on-inbound, presence SKIP, conversation search) +
+//                   the sweep_conv chain (TWO-PROCESS: one handshake, delete-row
+//                   near last + re-seed so the launch ends friends).
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_shell.dart';
 part 'drive_real_ui_pair_friends.dart';
@@ -113,6 +119,7 @@ part 'drive_real_ui_pair_login.dart';
 part 'drive_real_ui_pair_contacts.dart';
 part 'drive_real_ui_pair_group_profile.dart';
 part 'drive_real_ui_pair_group_menu.dart';
+part 'drive_real_ui_pair_conv.dart';
 
 Future<void> main(List<String> args) async {
   exitCode = await HttpOverrides.runWithHttpOverrides(
@@ -452,6 +459,67 @@ Future<int> _main(List<String> args) async {
           return await _friendprofDeleteFriendConfirm(a, b, tox2A, tox2B)
               ? 0
               : 1;
+      }
+    }
+    // Batch 5 — conversation list C2C (TWO-PROCESS). sweep_conv chains all 10 on
+    // one launch (the canonical entry; one handshake at the top, delete-row near
+    // last + re-seed so the launch ends friends). The individual cases are
+    // dispatchable too: all need an A<->B friendship, so they establish it first
+    // via the real-UI handshake (or reuse the runner's restored paired_for_e2e).
+    if (scenario == 'sweep_conv') {
+      return await runConvSweep(a, b, nickA, nickB);
+    }
+    if (scenario == 'conv_menu_surface_c2c' ||
+        scenario == 'conv_pin_unpin_reorders' ||
+        scenario == 'conv_mark_read_two_proc' ||
+        scenario == 'conv_delete_confirm_c2c' ||
+        scenario == 'conv_clear_history_c2c' ||
+        scenario == 'conv_clear_preserves_pin_c2c' ||
+        scenario == 'conv_unread_badge_bump_clear' ||
+        scenario == 'conv_preview_updates_on_inbound' ||
+        scenario == 'conv_presence_dot_flips' ||
+        scenario == 'conv_search_filter_clear') {
+      if (!bootRestored) {
+        await ensureHome(a, nickA);
+        await ensureHome(b, nickB, requireHomeMenu: false);
+      }
+      final cTox2A =
+          (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
+      final cTox2B =
+          (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
+      if (cTox2A.isEmpty || cTox2B.isEmpty) {
+        throw DriveError('missing tox ids for $scenario: A=$cTox2A B=$cTox2B');
+      }
+      if (!await _establishFriendshipForSweep(
+          a, b, cTox2A, cTox2B, nickA, nickB)) {
+        print('[pair] $scenario: could not establish friendship');
+        return 1;
+      }
+      switch (scenario) {
+        case 'conv_menu_surface_c2c':
+          return await _convMenuSurfaceC2c(a, cTox2B) ? 0 : 1;
+        case 'conv_pin_unpin_reorders':
+          return await _convPinUnpinReorders(a, cTox2B) ? 0 : 1;
+        case 'conv_mark_read_two_proc':
+          return await _convMarkReadTwoProc(a, b, cTox2A, cTox2B) ? 0 : 1;
+        case 'conv_delete_confirm_c2c':
+          return await _convDeleteConfirmC2c(a, cTox2B) ? 0 : 1;
+        case 'conv_clear_history_c2c':
+          return await _convClearHistoryC2c(a, cTox2B) ? 0 : 1;
+        case 'conv_clear_preserves_pin_c2c':
+          return await _convClearPreservesPinC2c(a, cTox2B) ? 0 : 1;
+        case 'conv_unread_badge_bump_clear':
+          return await _convUnreadBadgeBumpClear(a, b, cTox2A, cTox2B) ? 0 : 1;
+        case 'conv_preview_updates_on_inbound':
+          return await _convPreviewUpdatesOnInbound(a, b, cTox2A, cTox2B)
+              ? 0
+              : 1;
+        case 'conv_presence_dot_flips':
+          // SKIP (exit 75) — presence flip un-seedable on a reused launch;
+          // false → 1 (FAIL); true → 0 (PASS), neither happens (always null).
+          return await _convPresenceDotFlips(a, cTox2B) == false ? 1 : 75;
+        case 'conv_search_filter_clear':
+          return await _convSearchFilterClear(a, cTox2B, nickB) ? 0 : 1;
       }
     }
     if (scenario == 'group_profile_open') {

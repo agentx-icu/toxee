@@ -185,18 +185,18 @@ Sweep: `sweep_contacts` (handshake once at top) · Campaign: `rui-contacts`. **B
 
 | # | Case | Mode | Spec | Drives / asserts | Status |
 |---|---|---|---|---|---|
-| 45 | conv_menu_surface_c2c | 2p-r | S117 | right-click/menu on C2C row → menu items render (pin/read/clear/delete) | TODO |
-| 46 | conv_pin_unpin_reorders | 2p-r | S116 | pin → row to top + pinned style; unpin → restores | TODO |
-| 47 | conv_mark_read_two_proc | 2p-r | S118/S19 | B sends 3 → A unread badge ≥1 → mark-read via row menu → badge gone | TODO |
-| 48 | conv_delete_confirm_c2c | 2p-r | S119/S20 | delete via row menu + confirm → row gone, friendship intact | TODO |
-| 49 | conv_clear_history_c2c | 2p-r | S111 | clear via row menu → history empty, row survives | TODO |
-| 50 | conv_clear_preserves_pin_c2c | 2p-r | — | pin + seed + clear → still pinned (C2C mirror of group gate) | TODO |
-| 51 | conv_unread_badge_bump_clear | 2p-r | S90/S19 | B sends → badge N increments; open chat → 0 | TODO |
-| 52 | conv_preview_updates_on_inbound | 2p-r | — | B sends nonce → row last-message preview shows it | TODO |
-| 53 | conv_presence_dot_flips | 2p-r | S51 | B quits/offline → A presence dot flips; B relaunch → online (uses l3 connection state to detect, real dot asserted) | TODO |
-| 54 | conv_search_filter_clear | 2p-r | S48 | conversation search: filter → match; clear → all | TODO |
+| 45 | conv_menu_surface_c2c | 2p-r | S117 | right-click/menu on C2C row → menu items render (pin/read/delete) | WRITTEN (real secondary-tap opens menu; no clear item — see log) |
+| 46 | conv_pin_unpin_reorders | 2p-r | S116 | pin → row to top + pinned style; unpin → restores | WRITTEN (real menu surface + deterministic pin action; reorder via dump order) |
+| 47 | conv_mark_read_two_proc | 2p-r | S118/S19 | B sends 3 → A unread badge ≥1 → mark-read via row menu → badge gone | WRITTEN |
+| 48 | conv_delete_confirm_c2c | 2p-r | S119/S20 | delete via row menu + confirm → row gone, friendship intact | WRITTEN (near-LAST + re-seed; friendship intact per S20) |
+| 49 | conv_clear_history_c2c | 2p-r | S111 | clear via row menu → history empty, row survives | WRITTEN (no conv-row clear action — proves real menu surface, clears via l3_clear_history; see log) |
+| 50 | conv_clear_preserves_pin_c2c | 2p-r | — | pin + seed + clear → still pinned (C2C mirror of group gate) | WRITTEN |
+| 51 | conv_unread_badge_bump_clear | 2p-r | S90/S19 | B sends → badge N increments; open chat → 0 | WRITTEN (clears by OPENING the chat — distinct from 47's menu mark-read) |
+| 52 | conv_preview_updates_on_inbound | 2p-r | — | B sends nonce → row last-message preview shows it | WRITTEN |
+| 53 | conv_presence_dot_flips | 2p-r | S51 | B quits/offline → A presence dot flips; B relaunch → online (uses l3 connection state to detect, real dot asserted) | SKIP(presence-flip un-seedable on a reused launch — friend `online` flag has no ungated setter; flipping it needs stopping B's process, forbidden by launch-reuse) |
+| 54 | conv_search_filter_clear | 2p-r | S48 | conversation search: filter → match; clear → all | WRITTEN (real Cmd+Ctrl+F shortcut opens the search overlay — only entry) |
 
-Sweep: `sweep_conv` · Campaign: `rui-conv`. **Batch 5 STATUS: TODO**
+Sweep: `sweep_conv` · Campaign: `rui-conv`. **Batch 5 STATUS: DONE** (9/10 WRITTEN+unrun, 1 SKIP — case 53 presence-flip un-seedable; analyze 0-NEW vs 222 baseline; planner/validate/campaign-list/self-test green; gen_scenario_index --check green; conversation+search+ui_drive hermetic tests 43/43; no production change)
 
 #### Batch 6 — Chat surface C2C (16 cases, 2p-r)
 
@@ -784,6 +784,174 @@ AppleScript System Events window resize, SKIP with reason if refused)
   path is the same native binary-replacement path on every platform, so a run-phase
   fix there covers mobile as well. (This harness drives the macOS desktop app; the
   hermetic L1 WidgetTester gates in `test/ui/contact/` cover the mobile builders.)
+
+- 2026-06-10 **Batch 5 DONE** (conversation list C2C — 9 TWO-PROCESS cases
+  WRITTEN+unrun, 1 SKIP; NOT live-run, per write-phase protocol). New part file
+  `tool/mcp_test/drive_real_ui_pair_conv.dart` (~680 LOC) declared in the
+  `drive_real_ui_pair.dart` part list; 9 per-case functions + 1 SKIP function +
+  `runConvSweep` (chains all 10 on ONE 2p launch, per-case
+  `[sweep] <case>: PASS|FAIL|SKIP` + final counts + an end-state re-seed guard,
+  exits non-zero if any HARD case fails — 9 hard, 1 SKIP). Each case individually
+  dispatchable in `drive_real_ui_pair.dart` (all need a friendship — establishes
+  it inline via the real-UI handshake, or the runner restores paired_for_e2e).
+  Runner: 11 ids (`sweep_conv` + 10) added to `_validRealUiScenarios` + both state
+  tables; campaign `rui-conv = [sweep_conv]`.
+
+  **MENU TRIGGER FINDING (the brief's open question — fully REAL, no l3 deep-link
+  for the open):** the C2C conversation-row context menu opens through the SAME
+  production path the group rows use. The fork's
+  `tencent_cloud_chat_conversation_item.dart` wraps the row in
+  `TencentCloudChatGesture` (`:297`), whose `InkWell.onSecondaryTapDown` →
+  `_handleSecondaryTap` (desktop right-click) and a `RawGestureDetector`
+  long-press → `_handleLongPress` (mobile) both call toxee's
+  `onSecondaryTapConversationItem` / `onLongPressConversationItem` UI event
+  handlers (`home_page.dart:349/358`) → `_showConversationContextMenu(conv,
+  position)` → `showMenu` with the keyed `buildConversationContextMenuItems`. So
+  `Inst.secondaryTapKey` (Batch-0 `ui_secondary_tap`: a real
+  `PointerDownEvent(kind:mouse, buttons:kSecondaryMouseButton)` + up) on the row
+  key `conversation_list_item:c2c_<pubkey>` opens the REAL menu — UNGATED, works
+  on fresh non-test accounts. This is the C2C confirmation that the secondary-tap
+  primitive (built for the Batch-6 message menu) is also the conversation-row menu
+  trigger. The keyed items
+  (`conversation_context_menu_{pin,unpin,mark_read,delete}_item`) + the keyed
+  delete-confirm (`delete_conversation_confirm_button`) are then tapped through
+  the real UI.
+  - **PIN exception (deterministic action, mirrors `drive_real_ui_pair_group_menu`):**
+    tapping the InkWell-backed `PopupMenuItem` for the pin TOGGLE double-fires
+    under flutter_skill → two toggles = net no-op (the
+    flutter_skill_double_tap_blank hazard); and a coordinate `tapKeyCenter` on a
+    route-popping menu item can land a frame late as the menu dismisses. So the
+    pin/mark-read TOGGLE/transition cases OPEN the real menu via `secondaryTapKey`
+    to PROVE the surface (the keyed item renders), then dispatch the toggle/clean
+    through `l3_open_conversation_menu` action:'pin'|'mark_read' — the SAME
+    `_dispatchConversationMenuAction` the menu's onSelected runs (an ungated
+    harness hook, NOT a bypass of the asserted handler). DELETE opens the real
+    menu and single-fires the real keyed Delete item + the real keyed confirm.
+
+  **PRESENCE ANSWER (case 53 — SKIP, verified not assumed per "don't trust doc
+  conclusions"):** the C2C row's online-dot KEY
+  (`conversation_item_online_dot:<convId>`) is ALWAYS in the tree; only its fill
+  COLOR flips (status color online / transparent offline —
+  `conversation_item_online_dot_key_test.dart`), so the key alone can't assert
+  presence. The friend `online` flag in `l3_dump_state.friends[].online` comes
+  straight from the native Tox friend-connection-status callback
+  (`l3_debug_tools.dart:4700`); there is **NO ungated l3 setter** for it
+  (`grep` for `l3_set_online`/`setFriendOnline` → none). The ONLY mechanism that
+  flips B's online state is `stop_toxee_instance.sh B` + relaunch
+  (`run_fixture_c_presence.sh` PHASE 2/3), which the launch-reuse rule FORBIDS.
+  `drive_fixture_c_presence.dart` is purely OBSERVATIONAL (it POLLS A's
+  `friends[].online`; it does not flip anything), confirming there is no seeding
+  seam. So the flip is un-seedable on a reused launch → case 53 is
+  `SKIP(presence-flip un-seedable; no ungated online setter; stopping B
+  forbidden)`. The case logs the dot-key presence as a non-asserting surface
+  breadcrumb but never fakes a flip (returns null → the sweep tallies SKIP;
+  individual dispatch returns exit 75, the runner's `_realUiSkipExitCode`).
+
+  **CASE-SHAPE DEVIATIONS (faithful, all in-code):**
+  - **49 clear-history:** the conversation-row menu has NO "clear history" action
+    (its items are pin/mark-read/delete — the C2C clear-history surface lives on
+    the FRIEND PROFILE, gated in Batch-4 case 41). The conversation-LIST clear
+    path for C2C is the ungated `l3_clear_history` hook (the same one the L3
+    runner uses); there's no conv-row clear button to drive. So case 49 PROVES the
+    real conv-row menu surface via the right-click (so it's a genuine conv-list
+    case), then clears via `l3_clear_history`, asserting messageCount→0 + the row
+    SURVIVES. The 45 surface assertion is therefore pin/mark-read/delete (no
+    "clear" item — table updated).
+  - **46 reorder:** the reorder is asserted from the dump conversation order
+    (pinned-first, the same source the list renders). On a single-C2C-row list
+    "pinned is first" is trivially true (nothing to sort below it) — still a valid
+    pinned-first invariant; the HARD signal is `isPinned` flips on + pinned-first
+    + `isPinned` flips off on unpin.
+  - **47 vs 51:** 47 clears unread via the menu's Mark-as-read (the action path);
+    51 clears unread by OPENING the chat (the natural user action / active-conv
+    mark-read path) — two distinct production clears, both seeded by B's real
+    sends with A parked off the conversation (active conversation cleared so the
+    inbound accrues real unread rather than auto-marking).
+
+  **REAL-UI SEAMS used (no new production keys — Batch 5 makes ZERO production
+  change):** every key the cases drive already ships —
+  `conversation_list_item:c2c_<pk>` (row), `conversation_context_menu_*` +
+  `delete_conversation_confirm_button` (menu/confirm, home_page.dart),
+  `conversation_item_online_dot:<convId>` (dot), `message_search_field` +
+  `search_result_contact:<uid>` (search, custom_search.dart). New harness-only
+  helper `Inst.osaSearchShortcut` (Cmd+Ctrl+F via osascript — a genuine OS key
+  chord that runs the production `_OpenSearchIntent` Shortcuts/Actions path; the
+  ONLY entry to the global search overlay — there is no visible search button).
+
+  **2p STATE CONTRACT (registered):** `sweep_conv` required=no-friend (does its
+  OWN real-UI handshake at the top, reusing Batch-4's
+  `_establishFriendshipForSweep`), result=friends. The C2C delete (case 48)
+  removes only the conversation ROW, not the friend (the S20 invariant —
+  `deleteConversation` → clearC2CHistory + unpin, NOT deleteFriend, proven by the
+  `conversation_row_menu_c2c_real_ui_test.dart` S20 gate), so the launch never
+  goes no-friend; case 48 runs near LAST and the `finally` end-guard RE-SEEDS a
+  conversation row (one composer send) + lands both on the chats home, so the
+  launch ends FRIENDS with a visible row. The return gates on
+  `failed==0 && endFriends`, where `endFriends` is recomputed AFTER the re-seed
+  from the live state as `areFriends(a,B) && areFriends(b,A) && _conversationListed(
+  a, c2c_<B>)` (default false), so the runner never trusts an unachieved result
+  state — including a silently-failed reseed (codex P1). Planner dry-run confirmed: `sweep_conv` → a FRESH
+  `launch_fixture_c_pair.sh` (no restore, no `--boot-restored`); the individual
+  cases → `TOXEE_FIXTURE_C_RESTORE=paired_for_e2e` + `--boot-restored`.
+
+  **ORDER (state-poison-aware):** handshake once → 45 menu surface → 46 pin/unpin
+  reorder (ends unpinned) → 47 mark-read (B seeds unread, menu Mark-as-read
+  clears) → 49 clear-history (seed+clear, row survives) → 50 clear-preserves-pin
+  (ends unpinned, restores) → 51 unread bump→open clears → 52 preview on inbound →
+  53 presence (SKIP) → 54 conversation search filter/clear (opens via real
+  Cmd+Ctrl+F, closes via ESC) → 48 DELETE row (near LAST; friendship intact) →
+  finally RE-SEED a row. Pin cases restore unpinned; the search overlay is closed
+  after 54; the delete is last-but-the-re-seed.
+
+  **Gates green:** `flutter analyze lib tool` 222 (0 NEW vs the Batch-0 baseline —
+  the new part file + the `osaSearchShortcut` addition are clean); `--plan-json
+  --class=2proc-ui` exit 0 (JSON parses); `--validate-only` exit 0;
+  `--list-real-ui-campaigns` shows `rui-conv: sweep_conv`; the `rui-conv` campaign
+  + the individual `conv_*` cases dry-run plan correctly (fresh-vs-restored);
+  driver `--self-test-shell-recovery` PASS; `gen_scenario_index.dart --check`
+  green (178 playbooks, no invariant violations); touched-surface hermetic tests
+  `flutter test test/ui/conversation/ test/ui/search/
+  test/ui/testing/ui_drive_tools_test.dart` 43/43 PASS (these prove every
+  conversation-menu / online-dot / search key the cases depend on is live in the
+  production/fork code — Batch 5 adds NO production change, so the existing gates
+  are the key-existence proof).
+
+  **Codex review (mandatory, telemetry-off — 1 review round + 1 confirm round,
+  all findings applied):** round 1 found 1 P1 + 1 P2, both fixed:
+  - **P1** `runConvSweep`'s `finally` end-guard awaited `_seedConvRow` but IGNORED
+    its bool and computed `endFriends` from friendship ALONE → a silently-failed
+    reseed false-passed the "ends FRIENDS with a visible row" contract. FIX: the
+    end-state gate now also requires the re-seeded row to be LISTED via the
+    AUTHORITATIVE live `_conversationListed(a, c2c_<B>)` check
+    (`endFriends = areFriends(a,B) && areFriends(b,A) && stillRow`); the return is
+    unchanged `(failed==0 && endFriends)`.
+  - **P2** `_convSearchFilterClear` could record PASS while the `CustomSearch`
+    overlay was still on top (`_closeGlobalSearch` was best-effort, void) →
+    poisons the next hard case (`conv_delete_confirm_c2c`) which expects the chats
+    home, not a search overlay. FIX: `_closeGlobalSearch` now RETURNS whether
+    `message_search_field` is gone, and case 54 gates its PASS on `&& closed`.
+  - Confirm round verified P1+P2 RESOLVED and flagged ONE residual false-FAIL
+    risk: gating the live row check on `endRowSeeded &&` would fail a race where
+    the reseed's `_waitConversationListed` timed out but the row IS present by the
+    final check. FIX: dropped the `endRowSeeded &&` conjunct — the LIVE
+    `_conversationListed` is the sole authoritative row gate; `endRowSeeded` is now
+    only a diagnostic in the RESULTS print. After the fixes: analyze still 222 (0
+    NEW), driver self-test PASS, validate/plan-json/campaign-list green.
+
+  **Mobile parity:** every widget the cases drive is shared Dart (the fork's
+  `tencent_cloud_chat_conversation_item.dart` row + gesture, toxee's
+  `home_page.dart` menu handlers + dispatch, `custom_search.dart`) with no
+  platform split — the same conversation-row menu, pin/mark-read/delete, online
+  dot, and global search render identically on iOS/Android/desktop. The menu
+  TRIGGER differs by platform only in the FORK's gesture wiring (desktop
+  `onSecondaryTapDown`, mobile `onLongPressStart` → both call the same toxee
+  handler → the same `showMenu`), so this harness drives the desktop right-click
+  while the mobile long-press hits the identical production path; the
+  `ui_secondary_tap` primitive covers desktop, and a mobile long-press primitive
+  (or `l3_open_conversation_menu`) would cover mobile (noted in Batch-0 for the
+  message menu, applies here too). The presence SKIP applies identically on mobile
+  (the friend online flag is the same native readout with no setter on any
+  platform).
 
 ## Run phase (after ALL batches written) — protocol
 

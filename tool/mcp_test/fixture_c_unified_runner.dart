@@ -143,6 +143,24 @@ const _validRealUiScenarios = {
   'blocked_list_unblock_row',
   'contact_search_filter_clear',
   'friendprof_delete_friend_confirm',
+  // Batch 5 — conversation list C2C (TWO-PROCESS). sweep_conv chains all 10 on
+  // one launch: required=no-friend (it does its OWN handshake) and result=friends
+  // (the C2C delete removes only the conversation ROW, not the friend; the sweep
+  // re-seeds a row, so the launch ends friends). All cases are friendship-
+  // dependent (B's sends seed real unread/preview/history). Case 53 (presence) is
+  // a SKIP inside the sweep — the friend online flag has no ungated setter and
+  // flipping it needs stopping B's process (forbidden by launch-reuse).
+  'sweep_conv',
+  'conv_menu_surface_c2c',
+  'conv_pin_unpin_reorders',
+  'conv_mark_read_two_proc',
+  'conv_delete_confirm_c2c',
+  'conv_clear_history_c2c',
+  'conv_clear_preserves_pin_c2c',
+  'conv_unread_badge_bump_clear',
+  'conv_preview_updates_on_inbound',
+  'conv_presence_dot_flips',
+  'conv_search_filter_clear',
 };
 const _realUiCampaigns = <String, List<String>>{
   // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
@@ -158,6 +176,11 @@ const _realUiCampaigns = <String, List<String>>{
   // launch ends no-friend on both sides). Case 40 (remark) is a HARD gate that
   // is EXPECTED to FAIL live until the native setFriendInfo path is fixed.
   'rui-contacts': ['sweep_contacts'],
+  // Batch 5 — conversation list C2C (the whole 10-case chain on one TWO-PROCESS
+  // launch; one handshake at the top, delete-row near last + a re-seed so the
+  // launch ends friends with a visible row). Case 53 (presence) is a SKIP inside
+  // the chain — the friend online flag is un-seedable on a reused launch.
+  'rui-conv': ['sweep_conv'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -1029,6 +1052,19 @@ String _requiredRealUiState(String scenario) {
     case 'blocked_list_unblock_row':
     case 'contact_search_filter_clear':
     case 'friendprof_delete_friend_confirm':
+    // Batch 5 — friendship-dependent conversation-list cases: the runner restores
+    // paired_for_e2e so the C2C conversation can be seeded by B before the case
+    // drives the row menu / search / preview.
+    case 'conv_menu_surface_c2c':
+    case 'conv_pin_unpin_reorders':
+    case 'conv_mark_read_two_proc':
+    case 'conv_delete_confirm_c2c':
+    case 'conv_clear_history_c2c':
+    case 'conv_clear_preserves_pin_c2c':
+    case 'conv_unread_badge_bump_clear':
+    case 'conv_preview_updates_on_inbound':
+    case 'conv_presence_dot_flips':
+    case 'conv_search_filter_clear':
       return _realUiStateFriends;
     case 'handshake':
     case 'handshake_detail':
@@ -1091,6 +1127,9 @@ String _requiredRealUiState(String scenario) {
     case 'add_friend_invalid_id_error':
     case 'add_friend_self_id_guard':
     case 'contacts_subtabs_cycle':
+    // Batch 5 — sweep_conv runs its OWN handshake, so it requires a fresh
+    // NO-FRIEND pair launch (driving both A and B).
+    case 'sweep_conv':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -1124,6 +1163,21 @@ String _resultRealUiState(String scenario) {
     case 'friendprof_clear_history':
     case 'blocked_list_unblock_row':
     case 'contact_search_filter_clear':
+    // Batch 5 — conversation-list cases LEAVE the friendship intact (the C2C
+    // delete removes only the conversation ROW, never the friend — the S20
+    // invariant — and every other case toggles pin / reads unread / searches).
+    // sweep_conv re-seeds a row at the end, so the whole launch ends friends.
+    case 'sweep_conv':
+    case 'conv_menu_surface_c2c':
+    case 'conv_pin_unpin_reorders':
+    case 'conv_mark_read_two_proc':
+    case 'conv_delete_confirm_c2c':
+    case 'conv_clear_history_c2c':
+    case 'conv_clear_preserves_pin_c2c':
+    case 'conv_unread_badge_bump_clear':
+    case 'conv_preview_updates_on_inbound':
+    case 'conv_presence_dot_flips':
+    case 'conv_search_filter_clear':
       return _realUiStateFriends;
     case 'decline':
     case 'custom_message':

@@ -452,6 +452,15 @@ class Inst {
       _osa('tell application "System Events" to key code 36');
   Future<void> osaEscape() =>
       _osa('tell application "System Events" to key code 53');
+
+  /// Send Cmd+Ctrl+F — the global conversation-search shortcut
+  /// (`_OpenSearchIntent` in home_page.dart, the only entry to the search
+  /// overlay; there is no visible search button). A genuine OS key chord, so the
+  /// production `Shortcuts`/`Actions` path runs.
+  Future<void> osaSearchShortcut() => _osa(
+        'tell application "System Events" to keystroke "f" using '
+        '{command down, control down}',
+      );
   Future<void> osaClear() async {
     await _osa(
       'tell application "System Events" to keystroke "a" using command down',
