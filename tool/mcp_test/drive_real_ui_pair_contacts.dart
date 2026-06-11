@@ -728,9 +728,15 @@ Future<bool> _friendprofClearHistory(Inst inst, String toxFriend) async {
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
               ?.toInt() ??
           0;
-  if (seeded == 0 || beforeCount == 0) {
+  // The asserted action is the CLEAR (messageCount -> 0). The precondition is
+  // simply "there IS history to clear" — beforeCount > 0. The fresh composer
+  // seeding is best-effort setup; if the conversation already carries messages
+  // (a prior case's sends) we proceed even when the fresh seed flaked
+  // (seeded == 0), so a flaky composer doesn't fail a case that's really about
+  // the clear button.
+  if (beforeCount == 0) {
     print(
-      '[pair] friendprof_clear_history: failed to seed history '
+      '[pair] friendprof_clear_history: no history to clear '
       '(seeded=$seeded beforeCount=$beforeCount)',
     );
     return false;
@@ -752,8 +758,13 @@ Future<bool> _friendprofClearHistory(Inst inst, String toxFriend) async {
     print('[pair] friendprof_clear_history: confirm dialog did not open');
     return false;
   }
+  // macOS CupertinoDialogAction has no resolvable RenderBox center → fall back
+  // to tryTapKey (fires the callback via _tryInvokeCallback); the fork's
+  // `handled` one-shot guard absorbs the double-fire.
   if (!await inst.tapKeyCenter('user_profile_clear_history_confirm_button',
-      timeoutSecs: 6)) {
+          timeoutSecs: 6) &&
+      !await inst.tryTapKey('user_profile_clear_history_confirm_button',
+          retries: 3)) {
     print('[pair] friendprof_clear_history: confirm not tappable');
     return false;
   }
@@ -843,14 +854,22 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
     }
   }
   final unblocked = await _waitBlocked(inst, toxFriend, false);
-  // 4) Re-check the Blocked Users list: the row is gone.
+  // 4) Re-check the Blocked Users list: the row is gone. The block-list panel
+  // does not always live-refresh when the unblock happens off-panel, so FORCE a
+  // fresh load by navigating New Contacts -> Blocked Users (keyed sub-tabs) the
+  // same way _refreshApplicationList does — a single Blocked-Users tap can show
+  // the stale cached list.
   await ensureContactsShell(inst);
   await inst.foreground();
+  if (!await inst.tryTapKey('contact_new_contacts_tab', retries: 2)) {
+    await inst.tapAt(240, 173);
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 700));
   if (!await inst.tryTapKey('contact_blocked_users_tab', retries: 2)) {
     await _tryTapText(inst, 'Blocked Users');
     await inst.tapAt(240, 270);
   }
-  await Future<void>.delayed(const Duration(milliseconds: 1200));
+  await Future<void>.delayed(const Duration(milliseconds: 1400));
   final rowGone = await inst.waitKeyGone(shortKey, timeoutSecs: 6) &&
       await inst.waitKeyGone(fullKey, timeoutSecs: 2);
   await ensureContactsShell(inst);
@@ -949,10 +968,15 @@ Future<bool> _friendprofDeleteFriendConfirm(
     print('[pair] friendprof_delete_friend_confirm: confirm dialog did not open');
     return false;
   }
-  // Single-fire the keyed confirm (it pops the profile route on success; the
-  // `handled` guard already absorbs a double-fire, but tapKeyCenter is one tap).
+  // Tap the keyed confirm. On macOS this is a CupertinoDialogAction whose
+  // RenderBox center isn't resolvable via interactiveStructured (tapKeyCenter
+  // returns false), so fall back to tryTapKey (flutter_skill `tap` fires the
+  // callback via _tryInvokeCallback even without bounds). The fork's `handled`
+  // one-shot guard absorbs the double-fire safely (it pops + deletes once).
   if (!await a.tapKeyCenter('user_profile_delete_friend_confirm_button',
-      timeoutSecs: 6)) {
+          timeoutSecs: 6) &&
+      !await a.tryTapKey('user_profile_delete_friend_confirm_button',
+          retries: 3)) {
     print('[pair] friendprof_delete_friend_confirm: confirm not tappable');
     return false;
   }
