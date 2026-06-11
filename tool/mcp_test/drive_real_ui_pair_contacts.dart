@@ -94,6 +94,21 @@ Future<bool> _ensureFriendProfileOpen(Inst inst, String tox) async {
   return _onFriendProfile(inst, timeoutSecs: 2);
 }
 
+/// Read a friend's USER-EDITED REMARK from the dump (`friends[].remark` — the
+/// Prefs-backed alias the host displays from). The Tox `nickName` is a SEPARATE
+/// field; the friend-profile remark dialog persists into `remark` (via the
+/// Platform-path Tim2ToxSdkPlatform.setFriendInfo -> prefs.setFriendRemark), NOT
+/// into `nickName`, so the remark must be asserted on this field.
+Future<String> _friendRemark(Inst inst, String tox) async {
+  final s = await inst.dumpState();
+  for (final f in (s['friends'] as List? ?? const [])) {
+    if (f is Map && _pubkey(f['userId']?.toString() ?? '') == _pubkey(tox)) {
+      return f['remark']?.toString() ?? '';
+    }
+  }
+  return '';
+}
+
 /// Read a friend's blocked state from the dump (`blockedUsers` is the live
 /// FfiChatService.blockedUsers set — Prefs-backed, race-free, pubkey entries).
 Future<bool> _isBlocked(Inst inst, String tox) async {
@@ -658,21 +673,23 @@ Future<bool> _friendprofRemarkEditPersists(Inst inst, String toxFriend) async {
     timeoutSecs: 8,
   );
   await Future<void>.delayed(const Duration(milliseconds: 1500));
-  // Assert PERSISTENCE through the DUMP (the authoritative friends[].nickName /
-  // friendRemark the UI renders from). The transient on-screen text alone is
-  // NOT trusted — `_onChangeFriendRemark` only `safeSetState`s the remark when
-  // the SDK call returns code 0, so a UI flash without a persisted change is
-  // exactly the broken-native symptom we must catch. EXPECTED to FAIL live until
-  // the native setFriendInfo path is fixed — that FAIL is the actionable signal,
-  // hence a HARD assertion gated on the DUMP (not the transient text).
-  final dumpNick = await friendNick(inst, toxFriend);
-  final persisted = dumpNick == _b4RemarkText;
-  // RESTORE the original remark/name so case 43 (which searches by nickB) and
-  // case 44 aren't poisoned once this path starts passing. Best-effort: only
-  // matters when `persisted` is true (the broken path never changed anything).
-  if (persisted && originalNick.isNotEmpty && originalNick != _b4RemarkText) {
+  // Assert PERSISTENCE through the DUMP. The remark persists into the Prefs-backed
+  // `friends[].remark` field (via the Platform-path Tim2ToxSdkPlatform.setFriendInfo
+  // -> prefs.setFriendRemark), NOT into the Tox `friends[].nickName`. The original
+  // harness assertion read `nickName` (which never changes for a remark edit), so
+  // it always reported FAIL even though the remark DID persist — root-caused live:
+  // setFriendInfo routes through the PLATFORM override (not the binary-replacement
+  // DartSetFriendInfo), and toxee's display path reads the Prefs remark store. Gate
+  // on `remark` (the authoritative store the contact list / search / chat header
+  // render from). The transient on-screen text alone is still NOT trusted.
+  final dumpRemark = await _friendRemark(inst, toxFriend);
+  final persisted = dumpRemark == _b4RemarkText;
+  // RESTORE the original remark (empty for the echo fixture) so case 43's search
+  // and case 44 aren't poisoned. Best-effort: only when the remark actually
+  // persisted (a no-op clear is harmless either way).
+  if (persisted) {
     try {
-      await _setFriendRemark(inst, toxFriend, originalNick);
+      await _setFriendRemark(inst, toxFriend, _originalRemark);
     } on DriveError catch (e) {
       print('[pair] friendprof_remark_edit_persists: restore best-effort '
           'failed: ${e.message}');
@@ -680,12 +697,16 @@ Future<bool> _friendprofRemarkEditPersists(Inst inst, String toxFriend) async {
   }
   print(
     '[pair] friendprof_remark_edit_persists: originalNick="$originalNick" '
-    'dialogClosed=$dialogClosed dumpNick="$dumpNick" persisted=$persisted '
-    '(HARD assert on the DUMP — a FAIL here signals the native setFriendInfo '
-    'path needs the same ABI fix the mute path got)',
+    'dialogClosed=$dialogClosed dumpRemark="$dumpRemark" persisted=$persisted '
+    '(HARD assert on friends[].remark — the Prefs-backed alias store the UI '
+    'renders from)',
   );
   return dialogClosed && persisted;
 }
+
+/// The remark to restore after case 40. The paired_for_e2e echo accounts start
+/// with NO remark, so the clean restore is an empty remark (clears the alias).
+const _originalRemark = '';
 
 /// Set a friend's remark via the real modify-remark dialog (used to RESTORE the
 /// original remark after case 40 — only reached once the native setFriendInfo

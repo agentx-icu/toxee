@@ -3,11 +3,6 @@ part of 'drive_real_ui_pair.dart';
 
 const _skillNs = 'ext.flutter.flutter_skill';
 const _mcpNs = 'ext.mcp.toolkit';
-
-/// `focusType` PASTES (clipboard) instead of keystroking for any text at/above
-/// this length. macOS `System Events keystroke` drops characters on long
-/// strings; the threshold sits below a 76-char Tox ID so ids always paste.
-const _osaPasteThreshold = 32;
 const _sidebarTabX = 50;
 const _sidebarChatsY = 220;
 const _sidebarContactsY = 288;
@@ -385,18 +380,21 @@ class Inst {
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
     await osaClear();
-    // macOS `System Events keystroke` DROPS characters on long strings (typed
-    // too fast for the input plugin) — verified live: a 76-char Tox ID came back
-    // as 72 chars, with `1`s and other digits silently dropped. That corrupts
-    // self-add / add-friend ids (the request goes to a malformed id and never
-    // delivers, AND the self-add guard never matches). For anything long enough
-    // to be at risk (Tox ids are 76 chars) PASTE via the clipboard, which is
-    // atomic — no dropped characters. Short text keeps the keystroke path.
-    if (text.length >= _osaPasteThreshold) {
-      await osaPaste(text);
-    } else {
-      await osaType(text);
+    // ALWAYS paste (clipboard), never keystroke. macOS `System Events keystroke`
+    // DROPS / MANGLES characters even on SHORT strings when typed faster than the
+    // input plugin drains — verified live: a 76-char Tox ID came back 72 chars,
+    // AND an 11-char remark "RuiB4Remark" came back "RuiB4R e mark" (spaces
+    // injected). Paste is ATOMIC: it sets the field's controller text in one shot
+    // and fires the onChanged listener once with the COMPLETE value, which is
+    // exactly what every consumer (search filters, validators, remark/id fields)
+    // wants. The legacy length-thresholded keystroke path is gone — it was the
+    // root of the self-add / handshake-id corruption and the remark corruption.
+    if (text.isEmpty) {
+      // osaClear already emptied the field; a paste of "" is a no-op.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      return;
     }
+    await osaPaste(text);
     await Future<void>.delayed(const Duration(milliseconds: 150));
   }
 
