@@ -135,6 +135,8 @@ import 'fixture_c_bootstrap.dart';
 //   p2_verify     — P1/P2/P3-campaign Batch VII (P2 verify-first result):
 //                   pasted-image composer flow; voice/tray remain documented
 //                   product gaps / L3-pinned surfaces.
+//   p3             — P1/P2/P3-campaign Batch VIII (P3 writable subset):
+//                   parametric C2C burst perf with advisory timing threshold.
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_shell.dart';
 part 'drive_real_ui_pair_friends.dart';
@@ -157,6 +159,7 @@ part 'drive_real_ui_pair_p1_relaunch.dart';
 part 'drive_real_ui_pair_p2_keys.dart';
 part 'drive_real_ui_pair_p2_reply.dart';
 part 'drive_real_ui_pair_p2_verify.dart';
+part 'drive_real_ui_pair_p3.dart';
 
 Future<void> main(List<String> args) async {
   exitCode = await HttpOverrides.runWithHttpOverrides(
@@ -825,6 +828,21 @@ Future<int> _main(List<String> args) async {
     }
     if (_isP2VerifyCaseScenario(scenario)) {
       return await runP2VerifyCase(
+        a,
+        b,
+        nickA,
+        nickB,
+        scenario,
+        bootRestored: bootRestored,
+      );
+    }
+    // P1/P2/P3 campaign Batch VIII — P3 writable subset. The real-UI case is
+    // message_burst_perf; ar_rtl_smoke is a hermetic Flutter smoke test.
+    if (scenario == 'sweep_p3_writable') {
+      return await runP3WritableSweep(a, b, nickA, nickB);
+    }
+    if (_isP3WritableCaseScenario(scenario)) {
+      return await runP3WritableCase(
         a,
         b,
         nickA,

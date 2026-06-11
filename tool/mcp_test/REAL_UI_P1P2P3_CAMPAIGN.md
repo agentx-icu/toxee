@@ -309,7 +309,44 @@ plan-json under `--class=2proc-ui`, shell recovery self-test, INDEX check,
 
 `message_burst_perf` (param count + timing, nonBlocking threshold); `ar_rtl_smoke`
 (verify ar locale exists; Directionality assert); platform run plan section
-(iOS sim / Android / Win11) written here for the run-phase owner. **STATUS: TODO**
+(iOS sim / Android / Win11) written here for the run-phase owner. **STATUS:
+DONE (written, unrun)**
+
+Write-phase outputs:
+
+- Real-UI driver: `drive_real_ui_pair_p3.dart` adds `sweep_p3_writable` and the
+  standalone `message_burst_perf` case. The sweep starts from no-friend and
+  performs its own handshake; the standalone case requires/restores a friendship.
+- Burst knobs: `RUI_BURST_PERF_COUNT` (default 24, max 2000),
+  `RUI_BURST_PERF_NONBLOCKING_MS` (default 180000), and
+  `RUI_BURST_PERF_DELIVERY_TIMEOUT_SECS` (default 90). Delivery/count
+  correctness is a hard failure; the elapsed threshold logs `NONBLOCKING` only
+  and does not fail a delivered run.
+- Hermetic RTL smoke: `test/ui/settings/ar_rtl_smoke_test.dart` asserts
+  `AppLocalizations.supportedLocales` contains `Locale('ar')`, resolves the
+  Arabic localization, and verifies ambient `Directionality` is RTL. The fuller
+  Settings picker flow remains covered by `theme_locale_live_apply_real_ui_test.dart`.
+- Runner catalog: `rui-p3-writable` expands to `sweep_p3_writable`; standalone
+  `message_burst_perf` plan-json restores `paired_for_e2e` and passes
+  `--boot-restored`.
+
+Platform run plan for the run-phase owner:
+
+- macOS desktop (primary): after the deferred rebuild, run
+  `RUI_BURST_PERF_COUNT=<N> RUI_BURST_PERF_NONBLOCKING_MS=<ms> dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-p3-writable`.
+  Suggested smoke is `N=24`; stress runs can raise toward 1000 after the default
+  campaign is green. Record both PASS/FAIL and the nonblocking elapsed signal.
+- iOS simulator: reuse the same count/threshold matrix, but first port or select
+  an iOS-compatible focus/tap transport for the two live instances because the
+  current `Inst.foreground`/pair launcher assumptions are desktop-oriented. The
+  acceptance target is the same: delivered final message, sender/receiver burst
+  counts, and RTL smoke green.
+- Android emulator: mirror iOS. Confirm keyboard Return/send semantics on the
+  mobile composer before increasing `RUI_BURST_PERF_COUNT`; the Dart history
+  count assertions are shared.
+- Win11 desktop: port the pair launch/focus/screenshot helpers to Windows
+  process/window APIs, then run the same `rui-p3-writable` campaign and capture
+  elapsed threshold logs. The case itself has no macOS clipboard dependency.
 
 ## File map (pre-baked anchors for batch agents)
 
@@ -478,3 +515,21 @@ validated gates only.
   source guard direct dart run, `git diff --check`, root analyze 222/0-fatal,
   `test/ui/testing` 19/19, and related tests 53/53. Codex review deliberately
   skipped per the user instruction for this turn.
+
+- 2026-06-11 **Batch VIII DONE (written, unrun)**. Added
+  `drive_real_ui_pair_p3.dart`, `sweep_p3_writable`, and `rui-p3-writable`.
+  `message_burst_perf` sends a parametric A->B real-composer burst, asserts the
+  final delivery and sender/receiver burst counts, and logs elapsed timing
+  against a nonblocking threshold (`RUI_BURST_PERF_NONBLOCKING_MS`). Added
+  `ar_rtl_smoke_test.dart` for the direct Arabic supported-locale +
+  `Directionality.rtl` gate, while leaving the existing real Settings picker
+  RTL test as the fuller interaction coverage. Wrote the platform run plan
+  above for macOS desktop, iOS simulator, Android emulator, and Win11 desktop.
+  Gates green: red-first P3 source guard (failed before the part existed) then
+  direct source guard pass, RTL smoke 1/1, driver/runner/test analyze no issues,
+  planner plan-json, validate-only, campaign-list (76 campaigns,
+  `rui-p3-writable` present), corrected `rui-p3-writable` and standalone
+  `message_burst_perf` plan-json under `--class=2proc-ui`, shell recovery
+  self-test, INDEX check, `git diff --check`, root analyze 222/0-fatal, and
+  `test/ui/settings test/ui/testing` 79/79. Codex review deliberately skipped
+  per the user instruction for this turn.

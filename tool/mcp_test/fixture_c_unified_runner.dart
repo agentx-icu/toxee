@@ -276,6 +276,10 @@ const _validRealUiScenarios = {
   // are documented as L3-pinned/product gaps; pasted-image is driveable.
   'sweep_p2_verify',
   'paste_image_into_composer',
+  // P1/P2/P3 campaign Batch VIII — P3 writable subset. The live real-UI case is
+  // message_burst_perf; ar_rtl_smoke runs as a hermetic Flutter test.
+  'sweep_p3_writable',
+  'message_burst_perf',
 };
 const _realUiCampaigns = <String, List<String>>{
   // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
@@ -330,6 +334,8 @@ const _realUiCampaigns = <String, List<String>>{
   // P1/P2/P3 campaign Batch VII — pasted-image write-phase driver; voice/tray
   // conclusions live in the campaign anchor.
   'rui-p2-verify': ['sweep_p2_verify'],
+  // P1/P2/P3 campaign Batch VIII — P3 writable subset.
+  'rui-p3-writable': ['sweep_p3_writable'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -1272,6 +1278,8 @@ String _requiredRealUiState(String scenario) {
     case 'reply_quote_real':
     // P1/P2/P3 Batch VII — pasted-image is a C2C chat case.
     case 'paste_image_into_composer':
+    // P1/P2/P3 Batch VIII — message_burst_perf needs an existing friendship.
+    case 'message_burst_perf':
       return _realUiStateFriends;
     case 'handshake':
     case 'handshake_detail':
@@ -1382,6 +1390,8 @@ String _requiredRealUiState(String scenario) {
     case 'sweep_p2_reply':
     // P1/P2/P3 Batch VII — sweep_p2_verify runs its OWN handshake.
     case 'sweep_p2_verify':
+    // P1/P2/P3 Batch VIII — sweep_p3_writable runs its OWN handshake.
+    case 'sweep_p3_writable':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -1496,6 +1506,9 @@ String _resultRealUiState(String scenario) {
     // P1/P2/P3 Batch VII — pasted-image keeps the existing friendship.
     case 'sweep_p2_verify':
     case 'paste_image_into_composer':
+    // P1/P2/P3 Batch VIII — burst perf keeps the existing friendship.
+    case 'sweep_p3_writable':
+    case 'message_burst_perf':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
     case 'relaunch_history_autologin':
