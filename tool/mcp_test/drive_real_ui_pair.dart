@@ -123,6 +123,10 @@ import 'fixture_c_bootstrap.dart';
 //                   group target, draft NEGATIVE pin, typing DOUBLE-NEGATIVE
 //                   pin, sidebar total-unread badge, search empty state, image
 //                   preview hardened + the sweep_p1_chat chain.
+//   p1_relaunch   — P1/P2/P3-campaign Batch IV (relaunch + profile-call
+//                   quartet): autologin/history after instance restart,
+//                   offline-pending then relaunch, profile voice/video call
+//                   tiles, join-by-id real AddGroupDialog path.
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_shell.dart';
 part 'drive_real_ui_pair_friends.dart';
@@ -141,6 +145,7 @@ part 'drive_real_ui_pair_group2.dart';
 part 'drive_real_ui_pair_calls_misc.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
+part 'drive_real_ui_pair_p1_relaunch.dart';
 
 Future<void> main(List<String> args) async {
   exitCode = await HttpOverrides.runWithHttpOverrides(
@@ -705,6 +710,17 @@ Future<int> _main(List<String> args) async {
     }
     if (_isP1ChatCaseScenario(scenario)) {
       return await runP1ChatCase(a, b, nickA, nickB, scenario,
+          bootRestored: bootRestored);
+    }
+    // P1/P2/P3 campaign Batch IV — relaunch-capable scenarios. The sweep starts
+    // from a fresh no-friend pair and does its own handshake; individual cases
+    // need a restored friendship. Cases may restart one instance internally and
+    // return relaunch-dirty so the runner stops/relaunches before the next case.
+    if (scenario == 'sweep_p1_relaunch') {
+      return await runP1RelaunchSweep(a, b, nickA, nickB);
+    }
+    if (_isP1RelaunchCaseScenario(scenario)) {
+      return await runP1RelaunchCase(a, b, nickA, nickB, scenario,
           bootRestored: bootRestored);
     }
     if (scenario == 'group_profile_open') {

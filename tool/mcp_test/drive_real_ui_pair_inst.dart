@@ -35,7 +35,7 @@ class Inst {
   Inst(this.name, this.ws, this.pid);
   final String name;
   String ws;
-  final int pid;
+  int pid;
   late VmService vm;
   late String iso;
 

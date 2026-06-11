@@ -179,7 +179,31 @@ dispose the stale vm client first). Design intent: assert the pending spinner
 BEFORE relaunching B (don't race it); gate call cases on both-idle like batch 8;
 verify-first whether AddGroupDialog has any join-by-id path (likely absent →
 negative product-gap gate, S33 stays 2proc-l3).
-**STATUS: TODO**
+**STATUS: DONE (written, unrun)** — 4/4 WRITTEN, 0 SKIP. Added
+`drive_real_ui_pair_p1_relaunch.dart` plus dispatch/runner registration
+(`sweep_p1_relaunch`, `rui-p1-relaunch`) and the runner result state
+`relaunch-dirty`, which intentionally forces the next external scenario through
+the existing stop+launch branch. `Inst.pid` is now mutable so a one-instance
+relaunch can keep using the same driver object while foregrounding the new
+process. Fork change: the existing state-suffixed message-status key contract
+now covers the SENDING spinner as
+`message_send_status:<msgID>:sending`, letting `offline_pending_relaunch` assert
+the real spinner before B is relaunched. Verify-first correction: contrary to
+the handoff guess, `AddGroupDialog` DOES have a real join-by-ID path
+(`add_group_join_id_input`, `add_group_join_message_input`, alias field, and
+`service.joinGroup(...)`), so `group_join_by_id_real_ui` is a positive real-UI
+case rather than a product-gap negative. Relaunch helper uses
+`stop_toxee_instance.sh <A|B>` + `launch_toxee_instance.sh <A|B>`; the launch
+script preserves per-instance prefs/app support, writes fresh `instance.json`,
+and the driver re-reads pid/ws, reconnects, waits `sessionReady` +
+`currentAccountToxId`, then returns home. Codex review: SKIPPED per explicit
+user directive for this handoff turn. Gates: analyze 222/0-new; plan-json,
+validate-only, campaign-list (`rui-p1-relaunch` present), shell recovery
+self-test, and INDEX all green; `flutter test test/ui/chat test/ui/call
+test/ui/contact test/ui/add_group_dialog_test.dart test/ui/conference
+test/ui/testing` = 135/135. Mobile parity: the sending-status key lives in the
+shared fork message widget; driver scenarios remain desktop real-UI write-phase
+cases.
 
 ### Batch V — P2 fork keys + scenarios (`drive_real_ui_pair_p2_keys.dart`)
 
@@ -303,3 +327,19 @@ validated gates only.
   massive unrelated churn, so keep fork key edits surgical; (3) read-receipt
   assertions must prove the receiver's local unread was nonzero before opening
   the row, or the negative gate is vacuous.
+
+- 2026-06-11 **Batch IV DONE (written, unrun)**. Added
+  `drive_real_ui_pair_p1_relaunch.dart` and registered `sweep_p1_relaunch` /
+  `rui-p1-relaunch`; added `_realUiStateRelaunchDirty` so internally restarted
+  pair metadata is never reused by the next external scenario. Wrote all four
+  P1 relaunch/profile cases: history survives A relaunch + autologin,
+  offline-pending asserts the real SENDING spinner key before relaunching B,
+  friend-profile voice/video tiles place real calls with both-idle guards, and
+  group join-by-ID drives the real AddGroupDialog join card. Fork addition:
+  `message_send_status:<msgID>:sending` on the sending spinner (same shared
+  message widget contract as Batch III's read/sent keys). Verify-first gotcha:
+  AddGroupDialog's join-by-ID path exists despite the handoff note; do not pin
+  this as a product gap. Gates green: analyze 222/0-new, planner plan-json,
+  validate-only, campaign-list, shell recovery self-test, INDEX check, and
+  related UI tests 135/135. Codex review deliberately skipped per the user
+  instruction for this turn.

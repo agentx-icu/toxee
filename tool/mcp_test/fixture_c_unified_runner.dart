@@ -253,6 +253,14 @@ const _validRealUiScenarios = {
   'unread_badge_total_sidebar',
   'search_empty_state',
   'image_preview_open_hardened',
+  // P1/P2/P3 campaign Batch IV — relaunch + profile-call quartet. The sweep
+  // internally restarts instances, so the runner treats its result as
+  // relaunch-dirty and relaunches before the next external scenario.
+  'sweep_p1_relaunch',
+  'relaunch_history_autologin',
+  'offline_pending_relaunch',
+  'call_from_profile_tiles',
+  'group_join_by_id_real_ui',
 };
 const _realUiCampaigns = <String, List<String>>{
   // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
@@ -296,6 +304,10 @@ const _realUiCampaigns = <String, List<String>>{
   // one handshake at the top, both accounts marked test for l3 seeding and
   // revoked at the end; ends friends with a re-seeded row).
   'rui-p1-chat': ['sweep_p1_chat'],
+  // P1/P2/P3 campaign Batch IV — relaunch + profile-call quartet. The sweep
+  // restarts one peer inside the driver, then reports relaunch-dirty so the
+  // next campaign starts from a clean pair launch.
+  'rui-p1-relaunch': ['sweep_p1_relaunch'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -474,6 +486,7 @@ const _realUiCampaigns = <String, List<String>>{
 };
 const _realUiStateNoFriend = 'no-friend';
 const _realUiStateFriends = 'friends';
+const _realUiStateRelaunchDirty = 'relaunch-dirty';
 const _internalRealUiResetScenario = 'reset_friendship';
 
 Future<void> main(List<String> args) async {
@@ -1227,6 +1240,13 @@ String _requiredRealUiState(String scenario) {
     case 'unread_badge_total_sidebar':
     case 'search_empty_state':
     case 'image_preview_open_hardened':
+    // P1/P2/P3 Batch IV — individual cases need an existing friendship. Two of
+    // them restart a peer internally; their *result* state is relaunch-dirty,
+    // but their launch precondition is still paired_for_e2e.
+    case 'relaunch_history_autologin':
+    case 'offline_pending_relaunch':
+    case 'call_from_profile_tiles':
+    case 'group_join_by_id_real_ui':
       return _realUiStateFriends;
     case 'handshake':
     case 'handshake_detail':
@@ -1327,6 +1347,9 @@ String _requiredRealUiState(String scenario) {
     // P1/P2/P3 Batch III — sweep_p1_chat runs its OWN handshake, so it needs a
     // fresh no-friend pair launch.
     case 'sweep_p1_chat':
+    // P1/P2/P3 Batch IV — sweep_p1_relaunch runs its OWN handshake and then
+    // restarts instances internally.
+    case 'sweep_p1_relaunch':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -1428,7 +1451,15 @@ String _resultRealUiState(String scenario) {
     case 'unread_badge_total_sidebar':
     case 'search_empty_state':
     case 'image_preview_open_hardened':
+    // P1/P2/P3 Batch IV — profile-call + join-by-ID keep the friendship and do
+    // not restart peers. Relaunch cases are marked below as relaunch-dirty.
+    case 'call_from_profile_tiles':
+    case 'group_join_by_id_real_ui':
       return _realUiStateFriends;
+    case 'sweep_p1_relaunch':
+    case 'relaunch_history_autologin':
+    case 'offline_pending_relaunch':
+      return _realUiStateRelaunchDirty;
     case 'decline':
     case 'custom_message':
     // These single-instance group scenarios leave the friendship state untouched.
