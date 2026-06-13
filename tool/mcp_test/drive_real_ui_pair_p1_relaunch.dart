@@ -201,7 +201,6 @@ Future<bool> _p1rOfflinePendingRelaunch(
   }
   await _p1rStopInstanceOnly(b);
   var bRelaunched = false;
-  var launchAttempted = false;
   try {
     final text = 'RUIP1OFFLINE-${DateTime.now().microsecondsSinceEpoch}';
     final sentLocally = await sendComposerMessage(a, text);
@@ -233,7 +232,6 @@ Future<bool> _p1rOfflinePendingRelaunch(
       return false;
     }
 
-    launchAttempted = true;
     await _p1rLaunchStoppedInstance(b, expectedToxId: toxB, nick: nickB);
     bRelaunched = true;
     final delivered =
@@ -258,7 +256,13 @@ Future<bool> _p1rOfflinePendingRelaunch(
     );
     return delivered && bReceived;
   } finally {
-    if (!bRelaunched && !launchAttempted) {
+    // Recover B whenever it isn't confirmed back up — covers BOTH the
+    // never-attempted path AND the case where the in-body relaunch THREW
+    // (launchAttempted=true but bRelaunched=false), which the old
+    // `!bRelaunched && !launchAttempted` guard skipped, leaving B down for the
+    // next sweep case (codex-review catch). `_p1rLaunchStoppedInstance` no-ops
+    // when B is already up.
+    if (!bRelaunched) {
       try {
         await _p1rLaunchStoppedInstance(b, expectedToxId: toxB, nick: nickB);
       } on Object catch (e) {

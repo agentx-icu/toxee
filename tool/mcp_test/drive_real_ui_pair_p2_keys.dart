@@ -118,15 +118,16 @@ Future<bool> _p2kStickerFaceCellSend(
     print('[pair] sticker_face_cell_send: sticker panel button absent');
     return false;
   }
-  final panelOpened = await a.waitKey('desktop_sticker_panel', timeoutSecs: 6);
-  if (!panelOpened) {
-    print('[pair] sticker_face_cell_send: desktop sticker panel did not open');
-    return false;
-  }
-
+  // The desktop sticker PANEL container carries no ValueKey in the fork, so the
+  // panel-open proof is the first keyed FACE TAB mounting (a `sticker_face_tab:*`
+  // only exists inside the open panel — `tencent_cloud_chat_sticker_widget.dart`).
+  // (An earlier draft gated on a phantom `desktop_sticker_panel` key that was
+  // never added to the fork — codex-review catch.) `_p2kTapFirstAvailableFaceTab`
+  // both proves the panel opened AND selects a real face pack.
   final facePack = await _p2kTapFirstAvailableFaceTab(a);
   if (facePack == null) {
-    print('[pair] sticker_face_cell_send: no keyed face sticker tab mounted');
+    print('[pair] sticker_face_cell_send: panel did not open / '
+        'no keyed face sticker tab mounted');
     return false;
   }
   final faceCellKey = 'sticker_face_cell:$facePack:0';
@@ -305,9 +306,15 @@ Future<bool> _p2kTapKey(Inst inst, String key, {int timeoutSecs = 6}) async {
 }
 
 Future<int?> _p2kTapFirstAvailableFaceTab(Inst inst) async {
-  for (final pack in const [3, 2, 1]) {
+  // The fork keys each face tab `sticker_face_tab:${e.index}` where `e.index` is
+  // the sticker pack's own index property (`tencent_cloud_chat_sticker_widget.dart`),
+  // which is NOT guaranteed to fall in any fixed small set — probe a generous
+  // 0..9 range (was a too-narrow [3,2,1] that could miss a 0-based pack). The
+  // cell key reuses the SAME pack index (`sticker_face_cell:<pack>:0`), so the
+  // returned value stays consistent with the caller's cell lookup.
+  for (var pack = 0; pack <= 9; pack++) {
     final key = 'sticker_face_tab:$pack';
-    if (await inst.waitKey(key, timeoutSecs: 2) &&
+    if (await inst.waitKey(key, timeoutSecs: 1) &&
         await _p2kTapKey(inst, key)) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       return pack;
