@@ -185,6 +185,7 @@ part 'drive_real_ui_pair_p2_reply.dart';
 part 'drive_real_ui_pair_p2_verify.dart';
 part 'drive_real_ui_pair_p3.dart';
 part 'drive_real_ui_pair_app_entry_extra.dart';
+part 'drive_real_ui_pair_group_mention.dart';
 
 Future<void> main(List<String> args) async {
   exitCode = await HttpOverrides.runWithHttpOverrides(
@@ -842,6 +843,14 @@ Future<int> _main(List<String> args) async {
     }
     if (_isAppEntryExtraCaseScenario(scenario)) {
       return await runAppEntryExtraCase(a, nickA, scenario);
+    }
+    // Group @-mention — two-process (§7.5.1). Establishes (or reuses) the A<->B
+    // friendship + a shared private group, then drives the real @ panel.
+    if (scenario == 'sweep_group_mention') {
+      return await runGroupMentionSweep(a, b, nickA, nickB);
+    }
+    if (_isGroupMentionCaseScenario(scenario)) {
+      return await runGroupMentionCase(a, b, nickA, nickB, scenario);
     }
     // Focused account-management + conference expansion sweep. Single-instance
     // by design; B stays idle.

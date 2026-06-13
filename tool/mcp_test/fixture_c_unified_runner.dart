@@ -291,6 +291,10 @@ const _validRealUiScenarios = {
   'keyboard_open_settings_shortcut',
   'register_password_visibility_toggle',
   'login_import_account_card_open',
+  // Group @-mention — §7.5.1 two-process: real desktop mention panel + send.
+  'sweep_group_mention',
+  'group_at_member_send',
+  'group_at_all_send',
   // Account/conference focused expansion — single-instance, real controls,
   // non-destructive assertions with cleanup-gated state.
   'sweep_account_conf_extra',
@@ -403,6 +407,8 @@ const _realUiCampaigns = <String, List<String>>{
   'rui-p1-extra': ['sweep_p1_extra'],
   // §7.5.1 app-entry extra — high-frequency single-instance real-control cases.
   'rui-app-entry-extra': ['sweep_app_entry_extra'],
+  // §7.5.1 group @-mention — two-process real desktop mention panel.
+  'rui-group-mention': ['sweep_group_mention'],
   // Focused account-management + conference expansion.
   'rui-account-conf-extra': ['sweep_account_conf_extra'],
   // Focused group/conference member role/remove expansion.
@@ -1523,6 +1529,11 @@ String _requiredRealUiState(String scenario) {
     case 'keyboard_open_settings_shortcut':
     case 'register_password_visibility_toggle':
     case 'login_import_account_card_open':
+    // Group @-mention — establishes its OWN friendship + group when needed, so it
+    // requires only a fresh no-friend pair launch.
+    case 'sweep_group_mention':
+    case 'group_at_member_send':
+    case 'group_at_all_send':
     // Account/conference focused expansion — runs on A only, creates any
     // temporary account/conference internally, and cleans them before exit.
     case 'sweep_account_conf_extra':
@@ -1641,6 +1652,13 @@ String _resultRealUiState(String scenario) {
     case 'group_member_list_scroll':
     case 'group_unread_badge_two_proc':
     case 'group_kick_member_ui':
+    // Group @-mention — the member case + the sweep create a temporary group +
+    // B-join, leave it in cleanup, and never delete the friend, so they end
+    // FRIENDS. group_at_all_send is a no-op SKIP (exit 75) whose result state is
+    // never applied by the runner; it is listed here only for switch totality.
+    case 'sweep_group_mention':
+    case 'group_at_member_send':
+    case 'group_at_all_send':
     // Focused member-management sweep/cases leave the friend relationship
     // intact; member removal only removes B from that temporary group.
     case 'sweep_group_conf_member_extra':

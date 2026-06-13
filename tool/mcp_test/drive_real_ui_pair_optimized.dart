@@ -106,6 +106,10 @@ Future<int> runFriendshipOptimizedSweep(
     ),
     _OptimizedStep('sweep_group2', () => runGroup2Sweep(a, b, nickA, nickB)),
     _OptimizedStep(
+      'sweep_group_mention',
+      () => runGroupMentionSweep(a, b, nickA, nickB),
+    ),
+    _OptimizedStep(
       'sweep_group_conf_member_extra',
       () => runGroupConfMemberExtraSweep(a, b, nickA, nickB),
     ),
