@@ -1005,13 +1005,14 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
     tree introspection to learn why `showPopupWindow`'s deep child header isn't
     reached (candidate: a nested-overlay / view boundary the resolver misses).
 
-  **COMMITTED LOCALLY (NOT pushed):** fork v2 `33f7141`, tim2tox master
-  `641f403`, toxee master `1e5c81b` (toxee pins both). ⚠️ Until the fork is
-  PUSHED to origin/v2, a plain `run_toxee.sh` (bootstrap) will FORCE-RESET the
-  fork to origin/v2 (2812dd9) and ABANDON `33f7141` — so builds MUST use
-  `MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh --skip-bootstrap` until
-  the push lands. Push order (pre-push hook): fork → tim2tox → toxee
-  (GitHub SSH 443 fallback for the fork).
+  **COMMITTED + PUSHED 2026-06-13:** fork v2 `33f7141` (origin/v2), tim2tox
+  master `641f403` (origin/master), toxee master `a21f982` (origin/master;
+  pins both). All HTTPS remotes (no SSH-443 needed); pushed fork → tim2tox →
+  toxee so the pinned submodule SHAs exist on the remotes (clone --recursive
+  works). Since origin/v2 now CARRIES the keys, a plain `run_toxee.sh`
+  (bootstrap → `checkout -B v2 FETCH_HEAD`) is SAFE again — it no longer
+  abandons the fork commit. (The toxee a21f982 = the earlier 1e5c81b amended
+  with this push note.)
   HIGH-LEVERAGE CROSS-CUTTING FIXES (benefit ALL chat campaigns, validated):
   first-chat-open (latch reset + l3_open_chat), composer paste
   (sendComposerMessage osaType→osaPaste + conv-agnostic verify), offstage
