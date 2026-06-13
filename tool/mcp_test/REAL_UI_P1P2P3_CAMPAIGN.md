@@ -581,6 +581,29 @@ ONLY as local commits / the toxee-pinned SHA, never pushed to origin/v2.
 Current correct fork SHA = `545499e` (= f47e020 campaign+member keys + the
 group-profile override fix); toxee pins it.
 
+## Run phase — rui-p1-chat: 0/8, SHARED root cause (2026-06-13)
+
+`rui-p1-chat` (sweep_p1_chat) live = **0 PASS / 8 FAIL**, but it is ONE shared
+root cause, not 8 issues: the handshake succeeds + both accounts mark test
+(`aMarked=true bMarked=true`), but EVERY case fails to **open the chat for the
+FIRST message**. After a fresh handshake there is NO C2C conversation row yet, so
+`openChat` (`drive_real_ui_pair_message_call.dart`) can't tap a
+`conversation_list_item:c2c_<pk>` row and falls back to the
+contacts→friend→Send-Message path via `ensureContactsShell`
+(`drive_real_ui_pair_shell.dart`) — which FAILS ("[A] failed to recover to
+Contacts shell"). `_seedConvRow` doesn't help (it calls the same `openChat`).
+`l3_set_active_conversation` only sets `ffi.setActivePeer` (unread accrual), it
+does NOT navigate the UI, so there is no l3 chat-open shortcut. **This same
+first-chat-open path gates ALL the chat campaigns (rui-p1-chat, rui-c2c-extra,
+rui-c2c-deep-extra, the +94 rui-chat), so fixing `ensureContactsShell` /
+`openChat`'s first-message path reliably is the highest-leverage run-phase fix.**
+NOTE: `ensureContactsShell`'s sidebar-tab recovery WORKED in rui-p1-single
+(single-instance, `_p1SelectHomeTab(contacts)` returned true) but fails in the
+2-process sweep — likely a 2-process foreground-contention / stuck-shell-state
+difference; needs a failure screenshot of the stuck state to pin the exact step
+(add a `shot()` at `ensureContactsShell`'s give-up + `openChat`'s throw points).
+**RUN-PHASE BACKLOG — next session, fresh context.**
+
 ## Run phase (STARTED 2026-06-12 — build green + first live smoke done)
 
 The write phase is closed; the remaining live work is run-phase execution.
