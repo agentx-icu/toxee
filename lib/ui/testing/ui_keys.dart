@@ -55,6 +55,7 @@ class UiKeys {
     'login_page_restore_from_tox_file',
   );
   static const Key loginPageSettingsButton = Key('login_page_settings_button');
+  static const Key loginPageErrorBanner = Key('login_page_error_banner');
 
   /// Stable automation anchor for a specific LoginPage saved-account card.
   ///
@@ -273,6 +274,26 @@ class UiKeys {
   static Key searchHistoryMessage(String messageId) =>
       Key('search_history_message_$messageId');
 
+  // Desktop message input toolbar entries (UIKit fork).
+  static const Key messageAttachmentFileButton = Key(
+    'message_attachment_file_button',
+  );
+  static const Key messageAttachmentImageButton = Key(
+    'message_attachment_image_button',
+  );
+  static const Key messageAttachmentPhotoButton = Key(
+    'message_attachment_photo_button',
+  );
+  static const Key messageAttachmentVideoButton = Key(
+    'message_attachment_video_button',
+  );
+  static const Key messageAttachmentPersonalCardButton = Key(
+    'message_attachment_personal_card_button',
+  );
+  static const Key messageAttachmentSearchButton = Key(
+    'message_attachment_search_button',
+  );
+
   // Group profile actions (lib/ui/group/group_builder_override.dart).
   static const Key groupProfileMembersEntry = Key(
     'group_profile_members_entry',
@@ -320,6 +341,9 @@ class UiKeys {
   static const Key deleteConversationConfirmButton = Key(
     'delete_conversation_confirm_button',
   );
+  static const Key deleteConversationCancelButton = Key(
+    'delete_conversation_cancel_button',
+  );
 
   // Friend profile actions (tencent_cloud_chat_user_profile_body.dart).
   static const Key userProfileEditRemarkButton = Key(
@@ -345,6 +369,9 @@ class UiKeys {
   );
   static const Key userProfileClearHistoryConfirmButton = Key(
     'user_profile_clear_history_confirm_button',
+  );
+  static const Key userProfileClearHistoryCancelButton = Key(
+    'user_profile_clear_history_cancel_button',
   );
   static const Key userProfileDeleteFriendButton = Key(
     'user_profile_delete_friend_button',
@@ -412,8 +439,20 @@ class UiKeys {
   // PopupMenuItem carries `value:'remove'` but no key of its own; a KeyedSubtree
   // wraps its child so automation can tap it locale-independently (the mobile
   // action sheet's kick action already has `group_member_action_kick_button`).
+  static const Key groupMemberDesktopInfoItem = Key(
+    'group_member_desktop_info_item',
+  );
+  static const Key groupMemberDesktopCopyIdItem = Key(
+    'group_member_desktop_copy_id_item',
+  );
+  static const Key groupMemberDesktopRoleItem = Key(
+    'group_member_desktop_role_item',
+  );
   static const Key groupMemberDesktopKickItem = Key(
     'group_member_desktop_kick_item',
+  );
+  static const Key groupMemberActionRoleButton = Key(
+    'group_member_action_role_button',
   );
   static const Key groupMemberInfoCopyIdButton = Key(
     'group_member_info_copy_id_button',

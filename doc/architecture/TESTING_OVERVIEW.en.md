@@ -23,7 +23,7 @@
 | 4 | Host-bundle lifecycle (L2) | `integration_test/` | 6 Dart files (5 runnable `_test.dart` tagged `needs-native` + 1 harness) | per-file `flutter test -d <os>` | e2e.yml, opt-in `ci:e2e` |
 | 5 | L3 runner gates (data layer) | `tool/mcp_test/scenarios/*.json` | 46 (40 blocking, 6 nonBlocking) | `run_l3_scenarios.dart` against a live debug app | no (local) |
 | 6 | Two-process Fixture C / unified runner | `tool/mcp_test/fixture_c_unified_runner.dart`, `fixture_c_manifest.json`, `drive_fixture_c_*.dart` + legacy `.sh` | 1 unified runner / 27 Dart drivers / 28 legacy shell wrappers | `dart run tool/mcp_test/fixture_c_unified_runner.dart ...` (legacy shell entrypoints delegate to it) | no (local); contracts via mcp_harness_smoke.yml |
-| 7 | Two-process real-UI scenarios | `tool/mcp_test/drive_real_ui_pair.dart` (planned by the unified runner through the manifest) | 8 codified scenarios + a 38-entry reusable campaign catalog (handshake / handshake_detail / decline / message / message_burst / custom_message / call_voice / call_reject) | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` or direct driver + osascript | no (local, macOS) |
+| 7 | Two-process real-UI scenarios | `tool/mcp_test/drive_real_ui_pair.dart` (planned by the unified runner through the manifest) | 8 codified scenarios + an 88-entry reusable campaign catalog (handshake / handshake_detail / decline / message / message_burst / custom_message / call_voice / call_reject) | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` or direct driver + osascript | no (local, macOS) |
 | 8 | Single-instance UI script driver | `tool/mcp_test/drive_export_account.dart` | 1 | script | no (local) |
 | 9 | Harness self-checks | `fixture_c_helpers_regression.sh`, `fixture_c_unified_runner_regression.sh`, `echo_peer_{contract_smoke,drift_check,helpers_regression}.sh` | 5 scripts | per-script | `fixture_c_helpers_regression.sh` in mcp_harness_smoke.yml; the rest local |
 | 10 | L3 playbooks (specs) | `test/mcp/S*.md` | 118 (S1–S125, gaps) | agent-driven | n/a (specs) |
@@ -103,27 +103,35 @@ an existing friendship. Today the default reusable batch runs as one stateful
 launch with internal friendship resets between incompatible friend-request
 branches; focused replays can either preserve that live chain or restore
 `paired_for_e2e` when a scenario needs an already-friended pair.
-Today the discoverable catalog has 38 built-in campaigns across four scheduler
-buckets:
+Today the discoverable catalog has 88 built-in campaigns. Use
+`--list-real-ui-campaigns` as the only exact source for current names and
+counts; this document records scheduling semantics and the recommended run
+strategy rather than hand-maintaining the full list. Current buckets:
 
-- `accepted-friend-*` keeps stacking chat and call steps after an accepted
-  friendship. Representative shape:
-  `accepted-friend-inline-full = handshake -> message -> message_burst -> call_voice -> call_reject`.
-- `fresh-*` / `no-friend-*` starts from a no-friend pair and can still stay on
-  one launch when the intermediate scenario self-cleans. Representative shape:
-  `no-friend-inline-call = custom_message -> handshake -> call_voice`.
-- `*-then-decline` crosses back into a no-friend branch and therefore exposes
-  explicit `reset_friendship` maintenance when reuse is cheaper than a
-  relaunch. Representative shape:
-  `inline-call-then-decline = handshake -> call_voice -> reset_friendship -> decline`.
-- `all-*` smoke bundles stitch together representative branches for
-  end-to-end scheduling coverage. Representative shape:
-  `all-expanded = handshake -> message -> message_burst -> call_voice -> call_reject -> reset_friendship -> custom_message -> handshake_detail -> reset_friendship -> decline`.
+- `rui-optimized-*`: the preferred broad real-app bundles. They keep one app
+  pair alive and reuse prepared accounts, friendships, and open surfaces to
+  cover more real controls per launch. Start broad dogfood runs with
+  `rui-optimized-current`; narrow with `rui-c2c-optimized`,
+  `rui-friendship-optimized`, or `rui-single-app-optimized` when needed. The new
+  `rui-c2c-deep-extra`, `rui-account-deep-extra`, and
+  `rui-group-conf-deep-extra` sweeps are folded into the matching optimized
+  chains; native/mobile boundary probes stay in standalone
+  `rui-native-boundary-guards`: attachment and restore now have debug-only fixed
+  picker-path seams, while OS/network/permission/mobile seams can still be
+  designed SKIPs.
+- `rui-*` domain sweeps: focused real-control sweeps for settings/profile/login,
+  contacts/conversations/chat/calls, group/conference, account management,
+  group/conference member role/removal flows, and extra C2C coverage.
+- `accepted-friend-*`: reusable chat/call/group stacks after an accepted
+  friendship.
+- `fresh-*` / `no-friend-*` / `*-then-decline`: no-friend request or decline
+  branches, with explicit `reset_friendship` maintenance when reuse is cheaper
+  than relaunch.
+- `all-*`: retained representative end-to-end smoke scheduling shapes.
 
-Use `--list-real-ui-campaigns` for the exact current catalog and names. Those
-bucket names describe planner / dry-run scheduling semantics; they are not a
-claim that every branch is already live-verified. Live confidence is still a
-local dogfood gate, not a CI-grade promise.
+Those bucket names describe planner / dry-run scheduling semantics; they are
+not a claim that every branch is already live-verified. Live confidence is
+still a local dogfood gate, not a CI-grade promise.
 
 ## 3. Recommended campaign order (cheap → expensive)
 
@@ -141,7 +149,7 @@ the partitions you did not select.
 | 5 | UI-tap suite (nonBlocking) | `l3-ui-single` | `dart run tool/mcp_test/run_l3_scenarios.dart <ws_uri> --class=l3-ui-single --allow-skip` |
 | 6 | Unified Fixture C non-media campaign | `2proc-l3` + `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --tier=non-media` |
 | 7 | Unified Fixture C media campaign | `2proc-l3` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --tier=media` |
-| 8 | Focused two-process real-UI replay (scenario/campaign selectable) | `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` |
+| 8 | Focused/optimized two-process real-UI replay (launch reuse first) | `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-optimized-current` |
 | 9 | Manual playbooks | `manual-playbook` | agent-driven, only for what nothing above expresses (`test/mcp/S*.md`) |
 
 Notes:
@@ -156,15 +164,19 @@ Notes:
   argument translation / delegation and no longer own separate planning logic.
 - `fixture_c_unified_runner.dart --plan-json` / `--dry-run` now include
   `2proc-ui`. If you want only one real-UI scenario, use
-  `--class=2proc-ui --real-ui-scenario=handshake|message|message_burst|handshake_detail|decline|custom_message|call_voice|call_reject`;
-  the planner will still satisfy `message` / `call_voice`'s friendship
-  precondition by chaining or restore instead of assuming a bare fresh pair.
+  `--class=2proc-ui --real-ui-scenario=<name>`; discover exact names from the
+  `drive_real_ui_pair.dart` registry and the driver names expanded by
+  `--list-real-ui-campaigns`. For scenarios that depend on friendship, account,
+  or conference state, the planner still satisfies preconditions through
+  chaining, restore, or explicit maintenance steps instead of assuming a bare
+  fresh pair.
 - If you want a named merged batch instead of spelling out the scenarios, use
   `--class=2proc-ui --real-ui-campaign=<name>` and discover the current
-  catalog with `--list-real-ui-campaigns`. Today that catalog spans
-  `accepted-friend-*`, `fresh-*` / `no-friend-*`, `*-then-decline`, and
-  `all-*` buckets; those names describe scheduler shapes, not CI-grade live
-  coverage.
+  catalog with `--list-real-ui-campaigns`. Start broad local dogfood runs with
+  `rui-optimized-current`, then narrow to `rui-c2c-optimized`,
+  `rui-friendship-optimized`, `rui-single-app-optimized`, the new deep-extra
+  domain sweeps, or a concrete `rui-*` domain sweep based on the failing area.
+  These names describe scheduler shapes, not CI-grade live coverage.
 - For low-level diagnostics you can still call `drive_real_ui_pair.dart`
   directly; the unified runner simply places it inside the shared manifest /
   planning / filtering system.

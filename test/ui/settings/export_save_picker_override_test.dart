@@ -50,4 +50,71 @@ void main() {
     expect(seenDialogTitle, 'Export Account');
     expect(seenFileName, 'seeded_8895A8D6.tox');
   });
+
+  test(
+    'L3 account import override short-circuits native open picker',
+    () async {
+      debugSetL3TestSurfaceEnabledForTests(true);
+      debugSetAccountImportPickFileOverridePathForTests('/tmp/l3-import.tox');
+
+      var nativePickerCalls = 0;
+      final resolvedPath = await runL3AwareAccountImportPicker(
+        pickFile: () async {
+          nativePickerCalls += 1;
+          return '/tmp/native-import.tox';
+        },
+      );
+
+      expect(resolvedPath, '/tmp/l3-import.tox');
+      expect(nativePickerCalls, 0);
+    },
+  );
+
+  test('normal account import path still invokes native open picker', () async {
+    debugSetL3TestSurfaceEnabledForTests(false);
+    debugSetAccountImportPickFileOverridePathForTests('/tmp/l3-import.tox');
+
+    var nativePickerCalls = 0;
+    final resolvedPath = await runL3AwareAccountImportPicker(
+      pickFile: () async {
+        nativePickerCalls += 1;
+        return '/tmp/native-import.tox';
+      },
+    );
+
+    expect(resolvedPath, '/tmp/native-import.tox');
+    expect(nativePickerCalls, 1);
+  });
+
+  test('L3 attachment override short-circuits native open picker', () async {
+    debugSetL3TestSurfaceEnabledForTests(true);
+    debugSetAttachmentPickFileOverridePathForTests('/tmp/l3-attachment.png');
+
+    var nativePickerCalls = 0;
+    final resolvedPath = await runL3AwareAttachmentPicker(
+      pickFile: () async {
+        nativePickerCalls += 1;
+        return '/tmp/native-attachment.png';
+      },
+    );
+
+    expect(resolvedPath, '/tmp/l3-attachment.png');
+    expect(nativePickerCalls, 0);
+  });
+
+  test('normal attachment path still invokes native open picker', () async {
+    debugSetL3TestSurfaceEnabledForTests(false);
+    debugSetAttachmentPickFileOverridePathForTests('/tmp/l3-attachment.png');
+
+    var nativePickerCalls = 0;
+    final resolvedPath = await runL3AwareAttachmentPicker(
+      pickFile: () async {
+        nativePickerCalls += 1;
+        return '/tmp/native-attachment.png';
+      },
+    );
+
+    expect(resolvedPath, '/tmp/native-attachment.png');
+    expect(nativePickerCalls, 1);
+  });
 }

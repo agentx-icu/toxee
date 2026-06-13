@@ -37,6 +37,8 @@
 //   - l3_send_text   {userId?|conversationId?, text}   deterministic C2C send
 //   - l3_dump_state  {}                                JSON snapshot for asserts
 //   - l3_set_export_save_path {path?}                  override export saveFile
+//   - l3_set_account_import_pick_path {path?}          override restore/import pickFiles
+//   - l3_set_attachment_pick_path {path?}              override message attachment pickFiles
 //   - l3_accept_friend_request {userId}                deterministic accept
 
 import 'dart:convert';
@@ -48,8 +50,6 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mcp_toolkit/mcp_toolkit.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
-import 'package:tencent_cloud_chat_sdk/enum/group_member_filter_enum.dart';
-import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -80,6 +80,8 @@ typedef L3ExportSaveFileInvoker =
 
 bool? _l3TestSurfaceEnabledOverrideForTests;
 String? _exportSaveFilePathOverride;
+String? _accountImportPickFilePathOverride;
+String? _attachmentPickFilePathOverride;
 
 /// S46/S47: the live auto-accept setter hook. `l3_set_setting` only writes
 /// Prefs, but the inbound friend-application / group-invite listeners read a
@@ -175,6 +177,12 @@ String? _avatarPickPathOverride;
 String? get debugCurrentAvatarPickOverridePath =>
     _isL3TestSurfaceActive ? _avatarPickPathOverride : null;
 
+String? get debugCurrentAccountImportPickOverridePath =>
+    _isL3TestSurfaceActive ? _accountImportPickFilePathOverride : null;
+
+String? get debugCurrentAttachmentPickOverridePath =>
+    _isL3TestSurfaceActive ? _attachmentPickFilePathOverride : null;
+
 /// Mirrors [runL3AwareExportSaveFilePicker] for the avatar image picker: returns
 /// the override path when set, else delegates to the real [pickFiles].
 Future<String?> runL3AwareAvatarPicker({
@@ -186,6 +194,32 @@ Future<String?> runL3AwareAvatarPicker({
     return overridePath;
   }
   return pickFiles();
+}
+
+/// Restore/import account pickers open native dialogs on desktop; the L3 harness
+/// can set a fixed path so a real UI tap still continues through the controller.
+Future<String?> runL3AwareAccountImportPicker({
+  required Future<String?> Function() pickFile,
+}) async {
+  final overridePath = debugCurrentAccountImportPickOverridePath;
+  if (overridePath != null) {
+    AppLogger.info('[L3] account import picker override hit -> $overridePath');
+    return overridePath;
+  }
+  return pickFile();
+}
+
+/// Message attachment image/video/file pickers need the same fixed-path seam as
+/// account import: drive the real toolbar first, bypass only the native dialog.
+Future<String?> runL3AwareAttachmentPicker({
+  required Future<String?> Function() pickFile,
+}) async {
+  final overridePath = debugCurrentAttachmentPickOverridePath;
+  if (overridePath != null) {
+    AppLogger.info('[L3] attachment picker override hit -> $overridePath');
+    return overridePath;
+  }
+  return pickFile();
 }
 
 bool get _isL3TestSurfaceActive =>
@@ -226,8 +260,21 @@ void debugSetExportSaveFileOverridePathForTests(String? path) {
 }
 
 @visibleForTesting
+void debugSetAccountImportPickFileOverridePathForTests(String? path) {
+  _accountImportPickFilePathOverride = _normalizeExportSaveOverridePath(path);
+}
+
+@visibleForTesting
+void debugSetAttachmentPickFileOverridePathForTests(String? path) {
+  _attachmentPickFilePathOverride = _normalizeExportSaveOverridePath(path);
+}
+
+@visibleForTesting
 void debugResetL3FilePickerOverridesForTests() {
   _exportSaveFilePathOverride = null;
+  _avatarPickPathOverride = null;
+  _accountImportPickFilePathOverride = null;
+  _attachmentPickFilePathOverride = null;
 }
 
 @visibleForTesting
@@ -266,7 +313,8 @@ void registerL3DebugToolsIfEnabled() {
     'l3_invoke_message_action, l3_mark_read, '
     'l3_accept_friend_request, l3_refuse_friend_request, l3_delete_friend, '
     'l3_set_friend_remark, l3_set_blocked, '
-    'l3_set_export_save_path, '
+    'l3_set_export_save_path, l3_set_account_import_pick_path, '
+    'l3_set_attachment_pick_path, '
     'l3_reply_text, l3_forward_message, l3_inject_c2c_custom, '
     'l3_set_setting, l3_set_pinned, l3_set_self_profile, '
     'l3_simulate_notification_tap, l3_set_c2c_recv_opt, l3_send_file, '
@@ -303,6 +351,8 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3SetFriendRemarkEntry());
   addMcpTool(_l3SetBlockedEntry());
   addMcpTool(_l3SetExportSavePathEntry());
+  addMcpTool(_l3SetAccountImportPickPathEntry());
+  addMcpTool(_l3SetAttachmentPickPathEntry());
   addMcpTool(_l3SetSettingEntry());
   addMcpTool(_l3SetPinnedEntry());
   addMcpTool(_l3SetSelfProfileEntry());
@@ -2452,6 +2502,86 @@ MCPCallEntry _l3SetExportSavePathEntry() => MCPCallEntry.tool(
         'path': StringSchema(
           description:
               'Absolute path to return from export saveFile. Empty clears.',
+        ),
+      },
+    ),
+  ),
+);
+
+MCPCallEntry _l3SetAccountImportPickPathEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_set_account_import_pick_path: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final path = _normalizeExportSaveOverridePath(request['path']?.toString());
+    _accountImportPickFilePathOverride = path;
+    AppLogger.info(
+      '[L3] l3_set_account_import_pick_path: '
+      '${path == null ? "CLEARED" : "SET -> $path"}',
+    );
+    return MCPCallResult(
+      message: path == null
+          ? 'account import pick override cleared'
+          : 'account import pick override set',
+      parameters: {'ok': true, 'path': path, 'cleared': path == null},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_account_import_pick_path',
+    description:
+        'L3 TEST ONLY (test/seed account): set or clear the debug-only '
+        'open-file override used by login restore/import flows. When set, the '
+        'native file picker is bypassed and this fixed path is returned. Pass '
+        'an empty path to clear.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'path': StringSchema(
+          description:
+              'Absolute .tox/.zip path to return from account import pickFiles. '
+              'Empty clears.',
+        ),
+      },
+    ),
+  ),
+);
+
+MCPCallEntry _l3SetAttachmentPickPathEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_set_attachment_pick_path: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final path = _normalizeExportSaveOverridePath(request['path']?.toString());
+    _attachmentPickFilePathOverride = path;
+    AppLogger.info(
+      '[L3] l3_set_attachment_pick_path: '
+      '${path == null ? "CLEARED" : "SET -> $path"}',
+    );
+    return MCPCallResult(
+      message: path == null
+          ? 'attachment pick override cleared'
+          : 'attachment pick override set',
+      parameters: {'ok': true, 'path': path, 'cleared': path == null},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_attachment_pick_path',
+    description:
+        'L3 TEST ONLY (test/seed account): set or clear the debug-only '
+        'message attachment picker override. Drive the real toolbar/menu first; '
+        'the native file picker then returns this fixed path. Pass an empty '
+        'path to clear.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'path': StringSchema(
+          description:
+              'Absolute media/file path to return from attachment pickFiles. '
+              'Empty clears.',
         ),
       },
     ),

@@ -20,7 +20,7 @@
 | 4 | host-bundle 生命周期（L2） | `integration_test/` | 6 个 Dart 文件（5 个可运行 `_test.dart`，打 `needs-native` tag + 1 个 harness） | 逐文件 `flutter test -d <os>` | e2e.yml，按需 `ci:e2e` |
 | 5 | L3 runner 门禁（数据层） | `tool/mcp_test/scenarios/*.json` | 46（40 blocking，6 nonBlocking） | `run_l3_scenarios.dart` 对接活跃 debug 应用 | 否（本地） |
 | 6 | 双进程 Fixture C / unified runner | `tool/mcp_test/fixture_c_unified_runner.dart`、`fixture_c_manifest.json`、`drive_fixture_c_*.dart` + legacy `.sh` | 1 个统一 runner / 27 个 Dart 驱动 / 28 个 legacy shell 包装 | `dart run tool/mcp_test/fixture_c_unified_runner.dart ...`（legacy shell 入口委托它） | 否（本地）；契约经 mcp_harness_smoke.yml |
-| 7 | 双进程真实 UI 场景 | `tool/mcp_test/drive_real_ui_pair.dart`（由 unified runner 通过 manifest 规划） | 8 个固化场景 + 38 项可复用 campaign 目录（握手 / 握手详情 / 拒绝 / 消息 / 消息突发 / 自定义申请词 / 语音通话 / 拒接通话） | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` 或直接 driver + osascript | 否（本地，macOS） |
+| 7 | 双进程真实 UI 场景 | `tool/mcp_test/drive_real_ui_pair.dart`（由 unified runner 通过 manifest 规划） | 8 个固化场景 + 88 项可复用 campaign 目录（握手 / 握手详情 / 拒绝 / 消息 / 消息突发 / 自定义申请词 / 语音通话 / 拒接通话） | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` 或直接 driver + osascript | 否（本地，macOS） |
 | 8 | 单实例 UI 脚本驱动 | `tool/mcp_test/drive_export_account.dart` | 1 | 脚本 | 否（本地） |
 | 9 | Harness 自检 | `fixture_c_helpers_regression.sh`、`fixture_c_unified_runner_regression.sh`、`echo_peer_{contract_smoke,drift_check,helpers_regression}.sh` | 5 个脚本 | 逐脚本 | `fixture_c_helpers_regression.sh` 在 mcp_harness_smoke.yml；其余本地 |
 | 10 | L3 playbook（规格） | `test/mcp/S*.md` | 118（S1–S125，有空缺） | agent 驱动 | 不适用（规格） |
@@ -90,21 +90,28 @@ live 观察结论。
 插入内部的 friendship reset，再继续跑下一个不兼容的好友请求分支；若只重放
 `message` 或 `call_voice` 这类依赖已有好友关系的场景，则会通过
 `paired_for_e2e` restore 自动补足前置状态。
-当前可 discover 的 catalog 共有 38 个内建 campaign，按调度语义大致分成四个 bucket：
+当前可 discover 的 catalog 共有 88 个内建 campaign。`--list-real-ui-campaigns`
+是唯一精确来源；文档只记录调度语义和推荐运行策略，避免再次手工维护完整清单。
+当前 bucket：
 
-- `accepted-friend-*`：在已接受好友关系后继续叠加聊天/通话步骤。代表形态：
-  `accepted-friend-inline-full = handshake -> message -> message_burst -> call_voice -> call_reject`。
-- `fresh-*` / `no-friend-*`：从无好友关系起步；若中间场景会自清理，则仍可保持单次 launch。
-  代表形态：`no-friend-inline-call = custom_message -> handshake -> call_voice`。
-- `*-then-decline`：中途切回“无好友”分支，因此 planner 会显式插入
-  `reset_friendship` 维护步，而不是强制 relaunch。代表形态：
-  `inline-call-then-decline = handshake -> call_voice -> reset_friendship -> decline`。
-- `all-*`：把几个代表性分支缝成端到端 smoke bundle。代表形态：
-  `all-expanded = handshake -> message -> message_burst -> call_voice -> call_reject -> reset_friendship -> custom_message -> handshake_detail -> reset_friendship -> decline`。
+- `rui-optimized-*`：首选的广覆盖真实 App bundle，目标是在一次 app pair 启动里复用
+  已登录账号、好友关系和已打开页面，尽量覆盖更多真实控件。优先运行
+  `rui-optimized-current`；需要聚焦时再选 `rui-c2c-optimized`、
+  `rui-friendship-optimized`、`rui-single-app-optimized`。新增的
+  `rui-c2c-deep-extra` / `rui-account-deep-extra` /
+  `rui-group-conf-deep-extra` 已并入对应 optimized 链；native/移动端边界走独立
+  `rui-native-boundary-guards`，其中附件/restore 已有 debug-only 固定路径 seam，
+  OS/network/permission/mobile seam 仍可能是设计性 SKIP。
+- `rui-*` domain sweep：按产品域拆分的真实控件用例，覆盖 settings/profile/login、
+  contacts/conversation/chat/call、group/conference、账号管理、成员角色管理/移除、
+  C2C 补充等。用于定位回归或补跑某个域。
+- `accepted-friend-*`：在已接受好友关系后继续叠加聊天/通话/group 步骤。
+- `fresh-*` / `no-friend-*` / `*-then-decline`：从无好友关系起步，或中途切回无好友分支；
+  planner 会插入 `reset_friendship` 维护步，而不是默认强制 relaunch。
+- `all-*`：保留的代表性端到端 smoke 调度形态。
 
-精确的当前目录和名字以 `--list-real-ui-campaigns` 输出为准。这些 bucket 名称描述的是
-planner / dry-run 的调度语义，不是“每个分支都已 live 验证完成”的声明。live 端仍是
-本地 dogfood 门禁，不要把它提前解读成 CI 级稳定性承诺。
+这些 bucket 名称描述的是 planner / dry-run 的调度语义，不是“每个分支都已 live 验证完成”
+的声明。live 端仍是本地 dogfood 门禁，不要把它提前解读成 CI 级稳定性承诺。
 
 ## 三、推荐战役顺序（便宜 → 昂贵）
 
@@ -121,7 +128,7 @@ SKIP-exit-2。
 | 5 | UI-tap 套件（nonBlocking） | `l3-ui-single` | `dart run tool/mcp_test/run_l3_scenarios.dart <ws_uri> --class=l3-ui-single --allow-skip` |
 | 6 | Fixture C 非媒体统一战役 | `2proc-l3` + `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --tier=non-media` |
 | 7 | Fixture C 媒体统一战役 | `2proc-l3` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --tier=media` |
-| 8 | 聚焦双进程真实 UI（可筛场景或 campaign） | `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` |
+| 8 | 聚焦/优化双进程真实 UI（优先复用启动） | `2proc-ui` | `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-optimized-current` |
 | 9 | 手动 playbook | `manual-playbook` | agent 驱动，仅用于上述都无法表达的流程（`test/mcp/S*.md`） |
 
 说明：
@@ -135,14 +142,17 @@ SKIP-exit-2。
   等 legacy shell 入口只做参数翻译 / 委托，不再各自维护规划逻辑。
 - `fixture_c_unified_runner.dart` 的 `--plan-json` / `--dry-run` 现在会把
   `2proc-ui` 一起规划出来；如果只想重放某个 real-UI 场景，可用
-  `--class=2proc-ui --real-ui-scenario=handshake|message|message_burst|handshake_detail|decline|custom_message|call_voice|call_reject`；
-  对 `message` / `call_voice`，planner 仍会通过链式复用或 restore 自动满足好友关系
+  `--class=2proc-ui --real-ui-scenario=<name>`；具体名称以
+  `drive_real_ui_pair.dart` 注册表和 `--list-real-ui-campaigns` 展开的 driver 名称为准。
+  对依赖好友/账号/会议状态的场景，planner 仍会通过链式复用、restore 或显式维护步满足
   前置条件，而不是假定一个裸 fresh pair。
 - 如果想直接选一个已合并好的 real-UI 批次，可用
   `--class=2proc-ui --real-ui-campaign=<name>`；完整目录可通过
-  `--list-real-ui-campaigns` 打印。当前 catalog 横跨
-  `accepted-friend-*`、`fresh-*` / `no-friend-*`、`*-then-decline`、`all-*`
-  四类 bucket；这些名称描述的是调度形态，不是 CI 级 live 覆盖承诺。
+  `--list-real-ui-campaigns` 打印。广覆盖本地 dogfood 默认先跑
+  `rui-optimized-current`，再按失败域补跑 `rui-c2c-optimized`、
+  `rui-friendship-optimized`、`rui-single-app-optimized`、新增 deep-extra
+  domain sweep 或具体 `rui-*` domain sweep。这些名称描述的是调度形态，不是 CI 级
+  live 覆盖承诺。
 - 若只是做底层诊断，仍可直调 `drive_real_ui_pair.dart`；统一 runner 只是把它纳入同一
   manifest / 计划 / 过滤体系。
 - 不要把外部脚本绑死在某个固定的 real-UI 启动次数上。只要场景顺序和前置条件正确，

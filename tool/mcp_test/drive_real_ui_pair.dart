@@ -113,6 +113,12 @@ import 'fixture_c_bootstrap.dart';
 //                   scrolled up, header->profile, image/file bubbles; reply +
 //                   offline SKIP) + the sweep_chat chain (TWO-PROCESS: one
 //                   handshake, marks both accounts test to unblock l3 SEEDING).
+//   c2c_extra     — focused C2C expansion: global search contact opens chat,
+//                   non-destructive cancel branches for conversation/profile
+//                   deletion surfaces, and chat-header profile send-back.
+//   optimized     — orchestration-only bundles that reuse existing sweeps in a
+//                   single app launch / friend relationship to reduce repeated
+//                   launch, account creation, and add-friend cost.
 //   p1_single     — P1/P2/P3-campaign Batch II (SINGLE-INSTANCE: drive only A):
 //                   zh locale page walk, conference rename+leave, settings
 //                   switch-account entry, login-card management menu (real
@@ -127,6 +133,18 @@ import 'fixture_c_bootstrap.dart';
 //                   quartet): autologin/history after instance restart,
 //                   offline-pending then relaunch, profile voice/video call
 //                   tiles, join-by-id real AddGroupDialog path.
+//   p1_extra      — P1-extra feasible follow-ups (SINGLE-INSTANCE):
+//                   Arabic real-app locale walk + keyboard global-search
+//                   shortcut path.
+//   account_conf_extra — focused account-management + conference expansion
+//                   cases: cancel destructive account dialogs, switch cancel,
+//                   conference profile/search send-back surfaces.
+//   group_conf_member_extra — focused group/conference member-management cases:
+//                   peer member menu, role-action smoke, member remove, and
+//                   conference negative role/remove affordances.
+//   high_value_extra — optimized follow-up real-App cases: C2C search-to-target,
+//                   multi-account isolation, group/conference deep member/message
+//                   flows, plus native-boundary guard probes.
 //   p2_keys       — P1/P2/P3-campaign Batch V (P2 selector-backed cases):
 //                   sticker face cell send, new-messages chip tap, and
 //                   presence-dot state flip via relaunch.
@@ -151,11 +169,17 @@ part 'drive_real_ui_pair_group_profile.dart';
 part 'drive_real_ui_pair_group_menu.dart';
 part 'drive_real_ui_pair_conv.dart';
 part 'drive_real_ui_pair_chat.dart';
+part 'drive_real_ui_pair_c2c_extra.dart';
+part 'drive_real_ui_pair_optimized.dart';
 part 'drive_real_ui_pair_group2.dart';
 part 'drive_real_ui_pair_calls_misc.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
 part 'drive_real_ui_pair_p1_relaunch.dart';
+part 'drive_real_ui_pair_p1_extra.dart';
+part 'drive_real_ui_pair_account_conf_extra.dart';
+part 'drive_real_ui_pair_group_conf_member_extra.dart';
+part 'drive_real_ui_pair_high_value_extra.dart';
 part 'drive_real_ui_pair_p2_keys.dart';
 part 'drive_real_ui_pair_p2_reply.dart';
 part 'drive_real_ui_pair_p2_verify.dart';
@@ -711,6 +735,19 @@ Future<int> _main(List<String> args) async {
         }
       }
     }
+    // Focused C2C expansion. The sweep starts no-friend and establishes A<->B
+    // once; individual cases need friendship and create/retain a visible row.
+    if (scenario == 'sweep_c2c_extra') {
+      return await runC2cExtraSweep(a, b, nickA, nickB);
+    }
+    if (_isC2cExtraCaseScenario(scenario)) {
+      return await runC2cExtraCase(a, b, nickA, nickB, scenario);
+    }
+    // Optimized real-UI bundles. These are orchestration-only wrappers around
+    // existing sweeps, designed for run-phase throughput rather than debugging.
+    if (_isOptimizedSweepScenario(scenario)) {
+      return await runOptimizedSweep(a, b, nickA, nickB, scenario);
+    }
     // Batch 7 — group / conference (MIXED single-instance + two-process).
     // sweep_group2 chains all 14 on one launch (the canonical entry; one
     // handshake at the top, one shared PRIVATE group + one shared conference
@@ -788,6 +825,58 @@ Future<int> _main(List<String> args) async {
         scenario,
         bootRestored: bootRestored,
       );
+    }
+    // P1 extra — single-instance feasible follow-ups from the inventory's
+    // "still add" bucket. Drives only A; B is idle.
+    if (scenario == 'sweep_p1_extra') {
+      return await runP1ExtraSweep(a, nickA);
+    }
+    if (_isP1ExtraCaseScenario(scenario)) {
+      return await runP1ExtraCase(a, nickA, scenario);
+    }
+    // Focused account-management + conference expansion sweep. Single-instance
+    // by design; B stays idle.
+    if (scenario == 'sweep_account_conf_extra') {
+      return await runAccountConfExtraSweep(a, nickA);
+    }
+    if (_isAccountConfExtraCaseScenario(scenario)) {
+      return await runAccountConfExtraCase(a, nickA, scenario);
+    }
+    // Focused group/conference member-management expansion. The sweep starts
+    // no-friend, establishes A<->B once, then creates fresh group/conference
+    // targets per case. Individual cases need an existing friendship.
+    if (scenario == 'sweep_group_conf_member_extra') {
+      return await runGroupConfMemberExtraSweep(a, b, nickA, nickB);
+    }
+    if (_isGroupConfMemberExtraCaseScenario(scenario)) {
+      return await runGroupConfMemberExtraCase(a, b, nickA, nickB, scenario);
+    }
+    // Highest-value follow-up additions. The c2c/account/group deep sweeps are
+    // stable enough for optimized bundles; native-boundary guards stay separate
+    // because some OS-bound surfaces honestly SKIP on this desktop harness.
+    if (scenario == 'sweep_c2c_deep_extra') {
+      return await runC2cDeepExtraSweep(a, b, nickA, nickB);
+    }
+    if (_isC2cDeepExtraCaseScenario(scenario)) {
+      return await runC2cDeepExtraCase(a, b, nickA, nickB, scenario);
+    }
+    if (scenario == 'sweep_account_deep_extra') {
+      return await runAccountDeepExtraSweep(a, nickA);
+    }
+    if (_isAccountDeepExtraCaseScenario(scenario)) {
+      return await runAccountDeepExtraCase(a, nickA, scenario);
+    }
+    if (scenario == 'sweep_group_conf_deep_extra') {
+      return await runGroupConfDeepExtraSweep(a, b, nickA, nickB);
+    }
+    if (_isGroupConfDeepExtraCaseScenario(scenario)) {
+      return await runGroupConfDeepExtraCase(a, b, nickA, nickB, scenario);
+    }
+    if (scenario == 'sweep_native_boundary_guards') {
+      return await runNativeBoundaryGuardSweep(a, b, nickA, nickB);
+    }
+    if (_isNativeBoundaryGuardCaseScenario(scenario)) {
+      return await runNativeBoundaryGuardCase(a, b, nickA, nickB, scenario);
     }
     // P1/P2/P3 campaign Batch V — P2 cases made driveable by fork keys. The
     // sweep starts from no-friend and does its own handshake; presence restart

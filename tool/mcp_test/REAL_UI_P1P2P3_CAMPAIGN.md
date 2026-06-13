@@ -4,7 +4,8 @@
 > 在 master 串行开发 P1/P2/P3). Any session can resume from this file. Update the
 > per-batch Status + the Batch log as work proceeds; commit after every batch.
 > Case rationale/specs live in `doc/research/REAL_APP_UI_TEST_INVENTORY.md`
-> (§P1 17 cases / §P2 8 items / §P3); this file owns EXECUTION state only.
+> (base §P1 17 cases / §P2 8 items / §P3, plus follow-up addenda below); this
+> file owns EXECUTION state only.
 
 ## Mission
 
@@ -351,6 +352,178 @@ Platform run plan for the run-phase owner:
   process/window APIs, then run the same `rui-p3-writable` campaign and capture
   elapsed threshold logs. The case itself has no macOS clipboard dependency.
 
+### Addendum — P1 extra feasible follow-ups (`drive_real_ui_pair_p1_extra.dart`)
+
+**STATUS: DONE (written, unrun)** — 2/2 WRITTEN, 0 SKIP. Added
+`drive_real_ui_pair_p1_extra.dart` plus dispatch/runner registration
+(`sweep_p1_extra`, `rui-p1-extra`) for the two inventory P1 items that are
+honestly driveable in the current macOS real-app harness:
+`ar_rtl_page_walk` and `keyboard_global_search_shortcut`. The Arabic case
+clicks the real Settings language selector, selects the keyed
+`settings_language_option_ar` row, asserts `languageCode=ar` plus Arabic labels
+on settings/sidebar/profile surfaces, then restores English with
+locale-independent keys. The keyboard case opens global search with the real
+Cmd+Ctrl+F shortcut, types a no-hit query into the autofocused field through OS
+input, asserts the no-results state, and records whether Escape closes the
+route before cleanup fallback. Platform/native-picker/OS-notification P1 items
+remain documented follow-ups in `doc/research/REAL_APP_UI_TEST_INVENTORY.md`
+rather than fake-positive real-UI gates.
+
+### Addendum — account/conference focused expansion (`drive_real_ui_pair_account_conf_extra.dart`)
+
+**STATUS: DONE (written, unrun)** — 6/6 WRITTEN, 0 SKIP. Added
+`drive_real_ui_pair_account_conf_extra.dart` plus dispatch/runner registration
+(`sweep_account_conf_extra`, `rui-account-conf-extra`) to deepen the two areas
+called out as thin after the initial inventory.
+
+Account management cases:
+`settings_switch_account_cancel` provisions a throwaway account through the real
+RegisterPage, opens the real Settings switch-account dialog, taps the keyed
+Cancel button, proves the current account did not switch, then deletes the
+throwaway through the existing real delete flow; `login_account_delete_cancel`
+long-presses a saved-account card, opens the real login-page management bottom
+sheet, taps Delete, cancels the confirm dialog, and proves the account card
+survives; `settings_delete_account_cancel` opens the current-account delete
+dialog from Settings and cancels without tearing down the session.
+
+Conference cases:
+`conference_profile_id_surface` creates a legacy conference through the real
+AddGroupDialog and asserts the profile ID/member surfaces;
+`conference_profile_send_message_tile` taps the profile Send Message tile and
+asserts the conference chat opens; `conference_search_result_opens` opens the
+global search overlay, finds the conference by name, taps the keyed result row,
+and asserts the conference chat opens. Each conference case leaves the
+conference before exit so the runner's no-friend/no-extra-conference contract is
+truthful.
+
+### Addendum — group/conference member-management expansion (`drive_real_ui_pair_group_conf_member_extra.dart`)
+
+**STATUS: DONE (written, unrun)** — 5/5 WRITTEN, 0 SKIP. Added
+`drive_real_ui_pair_group_conf_member_extra.dart` plus dispatch/runner
+registration (`sweep_group_conf_member_extra`,
+`rui-group-conf-member-extra`) to cover the member role/remove gap for both
+private groups and legacy conferences.
+
+Group member-management cases:
+`group_member_peer_menu_surface` establishes a private two-process group, opens
+the real member-list page, secondary-clicks B's real member row, and asserts the
+desktop member menu exposes Info / Copy Tox ID / role / remove items;
+`group_member_role_action_smoke` taps the real role item and asserts the menu
+dismisses without breaking the two-member group (tim2tox currently returns
+success for role changes but does not persist Tox roles, so this is intentionally
+an action-smoke rather than a fake role-persistence assertion);
+`group_member_remove_ui` taps the real remove/kick item and asserts A's member
+count drops.
+
+Conference member-management cases:
+`conference_member_peer_row_surface` creates a two-process legacy conference and
+asserts B's real member row renders; `conference_member_role_remove_absent`
+secondary-clicks that row and asserts the informational menu opens while role and
+remove controls are absent. If a live run shows those controls for conferences,
+that should be treated as a product/UI policy regression rather than relaxed in
+the driver.
+
+### Addendum — C2C focused expansion (`drive_real_ui_pair_c2c_extra.dart`)
+
+**STATUS: DONE (written, unrun)** — 5/5 WRITTEN, 0 SKIP. Added
+`drive_real_ui_pair_c2c_extra.dart` plus dispatch/runner registration
+(`sweep_c2c_extra`, `rui-c2c-extra`) to deepen common C2C paths not covered by
+the larger `rui-conv` and `rui-chat` sweeps.
+
+C2C extra cases:
+`c2c_global_search_contact_opens_chat` opens global search with the real
+shortcut, taps the keyed contact result, and asserts the target C2C chat opens;
+`c2c_conv_delete_cancel` opens the real conversation row menu, taps Delete, then
+the real Cancel button and proves the row/friendship remain;
+`c2c_profile_clear_history_cancel` seeds a real message, opens friend profile,
+opens Clear History, cancels, and proves message count is unchanged;
+`c2c_delete_friend_cancel` opens the delete-friend dialog and cancels while the
+friendship remains; `c2c_header_profile_send_back` taps the chat header avatar,
+shows the friend profile, then taps Send Message to return to the same C2C chat.
+Two automation-only keys were added for reliable Cancel targeting:
+`delete_conversation_cancel_button` and
+`user_profile_clear_history_cancel_button`.
+
+### Addendum — optimized single-launch bundles (`drive_real_ui_pair_optimized.dart`)
+
+**STATUS: DONE (written, unrun)** — added orchestration-only sweeps that compose
+existing real-UI sweeps without duplicating case logic:
+`sweep_single_app_optimized` / `rui-single-app-optimized`,
+`sweep_c2c_optimized` / `rui-c2c-optimized`,
+`sweep_friendship_optimized` / `rui-friendship-optimized`, and
+`sweep_optimized_current` / `rui-optimized-current`.
+
+The purpose is run-phase throughput. `rui-c2c-optimized` launches the pair once,
+establishes A<->B once via the first child sweep, then reuses that friendship
+across `sweep_conv`, `sweep_chat`, `sweep_c2c_extra`, and
+`sweep_c2c_deep_extra`.
+`rui-friendship-optimized` extends that same idea across non-relaunch
+friendship-preserving sweeps: C2C optimized, `sweep_p1_chat`,
+`sweep_p2_reply`, `sweep_p2_verify`, `sweep_p3_writable`, `sweep_group2`,
+`sweep_group_conf_member_extra`, `sweep_group_conf_deep_extra`, and
+`sweep_calls_misc`.
+`rui-optimized-current` first runs the A-only optimized chain
+(`settings2/profile/login/p1-single/p1-extra/account-conf-extra/
+account-deep-extra`) and then the friendship optimized chain, all under one
+app-pair launch. Exclusions are intentional: `rui-contacts` deletes friendship
+and has the known remark live finding; `rui-p1-relaunch` and `rui-p2-keys`
+restart peers internally; `rui-native-boundary-guards` contains designed SKIPs
+for OS/mobile seams, so those remain standalone rather than poisoning a
+single-launch bundle.
+
+### Addendum — highest-value future investment shortlist
+
+Detailed local inventory lives in `doc/research/REAL_APP_UI_TEST_INVENTORY.md`
+(ignored by Git as a research scratch area). Durable tracked summary:
+
+1. First spend effort on live-running and stabilizing the already-written high
+   value bundles: `rui-optimized-current`, `rui-c2c-optimized`,
+   `rui-friendship-optimized`, then standalone `rui-contacts` and
+   `rui-p1-relaunch`.
+2. Next new coverage should close platform and native-boundary gaps: iOS
+   register/login/send C2C smoke, Android register/login/send C2C smoke,
+   live-stabilizing the new attachment/restore fixed-path seams, completing the
+   restore/import happy path, OS notification click-to-conversation, controllable
+   network disconnect/reconnect, and mic/camera permission-denied call flows.
+3. After those, invest in deeper business regressions: group role persistence,
+   removed-member receiver-side UI, conference lifecycle, message-search result
+   navigation to the exact bubble, large-history scroll/search performance,
+   keyboard-only dialog coverage, multi-account state isolation, window/tray
+   lifecycle, export->restore roundtrip, and destructive confirm flows on
+   throwaway state.
+4. Every new case must still follow the startup-reuse policy: keep an atomic
+   scenario for debugging and add it to an existing sweep/optimized bundle when
+   the ending state is reusable. Split launches only for relaunch, network,
+   native/OS permission, notification, or destructive-confirm cases.
+
+### Addendum — implemented from the shortlist (2026-06-12)
+
+The most valuable startup-reusable cases from the shortlist have now been
+codified in `drive_real_ui_pair_high_value_extra.dart` and registered in the
+unified runner:
+
+1. `rui-c2c-deep-extra` / `sweep_c2c_deep_extra`: `c2c_search_result_opens_target_message`
+   sends a real C2C message, opens global search, taps the real message result,
+   taps the exact `search_history_message_<msgID>` row, and verifies the target
+   bubble renders after returning to chat.
+2. `rui-account-deep-extra` / `sweep_account_deep_extra`:
+   `account_multi_account_state_isolation` creates primary-account state via a
+   real group, registers a throwaway second account, proves the primary
+   conversation is isolated from that account, switches back, verifies primary
+   state restores, then deletes the throwaway and leaves the group.
+3. `rui-group-conf-deep-extra` / `sweep_group_conf_deep_extra`:
+   `group_member_role_reopen_surface`, `group_member_remove_receiver_state`, and
+   `conference_bidirectional_message_lifecycle` deepen member role/menu,
+   receiver-side removal, and conference two-way message coverage.
+4. `rui-native-boundary-guards` / `sweep_native_boundary_guards`:
+   `attachment_entry_buttons_render` now verifies app-level file/photo/video
+   buttons, clicks real file/photo controls, injects fixed picker paths, and
+   asserts sender row + receiver delivery; `restore_import_entry_guard` sets a
+   fixed invalid `.tox` path, clicks the real Restore card, and asserts the login
+   error banner; `notification_tap_routes_to_c2c` covers the in-app tap stream.
+   Network disconnect, OS permission denial, and mobile smoke remain explicit
+   SKIP guards until a safe OS/mobile seam exists.
+
 ## File map (pre-baked anchors for batch agents)
 
 - `lib/ui/testing/ui_drive_tools.dart` (398 LOC): pure handlers + thin MCP entries;
@@ -393,8 +566,13 @@ The write phase is closed; the remaining live work is run-phase execution.
 
 1. Rebuild via `MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh`.
 2. Run the write-phase campaigns serially: `rui-p1-single`, `rui-p1-chat`,
-   `rui-p1-relaunch`, `rui-p2-keys`, `rui-p2-reply`, `rui-p2-verify`, and
-   `rui-p3-writable`.
+   `rui-p1-relaunch`, `rui-p1-extra`, `rui-account-conf-extra`,
+   `rui-account-deep-extra`, `rui-group-conf-member-extra`,
+   `rui-group-conf-deep-extra`, `rui-c2c-extra`, `rui-c2c-deep-extra`,
+   `rui-native-boundary-guards`, `rui-p2-keys`, `rui-p2-reply`,
+   `rui-p2-verify`, and `rui-p3-writable`.
+   For faster broad smoke, prefer `rui-optimized-current` first, then split to
+   the smaller campaigns only when a child sweep fails.
 3. Root-cause any live failures and keep validated results honest (only update
    `test/mcp/S*.md` headers + INDEX for scenarios that are actually live-run).
 4. Treat the older +94 sweeps 4–8 (`rui-contacts`, `rui-conv`, `rui-chat`,
@@ -537,8 +715,10 @@ The write phase is closed; the remaining live work is run-phase execution.
   above for macOS desktop, iOS simulator, Android emulator, and Win11 desktop.
   Gates green: red-first P3 source guard (failed before the part existed) then
   direct source guard pass, RTL smoke 1/1, driver/runner/test analyze no issues,
-  planner plan-json, validate-only, campaign-list (76 campaigns,
-  `rui-p3-writable` present), corrected `rui-p3-writable` and standalone
+  planner plan-json, validate-only, historical campaign-list (76 campaigns at
+  that Batch VIII commit; current catalog is discoverable via
+  `--list-real-ui-campaigns`), `rui-p3-writable` present, corrected
+  `rui-p3-writable` and standalone
   `message_burst_perf` plan-json under `--class=2proc-ui`, shell recovery
   self-test, INDEX check, `git diff --check`, root analyze 222/0-fatal, and
   `test/ui/settings test/ui/testing` 79/79. Codex review deliberately skipped
@@ -550,8 +730,9 @@ The write phase is closed; the remaining live work is run-phase execution.
   the final write-phase HEAD: `flutter analyze lib tool --no-fatal-warnings
   --no-fatal-infos` exited 0 with the known 222-issue baseline; planner
   `--plan-json --class=2proc-ui`, `--validate-only`, `--list-real-ui-campaigns`
-  (76 campaigns including `rui-p1-chat`, `rui-p1-relaunch`, `rui-p2-keys`,
-  `rui-p2-reply`, `rui-p2-verify`, `rui-p3-writable`), shell recovery
+  (historical closeout output: 76 campaigns including `rui-p1-chat`,
+  `rui-p1-relaunch`, `rui-p2-keys`, `rui-p2-reply`, `rui-p2-verify`,
+  `rui-p3-writable`; current catalog is discoverable from the runner), shell recovery
   self-test, and `gen_scenario_index.dart --check` all passed; consolidated
   touched-surface tests
   (`test/ffi_chat_service_c2c_custom_ingest_test.dart`,
@@ -561,3 +742,41 @@ The write phase is closed; the remaining live work is run-phase execution.
   Campaign handoff is now purely run-phase. Codex per-batch/diff review remains
   intentionally deferred per the explicit 2026-06-11 user instruction for this
   handoff turn.
+
+- 2026-06-12 **Owed review DISCHARGED + extra wave committed**. The skipped
+  per-batch reviews (III–VIII) plus the uncommitted "extra/optimized" second
+  wave (account_conf_extra, c2c_extra, group_conf_member_extra, high_value_extra,
+  optimized, p1_extra + production/fork seams) were reviewed by 4 parallel
+  read-only review agents (codex-grade lens: false-pass / double-fire /
+  honest-scope / l3-as-asserted-action / dead-key / runner-consistency). **3 P1
+  found + fixed** — all were dead-key / contract violations the skipped reviews
+  would have caught:
+  1. Batch V `sticker_face_cell_send` gated on a phantom `desktop_sticker_panel`
+     fork key never committed → re-gated on the real `sticker_face_tab:*` (panel-
+     open proof) + widened the probe to 0..9 (fork keys by `e.index`). Toxee-side,
+     no fork change. (commit 993f82f)
+  2. `group_member_list_item:<userID>` was a dead key (driven by all 5
+     group_conf_member_extra cases + the desktop kick/role flows) — never in the
+     fork. Added a `KeyedSubtree` row key to the fork member list (fork commit
+     f47e020). 
+  3. high_value_extra `notification_tap_routes_to_c2c` used
+     `l3_simulate_notification_tap` AS the asserted action (campaign rule
+     violation) → converted to an explicit SKIP(75) with evidence (real OS
+     notification click isn't headless-automatable; routing covered by
+     `run_fixture_c_notification_tap.sh`).
+  P2s applied: offline_pending_relaunch left B down when the in-body relaunch
+  threw → recover whenever B isn't confirmed up (commit 993f82f). Deferred with
+  rationale: image_preview_open_hardened keeps the PASS-on-rendered-bubble
+  best-effort floor (matches the committed batch-6 `chat_image_bubble_open_preview`
+  precedent, codex-blessed in the +94 campaign); account_conf_extra text-tap
+  cancels are honest (state-unchanged is the real gate) — keyed-cancel is a
+  future robustness item. The export-override test already had its `tearDown`
+  reset (a flagged-but-stale finding). Production seams verified SAFE for release
+  by deep trace: the new `l3_set_account_import_pick_path` /
+  `l3_set_attachment_pick_path` tools + the `login_page_controller` filePathOverride
+  are double-gated (`kDebugMode && TOXEE_L3_TEST` + `_activeAccountIsTest`), tree-
+  shaken from release, and behave identically to native pickers when the override
+  is null. Gates after fixes: analyze 217 (0 new errors), planner/validate/INDEX
+  (178 playbooks)/self-test green, touched hermetic tests pass. Fork must be
+  PUSHED before the toxee commits are pushed (pre-push hook; GitHub SSH 443
+  fallback). **The campaign is still write-phase: nothing is live-run.**

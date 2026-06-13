@@ -255,7 +255,7 @@ Sweep: `sweep_group2` · Campaign: `rui-group2`. **Batch 7 STATUS: DONE**
 | 91 | home_tabs_cycle_state_retained | 1i | — | real sidebar tabs chats→contacts→settings→chats; `homeShellCurrentConversationId` retained (IndexedStack) | WRITTEN |
 | 92 | theme_switch_chat_open | 2p-r | S57 | with chat open: flip dark/light via real Appearance → seeded bubble ROW re-renders, no crash; restore | WRITTEN |
 | 93 | window_resize_responsive | 1i | S60 | osascript narrow past 720pt → `home_bottom_nav` appears + drives bottom-nav routing; restore → gone (SKIP if resize refused) | WRITTEN |
-| 94 | search_chat_history_window_open | 2p-r | S93 | seed term → Cmd+Ctrl+F overlay → `search_result_message:<conv>` → tap → SearchChatHistoryWindow mounts | WRITTEN |
+| 94 | search_chat_history_window_open | 2p-r | S93 | seed term → Cmd+Ctrl+F overlay → `search_result_message_<conv>` → tap → SearchChatHistoryWindow mounts | WRITTEN |
 
 Sweep: `sweep_calls_misc` · Campaign: `rui-calls-misc`. **Batch 8 STATUS: DONE** (10/10
 WRITTEN+unrun, 0 SKIP — case 93 is SKIP-able at RUN time if the window refuses scripted
@@ -1421,7 +1421,7 @@ applied + P3 mobile-parity gap closed by driving the bottom-nav routing)
   `SearchChatHistoryWindow` SHARE `UiKeys.messageSearchField` ('message_search_field'),
   so the window can't be told apart by that key — case 94 distinguishes it by its
   "Search Chat History" AppBar title. So case 94 = seed a unique message term →
-  Cmd+Ctrl+F overlay → type → `search_result_message:<conv>` row renders → tap →
+  Cmd+Ctrl+F overlay → type → `search_result_message_<conv>` row renders → tap →
   the window mounts (title asserted) → ESC closes. The screenshot-pipeline
   RUN_NOTES "owed Cmd+Ctrl+F shortcut" is the GLOBAL overlay shortcut (now wired +
   the only entry), not a separate in-conversation one. The S93 drill-down surface
@@ -1550,23 +1550,40 @@ applied + P3 mobile-parity gap closed by driving the bottom-nav routing)
   Batch 8 adds the `home_bottom_nav` key, which the existing mobile bottom-nav
   test does not pump `HomePage` so it stays green).
 
-## Run phase — STATUS: IN PROGRESS (started 2026-06-10)
+## Run phase — current strategy and historical log (updated 2026-06-11)
 
-Write phase complete: batches 0–8 all DONE (commits b1a7baf..b89feb6), 94 cases
-(88 WRITTEN + 6 evidence-based SKIP: 19/20 avatar native-picker-only, 26 restore
-native-picker-only, 53 presence un-seedable on reused launch, 62 reply not wired for
-C2C text bubbles, 68 offline no ungated seam). App rebuilt via build_all.sh macos debug
-(new service extensions ui_scroll_at/ui_drag/ui_secondary_tap +
-l3_mark_current_account_test + fork keys are in the binary).
-Run order (one campaign at a time, serial — osascript foreground is exclusive):
-rui-settings2 → rui-profile → rui-login → rui-contacts → rui-conv → rui-chat →
-rui-group2 → rui-calls-misc. Record per-sweep results + fixes in "Run log".
+Original write phase for batches 0–8 is complete: 94 cases (88 WRITTEN + 6
+evidence-based SKIP: 19/20 avatar native-picker-only, 26 restore
+native-picker-only, 53 presence un-seedable on reused launch, 62 reply not wired
+for C2C text bubbles, 68 offline no ungated seam). Additional real-App coverage
+has since been added for P1 extras, account/conference, group/conference member
+role/removal, extra C2C flows, optimized single-launch bundles, and the
+highest-value follow-up sweeps: `rui-c2c-deep-extra`,
+`rui-account-deep-extra`, `rui-group-conf-deep-extra`, and
+`rui-native-boundary-guards`.
 
-**RUN PROGRESS (single-instance sweeps DONE):**
+Current broad local dogfood runs should start with the unified runner and the
+startup-reuse campaign:
+
+```bash
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-optimized-current
+```
+
+Use `--plan-json` before a live run to verify the expected launch/driver/stop
+shape. Then narrow failures with `rui-c2c-optimized`,
+`rui-friendship-optimized`, `rui-single-app-optimized`, the new deep-extra
+domain sweeps, or a concrete `rui-*` domain sweep. Keep
+`rui-native-boundary-guards` standalone: attachment and restore now have
+debug-only fixed picker-path seams, but the campaign still intentionally contains
+SKIPs for OS/network/permission/mobile seams. The older per-domain run order
+below is retained as historical evidence, not as the default current run plan.
+
+**HISTORICAL RUN PROGRESS (single-instance sweeps DONE):**
 - ✅ rui-settings2 — 12 PASS / 0 FAIL (commit 283132a)
 - ✅ rui-profile — 6 PASS / 0 FAIL / 2 SKIP (commit ed1b1ce)
 - ✅ rui-login — 8 PASS / 0 FAIL / 1 SKIP, endClean (commit this batch)
-- ⏭ rui-contacts onward — NOT yet run (2-process; need a friended pair).
+- ⏭ early rui-contacts onward — not run in this historical sequence; current
+  coverage should use the optimized campaign first, then focused reruns.
 - **CRITICAL for the next agent:** build ONLY via
   `MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh` (build_all omits the l3 surface →
   l3_dump_state "Method not found" → every assertion silently breaks). Two big cross-sweep
@@ -1704,31 +1721,39 @@ rui-group2 → rui-calls-misc. Record per-sweep results + fixes in "Run log".
   - **BUILD REMINDER:** rebuild ONLY via `MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh`
     (not build_all) so the l3 surface is compiled in; then RELAUNCH both instances.
 
-## Run phase (after ALL batches written) — protocol
+## Current run protocol
 
-1. Rebuild app so new service extensions are in the binary: `./build_all.sh --platform
-   macos --mode debug` then **verify the embedded dylib is fresh** (memory: bare
-   `flutter build macos` does NOT re-embed; run_toxee.sh / build_all re-embed — nm-verify).
-2. Launch the pair ONCE per suite-group: `tool/mcp_test/launch_toxee_instance.sh A/B`
-   (or `launch_fixture_c_pair.sh`), restore `paired_for_e2e` where the suite allows
-   (`restore_fixture_c_pair.sh`) to skip re-registration/re-friending.
-3. Run sweeps serially: suites 1–3 share one single-instance launch where state allows;
-   suites 4–8 share the pair launch (reset_friendship between suites that need
-   no-friend start).
-4. Fix failures at the ROOT CAUSE (native/FFI, fork, app — not the harness, unless the
+1. Validate the catalog and optimized launch contract before touching live apps:
+   `dart run tool/mcp_test/fixture_c_unified_runner.dart --validate-only` and
+   `dart run tool/mcp_test/fixture_c_unified_runner.dart --plan-json --class=2proc-ui --real-ui-campaign=rui-optimized-current`.
+2. Rebuild app so new service extensions are in the binary:
+   `MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh`. Do not rely on a plain
+   `flutter build macos`; it can miss the L3 surface or fail to re-embed the fresh dylib.
+3. Prefer one broad optimized run first:
+   `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-optimized-current`.
+4. If the broad run fails, rerun the smallest relevant optimized/domain campaign
+   (`rui-c2c-optimized`, `rui-friendship-optimized`, `rui-single-app-optimized`, or
+   a concrete `rui-*` sweep). Split into fresh launches only for state poisoning,
+   restart coverage, native pickers, or incompatible preconditions.
+5. Fix failures at the ROOT CAUSE (native/FFI, fork, app — not the harness, unless the
    harness is provably at fault). Track every fix in the Batch log. Re-run only the
    affected sweep.
-5. Update Status column → PASS/FAIL+fix/SKIP+reason.
-6. Codex diff review (mandatory): `env -u OTEL_EXPORTER_OTLP_ENDPOINT codex exec -c
+6. Update Status column → PASS/FAIL+fix/SKIP+reason.
+7. Codex diff review (mandatory): `env -u OTEL_EXPORTER_OTLP_ENDPOINT codex exec -c
    otel.exporter=none -c otel.log_user_prompt=false ...` review of the full campaign diff.
-7. Final commit + INDEX regen (`dart run tool/mcp_test/gen_scenario_index.dart --check`).
+8. Final commit + INDEX regen (`dart run tool/mcp_test/gen_scenario_index.dart --check`).
 
 ## Resume instructions (for a fresh session)
 
-1. Read this file top to bottom. `git log --oneline -15` to see which batch commits exist.
-2. Find the first batch whose STATUS is not DONE — relaunch the batch agent (opus,
-   serial) with the per-batch contract above.
-3. If all batches DONE but run phase incomplete: follow Run phase protocol; per-case
-   Status shows what already passed.
-4. Memories to load: real_ui_two_process_harness, flutter_skill_double_tap_blank,
+1. Read `doc/architecture/TESTING_OVERVIEW.md`,
+   `doc/research/REAL_APP_UI_TEST_INVENTORY.md`, and
+   `tool/mcp_test/REAL_UI_TWO_PROCESS.md` first for the current catalog and startup-reuse
+   policy, then use this file for historical case rationale and run logs.
+2. Do not resume from the old per-domain order blindly. Start with `rui-optimized-current`
+   unless you are intentionally debugging one already-isolated domain.
+3. If a batch/status table in this file conflicts with the runner's current discoverable
+   catalog, the runner wins; update this document rather than hand-editing code around it.
+4. If all write batches are DONE but live validation is incomplete: follow Current run
+   protocol; per-case Status shows what already passed historically.
+5. Memories to load: real_ui_two_process_harness, flutter_skill_double_tap_blank,
    real_ui_group_message_private_invite, macos_hang_forensics_first.

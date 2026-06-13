@@ -120,7 +120,7 @@ import 'testing/l3_debug_tools.dart';
 part 'home_page_plugins.dart';
 part 'home_page_bootstrap.dart';
 
-enum _MediaPickType { image, video }
+enum _MediaPickType { file, image, video }
 
 @visibleForTesting
 List<PopupMenuEntry<String>> buildConversationContextMenuItems({
@@ -205,7 +205,11 @@ AlertDialog buildDeleteConversationDialog({
     title: Text(l10n.deleteConversationTitle),
     content: Text(l10n.deleteConversationBody(conversationLabel)),
     actions: [
-      TextButton(onPressed: () => dismiss(false), child: Text(l10n.cancel)),
+      TextButton(
+        key: UiKeys.deleteConversationCancelButton,
+        onPressed: () => dismiss(false),
+        child: Text(l10n.cancel),
+      ),
       TextButton(
         key: UiKeys.deleteConversationConfirmButton,
         onPressed: () => dismiss(true),
@@ -695,17 +699,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required _MediaPickType type,
   }) async {
     final appL10n = AppLocalizations.of(context)!;
-    final label = type == _MediaPickType.image ? appL10n.photo : appL10n.video;
+    final label = switch (type) {
+      _MediaPickType.file => appL10n.file,
+      _MediaPickType.image => appL10n.photo,
+      _MediaPickType.video => appL10n.video,
+    };
     String? pickedPath;
     if (groupId != null && groupId.isNotEmpty) {
       _showSnackBar(appL10n.sendingToGroupsNotSupported(label));
       return;
     }
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: type == _MediaPickType.image ? FileType.image : FileType.video,
+      final path = await runL3AwareAttachmentPicker(
+        pickFile: () async => (await FilePicker.platform.pickFiles(
+          type: switch (type) {
+            _MediaPickType.file => FileType.any,
+            _MediaPickType.image => FileType.image,
+            _MediaPickType.video => FileType.video,
+          },
+        ))?.files.single.path,
       );
-      final path = result?.files.single.path;
       if (path == null || path.isEmpty) {
         _showSnackBar(appL10n.noLabelSelected(label));
         return;
@@ -716,7 +729,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _showSnackBar('$label sent');
       }
     } catch (e) {
-      final appL10n = AppLocalizations.of(context)!;
       final errorMsg = e.toString();
       String userMsg;
       if (errorMsg.contains('offline') || errorMsg.contains('not connected')) {
@@ -724,9 +736,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // If a picker path was available, keep it in the failure bubble so the
         // user can see which media item failed.
         if (userId != null) {
-          final failureMsg = type == _MediaPickType.image
-              ? appL10n.friendOfflineSendImageFailed
-              : appL10n.friendOfflineSendVideoFailed;
+          final failureMsg = switch (type) {
+            _MediaPickType.file => appL10n.friendOfflineCannotSendFile,
+            _MediaPickType.image => appL10n.friendOfflineSendImageFailed,
+            _MediaPickType.video => appL10n.friendOfflineSendVideoFailed,
+          };
           final mgr = FakeUIKit.instance.messageManager;
           if (mgr != null) {
             final text = pickedPath == null
@@ -739,7 +753,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         // Extract error message without file path
         String errorText = e.toString();
-        final appL10n = AppLocalizations.of(context)!;
         // Remove file path from error message if present
         if (errorText.contains('File does not exist')) {
           errorText = appL10n.fileDoesNotExist;
@@ -797,6 +810,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String? groupID,
   }) {
     final appL10n = AppLocalizations.of(context)!;
+    final fileLabel = appL10n.file;
     final photoLabel = appL10n.photo;
     final videoLabel = appL10n.video;
     final personalCardLabel = appL10n.personalCard;
@@ -804,6 +818,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final sentSnack = appL10n.personalCardSent;
     final sentGroupSnack = appL10n.sentPersonalCardToGroup;
     final options = <TencentCloudChatMessageGeneralOptionItem>[
+      TencentCloudChatMessageGeneralOptionItem(
+        icon: Icons.attach_file,
+        label: fileLabel,
+        onTap: ({Offset? offset}) async {
+          await _sendMedia(
+            context,
+            userId: userID,
+            groupId: groupID,
+            type: _MediaPickType.file,
+          );
+        },
+      ),
       TencentCloudChatMessageGeneralOptionItem(
         icon: Icons.photo_outlined,
         label: photoLabel,

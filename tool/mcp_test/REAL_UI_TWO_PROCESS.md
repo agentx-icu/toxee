@@ -27,9 +27,45 @@ Real-UI two-process scenarios now enter the same `fixture_c_manifest.json` and
 planning system as the rest of Fixture C via
 `tool/mcp_test/fixture_c_unified_runner.dart`.
 
+### Startup-reuse policy for new real-UI cases
+
+Default rule: every new "真实 App + 真实控件" case should have two shapes:
+
+1. an atomic scenario for focused debugging and failure reproduction;
+2. a sweep / optimized campaign path for broad coverage that reuses the current
+   app launch, registered accounts, and A<->B friendship.
+
+Do not add a new broad-run campaign that relaunches the pair just to run one
+case if the state can be safely reused. Prefer these homes:
+
+- C2C conversation/chat/profile cases: add the atomic case to the relevant
+  domain sweep, then include it in `sweep_c2c_optimized` if it preserves the
+  friendship.
+- Group/conference/call cases: include them in their domain sweep, then in
+  `sweep_friendship_optimized` if they end with the friendship intact.
+- A-only account/settings/profile/locale cases: include them in
+  `sweep_single_app_optimized` if they leave the primary account logged in and
+  clean up temporary accounts/conferences.
+- Broad smoke/run phase: prefer `rui-optimized-current` first; if it fails,
+  use its child sweep name in the log to fall back to the smaller campaign.
+
+Allowed exceptions: keep a case out of optimized single-launch bundles when it
+deletes friendship, restarts/stops a peer, depends on native/OS picker or
+notification automation, mutates global app state that cannot be restored, or
+has a known live failure that would mask unrelated coverage. Document the
+exception next to the campaign registration and in the durable campaign anchor.
+After registering a new case, run `--plan-json` for the optimized campaign and
+check that it still plans as one pair launch unless an exception above applies.
+
 Typical commands:
 
 - `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-optimized-current`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-c2c-optimized`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-c2c-deep-extra`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-account-deep-extra`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-group-conf-deep-extra`
+- `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=rui-native-boundary-guards`
 - `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-scenario=handshake`
 - `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=accepted-friend-detail`
 - `dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-campaign=accepted-friend-inline-call`
@@ -62,29 +98,38 @@ Behavior to know:
   accepted handshake (`handshake` / `handshake_detail`) or restores
   `paired_for_e2e` for a focused replay.
 - `--real-ui-campaign=...` expands named merged batches of compatible
-  scenarios. Today there are 42 built-in campaigns spanning four buckets:
-  accepted-friend reusable stacks, fresh/no-friend request flows,
-  reset-backed "then-decline" transitions, and `all-*` smoke bundles.
-- The currently codified reusable batches are:
-  `accepted-friend-inline = handshake -> message`,
-  `accepted-friend-detail = handshake_detail -> message`,
-  `accepted-friend-inline-burst = handshake -> message_burst`,
-  `accepted-friend-detail-burst = handshake_detail -> message_burst`,
-  `accepted-friend-inline-group-message = handshake -> group_message`,
-  `accepted-friend-inline-call = handshake -> message -> call_voice`,
-  `accepted-friend-detail-call = handshake_detail -> message -> call_voice`,
-  `accepted-friend-inline-call-reject = handshake -> call_reject`,
-  `accepted-friend-detail-call-reject = handshake_detail -> call_reject`,
-  `fresh-no-friend = decline`,
-  `fresh-custom-message = custom_message`,
-  `accepted-friend-inline-full = handshake -> message -> message_burst -> call_voice -> call_reject`,
-  `no-friend-inline-call = custom_message -> handshake -> call_voice`,
-  `inline-call-then-decline = handshake -> call_voice -> reset_friendship -> decline`,
-  `all-current = handshake -> message -> reset_friendship -> handshake_detail -> reset_friendship -> decline`,
-  `all-expanded = handshake -> message -> message_burst -> call_voice -> call_reject -> reset_friendship -> custom_message -> handshake_detail -> reset_friendship -> decline`.
+  scenarios. The current discoverable catalog has 88 built-in campaigns. Treat
+  `--list-real-ui-campaigns` as the exact source of truth for names and counts.
+- The current catalog is organized around these scheduling buckets:
+  - `rui-optimized-*`: preferred broad local dogfood bundles that keep one app
+    pair alive and cover as many real controls as possible in a single launch.
+    Use `rui-optimized-current` for the broadest current smoke pass.
+  - `rui-*` domain sweeps: focused real-control sweeps for settings, profile,
+    login, contacts, conversations, chat, calls, group, account, conference,
+    group/conference member management, and C2C extras.
+  - accepted-friend stacks: reusable chat/call/group steps after a successful
+    friend relationship.
+  - fresh/no-friend and then-decline stacks: request/decline/custom-message
+    branches, with explicit `reset_friendship` maintenance when reuse is
+    cheaper than relaunch.
+  - `all-*` smoke bundles: representative legacy end-to-end scheduling shapes.
+- Representative optimized commands:
+  - `--real-ui-campaign=rui-optimized-current` runs the current broad
+    single-launch optimized bundle.
+  - `--real-ui-campaign=rui-c2c-optimized` narrows to the C2C-heavy optimized
+    subset.
+  - `--real-ui-campaign=rui-friendship-optimized` narrows to add/delete/request
+    friendship coverage.
+  - `--real-ui-campaign=rui-single-app-optimized` covers account/settings style
+    single-app flows without paying for extra relaunches.
+  - `--real-ui-campaign=rui-native-boundary-guards` probes attachment/restore/
+    notification boundaries: attachment now clicks real file/photo controls with
+    fixed picker paths and restore clicks the real Restore card with a fixed
+    invalid `.tox` path; OS/network/permission/mobile-only seams stay explicit
+    SKIPs, so keep it outside optimized bundles.
 - Use `--list-real-ui-campaigns` to print the full current catalog. Treat that
   list as the source of truth for exact campaign names; this document only
-  calls out the representative shapes above.
+  calls out the representative buckets above.
 - Treat the exact number of launches as an optimization detail, not an API.
   What is stable is the state contract: the runner may insert friendship-reset
   maintenance steps when that is cheaper than relaunching the pair.

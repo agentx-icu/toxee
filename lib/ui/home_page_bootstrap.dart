@@ -560,7 +560,7 @@ extension _HomePageBootstrap on _HomePageState {
         TencentCloudChatMessageAttachmentConfig(
           enableSendImage: false,
           enableSendVideo: false,
-          enableSendFile: true,
+          enableSendFile: false,
           enableSearch: false,
         ),
       ),
@@ -585,9 +585,22 @@ extension _HomePageBootstrap on _HomePageState {
       additionalAttachmentOptionsForMobile:
           ({String? userID, String? groupID, String? topicID}) {
             final appL10n = AppLocalizations.of(context)!;
+            final fileLabel = appL10n.file;
             final photoLabel = appL10n.photo;
             final videoLabel = appL10n.video;
             return [
+              TencentCloudChatMessageGeneralOptionItem(
+                icon: Icons.attach_file,
+                label: fileLabel,
+                onTap: ({Offset? offset}) async {
+                  await _sendMedia(
+                    context,
+                    userId: userID,
+                    groupId: groupID,
+                    type: _MediaPickType.file,
+                  );
+                },
+              ),
               TencentCloudChatMessageGeneralOptionItem(
                 icon: Icons.photo_outlined,
                 label: photoLabel,

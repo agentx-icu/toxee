@@ -188,6 +188,20 @@ const _validRealUiScenarios = {
   'chat_offline_pending_then_deliver',
   'chat_image_bubble_open_preview',
   'chat_file_bubble_present_open',
+  // Focused C2C expansion — safe-path real controls not covered by the main
+  // chat/conv sweeps: search entry, cancel branches, and profile send-back.
+  'sweep_c2c_extra',
+  'c2c_global_search_contact_opens_chat',
+  'c2c_conv_delete_cancel',
+  'c2c_profile_clear_history_cancel',
+  'c2c_delete_friend_cancel',
+  'c2c_header_profile_send_back',
+  // Optimized orchestration bundles — reuse existing sweeps in one app launch
+  // and, where possible, one A<->B friendship.
+  'sweep_single_app_optimized',
+  'sweep_c2c_optimized',
+  'sweep_friendship_optimized',
+  'sweep_optimized_current',
   // Batch 7 — group / conference (MIXED single-instance + two-process).
   // sweep_group2 chains all 14 on one launch: required=no-friend (it does its
   // OWN handshake) and result=friends (no case deletes the FRIEND — case 78
@@ -262,6 +276,45 @@ const _validRealUiScenarios = {
   'offline_pending_relaunch',
   'call_from_profile_tiles',
   'group_join_by_id_real_ui',
+  // P1 extra — feasible follow-ups from the inventory's "still add" bucket
+  // that are driveable in the current macOS real-app harness.
+  'sweep_p1_extra',
+  'ar_rtl_page_walk',
+  'keyboard_global_search_shortcut',
+  // Account/conference focused expansion — single-instance, real controls,
+  // non-destructive assertions with cleanup-gated state.
+  'sweep_account_conf_extra',
+  'settings_switch_account_cancel',
+  'login_account_delete_cancel',
+  'settings_delete_account_cancel',
+  'conference_profile_id_surface',
+  'conference_profile_send_message_tile',
+  'conference_search_result_opens',
+  // Focused group/conference member-management expansion — real member-list
+  // row menus, role action smoke, remove, and conference negative affordances.
+  'sweep_group_conf_member_extra',
+  'group_member_peer_menu_surface',
+  'group_member_role_action_smoke',
+  'group_member_remove_ui',
+  'conference_member_peer_row_surface',
+  'conference_member_role_remove_absent',
+  // Highest-value follow-up additions: optimized-stable deep cases plus
+  // standalone native-boundary guards.
+  'sweep_c2c_deep_extra',
+  'c2c_search_result_opens_target_message',
+  'sweep_account_deep_extra',
+  'account_multi_account_state_isolation',
+  'sweep_group_conf_deep_extra',
+  'group_member_role_reopen_surface',
+  'group_member_remove_receiver_state',
+  'conference_bidirectional_message_lifecycle',
+  'sweep_native_boundary_guards',
+  'attachment_entry_buttons_render',
+  'restore_import_entry_guard',
+  'notification_tap_routes_to_c2c',
+  'network_disconnect_guard',
+  'call_permission_denied_guard',
+  'mobile_smoke_playbook_guard',
   // P1/P2/P3 campaign Batch V — P2 selector-backed cases. The sweep chains all
   // three and restarts B for presence; individual sticker/chip cases keep the
   // friendship, presence reports relaunch-dirty.
@@ -304,6 +357,14 @@ const _realUiCampaigns = <String, List<String>>{
   // launch; one handshake at the top, marks both accounts test to unblock l3
   // SEEDING). Cases 62 (reply) + 68 (offline) are SKIPs inside the chain.
   'rui-chat': ['sweep_chat'],
+  // Focused C2C expansion: global search contact entry, non-destructive cancel
+  // branches, and chat header -> profile -> chat round-trip.
+  'rui-c2c-extra': ['sweep_c2c_extra'],
+  // Optimized bundles: fewer app launches / account registrations / handshakes.
+  'rui-single-app-optimized': ['sweep_single_app_optimized'],
+  'rui-c2c-optimized': ['sweep_c2c_optimized'],
+  'rui-friendship-optimized': ['sweep_friendship_optimized'],
+  'rui-optimized-current': ['sweep_optimized_current'],
   // Batch 7 — group / conference (the whole 14-case chain on one TWO-PROCESS
   // launch; one handshake at the top, one shared PRIVATE group + one shared
   // conference created via the REAL add-group dialog and reused across cases.
@@ -327,6 +388,20 @@ const _realUiCampaigns = <String, List<String>>{
   // restarts one peer inside the driver, then reports relaunch-dirty so the
   // next campaign starts from a clean pair launch.
   'rui-p1-relaunch': ['sweep_p1_relaunch'],
+  // P1 extra — single-instance Arabic real-app locale walk + keyboard global
+  // search shortcut flow.
+  'rui-p1-extra': ['sweep_p1_extra'],
+  // Focused account-management + conference expansion.
+  'rui-account-conf-extra': ['sweep_account_conf_extra'],
+  // Focused group/conference member role/remove expansion.
+  'rui-group-conf-member-extra': ['sweep_group_conf_member_extra'],
+  // Highest-value optimized-stable follow-ups.
+  'rui-c2c-deep-extra': ['sweep_c2c_deep_extra'],
+  'rui-account-deep-extra': ['sweep_account_deep_extra'],
+  'rui-group-conf-deep-extra': ['sweep_group_conf_deep_extra'],
+  // Native/mobile boundary probes. PASS where the in-app entry/routing is
+  // deterministic; SKIP where the next step is an OS dialog/link/permission seam.
+  'rui-native-boundary-guards': ['sweep_native_boundary_guards'],
   // P1/P2/P3 campaign Batch V — P2 fork-key-backed real-UI cases.
   'rui-p2-keys': ['sweep_p2_keys'],
   // P1/P2/P3 campaign Batch VI — C2C custom inbound seed + real Reply.
@@ -1234,12 +1309,34 @@ String _requiredRealUiState(String scenario) {
     case 'chat_offline_pending_then_deliver':
     case 'chat_image_bubble_open_preview':
     case 'chat_file_bubble_present_open':
+    // Focused C2C extra individual cases require an existing friendship.
+    case 'c2c_global_search_contact_opens_chat':
+    case 'c2c_conv_delete_cancel':
+    case 'c2c_profile_clear_history_cancel':
+    case 'c2c_delete_friend_cancel':
+    case 'c2c_header_profile_send_back':
+    // C2C deep individual case needs an existing friendship; the sweep starts
+    // no-friend and establishes it once.
+    case 'c2c_search_result_opens_target_message':
+    // Optimized friendship bundles start from fresh no-friend when invoked as
+    // a campaign, but individual sub-sweeps establish/reuse the friendship.
     // Batch 7 — the two-process group cases need a friendship (the standalone
     // dispatch establishes it + joins B); the runner restores paired_for_e2e.
     case 'group_add_member_full_join':
     case 'group_member_list_scroll':
     case 'group_unread_badge_two_proc':
     case 'group_kick_member_ui':
+    // Focused group/conference member-management cases all need an A<->B
+    // friendship so B can be invited into the fresh target group/conference.
+    case 'group_member_peer_menu_surface':
+    case 'group_member_role_action_smoke':
+    case 'group_member_remove_ui':
+    case 'conference_member_peer_row_surface':
+    case 'conference_member_role_remove_absent':
+    // Group/conference deep individual cases also need an A<->B friendship.
+    case 'group_member_role_reopen_surface':
+    case 'group_member_remove_receiver_state':
+    case 'conference_bidirectional_message_lifecycle':
     // Batch 8 — the call cases + the chat-open misc cases need a friendship (the
     // call signaling + the C2C chat); the runner restores paired_for_e2e for the
     // standalone dispatch.
@@ -1252,6 +1349,10 @@ String _requiredRealUiState(String scenario) {
     case 'home_tabs_cycle_state_retained':
     case 'theme_switch_chat_open':
     case 'search_chat_history_window_open':
+    // Native-boundary cases that assert C2C toolbar/routing need friendship; the
+    // full guard sweep starts no-friend and establishes it once.
+    case 'attachment_entry_buttons_render':
+    case 'notification_tap_routes_to_c2c':
     // P1/P2/P3 Batch III — every individual chat/conv case needs friendship;
     // standalone dispatch restores paired_for_e2e or establishes it first.
     case 'chat_recall_message':
@@ -1348,6 +1449,16 @@ String _requiredRealUiState(String scenario) {
     // Batch 6 — sweep_chat runs its OWN handshake, so it requires a fresh
     // NO-FRIEND pair launch (driving both A and B).
     case 'sweep_chat':
+    // Focused C2C extra sweep runs its OWN handshake.
+    case 'sweep_c2c_extra':
+    // C2C deep sweep runs its OWN handshake.
+    case 'sweep_c2c_deep_extra':
+    // Optimized bundles start from one fresh no-friend pair launch and compose
+    // existing sweeps internally to avoid relaunch/rehash overhead.
+    case 'sweep_single_app_optimized':
+    case 'sweep_c2c_optimized':
+    case 'sweep_friendship_optimized':
+    case 'sweep_optimized_current':
     // Batch 7 — sweep_group2 runs its OWN handshake, so it requires a fresh
     // NO-FRIEND pair launch. The single-instance create cases (71/72/82) +
     // the single-instance group/conference cases that create their own group
@@ -1363,6 +1474,10 @@ String _requiredRealUiState(String scenario) {
     case 'conf_create_dialog_surface':
     case 'conf_row_menu_surface':
     case 'conf_member_list_renders':
+    // Focused group/conference member-management sweep runs its OWN handshake.
+    case 'sweep_group_conf_member_extra':
+    // Group/conference deep sweep runs its OWN handshake.
+    case 'sweep_group_conf_deep_extra':
     // Batch 8 — sweep_calls_misc runs its OWN handshake, so it requires a fresh
     // NO-FRIEND pair launch. window_resize_responsive is single-instance (drive
     // only A, no friendship needed).
@@ -1383,6 +1498,30 @@ String _requiredRealUiState(String scenario) {
     // P1/P2/P3 Batch IV — sweep_p1_relaunch runs its OWN handshake and then
     // restarts instances internally.
     case 'sweep_p1_relaunch':
+    // P1 extra — single-instance app-local Arabic/keyboard search cases; no
+    // friendship involved.
+    case 'sweep_p1_extra':
+    case 'ar_rtl_page_walk':
+    case 'keyboard_global_search_shortcut':
+    // Account/conference focused expansion — runs on A only, creates any
+    // temporary account/conference internally, and cleans them before exit.
+    case 'sweep_account_conf_extra':
+    case 'settings_switch_account_cancel':
+    case 'login_account_delete_cancel':
+    case 'settings_delete_account_cancel':
+    case 'conference_profile_id_surface':
+    case 'conference_profile_send_message_tile':
+    case 'conference_search_result_opens':
+    // Account deep expansion is A-only and cleans the temporary account/group.
+    case 'sweep_account_deep_extra':
+    case 'account_multi_account_state_isolation':
+    // Native-boundary sweep starts no-friend and establishes friendship only for
+    // the toolbar/routing probes; non-friend guard cases below never form one.
+    case 'sweep_native_boundary_guards':
+    case 'restore_import_entry_guard':
+    case 'network_disconnect_guard':
+    case 'call_permission_denied_guard':
+    case 'mobile_smoke_playbook_guard':
     // P1/P2/P3 Batch V — sweep_p2_keys runs its OWN handshake, then restarts B
     // for the presence-dot case.
     case 'sweep_p2_keys':
@@ -1460,6 +1599,19 @@ String _resultRealUiState(String scenario) {
     case 'chat_offline_pending_then_deliver':
     case 'chat_image_bubble_open_preview':
     case 'chat_file_bubble_present_open':
+    // Focused C2C extra leaves the friendship intact; Cancel cases deliberately
+    // avoid deleting/clearing, and the sweep re-seeds a visible row at the end.
+    case 'sweep_c2c_extra':
+    case 'c2c_global_search_contact_opens_chat':
+    case 'c2c_conv_delete_cancel':
+    case 'c2c_profile_clear_history_cancel':
+    case 'c2c_delete_friend_cancel':
+    case 'c2c_header_profile_send_back':
+    case 'sweep_c2c_deep_extra':
+    case 'c2c_search_result_opens_target_message':
+    case 'sweep_c2c_optimized':
+    case 'sweep_friendship_optimized':
+    case 'sweep_optimized_current':
     // Batch 7 — sweep_group2 ends FRIENDS (no case deletes the friend; case 78
     // kicks B from the group + case 75 leaves the group, but the A<->B
     // friendship stays intact). The two-process group cases also leave the
@@ -1469,6 +1621,24 @@ String _resultRealUiState(String scenario) {
     case 'group_member_list_scroll':
     case 'group_unread_badge_two_proc':
     case 'group_kick_member_ui':
+    // Focused member-management sweep/cases leave the friend relationship
+    // intact; member removal only removes B from that temporary group.
+    case 'sweep_group_conf_member_extra':
+    case 'group_member_peer_menu_surface':
+    case 'group_member_role_action_smoke':
+    case 'group_member_remove_ui':
+    case 'conference_member_peer_row_surface':
+    case 'conference_member_role_remove_absent':
+    // Group/conference deep sweep/cases leave the friend relationship intact.
+    case 'sweep_group_conf_deep_extra':
+    case 'group_member_role_reopen_surface':
+    case 'group_member_remove_receiver_state':
+    case 'conference_bidirectional_message_lifecycle':
+    // Native-boundary full sweep and the C2C toolbar/routing probes form or keep
+    // friendship; SKIP-only non-friend guards are listed in the no-friend result.
+    case 'sweep_native_boundary_guards':
+    case 'attachment_entry_buttons_render':
+    case 'notification_tap_routes_to_c2c':
     // Batch 8 — sweep_calls_misc ends FRIENDS (no case deletes the friend; the
     // calls end idle and the conversation row stays alive). The call cases + the
     // chat-open misc cases also leave the friendship intact.
@@ -1600,6 +1770,30 @@ String _resultRealUiState(String scenario) {
     case 'settings_switch_account_entry':
     case 'account_card_management_menu':
     case 'account_delete_full_flow':
+    // P1 extra — locale is restored to EN and the search overlay is closed in
+    // the driver end-clean; no friendship/account mutation.
+    case 'sweep_p1_extra':
+    case 'ar_rtl_page_walk':
+    case 'keyboard_global_search_shortcut':
+    // Account/conference focused expansion — all cases clean their temporary
+    // account/conference artifacts and never form a friendship.
+    case 'sweep_account_conf_extra':
+    case 'settings_switch_account_cancel':
+    case 'login_account_delete_cancel':
+    case 'settings_delete_account_cancel':
+    case 'conference_profile_id_surface':
+    case 'conference_profile_send_message_tile':
+    case 'conference_search_result_opens':
+    // Account deep expansion cleans the throwaway account and primary group.
+    case 'sweep_account_deep_extra':
+    case 'account_multi_account_state_isolation':
+    // Native-boundary individual guards that do not establish friendship.
+    case 'restore_import_entry_guard':
+    case 'network_disconnect_guard':
+    case 'call_permission_denied_guard':
+    case 'mobile_smoke_playbook_guard':
+    // A-only optimized bundle leaves the pair friendship state untouched.
+    case 'sweep_single_app_optimized':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');

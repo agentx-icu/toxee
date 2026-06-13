@@ -1367,6 +1367,7 @@ class _LoginPageState extends State<LoginPage> {
                                     top: AppSpacing.md,
                                   ),
                                   child: ErrorBanner(
+                                    key: UiKeys.loginPageErrorBanner,
                                     message: _error!,
                                     onRetry: () {
                                       setState(() => _error = null);

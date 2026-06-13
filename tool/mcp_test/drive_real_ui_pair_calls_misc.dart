@@ -185,8 +185,11 @@ Future<bool> _waitCallRecordCount(
 /// renders call records through the message list; the row container key is
 /// `message_list_item:<msgID>`. We resolve the record msgID from the dump, then
 /// assert its row mounts. Returns whether at least one record row is rendered.
-Future<bool> _callRecordRowRendered(Inst inst, String friendId,
-    {int timeoutSecs = 12}) async {
+Future<bool> _callRecordRowRendered(
+  Inst inst,
+  String friendId, {
+  int timeoutSecs = 12,
+}) async {
   final convId = 'c2c_${_pubkey(friendId)}';
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
   while (DateTime.now().isBefore(deadline)) {
@@ -215,15 +218,13 @@ Future<bool> _callRecordRowRendered(Inst inst, String friendId,
 /// The call is LEFT IN inCall so case 89 (callee-hangup) ends this SAME call.
 /// Returns the inCall continuation flag via the out-param style: it returns true
 /// only when the call reached inCall AND both mute toggles flipped the state.
-Future<bool> _callMuteToggleIncall(
-  Inst a,
-  Inst b,
-  String toxA,
-) async {
+Future<bool> _callMuteToggleIncall(Inst a, Inst b, String toxA) async {
   // Make sure no stale call lingers — a lingering call would poison this case
   // (the "double-invite miscount" lesson), so a failed idle-settle is HARD.
   if (!await _ensureBothIdle(a, b)) {
-    print('[pair] call_mute_toggle_incall: a prior call did not settle to idle');
+    print(
+      '[pair] call_mute_toggle_incall: a prior call did not settle to idle',
+    );
     return false;
   }
   // B (caller) rings A (callee) — same direction as runCallVoice.
@@ -238,8 +239,10 @@ Future<bool> _callMuteToggleIncall(
   final inCallA = await _waitCallStateAny(a, {'inCall'});
   final inCallB = await _waitCallStateAny(b, {'inCall'});
   if (!inCallA || !inCallB) {
-    print('[pair] call_mute_toggle_incall: did not reach inCall '
-        '(A=${await _callState(a)} B=${await _callState(b)})');
+    print(
+      '[pair] call_mute_toggle_incall: did not reach inCall '
+      '(A=${await _callState(a)} B=${await _callState(b)})',
+    );
     await _ensureBothIdle(a, b);
     return false;
   }
@@ -292,7 +295,9 @@ Future<bool> _callCalleeHangup(Inst a, Inst b, String toxA) async {
     final inCallA = await _waitCallStateAny(a, {'inCall'});
     final inCallB = await _waitCallStateAny(b, {'inCall'});
     if (!inCallA || !inCallB) {
-      print('[pair] call_callee_hangup: re-established call did not reach inCall');
+      print(
+        '[pair] call_callee_hangup: re-established call did not reach inCall',
+      );
       await _ensureBothIdle(a, b);
       return false;
     }
@@ -321,16 +326,25 @@ Future<bool> _callCalleeHangup(Inst a, Inst b, String toxA) async {
 /// EXCEED it (codex P2: on a restored `paired_for_e2e` launch the conversation
 /// may already carry stale call records, so `>= 1` could false-pass even if the
 /// just-finished call produced no record). Then assert a record row renders.
-Future<bool> _callRecordBubbleRenders(Inst a, String toxB,
-    {required int baseline}) async {
+Future<bool> _callRecordBubbleRenders(
+  Inst a,
+  String toxB, {
+  required int baseline,
+}) async {
   // The record is inserted on call end; give it a beat to persist + reopen the
   // chat fresh so the history reloads from FfiChatService.
   await returnToChatsHome(a, rounds: 4);
-  final hasNewRecord =
-      await _waitCallRecordCount(a, toxB, baseline + 1, timeoutSecs: 20);
+  final hasNewRecord = await _waitCallRecordCount(
+    a,
+    toxB,
+    baseline + 1,
+    timeoutSecs: 20,
+  );
   if (!hasNewRecord) {
-    print('[pair] call_record_bubble_renders: no NEW call_record persisted '
-        '(baseline=$baseline now=${await _callRecordCount(a, toxB)})');
+    print(
+      '[pair] call_record_bubble_renders: no NEW call_record persisted '
+      '(baseline=$baseline now=${await _callRecordCount(a, toxB)})',
+    );
     return false;
   }
   await openChat(a, _pubkey(toxB));
@@ -353,7 +367,12 @@ Future<bool> _callRecordBubbleRenders(Inst a, String toxB,
 /// cancel; assert A's call-record count INCREASES (a new missed-call record
 /// rendered) and a record row mounts. Reuses the missed-call recipe (the caller
 /// cancels while the callee is still ringing — drive_fixture_c_missed_call.dart).
-Future<bool> _callMissedRecordRow(Inst a, Inst b, String toxA, String toxB) async {
+Future<bool> _callMissedRecordRow(
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   // A lingering call would poison the missed-call accounting — HARD-gate idle.
   if (!await _ensureBothIdle(a, b)) {
     print('[pair] call_missed_record_row: a prior call did not settle to idle');
@@ -369,9 +388,10 @@ Future<bool> _callMissedRecordRow(Inst a, Inst b, String toxA, String toxB) asyn
   // Let A genuinely ring for a few seconds (truly unanswered), confirm A is
   // still ringing, then B CANCELS (the missed-call realization).
   await Future<void>.delayed(const Duration(seconds: 3));
-  final stillRinging =
-      await _waitCallStateAnyForegrounded(a, {'ringing', 'incoming'},
-          timeoutSecs: 4);
+  final stillRinging = await _waitCallStateAnyForegrounded(a, {
+    'ringing',
+    'incoming',
+  }, timeoutSecs: 4);
   await b.foreground();
   await b.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
   // Both tear down WITHOUT A having accepted = a missed incoming call from A.
@@ -379,8 +399,7 @@ Future<bool> _callMissedRecordRow(Inst a, Inst b, String toxA, String toxB) asyn
   final endedB = await _waitCallStateAny(b, {'ended', 'idle'});
   await _ensureBothIdle(a, b);
   // A's call-record count must INCREASE (a new missed/cancel record).
-  final got =
-      await _waitCallRecordCount(a, toxB, before + 1, timeoutSecs: 20);
+  final got = await _waitCallRecordCount(a, toxB, before + 1, timeoutSecs: 20);
   // Open the chat + assert a record row renders.
   await openChat(a, _pubkey(toxB));
   final rowRendered = await _callRecordRowRendered(a, toxB, timeoutSecs: 12);
@@ -425,9 +444,11 @@ Future<({bool videoCall, bool cameraToggle})> _callVideoWithCameraToggle(
   // Confirm the call mode is actually VIDEO (the video button path).
   final modeVideo = await _waitCallField(a, 'mode', 'video', timeoutSecs: 8);
   if (!inCallA || !inCallB || !modeVideo) {
-    print('[pair] video call: did not reach inCall video '
-        '(A=${await _callState(a)} B=${await _callState(b)} '
-        'mode=${await _callField(a, 'mode')})');
+    print(
+      '[pair] video call: did not reach inCall video '
+      '(A=${await _callState(a)} B=${await _callState(b)} '
+      'mode=${await _callField(a, 'mode')})',
+    );
     await _ensureBothIdle(a, b);
     return (videoCall: false, cameraToggle: false);
   }
@@ -437,12 +458,14 @@ Future<({bool videoCall, bool cameraToggle})> _callVideoWithCameraToggle(
   var cameraToggle = false;
   if (await a.tapKeyCenter('call_camera_toggle_button', timeoutSecs: 8)) {
     final off = await _waitCallField(a, 'isVideoEnabled', !videoBefore);
-    final restored = await a.tapKeyCenter('call_camera_toggle_button',
-            timeoutSecs: 8) &&
+    final restored =
+        await a.tapKeyCenter('call_camera_toggle_button', timeoutSecs: 8) &&
         await _waitCallField(a, 'isVideoEnabled', videoBefore);
     cameraToggle = off && restored;
-    print('[pair] call_camera_toggle_incall: videoBefore=$videoBefore '
-        'off=$off restored=$restored');
+    print(
+      '[pair] call_camera_toggle_incall: videoBefore=$videoBefore '
+      'off=$off restored=$restored',
+    );
   } else {
     print('[pair] call_camera_toggle_incall: camera button not tappable');
   }
@@ -488,8 +511,10 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
   await openChat(inst, _pubkey(toxB));
   final openConv = await _homeShellCurrentConversationId(inst);
   if (openConv != c2c) {
-    print('[pair] home_tabs_cycle: chat did not open '
-        '(homeShellCurrentConversationId=$openConv)');
+    print(
+      '[pair] home_tabs_cycle: chat did not open '
+      '(homeShellCurrentConversationId=$openConv)',
+    );
     return false;
   }
   // Tap the REAL sidebar Contacts tab (IndexedStack index switch). The chats
@@ -521,7 +546,8 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
   final onChats = await _waitHomeShellTab(inst, 'chats');
   // The retained chat detail surfaces with NO re-open — assert the chat surface
   // is ready AND the open conversation is still the C2C one.
-  final retained = onChats &&
+  final retained =
+      onChats &&
       await _homeShellCurrentConversationId(inst) == c2c &&
       await _chatSurfaceReady(inst, c2c, timeoutSecs: 8);
   await inst.shot('/tmp/ui_b8_tabs_${inst.name}.png');
@@ -540,7 +566,11 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
 }
 
 /// Poll until the home shell's tab equals [tab] ('chats'|'contacts'|'settings').
-Future<bool> _waitHomeShellTab(Inst inst, String tab, {int timeoutSecs = 6}) async {
+Future<bool> _waitHomeShellTab(
+  Inst inst,
+  String tab, {
+  int timeoutSecs = 6,
+}) async {
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
   while (DateTime.now().isBefore(deadline)) {
     if (await _homeShellTab(inst) == tab) return true;
@@ -590,8 +620,10 @@ Future<bool> _themeSwitchChatOpen(Inst inst, String toxB) async {
   if (chatReady) {
     final msgId = await _ownMessageId(inst, toxB, seedText);
     if (msgId != null) {
-      bubbleIntact =
-          await inst.waitKey('message_list_item:$msgId', timeoutSecs: 8);
+      bubbleIntact = await inst.waitKey(
+        'message_list_item:$msgId',
+        timeoutSecs: 8,
+      );
     }
   }
   final alive = (await inst.dumpState())['sessionReady'] == true;
@@ -617,7 +649,7 @@ Future<bool> _themeSwitchChatOpen(Inst inst, String toxB) async {
 // ===========================================================================
 /// Seed a UNIQUE message term in the C2C chat, open the GLOBAL search overlay
 /// (Cmd+Ctrl+F — the only entry; there is no visible search button), type the
-/// term → the MESSAGE-result row (`search_result_message:<convId>`) renders →
+/// term → the MESSAGE-result row (`search_result_message_<convId>`) renders →
 /// tap it → the in-conversation `SearchChatHistoryWindow` mounts (asserted by
 /// its "Search Chat History" AppBar title). This is the surface the brief names;
 /// the global overlay is the production entry to it. Closes the overlay after.
@@ -636,21 +668,28 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
   try {
     await inst.osaSearchShortcut();
   } on PermissionBlockedError catch (e) {
-    print('[pair] search_chat_history_window_open: shortcut blocked: ${e.message}');
+    print(
+      '[pair] search_chat_history_window_open: shortcut blocked: ${e.message}',
+    );
     return false;
   }
   if (!await inst.waitKey('message_search_field', timeoutSecs: 10)) {
-    print('[pair] search_chat_history_window_open: search overlay did not open');
+    print(
+      '[pair] search_chat_history_window_open: search overlay did not open',
+    );
     return false;
   }
   await inst.focusType('message_search_field', term);
   await Future<void>.delayed(const Duration(milliseconds: 900));
   // The MESSAGE-result row keyed by the conversation id must render (the chat
   // history match surface). Wait through the 300ms debounce + FFI search.
-  final resultKey = 'search_result_message:$c2c';
-  final resultRow = await inst.waitKey(resultKey, timeoutSecs: 12);
+  final resultKey = await _c2ceFirstVisibleKey(inst, [
+    'search_result_message_$c2c',
+    'search_result_message:$c2c',
+  ]);
+  final resultRow = resultKey != null;
   var windowOpened = false;
-  if (resultRow) {
+  if (resultKey != null) {
     // Tap the result → the in-conversation SearchChatHistoryWindow opens.
     await inst.tapKeyCenter(resultKey, timeoutSecs: 6);
     // The window's AppBar title is "Search Chat History" (distinct from the
@@ -700,8 +739,10 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
   await inst.foreground();
   final original = await inst.windowSize();
   if (original == null) {
-    print('[pair] window_resize_responsive: window size unreadable — '
-        'SKIP(resize-refused)');
+    print(
+      '[pair] window_resize_responsive: window size unreadable — '
+      'SKIP(resize-refused)',
+    );
     return null;
   }
   // In desktop layout the bottom nav must be ABSENT to start.
@@ -709,15 +750,19 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
   // Narrow well below the 720pt breakpoint.
   final narrowed = await inst.resizeWindow(560, original.h);
   if (!narrowed) {
-    print('[pair] window_resize_responsive: resize refused — SKIP(resize-refused)');
+    print(
+      '[pair] window_resize_responsive: resize refused — SKIP(resize-refused)',
+    );
     return null;
   }
   final applied = await inst.windowSize();
   // The OS may clamp the minimum width (window_manager min-size). If it didn't
   // actually narrow past the breakpoint, treat as SKIP (can't prove the swap).
   if (applied == null || applied.w >= 720) {
-    print('[pair] window_resize_responsive: width not applied past breakpoint '
-        '(applied=$applied) — SKIP(resize-refused)');
+    print(
+      '[pair] window_resize_responsive: width not applied past breakpoint '
+      '(applied=$applied) — SKIP(resize-refused)',
+    );
     // Restore best-effort before bailing.
     await inst.resizeWindow(original.w, original.h);
     return null;
@@ -732,17 +777,23 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
   var navRouted = false;
   if (swapped) {
     await _tryTapText(inst, 'Contacts');
-    final onContacts = await _waitHomeShellTab(inst, 'contacts', timeoutSecs: 6);
+    final onContacts = await _waitHomeShellTab(
+      inst,
+      'contacts',
+      timeoutSecs: 6,
+    );
     await _tryTapText(inst, 'Chats');
     final backToChats = await _waitHomeShellTab(inst, 'chats', timeoutSecs: 6);
     navRouted = onContacts && backToChats;
-    print('[pair] window_resize_responsive: bottom-nav routing '
-        'onContacts=$onContacts backToChats=$backToChats');
+    print(
+      '[pair] window_resize_responsive: bottom-nav routing '
+      'onContacts=$onContacts backToChats=$backToChats',
+    );
   }
   // Restore the original width → the bottom nav must go away again.
   final restored = await inst.resizeWindow(original.w, original.h);
-  final navGone = restored &&
-      await inst.waitKeyGone('home_bottom_nav', timeoutSecs: 8);
+  final navGone =
+      restored && await inst.waitKeyGone('home_bottom_nav', timeoutSecs: 8);
   await inst.shot('/tmp/ui_b8_resize_wide_${inst.name}.png');
   print(
     '[pair] window_resize_responsive: beforeNav=$beforeNav applied=$applied '
@@ -764,7 +815,12 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
 /// home-tabs-cycle → 92 theme-switch-with-chat-open → 94 search-window-open → 93
 /// window-resize LAST, SKIP-able). The friendship is never deleted → ends
 /// FRIENDS. A `finally` end-guard restores the window size + lands both home.
-Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async {
+Future<int> runCallsMiscSweep(
+  Inst a,
+  Inst b,
+  String nickA,
+  String nickB,
+) async {
   await ensureHome(a, nickA);
   await ensureHome(b, nickB, requireHomeMenu: false);
   final toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
@@ -844,8 +900,14 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
 
   try {
     // --- Establish the A<->B friendship (real-UI handshake) once. ---
-    final friended =
-        await _establishFriendshipForSweep(a, b, toxA, toxB, nickA, nickB);
+    final friended = await _establishFriendshipForSweep(
+      a,
+      b,
+      toxA,
+      toxB,
+      nickA,
+      nickB,
+    );
     if (!friended) {
       print('[sweep] sweep_calls_misc: handshake FAILED — no case can run');
       for (final id in const [
@@ -868,15 +930,21 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
       // Snapshot the call-record baseline BEFORE the call so case 90 requires a
       // NEW record (codex P2 — a restored launch may carry stale records).
       final recordBaseline = await _callRecordCount(a, toxB);
-      await hard('call_mute_toggle_incall',
-          () => _callMuteToggleIncall(a, b, toxA));
+      await hard(
+        'call_mute_toggle_incall',
+        () => _callMuteToggleIncall(a, b, toxA),
+      );
       await hard('call_callee_hangup', () => _callCalleeHangup(a, b, toxA));
-      await hard('call_record_bubble_renders',
-          () => _callRecordBubbleRenders(a, toxB, baseline: recordBaseline));
+      await hard(
+        'call_record_bubble_renders',
+        () => _callRecordBubbleRenders(a, toxB, baseline: recordBaseline),
+      );
 
       // --- 88: missed-call record (B cancels an unanswered ring). ---
-      await hard('call_missed_record_row',
-          () => _callMissedRecordRow(a, b, toxA, toxB));
+      await hard(
+        'call_missed_record_row',
+        () => _callMissedRecordRow(a, b, toxA, toxB),
+      );
 
       // --- VIDEO BLOCK: 85 + 87 driven together (camera toggle DURING the
       // same video call). Tally each separately. ---
@@ -903,11 +971,15 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
       await _ensureBothIdle(a, b);
 
       // --- MISC: 91 → 92 → 94 → 93 (resize last). ---
-      await hard('home_tabs_cycle_state_retained',
-          () => _homeTabsCycleStateRetained(a, toxB));
+      await hard(
+        'home_tabs_cycle_state_retained',
+        () => _homeTabsCycleStateRetained(a, toxB),
+      );
       await hard('theme_switch_chat_open', () => _themeSwitchChatOpen(a, toxB));
-      await hard('search_chat_history_window_open',
-          () => _searchChatHistoryWindowOpen(a, toxB));
+      await hard(
+        'search_chat_history_window_open',
+        () => _searchChatHistoryWindowOpen(a, toxB),
+      );
       await soft('window_resize_responsive', () => _windowResizeResponsive(a));
     }
   } finally {
@@ -927,7 +999,9 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
     } on PermissionBlockedError catch (e) {
       print('[sweep] sweep_calls_misc end-clean: BLOCKED (${e.message})');
     } on DriveError catch (e) {
-      print('[sweep] sweep_calls_misc end-clean: best-effort failed: ${e.message}');
+      print(
+        '[sweep] sweep_calls_misc end-clean: best-effort failed: ${e.message}',
+      );
     }
     try {
       endFriends = await areFriends(a, toxB) && await areFriends(b, toxA);
@@ -946,8 +1020,10 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
       // best-effort
     }
     if (!endFriends) {
-      print('[sweep] sweep_calls_misc: end state is NOT friends — failing the '
-          'sweep so the runner does not trust the result-state contract');
+      print(
+        '[sweep] sweep_calls_misc: end state is NOT friends — failing the '
+        'sweep so the runner does not trust the result-state contract',
+      );
     }
   }
   // FAIL if any HARD case failed OR the launch did not reach the FRIENDS end
@@ -960,31 +1036,31 @@ Future<int> runCallsMiscSweep(Inst a, Inst b, String nickA, String nickB) async 
 // ===========================================================================
 /// Whether [scenario] is one of the 10 Batch-8 calls/misc cases.
 bool _isCallsMiscCaseScenario(String scenario) => const {
-      'call_video_accept_hangup',
-      'call_mute_toggle_incall',
-      'call_camera_toggle_incall',
-      'call_missed_record_row',
-      'call_callee_hangup',
-      'call_record_bubble_renders',
-      'home_tabs_cycle_state_retained',
-      'theme_switch_chat_open',
-      'search_chat_history_window_open',
-      'window_resize_responsive',
-    }.contains(scenario);
+  'call_video_accept_hangup',
+  'call_mute_toggle_incall',
+  'call_camera_toggle_incall',
+  'call_missed_record_row',
+  'call_callee_hangup',
+  'call_record_bubble_renders',
+  'home_tabs_cycle_state_retained',
+  'theme_switch_chat_open',
+  'search_chat_history_window_open',
+  'window_resize_responsive',
+}.contains(scenario);
 
 /// Cases that need an A<->B friendship (the call cases + the chat-open misc
 /// cases). `window_resize_responsive` is single-instance (no friendship).
 bool _isCallsMiscFriendshipCase(String scenario) => const {
-      'call_video_accept_hangup',
-      'call_mute_toggle_incall',
-      'call_camera_toggle_incall',
-      'call_missed_record_row',
-      'call_callee_hangup',
-      'call_record_bubble_renders',
-      'home_tabs_cycle_state_retained',
-      'theme_switch_chat_open',
-      'search_chat_history_window_open',
-    }.contains(scenario);
+  'call_video_accept_hangup',
+  'call_mute_toggle_incall',
+  'call_camera_toggle_incall',
+  'call_missed_record_row',
+  'call_callee_hangup',
+  'call_record_bubble_renders',
+  'home_tabs_cycle_state_retained',
+  'theme_switch_chat_open',
+  'search_chat_history_window_open',
+}.contains(scenario);
 
 /// Run a single Batch-8 case standalone. The friendship cases establish the
 /// A<->B friendship first (or reuse the runner's restored paired_for_e2e); the
