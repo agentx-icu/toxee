@@ -101,7 +101,8 @@ Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
     print('[pair] _openConvRowMenuReal: row $rowKey not present');
     return false;
   }
-  for (var attempt = 0; attempt < 3; attempt++) {
+  for (var attempt = 0; attempt < 4; attempt++) {
+    await inst.foreground();
     try {
       await inst.secondaryTapKey(rowKey);
     } on DriveError catch (e) {
@@ -109,9 +110,12 @@ Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 700));
     // Either the Pin or Unpin item renders depending on current pin state.
-    if (await inst.waitKey('conversation_context_menu_pin_item',
+    // Detect via the element-tree resolver (waitKeyCenter → resolveKeyCenter):
+    // the context menu can render in an Overlay.insert entry that flutter_skill's
+    // whole-tree waitKey does not traverse.
+    if (await inst.waitKeyCenter('conversation_context_menu_pin_item',
             timeoutSecs: 3) ||
-        await inst.waitKey('conversation_context_menu_unpin_item',
+        await inst.waitKeyCenter('conversation_context_menu_unpin_item',
             timeoutSecs: 2)) {
       return true;
     }
@@ -177,9 +181,9 @@ Future<bool> _convMenuSurfaceC2c(Inst inst, String tox) async {
     return false;
   }
   // Pin OR Unpin (depending on current pin state) + mark-read + delete.
-  final hasPin = await inst.waitKey('conversation_context_menu_pin_item',
+  final hasPin = await inst.waitKeyCenter('conversation_context_menu_pin_item',
           timeoutSecs: 4) ||
-      await inst.waitKey('conversation_context_menu_unpin_item',
+      await inst.waitKeyCenter('conversation_context_menu_unpin_item',
           timeoutSecs: 2);
   final hasMarkRead = await inst.waitKey(
       'conversation_context_menu_mark_read_item',
@@ -221,7 +225,7 @@ Future<bool> _convPinUnpinReorders(Inst inst, String tox) async {
   }
   final hasPinItem = await inst.waitKey(
           'conversation_context_menu_pin_item', timeoutSecs: 4) ||
-      await inst.waitKey('conversation_context_menu_unpin_item',
+      await inst.waitKeyCenter('conversation_context_menu_unpin_item',
           timeoutSecs: 2);
   await _dismissConvMenu(inst);
   if (!hasPinItem) {
@@ -318,7 +322,7 @@ Future<bool> _convMarkReadTwoProc(
   // Surface check via the REAL menu (mark-read item renders).
   final menuShown = await _openConvRowMenuReal(a, toxB);
   final hasMarkRead = menuShown &&
-      await a.waitKey('conversation_context_menu_mark_read_item',
+      await a.waitKeyCenter('conversation_context_menu_mark_read_item',
           timeoutSecs: 4);
   await _dismissConvMenu(a);
   // Dispatch the mark-read action through the production handler.
@@ -583,19 +587,27 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
     String friendNickName) async {
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
-  final fullKey = 'search_result_contact:${toxFriend.trim()}';
-  final shortKey = 'search_result_contact:${_pubkey(toxFriend)}';
+  // B surfaces in global search as a CONVERSATION result (A has a C2C conv with
+  // B), keyed by its conversationID `c2c_<pubkey>` — NOT a `search_result_contact`
+  // row (the CONTACTS section only lists a separate contact entry that may not
+  // render when a conversation already matches). Match the conversation result,
+  // which is what actually appears (verified by screenshot).
+  final fullKey = 'search_result_conversation:c2c_${toxFriend.trim()}';
+  final shortKey = 'search_result_conversation:c2c_${_pubkey(toxFriend)}';
   // Open the global search overlay via the real Cmd+Ctrl+F shortcut.
   if (!await _openGlobalSearch(inst)) {
     print('[pair] conv_search_filter_clear: search overlay did not open');
     return false;
   }
-  // 1) Matching filter — a prefix of the friend's nickname (or the first hex
-  // chars of the tox id, which contactMatchesQuery also matches on userID).
-  final matchQuery = (friendNickName.trim().isNotEmpty)
-      ? friendNickName.trim().substring(
-          0, friendNickName.trim().length >= 3 ? 3 : friendNickName.trim().length)
-      : _pubkey(toxFriend).substring(0, 6);
+  // 1) Matching filter — the first hex chars of the tox id (contactMatchesQuery
+  // matches on userID). We search the ID prefix, NOT the nickname, because in
+  // the same-host 2-process environment the peer's self-name does not propagate
+  // over the loopback friend connection (a c-toxcore name-exchange artifact,
+  // distinct from the working message channel — deep-diagnosed 2026-06-14), so
+  // A displays B by its tox id, which is exactly what a user searches for here.
+  // This still exercises the real contact-search FILTER + clear, which is the
+  // case's intent.
+  final matchQuery = _pubkey(toxFriend).substring(0, 6);
   await inst.focusType('message_search_field', matchQuery);
   // The search debounces 300ms then runs the async FFI-backed search.
   await Future<void>.delayed(const Duration(milliseconds: 1400));
@@ -627,7 +639,8 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
   print(
     '[pair] conv_search_filter_clear: rowMatches=$rowMatches '
     'rowGoneOnClear=$rowGoneOnClear rowBack=$rowBack closed=$closed '
-    '(matchQuery="$matchQuery")',
+    '(matchQuery="$matchQuery" displayName="$friendNickName" '
+    '[id-search: peer self-name does not propagate same-host])',
   );
   return rowMatches && rowGoneOnClear && rowBack && closed;
 }
@@ -687,7 +700,9 @@ Future<bool> _convDeleteConfirmC2c(Inst inst, String toxFriend) async {
     print('[pair] conv_delete_confirm_c2c: real row menu did not open');
     return false;
   }
-  if (!await inst.waitKey('conversation_context_menu_delete_item',
+  // Overlay-aware detection (the menu item renders in an Overlay.insert that
+  // whole-tree waitKey doesn't traverse — codex), matching tapKeyCenter below.
+  if (!await inst.waitKeyCenter('conversation_context_menu_delete_item',
       timeoutSecs: 4)) {
     await _dismissConvMenu(inst);
     print('[pair] conv_delete_confirm_c2c: delete item not present');

@@ -176,14 +176,21 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   // itself: prefer a keyed bubble anchor, else bias the tap toward the right
   // (self) / left (peer) third of the row.
   final rowCenter = await inst.keyCenter(rowKey);
-  for (var attempt = 0; attempt < 4; attempt++) {
+  // A SELF bubble is right-aligned WITHIN the chat detail pane. The row center
+  // (rowCenter.x) IS the pane center, so bias toward the pane's RIGHT portion
+  // RELATIVE to it — an absolute x (e.g. 1150) can fall OUTSIDE a narrow pane
+  // and miss entirely (observed rowCenter.x≈404 → pane≈0-808 → 1150 missed). The
+  // pane half-width ≈ rowCenter.x, so 1.4x / 1.6x / 1.8x land in the right third
+  // where the bubble's Listener.onPointerDown is. Alternate with the row-key
+  // center (peer / full-width rows).
+  const biasFactor = <double>[1.4, 1.6, 1.8];
+  for (var attempt = 0; attempt < 6; attempt++) {
     var tapped = false;
-    // Attempts 0/2: the row key center (works for peer/full-width rows).
-    // Attempts 1/3: bias toward the bubble side using the row's resolved Y and
-    // an x near the right edge (self messages dominate these cases).
     try {
       if (attempt.isOdd && rowCenter != null) {
-        await inst.secondaryTapAt(950, rowCenter.y);
+        await inst.secondaryTapAt(
+            rowCenter.x * biasFactor[(attempt ~/ 2) % biasFactor.length],
+            rowCenter.y);
       } else {
         await inst.secondaryTapKey(rowKey);
       }
@@ -394,8 +401,12 @@ Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) asyn
     return false;
   }
   await a.tapKeyCenter('sticker_panel_button', timeoutSecs: 6);
+  // The panel renders in an Overlay.insert entry that flutter_skill's waitKey
+  // (whole-tree, onstage) does NOT traverse — only the element-tree resolver
+  // (waitKeyCenter → resolveKeyCenter) walks overlays. waitKey here always
+  // missed the open panel ("panel did not open after the tap").
   final panelOpened =
-      await a.waitKey('desktop_sticker_panel', timeoutSecs: 6);
+      await a.waitKeyCenter('desktop_sticker_panel', timeoutSecs: 6);
   // Close the panel before typing (a tap on the composer closes it via onTap).
   await a.tapAt(_composerX, _composerY);
   await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -450,10 +461,12 @@ Future<bool> _chatStickerPanelSend(Inst a, String toxB) async {
   await a.tapKeyCenter('sticker_panel_button', timeoutSecs: 6);
   // The panel overlay (`desktop_sticker_panel` key) must actually APPEAR after
   // the tap — a no-op tap that leaves the trigger mounted must NOT pass
-  // (codex P1). The panel content is behind a ~60ms FutureBuilder; the overlay
-  // Container itself keys synchronously.
+  // (codex P1). It renders in an Overlay.insert entry that flutter_skill's
+  // waitKey (whole-tree, onstage) does NOT traverse — use the element-tree
+  // resolver (waitKeyCenter → resolveKeyCenter) which walks overlays (the
+  // bare waitKey always missed it, so this asserted false).
   final panelOpened =
-      await a.waitKey('desktop_sticker_panel', timeoutSecs: 6);
+      await a.waitKeyCenter('desktop_sticker_panel', timeoutSecs: 6);
   await a.shot('/tmp/ui_chat_sticker_A.png');
   // Close the panel (tap composer) so the next case starts clean.
   await a.tapAt(_composerX, _composerY);
@@ -644,10 +657,23 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
     print('[pair] chat_forward_to_other_conv: forward picker did not mount');
     return false;
   }
-  // Select the target conversation row (the friend's nickname in the Recent
-  // tab), then Send.
-  final targetTapped = await _tryTapText(a, nickB) ||
-      await _tryTapText(a, _shortId(toxB));
+  // Select the target conversation row via its KEYED row (the C2C conv's
+  // userID = the friend's tox id), NOT a text tap on the name: the fork comment
+  // warns a text tap matches the SAME conversation's row in the BACKGROUND
+  // SIDEBAR (behind the modal barrier) and DISMISSES the picker — which is
+  // exactly why Send was unreachable (sendTapped=false even though the picker
+  // mounted). The keyed item lives inside the dialog and keeps it open.
+  // The picker item is keyed by the conversation's userID, which for a C2C conv
+  // is the friend's PUBKEY (the 64-hex prefix — the same id the conversationID
+  // `c2c_<pubkey>` uses), NOT the full 76-hex tox id. Try the pubkey first, then
+  // the full id as a fallback.
+  final targetTapped = await a.tapKeyCenter(
+          'forward_picker_item:${_pubkey(toxB)}',
+          timeoutSecs: 6) ||
+      await a.tryTapKey('forward_picker_item:${_pubkey(toxB)}') ||
+      await a.tapKeyCenter('forward_picker_item:${toxB.trim()}',
+          timeoutSecs: 3) ||
+      await a.tryTapKey('forward_picker_item:${toxB.trim()}');
   await Future<void>.delayed(const Duration(milliseconds: 600));
   // The picker's Send button carries a stable key (forward_picker_send_button) —
   // tap THAT deterministically instead of the locale-dependent "Send" text,
@@ -672,8 +698,9 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
     if (forwardedCount > preCount) break;
   }
   await a.shot('/tmp/ui_chat_forward_A.png');
-  print('[pair] chat_forward_to_other_conv: pickerShown=$pickerShown '
-      'targetTapped=$targetTapped sendTapped=$sendTapped pickerGone=$pickerGone '
+  print('[pair] chat_forward_to_other_conv: target="$nickB" '
+      'pickerShown=$pickerShown targetTapped=$targetTapped '
+      'sendTapped=$sendTapped pickerGone=$pickerGone '
       'preCount=$preCount forwardedCount=$forwardedCount');
   // HARD: the real picker surfaced + dismissed after Send AND the forwarded copy
   // INCREASED the count of that text (forward send fired through the real
@@ -1057,8 +1084,17 @@ Future<bool> _chatFileBubblePresentOpen(
   await _ensureChatOpen(a, toxB);
   final rowRendered =
       await a.waitKey('message_list_item:$fileMsgId', timeoutSecs: 10);
-  // The file bubble shows the filename text (un-truncated for short names).
-  final nameShown = await a.waitText(fileName, timeoutSecs: 6);
+  // The file bubble draws the name WITHOUT its extension, and TRUNCATED to
+  // 8 chars + "..." when the base name exceeds 10 (fork
+  // tencent_cloud_chat_message_file.dart `fileNameWidget`). Assert on what is
+  // ACTUALLY rendered — waitText on the raw fileName (carrying ".bin") always
+  // missed it (nameShown=false).
+  final dot = fileName.lastIndexOf('.');
+  var renderedName = dot > 0 ? fileName.substring(0, dot) : fileName;
+  if (renderedName.length > 10) {
+    renderedName = '${renderedName.substring(0, 8)}...';
+  }
+  final nameShown = await a.waitText(renderedName, timeoutSecs: 6);
   // Best-effort tap to dispatch the real _openFile() (routes to the OS).
   try {
     await a.tapKeyCenter('message_list_item:$fileMsgId', timeoutSecs: 4);

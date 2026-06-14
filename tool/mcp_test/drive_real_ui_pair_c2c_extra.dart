@@ -196,19 +196,19 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
   String friendNickName,
 ) async {
   await returnToChatsHome(inst, rounds: 4);
-  final fullKey = 'search_result_contact:${toxFriend.trim()}';
-  final shortKey = 'search_result_contact:${_pubkey(toxFriend)}';
+  // B surfaces as a CONVERSATION result (A has a C2C conv with B), keyed by the
+  // conversationID `c2c_<pubkey>` — not a search_result_contact row. And search
+  // by the tox-id prefix, not the nickname ($friendNickName): the peer self-name
+  // does not propagate over the same-host loopback friend connection, so A
+  // displays B by its tox id (both verified against the live search overlay).
+  final fullKey = 'search_result_conversation:c2c_${toxFriend.trim()}';
+  final shortKey = 'search_result_conversation:c2c_${_pubkey(toxFriend)}';
   if (!await _openGlobalSearch(inst)) {
-    print('[pair] c2c_global_search_contact_opens_chat: search did not open');
+    print('[pair] c2c_global_search_contact_opens_chat: search did not open '
+        '(displayName="$friendNickName")');
     return false;
   }
-  final trimmedNick = friendNickName.trim();
-  final matchQuery = trimmedNick.isNotEmpty
-      ? trimmedNick.substring(
-          0,
-          trimmedNick.length >= 3 ? 3 : trimmedNick.length,
-        )
-      : _pubkey(toxFriend).substring(0, 6);
+  final matchQuery = _pubkey(toxFriend).substring(0, 6);
   await inst.focusType('message_search_field', matchQuery);
   await Future<void>.delayed(const Duration(milliseconds: 1400));
   final rowKey = await _c2ceFirstVisibleKey(inst, [shortKey, fullKey]);
@@ -246,7 +246,10 @@ Future<bool> _c2ceConvDeleteCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_conv_delete_cancel: real row menu did not open');
     return false;
   }
-  if (!await inst.waitKey(
+  // Overlay-aware: the context menu item renders in an Overlay.insert entry
+  // that whole-tree waitKey doesn't traverse (codex) — use the element-tree
+  // resolver, matching the tapKeyCenter below.
+  if (!await inst.waitKeyCenter(
     'conversation_context_menu_delete_item',
     timeoutSecs: 4,
   )) {
