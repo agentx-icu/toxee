@@ -224,10 +224,25 @@ Future<void> _dismissMessageMenu(Inst inst) async {
 /// Send a real OWN composer message into the chat with [tox] and return its
 /// msgID (or null on failure). Opens the chat first.
 Future<String?> _sendAndIdentify(Inst inst, String tox, String text) async {
-  if (!await _ensureChatOpen(inst, tox)) return null;
-  if (!await sendComposerMessage(inst, text)) return null;
-  await Future<void>.delayed(const Duration(milliseconds: 600));
-  return _ownMessageId(inst, tox, text);
+  // Retry the open→send→identify cycle. Under 2-process foreground contention
+  // the composer occasionally isn't ready (the send no-ops) or the own-sent
+  // bubble lags the composer's send-return, so a single attempt + a fixed 600ms
+  // wait flaked with "could not send/identify message" (chat_copy /
+  // chat_forward / chat_delete, which all route through here). Re-open + re-send
+  // up to 3x and POLL for the own-message id instead of a one-shot wait. A
+  // re-send may leave a duplicate bubble, which is harmless for the callers —
+  // they act on the returned id, and the extra bubble doesn't break their
+  // assertion (copy/forward target one id; delete asserts that one id is gone).
+  for (var attempt = 0; attempt < 3; attempt++) {
+    if (!await _ensureChatOpen(inst, tox)) continue;
+    if (!await sendComposerMessage(inst, text)) continue;
+    for (var poll = 0; poll < 12; poll++) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final id = await _ownMessageId(inst, tox, text);
+      if (id != null) return id;
+    }
+  }
+  return null;
 }
 
 // ===========================================================================
@@ -601,6 +616,12 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
     print('[pair] chat_forward_to_other_conv: could not send/identify message');
     return false;
   }
+  // Count this text BEFORE forwarding. _sendAndIdentify may leave a duplicate
+  // seed bubble (its retry), so the forward must INCREASE the count — a fixed
+  // `>= 2` check could false-pass on the duplicate seeds alone (codex).
+  final preCount = (await _c2cMessages(a, toxB))
+      .where((m) => m['text']?.toString() == text)
+      .length;
   if (!await _openMessageMenuReal(a, msgId)) {
     print('[pair] chat_forward_to_other_conv: real message menu did not open');
     return false;
@@ -641,15 +662,16 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
     final msgs = await _c2cMessages(a, toxB);
     forwardedCount =
         msgs.where((m) => m['text']?.toString() == text).length;
-    if (forwardedCount >= 2) break;
+    if (forwardedCount > preCount) break;
   }
   await a.shot('/tmp/ui_chat_forward_A.png');
   print('[pair] chat_forward_to_other_conv: pickerShown=$pickerShown '
       'targetTapped=$targetTapped sendTapped=$sendTapped pickerGone=$pickerGone '
-      'forwardedCount=$forwardedCount');
+      'preCount=$preCount forwardedCount=$forwardedCount');
   // HARD: the real picker surfaced + dismissed after Send AND the forwarded copy
-  // landed (forward send fired through the real picker).
-  return pickerShown && pickerGone && forwardedCount >= 2;
+  // INCREASED the count of that text (forward send fired through the real
+  // picker), not merely a duplicate seed left by the send-retry.
+  return pickerShown && pickerGone && forwardedCount > preCount;
 }
 
 // ===========================================================================

@@ -287,19 +287,27 @@ Future<bool> _convMarkReadTwoProc(
     // Fresh non-test account: parking on the chats home (active conv != the
     // C2C) is enough — the inbound only auto-marks when that chat is OPEN.
   }
-  // B sends 3 real messages while A is parked off the conversation.
+  // B sends real messages while A is parked off the conversation. RETRY the
+  // B-send: the FIRST cross-process C2C delivery after the sweep setup can lag
+  // (the A<->B messaging path isn't warm yet — the IDENTICAL
+  // conv_unread_badge_bump / conv_preview cases PASS later once it is, so this
+  // is delivery-timing, not a bug). Re-open B's chat and re-send until A's
+  // unread accrues.
   final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  await openChat(b, toxA);
   var bSent = 0;
-  for (var i = 0; i < 3; i++) {
-    if (await sendComposerMessage(b, 'RUIB5UNREAD-$i-$nonce')) bSent++;
+  var seeded = false;
+  for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
+    await openChat(b, toxA);
+    for (var i = 0; i < 3; i++) {
+      if (await sendComposerMessage(b, 'RUIB5UNREAD-$attempt$i-$nonce')) bSent++;
+    }
+    seeded = await _waitConversationUnread(a, convId, (u) => u >= 1,
+        timeoutSecs: 22);
   }
   if (bSent == 0) {
     print('[pair] conv_mark_read_two_proc: B failed to send any seed message');
     return false;
   }
-  final seeded = await _waitConversationUnread(a, convId, (u) => u >= 1,
-      timeoutSecs: 60);
   if (!seeded) {
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_conv_markread_noseed_A.png');
@@ -400,18 +408,26 @@ Future<bool> _convClearPreservesPinC2c(Inst inst, String tox) async {
     print('[pair] conv_clear_preserves_pin_c2c: initial pin did not take');
     return false;
   }
-  // Seed real history.
-  await openChat(inst, tox);
+  // Seed real history. RETRY the open+send: right after the pin the chat
+  // surface / composer can briefly not be ready, so a single pass no-ops the
+  // send (seeded=0 beforeCount=0). Re-open + re-send until A's local history
+  // (own-sent messages persist immediately) has a message.
   var seeded = 0;
-  for (var i = 0; i < 3; i++) {
-    final text = 'RuiB5ClrPin-$i-${DateTime.now().microsecondsSinceEpoch}';
-    if (await sendComposerMessage(inst, text)) seeded++;
+  var beforeCount = 0;
+  for (var attempt = 0; attempt < 3 && beforeCount == 0; attempt++) {
+    await openChat(inst, tox);
+    for (var i = 0; i < 3; i++) {
+      final text =
+          'RuiB5ClrPin-$attempt$i-${DateTime.now().microsecondsSinceEpoch}';
+      if (await sendComposerMessage(inst, text)) seeded++;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    beforeCount =
+        ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
+                ?.toInt() ??
+            0;
   }
   await returnToChatsHome(inst, rounds: 4);
-  final beforeCount =
-      ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
-              ?.toInt() ??
-          0;
   if (seeded == 0 || beforeCount == 0) {
     print('[pair] conv_clear_preserves_pin_c2c: failed to seed history '
         '(seeded=$seeded beforeCount=$beforeCount)');
