@@ -150,6 +150,12 @@ Future<bool> _gcmeWithEstablishedTarget(
   required String namePrefix,
   required Future<bool> Function(_EstablishedGroup est) run,
 }) async {
+  // Mark both accounts test up front: peer-row resolution now reads the bridge
+  // member list via the test-gated l3_group_member_list, and the establish /
+  // cleanup l3 tools (auto-accept, leave) are gated too. Unmark LAST (after
+  // cleanup) so those gated tools still work, tracking each side independently.
+  final aMarked = await a.markAccountTest();
+  final bMarked = await b.markAccountTest();
   final est = await _establishTwoProcessGroup(
     a,
     b,
@@ -160,6 +166,16 @@ Future<bool> _gcmeWithEstablishedTarget(
   );
   if (est == null) {
     print('[pair] $namePrefix: could not establish $groupType target');
+    if (aMarked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
+    if (bMarked) {
+      try {
+        await b.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
     return false;
   }
   try {
@@ -173,6 +189,16 @@ Future<bool> _gcmeWithEstablishedTarget(
       }
     }
     await _gcmeCleanupGroups(a, b);
+    if (aMarked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
+    if (bMarked) {
+      try {
+        await b.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
   }
 }
 
@@ -190,10 +216,15 @@ Future<void> _gcmeCleanupGroups(Inst a, Inst b) async {
   }
 }
 
-Future<String?> _gcmeVisiblePeerRowKey(Inst inst, String peerTox) async {
-  // _memberRowKeyFor now does the friend-pubkey prediction (gated on render)
-  // AND the rendered non-self NGC-per-group-key fallback this used to inline.
-  return _memberRowKeyFor(inst, peerTox);
+Future<String?> _gcmeVisiblePeerRowKey(
+  Inst inst,
+  String gid,
+  String peerTox,
+) async {
+  // _memberRowKeyFor reads the peer's actual member userID from the bridge
+  // (l3_group_member_list) and resolves the keyed row via the element-tree
+  // walk (keyCenter) — flutter_skill can't see the KeyedSubtree member rows.
+  return _memberRowKeyFor(inst, gid, peerTox);
 }
 
 Future<String?> _gcmeOpenPeerDesktopMenu(
@@ -206,7 +237,7 @@ Future<String?> _gcmeOpenPeerDesktopMenu(
     print('[pair] $label: member-list page did not open');
     return null;
   }
-  final rowKey = await _gcmeVisiblePeerRowKey(inst, peerTox);
+  final rowKey = await _gcmeVisiblePeerRowKey(inst, groupId, peerTox);
   if (rowKey == null) {
     await inst.shot('/tmp/ui_${label}_norow_${inst.name}.png');
     print('[pair] $label: peer member row not rendered');
@@ -398,8 +429,8 @@ Future<bool> _gcmeConferencePeerRowSurface(
         print('[pair] conference_member_peer_row_surface: list did not open');
         return false;
       }
-      final row = await _gcmeVisiblePeerRowKey(a, toxB);
-      final hasRow = row != null && await a.waitKey(row, timeoutSecs: 4);
+      final row = await _gcmeVisiblePeerRowKey(a, est.groupIdA, toxB);
+      final hasRow = row != null && await a.waitKeyCenter(row, timeoutSecs: 4);
       await a.shot('/tmp/ui_gcme_conf_row_A.png');
       print(
         '[pair] conference_member_peer_row_surface: count=$count '

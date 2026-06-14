@@ -83,45 +83,45 @@ Future<bool> _openGroupMemberListPage(Inst inst, String groupId) async {
 
 /// The member-list row key for a member. An NGC peer's row is keyed by its
 /// PER-GROUP encryption pubkey (tox_group_peer_get_public_key) — a freshly
-/// generated per-group keypair, NOT the friend/long-term pubkey. So predicting
-/// `group_member_list_item:<friend.userId>` matches SELF (self uses the
-/// long-term key) but NEVER a non-self peer, even though the row IS keyed and
-/// the member count is 2. Resolve robustly: (1) try the friend-pubkey
-/// prediction, gated on the key actually being rendered (correct for self / any
-/// long-term-keyed member), then (2) fall back to the only non-self
-/// `group_member_list_item:` row actually rendered. REQUIRES the member-list
-/// page to be open so the element tree is mounted for step 2 (both group2 call
-/// sites open it first; _gcmeVisiblePeerRowKey delegates here).
-Future<String?> _memberRowKeyFor(Inst inst, String memberTox) async {
-  final s = await inst.dumpState();
-  // 1) friend-pubkey prediction — matches self + any long-term-keyed member.
-  for (final f in (s['friends'] as List?) ?? const []) {
-    if (f is Map &&
-        _pubkey(f['userId']?.toString() ?? '') == _pubkey(memberTox)) {
-      final uid = f['userId']?.toString() ?? '';
-      if (uid.isNotEmpty &&
-          await inst.waitKey('group_member_list_item:$uid', timeoutSecs: 2)) {
-        return 'group_member_list_item:$uid';
+/// generated per-group keypair, NOT the friend/long-term pubkey — so the key
+/// can't be predicted from A's friend list. AND the member rows are
+/// KeyedSubtree+GestureDetector leaves that flutter_skill (waitKey /
+/// interactiveStructured) cannot see; only the element-tree walk (keyCenter)
+/// surfaces them. So: read the peer's ACTUAL member userID from the bridge
+/// enumeration (l3_group_member_list — test-gated, both call paths mark the
+/// account test) and resolve the keyed row via keyCenter. Retries because the
+/// founder's same-host NGC peer info can lag the member COUNT briefly (the
+/// authoritative count can read 2 while the peer's public key isn't enumerable
+/// yet). [gid] is the group id; both group2 call sites + _gcmeVisiblePeerRowKey
+/// open the member-list page first.
+Future<String?> _memberRowKeyFor(Inst inst, String gid, String memberTox) async {
+  final memberPk = _pubkey(memberTox);
+  for (var attempt = 0; attempt < 8; attempt++) {
+    try {
+      final r = await inst.l3('l3_group_member_list', {'groupId': gid});
+      final members = (r['members'] as List?) ?? const [];
+      final nonSelf = <String>[];
+      String? exact;
+      for (final m in members) {
+        if (m is! Map || m['isSelf'] == true) continue;
+        final uid = m['userID']?.toString() ?? '';
+        if (uid.isEmpty) continue;
+        nonSelf.add(uid);
+        if (_pubkey(uid) == memberPk) exact = uid;
       }
-    }
-  }
-  // 2) NGC per-group key: A can't predict the peer's per-group pubkey from its
-  // friend list, so pick the single rendered non-self member row (the
-  // 2-member scenario contract these cases assert: self + the peer).
-  final selfTox = s['currentAccountToxId']?.toString() ?? '';
-  final selfPk = _pubkey(selfTox);
-  final r = await inst.skill('interactiveStructured', const {});
-  final data = r['data'];
-  final elements = data is Map ? data['elements'] : null;
-  if (elements is List) {
-    for (final e in elements) {
-      if (e is! Map) continue;
-      final key = e['key']?.toString() ?? '';
-      if (!key.startsWith('group_member_list_item:')) continue;
-      final suffix = key.substring('group_member_list_item:'.length);
-      if (_pubkey(suffix) == selfPk || suffix == selfTox) continue;
-      return key;
-    }
+      // An exact friend-pubkey match wins (covers a long-term-keyed member);
+      // else accept the SINGLE non-self member (the 2-member scenario contract
+      // these cases assert). Refuse to GUESS among multiple non-self rows — a
+      // leaked third member must not make us select/kick the wrong peer.
+      final candidate = exact ?? (nonSelf.length == 1 ? nonSelf.first : null);
+      if (candidate != null) {
+        final key = 'group_member_list_item:$candidate';
+        // keyCenter (element-tree walk) — flutter_skill can't see the keyed
+        // GestureDetector row.
+        if (await inst.waitKeyCenter(key, timeoutSecs: 3)) return key;
+      }
+    } on DriveError catch (_) {/* retry — NGC peer info may still be syncing */}
+    await Future<void>.delayed(const Duration(seconds: 1));
   }
   return null;
 }
@@ -290,7 +290,7 @@ Future<bool> _groupRenameUpdatesHeader(
   String groupName,
   String newName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   await _openGroupProfile(inst);
   await inst.tapKey('group_profile_edit_name_button');
   if (!await inst.waitKey('group_profile_edit_name_field', timeoutSecs: 10)) {
@@ -306,7 +306,7 @@ Future<bool> _groupRenameUpdatesHeader(
   // new name (codex P1: a conversation-LIST row showName check alone would PASS
   // even if the header stayed stale — read the keyed header text widget).
   await returnToChatsHome(inst, rounds: 4);
-  await openGroupChat(inst, groupId: gid, groupName: newName);
+  await openGroupChat(inst, groupId: gid, groupName: newName, viaL3Seam: true);
   final headerOk = await _waitChatHeaderTitle(inst, newName, timeoutSecs: 12);
   final headerText = await _keyedText(inst, 'chat_header_title_text');
   await inst.shot('/tmp/ui_g2_rename_${inst.name}.png');
@@ -328,7 +328,7 @@ Future<bool> _groupProfileMembersEntry(
   String gid,
   String groupName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   await _openGroupProfile(inst);
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
   final entryShown =
@@ -348,8 +348,8 @@ Future<bool> _groupProfileMembersEntry(
       (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
   final selfRowKey = 'group_member_list_item:${_pubkey(selfTox)}';
   final selfRowKeyFull = 'group_member_list_item:$selfTox';
-  final memberRow = await inst.waitKey(selfRowKey, timeoutSecs: 6) ||
-      await inst.waitKey(selfRowKeyFull, timeoutSecs: 3);
+  final memberRow = await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
+      await inst.waitKeyCenter(selfRowKeyFull, timeoutSecs: 3);
   await inst.shot('/tmp/ui_g2_members_entry_${inst.name}.png');
   // Land back on chats home for the next case.
   await returnToChatsHome(inst, rounds: 4);
@@ -370,7 +370,7 @@ Future<bool> _groupProfileMembersEntry(
 /// switch is restored to its original value.
 Future<bool> _groupMuteToggle(Inst inst, String gid, String groupName) async {
   const sw = 'group_profile_mute_switch';
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   await _openGroupProfile(inst);
   // The state-button (mute/pin) sits below the avatar/content/chat-button; it is
   // already on the profile ListView. Read the switch's current value.
@@ -431,7 +431,7 @@ Future<bool> _groupProfileClearHistory(
   final convId = 'group_$gid';
   // 1) Seed own group history (own sends land in local group history regardless
   // of peers).
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   var seeded = 0;
   for (var i = 0; i < 3; i++) {
     final text = 'RUIG2Clear-$i-${DateTime.now().microsecondsSinceEpoch}';
@@ -462,10 +462,45 @@ Future<bool> _groupProfileClearHistory(
         '(seeded=$seeded beforeCount=$beforeCount)');
     return false;
   }
-  // 2) Open the profile + tap Clear-History → confirm via the adaptive dialog.
+  // 2) Open the profile, SCROLL the Clear-History button into the visible
+  // viewport, then tap it. Clear-History is the bottom of the scrollable group
+  // profile (the override's DeleteButton Column: child0=clear-history,
+  // child1=leave — group_builder_override.dart), so a below-fold tryTapKey lands
+  // off-window and the GestureDetector.onTap never fires ("clear button not
+  // tappable"). Mirror the leave case's keyCenter-scroll loop.
   await _openGroupProfile(inst);
-  if (!await inst.tryTapKey('group_profile_clear_history_button', retries: 3)) {
-    print('[pair] group_profile_clear_history: clear button not tappable');
+  ({double x, double y})? clearCenter;
+  ({double x, double y})? lastProbe;
+  for (var i = 0; i < 16; i++) {
+    final c = await inst.keyCenter('group_profile_clear_history_button');
+    if (c != null) lastProbe = c;
+    if (c != null && c.y >= 80 && c.y <= 795) {
+      clearCenter = c;
+      break;
+    }
+    await inst.scrollAtCoords(640, 600, dy: 500);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  if (clearCenter == null) {
+    print('[pair] group_profile_clear_history: clear button never reached '
+        '(below fold; last resolved center=$lastProbe)');
+    return false;
+  }
+  // Settle, tap, and VERIFY the confirm dialog opened; retry with direct-invoke
+  // tapKey (fires onTap even when the re-resolved center is stale post-scroll).
+  var clearDialogUp = false;
+  for (var attempt = 0; attempt < 3 && !clearDialogUp; attempt++) {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (attempt == 0) {
+      await inst.tapKeyCenter('group_profile_clear_history_button',
+          timeoutSecs: 8);
+    } else {
+      await inst.tryTapKey('group_profile_clear_history_button', retries: 2);
+    }
+    clearDialogUp = await inst.waitText('Confirm', timeoutSecs: 2);
+  }
+  if (!clearDialogUp) {
+    print('[pair] group_profile_clear_history: clear confirm dialog never opened');
     return false;
   }
   // The adaptive confirm dialog's Confirm button has NO key; tap the localized
@@ -539,12 +574,12 @@ Future<bool> _groupMemberListScroll(
     print('[pair] group_member_list_scroll: member-list page did not open');
     return false;
   }
-  final bRowKey = await _memberRowKeyFor(a, toxB);
+  final bRowKey = await _memberRowKeyFor(a, gid, toxB);
   if (bRowKey == null) {
     print('[pair] group_member_list_scroll: could not resolve B member row key');
     return false;
   }
-  final bRowBefore = await a.waitKey(bRowKey, timeoutSecs: 8);
+  final bRowBefore = await a.waitKeyCenter(bRowKey, timeoutSecs: 8);
   // Drag-scroll the list. With 2 members the AzListView barely moves; the gate is
   // that the gesture runs without throwing and the list stays intact.
   var dragOk = true;
@@ -558,7 +593,7 @@ Future<bool> _groupMemberListScroll(
     print('[pair] group_member_list_scroll: drag warn: ${e.message}');
   }
   await Future<void>.delayed(const Duration(milliseconds: 500));
-  final bRowAfter = await a.waitKey(bRowKey, timeoutSecs: 6);
+  final bRowAfter = await a.waitKeyCenter(bRowKey, timeoutSecs: 6);
   await a.shot('/tmp/ui_g2_member_scroll_A.png');
   await returnToChatsHome(a, rounds: 4);
   print(
@@ -601,7 +636,7 @@ Future<bool> _groupUnreadBadgeTwoProc(
   final sentNonces = <String>[];
   for (var attempt = 0; attempt < 3 && !aGot; attempt++) {
     final mi = 'RUIG2UNREAD-$nonce-$attempt';
-    await openGroupChat(b, groupId: gidB, groupName: groupName);
+    await openGroupChat(b, groupId: gidB, groupName: groupName, viaL3Seam: true);
     if (await sendComposerMessage(b, mi)) {
       bSent = true;
       sentNonces.add(mi);
@@ -631,7 +666,7 @@ Future<bool> _groupUnreadBadgeTwoProc(
     return false;
   }
   // OPEN the group chat → marks read on open.
-  await openGroupChat(a, groupId: gidA, groupName: groupName);
+  await openGroupChat(a, groupId: gidA, groupName: groupName, viaL3Seam: true);
   final cleared = await _waitConversationUnread(a, convId, (u) => u == 0,
       timeoutSecs: 20);
   await returnToChatsHome(a, rounds: 4);
@@ -670,12 +705,12 @@ Future<bool> _groupKickMemberUi(
     print('[pair] group_kick_member_ui: member-list page did not open');
     return false;
   }
-  final bRowKey = await _memberRowKeyFor(a, toxB);
+  final bRowKey = await _memberRowKeyFor(a, gid, toxB);
   if (bRowKey == null) {
     print('[pair] group_kick_member_ui: could not resolve B member row key');
     return false;
   }
-  if (!await a.waitKey(bRowKey, timeoutSecs: 8)) {
+  if (!await a.waitKeyCenter(bRowKey, timeoutSecs: 8)) {
     print('[pair] group_kick_member_ui: B member row not rendered ($bRowKey)');
     return false;
   }
@@ -732,7 +767,7 @@ Future<bool> _groupLeaveViaProfileConfirm(
   String groupName,
 ) async {
   final convId = 'group_$gid';
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   await _openGroupProfile(inst);
   // The leave/disband button is at the BOTTOM of the profile, BELOW the fold
   // (screenshot-confirmed). An off-screen tap (tryTapKey's direct invoke) does
@@ -913,7 +948,7 @@ Future<bool> _confMemberListRenders(
   String gid,
   String groupName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName);
+  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
   await _openGroupProfile(inst);
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
   final entryShown =
@@ -926,8 +961,8 @@ Future<bool> _confMemberListRenders(
       (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
   final selfRowKey = 'group_member_list_item:${_pubkey(selfTox)}';
   final selfRowKeyFull = 'group_member_list_item:$selfTox';
-  final memberRow = await inst.waitKey(selfRowKey, timeoutSecs: 6) ||
-      await inst.waitKey(selfRowKeyFull, timeoutSecs: 3);
+  final memberRow = await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
+      await inst.waitKeyCenter(selfRowKeyFull, timeoutSecs: 3);
   await inst.shot('/tmp/ui_g2_conf_members_${inst.name}.png');
   await returnToChatsHome(inst, rounds: 4);
   print(
@@ -1427,6 +1462,12 @@ Future<int> runGroup2Case(
   // Cases 78/79/81 legitimately need B ALREADY in the group (the asserted action
   // is kick / scroll / unread, not the join), so establish a live two-process
   // group with B joined, restore B's auto-accept in a finally.
+  // Mark both accounts test: _memberRowKeyFor reads the bridge member list via
+  // the test-gated l3_group_member_list (the SWEEP marks up front, but these
+  // STANDALONE atomic entries don't), and the establish/cleanup l3 tools are
+  // gated too. Unmark LAST so the gated tools still work.
+  final aMarked = await a.markAccountTest();
+  final bMarked = await b.markAccountTest();
   final est = await _establishTwoProcessGroup(
     a,
     b,
@@ -1437,6 +1478,16 @@ Future<int> runGroup2Case(
   );
   if (est == null) {
     print('[pair] $scenario: could not establish a two-process group');
+    if (aMarked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
+    if (bMarked) {
+      try {
+        await b.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
     return 1;
   }
   try {
@@ -1459,6 +1510,16 @@ Future<int> runGroup2Case(
       } on DriveError catch (e) {
         print('[pair] $scenario: restore auto-accept failed: ${e.message}');
       }
+    }
+    if (aMarked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
+    if (bMarked) {
+      try {
+        await b.unmarkAccountTest();
+      } on DriveError catch (_) {}
     }
   }
 }

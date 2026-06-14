@@ -534,20 +534,26 @@ class _ToxeeGroupProfileContentState
           groupType: widget.groupInfo.groupType,
           groupName: value,
         );
-    if (res.code == 0) {
-      // The setGroupInfo above goes through the binary-replacement (native)
-      // path, which does NOT write the Dart-side Prefs that own a group
-      // conversation's showName. Persist the new name and refresh the
-      // conversation list so BOTH the list row and the open-chat header pick
-      // it up — mirroring add_group_dialog / home_group_controller /
-      // l3_create_group, which all setGroupName + refresh after a rename/create.
-      // (resolveGroupDisplayName reads getGroupName; nothing here sets an alias.)
-      await Prefs.setGroupName(widget.groupInfo.groupID, value);
-      await FakeUIKit.instance.im?.refreshConversations();
-      safeSetState(() {
-        groupName = value;
-      });
+    // toxee's group display name is Dart-Prefs-driven: resolveGroupDisplayName
+    // reads getGroupName, and the conversation showName is rebuilt from it. The
+    // setGroupInfo above goes through the binary-replacement (native) path,
+    // which (a) never writes that Prefs and (b) returns a NON-ZERO code for a
+    // same-host NGC group — so gating the local update on res.code==0 meant the
+    // rename never reflected locally at all. Persist + refresh LOCALLY
+    // regardless (the native call stays best-effort peer propagation), mirroring
+    // add_group_dialog / home_group_controller / l3_create_group. Nothing here
+    // sets an alias, so getGroupName is the resolved display source.
+    if (res.code != 0) {
+      AppLogger.info(
+        '[GroupProfile] setGroupInfo rc=${res.code} — applying local rename '
+        'anyway (Prefs-driven display); peer propagation may lag',
+      );
     }
+    await Prefs.setGroupName(widget.groupInfo.groupID, value);
+    await FakeUIKit.instance.im?.refreshConversations();
+    safeSetState(() {
+      groupName = value;
+    });
   }
 
   void _changeGroupName() {
