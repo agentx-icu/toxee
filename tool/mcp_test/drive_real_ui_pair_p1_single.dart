@@ -429,7 +429,7 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
   // the profile, so single-fire it (flutter_skill's `tap` double-fires an
   // on-screen button — synthetic pointer + direct callback — which would stack
   // TWO edit dialogs; `_changeGroupName` has no re-entry guard).
-  await openGroupChat(inst, groupId: gid, groupName: name);
+  await openGroupChat(inst, groupId: gid, groupName: name, viaL3Seam: true);
   await _openGroupProfile(inst);
   if (!await inst.tapKeyCenter('group_profile_edit_name_button',
       timeoutSecs: 8)) {
@@ -454,7 +454,7 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
   // cheap header check, batch-7 rename precedent).
   final renamed = await _waitGroupShowName(inst, gid, newName, timeoutSecs: 20);
   await returnToChatsHome(inst, rounds: 4);
-  await openGroupChat(inst, groupId: gid, groupName: newName);
+  await openGroupChat(inst, groupId: gid, groupName: newName, viaL3Seam: true);
   final headerOk = await _waitChatHeaderTitle(inst, newName, timeoutSecs: 12);
   await inst.shot('/tmp/ui_p1_conf_rename_${inst.name}.png');
   // 3. Leave via the real profile leave button + Confirm label; the row must
