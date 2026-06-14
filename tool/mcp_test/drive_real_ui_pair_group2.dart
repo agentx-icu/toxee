@@ -478,7 +478,11 @@ Future<bool> _groupProfileClearHistory(
       clearCenter = c;
       break;
     }
-    await inst.scrollAtCoords(640, 600, dy: 500);
+    // Touch-DRAG up to scroll the profile ListView (a single mouse-wheel
+    // PointerScrollEvent via scrollAtCoords did NOT move it, so the button
+    // stayed below the fold). Drag from mid-list (y=500, on the scrollable,
+    // below the non-scrolling avatar/header) UP by 400 to reveal lower items.
+    await inst.dragAtCoords(640, 500, dy: -400, steps: 12);
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
   if (clearCenter == null) {
@@ -793,7 +797,11 @@ Future<bool> _groupLeaveViaProfileConfirm(
     }
     // Scroll at the LIST area (y=600, below the non-scrolling "Send a message"
     // tile at ~420) so the wheel event reliably hits the profile's scrollable.
-    await inst.scrollAtCoords(640, 600, dy: 500);
+    // Touch-DRAG up to scroll the profile ListView (a single mouse-wheel
+    // PointerScrollEvent via scrollAtCoords did NOT move it, so the button
+    // stayed below the fold). Drag from mid-list (y=500, on the scrollable,
+    // below the non-scrolling avatar/header) UP by 400 to reveal lower items.
+    await inst.dragAtCoords(640, 500, dy: -400, steps: 12);
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
   if (leaveCenter == null) {

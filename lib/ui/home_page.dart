@@ -1991,12 +1991,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
 
-    final memberList = UikitDataFacade.getGroupMemberList(
+    // Fetch the member list FRESH (await) instead of reading the SYNC cache,
+    // which is empty for a group's first member-list view (no prior load) and
+    // left the page blank. Snapshot the sync cache BEFORE the await: the fresh
+    // load can itself cache an empty result, so a valid pre-existing cache must
+    // be captured first; on an empty/failed fresh load we fall back to the
+    // snapshot. Re-check mounted after the await before using context.
+    final cachedSnapshot = UikitDataFacade.getGroupMemberList(
       gid,
     ).whereType<V2TimGroupMemberFullInfo>().toList();
+    List<V2TimGroupMemberFullInfo> freshList = const [];
+    try {
+      freshList = (await UikitDataFacade.loadGroupMemberList(
+        groupID: gid,
+        loadGroupAdminAndOwnerOnly: false,
+      )).whereType<V2TimGroupMemberFullInfo>().toList();
+    } on Object {
+      // A thrown native/FFI load error falls back to the snapshot below.
+    }
+    if (!mounted) return false;
+    final memberList = freshList.isNotEmpty ? freshList : cachedSnapshot;
 
-    // No await between the `mounted` guard and this context use, so the
-    // BuildContext is still valid (use_build_context_synchronously is satisfied).
+    // mounted re-checked above after the await, so the BuildContext use below
+    // is valid (use_build_context_synchronously is satisfied).
     // unawaited(): navigateToGroupMemberList returns the pushed page's pop
     // Future, which this fire-and-forget invoker intentionally does not await
     // (return as soon as the page is on screen).

@@ -595,6 +595,31 @@ class Inst {
     }
   }
 
+  /// Touch-drag from raw coords (fromX,fromY) by (dx,dy) over [steps] moves — a
+  /// real PointerDown/Move/Up sequence. Unlike [scrollAtCoords] (a single
+  /// mouse-wheel PointerScrollEvent, which a Flutter ListView can ignore at a
+  /// given hit point), a touch drag reliably scrolls the scrollable under the
+  /// start point. Used to scroll the group-profile ListView (a wheel event
+  /// there did not move it, leaving the clear/leave buttons below the fold).
+  Future<void> dragAtCoords(
+    num fromX,
+    num fromY, {
+    double dx = 0,
+    required double dy,
+    int steps = 12,
+  }) async {
+    final r = await l3('ui_drag', {
+      'fromX': '$fromX',
+      'fromY': '$fromY',
+      'dx': '$dx',
+      'dy': '$dy',
+      'steps': '$steps',
+    });
+    if (r['ok'] != true) {
+      throw DriveError('[$name] ui_drag ($fromX,$fromY) failed: $r');
+    }
+  }
+
   /// Right-click (secondary tap) at [key]'s center — opens the desktop chat
   /// message context menu / conversation-row menu.
   Future<void> secondaryTapKey(String key) async {
