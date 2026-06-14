@@ -76,6 +76,15 @@ Future<int> runC2cExtraSweep(Inst a, Inst b, String nickA, String nickB) async {
     return 1;
   }
 
+  // Mark BOTH accounts as L3 seed accounts so the test-gated nav/clear tools
+  // (l3_force_home_root for the contacts shell + sendComposerMessage's recovery,
+  // l3_clear_history) work on these fresh non-test real-UI accounts — mirrors
+  // sweep_conv / sweep_chat, which already mark. Revoked after the cases.
+  final aMarked = await a.markAccountTest();
+  final bMarked = await b.markAccountTest();
+  print('[sweep] sweep_c2c_extra: marked test accounts aMarked=$aMarked '
+      'bMarked=$bMarked');
+
   var passed = 0;
   var failed = 0;
 
@@ -122,6 +131,14 @@ Future<int> runC2cExtraSweep(Inst a, Inst b, String nickA, String nickB) async {
     toxB,
     text: 'RuiC2CEnd-${DateTime.now().microsecondsSinceEpoch}',
   );
+  // Revoke the seed-account marker so the launch ends in the original non-test
+  // state (the reseed above ran while still marked).
+  try {
+    await a.unmarkAccountTest();
+    await b.unmarkAccountTest();
+  } on DriveError {
+    // best-effort
+  }
   final endFriends = await areFriends(a, toxB) && await areFriends(b, toxA);
   print(
     '[sweep] sweep_c2c_extra summary: passed=$passed failed=$failed '
