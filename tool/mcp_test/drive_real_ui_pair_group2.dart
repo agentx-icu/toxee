@@ -81,17 +81,46 @@ Future<bool> _openGroupMemberListPage(Inst inst, String groupId) async {
   return true;
 }
 
-/// The member-list row key for a member resolved by its stored userID (the SAME
-/// id the fork keys the row with). [memberTox] is the friend's Tox id; resolve it
-/// to the userID via [inst]'s own friend list (pubkey match) to dodge
-/// tox-id-vs-pubkey / casing mismatches.
+/// The member-list row key for a member. An NGC peer's row is keyed by its
+/// PER-GROUP encryption pubkey (tox_group_peer_get_public_key) — a freshly
+/// generated per-group keypair, NOT the friend/long-term pubkey. So predicting
+/// `group_member_list_item:<friend.userId>` matches SELF (self uses the
+/// long-term key) but NEVER a non-self peer, even though the row IS keyed and
+/// the member count is 2. Resolve robustly: (1) try the friend-pubkey
+/// prediction, gated on the key actually being rendered (correct for self / any
+/// long-term-keyed member), then (2) fall back to the only non-self
+/// `group_member_list_item:` row actually rendered. REQUIRES the member-list
+/// page to be open so the element tree is mounted for step 2 (both group2 call
+/// sites open it first; _gcmeVisiblePeerRowKey delegates here).
 Future<String?> _memberRowKeyFor(Inst inst, String memberTox) async {
   final s = await inst.dumpState();
+  // 1) friend-pubkey prediction — matches self + any long-term-keyed member.
   for (final f in (s['friends'] as List?) ?? const []) {
     if (f is Map &&
         _pubkey(f['userId']?.toString() ?? '') == _pubkey(memberTox)) {
       final uid = f['userId']?.toString() ?? '';
-      if (uid.isNotEmpty) return 'group_member_list_item:$uid';
+      if (uid.isNotEmpty &&
+          await inst.waitKey('group_member_list_item:$uid', timeoutSecs: 2)) {
+        return 'group_member_list_item:$uid';
+      }
+    }
+  }
+  // 2) NGC per-group key: A can't predict the peer's per-group pubkey from its
+  // friend list, so pick the single rendered non-self member row (the
+  // 2-member scenario contract these cases assert: self + the peer).
+  final selfTox = s['currentAccountToxId']?.toString() ?? '';
+  final selfPk = _pubkey(selfTox);
+  final r = await inst.skill('interactiveStructured', const {});
+  final data = r['data'];
+  final elements = data is Map ? data['elements'] : null;
+  if (elements is List) {
+    for (final e in elements) {
+      if (e is! Map) continue;
+      final key = e['key']?.toString() ?? '';
+      if (!key.startsWith('group_member_list_item:')) continue;
+      final suffix = key.substring('group_member_list_item:'.length);
+      if (_pubkey(suffix) == selfPk || suffix == selfTox) continue;
+      return key;
     }
   }
   return null;
@@ -406,7 +435,22 @@ Future<bool> _groupProfileClearHistory(
   var seeded = 0;
   for (var i = 0; i < 3; i++) {
     final text = 'RUIG2Clear-$i-${DateTime.now().microsecondsSinceEpoch}';
-    if (await sendComposerMessage(inst, text)) seeded++;
+    if (await sendComposerMessage(inst, text)) {
+      seeded++;
+    } else {
+      // The composer can flake / navigate off the group under 2-proc
+      // contention. Seed deterministically via the L3 group-send seam — an own
+      // send lands in local group history regardless of peers, and the asserted
+      // action here is the Clear-History gesture, not the send. Needs a
+      // test-marked account, which runGroup2Sweep now grants.
+      try {
+        final r = await inst.l3('l3_send_group_text', {
+          'groupId': gid,
+          'text': text,
+        });
+        if (r['ok'] == true) seeded++;
+      } on DriveError catch (_) {/* honest fail below if all attempts miss */}
+    }
   }
   await Future<void>.delayed(const Duration(milliseconds: 600));
   final beforeCount =
@@ -546,13 +590,35 @@ Future<bool> _groupUnreadBadgeTwoProc(
     if (!_isNonTestAccountError(e)) rethrow;
   }
   final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final m = 'RUIG2UNREAD-$nonce';
-  await openGroupChat(b, groupId: gidB, groupName: groupName);
-  final bSent = await sendComposerMessage(b, m);
-  final aGot = await _waitGroupMessageAnyConversation(a, m, timeoutSecs: 60);
+  // B group-sends; A must RECEIVE it over NGC for the unread to bump. Same-host
+  // cross-process NGC message delivery is probabilistic even once peers connect
+  // (documented environment limitation), so retry B's send with a distinct
+  // nonce each round — any arrival bumps A's unread — before honestly failing
+  // on the delivery gate. A stays parked off the group throughout (parked
+  // above), so a late arrival still counts as unread.
+  var bSent = false;
+  var aGot = false;
+  final sentNonces = <String>[];
+  for (var attempt = 0; attempt < 3 && !aGot; attempt++) {
+    final mi = 'RUIG2UNREAD-$nonce-$attempt';
+    await openGroupChat(b, groupId: gidB, groupName: groupName);
+    if (await sendComposerMessage(b, mi)) {
+      bSent = true;
+      sentNonces.add(mi);
+    }
+    // Accept ANY sent nonce arriving — a LATE delivery of an earlier send still
+    // proves A received a B group message (and bumps unread); gating only on
+    // the current attempt's nonce would falsely fail that race.
+    for (final s in sentNonces) {
+      if (await _waitGroupMessageAnyConversation(a, s, timeoutSecs: 12)) {
+        aGot = true;
+        break;
+      }
+    }
+  }
   if (!bSent || !aGot) {
     print('[pair] group_unread_badge_two_proc: seed failed '
-        '(bSent=$bSent aGot=$aGot)');
+        '(bSent=$bSent aGot=$aGot) — same-host NGC delivery missed after 3 tries');
     return false;
   }
   final bumped = await _waitConversationUnread(a, convId, (u) => u >= 1,
@@ -945,6 +1011,8 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
 
   bool bPriorAutoAccept = false;
   var autoAcceptMutated = false;
+  var aMarked = false;
+  var bMarked = false;
   try {
     // --- Establish the A<->B friendship (real-UI handshake) once. ---
     final friended =
@@ -956,6 +1024,20 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         results[id] = 'FAIL';
       }
     } else {
+      // Mark BOTH accounts as test/seed accounts so the L3 navigation + seed
+      // tools work (forceHomeRoot + l3_send_group_text). The C2C sweeps do this
+      // up front; group2 didn't, so forceHomeRoot was refused ("non-test
+      // account") and the group-seed cases (clear-history / unread) fell onto
+      // the flaky composer-only path with no recovery. Revoked in the end-guard.
+      // Track each side independently so a PARTIAL success (A marked, B failed)
+      // still unmarks A in the end-guard instead of leaking the test flag.
+      aMarked = await a.markAccountTest();
+      bMarked = await b.markAccountTest();
+      if (!(aMarked && bMarked)) {
+        print('[sweep] sweep_group2: WARN markAccountTest incomplete '
+            '(a=$aMarked b=$bMarked) — forceHomeRoot / l3 group-seed tools may '
+            'be refused');
+      }
       // --- 2p prerequisites: full-mesh bootstrap + B auto-accept (seeding
       // infra; the established group exceptions). Wait for the group exts +
       // connectivity first, exactly like runGroupMessage. ---
@@ -1119,6 +1201,20 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         } on DriveError catch (e) {
           print('[sweep] sweep_group2 end-clean: restore auto-accept failed: '
               '${e.message}');
+        }
+      }
+      if (aMarked) {
+        try {
+          await a.unmarkAccountTest();
+        } on DriveError catch (e) {
+          print('[sweep] sweep_group2 end-clean: unmark A failed: ${e.message}');
+        }
+      }
+      if (bMarked) {
+        try {
+          await b.unmarkAccountTest();
+        } on DriveError catch (e) {
+          print('[sweep] sweep_group2 end-clean: unmark B failed: ${e.message}');
         }
       }
       await returnToChatsHome(a, rounds: 4);

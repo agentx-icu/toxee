@@ -191,27 +191,9 @@ Future<void> _gcmeCleanupGroups(Inst a, Inst b) async {
 }
 
 Future<String?> _gcmeVisiblePeerRowKey(Inst inst, String peerTox) async {
-  final byFriend = await _memberRowKeyFor(inst, peerTox);
-  if (byFriend != null && await inst.waitKey(byFriend, timeoutSecs: 2)) {
-    return byFriend;
-  }
-
-  final selfTox =
-      (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
-  final selfPk = _pubkey(selfTox);
-  final r = await inst.skill('interactiveStructured', const {});
-  final data = r['data'];
-  final elements = data is Map ? data['elements'] : null;
-  if (elements is! List) return null;
-  for (final e in elements) {
-    if (e is! Map) continue;
-    final key = e['key']?.toString() ?? '';
-    if (!key.startsWith('group_member_list_item:')) continue;
-    final suffix = key.substring('group_member_list_item:'.length);
-    if (_pubkey(suffix) == selfPk || suffix == selfTox) continue;
-    return key;
-  }
-  return null;
+  // _memberRowKeyFor now does the friend-pubkey prediction (gated on render)
+  // AND the rendered non-self NGC-per-group-key fallback this used to inline.
+  return _memberRowKeyFor(inst, peerTox);
 }
 
 Future<String?> _gcmeOpenPeerDesktopMenu(

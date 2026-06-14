@@ -365,14 +365,50 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_profile_clear_history_cancel: dialog did not open');
     return false;
   }
-  final cancelTapped = await inst.tapKeyCenter(
-    'user_profile_clear_history_cancel_button',
-    timeoutSecs: 6,
-  );
-  final dialogGone = await inst.waitKeyGone(
-    'user_profile_clear_history_confirm_button',
-    timeoutSecs: 6,
-  );
+  // The cancel tap can resolve a STALE offstage measurement copy of the button
+  // (tapKeyCenter walks the element tree and may hit an off-screen IndexedStack
+  // subtree), leaving the real dialog up so dialogGone reads false. Retry the
+  // cancel through keyed-center, then keyed-tap, then Escape until the confirm
+  // button is actually gone (mirrors the robust delete-friend cancel).
+  var cancelTapped = false;
+  var dialogGone = false;
+  for (var attempt = 0; attempt < 4 && !dialogGone; attempt++) {
+    if (await inst.waitKeyGone(
+      'user_profile_clear_history_confirm_button',
+      timeoutSecs: 1,
+    )) {
+      dialogGone = true;
+      break;
+    }
+    // Center-tap the cancel button. tapKeyCenter can return TRUE yet have hit a
+    // stale offstage measurement copy that didn't close the real dialog, so
+    // DON'T let its truthiness short-circuit the escalation — recheck the
+    // confirm button and, if still up, escalate to a keyed tap then Escape.
+    if (await inst.tapKeyCenter(
+      'user_profile_clear_history_cancel_button',
+      timeoutSecs: 4,
+    )) {
+      cancelTapped = true;
+    }
+    if (!await inst.waitKeyGone(
+      'user_profile_clear_history_confirm_button',
+      timeoutSecs: 2,
+    )) {
+      if (await inst.tryTapKey(
+        'user_profile_clear_history_cancel_button',
+        retries: 2,
+      )) {
+        cancelTapped = true;
+      }
+      try {
+        await inst.osaEscape();
+      } on DriveError {/* best-effort */}
+    }
+    dialogGone = await inst.waitKeyGone(
+      'user_profile_clear_history_confirm_button',
+      timeoutSecs: 3,
+    );
+  }
   final afterCount =
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
           ?.toInt() ??

@@ -328,12 +328,17 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
     await Future<void>.delayed(const Duration(milliseconds: 500));
     await a.osaClear();
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    await a.osaType(line1);
+    // Paste each LINE atomically (pbcopy+Cmd+V) instead of osaType: keystroke
+    // typing drops/duplicates characters under 2-process foreground contention
+    // (aHasBoth=false), while a paste is atomic. The newline between them stays
+    // a REAL Shift+Enter OS chord (the behavior this case asserts), so the
+    // production RawKeyEvent newline-insert path is still exercised.
+    await a.osaPaste(line1);
     await Future<void>.delayed(const Duration(milliseconds: 400));
     // Shift+Enter → newline (key code 36 = Return, with shift down).
     await a.osaShiftReturn();
     await Future<void>.delayed(const Duration(milliseconds: 400));
-    await a.osaType(line2);
+    await a.osaPaste(line2);
     await Future<void>.delayed(const Duration(milliseconds: 500));
     // Plain Enter → send.
     var sent = false;

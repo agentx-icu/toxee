@@ -135,7 +135,16 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
 
     // Determine element type based on mediaKind and filePath
     int elemType = MessageElemType.V2TIM_ELEM_TYPE_TEXT;
-    if (m.filePath != null && m.mediaKind != null) {
+    if (m.mediaKind == 'custom') {
+      // A custom inbound message (peer custom elem / l3_inject_c2c_custom)
+      // carries NO filePath, so it must be typed here independent of the
+      // filePath gate below — otherwise it stays TEXT and renders as an
+      // [Unsupported message] placeholder, which strips the Reply menu item
+      // (reply only survives on custom-elem bubbles). Mirrors the history /
+      // Platform converter (chatMessageToV2TimMessage), which the cold-load
+      // path already uses, so live-stream and history render identically.
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_CUSTOM;
+    } else if (m.filePath != null && m.mediaKind != null) {
       switch (m.mediaKind) {
         case 'image':
           elemType = MessageElemType.V2TIM_ELEM_TYPE_IMAGE;
@@ -159,7 +168,14 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
     // lets users see *something* even when a new sender uses an
     // unrecognised media kind. Known kinds (image/video/audio/file/
     // call_record) are excluded by the if above.
-    const knownKinds = {'image', 'video', 'audio', 'file', 'call_record'};
+    const knownKinds = {
+      'image',
+      'video',
+      'audio',
+      'file',
+      'call_record',
+      'custom',
+    };
     final isUnknownCustom = m.mediaKind != null &&
         !knownKinds.contains(m.mediaKind) &&
         elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT;
@@ -524,7 +540,13 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       // For failed messages restored from persistence, text might be empty but we still need textElem
       // Since FakeMessage doesn't have elemType, we determine if it's a text message by checking if there's no filePath
       // If there's no filePath and no mediaKind, it's likely a text message
-      if (m.filePath == null && m.mediaKind == null) {
+      if (m.mediaKind == 'custom') {
+        // Mirror the history / Platform converter: a custom elem carries its
+        // JSON payload in customElem.data and renders via
+        // getCustomMessageBuilder (which keeps the Reply menu item, unlike a
+        // plain text bubble). No textElem so it isn't double-rendered.
+        msg.customElem = V2TimCustomElem(data: m.text, desc: '', extension: '');
+      } else if (m.filePath == null && m.mediaKind == null) {
         // This is likely a text message - always set textElem
         msg.textElem = V2TimTextElem(text: m.text.isNotEmpty ? m.text : '');
       } else if (m.text.isNotEmpty) {

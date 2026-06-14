@@ -535,6 +535,15 @@ class _ToxeeGroupProfileContentState
           groupName: value,
         );
     if (res.code == 0) {
+      // The setGroupInfo above goes through the binary-replacement (native)
+      // path, which does NOT write the Dart-side Prefs that own a group
+      // conversation's showName. Persist the new name and refresh the
+      // conversation list so BOTH the list row and the open-chat header pick
+      // it up — mirroring add_group_dialog / home_group_controller /
+      // l3_create_group, which all setGroupName + refresh after a rename/create.
+      // (resolveGroupDisplayName reads getGroupName; nothing here sets an alias.)
+      await Prefs.setGroupName(widget.groupInfo.groupID, value);
+      await FakeUIKit.instance.im?.refreshConversations();
       safeSetState(() {
         groupName = value;
       });

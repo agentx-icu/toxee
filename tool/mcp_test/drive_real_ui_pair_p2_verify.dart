@@ -113,9 +113,16 @@ Future<bool> _p2vPasteImageIntoComposer(
   }..removeWhere((id) => id.isEmpty);
   final nonce = DateTime.now().microsecondsSinceEpoch;
   final png = File('${Directory.systemTemp.path}/rui_paste_$nonce.png');
+  // An 8x8 8-bit RGBA PNG. The previous 1x1 8-bit GRAY+alpha PNG could not be
+  // round-tripped by macOS `NSImage.tiffRepresentation` (returns nil), so
+  // `Pasteboard.image` came back null and the desktop paste handler silently
+  // no-op'd — the image-confirm popup never appeared. A non-degenerate RGBA PNG
+  // re-encodes cleanly (verified: tiffRepresentation -> 173 png bytes), so the
+  // paste path runs and stages the image. The desktop paste feature itself was
+  // never broken; the fixture image was un-encodable.
   const pngB64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'AAAAAElFTkSuQmCC';
+      'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR42mO4Y2PzHx9m'
+      'GBkKAKtclMHCQrgUAAAAAElFTkSuQmCC';
   await png.writeAsBytes(base64Decode(pngB64), flush: true);
 
   try {
