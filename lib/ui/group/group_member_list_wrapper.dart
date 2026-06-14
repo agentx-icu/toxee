@@ -1,4 +1,6 @@
 // Wrapper to refresh member list before opening the member list page
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 // ignore: directives_ordering
@@ -35,6 +37,7 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
   bool _isLoading = true;
   bool _isRefreshing = false; // Prevent duplicate calls
   bool _hasLoaded = false; // Track if we've already loaded to prevent reloads on widget rebuilds
+  int _emptyRetries = 0; // Bounded re-fetches when a fresh NGC group returns an empty member list
 
   void _enrichAvatars(List<V2TimGroupMemberFullInfo> members) {
     final contactList = UikitDataFacade.contactList;
@@ -89,6 +92,10 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
         _lastMessageTimeMap = {};
         _isLoading = true;
         _hasLoaded = false;
+        // Reset the empty-retry budget for the NEW group — otherwise a State
+        // reused across groups could exhaust it on the first group and leave a
+        // later group with no empty-list retries.
+        _emptyRetries = 0;
       });
       // An in-flight fetch for the previous group is harmless: it snapshots
       // its own groupID at entry and will abort after the await when it sees
@@ -151,9 +158,24 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
         _currentMemberList = dedupedList;
         _lastMessageTimeMap = timeMap;
         _isLoading = false;
-        _hasLoaded = true; // Mark as loaded to prevent reloads
+        // Only LATCH _hasLoaded on a NON-EMPTY load. A freshly-created same-host
+        // NGC group can momentarily return an empty member list (the founder /
+        // self row lags one fetch); latching that empty would render a permanent
+        // blank member page with no retry. Leaving _hasLoaded false lets a
+        // rebuild / the scheduled retry below re-fetch until the self row lands.
+        _hasLoaded = dedupedList.isNotEmpty;
       });
       succeeded = true;
+      if (dedupedList.isEmpty && _emptyRetries < 6) {
+        _emptyRetries++;
+        Future.delayed(const Duration(milliseconds: 700), () {
+          if (mounted &&
+              !_hasLoaded &&
+              groupID == widget.groupInfo.groupID) {
+            unawaited(_refreshMemberList());
+          }
+        });
+      }
     } catch (e, st) {
       // A thrown FFI/native error used to leave _isLoading true forever
       // because only _isRefreshing was reset in the finally. Surface the

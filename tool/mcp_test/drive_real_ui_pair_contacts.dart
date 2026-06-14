@@ -744,6 +744,24 @@ Future<bool> _friendprofClearHistory(Inst inst, String toxFriend) async {
     final text = 'RuiB4Clear-$i-${DateTime.now().microsecondsSinceEpoch}';
     if (await sendComposerMessage(inst, text)) seeded++;
   }
+  if (seeded == 0) {
+    // The composer can flake under 2-proc contention (and there may be no prior
+    // history). Fall back to the deterministic l3_send_text seam — the asserted
+    // action is the Clear-History gesture, not the send. The contacts sweep
+    // marks both accounts test up front, which l3_send_text requires.
+    for (var i = 0; i < 3 && seeded == 0; i++) {
+      try {
+        final r = await inst.l3('l3_send_text', {
+          'userId': _pubkey(toxFriend),
+          'text': 'RuiB4Clear-l3$i-${DateTime.now().microsecondsSinceEpoch}',
+        });
+        if (r['ok'] == true) {
+          seeded++;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      } on DriveError catch (_) {/* honest fail below if all attempts miss */}
+    }
+  }
   await Future<void>.delayed(const Duration(milliseconds: 800));
   final beforeCount =
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
