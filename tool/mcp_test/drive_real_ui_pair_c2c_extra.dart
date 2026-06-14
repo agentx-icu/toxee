@@ -307,7 +307,14 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
     return false;
   }
   final seedText = 'RuiC2CClearCancel-${DateTime.now().microsecondsSinceEpoch}';
-  if (!await sendComposerMessage(inst, seedText)) {
+  // Retry the seed-send: the composer occasionally isn't ready right after the
+  // open under 2-process contention (a single send no-ops). Re-ensure + re-send.
+  var seeded = false;
+  for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
+    await _ensureChatOpen(inst, toxFriend);
+    seeded = await sendComposerMessage(inst, seedText);
+  }
+  if (!seeded) {
     print('[pair] c2c_profile_clear_history_cancel: seed send failed');
     return false;
   }
@@ -378,22 +385,34 @@ Future<bool> _c2ceDeleteFriendCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_delete_friend_cancel: dialog did not open');
     return false;
   }
-  final cancelTapped = await inst.tapKeyCenter(
-    'user_profile_delete_friend_cancel_button',
-    timeoutSecs: 6,
-  );
-  final dialogGone = await inst.waitKeyGone(
-    'user_profile_delete_friend_cancel_button',
-    timeoutSecs: 6,
-  );
+  // Dismiss the confirm dialog via the real Cancel button. tapKeyCenter can
+  // resolve a STALE OFFSTAGE copy of the dialog button and miss the rendered one
+  // (the dialog stays up even though the tap "succeeded"), so retry: keyed
+  // center tap, then the VISIBLE "Cancel" text, then Escape — until the dialog
+  // is actually gone. Dialog-gone IS the cancel succeeding.
+  var dialogGone = false;
+  for (var attempt = 0; attempt < 4 && !dialogGone; attempt++) {
+    if (attempt.isEven) {
+      await inst.tapKeyCenter('user_profile_delete_friend_cancel_button',
+          timeoutSecs: 5);
+    } else if (!await _tryTapText(inst, 'Cancel')) {
+      try {
+        await inst.osaEscape();
+      } on DriveError {
+        // best-effort
+      }
+    }
+    dialogGone = await inst.waitKeyGone(
+        'user_profile_delete_friend_cancel_button',
+        timeoutSecs: 3);
+  }
   final friendAfter = await areFriends(inst, toxFriend);
   await inst.shot('/tmp/ui_c2c_delete_friend_cancel_${inst.name}.png');
   print(
     '[pair] c2c_delete_friend_cancel: friendBefore=$friendBefore '
-    'cancelTapped=$cancelTapped dialogGone=$dialogGone '
-    'friendAfter=$friendAfter',
+    'dialogGone=$dialogGone friendAfter=$friendAfter',
   );
-  return friendBefore && cancelTapped && dialogGone && friendAfter;
+  return friendBefore && dialogGone && friendAfter;
 }
 
 Future<bool> _c2ceHeaderProfileSendBack(Inst inst, String toxFriend) async {

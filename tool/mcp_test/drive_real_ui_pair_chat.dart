@@ -106,13 +106,30 @@ part of 'drive_real_ui_pair.dart';
 
 /// Open the C2C chat with [tox] and assert the chat surface is ready.
 Future<bool> _ensureChatOpen(Inst inst, String tox) async {
+  // A prior case can leave the friend's contact profile pushed ON TOP of the
+  // chat; pop it first so the chat surface is actually interactable (otherwise
+  // openChat binds the chat OFFSTAGE behind the profile and the composer/menu
+  // taps land on the profile).
+  await inst.foreground();
+  await _dismissFriendProfileToUnderlying(inst);
   try {
     await openChat(inst, tox);
   } on DriveError catch (e) {
     print('[pair] _ensureChatOpen: ${e.message}');
-    return false;
   }
-  return _chatSurfaceReady(inst, _c2cConvId(tox), timeoutSecs: 10);
+  if (await _chatSurfaceReady(inst, _c2cConvId(tox), timeoutSecs: 8)) {
+    return true;
+  }
+  // Fallback: drive the production `_openChat` path via the ungated l3_open_chat
+  // nav-stability seam when the row-tap open didn't land — e.g. a prior case
+  // left the app on the contact profile / a search overlay so the conv row
+  // wasn't tappable. Deterministic; the asserted action of every case stays a
+  // real widget gesture. Pass the PUBKEY: l3_open_chat forwards userId verbatim
+  // into `c2c_<userId>`, but `_chatSurfaceReady`/_c2cConvId normalize to
+  // `c2c_<pubkey>` — a full tox id would open a non-matching conv and fail
+  // readiness (codex). `_pubkey` is idempotent for an already-pubkey id.
+  await inst.openChatViaL3(userId: _pubkey(tox));
+  return _chatSurfaceReady(inst, _c2cConvId(tox), timeoutSecs: 8);
 }
 
 /// The ORDERED list of message entries (dump `messages[]`) for the C2C
@@ -165,6 +182,10 @@ Future<bool> _waitC2cMessageText(Inst inst, String tox, String text,
 /// keyed `message_menu_item:*` rendered. Foregrounds first + retries.
 Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   await inst.foreground();
+  // Pop the friend's contact profile if it's covering the chat — otherwise the
+  // message row is offstage behind it and the secondary-tap hits the profile
+  // ("menu did not open").
+  await _dismissFriendProfileToUnderlying(inst);
   final rowKey = 'message_list_item:$msgId';
   if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
     print('[pair] _openMessageMenuReal: row $rowKey not present');

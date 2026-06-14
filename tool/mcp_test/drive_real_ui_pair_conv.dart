@@ -96,15 +96,25 @@ Future<bool> _seedConvRow(Inst inst, String tox, {String? text}) async {
 Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
+  // Pop a leaked contact profile that can cover the conversation list.
+  await _dismissFriendProfileToUnderlying(inst);
   final rowKey = _convRowKey(tox);
   if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
     print('[pair] _openConvRowMenuReal: row $rowKey not present');
     return false;
   }
+  final rowCenter = await inst.keyCenter(rowKey);
   for (var attempt = 0; attempt < 4; attempt++) {
     await inst.foreground();
     try {
-      await inst.secondaryTapKey(rowKey);
+      // Alternate the keyed secondary-tap (which can resolve a stale OFFSTAGE
+      // copy and right-click empty space) with a coordinate secondary-tap at the
+      // resolved row center — a full-width conv row is tappable anywhere on it.
+      if (attempt.isOdd && rowCenter != null) {
+        await inst.secondaryTapAt(rowCenter.x, rowCenter.y);
+      } else {
+        await inst.secondaryTapKey(rowKey);
+      }
     } on DriveError catch (e) {
       print('[pair] _openConvRowMenuReal: secondaryTap warn: ${e.message}');
     }

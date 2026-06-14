@@ -118,7 +118,13 @@ Future<bool> _hveC2cSearchResultOpensTargetMessage(
   String toxFriend,
 ) async {
   final c2c = _c2cConvId(toxFriend);
-  await openChat(inst, _pubkey(toxFriend));
+  // Robust setup open (row tap, then the production _openChat seam): a prior
+  // case can leave the app off the chats list so the conv row isn't tappable
+  // (openChat alone then throws "conversation_list_item ... failed after N").
+  if (!await _ensureChatOpen(inst, _pubkey(toxFriend))) {
+    print('[pair] c2c_search_result_opens_target_message: chat did not open');
+    return false;
+  }
   final term = 'RUIHVSEARCH${DateTime.now().microsecondsSinceEpoch}';
   if (!await sendComposerMessage(inst, term)) {
     print('[pair] c2c_search_result_opens_target_message: send failed');

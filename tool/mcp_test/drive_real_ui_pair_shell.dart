@@ -495,6 +495,30 @@ Future<bool> _recoverFriendProfileToContacts(Inst inst) async {
   return false;
 }
 
+/// Pop the friend's CONTACT profile when it's pushed ON TOP of a chat (opened
+/// from the chat header). A prior case can leave it covering the chat surface:
+/// `_chatSurfaceReady` then passes on the OFFSTAGE chat tree behind it, but
+/// the composer / message rows the case drives are not hittable (the
+/// secondary-tap / send lands on the profile). Unlike
+/// `_recoverFriendProfileToContacts` (which lands on the Contacts tab), this
+/// pops BACK to the chat it was pushed from. Returns whether it ended OFF the
+/// profile. No-op when no profile is showing.
+Future<bool> _dismissFriendProfileToUnderlying(Inst inst) async {
+  for (var i = 0; i < 3; i++) {
+    if (!await _isFriendProfileShell(inst)) return true;
+    if (!await _tryTapText(inst, 'Back')) {
+      try {
+        await inst.osaEscape();
+      } on DriveError {
+        // The "<" back affordance at the top-left of the profile app bar.
+        await inst.tapAt(28, 72);
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+  }
+  return !await _isFriendProfileShell(inst);
+}
+
 Future<bool> _isProfileQrOverlay(Inst inst) async {
   return await inst.waitKey('profile_tox_id_copy_button', timeoutSecs: 1) ||
       await inst.waitKey('profile_qr_copy_button', timeoutSecs: 1) ||
