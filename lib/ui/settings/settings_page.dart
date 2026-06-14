@@ -1189,136 +1189,22 @@ class _SettingsPageState extends State<SettingsPage> {
         ? null
         : _kDeleteConfirmWords[Random().nextInt(_kDeleteConfirmWords.length)];
 
-    final inputController = TextEditingController();
-
+    if (!mounted) return;
+    // The confirm-input controller is owned by [_DeleteAccountDialog]'s State
+    // (disposed in its dispose()). Creating it here and disposing it right
+    // after this await crashes in debug ("A TextEditingController was used
+    // after being disposed"): showDialog completes at pop time, but the
+    // dialog's TextField keeps rebuilding through the route's exit transition,
+    // so the disposed controller is used one more frame. Shared Dart → mobile
+    // covered.
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(AppLocalizations.of(ctx)!.deleteAccount),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(AppLocalizations.of(ctx)!.deleteAccountConfirmMessage),
-                const SizedBox(height: 16),
-                if (hasPassword) ...[
-                  Text(
-                    AppLocalizations.of(
-                      ctx,
-                    )!.deleteAccountEnterPasswordToConfirm,
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    key: UiKeys.settingsDeleteAccountConfirmInput,
-                    controller: inputController,
-                    obscureText: true,
-                    textAlignVertical: TextAlignVertical.center,
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(ctx)!.password,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppThemeConfig.inputBorderRadius,
-                        ),
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Text(
-                    AppLocalizations.of(ctx)!.deleteAccountTypeWordToConfirm,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    AppLocalizations.of(
-                      ctx,
-                    )!.deleteAccountConfirmWordPrompt(confirmWord!),
-                    style: Theme.of(ctx).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  SelectableText(
-                    confirmWord,
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    // Same key as the password branch — the two branches are
-                    // mutually exclusive (hasPassword), so exactly one keyed
-                    // input renders.
-                    key: UiKeys.settingsDeleteAccountConfirmInput,
-                    controller: inputController,
-                    textAlignVertical: TextAlignVertical.center,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppThemeConfig.inputBorderRadius,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => popDialogIfCurrent(ctx, false),
-              child: Text(AppLocalizations.of(ctx)!.cancel),
-            ),
-            TextButton(
-              key: UiKeys.settingsDeleteAccountConfirmButton,
-              onPressed: () async {
-                if (hasPassword) {
-                  final password = inputController.text;
-                  final isValid = await Prefs.verifyAccountPassword(
-                    toxId,
-                    password,
-                  );
-                  if (!isValid) {
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            AppLocalizations.of(ctx)!.invalidPassword,
-                          ),
-                          backgroundColor: Theme.of(ctx).colorScheme.error,
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                } else {
-                  final input = inputController.text.trim().toLowerCase();
-                  if (input != confirmWord!.toLowerCase()) {
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            AppLocalizations.of(ctx)!.deleteAccountWrongWord,
-                          ),
-                          backgroundColor: Theme.of(ctx).colorScheme.error,
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                }
-                if (!ctx.mounted) return;
-                popDialogIfCurrent(ctx, true);
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(ctx).colorScheme.error,
-              ),
-              child: Text(AppLocalizations.of(ctx)!.delete),
-            ),
-          ],
-        );
-      },
+      builder: (ctx) => _DeleteAccountDialog(
+        toxId: toxId,
+        hasPassword: hasPassword,
+        confirmWord: confirmWord,
+      ),
     );
-
-    inputController.dispose();
 
     if (confirmed == true && mounted) {
       unawaited(HapticFeedback.heavyImpact());
@@ -1379,5 +1265,162 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       );
     }
+  }
+}
+
+/// Confirmation body for the destructive "delete account" flow.
+///
+/// Extracted into a [StatefulWidget] so the confirm-input
+/// [TextEditingController] is owned by an element whose lifetime matches the
+/// dialog. Disposing the controller in the caller right after `showDialog`
+/// returns crashes in debug — the dialog's [TextField] still rebuilds during
+/// the route's exit transition (visible in the crash's debugCreator chain as
+/// the transition `AnimatedBuilder`), and that frame touches the disposed
+/// controller, cascading into `_dependents.isEmpty` / duplicate-GlobalKey
+/// teardown errors. Shared Dart → covers mobile.
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog({
+    required this.toxId,
+    required this.hasPassword,
+    required this.confirmWord,
+  });
+
+  final String toxId;
+  final bool hasPassword;
+
+  /// Required (non-null) when [hasPassword] is false; null otherwise.
+  final String? confirmWord;
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final TextEditingController _inputController = TextEditingController();
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onConfirm() async {
+    if (widget.hasPassword) {
+      final isValid = await Prefs.verifyAccountPassword(
+        widget.toxId,
+        _inputController.text,
+      );
+      if (!isValid) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.invalidPassword),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+        return;
+      }
+    } else {
+      final input = _inputController.text.trim().toLowerCase();
+      if (input != widget.confirmWord!.toLowerCase()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLocalizations.of(context)!.deleteAccountWrongWord,
+              ),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    popDialogIfCurrent(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(AppLocalizations.of(context)!.deleteAccount),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(AppLocalizations.of(context)!.deleteAccountConfirmMessage),
+            const SizedBox(height: 16),
+            if (widget.hasPassword) ...[
+              Text(
+                AppLocalizations.of(context)!.deleteAccountEnterPasswordToConfirm,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: UiKeys.settingsDeleteAccountConfirmInput,
+                controller: _inputController,
+                obscureText: true,
+                textAlignVertical: TextAlignVertical.center,
+                decoration: InputDecoration(
+                  labelText: AppLocalizations.of(context)!.password,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppThemeConfig.inputBorderRadius,
+                    ),
+                  ),
+                ),
+              ),
+            ] else ...[
+              Text(AppLocalizations.of(context)!.deleteAccountTypeWordToConfirm),
+              const SizedBox(height: 8),
+              Text(
+                AppLocalizations.of(
+                  context,
+                )!.deleteAccountConfirmWordPrompt(widget.confirmWord!),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 4),
+              SelectableText(
+                widget.confirmWord!,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                // Same key as the password branch — the two branches are
+                // mutually exclusive (hasPassword), so exactly one keyed input
+                // renders.
+                key: UiKeys.settingsDeleteAccountConfirmInput,
+                controller: _inputController,
+                textAlignVertical: TextAlignVertical.center,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppThemeConfig.inputBorderRadius,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => popDialogIfCurrent(context, false),
+          child: Text(AppLocalizations.of(context)!.cancel),
+        ),
+        TextButton(
+          key: UiKeys.settingsDeleteAccountConfirmButton,
+          onPressed: _onConfirm,
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          child: Text(AppLocalizations.of(context)!.delete),
+        ),
+      ],
+    );
   }
 }
