@@ -103,6 +103,8 @@ L3OpenAddGroupDialogInvoker? _l3OpenAddGroupDialogInvoker;
 typedef L3OpenChatInvoker =
     Future<bool> Function({String? userId, String? groupId});
 L3OpenChatInvoker? _l3OpenChatInvoker;
+typedef L3OpenGlobalSearchInvoker = Future<bool> Function();
+L3OpenGlobalSearchInvoker? _l3OpenGlobalSearchInvoker;
 typedef L3OpenGroupAddMemberInvoker = Future<bool> Function(String groupId);
 L3OpenGroupAddMemberInvoker? _l3OpenGroupAddMemberInvoker;
 typedef L3OpenGroupMemberListInvoker = Future<bool> Function(String groupId);
@@ -158,6 +160,10 @@ void registerL3OpenAddGroupDialogInvoker(L3OpenAddGroupDialogInvoker? fn) {
 
 void registerL3OpenChatInvoker(L3OpenChatInvoker? fn) {
   if (kL3TestSurfaceEnabled) _l3OpenChatInvoker = fn;
+}
+
+void registerL3OpenGlobalSearchInvoker(L3OpenGlobalSearchInvoker? fn) {
+  if (kL3TestSurfaceEnabled) _l3OpenGlobalSearchInvoker = fn;
 }
 
 void registerL3OpenGroupAddMemberInvoker(L3OpenGroupAddMemberInvoker? fn) {
@@ -325,7 +331,7 @@ void registerL3DebugToolsIfEnabled() {
     'l3_start_call, l3_call_action, '
     'l3_clear_history, l3_clear_active_conversation, '
     'l3_force_home_root, '
-    'l3_open_add_friend_dialog, l3_open_chat, '
+    'l3_open_add_friend_dialog, l3_open_chat, l3_open_global_search, '
     'l3_invoke_message_action, l3_mark_read, '
     'l3_accept_friend_request, l3_refuse_friend_request, l3_delete_friend, '
     'l3_set_friend_remark, l3_set_blocked, '
@@ -357,6 +363,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3OpenAddFriendDialogEntry());
   addMcpTool(_l3OpenAddGroupDialogEntry());
   addMcpTool(_l3OpenChatEntry());
+  addMcpTool(_l3OpenGlobalSearchEntry());
   addMcpTool(_l3OpenGroupAddMemberEntry());
   addMcpTool(_l3OpenGroupMemberListEntry());
   addMcpTool(_l3OpenConversationMenuEntry());
@@ -1838,6 +1845,43 @@ MCPCallEntry _l3OpenChatEntry() => MCPCallEntry.tool(
         ),
       },
     ),
+  ),
+);
+
+/// Push toxee's global search overlay (the SAME `CustomSearch` route the
+/// Cmd/Ctrl+F shortcut opens, in global all-conversations mode). UNGATED —
+/// a navigation-stability hook like l3_open_chat / l3_open_add_friend_dialog,
+/// NOT the asserted action: the result tap + chat open the case verifies stay
+/// real widget gestures. Exists because the macOS Cmd/Ctrl+F keystroke
+/// (osascript) is occasionally dropped when the window isn't fully foregrounded
+/// under 2-process contention, which flaked the global-search-open setup.
+MCPCallEntry _l3OpenGlobalSearchEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final invoker = _l3OpenGlobalSearchInvoker;
+    if (invoker == null) {
+      return MCPCallResult(
+        message: 'l3_open_global_search: invoker not registered',
+        parameters: {'ok': false, 'error': 'invoker_not_registered'},
+      );
+    }
+    final opened = await invoker();
+    AppLogger.info(
+      '[L3] l3_open_global_search: ${opened ? 'opened' : 'FAILED to open'}',
+    );
+    return MCPCallResult(
+      message: opened ? 'opened global search' : 'l3_open_global_search failed',
+      parameters: {'ok': opened},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_open_global_search',
+    description:
+        'Navigation-stability hook: push the global search overlay '
+        '(CustomSearch in all-conversations mode) through the same route the '
+        'Cmd/Ctrl+F shortcut uses, deterministically (no synthetic keystroke). '
+        'NOT the asserted action — the result tap + chat open stay real '
+        'gestures. Desktop master-detail layout only.',
+    inputSchema: ObjectSchema(properties: {}),
   ),
 );
 

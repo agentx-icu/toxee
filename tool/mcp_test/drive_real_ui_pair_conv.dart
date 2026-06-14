@@ -661,6 +661,25 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
 Future<bool> _openGlobalSearch(Inst inst) async {
   await inst.foreground();
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) return true;
+  // PRIMARY: the deterministic l3_open_global_search seam (pushes the SAME
+  // CustomSearch route the Cmd/Ctrl+F shortcut uses). The osascript keystroke
+  // below is occasionally dropped when the window isn't fully foregrounded
+  // under 2-process contention, which flaked the open. The seam is opening-only
+  // (navigation stability) — the result tap + chat open the case asserts stay
+  // real gestures. Falls back to the real keystroke if the seam is absent (an
+  // app build without the L3 surface) or no-ops.
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      final r = await inst.l3('l3_open_global_search');
+      if (r['ok'] == true &&
+          await inst.waitKey('message_search_field', timeoutSecs: 4)) {
+        return true;
+      }
+    } on DriveError catch (e) {
+      print('[pair] _openGlobalSearch: l3 seam warn: ${e.message}');
+      break; // seam not registered — go straight to the keystroke fallback
+    }
+  }
   for (var attempt = 0; attempt < 3; attempt++) {
     try {
       await inst.osaSearchShortcut();

@@ -504,17 +504,21 @@ Future<bool> _recoverFriendProfileToContacts(Inst inst) async {
 /// pops BACK to the chat it was pushed from. Returns whether it ended OFF the
 /// profile. No-op when no profile is showing.
 Future<bool> _dismissFriendProfileToUnderlying(Inst inst) async {
-  for (var i = 0; i < 3; i++) {
+  for (var i = 0; i < 4; i++) {
     if (!await _isFriendProfileShell(inst)) return true;
-    if (!await _tryTapText(inst, 'Back')) {
-      try {
-        await inst.osaEscape();
-      } on DriveError {
-        // The "<" back affordance at the top-left of the profile app bar.
-        await inst.tapAt(28, 72);
-      }
+    // Tap the "<" back affordance at the top-left of the profile app bar — the
+    // primary, reliable way to pop the pushed profile back to the chat. (Escape
+    // doesn't dismiss this route, and a "Back" text tap can match an offstage
+    // copy without popping.) Escape is only a secondary nudge.
+    await inst.tapAt(28, 72);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!await _isFriendProfileShell(inst)) return true;
+    try {
+      await inst.osaEscape();
+    } on DriveError {
+      // best-effort
     }
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
   }
   return !await _isFriendProfileShell(inst);
 }

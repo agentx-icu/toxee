@@ -1080,6 +1080,19 @@ extension _HomePageBootstrap on _HomePageState {
       return true;
     });
     _bag.add(() => registerL3OpenChatInvoker(null));
+    registerL3OpenGlobalSearchInvoker(() async {
+      if (!mounted) return false;
+      // The global search overlay is pushed onto the desktop master-detail
+      // root navigator (the same place the Cmd/Ctrl+F shortcut pushes it). On a
+      // bottom-nav (mobile/narrow) layout that root isn't the one the harness
+      // drives, so restrict to the desktop layout like l3_open_chat does; a
+      // mobile harness must drive its own search entry point. Only an EXPLICIT
+      // mobile layout is rejected — a null (pre-first-build) value proceeds.
+      if (_lastShouldShowMasterDetail == false) return false;
+      _openGlobalSearchOverlay();
+      return true;
+    });
+    _bag.add(() => registerL3OpenGlobalSearchInvoker(null));
     registerL3OpenGroupAddMemberInvoker((groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the dialog invokers above: PUSH the

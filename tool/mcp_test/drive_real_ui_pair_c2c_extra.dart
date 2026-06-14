@@ -315,6 +315,27 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
     seeded = await sendComposerMessage(inst, seedText);
   }
   if (!seeded) {
+    // Composer flaked under 2-process contention. Fall back to the
+    // deterministic l3_send_text seam — the asserted action here is the
+    // Clear-History CANCEL (count unchanged), NOT the send, so seeding the
+    // history through the seam is fine (same setup-via-seam contract as
+    // l3_open_chat). The c2c_extra sweep marks both accounts test up front,
+    // which l3_send_text requires.
+    for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
+      try {
+        final r = await inst.l3('l3_send_text', {
+          'userId': _pubkey(toxFriend),
+          'text': '$seedText-l3$attempt',
+        });
+        seeded = r['ok'] == true;
+      } on DriveError catch (e) {
+        print('[pair] c2c_profile_clear_history_cancel: l3 seed warn: '
+            '${e.message}');
+      }
+      if (seeded) await Future<void>.delayed(const Duration(milliseconds: 600));
+    }
+  }
+  if (!seeded) {
     print('[pair] c2c_profile_clear_history_cancel: seed send failed');
     return false;
   }

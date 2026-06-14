@@ -1342,18 +1342,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     _OpenSearchIntent: CallbackAction<_OpenSearchIntent>(
                       onInvoke: (_) {
                         // Cmd/Ctrl+F → push toxee's global search overlay.
-                        // `userID`/`groupID` left null so the overlay runs in
-                        // global mode (search all conversations).
-                        final rootCtx = _scaffoldMessengerContext ?? context;
-                        Navigator.of(rootCtx).push(
-                          AppPageRoute(
-                            page: Builder(
-                              builder: (innerCtx) => search_pkg.CustomSearch(
-                                closeFunc: () => Navigator.of(innerCtx).pop(),
-                              ),
-                            ),
-                          ),
-                        );
+                        _openGlobalSearchOverlay();
                         return null;
                       },
                     ),
@@ -1366,6 +1355,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           },
         );
       },
+    );
+  }
+
+  /// Push toxee's global search overlay (`CustomSearch` in global mode —
+  /// `userID`/`groupID` left null so it searches all conversations). Shared by
+  /// the Cmd/Ctrl+F `_OpenSearchIntent` shortcut and the `l3_open_global_search`
+  /// navigation-stability seam, so the real-UI harness opens search
+  /// deterministically instead of through a flaky synthetic keystroke.
+  void _openGlobalSearchOverlay() {
+    final rootCtx = _scaffoldMessengerContext ?? context;
+    Navigator.of(rootCtx).push(
+      AppPageRoute(
+        page: Builder(
+          builder: (innerCtx) => search_pkg.CustomSearch(
+            closeFunc: () => Navigator.of(innerCtx).pop(),
+          ),
+        ),
+      ),
     );
   }
 
