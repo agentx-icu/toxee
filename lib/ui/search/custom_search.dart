@@ -556,6 +556,15 @@ class _CustomSearchState extends State<CustomSearch> {
           UikitDataFacade.currentTargetMessage = targetMessage;
         }
         UikitDataFacade.currentConversation = conv;
+        // Desktop binds the tapped conversation into the master-detail right
+        // pane via currentConversation, but the global-search overlay is a
+        // full-screen pushed route that otherwise stays ON TOP — hiding the
+        // chat the user just selected and swallowing sidebar taps until it is
+        // dismissed. Close it so the bound chat is revealed (mobile keeps its
+        // push-the-message-page behavior, where back returns to the results).
+        if (mounted) {
+          _closeSearch();
+        }
       }
     }
   }
@@ -563,12 +572,26 @@ class _CustomSearchState extends State<CustomSearch> {
   /// Dismiss the search overlay: prefer the injected [CustomSearch.closeFunc]
   /// (the Cmd/Ctrl+F route passes a `Navigator.pop`), else pop the current
   /// route. Used by both the app-bar close (X) button and the Escape shortcut.
-  void _closeSearch() {
-    // Idempotent: only act while this route is still the current (top) route,
-    // so a key-repeat / rapid double Escape during dismissal can't pop the page
+  void _closeSearch({bool deferred = false}) {
+    // Only act while this route is still the current (top) route, so a
+    // key-repeat / rapid double Escape during dismissal can't pop the page
     // underneath. (Embedded usage has no own route → ModalRoute is the parent,
     // still current, and closeFunc handles the embedded close.)
-    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      // A CHILD route is on top — e.g. the message drill-down
+      // (SearchChatHistoryWindow), which calls onNavigateToMessage (us) BEFORE
+      // popping itself. Closing now would no-op and leak the search overlay
+      // (codex). Defer ONE frame so the child can pop and this route becomes
+      // current, then close. Bounded to a single retry so a child that never
+      // pops can't spin (it just falls back to the original no-op). The X
+      // button / Escape always run while current, so they never defer.
+      if (deferred) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _closeSearch(deferred: true);
+      });
+      return;
+    }
     final close = widget.closeFunc;
     if (close != null) {
       close();
