@@ -847,6 +847,18 @@ Future<int> runConvSweep(Inst a, Inst b, String nickA, String nickB) async {
       results['conv_presence_dot_flips'] = 'SKIP';
       skipped++;
     } else {
+      // Mark BOTH accounts as L3 seed accounts so the test-gated nav/clear tools
+      // (l3_force_home_root for the contacts shell, l3_clear_active_conversation
+      // for true-unread accrual, l3_clear_history for the clear-history cases)
+      // work on these fresh non-test real-UI accounts. The marker authorizes the
+      // whole gated surface; the asserted action in every case stays the real
+      // widget/gesture, and it is REVOKED in the end-guard. (Mirrors sweep_chat /
+      // sweep_p1_chat, which already mark; sweep_conv was missing it, so every
+      // gated case failed with non_test_account.)
+      final aMarked = await a.markAccountTest();
+      final bMarked = await b.markAccountTest();
+      print('[sweep] sweep_conv: marked test accounts aMarked=$aMarked '
+          'bMarked=$bMarked (unblocks l3 nav/clear tools)');
       // --- 45: menu surface (right-click → items render). ---
       await hard('conv_menu_surface_c2c', () => _convMenuSurfaceC2c(a, toxB));
       // --- 46: pin/unpin + reorder (ends unpinned). ---
@@ -909,6 +921,15 @@ Future<int> runConvSweep(Inst a, Inst b, String nickA, String nickB) async {
           await areFriends(a, toxB) && await areFriends(b, toxA) && stillRow;
     } on DriveError {
       endFriends = false;
+    }
+    // Revoke the seed-account marker so the launch ends in the same non-test
+    // privilege state it began in (the runner's state contract). Best-effort:
+    // the reseed above already ran while still marked.
+    try {
+      await a.unmarkAccountTest();
+      await b.unmarkAccountTest();
+    } on DriveError {
+      // best-effort
     }
     print(
       '[sweep] sweep_conv RESULTS: $passed PASS / $failed FAIL / $skipped SKIP '
