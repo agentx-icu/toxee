@@ -192,17 +192,46 @@ Future<bool> _p2rReplyQuoteReal(
     (m) => m['isSelf'] == false && m['text']?.toString() == replyText,
     timeoutSecs: 60,
   );
+
+  // CONVERTER COLD-RELOAD validation (codex fix-forward): the reply's
+  // cloudCustomData persists in the dump messages[] (ffi.getHistory), but the
+  // RENDER layer rebuilds history through getHistoryMessageList* ->
+  // chatMessageToV2TimMessage. Before the converter fix that path dropped the
+  // quote (it rendered live but vanished after a reload). Close + reopen the
+  // chat so UIKit reloads history through the converter, then assert the
+  // render-layer V2TimMessage still carries the messageReply metadata.
+  var reloadCloudOk = false;
+  if (sentId.isNotEmpty) {
+    await returnToChatsHome(a, rounds: 3);
+    if (await _ensureChatOpen(a, toxB)) {
+      final reloaded = await _p2kWaitRenderMessageWhere(
+        a,
+        toxB,
+        (m) =>
+            _p2kMessageId(m) == sentId &&
+            _p2rReplyCloudMatches(
+              m['cloudCustomData']?.toString() ?? '',
+              replyToMsgId: customId,
+              replyToSender: toxB,
+            ),
+        timeoutSecs: 12,
+      );
+      reloadCloudOk = reloaded != null;
+    }
+  }
+
   print(
     '[pair] reply_quote_real: customId=$customId sentId=$sentId '
     'bannerGone=$bannerGone replyMetadataOk=$replyMetadataOk '
-    'bReceived=${bReceived != null}',
+    'bReceived=${bReceived != null} reloadCloudOk=$reloadCloudOk',
   );
   return customRender != null &&
       customRowRendered &&
       bannerGone &&
       sentReply != null &&
       replyMetadataOk &&
-      bReceived != null;
+      bReceived != null &&
+      reloadCloudOk;
 }
 
 bool _p2rReplyCloudMatches(

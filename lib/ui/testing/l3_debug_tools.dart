@@ -5604,6 +5604,11 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
                 'elemType': m.elemType,
                 'timestamp': m.timestamp,
                 'renderKey': key,
+                // Reply/forward metadata as the RENDER-layer V2TimMessage carries
+                // it. After a chat reopen this reflects the cold-reload path
+                // (getHistoryMessageList* -> converter), so a test can assert the
+                // reply quote survives reload, not just the persisted messages[].
+                'cloudCustomData': m.cloudCustomData,
               });
             }
           }
