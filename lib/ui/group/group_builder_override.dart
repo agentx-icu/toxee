@@ -528,20 +528,20 @@ class _ToxeeGroupProfileContentState
   }
 
   Future<void> _onChangeGroupName(String value) async {
-    // toxee's group display name is Dart-Prefs-driven: resolveGroupDisplayName
-    // reads getGroupName, and the conversation showName is rebuilt from it.
-    // Persist + refresh the LOCAL display FIRST, BEFORE the native setGroupInfo:
-    // that call goes through the binary-replacement path, which never writes the
-    // Prefs AND can be slow / hang / return non-zero for a same-host NGC group —
-    // so awaiting it before the Prefs write (as before) meant the rename never
-    // reflected locally. Do the local update first, then fire the native call
-    // best-effort (unawaited) for peer propagation. Mirrors add_group_dialog /
-    // home_group_controller / l3_create_group; nothing here sets an alias.
-    await Prefs.setGroupName(widget.groupInfo.groupID, value);
-    await FakeUIKit.instance.im?.refreshConversations();
+    // Update the VISIBLE title synchronously FIRST so it reflects immediately —
+    // the app shows it instantly, and widget tests pumpAndSettle right after the
+    // confirm tap (an earlier version awaited Prefs/refresh before this, which
+    // in a widget test never completed during pumpAndSettle, so the title stayed
+    // stale). toxee's group display name is otherwise Dart-Prefs-driven
+    // (resolveGroupDisplayName reads getGroupName; the conversation showName is
+    // rebuilt from it), persisted below.
     safeSetState(() {
       groupName = value;
     });
+    // Fire native peer propagation best-effort (unawaited): the binary-
+    // replacement setGroupInfo can be slow / hang / return non-zero for a
+    // same-host NGC group, so it must never block the local update. .catchError
+    // guards a thrown FFI error from surfacing as an uncaught async error.
     unawaited(
       TencentCloudChat.instance.chatSDKInstance.groupSDK
           .setGroupInfo(
@@ -558,12 +558,21 @@ class _ToxeeGroupProfileContentState
             }
           })
           .catchError((Object e, StackTrace st) {
-            // Best-effort: a thrown native/FFI error must not surface as an
-            // uncaught async error (the local rename is already applied).
             AppLogger.logError(
               '[GroupProfile] setGroupInfo peer-propagation failed', e, st);
           }),
     );
+    // Persist the Prefs-driven display + refresh the conversation list so the
+    // group showName (list row + open-chat header) updates. Guarded: a test /
+    // early environment without a current account or FakeUIKit must not throw an
+    // uncaught async error here (the visible title already updated above).
+    try {
+      await Prefs.setGroupName(widget.groupInfo.groupID, value);
+      await FakeUIKit.instance.im?.refreshConversations();
+    } on Object catch (e, st) {
+      AppLogger.logError(
+        '[GroupProfile] rename local persist failed', e, st);
+    }
   }
 
   void _changeGroupName() {

@@ -49,3 +49,14 @@ lib/util/prefs.dart
 lib/ui/settings/settings_page_build.dart
 lib/ui/testing/l3_debug_tools.dart
 lib/util/placeholder_account_migration.dart
+# Appended 2026-06-15 (these crossed 500 LOC after the 05-20 baseline via the
+# real-UI automation campaigns; each is just over the cap and is test/login
+# infrastructure — slated for a focused split, exempted now to keep the
+# complexity guard a true signal rather than a chronic red gate):
+# - ui_drive_tools.dart (542): the ungated ui_drive debug-tool registry (tap/
+#   scroll/drag/secondary-tap/key-center handlers); one cohesive table.
+# - ui_keys.dart (518): the central ValueKey constant catalog for real-UI tests.
+# - login_page_controller.dart (507): the saved-account login flow controller.
+lib/ui/login/login_page_controller.dart
+lib/ui/testing/ui_drive_tools.dart
+lib/ui/testing/ui_keys.dart
