@@ -202,6 +202,19 @@ Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
 Future<void> ensureContactsShell(Inst inst, {int rounds = 4}) async {
   for (var round = 0; round < rounds; round++) {
     await inst.foreground();
+    // Pop any STALE friend-profile route a prior case pushed on top: it sits
+    // OVER the contacts home, but the contacts tab stays in the tree BEHIND it,
+    // so `_contactsHomeReady` early-returns true (homeShellTab=='contacts', no
+    // "Back" TEXT since the affordance is a "<" icon, the profile is a pushed
+    // route not the right-pane `homeShellInContactProfileContext`) and leaves us
+    // ON the profile. Every later `contact_list_item` / `contact_search_field`
+    // then resolves to the OFFSTAGE copy behind the profile (root-caused live:
+    // case 42 tapped an offstage block switch → "could not block"; case 43's
+    // search field resolved at x=-310 off-screen → filter never applied). The
+    // "<" back-affordance tap (28,72) is the proven pop (Back-text/Escape don't
+    // pop this route); no-op when no profile is showing. `l3_force_home_root`
+    // can't help here — it's refused on the restored non-test accounts.
+    await _dismissFriendProfileToUnderlying(inst);
     if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
       return;
     }

@@ -873,19 +873,22 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
     await inst.tapAt(240, 270);
   }
   await Future<void>.delayed(const Duration(milliseconds: 1200));
-  // 3) The friend's row is present in the blocked list. The blocked-list row
-  // opens the SAME user profile; unblock via the profile block switch (the
-  // deterministic, key-stable affordance). Tap the row, flip block OFF.
+  // 3) Assert the blocked-list DETAIL (right pane) is NON-empty — B is in it.
+  // Do NOT key off `contact_list_item:<B>`: that key ALSO matches the
+  // ALWAYS-PRESENT main contact-list row in the LEFT pane (B stays a contact
+  // when blocked), so it can't distinguish "B is in the blocked list" from "B is
+  // a contact" (root-caused live via screenshot: the blocked detail correctly
+  // showed "No blocked users" after unblock, but the left-pane contact row never
+  // leaves, so a `contact_list_item` waitKeyGone was always false). The
+  // blocked-list empty-state text is the unambiguous signal. B is the only
+  // friend, so non-empty ⟺ B is blocked-listed.
   final shortKey = _contactItemShortKey(toxFriend);
   final fullKey = _contactItemFullKey(toxFriend);
-  final rowPresent = await inst.waitKey(shortKey, timeoutSecs: 6) ||
-      await inst.waitKey(fullKey, timeoutSecs: 4);
-  if (rowPresent) {
-    // Tap the blocked-list row to open the same user profile (try both key
-    // forms; the second is only attempted if the first didn't land).
-    if (!await inst.tryTapKey(shortKey, retries: 2)) {
-      await inst.tryTapKey(fullKey, retries: 2);
-    }
+  final rowPresent = !await inst.waitText('No blocked users', timeoutSecs: 4);
+  // Open B's profile to unblock. The main-list contact row (left pane, always
+  // present) opens the SAME user profile; tap it (both key forms).
+  if (!await inst.tryTapKey(shortKey, retries: 2)) {
+    await inst.tryTapKey(fullKey, retries: 2);
   }
   // Either we reached the profile (preferred) or fall back to opening the
   // profile through the contact list.
@@ -915,14 +918,46 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
     await inst.tapAt(240, 270);
   }
   await Future<void>.delayed(const Duration(milliseconds: 1400));
-  final rowGone = await inst.waitKeyGone(shortKey, timeoutSecs: 6) &&
-      await inst.waitKeyGone(fullKey, timeoutSecs: 2);
+  // The blocked-list DETAIL shows its empty-state once B is unblocked. (Keying
+  // off `contact_list_item:<B>` would false-fail: B's left-pane main-list row
+  // never leaves — see the rowPresent note above.)
+  final rowGone = await inst.waitText('No blocked users', timeoutSecs: 8);
   await ensureContactsShell(inst);
   print(
     '[pair] blocked_list_unblock_row: blocked=$blocked rowPresent=$rowPresent '
     'unblocked=$unblocked rowGone=$rowGone',
   );
   return blocked && rowPresent && unblocked && rowGone;
+}
+
+/// Focus the contacts AppBar search field and atomically set its text.
+///
+/// Uses the WIDGET-TARGETED `tapKey` (flutter_skill) to focus, NOT the
+/// coordinate-based `tapKeyCenter` that `focusType` uses: the search field sits
+/// in the contacts AppBar directly above the AZ list, and after the first
+/// filter shrinks the list the field's resolved RenderBox CENTRE lands on the
+/// (now single) contact row — a coordinate tap there OPENS that contact's
+/// profile instead of focusing the field, and every later `contact_list_item`
+/// waitKey then false-matches the offstage row (root-caused live: the case
+/// ended on the friend profile, never on filtered results). `tapKey` targets
+/// the TextField widget itself, so it can't drift onto a row. Then osaClear +
+/// osaPaste (atomic clipboard set → fires the controller listener once with the
+/// complete value → `contactSearchQuery` → AZ-list filter).
+Future<void> _typeContactSearch(Inst inst, String text) async {
+  await inst.foreground();
+  await inst.tapKey('contact_search_field');
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  try {
+    await inst.osaClear();
+  } on DriveError {
+    // best-effort
+  }
+  if (text.isEmpty) {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return;
+  }
+  await inst.osaPaste(text);
+  await Future<void>.delayed(const Duration(milliseconds: 150));
 }
 
 // ===========================================================================
@@ -953,16 +988,12 @@ Future<bool> _contactSearchFilterClear(
       ? friendNickName.trim().substring(
           0, friendNickName.trim().length >= 3 ? 3 : friendNickName.trim().length)
       : _pubkey(toxFriend).substring(0, 6);
-  await inst.focusType('contact_search_field', matchQuery);
+  await _typeContactSearch(inst, matchQuery);
   await Future<void>.delayed(const Duration(milliseconds: 1000));
   final rowMatchesFilter = await inst.waitKey(shortKey, timeoutSecs: 4) ||
       await inst.waitKey(fullKey, timeoutSecs: 2);
-  // 2) Non-matching filter -> the row is filtered OUT. Type via focusType
-  // (osascript keystrokes), NOT raw synthetic enterText — the latter drives the
-  // macOS engine's -[FlutterTextInputPlugin setEditingState:], which SIGSEGVs
-  // the whole app (root-caused live: A crashed here mid-sweep, killing this case
-  // and case 44). focusType clears + types crash-free.
-  await inst.focusType('contact_search_field', 'zzzznomatchzzzz');
+  // 2) Non-matching filter -> the row is filtered OUT.
+  await _typeContactSearch(inst, 'zzzznomatchzzzz');
   await Future<void>.delayed(const Duration(milliseconds: 1000));
   final rowFilteredOut = await inst.waitKeyGone(shortKey, timeoutSecs: 4) &&
       await inst.waitKeyGone(fullKey, timeoutSecs: 2);
@@ -1271,6 +1302,21 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
       failed++;
       results[id] = 'FAIL';
       print('[sweep] $id: FAIL${detail != null ? ' ($detail)' : ''}');
+    }
+    // Inter-case nav reset: pushed friend-profile routes + chat routes STACK
+    // across cases (the block/pin/mute/remark/clear/blocked/send-message cases
+    // all push A's view of B's profile or open a chat). Left un-popped, a later
+    // case's tapKeyCenter('user_profile_block_switch') lands on a covered/stale
+    // switch ("could not block") and contact_search_field resolves to the
+    // OFFSTAGE copy behind the route (x=-310 → filter never applies). Pop any
+    // profile, then return to a clean Chats home so EVERY case starts from the
+    // same known root (root-caused live: sweep failed cases 42/43 that PASS
+    // individually). Best-effort; never fail a case on the reset.
+    try {
+      await _dismissFriendProfileToUnderlying(a);
+      await returnToChatsHome(a, rounds: 3);
+    } on DriveError {
+      // best-effort
     }
   }
 
