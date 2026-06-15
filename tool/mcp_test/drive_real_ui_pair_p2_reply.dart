@@ -162,7 +162,10 @@ Future<bool> _p2rReplyQuoteReal(
   }
 
   final replyText = 'RUIP2REPLY-$nonce';
-  if (!await sendComposerMessage(a, replyText)) {
+  // clearFirst:false — the reply-quote banner is up and the composer dismisses
+  // the quote on a Backspace-over-empty-field (osaClear), which would strip the
+  // messageReply metadata. The field is already empty after tapping Reply.
+  if (!await sendComposerMessage(a, replyText, clearFirst: false)) {
     print('[pair] reply_quote_real: A failed to send reply body');
     return false;
   }
@@ -215,8 +218,13 @@ bool _p2rReplyCloudMatches(
     if (decoded is! Map) return false;
     final reply = decoded['messageReply'];
     if (reply is! Map) return false;
+    // Compare the quoted sender by Tox PUBLIC KEY (64-char), not raw string: an
+    // inbound message's sender is the bare 64-char pubkey (real inbound + the
+    // normalized inject seam both use it), while the caller may pass the 76-char
+    // Tox ID. The messageID is an exact match.
     return reply['messageID']?.toString() == replyToMsgId &&
-        reply['messageSender']?.toString() == replyToSender;
+        _pubkey(reply['messageSender']?.toString() ?? '') ==
+            _pubkey(replyToSender);
   } catch (_) {
     return false;
   }

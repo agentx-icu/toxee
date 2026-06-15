@@ -564,7 +564,19 @@ Future<bool> _anyConversationLastMessageIs(Inst inst, String text) async {
 /// keystroke-typed `RUIP1RECALL-<nonce>` landed mangled). Cmd+V is a genuine OS
 /// event, so it still reaches the ExtendedEditableText's real paste path and
 /// Enter-to-send (RawKeyEvent) fires unchanged.
-Future<bool> sendComposerMessage(Inst inst, String text) async {
+/// Send [text] through the real desktop composer (paste + Enter).
+///
+/// [clearFirst] (default true) selects-all + Backspace before pasting to drop
+/// any stale draft. Set it FALSE when an active reply-quote banner is up: the
+/// composer dismisses the reply quote on Backspace-over-an-empty-field, so the
+/// usual clear would silently strip the quote and the reply would send WITHOUT
+/// its `messageReply` cloudCustomData (the field is already empty right after
+/// tapping Reply, so the clear is unnecessary there anyway).
+Future<bool> sendComposerMessage(
+  Inst inst,
+  String text, {
+  bool clearFirst = true,
+}) async {
   for (var outer = 0; outer < 2; outer++) {
     await inst.foreground();
     // The outer `chat_input_text_field` key is a reliable presence anchor, but
@@ -574,8 +586,10 @@ Future<bool> sendComposerMessage(Inst inst, String text) async {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     await inst.tapAt(_composerX, _composerY);
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    await inst.osaClear();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (clearFirst) {
+      await inst.osaClear();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
     await inst.osaPaste(text);
     await Future<void>.delayed(const Duration(milliseconds: 800));
     for (var attempt = 0; attempt < 6; attempt++) {

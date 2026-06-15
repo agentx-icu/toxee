@@ -204,14 +204,18 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   // pane half-width ≈ rowCenter.x, so 1.4x / 1.6x / 1.8x land in the right third
   // where the bubble's Listener.onPointerDown is. Alternate with the row-key
   // center (peer / full-width rows).
-  const biasFactor = <double>[1.4, 1.6, 1.8];
-  for (var attempt = 0; attempt < 6; attempt++) {
+  // Bias factors relative to the pane-center rowCenter.x: 1.0 = row centre,
+  // >1 = RIGHT third (self/outbound bubbles), <1 = LEFT third (peer/INBOUND
+  // bubbles — e.g. a narrow inbound `[Custom]` placeholder sits far left of the
+  // pane centre, so a centre/right tap misses its Listener.onPointerDown and no
+  // menu opens). Cover both sides + centre.
+  const biasFactor = <double>[1.0, 1.5, 0.6, 1.8, 0.45, 0.7];
+  for (var attempt = 0; attempt < biasFactor.length; attempt++) {
     var tapped = false;
     try {
-      if (attempt.isOdd && rowCenter != null) {
-        await inst.secondaryTapAt(
-            rowCenter.x * biasFactor[(attempt ~/ 2) % biasFactor.length],
-            rowCenter.y);
+      final bias = biasFactor[attempt];
+      if (rowCenter != null && bias != 1.0) {
+        await inst.secondaryTapAt(rowCenter.x * bias, rowCenter.y);
       } else {
         await inst.secondaryTapKey(rowKey);
       }
