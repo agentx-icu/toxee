@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../i18n/app_localizations.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
+import '../util/design_tokens.dart';
 import '../util/logger.dart';
 import '../util/prefs.dart';
 
@@ -27,7 +28,22 @@ class UpgradeRequiredApp extends StatelessWidget {
   static ThemeData get _lightTheme => ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
-        colorSchemeSeed: AppThemeConfig.primaryColor,
+        // Pin the sampled surfaces/text/error exactly (the rest of the app
+        // uses an explicit scheme too) so this pre-app bootstrap screen can't
+        // tonal-drift away from white/near-black.
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: DesignTokens.primary,
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: DesignTokens.primary,
+          onPrimary: DesignTokens.onPrimary,
+          surface: DesignTokens.scaffoldLight,
+          onSurface: DesignTokens.textPrimaryLight,
+          onSurfaceVariant: DesignTokens.textSecondaryLight,
+          error: DesignTokens.errorLight,
+          outline: DesignTokens.inputBorderLight,
+          outlineVariant: DesignTokens.dividerLight,
+        ),
         scaffoldBackgroundColor: AppThemeConfig.lightScaffoldBackground,
         cardTheme: CardThemeData(
           shape: RoundedRectangleBorder(
@@ -59,7 +75,19 @@ class UpgradeRequiredApp extends StatelessWidget {
   static ThemeData get _darkTheme => ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorSchemeSeed: AppThemeConfig.primaryColorDark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: DesignTokens.primary,
+          brightness: Brightness.dark,
+        ).copyWith(
+          primary: DesignTokens.primary,
+          onPrimary: DesignTokens.onPrimary,
+          surface: DesignTokens.scaffoldDark,
+          onSurface: DesignTokens.textPrimaryDark,
+          onSurfaceVariant: DesignTokens.textSecondaryDark,
+          error: DesignTokens.errorDark,
+          outline: DesignTokens.inputBorderDark,
+          outlineVariant: DesignTokens.dividerDark,
+        ),
         scaffoldBackgroundColor: AppThemeConfig.darkScaffoldBackground,
         cardTheme: CardThemeData(
           shape: RoundedRectangleBorder(

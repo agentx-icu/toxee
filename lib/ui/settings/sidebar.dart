@@ -14,6 +14,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../../util/ffi_chat_service_account_key.dart';
 import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/design_tokens.dart';
 import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
@@ -205,23 +206,21 @@ Widget buildSidebar({
   required FfiChatService service,
   required Stream<bool> connectionStatusStream,
 }) {
-  final scheme = Theme.of(context).colorScheme;
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  // Reference-design rail: flat single-tone surface (no gradient), with a
+  // hairline divider on the trailing edge. Person avatar stays circular.
+  final railColor = isDark ? DesignTokens.railDark : DesignTokens.railLight;
+  final dividerColor = isDark
+      ? DesignTokens.dividerDark
+      : DesignTokens.dividerLight;
   return TencentCloudChatThemeWidget(
     build: (context, colorTheme, textStyle) => SizedBox(
       width: double.infinity,
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              colorTheme.desktopBackgroundColorLinearGradientOne,
-              colorTheme.desktopBackgroundColorLinearGradientTwo,
-              colorTheme.desktopBackgroundColorLinearGradientOne,
-            ],
-          ),
+          color: railColor,
           border: Border(
-            right: BorderSide(color: scheme.outlineVariant, width: 1),
+            right: BorderSide(color: dividerColor, width: 1),
           ),
         ),
         child: Column(
@@ -231,7 +230,7 @@ Widget buildSidebar({
               service: service,
               connectionStatusStream: connectionStatusStream,
             ),
-            Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+            Divider(height: 1, thickness: 1, color: dividerColor),
             AppSpacing.verticalSm,
             _SidebarItem(
               key: UiKeys.sidebarChats,
@@ -560,16 +559,24 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final disableAnims = MediaQuery.disableAnimationsOf(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
-        final baseColor = colorTheme.secondaryTextColor;
-        final selColor = colorTheme.primaryColor;
-        // Modern-messenger selection: subtle primary-tinted pill plus a
-        // 3px left-edge accent bar. Hover stays restrained — outlineVariant
-        // tone, no primary tint, so it doesn't read as a half-selection.
+        // Reference-design rail item: idle icon/label use the secondary text
+        // tone; the active tab switches to the brand blue. Both come from
+        // DesignTokens (toxee owns this widget) for an exact palette match.
+        final baseColor = isDark
+            ? DesignTokens.textSecondaryDark
+            : DesignTokens.textSecondaryLight;
+        const selColor = DesignTokens.primary;
+        // Modern-messenger selection: subtle primary-tinted fill plus a
+        // 3px left-edge accent bar. Hover stays restrained — onSurface tone,
+        // no primary tint, so it doesn't read as a half-selection.
         final bg = widget.selected
-            ? colorTheme.primaryColor.withValues(alpha: 0.10)
+            ? (isDark
+                  ? DesignTokens.primaryTintDark
+                  : DesignTokens.primaryTintLight)
             : (_isHovered
                   ? theme.colorScheme.onSurface.withValues(alpha: 0.04)
                   : Colors.transparent);
@@ -644,7 +651,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                                           horizontal: AppSpacing.xs,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: AppThemeConfig.errorColor,
+                                          color: DesignTokens.unreadBadge,
                                           borderRadius: BorderRadius.circular(
                                             AppThemeConfig.badgeBorderRadius,
                                           ),
@@ -660,7 +667,8 @@ class _SidebarItemState extends State<_SidebarItem> {
                                             overflow: TextOverflow.ellipsis,
                                             style: theme.textTheme.labelSmall
                                                 ?.copyWith(
-                                                  color: Colors.white,
+                                                  color:
+                                                      DesignTokens.onUnreadBadge,
                                                   fontWeight: FontWeight.w600,
                                                   height: 1.0,
                                                   fontSize: 10,
@@ -760,12 +768,17 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
-        final baseColor = colorTheme.secondaryTextColor;
-        final selColor = colorTheme.primaryColor;
+        final baseColor = isDark
+            ? DesignTokens.textSecondaryDark
+            : DesignTokens.textSecondaryLight;
+        const selColor = DesignTokens.primary;
         final bg = widget.selected
-            ? colorTheme.primaryColor.withValues(alpha: 0.10)
+            ? (isDark
+                  ? DesignTokens.primaryTintDark
+                  : DesignTokens.primaryTintLight)
             : (_isHovered
                   ? theme.colorScheme.onSurface.withValues(alpha: 0.04)
                   : Colors.transparent);
@@ -832,7 +845,7 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
                                         horizontal: AppSpacing.xs,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppThemeConfig.errorColor,
+                                        color: DesignTokens.unreadBadge,
                                         borderRadius: BorderRadius.circular(
                                           AppThemeConfig.badgeBorderRadius,
                                         ),
@@ -844,7 +857,8 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
                                           overflow: TextOverflow.ellipsis,
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                                color: Colors.white,
+                                                color:
+                                                    DesignTokens.onUnreadBadge,
                                                 fontWeight: FontWeight.w600,
                                                 height: 1.0,
                                                 fontSize: 10,

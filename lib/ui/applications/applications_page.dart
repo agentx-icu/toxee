@@ -949,7 +949,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 });
               },
               contentPadding: EdgeInsets.zero,
-              activeThumbColor: colorTheme.primaryColor,
+              // Inherit the app-wide Material switchTheme (white thumb on a
+              // primary track) so this toggle matches every other switch in the
+              // restyled UI instead of rendering a solid-blue thumb.
             ),
             AppSpacing.verticalSm,
             Align(

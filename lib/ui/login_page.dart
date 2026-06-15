@@ -884,7 +884,9 @@ class _LoginPageState extends State<LoginPage> {
     final isDark = theme.brightness == Brightness.dark;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: (isDark ? scheme.surface : Colors.white).withValues(alpha: 0.78),
+        // Glass chip rides the themed surface (white in light, near-black in
+        // dark) at ~78% so the gradient shows through — no hardcoded white.
+        color: scheme.surface.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         border: Border.all(
           color: scheme.outlineVariant.withValues(alpha: 0.72),

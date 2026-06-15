@@ -31,6 +31,7 @@ import 'call/call_effects_listener.dart';
 import 'navigation/app_navigation.dart';
 import 'util/app_theme_config.dart';
 import 'util/app_component_themes.dart';
+import 'util/design_tokens.dart';
 import 'util/account_service.dart';
 import 'util/send_failure_notifier.dart';
 import 'package:tencent_cloud_chat_common/data/theme/tencent_cloud_chat_theme.dart';
@@ -392,21 +393,73 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
 // the same radius/padding/elevation rhythm in both modes.
 
 ThemeData _buildLightTheme() {
+  // Explicit color scheme (not seed-generated) so toxee's Material pages get
+  // the exact sampled surfaces/text/dividers instead of tonal approximations.
+  final colorScheme =
+      ColorScheme.fromSeed(
+        seedColor: DesignTokens.primary,
+        brightness: Brightness.light,
+      ).copyWith(
+        primary: DesignTokens.primary,
+        onPrimary: DesignTokens.onPrimary,
+        secondary: DesignTokens.primary,
+        onSecondary: Colors.white,
+        surface: DesignTokens.scaffoldLight,
+        onSurface: DesignTokens.textPrimaryLight,
+        onSurfaceVariant: DesignTokens.textSecondaryLight,
+        surfaceContainerLowest: const Color(0xFFFFFFFF),
+        surfaceContainerLow: const Color(0xFFFAFBFC),
+        surfaceContainer: const Color(0xFFF7F8FA),
+        surfaceContainerHigh: DesignTokens.hoverLight,
+        surfaceContainerHighest: DesignTokens.inputFieldLight,
+        outline: DesignTokens.inputBorderLight,
+        outlineVariant: DesignTokens.dividerLight,
+        error: DesignTokens.errorLight,
+        onError: Colors.white,
+        inverseSurface: const Color(0xFF2E3033),
+        onInverseSurface: Colors.white,
+        inversePrimary: DesignTokens.primaryHover,
+      );
   final base = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
-    colorSchemeSeed: AppThemeConfig.primaryColor,
-    scaffoldBackgroundColor: AppThemeConfig.lightScaffoldBackground,
+    colorScheme: colorScheme,
+    scaffoldBackgroundColor: DesignTokens.scaffoldLight,
   );
   return _applyAppTheming(base);
 }
 
 ThemeData _buildDarkTheme() {
+  final colorScheme =
+      ColorScheme.fromSeed(
+        seedColor: DesignTokens.primary,
+        brightness: Brightness.dark,
+      ).copyWith(
+        primary: DesignTokens.primary,
+        onPrimary: DesignTokens.onPrimary,
+        secondary: DesignTokens.primary,
+        onSecondary: Colors.white,
+        surface: DesignTokens.scaffoldDark,
+        onSurface: DesignTokens.textPrimaryDark,
+        onSurfaceVariant: DesignTokens.textSecondaryDark,
+        surfaceContainerLowest: const Color(0xFF151515),
+        surfaceContainerLow: DesignTokens.listPanelDark,
+        surfaceContainer: const Color(0xFF202022),
+        surfaceContainerHigh: DesignTokens.cardDark,
+        surfaceContainerHighest: DesignTokens.inputFieldDark,
+        outline: DesignTokens.inputBorderDark,
+        outlineVariant: DesignTokens.dividerDark,
+        error: DesignTokens.errorDark,
+        onError: Colors.white,
+        inverseSurface: const Color(0xFFE6E8EB),
+        onInverseSurface: DesignTokens.textPrimaryLight,
+        inversePrimary: DesignTokens.primary,
+      );
   final base = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
-    colorSchemeSeed: AppThemeConfig.primaryColorDark,
-    scaffoldBackgroundColor: AppThemeConfig.darkScaffoldBackground,
+    colorScheme: colorScheme,
+    scaffoldBackgroundColor: DesignTokens.scaffoldDark,
   );
   return _applyAppTheming(base);
 }
@@ -494,10 +547,9 @@ ThemeData _applyAppTheming(ThemeData base) {
       cs,
       brightness,
     ),
-    cardTheme: AppComponentThemes.cardTheme(cs).copyWith(
-      // Preserve the prior soft single-layer elevation on cards.
-      elevation: 1,
-    ),
+    // Flat cards (elevation 0) — the reference design separates surfaces with
+    // background tone + hairline, not shadow.
+    cardTheme: AppComponentThemes.cardTheme(cs),
     chipTheme: AppComponentThemes.chipTheme(cs, brightness),
     snackBarTheme: AppComponentThemes.snackBarTheme(cs),
     dividerTheme: AppComponentThemes.dividerTheme(cs),

@@ -4,15 +4,16 @@ import FlutterMacOS
 class MainFlutterWindow: NSWindow {
   override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
     super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
-    // Set window background color to white as early as possible
-    // This prevents black background flash on startup
-    self.backgroundColor = NSColor.white
+    // Follow the system appearance (light/dark) as early as possible so the
+    // window background behind the Flutter surface doesn't flash a contrasting
+    // color on startup or during live-resize (white in dark mode looked jarring).
+    self.backgroundColor = NSColor.windowBackgroundColor
     self.isOpaque = true
   }
   
   override func awakeFromNib() {
     // Ensure background color is set (in case awakeFromNib is called before init)
-    self.backgroundColor = NSColor.white
+    self.backgroundColor = NSColor.windowBackgroundColor
     self.isOpaque = true
     
     let flutterViewController = FlutterViewController()

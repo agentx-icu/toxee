@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../util/app_theme_config.dart';
+import '../../util/design_tokens.dart';
 import '../../util/logger.dart';
 
 /// Thin global banner that reflects Tox-network connection status.
@@ -12,7 +13,9 @@ import '../../util/logger.dart';
 /// this contract.
 ///
 /// **States**: null → connecting (surfaceContainerLow + progress);
-/// true → online (`SizedBox.shrink`); false → offline (errorContainer + retry).
+/// true → online (`SizedBox.shrink`); false → offline (warning amber tint +
+/// retry). A dropped connection is recoverable, so it reads as a warning rather
+/// than a hard error.
 /// 32 dp tall, fade+size via [AnimatedSwitcher] using [AppDurations.medium];
 /// collapses to [Duration.zero] when `MediaQuery.disableAnimationsOf` is true.
 ///
@@ -95,9 +98,20 @@ class _Banner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     final isOffline = kind == _Kind.offline;
-    final bg = isOffline ? cs.errorContainer : cs.surfaceContainerLow;
-    final fg = isOffline ? cs.onErrorContainer : cs.onSurfaceVariant;
+    // Offline is a recoverable warning, not a hard error: amber tint + amber
+    // icon, but the label stays on a high-contrast neutral foreground so it
+    // clears the 4.5:1 readability bar (amber-on-amber-tint would fail it).
+    final warning = DesignTokens.resolve(
+      brightness,
+      DesignTokens.warningLight,
+      DesignTokens.warningDark,
+    );
+    final bg = isOffline
+        ? warning.withValues(alpha: 0.16)
+        : cs.surfaceContainerLow;
+    final fg = isOffline ? cs.onSurface : cs.onSurfaceVariant;
     final label = sublabelOverride ??
         (isOffline ? 'Disconnected' : 'Connecting to Tox network…');
 
@@ -105,7 +119,7 @@ class _Banner extends StatelessWidget {
       children: [
         const SizedBox(width: 12),
         if (isOffline)
-          Icon(Icons.cloud_off, size: 16, color: fg)
+          Icon(Icons.cloud_off, size: 16, color: warning)
         else
           const SizedBox(width: 64, child: LinearProgressIndicator(minHeight: 2)),
         const SizedBox(width: 8),
@@ -122,7 +136,7 @@ class _Banner extends StatelessWidget {
         ),
         if (isOffline && onRetry != null) ...[
           const SizedBox(width: 8),
-          Icon(Icons.refresh, size: 16, color: fg),
+          Icon(Icons.refresh, size: 16, color: warning),
           const SizedBox(width: 12),
         ],
       ],

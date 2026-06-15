@@ -93,6 +93,7 @@ import 'home/home_utils.dart';
 import 'home/toxee_message_header_info.dart';
 import 'home/auto_accept_apply.dart';
 import '../util/app_theme_config.dart';
+import '../util/design_tokens.dart';
 import '../util/app_tray.dart';
 import '../util/bootstrap_node_ensurer.dart';
 import '../util/bootstrap_nodes.dart';
@@ -1133,16 +1134,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               width: ResponsiveLayout.responsiveSidebarWidth(
                                 context,
                               ),
+                              // The custom 48px title bar (DesktopWindowFrame)
+                              // sits above the whole app and already reserves
+                              // space for the macOS traffic lights, so the
+                              // sidebar needs no extra top inset here.
                               child: Column(
                                 children: [
-                                  // macOS traffic-light reservation — without this
-                                  // the avatar at the top of the sidebar sits under
-                                  // the window control dots.
-                                  if (PlatformUtils.isMacOS)
-                                    const SizedBox(
-                                      height: ResponsiveLayout
-                                          .macTitleBarReservedHeight,
-                                    ),
                                   Expanded(child: _uikitSidebar()),
                                 ],
                               ),
@@ -1380,7 +1377,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget? _buildBottomNavigationBar() {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    // Reference-design bottom nav: flat surface, 1px top hairline, active
+    // tab in brand blue, inactive in the tertiary text tone.
+    final inactiveColor = isDark
+        ? DesignTokens.textTertiaryDark
+        : DesignTokens.textTertiaryLight;
+    final hairlineColor = isDark
+        ? DesignTokens.dividerDark
+        : DesignTokens.dividerLight;
     return DecoratedBox(
       // Automation anchor: this bottom nav renders ONLY in the bottom-nav
       // (mobile) layout tier (`useBottomNav`/`shouldShowBottomNav`, a pure
@@ -1389,7 +1394,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       key: UiKeys.homeBottomNav,
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: scheme.outlineVariant, width: 1)),
+        border: Border(top: BorderSide(color: hairlineColor, width: 1)),
       ),
       child: SafeArea(
         top: false,
@@ -1421,12 +1426,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           },
           type: BottomNavigationBarType.fixed,
           elevation: 0,
-          selectedItemColor: scheme.primary,
-          unselectedItemColor: scheme.onSurfaceVariant,
+          selectedItemColor: DesignTokens.primary,
+          unselectedItemColor: inactiveColor,
           backgroundColor: theme.scaffoldBackgroundColor,
           iconSize: 24,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
+          selectedFontSize: 11,
+          unselectedFontSize: 11,
           selectedLabelStyle: theme.textTheme.labelSmall?.copyWith(
             fontWeight: FontWeight.w600,
           ),
@@ -1463,7 +1468,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   horizontal: isLargeText ? 5 : 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppThemeConfig.errorColor,
+                                  color: DesignTokens.unreadBadge,
                                   borderRadius: BorderRadius.circular(
                                     AppThemeConfig.badgeBorderRadius,
                                   ),
@@ -1483,7 +1488,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.labelSmall
                                           ?.copyWith(
-                                            color: scheme.onError,
+                                            color: DesignTokens.onUnreadBadge,
                                             fontWeight: FontWeight.w600,
                                             height: 1.0,
                                             fontSize: 10,

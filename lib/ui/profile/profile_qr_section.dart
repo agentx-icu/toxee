@@ -92,7 +92,13 @@ class ProfileQrSection extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.sm),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
+                      // White plate in both light and dark: the QR card is a
+                      // light-on-white render, so a white frame keeps the
+                      // quiet-zone contrast (scan reliability) and matches the
+                      // reference design's white QR plate. The hairline border
+                      // stays theme-aware so the plate edge is still visible on
+                      // a white scaffold.
+                      color: Colors.white,
                       border: Border.all(
                         color: theme.colorScheme.outlineVariant,
                       ),

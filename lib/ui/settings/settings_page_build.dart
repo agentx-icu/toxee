@@ -5,7 +5,13 @@ extension _SettingsPageBuild on _SettingsPageState {
     BuildContext context,
     dynamic colorTheme,
   ) {
-    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+    final scheme = Theme.of(context).colorScheme;
+    final outlineVariant = scheme.outlineVariant;
+    // Brightness-aware destructive tint: errorLight (#F54A45) in light mode,
+    // errorDark (#FF6159) in dark — resolved from the color scheme so logout /
+    // delete keep ≥4.5:1 contrast on both the white and near-black settings
+    // cards (the prior const AppThemeConfig.errorColor was light-only).
+    final errorColor = scheme.error;
     // Stagger top-level settings sections (Account / Global / Bootstrap) for
     // a subtle entrance. Respects reduced-motion via MediaQuery.
     final disableAnims = MediaQuery.disableAnimationsOf(context);
@@ -183,10 +189,8 @@ extension _SettingsPageBuild on _SettingsPageState {
                         icon: const Icon(Icons.logout, size: 18),
                         label: Text(AppLocalizations.of(context)!.logOut),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppThemeConfig.errorColor,
-                          side: const BorderSide(
-                            color: AppThemeConfig.errorColor,
-                          ),
+                          foregroundColor: errorColor,
+                          side: BorderSide(color: errorColor),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
                               AppThemeConfig.buttonBorderRadius,
@@ -202,10 +206,8 @@ extension _SettingsPageBuild on _SettingsPageState {
                           AppLocalizations.of(context)!.deleteAccount,
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppThemeConfig.errorColor,
-                          side: const BorderSide(
-                            color: AppThemeConfig.errorColor,
-                          ),
+                          foregroundColor: errorColor,
+                          side: BorderSide(color: errorColor),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
                               AppThemeConfig.buttonBorderRadius,

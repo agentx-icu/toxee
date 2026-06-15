@@ -18,6 +18,10 @@ class ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // Error-red tint + red icon carry the semantic; the message and Retry text
+    // sit on the high-contrast neutral foreground so they clear the 4.5:1
+    // readability bar (red text on a red tint would fail it).
     return Semantics(
       // Live region announces the error to screen readers when the banner
       // appears or its message updates.
@@ -45,7 +49,7 @@ class ErrorBanner extends StatelessWidget {
             child: Text(
               message,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppThemeConfig.errorColor,
+                    color: cs.onSurface,
                   ),
             ),
           ),
@@ -55,14 +59,14 @@ class ErrorBanner extends StatelessWidget {
               child: Text(
                 'Retry',
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AppThemeConfig.errorColor,
+                      color: cs.onSurface,
                       fontWeight: FontWeight.w600,
                     ),
               ),
             ),
           if (onDismiss != null)
             IconButton(
-              icon: const Icon(Icons.close, size: 18, color: AppThemeConfig.errorColor),
+              icon: Icon(Icons.close, size: 18, color: cs.onSurfaceVariant),
               onPressed: onDismiss,
               // 44x44 minimum tap area for mobile (Apple HIG / Material 48dp).
               constraints: const BoxConstraints(minWidth: 44, minHeight: 44),

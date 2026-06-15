@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/design_tokens.dart';
 
 /// The weak→strong password-strength bar shown under the password field on the
 /// register page. Extracted from `register_page.dart` so that page stays under
@@ -69,14 +70,14 @@ class RegisterPasswordStrengthBar extends StatelessWidget {
     final strength = strengthOf(password);
     final cs = Theme.of(context).colorScheme;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    // Decorative semantic ramp: weak → strong. The two middle segments are
-    // status colors (amber-500 / amber-300 from the design system) and are
-    // intentionally kept hex — they live alongside cs.error and cs.primary
-    // as a visual gradient, not a themed brand surface.
+    // Decorative semantic ramp: weak → strong, sampled from the reference
+    // design's status palette. Red (error) → amber (warning) → green
+    // (success) for the first three rungs, with the brand blue capping
+    // "Strong" so the strongest state matches the app's primary CTA accent.
     final colors = [
-      cs.error,
-      AppThemeConfig.statusAwayColor, // amber-500
-      const Color(0xFFFCD34D), // amber-300 (lighter than statusAway)
+      DesignTokens.errorLight,
+      DesignTokens.warningLight,
+      DesignTokens.successLight,
       cs.primary,
     ];
     final label = labelFor(context, strength);

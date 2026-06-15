@@ -46,8 +46,12 @@ class DesktopShellBootstrap {
       minimumSize: minSize,
       title: 'Toxee',
       center: true,
+      // Hide the native title bar but KEEP the macOS traffic lights — they sit
+      // at the top-left inside our custom 48px title bar (which reserves space
+      // for them). On Windows/Linux this flag is a no-op and the custom title
+      // bar draws its own caption buttons at the top-right.
       titleBarStyle: TitleBarStyle.hidden,
-      windowButtonVisibility: false,
+      windowButtonVisibility: true,
     );
 
     final savedBounds = await Prefs.getWindowBounds();
