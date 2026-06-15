@@ -528,32 +528,42 @@ class _ToxeeGroupProfileContentState
   }
 
   Future<void> _onChangeGroupName(String value) async {
-    final res = await TencentCloudChat.instance.chatSDKInstance.groupSDK
-        .setGroupInfo(
-          groupID: widget.groupInfo.groupID,
-          groupType: widget.groupInfo.groupType,
-          groupName: value,
-        );
     // toxee's group display name is Dart-Prefs-driven: resolveGroupDisplayName
-    // reads getGroupName, and the conversation showName is rebuilt from it. The
-    // setGroupInfo above goes through the binary-replacement (native) path,
-    // which (a) never writes that Prefs and (b) returns a NON-ZERO code for a
-    // same-host NGC group — so gating the local update on res.code==0 meant the
-    // rename never reflected locally at all. Persist + refresh LOCALLY
-    // regardless (the native call stays best-effort peer propagation), mirroring
-    // add_group_dialog / home_group_controller / l3_create_group. Nothing here
-    // sets an alias, so getGroupName is the resolved display source.
-    if (res.code != 0) {
-      AppLogger.info(
-        '[GroupProfile] setGroupInfo rc=${res.code} — applying local rename '
-        'anyway (Prefs-driven display); peer propagation may lag',
-      );
-    }
+    // reads getGroupName, and the conversation showName is rebuilt from it.
+    // Persist + refresh the LOCAL display FIRST, BEFORE the native setGroupInfo:
+    // that call goes through the binary-replacement path, which never writes the
+    // Prefs AND can be slow / hang / return non-zero for a same-host NGC group —
+    // so awaiting it before the Prefs write (as before) meant the rename never
+    // reflected locally. Do the local update first, then fire the native call
+    // best-effort (unawaited) for peer propagation. Mirrors add_group_dialog /
+    // home_group_controller / l3_create_group; nothing here sets an alias.
     await Prefs.setGroupName(widget.groupInfo.groupID, value);
     await FakeUIKit.instance.im?.refreshConversations();
     safeSetState(() {
       groupName = value;
     });
+    unawaited(
+      TencentCloudChat.instance.chatSDKInstance.groupSDK
+          .setGroupInfo(
+            groupID: widget.groupInfo.groupID,
+            groupType: widget.groupInfo.groupType,
+            groupName: value,
+          )
+          .then((res) {
+            if (res.code != 0) {
+              AppLogger.info(
+                '[GroupProfile] setGroupInfo rc=${res.code} — local rename '
+                'already applied (Prefs-driven display); peer propagation lags',
+              );
+            }
+          })
+          .catchError((Object e, StackTrace st) {
+            // Best-effort: a thrown native/FFI error must not surface as an
+            // uncaught async error (the local rename is already applied).
+            AppLogger.logError(
+              '[GroupProfile] setGroupInfo peer-propagation failed', e, st);
+          }),
+    );
   }
 
   void _changeGroupName() {
