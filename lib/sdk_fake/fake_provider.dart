@@ -531,11 +531,20 @@ class FakeChatDataProvider implements ChatDataProvider {
     // previously hardcoded to 0, which wiped the mute on every ~5s rebuild, so
     // _shouldSuppress (and l3_dump_state, and the profile toggle which reads this
     // same conversation.recvOpt) all saw 0 and the mute never took effect.
-    // Groups keep the 0 default (group mute is handled separately).
-    conv.recvOpt = c.isGroup
-        ? 0
-        : C2CRecvOptCache.optFor(
-            conv.userID ?? c.conversationID.replaceFirst('c2c_', ''));
+    // Group DND now persists locally too (Tox has no native group recv-opt):
+    // read it from the account-scoped Prefs key the group-profile switch writes
+    // via setGroupReceiveMessageOpt. This is the conversation cache the
+    // notification suppressor reads (UikitDataFacade.conversationList), so
+    // without this projection a muted group would still ring. C2C stays on the
+    // synchronous C2CRecvOptCache (native-push backed).
+    if (c.isGroup) {
+      final gid = conv.groupID ?? c.conversationID.replaceFirst('group_', '');
+      final accountToxId = await Prefs.getCurrentAccountToxId();
+      conv.recvOpt = await Prefs.getGroupReceiveMessageOpt(gid, accountToxId);
+    } else {
+      conv.recvOpt = C2CRecvOptCache.optFor(
+          conv.userID ?? c.conversationID.replaceFirst('c2c_', ''));
+    }
     // Set orderkey for sorting: pinned conversations get higher orderkey
     // Use timestamp as base, add large offset for pinned conversations
     // UIKit sorts by orderkey descending (higher value = first)

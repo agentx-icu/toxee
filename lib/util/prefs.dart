@@ -1147,6 +1147,36 @@ class Prefs {
     }
   }
 
+  // Group receive-message-opt (do-not-disturb / mute) — Tox has no native group
+  // recv-opt, so it is persisted LOCALLY here (account-scoped), mirroring the
+  // C2C key above. Projected into the conversation recvOpt (so the notification
+  // suppressor mutes it) and into V2TimGroupInfo.recvOpt (so the group-profile
+  // DND switch reflects the persisted state on reopen). opt: 0=receive,
+  // 2=not-notify (mute).
+  static String _groupRecvOptKey(String groupID, String? userToxId) {
+    final prefix = (userToxId != null && userToxId.length >= 16)
+        ? userToxId.substring(0, 16)
+        : userToxId;
+    return scopedPrefsKey('group_recv_opt_$groupID', prefix);
+  }
+
+  static Future<int> getGroupReceiveMessageOpt(String groupID,
+      [String? userToxId]) async {
+    final p = await _getPrefs();
+    return p.getInt(_groupRecvOptKey(groupID, userToxId)) ?? 0;
+  }
+
+  static Future<void> setGroupReceiveMessageOpt(String groupID, int opt,
+      [String? userToxId]) async {
+    final p = await _getPrefs();
+    final key = _groupRecvOptKey(groupID, userToxId);
+    if (opt == 0) {
+      await p.remove(key);
+    } else {
+      await p.setInt(key, opt);
+    }
+  }
+
   // Group member name card storage — account-scoped (S6 fix). Two accounts in
   // the same group must not see each other's per-member nick cards.
   static String _groupMemberNameCardKey(String groupId, String userId) => 'group_member_namecard_${groupId}_$userId';

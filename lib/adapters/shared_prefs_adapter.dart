@@ -50,6 +50,15 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     return scopedPrefsKey('c2c_recv_opt_$userID', prefix);
   }
 
+  // Group recv-opt key — same scoped format as the C2C key above + Prefs, so
+  // both the static Prefs path and this adapter read/write the same entry.
+  static String _groupRecvOptKey(String groupID, String? userToxId) {
+    final prefix = (userToxId != null && userToxId.length >= 16)
+        ? userToxId.substring(0, 16)
+        : userToxId;
+    return scopedPrefsKey('group_recv_opt_$groupID', prefix);
+  }
+
   SharedPreferencesAdapter(this._prefs, {int? instanceId, String? accountPrefix})
       : _instanceId = instanceId,
         _accountPrefix = accountPrefix;
@@ -522,6 +531,24 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   Future<void> setC2CReceiveMessageOpt(String userID, int opt,
       [String? userToxId]) async {
     final key = _c2cRecvOptKey(userID, userToxId);
+    if (opt == 0) {
+      await _prefs.remove(key);
+    } else {
+      await _prefs.setInt(key, opt);
+    }
+  }
+
+  @override
+  Future<int> getGroupReceiveMessageOpt(String groupID,
+      [String? userToxId]) async {
+    final key = _groupRecvOptKey(groupID, userToxId);
+    return _prefs.getInt(key) ?? 0;
+  }
+
+  @override
+  Future<void> setGroupReceiveMessageOpt(String groupID, int opt,
+      [String? userToxId]) async {
+    final key = _groupRecvOptKey(groupID, userToxId);
     if (opt == 0) {
       await _prefs.remove(key);
     } else {
