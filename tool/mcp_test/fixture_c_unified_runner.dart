@@ -1652,10 +1652,10 @@ String _resultRealUiState(String scenario) {
     case 'group_member_list_scroll':
     case 'group_unread_badge_two_proc':
     case 'group_kick_member_ui':
-    // Group @-mention — the member case + the sweep create a temporary group +
-    // B-join, leave it in cleanup, and never delete the friend, so they end
-    // FRIENDS. group_at_all_send is a no-op SKIP (exit 75) whose result state is
-    // never applied by the runner; it is listed here only for switch totality.
+    // Group @-mention — both the member and @All cases (and the sweep) create a
+    // temporary group + B-join, leave it in cleanup, and never delete the
+    // friend, so they end FRIENDS. (group_at_all_send was a no-op SKIP until the
+    // @All identity fix landed; it is now a real gate with the same state.)
     case 'sweep_group_mention':
     case 'group_at_member_send':
     case 'group_at_all_send':

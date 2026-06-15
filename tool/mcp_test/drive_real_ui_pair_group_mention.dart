@@ -15,11 +15,13 @@ part of 'drive_real_ui_pair.dart';
 // contains "@<label>". The gate asserts that text, which is exactly what a toxee
 // user sees. (If a future bridge adds structured at-lists, strengthen here.)
 //
-// SCOPE: group_at_member_send is the real HARD gate. group_at_all_send is a
-// DOCUMENTED SKIP — @All is admin-gated and toxee's UIKit current user id is the
-// V2TIM login placeholder, not the tox pubkey, so isGroupAdmin is always false
-// and the @All row never renders (see _gmAtAllSendSkip for the full evidence +
-// the real fix, which is a separate root-cause task).
+// SCOPE: group_at_member_send and group_at_all_send are both real HARD gates.
+// group_at_all_send was a documented SKIP until the @All identity blocker was
+// fixed — @All is admin-gated, and isGroupAdmin was always false because the
+// UIKit currentUser.userID was the V2TIM placeholder AND the admin match was an
+// exact 76-vs-64-char comparison. Both are fixed now (real tox-id currentUser in
+// home_page_bootstrap + the normalized `_resolveIsGroupAdmin` in the message
+// input), so the group owner sees @All and the row renders (see _gmAtAllSend).
 //
 // Mobile parity: the desktop mention panel is a distinct widget from the mobile
 // @-list (`mobile/tencent_cloud_chat_at_group_member_list.dart`); this macOS
@@ -39,13 +41,6 @@ Future<int> runGroupMentionCase(
   String nickB,
   String scenario,
 ) async {
-  // group_at_all_send is a documented SKIP (architectural blocker — see
-  // _gmAtAllSendSkip); it needs no group, so short-circuit before paying setup.
-  // 75 = the real-UI SKIP exit code (distinct from 0=PASS / 1=FAIL / 78=BLOCKED).
-  if (scenario == 'group_at_all_send') {
-    _gmAtAllSendSkip();
-    return 75;
-  }
   if (!await _ensureFriendshipForMention(a, b, nickA, nickB)) {
     print('[pair] $scenario: could not establish friendship');
     return 1;
@@ -67,6 +62,8 @@ Future<int> runGroupMentionCase(
     ok = switch (scenario) {
       'group_at_member_send' =>
         await _gmAtMemberSend(a, est.groupIdA, est.groupName, nickB),
+      'group_at_all_send' =>
+        await _gmAtAllSend(a, est.groupIdA, est.groupName),
       _ => throw ArgumentError('unsupported group-mention scenario: $scenario'),
     };
   } finally {
@@ -124,10 +121,27 @@ Future<int> runGroupMentionSweep(
       '[sweep] sweep_group_mention ${ok ? 'PASS' : 'FAIL'}: group_at_member_send',
     );
 
-    // group_at_all_send — documented SKIP (architectural blocker).
-    _gmAtAllSendSkip();
-    skipped++;
-    print('[sweep] sweep_group_mention SKIP: group_at_all_send');
+    // group_at_all_send — REAL gate now (the @All identity blocker is fixed:
+    // real-tox-id currentUser + normalized admin match → @All renders for the
+    // owner). Reuses the same group.
+    var okAll = false;
+    try {
+      okAll = await _gmAtAllSend(a, est.groupIdA, est.groupName);
+    } on PermissionBlockedError {
+      rethrow;
+    } on Object catch (e, st) {
+      okAll = false;
+      print('[sweep] sweep_group_mention EXCEPTION in group_at_all_send: $e');
+      print(st);
+    }
+    if (okAll) {
+      passed++;
+    } else {
+      failed++;
+    }
+    print(
+      '[sweep] sweep_group_mention ${okAll ? 'PASS' : 'FAIL'}: group_at_all_send',
+    );
   } finally {
     await _gmCleanup(a, b, nickA, nickB, est);
   }
@@ -318,30 +332,34 @@ Future<bool> _gmAtMemberSend(
   return sent && hasMention;
 }
 
-/// group_at_all_send: DOCUMENTED SKIP (verify-first, codex-confirmed 2026-06-13).
-///
-/// The desktop @All mention entry is added ONLY when `isGroupAdmin` is true
-/// (`tencent_cloud_chat_message_input_desktop.dart:331`). `isGroupAdmin` is
-/// computed by matching a group member whose `userID == currentUserid`
-/// (`tencent_cloud_chat_message_input_container.dart:742`), where `currentUserid`
-/// is the UIKit current user id. toxee seeds that from `FfiChatService.selfId`
-/// (`home_page_bootstrap.dart`), which is the **V2TIM LOGIN STRING** (a
-/// placeholder), NOT the tox public key (`placeholder_account_migration.dart:17`:
-/// "selfId returns the V2TIM login string, not the Tox ID"). NGC member userIDs
-/// are 64-hex tox pubkeys, so `pubkey == <placeholder>` is always false ->
-/// `isGroupAdmin` is always false -> the @All row never renders -> nothing to tap.
-///
-/// The real fix is to seed `UikitDataFacade` currentUser.userID with the real tox
-/// public key. That touches the placeholder-migration system and ~18
-/// currentUser.userID usages — a separate root-cause task, deliberately NOT
-/// papered over with a fake pass here. The fork key `mention_member:atAll`
-/// already exists, so this flips to a real gate once that identity fix lands.
-void _gmAtAllSendSkip() {
-  print(
-    '[pair] group_at_all_send: SKIP — @All is admin-gated and toxee\'s UIKit '
-    'current user id is the V2TIM login placeholder, not the tox pubkey '
-    '(placeholder_account_migration.dart:17), so isGroupAdmin is always false '
-    'for NGC groups and the @All entry never renders. Fix = real-pubkey UIKit '
-    'currentUser (broad blast radius; separate root-cause task).',
+/// group_at_all_send: REAL gate (was a documented SKIP until the @All identity
+/// fix landed). The desktop @All entry renders only when `isGroupAdmin` is true
+/// (`tencent_cloud_chat_message_input_desktop.dart`). That was always false
+/// because (1) the UIKit currentUser.userID was the V2TIM login placeholder, now
+/// set to the real tox id in home_page_bootstrap (group2), and (2) the admin
+/// match was an EXACT 76-char-vs-64-char comparison, now a normalized
+/// public-key match (`_resolveIsGroupAdmin` in the message-input container). The
+/// group creator is the OWNER (role 400), so isGroupAdmin resolves true and the
+/// `mention_member:atAll` row renders — which `_gmTypeMentionAndSend` requires
+/// (it returns '' if the row never appears). A non-empty sent text with the
+/// nonce therefore PROVES @All rendered + was tappable + sent.
+Future<bool> _gmAtAllSend(Inst a, String gidA, String gname) async {
+  final nonce = ' atall${DateTime.now().microsecondsSinceEpoch}';
+  final last = await _gmTypeMentionAndSend(
+    a,
+    gidA,
+    gname,
+    'mention_member:atAll',
+    nonce,
   );
+  await a.shot('/tmp/ui_group_mention_atall_${a.name}.png');
+  final sent = last.contains(nonce.trim());
+  // The @All entry rendered + was tappable iff _gmTypeMentionAndSend returned a
+  // non-empty sent text (it bails to '' when the row never appears). The fork's
+  // _replaceAtTag inserts "@<tL10n.atAll>", so the sent text carries an '@'.
+  final hasMention = last.contains('@');
+  print(
+    '[pair] group_at_all_send: sent=$sent hasMention=$hasMention last="$last"',
+  );
+  return sent && hasMention;
 }
