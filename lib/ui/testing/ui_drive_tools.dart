@@ -122,7 +122,17 @@ UiTargetResolution resolveKeyCenter(String keyName) {
 
   visitAllSized(root);
   if (full.isNotEmpty) {
-    final box = _sizedBoxFor(full.first)!;
+    // Prefer the LAST candidate: visitChildren walks the Navigator's routes in
+    // stack order, so the most-recently-pushed (TOPMOST, visible) route's
+    // element comes last. When several painting routes carry the same key (e.g.
+    // a real-UI sweep re-opens the SAME group profile across cases and the
+    // deep-link/avatar-tap routes accumulate — returnToChatsHome's
+    // pushReplacement only replaces the top route, leaving buried duplicates),
+    // `first` would resolve the OLDEST, off-screen, covered route (clear/leave
+    // below the fold at a stale position, the mute switch un-tappable). The last
+    // candidate is the on-top route the user actually sees. For the common
+    // single-candidate case first == last, so this is a no-op there.
+    final box = _sizedBoxFor(full.last)!;
     final center = box.localToGlobal(box.size.center(Offset.zero));
     return UiTargetResolution.point(center, candidates: full.length);
   }

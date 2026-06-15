@@ -109,6 +109,8 @@ typedef L3OpenGroupAddMemberInvoker = Future<bool> Function(String groupId);
 L3OpenGroupAddMemberInvoker? _l3OpenGroupAddMemberInvoker;
 typedef L3OpenGroupMemberListInvoker = Future<bool> Function(String groupId);
 L3OpenGroupMemberListInvoker? _l3OpenGroupMemberListInvoker;
+typedef L3OpenGroupProfileInvoker = Future<bool> Function(String groupId);
+L3OpenGroupProfileInvoker? _l3OpenGroupProfileInvoker;
 typedef L3OpenConversationMenuInvoker =
     Future<bool> Function(String conversationId, {String? action});
 L3OpenConversationMenuInvoker? _l3OpenConversationMenuInvoker;
@@ -172,6 +174,10 @@ void registerL3OpenGroupAddMemberInvoker(L3OpenGroupAddMemberInvoker? fn) {
 
 void registerL3OpenGroupMemberListInvoker(L3OpenGroupMemberListInvoker? fn) {
   if (kL3TestSurfaceEnabled) _l3OpenGroupMemberListInvoker = fn;
+}
+
+void registerL3OpenGroupProfileInvoker(L3OpenGroupProfileInvoker? fn) {
+  if (kL3TestSurfaceEnabled) _l3OpenGroupProfileInvoker = fn;
 }
 
 void registerL3OpenConversationMenuInvoker(L3OpenConversationMenuInvoker? fn) {
@@ -366,6 +372,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3OpenGlobalSearchEntry());
   addMcpTool(_l3OpenGroupAddMemberEntry());
   addMcpTool(_l3OpenGroupMemberListEntry());
+  addMcpTool(_l3OpenGroupProfileEntry());
   addMcpTool(_l3OpenConversationMenuEntry());
   addMcpTool(_l3InvokeMessageActionEntry());
   addMcpTool(_l3MarkReadEntry());
@@ -2042,6 +2049,71 @@ MCPCallEntry _l3OpenGroupMemberListEntry() => MCPCallEntry.tool(
         'Open the real group member-list page for a joined group. '
         'Navigation-stability harness hook only; the member rows / desktop kick '
         'menu / scrolling are driven through the real member-list UI.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'groupId': StringSchema(
+          description:
+              'Local group id (tox_N), with or without the '
+              '"group_" conversation prefix.',
+        ),
+      },
+    ),
+  ),
+);
+
+/// Deep-link to OPEN the real group PROFILE page for a joined group, popping any
+/// stale pushed routes first so the profile is the clean, on-top, full-width
+/// route (the avatar-tap path leaves stale nested profile/member-list routes
+/// across cases, which made `_openGroupProfile`'s key resolution land on a
+/// covered, half-width profile — clear/leave below the fold at the wrong x, the
+/// mute switch un-tappable). Mirrors `l3_open_group_member_list`: navigation-
+/// stability harness hook only; the rename / mute / clear / leave widgets are
+/// still driven through the real profile UI. UNGATED on purpose.
+MCPCallEntry _l3OpenGroupProfileEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_open_group_profile: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    var groupId = (request['groupId'] as Object?)?.toString().trim() ?? '';
+    if (groupId.startsWith('group_')) groupId = groupId.substring(6);
+    if (groupId.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_open_group_profile: need "groupId"',
+        parameters: {'ok': false, 'error': 'missing_group_id'},
+      );
+    }
+    if (!ffi.knownGroups.contains(groupId)) {
+      return MCPCallResult(
+        message: 'l3_open_group_profile: not a joined group: $groupId',
+        parameters: {'ok': false, 'error': 'not_joined', 'groupId': groupId},
+      );
+    }
+    final invoker = _l3OpenGroupProfileInvoker;
+    if (invoker == null) {
+      return MCPCallResult(
+        message: 'l3_open_group_profile: invoker not registered',
+        parameters: {'ok': false, 'error': 'invoker_not_registered'},
+      );
+    }
+    final opened = await invoker(groupId);
+    return MCPCallResult(
+      message: opened
+          ? 'group profile page opened'
+          : 'group profile page unavailable',
+      parameters: {'ok': opened, 'groupId': groupId},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_open_group_profile',
+    description:
+        'Open the real group profile page for a joined group (popping stale '
+        'pushed routes first so it is the clean on-top route). Navigation-'
+        'stability harness hook only; rename / mute / clear / leave are driven '
+        'through the real profile UI.',
     inputSchema: ObjectSchema(
       properties: {
         'groupId': StringSchema(
@@ -5181,6 +5253,10 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       // state_equals and round-trip via state{contains|notContains}.
       'statusMessage': (await Prefs.getStatusMessage()) ?? '',
       'currentAccountToxId': await Prefs.getCurrentAccountToxId(),
+      // DIAGNOSTIC: the UIKit basic.currentUser.userID (drives the member-list
+      // isSelf() / myRole computation that gates the desktop kick item).
+      'uikitCurrentUserId':
+          TencentCloudChat.instance.dataInstance.basic.currentUser?.userID,
       // Account-level settings for the CURRENT account. #4 (codex-vetted
       // 2026-05-30): the prior "no stable getters" note was OUTDATED — these
       // are the SAME getters the settings page + PreferencesService use, and

@@ -155,12 +155,18 @@ Future<bool?> _switchValue(Inst inst, String key) async {
   final data = r['data'];
   final elements = data is Map ? data['elements'] : null;
   if (elements is! List) return null;
+  // Return the LAST matching element's value — when a real-UI sweep stacks
+  // routes carrying the same Switch key (a re-opened group profile with buried
+  // duplicates), the topmost (on-screen) Switch is the one tapKeyCenter targets
+  // (resolveKeyCenter prefers the last/topmost candidate too), so reading the
+  // first (oldest, buried) Switch would mismatch and falsely report no flip.
+  bool? value;
   for (final e in elements) {
     if (e is! Map || e['key'] != key) continue;
     final v = e['value'];
-    if (v is bool) return v;
+    if (v is bool) value = v;
   }
-  return null;
+  return value;
 }
 
 Future<bool> _waitBlocked(Inst inst, String tox, bool want,

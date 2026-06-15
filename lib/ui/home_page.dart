@@ -79,6 +79,7 @@ import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.da
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_user_profile_options.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_group_add_member_options.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_group_member_list_options.dart';
+import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_group_profile_options.dart';
 import 'package:tencent_cloud_chat_sticker/tencent_cloud_chat_sticker.dart';
 import 'package:tencent_cloud_chat_sticker/tencent_cloud_chat_sticker_init_data.dart';
 import 'package:tencent_cloud_chat_text_translate/tencent_cloud_chat_text_translate.dart';
@@ -1982,6 +1983,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var gid = groupId.trim();
     if (gid.startsWith('group_')) gid = gid.substring(6);
     if (gid.isEmpty) return false;
+    _popOverlayRoutes();
 
     V2TimGroupInfo groupInfo = UikitDataFacade.getGroupInfo(gid);
     if (groupInfo.groupID.isEmpty) {
@@ -2024,6 +2026,56 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               groupInfo: groupInfo,
               memberInfoList: memberList,
             ),
+          ) ??
+          Future<void>.value(),
+    );
+    return true;
+  }
+
+  /// Open the real group PROFILE page deterministically for [groupId], popping
+  /// any stale pushed routes first so the profile is the clean, on-top,
+  /// full-width route. The avatar-tap open path leaves stale nested
+  /// profile/member-list routes across real-UI cases; the element-tree resolver
+  /// then lands on a covered, half-width profile (clear/leave below the fold at
+  /// the wrong x, the mute switch un-tappable). This mirrors `_openGroupMemberList`
+  /// and is the navigation-stability seam for the rename / mute / clear / leave
+  /// real-UI cases — the profile widgets themselves are still driven through the
+  /// real UI.
+  /// Pop stale pushed overlay routes (group profile / member-list pages from
+  /// prior real-UI cases) so a freshly-opened one is the sole, on-top route and
+  /// the element-tree resolver can't land on a buried duplicate (which left the
+  /// leave/clear/mute widgets resolving to a covered, off-screen profile and
+  /// the cases failing late in a sweep). SAFE: the overlay pages are pushed as
+  /// `MaterialPageRoute` (via `navigateToGroup*`), whereas HomePage is an
+  /// `AppPageRoute` (a `PageRouteBuilder`), so this pops only the MaterialPage
+  /// overlays and STOPS at the active HomePage — it never disposes HomePage
+  /// (which would unregister the L3 invokers) the way a blanket `isFirst`
+  /// popUntil did.
+  void _popOverlayRoutes() {
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator == null) return;
+    navigator.popUntil((route) => route is! MaterialPageRoute || route.isFirst);
+  }
+
+  Future<bool> _openGroupProfile(String groupId) async {
+    if (!mounted) return false;
+    var gid = groupId.trim();
+    if (gid.startsWith('group_')) gid = gid.substring(6);
+    if (gid.isEmpty) return false;
+    _popOverlayRoutes();
+
+    // Pass ONLY the groupID — the profile route loads its own group info fresh
+    // via getGroupsInfo(groupID) (which returns groupID == the local gid, the
+    // key the rename writes Prefs.setGroupName under). Deliberately do NOT pass
+    // an explicit `groupInfo`: the route treats `options.groupInfo` as
+    // authoritative over the freshly-loaded data, so a cold/stale
+    // UikitDataFacade snapshot could render stale role/mute/name (codex). This
+    // keeps the deep-link identical to the real avatar-tap open. unawaited():
+    // return as soon as the page is on screen (member-list contract).
+    unawaited(
+      navigateToGroupProfile<void>(
+            context: context,
+            options: TencentCloudChatGroupProfileOptions(groupID: gid),
           ) ??
           Future<void>.value(),
     );

@@ -128,14 +128,19 @@ Future<int> runGroupRename(Inst inst, String nick) async {
   final created = await _createGroupViaUI(inst, name, groupType: 'private');
   await openGroupChat(inst, groupId: created.groupId, groupName: name);
   await _openGroupProfile(inst);
-  await inst.tapKey('group_profile_edit_name_button');
-  if (!await inst.waitKey('group_profile_edit_name_field', timeoutSecs: 10)) {
+  // The edit-name FAB + AlertDialog confirm are NOT surfaced to flutter_skill
+  // (tapKey misses them, so the rename never applied) — use the element-tree
+  // resolver (tapKeyCenter), verified live to make the rename actually take.
+  await inst.tapKeyCenter('group_profile_edit_name_button', timeoutSecs: 8);
+  if (!await inst.waitKeyCenter('group_profile_edit_name_field',
+      timeoutSecs: 10)) {
     await inst.shot('/tmp/ui_group_rename_nodialog_${inst.name}.png');
     throw DriveError('[${inst.name}] group edit-name dialog did not open');
   }
   await inst.focusType('group_profile_edit_name_field', newName);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await inst.tapKey('group_profile_edit_name_confirm_button');
+  await inst.tapKeyCenter('group_profile_edit_name_confirm_button',
+      timeoutSecs: 8);
   final refreshed = await _waitGroupShowName(
     inst,
     created.groupId,

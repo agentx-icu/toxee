@@ -81,6 +81,62 @@ Future<bool> _openGroupMemberListPage(Inst inst, String groupId) async {
   return true;
 }
 
+/// Open the group profile via the deterministic deep-link (`l3_open_group_profile`)
+/// which pops stale pushed routes first → a clean, on-top, FULL-WIDTH profile
+/// route. The avatar-tap path (`_openGroupProfile`) short-circuits on a covered
+/// stale profile left by a prior case, so its key resolution lands on a
+/// half-width covered profile (clear/leave below the fold at the wrong x, the
+/// mute switch un-tappable). Returns whether a profile signature key resolves.
+Future<bool> _openGroupProfileClean(Inst inst, String gid) async {
+  await inst.foreground();
+  final opened = await inst.l3('l3_open_group_profile', {'groupId': gid});
+  if (opened['ok'] != true) {
+    print('[pair] _openGroupProfileClean: l3 open failed: $opened');
+    return false;
+  }
+  // Wait for a profile signature key to resolve (element-tree walk; the FAB /
+  // SelectableText / KeyedSubtree keys are invisible to flutter_skill).
+  for (var i = 0; i < 20; i++) {
+    if (await inst.keyCenter('group_profile_id_text') != null ||
+        await inst.keyCenter('group_profile_edit_name_button') != null) {
+      return true;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  print('[pair] _openGroupProfileClean: profile keys did not resolve');
+  return false;
+}
+
+/// Scroll the group-profile ListView so the keyed [key] (a bottom-anchored
+/// button below the fold — clear-history / leave) enters the visible band, then
+/// return its resolved center. Uses the MOUSE WHEEL (`ui_scroll_at`): a synthetic
+/// touch DRAG does not scroll the desktop profile ListView, but a wheel event at
+/// the content column does (verified live: clear button y 1024 → 733). Returns
+/// null if it never reaches the band.
+Future<({double x, double y})?> _scrollProfileButtonIntoBand(
+  Inst inst,
+  String key,
+) async {
+  ({double x, double y})? lastProbe;
+  for (var i = 0; i < 16; i++) {
+    final c = await inst.keyCenter(key);
+    if (c != null) lastProbe = c;
+    if (c != null && c.y >= 80 && c.y <= 798) return c;
+    // Wheel-scroll DOWN at the content column (the resolved x, or window centre)
+    // so the event reliably lands on the profile's Scrollable.
+    final wheelX = (c?.x ?? 640).clamp(40.0, 1240.0);
+    try {
+      await inst.scrollAtCoords(wheelX, 400, dy: 400);
+    } on DriveError catch (e) {
+      print('[pair] _scrollProfileButtonIntoBand: wheel warn: ${e.message}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  print('[pair] _scrollProfileButtonIntoBand: "$key" never reached band '
+      '(last=$lastProbe)');
+  return null;
+}
+
 /// The member-list row key for a member. An NGC peer's row is keyed by its
 /// PER-GROUP encryption pubkey (tox_group_peer_get_public_key) — a freshly
 /// generated per-group keypair, NOT the friend/long-term pubkey — so the key
@@ -290,16 +346,24 @@ Future<bool> _groupRenameUpdatesHeader(
   String groupName,
   String newName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
-  await _openGroupProfile(inst);
-  await inst.tapKey('group_profile_edit_name_button');
-  if (!await inst.waitKey('group_profile_edit_name_field', timeoutSecs: 10)) {
+  // Clean, full-width profile open (the avatar-tap path lands on a stale covered
+  // profile across cases). The edit-name FAB + AlertDialog confirm are NOT
+  // surfaced to flutter_skill (tapKey misses them) — use the element-tree
+  // resolver (tapKeyCenter), verified live to make the rename actually apply.
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] group_rename_updates_header: profile did not open');
+    return false;
+  }
+  await inst.tapKeyCenter('group_profile_edit_name_button', timeoutSecs: 8);
+  if (!await inst.waitKeyCenter('group_profile_edit_name_field',
+      timeoutSecs: 10)) {
     print('[pair] group_rename_updates_header: edit-name dialog did not open');
     return false;
   }
   await inst.focusType('group_profile_edit_name_field', newName);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await inst.tapKey('group_profile_edit_name_confirm_button');
+  await inst.tapKeyCenter('group_profile_edit_name_confirm_button',
+      timeoutSecs: 8);
   final refreshed =
       await _waitGroupShowName(inst, gid, newName, timeoutSecs: 20);
   // Open the chat fresh → assert the OPEN-chat HEADER title actually renders the
@@ -328,8 +392,14 @@ Future<bool> _groupProfileMembersEntry(
   String gid,
   String groupName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
-  await _openGroupProfile(inst);
+  // Use the deterministic deep-link open (root-nav, cleared by returnToChatsHome)
+  // — the avatar-tap path pushes a profile on a nested navigator that
+  // returnToChatsHome does NOT clear, leaving a STALE profile that poisons the
+  // later mute/clear/leave cases' key resolution.
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] group_profile_members_entry: profile did not open');
+    return false;
+  }
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
   final entryShown =
       await inst.waitKeyCenter('group_profile_members_entry', timeoutSecs: 6);
@@ -370,37 +440,54 @@ Future<bool> _groupProfileMembersEntry(
 /// switch is restored to its original value.
 Future<bool> _groupMuteToggle(Inst inst, String gid, String groupName) async {
   const sw = 'group_profile_mute_switch';
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
-  await _openGroupProfile(inst);
+  // Clean, full-width profile open — the avatar-tap path lands on a stale
+  // covered (half-width) profile across cases, where the mute switch resolves
+  // off-screen and the toggle never flips (verified live: on a clean profile the
+  // switch flips false→true).
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] group_mute_toggle: profile did not open');
+    return false;
+  }
   // The state-button (mute/pin) sits below the avatar/content/chat-button; it is
   // already on the profile ListView. Read the switch's current value.
   if (!await inst.waitKey(sw, timeoutSecs: 8)) {
     print('[pair] group_mute_toggle: mute switch not present');
     return false;
   }
+  // Settle: a Switch tapped in the first frame(s) after the profile route
+  // mounts can no-op (the gesture arena isn't ready), so the first tap was
+  // flaky. Settle, then tap-and-VERIFY with a small retry so a dropped first
+  // tap doesn't false-fail.
+  await Future<void>.delayed(const Duration(milliseconds: 600));
   final recvBefore = await _groupRecvOpt(inst, gid);
   final valueBefore = await _switchValue(inst, sw);
   if (valueBefore == null) {
     print('[pair] group_mute_toggle: mute switch value unreadable');
     return false;
   }
-  // Toggle #1 (single-fire — flutter_skill double-fire would net-no-op a Switch).
-  if (!await inst.tapKeyCenter(sw, timeoutSecs: 6)) {
-    print('[pair] group_mute_toggle: mute switch not tappable');
-    return false;
+  // Tap [sw] and verify its value reaches [want], retrying the tap a few times
+  // (each tap re-resolves the topmost switch). Returns the final read value.
+  Future<bool?> tapUntil(bool want) async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (!await inst.tapKeyCenter(sw, timeoutSecs: 6)) return null;
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      final v = await _switchValue(inst, sw);
+      if (v == want) return v;
+      // If a prior tap DID land (value already == want) we returned above; an
+      // even number of dropped/extra taps could leave it unchanged — settle and
+      // retry. An odd over-fire would overshoot, but the next retry corrects it.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    return await _switchValue(inst, sw);
   }
-  await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+  // Toggle #1 (flip away from the original value).
+  final valueAfter1 = await tapUntil(!valueBefore);
   final alive1 = (await inst.dumpState())['sessionReady'] == true;
-  final valueAfter1 = await _switchValue(inst, sw);
   final flipped1 = valueAfter1 != null && valueAfter1 == !valueBefore;
   // Toggle #2 (restore the original value).
-  if (!await inst.tapKeyCenter(sw, timeoutSecs: 6)) {
-    print('[pair] group_mute_toggle: mute switch not tappable (restore)');
-    return false;
-  }
-  await Future<void>.delayed(const Duration(milliseconds: 1200));
+  final valueAfter2 = await tapUntil(valueBefore);
   final alive2 = (await inst.dumpState())['sessionReady'] == true;
-  final valueAfter2 = await _switchValue(inst, sw);
   final flipped2 = valueAfter2 != null && valueAfter2 == valueBefore;
   final recvAfter = await _groupRecvOpt(inst, gid);
   await returnToChatsHome(inst, rounds: 4);
@@ -468,26 +555,19 @@ Future<bool> _groupProfileClearHistory(
   // child1=leave — group_builder_override.dart), so a below-fold tryTapKey lands
   // off-window and the GestureDetector.onTap never fires ("clear button not
   // tappable"). Mirror the leave case's keyCenter-scroll loop.
-  await _openGroupProfile(inst);
-  ({double x, double y})? clearCenter;
-  ({double x, double y})? lastProbe;
-  for (var i = 0; i < 16; i++) {
-    final c = await inst.keyCenter('group_profile_clear_history_button');
-    if (c != null) lastProbe = c;
-    if (c != null && c.y >= 80 && c.y <= 795) {
-      clearCenter = c;
-      break;
-    }
-    // Touch-DRAG up to scroll the profile ListView (a single mouse-wheel
-    // PointerScrollEvent via scrollAtCoords did NOT move it, so the button
-    // stayed below the fold). Drag from mid-list (y=500, on the scrollable,
-    // below the non-scrolling avatar/header) UP by 400 to reveal lower items.
-    await inst.dragAtCoords(640, 500, dy: -400, steps: 12);
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] group_profile_clear_history: profile did not open');
+    return false;
   }
+  // Clear-History is the bottom of the scrollable group profile (the override's
+  // DeleteButton Column: child0=clear-history, child1=leave), below the fold on
+  // an 800px window. WHEEL-scroll it into the visible band (a synthetic touch
+  // drag does NOT scroll the desktop profile ListView; the mouse wheel does).
+  final clearCenter =
+      await _scrollProfileButtonIntoBand(inst, 'group_profile_clear_history_button');
   if (clearCenter == null) {
     print('[pair] group_profile_clear_history: clear button never reached '
-        '(below fold; last resolved center=$lastProbe)');
+        '(below fold)');
     return false;
   }
   // Settle, tap, and VERIFY the confirm dialog opened; retry with direct-invoke
@@ -742,6 +822,14 @@ Future<bool> _groupKickMemberUi(
   }
   if (!menuKicked) {
     await a.shot('/tmp/ui_g2_kick_nomenu_A.png');
+    // Clean up so a failed kick (open menu / member-list page) does not poison
+    // the next case (leave) — dismiss any menu then land back on chats home.
+    try {
+      await a.osaEscape();
+    } on DriveError {
+      // best-effort
+    }
+    await returnToChatsHome(a, rounds: 4);
     print('[pair] group_kick_member_ui: desktop kick item not reachable');
     return false;
   }
@@ -774,42 +862,20 @@ Future<bool> _groupLeaveViaProfileConfirm(
   String groupName,
 ) async {
   final convId = 'group_$gid';
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
-  await _openGroupProfile(inst);
-  // The leave/disband button is at the BOTTOM of the profile, BELOW the fold
-  // (screenshot-confirmed). An off-screen tap (tryTapKey's direct invoke) does
-  // NOT reliably fire its onTap, so the confirm dialog never opened. SCROLL the
-  // profile body down until the leave button is onstage (keyCenter resolves
-  // only onstage sized RenderBoxes), THEN single-fire it for a real visible tap
-  // that opens the adaptive confirm dialog.
-  // Scroll until the leave button is in the VISIBLE viewport, not merely
-  // RESOLVABLE: a row in the ListView's cache extent (just below the fold) is
-  // built + sized, so keyCenter RESOLVES it, but its center is OFF-SCREEN — a
-  // center tap then lands off the window and the GestureDetector.onTap never
-  // fires (the confirm dialog "never opened"). Require the resolved center-y to
-  // be inside the visible band (extended to the window bottom for this
-  // bottom-anchored row) before tapping.
-  ({double x, double y})? leaveCenter;
-  ({double x, double y})? lastProbe;
-  for (var i = 0; i < 16; i++) {
-    final c = await inst.keyCenter('group_profile_leave_button');
-    if (c != null) lastProbe = c;
-    if (c != null && c.y >= 80 && c.y <= 795) {
-      leaveCenter = c;
-      break;
-    }
-    // Scroll at the LIST area (y=600, below the non-scrolling "Send a message"
-    // tile at ~420) so the wheel event reliably hits the profile's scrollable.
-    // Touch-DRAG up to scroll the profile ListView (a single mouse-wheel
-    // PointerScrollEvent via scrollAtCoords did NOT move it, so the button
-    // stayed below the fold). Drag from mid-list (y=500, on the scrollable,
-    // below the non-scrolling avatar/header) UP by 400 to reveal lower items.
-    await inst.dragAtCoords(640, 500, dy: -400, steps: 12);
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] group_leave_via_profile_confirm: profile did not open');
+    return false;
   }
+  // The leave/disband button is the BOTTOM of the scrollable profile, below the
+  // fold on an 800px window. WHEEL-scroll it into the visible band (a synthetic
+  // touch drag does NOT scroll the desktop profile ListView; the mouse wheel
+  // does), THEN tap it for a real visible tap that opens the adaptive confirm
+  // dialog.
+  final leaveCenter =
+      await _scrollProfileButtonIntoBand(inst, 'group_profile_leave_button');
   if (leaveCenter == null) {
     print('[pair] group_leave_via_profile_confirm: leave button never reached '
-        '(below fold; last resolved center=$lastProbe)');
+        '(below fold)');
     return false;
   }
   // The leave-button tap can MISS: right after the scroll, tapKeyCenter
@@ -959,8 +1025,12 @@ Future<bool> _confMemberListRenders(
   String gid,
   String groupName,
 ) async {
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
-  await _openGroupProfile(inst);
+  // Deterministic deep-link open (root-nav, cleared by returnToChatsHome) so no
+  // stale nested profile is left behind to poison later cases' key resolution.
+  if (!await _openGroupProfileClean(inst, gid)) {
+    print('[pair] conf_member_list_renders: profile did not open');
+    return false;
+  }
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
   final entryShown =
       await inst.waitKeyCenter('group_profile_members_entry', timeoutSecs: 6);

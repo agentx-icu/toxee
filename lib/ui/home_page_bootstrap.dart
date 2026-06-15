@@ -850,10 +850,24 @@ extension _HomePageBootstrap on _HomePageState {
     UikitDataFacade.updateInitializedStatus(true);
     UikitDataFacade.updateLoginStatus(true);
     final selfId = widget.service.selfId;
+    // The UIKit `currentUser.userID` must be the REAL Tox id, NOT the V2TIM
+    // login placeholder `service.selfId` (which toxee sets to
+    // "FlutterUIKitClient"). Group member rows are keyed by the member's Tox
+    // public key, so a placeholder here makes the member-list `isSelf()` /
+    // `myRole` computation never match self — the OWNER reads as a plain MEMBER
+    // and the desktop kick / set-admin menu items never render (and @-mention
+    // admin / self call-record detection break the same way). `getSelfToxId()`
+    // is a synchronous FFI read available right after login.
+    final selfToxId = widget.service.getSelfToxId();
+    final currentUserId =
+        (selfToxId != null && selfToxId.isNotEmpty) ? selfToxId : selfId;
     AppLogger.debug(
-      '[HomePage] _buildHomePage: Setting current user info, selfId=$selfId',
+      '[HomePage] _buildHomePage: Setting current user info, '
+      'selfId=$selfId selfToxId=$selfToxId',
     );
-    UikitDataFacade.updateCurrentUserInfo(V2TimUserFullInfo(userID: selfId));
+    UikitDataFacade.updateCurrentUserInfo(
+      V2TimUserFullInfo(userID: currentUserId),
+    );
 
     if (!_stickerPluginRegistered &&
         !_stickerPluginRegistrationScheduled &&
@@ -1112,6 +1126,13 @@ extension _HomePageBootstrap on _HomePageState {
       return _openGroupMemberList(groupId);
     });
     _bag.add(() => registerL3OpenGroupMemberListInvoker(null));
+    registerL3OpenGroupProfileInvoker((groupId) async {
+      if (!mounted) return false;
+      // Same fire-and-forget contract: PUSH the clean group-profile page (after
+      // popping stale routes) and return as soon as it is on screen.
+      return _openGroupProfile(groupId);
+    });
+    _bag.add(() => registerL3OpenGroupProfileInvoker(null));
     registerL3OpenConversationMenuInvoker((conversationId, {action}) async {
       if (!mounted) return false;
       // Resolve the conversation from the live UIKit list (the same source the

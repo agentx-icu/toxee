@@ -510,9 +510,16 @@ class Inst {
         final data = r['data'];
         final elements = data is Map ? data['elements'] : null;
         if (elements is List) {
-          // Scan ALL same-key matches and tap the first with positive bounds — a
-          // stale/offstage earlier match (e.g. a stacked dialog or an IndexedStack
-          // branch) must not mask a later visible copy.
+          // Scan ALL same-key matches and tap the LAST with positive bounds. The
+          // elements are reported in tree order, so when a real-UI sweep stacks
+          // routes carrying the same key (a re-opened group profile leaves buried
+          // duplicates whose RenderBoxes are still laid out with POSITIVE bounds
+          // — flutter_skill has no paint/cover guard), the EARLIER matches are the
+          // OLD, covered copies and the LAST is the on-top route the user sees.
+          // Tapping the first would land on a covered widget (the mute Switch
+          // toggle silently no-ops). Mirrors resolveKeyCenter's `.last` topmost
+          // preference. Single-match is unchanged (first == last).
+          ({double x, double y})? target;
           for (final e in elements) {
             if (e is! Map || e['key'] != key) continue;
             final b = e['bounds'];
@@ -521,8 +528,11 @@ class Inst {
             final y = (b['y'] as num?) ?? 0;
             final w = (b['w'] as num?) ?? 0;
             final h = (b['h'] as num?) ?? 0;
-            if (w <= 0 || h <= 0) continue; // unsized/off-screen — try next match
-            await tapAt(x + w / 2, y + h / 2);
+            if (w <= 0 || h <= 0) continue; // unsized/off-screen — skip
+            target = (x: x + w / 2, y: y + h / 2);
+          }
+          if (target != null) {
+            await tapAt(target.x, target.y);
             return true;
           }
         }
