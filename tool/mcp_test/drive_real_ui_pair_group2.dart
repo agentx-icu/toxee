@@ -729,7 +729,10 @@ Future<bool> _groupKickMemberUi(
       print('[pair] group_kick_member_ui: secondaryTap warn: ${e.message}');
     }
     await Future<void>.delayed(const Duration(milliseconds: 700));
-    if (await a.waitKey('group_member_desktop_kick_item', timeoutSecs: 3)) {
+    // The desktop context menu renders in an Overlay entry that whole-tree
+    // waitKey doesn't traverse — use the element-tree resolver (waitKeyCenter),
+    // matching the tapKeyCenter below.
+    if (await a.waitKeyCenter('group_member_desktop_kick_item', timeoutSecs: 3)) {
       // Single-fire the kick item (it pops the menu route + runs kickGroupMember).
       if (await a.tapKeyCenter('group_member_desktop_kick_item',
           timeoutSecs: 6)) {
