@@ -1237,6 +1237,14 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
   // (the runner must NOT trust a no-friend result that was never achieved).
   var endNoFriend = false;
   final results = <String, String>{};
+  // Mark both accounts test so the friend-profile cases' L3 helpers work:
+  // friendprof_clear_history's l3_send_text seed fallback + the
+  // clearActiveConversation recovery are test-gated, and without the mark
+  // friendprof_clear failed ("no history") and cascaded into the next two cases
+  // ("failed to recover to Contacts shell"). Set after the friendship below;
+  // revoked in the end-guard. Tracked per side for independent unmark.
+  var aMarked = false;
+  var bMarked = false;
 
   Future<void> hard(String id, Future<bool> Function() run) async {
     bool ok;
@@ -1292,6 +1300,8 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
         results[id] = 'FAIL';
       }
     } else {
+      aMarked = await a.markAccountTest();
+      bMarked = await b.markAccountTest();
       // --- 33: duplicate-guard (B re-adds A). ---
       await hard(
           'add_friend_duplicate_guard', () => _addFriendDuplicateGuard(b, toxA));
@@ -1328,6 +1338,16 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
           () => _friendprofDeleteFriendConfirm(a, b, toxA, toxB));
     }
   } finally {
+    if (aMarked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
+    if (bMarked) {
+      try {
+        await b.unmarkAccountTest();
+      } on DriveError catch (_) {}
+    }
     // END-STATE GUARD: the registered result is no-friend. If case 44 didn't run
     // or didn't fully clear (a mid-sweep failure), tear down the friendship via
     // the shared reset utility so the launch ends in the documented state. The
