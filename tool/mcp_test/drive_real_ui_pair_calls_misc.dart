@@ -608,8 +608,15 @@ Future<bool> _themeSwitchChatOpen(Inst inst, String toxB) async {
   final persisted =
       flipped && await _waitStringState(inst, 'themeMode', flipMode);
   // Re-open the chat — it must still render (composer + the seeded bubble).
+  // Use the robust multi-strategy `openChat` (ready-check → conv-list tap →
+  // returnToChatsHome+tap → l3 deep-link fallback), not
+  // `_reopenChatFromConversationList`: the latter relies on a flutter_skill
+  // `tapKey('conversation_list_item:…')` that doesn't reliably land + a
+  // test-gated `clearActiveConversation` (refused on the restored non-test
+  // accounts), so the chat never reopened (root-caused live: chatReady=false
+  // even individually, though the theme flip itself worked).
   await returnToChatsHome(inst, rounds: 4);
-  await _reopenChatFromConversationList(inst, c2c);
+  await openChat(inst, _pubkey(toxB));
   final chatReady = await _chatSurfaceReady(inst, c2c, timeoutSecs: 10);
   // BUBBLE INTACT = the seeded message's actual chat-surface ROW renders after
   // the theme rebuild (codex P1: `_lastMessage` reads the conversation-LIST
@@ -697,9 +704,19 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     windowOpened = await inst.waitText('Search Chat History', timeoutSecs: 8);
   }
   await inst.shot('/tmp/ui_b8_search_${inst.name}.png');
-  // Close everything back to the chats home (ESC pops the window then the
-  // overlay). Best-effort, then a force-home-root.
-  for (var i = 0; i < 3; i++) {
+  // Close everything back to the chats home. Tapping the result pushes the
+  // SearchChatHistoryWindow as a ROUTE (it carries its own message_search_field),
+  // and Escape does NOT pop a pushed route — so pop it via the "<" back
+  // affordance (28,72) FIRST, then Escape the underlying global overlay. (A
+  // plain Escape loop left message_search_field present → closed=false.)
+  for (var i = 0; i < 4; i++) {
+    if (!await inst.waitKey('message_search_field', timeoutSecs: 1)) break;
+    try {
+      await inst.tapAt(28, 72);
+    } on DriveError {
+      // best-effort
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     if (!await inst.waitKey('message_search_field', timeoutSecs: 1)) break;
     try {
       await inst.osaEscape();
