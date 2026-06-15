@@ -380,6 +380,10 @@ class _ToxeeGroupProfileContent extends StatefulWidget {
 class _ToxeeGroupProfileContentState
     extends TencentCloudChatState<_ToxeeGroupProfileContent> {
   String groupName = "";
+  // Bumped on each user rename so a slow init-load (_loadGroupNameAndID's
+  // awaited prefs read) that completes AFTER an optimistic rename does not
+  // clobber the new name with the stale stored/widget value.
+  int _renameGen = 0;
   String displayGroupID = "";
   String? chatId;
   // Set when `dispose()` runs so the chat-ID retry loop (1+2+3+5+8 = 19 s of
@@ -428,10 +432,14 @@ class _ToxeeGroupProfileContentState
     }
 
     if (prefs != null) {
+      // Snapshot the rename generation BEFORE the awaited read; if the user
+      // renames while it is in flight, skip the (now-stale) groupName writes.
+      final gen = _renameGen;
       try {
         final realGroupName = await prefs.getGroupName(
           widget.groupInfo.groupID,
         );
+        if (_renameGen != gen) return;
         if (realGroupName != null &&
             realGroupName.isNotEmpty &&
             realGroupName != widget.groupInfo.groupID) {
@@ -449,6 +457,7 @@ class _ToxeeGroupProfileContentState
           logs: 'Error accessing preferences: $e',
           logLevel: TencentCloudChatLogLevel.error,
         );
+        if (_renameGen != gen) return;
         safeSetState(() {
           groupName = widget.groupInfo.groupName ?? widget.groupInfo.groupID;
         });
@@ -528,6 +537,9 @@ class _ToxeeGroupProfileContentState
   }
 
   Future<void> _onChangeGroupName(String value) async {
+    // Mark a user rename so any in-flight init-load skips its stale groupName
+    // write (guard in _loadGroupNameAndID).
+    _renameGen++;
     // Update the VISIBLE title synchronously FIRST so it reflects immediately —
     // the app shows it instantly, and widget tests pumpAndSettle right after the
     // confirm tap (an earlier version awaited Prefs/refresh before this, which
