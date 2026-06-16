@@ -98,3 +98,6 @@ tool/mcp_test/echo_peer.json
 /screenshot/
 tool/screenshots/_seed_runtime/
 .gstack/
+
+# Cross-compiled FFI native libs (built by tool/build_android_ffi.sh, not committed)
+/android/app/src/main/jniLibs/

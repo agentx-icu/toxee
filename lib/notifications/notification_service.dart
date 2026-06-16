@@ -232,13 +232,16 @@ class NotificationService {
           );
         }
         // Android 13+ (API 33) requires the POST_NOTIFICATIONS runtime
-        // permission. On older Android versions the OS auto-grants and
-        // [requestNotificationsPermission] is a no-op. We still call
-        // [_ensureAndroidPermission] (which fast-paths via
-        // [areNotificationsEnabled]) so the cached state is populated
-        // before the first message arrives.
+        // permission. We warm [_ensureAndroidPermission] so the cached state is
+        // populated before the first message — but do NOT await it: like iOS,
+        // requestNotificationsPermission() shows a modal system dialog whose
+        // Future does not complete until the user answers, and AppBootstrap
+        // awaits init() before runApp(), so awaiting here would pin the entire
+        // app launch behind the permission dialog (blank screen). Fire it
+        // unawaited; the lazy await on the first showMessageNotification still
+        // gates actual delivery.
         if (_androidApiLevelAtLeast(33)) {
-          await _ensureAndroidPermission();
+          unawaited(_ensureAndroidPermission());
         }
       }
 
@@ -654,44 +657,59 @@ class NotificationService {
   /// notifications turned on (the common case after a relaunch on Android
   /// 13+ where they previously granted, or any pre-Android-13 install
   /// where the OS auto-grants) we skip the popup entirely.
-  Future<void> _ensureAndroidPermission() async {
-    if (!Platform.isAndroid) return;
-    if (_androidPermissionGranted != null) return;
+  Future<void>? _androidPermissionInFlight;
 
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (androidImpl == null) {
-      // Plugin didn't expose the Android impl — treat as granted to avoid
-      // disabling notifications on an environment where we can't even ask.
-      _androidPermissionGranted = true;
-      return;
+  Future<void> _ensureAndroidPermission() {
+    if (!Platform.isAndroid || _androidPermissionGranted != null) {
+      return Future<void>.value();
     }
+    // De-duplicate concurrent callers: init() fires this unawaited (so app
+    // startup is not pinned behind the POST_NOTIFICATIONS dialog) while the
+    // first showMessageNotification may await it before the cache is set.
+    // Sharing one in-flight future stops both paths from racing into a second
+    // requestNotificationsPermission() call.
+    return _androidPermissionInFlight ??= _runEnsureAndroidPermission();
+  }
+
+  Future<void> _runEnsureAndroidPermission() async {
     try {
-      final alreadyEnabled = await androidImpl.areNotificationsEnabled();
-      if (alreadyEnabled == true) {
+      final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImpl == null) {
+        // Plugin didn't expose the Android impl — treat as granted to avoid
+        // disabling notifications on an environment where we can't even ask.
         _androidPermissionGranted = true;
-        AppLogger.info(
-            '[NotificationService] Android notifications already enabled');
         return;
       }
-      // alreadyEnabled is false or null — ask. The plugin returns true if
-      // granted, false if denied, null on platforms / API levels where the
-      // request is a no-op (treat null as granted — pre-Android-13).
-      final granted = await androidImpl.requestNotificationsPermission();
-      _androidPermissionGranted = granted ?? true;
-      if (_androidPermissionGranted == true) {
-        AppLogger.info(
-            '[NotificationService] Android POST_NOTIFICATIONS granted');
-      } else {
-        AppLogger.warn(
-            '[NotificationService] Android POST_NOTIFICATIONS denied — notifications will be silently dropped this session');
+      try {
+        final alreadyEnabled = await androidImpl.areNotificationsEnabled();
+        if (alreadyEnabled == true) {
+          _androidPermissionGranted = true;
+          AppLogger.info(
+              '[NotificationService] Android notifications already enabled');
+          return;
+        }
+        // alreadyEnabled is false or null — ask. The plugin returns true if
+        // granted, false if denied, null on platforms / API levels where the
+        // request is a no-op (treat null as granted — pre-Android-13).
+        final granted = await androidImpl.requestNotificationsPermission();
+        _androidPermissionGranted = granted ?? true;
+        if (_androidPermissionGranted == true) {
+          AppLogger.info(
+              '[NotificationService] Android POST_NOTIFICATIONS granted');
+        } else {
+          AppLogger.warn(
+              '[NotificationService] Android POST_NOTIFICATIONS denied — notifications will be silently dropped this session');
+        }
+      } catch (e, st) {
+        // Don't poison the channel on a transient platform-side failure —
+        // treat as granted so the user still has a chance of getting banners.
+        AppLogger.logError(
+            '[NotificationService] _ensureAndroidPermission failed', e, st);
+        _androidPermissionGranted = true;
       }
-    } catch (e, st) {
-      // Don't poison the channel on a transient platform-side failure —
-      // treat as granted so the user still has a chance of getting banners.
-      AppLogger.logError(
-          '[NotificationService] _ensureAndroidPermission failed', e, st);
-      _androidPermissionGranted = true;
+    } finally {
+      _androidPermissionInFlight = null;
     }
   }
 
