@@ -29,6 +29,24 @@ class ResponsiveLayout {
   /// menu rows). 28pt matches the standard macOS title-bar inset.
   static const double macTitleBarReservedHeight = 28.0;
 
+  /// Height of the frameless-window title-bar zone on Windows/Linux — the
+  /// transparent drag strip plus the top-right caption buttons. Single source
+  /// shared with `kDesktopTitleBarDragHeight` in
+  /// `ui/widgets/desktop_window_frame.dart`.
+  static const double desktopTitleBarDragHeight = 38.0;
+
+  /// Top inset reserved for the OS window controls on a frameless desktop
+  /// window: the macOS traffic lights (top-left) or the Windows/Linux caption
+  /// buttons (top-right). Zero on mobile/web. The macOS value reuses
+  /// [macTitleBarReservedHeight]; the desktop value reuses
+  /// [desktopTitleBarDragHeight].
+  static double desktopTitleBarInset() {
+    if (!_isDesktopPlatform()) return 0;
+    return Platform.isMacOS
+        ? macTitleBarReservedHeight
+        : desktopTitleBarDragHeight;
+  }
+
   // Device-class checks (isMobile/isLargePhone/isTablet) use `shortestSide`
   // so phone-landscape stays "phone" and foldables/tablets behave by hardware
   // class, not orientation. `isDesktop` is OS-platform driven (with a width

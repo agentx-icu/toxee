@@ -5,9 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../util/platform_utils.dart';
+import '../../util/responsive_layout.dart';
 
 /// Height of the transparent draggable strip at the top of the frameless window.
-const double kDesktopTitleBarDragHeight = 38.0;
+/// Single source of truth lives in [ResponsiveLayout.desktopTitleBarDragHeight]
+/// so the inset math and the chrome stay in lockstep.
+const double kDesktopTitleBarDragHeight =
+    ResponsiveLayout.desktopTitleBarDragHeight;
 
 /// Frameless desktop window chrome, matching the reference design.
 ///

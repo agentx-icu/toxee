@@ -26,6 +26,7 @@ import 'util/locale_controller.dart';
 import 'i18n/app_localizations.dart';
 import 'util/logger.dart';
 import 'util/platform_utils.dart';
+import 'util/responsive_layout.dart';
 import 'call/call_overlay.dart';
 import 'call/call_effects_listener.dart';
 import 'navigation/app_navigation.dart';
@@ -365,6 +366,36 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
                           ),
                         );
                       }
+                    }
+                    // Frameless desktop window: inject the OS window-control
+                    // inset into MediaQuery for the WHOLE app — routed pages
+                    // (their AppBar/SafeArea reserve it) AND the call overlay
+                    // (its SafeArea reserves it) — so page headers and call
+                    // controls sit clear of the macOS traffic lights (top-left)
+                    // or the Windows/Linux caption buttons (top-right). HomePage
+                    // opts back out on macOS so its rail/list/chat fill to the
+                    // top edge under the lights; on Windows/Linux it keeps the
+                    // inset so the body clears the top-right caption buttons.
+                    if (PlatformUtils.isDesktop) {
+                      // Capture the pre-injection subtree in a FINAL local. The
+                      // Builder closure must not close over the mutable `content`
+                      // (reassigned to DesktopWindowFrame just below) — otherwise
+                      // it rebuilds itself forever -> StackOverflow red screen.
+                      final injectedChild = content;
+                      content = Builder(
+                        builder: (ctx) {
+                          final mq = MediaQuery.of(ctx);
+                          return MediaQuery(
+                            data: mq.copyWith(
+                              padding: mq.padding.copyWith(
+                                top: mq.padding.top +
+                                    ResponsiveLayout.desktopTitleBarInset(),
+                              ),
+                            ),
+                            child: injectedChild,
+                          );
+                        },
+                      );
                     }
                     if (PlatformUtils.isDesktop) {
                       content = DesktopWindowFrame(child: content);

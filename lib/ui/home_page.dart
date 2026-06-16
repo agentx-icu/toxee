@@ -2,6 +2,7 @@ import 'dart:async';
 
 // ignore: directives_ordering
 import 'widgets/safe_dialog_pop.dart';
+import 'widgets/mac_title_bar_inset.dart';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -52,6 +53,7 @@ import 'contact/friend_request_display_name.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile_body.dart';
 import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
+import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../i18n/app_localizations.dart';
 import '../util/logger.dart';
 import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_contact_event_handlers.dart';
@@ -1125,6 +1127,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 // call site, so it was unreachable. Bottom nav covers all
                 // entries on phone.
                 body: SafeArea(
+                  // Frameless macOS window: fill to the top edge — the rail
+                  // reserves the traffic-light zone itself, so we opt out of
+                  // the global top inset injected in main.dart. Other platforms
+                  // keep the normal top inset.
+                  top: !(PlatformUtils.isDesktop && PlatformUtils.isMacOS),
                   child: Stack(
                     children: [
                       Row(
@@ -1134,21 +1141,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               width: ResponsiveLayout.responsiveSidebarWidth(
                                 context,
                               ),
-                              // Frameless window: the macOS traffic lights
-                              // overlay the top-left of the rail, so reserve
-                              // vertical space here to keep the user avatar
-                              // clear of them. The rail background still fills
-                              // up to the top edge behind the lights.
-                              child: Column(
-                                children: [
-                                  if (PlatformUtils.isMacOS)
-                                    const SizedBox(
-                                      height: ResponsiveLayout
-                                          .macTitleBarReservedHeight,
-                                    ),
-                                  Expanded(child: _uikitSidebar()),
-                                ],
-                              ),
+                              // Frameless window: the rail reserves space for
+                              // the macOS traffic lights INSIDE its coloured
+                              // container (see buildSidebar), so the rail
+                              // background fills the top edge with no seam.
+                              child: _uikitSidebar(),
                             ),
                             VerticalDivider(
                               width: 1,
@@ -1158,7 +1155,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               ).colorScheme.outlineVariant,
                             ),
                           ],
-                          Expanded(child: _buildMainPane(context)),
+                          // Inset the main pane so its panel headers line up
+                          // with the rail avatar under the macOS lights. Strip
+                          // any ambient top padding first so no tab double-insets;
+                          // on Windows/Linux the body SafeArea already reserved
+                          // the caption-button strip, so this collapses to zero.
+                          Expanded(
+                            child: Builder(
+                              builder: (ctx) => MediaQuery.removePadding(
+                                context: ctx,
+                                removeTop: true,
+                                child: Column(
+                                  children: [
+                                    const MacTitleBarInset(),
+                                    Expanded(
+                                      child: _buildMainPane(context),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       // Bootstrap service status banner — show on native desktop
@@ -1610,13 +1627,50 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           service: widget.service,
         ),
       ),
-      SettingsPage(
-        service: widget.service,
-        connectionStatusStream: widget.service.connectionStatusStream,
-        autoAcceptFriends: _autoAcceptFriends,
-        onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
-        autoAcceptGroupInvites: _autoAcceptGroupInvites,
-        onAutoAcceptGroupInvitesChanged: _setAutoAcceptGroupInvites,
+      // Settings tab gets a proper top header bar (title "Settings") so its
+      // content doesn't run into the top window edge, plus the macOS
+      // traffic-light inset so it lines up with the rail.
+      Builder(
+        builder: (context) {
+          final scheme = Theme.of(context).colorScheme;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                height: 52,
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  color: scheme.surface,
+                  border: Border(
+                    bottom: BorderSide(color: scheme.outlineVariant),
+                  ),
+                ),
+                child: Text(
+                  TencentCloudChatLocalizations.of(context)?.settings ??
+                      'Settings',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: SettingsPage(
+                  service: widget.service,
+                  connectionStatusStream:
+                      widget.service.connectionStatusStream,
+                  autoAcceptFriends: _autoAcceptFriends,
+                  onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
+                  autoAcceptGroupInvites: _autoAcceptGroupInvites,
+                  onAutoAcceptGroupInvitesChanged: _setAutoAcceptGroupInvites,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     ];
   }

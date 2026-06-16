@@ -225,6 +225,14 @@ Widget buildSidebar({
         ),
         child: Column(
           children: [
+            // macOS frameless window: the native traffic lights overlay the
+            // top-left of the rail. Reserve the space INSIDE this coloured
+            // container so the rail background fills behind the lights (no
+            // seam / mismatched top strip) and the avatar sits clear of them.
+            if (Platform.isMacOS)
+              const SizedBox(
+                height: ResponsiveLayout.macTitleBarReservedHeight,
+              ),
             // User avatar at the top
             _UserAvatar(
               service: service,
