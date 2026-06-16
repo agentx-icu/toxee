@@ -56,8 +56,14 @@ class LoggingBootstrap {
       }
 
       // (1, cont.) Second dev-loop branch: `Directory.current/build/flutter_client.log`.
-      // Same flat filename for the same reason.
-      if (logPath == null && !useSymlink) {
+      // Same flat filename for the same reason. Desktop-only: on iOS/Android the
+      // process working directory is `/` (read-only), so this probe always fails
+      // and only emits a misleading stderr error before the appSupport fallback
+      // below takes over — skip it on mobile and go straight to branch (2).
+      if (logPath == null &&
+          !useSymlink &&
+          !Platform.isIOS &&
+          !Platform.isAndroid) {
         try {
           final currentDir = Directory.current;
           final testPath = p.join(currentDir.path, 'build', 'flutter_client.log');

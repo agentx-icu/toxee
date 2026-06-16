@@ -242,28 +242,41 @@ class NotificationService {
         }
       }
 
-      // iOS / macOS: ask for alert + badge + sound. The plugin returns
-      // null/false if the user declined; we log but don't fail.
+      // iOS / macOS: ask for alert + badge + sound. CRITICAL: do NOT await the
+      // permission prompt. On iOS requestPermissions() shows a *modal* system
+      // alert whose Future does not complete until the user answers it. Because
+      // AppBootstrap awaits init() before runApp(), awaiting here pins the
+      // entire app launch behind the dialog — the user stares at a blank screen
+      // until they tap Allow / Don't Allow. Fire it unawaited so startup
+      // proceeds immediately; the prompt still appears and we log the outcome
+      // (and any error) when it resolves. macOS behaves the same way before the
+      // permission has been decided, so it is handled identically.
       if (Platform.isIOS) {
         final iosImpl = _plugin.resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>();
-        final granted = await iosImpl?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        AppLogger.info(
-            '[NotificationService] iOS permission granted=$granted');
+        if (iosImpl != null) {
+          unawaited(iosImpl
+              .requestPermissions(alert: true, badge: true, sound: true)
+              .then(
+            (granted) => AppLogger.info(
+                '[NotificationService] iOS permission granted=$granted'),
+            onError: (Object e) => AppLogger.warn(
+                '[NotificationService] iOS permission request failed: $e'),
+          ));
+        }
       } else if (Platform.isMacOS) {
         final macImpl = _plugin.resolvePlatformSpecificImplementation<
             MacOSFlutterLocalNotificationsPlugin>();
-        final granted = await macImpl?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        AppLogger.info(
-            '[NotificationService] macOS permission granted=$granted');
+        if (macImpl != null) {
+          unawaited(macImpl
+              .requestPermissions(alert: true, badge: true, sound: true)
+              .then(
+            (granted) => AppLogger.info(
+                '[NotificationService] macOS permission granted=$granted'),
+            onError: (Object e) => AppLogger.warn(
+                '[NotificationService] macOS permission request failed: $e'),
+          ));
+        }
       }
 
       _initialized = true;
