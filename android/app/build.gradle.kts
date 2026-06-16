@@ -52,6 +52,26 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Package only the ABIs for which the tim2tox FFI .so was actually
+        // built (build_android_ffi.sh stages per-ABI libs into jniLibs).
+        // Otherwise Gradle packages Flutter's default ABIs even where
+        // libtim2tox_ffi.so is absent, and DynamicLibrary.open() fails at
+        // runtime on that ABI. (codex review 2026-06-16.)
+        val ffiAbis = file("src/main/jniLibs").listFiles()
+            ?.filter { it.isDirectory && it.resolve("libtim2tox_ffi.so").exists() }
+            ?.map { it.name }?.sorted() ?: emptyList()
+        if (ffiAbis.isNotEmpty()) {
+            ndk { abiFilters.addAll(ffiAbis) }
+        } else {
+            // jniLibs is gitignored, so a clean checkout has no FFI yet. Fail
+            // fast rather than ship a libtim2tox_ffi.so-less APK that crashes on
+            // every ABI at runtime. Build it first: tool/build_android_ffi.sh.
+            throw GradleException(
+                "libtim2tox_ffi.so not found under android/app/src/main/jniLibs/ " +
+                    "— run tool/build_android_ffi.sh before building the Android app."
+            )
+        }
     }
 
     signingConfigs {
