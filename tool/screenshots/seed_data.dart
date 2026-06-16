@@ -1,276 +1,112 @@
-// Seed-data definitions for the product-screenshot pipeline
-// (capture_product_screenshots.dart): personas, the scripted conversations,
-// and host-side generated media (photo PNGs + a tiny real PDF).
+// Seed-data definitions for the cross-platform product-screenshot pipeline
+// (capture_product_screenshots.dart).
+//
+// The pipeline drives ONE real toxee instance per platform (desktop / android
+// / ipad / ios) and seeds rich demo data LOCALLY via the debug L3 surface —
+// no real peer, no P2P handshake. The seed is fully self-contained:
+//   - friends are added by public key (tox_friend_add_norequest) with a cached
+//     display name (l3_seed_friend);
+//   - the C2C conversation is materialized as DELIVERED bubbles in BOTH
+//     directions (l3_inject_c2c_text, isSelf toggles direction);
+//   - the group is created + back-filled with multi-sender history
+//     (l3_create_group + l3_inject_group_text);
+//   - a pending inbound friend application is materialized for the
+//     "new application" scene (l3_inject_friend_application).
 //
 // Everything here is DATA, deliberately separated from the driver so the
-// dialogue can be re-written without touching orchestration. The dialogue is
-// in English (the product page's primary locale) with light emoji — it reads
-// as a real weekend-hike plan, which matches the seeded group.
+// dialogue can be re-written without touching orchestration. English copy with
+// light emoji — reads as a real weekend-hike plan that matches the group.
 
-// ignore_for_file: avoid_print
-
-import 'dart:io';
-import 'dart:math' as math;
-import 'package:image/image.dart' as img;
-
-/// One seeded account. [instance] is the launcher instance name (ShotA…),
-/// [nickname] the realistic display name the persona registers with —
-/// allowed because `l3_register_account` records the SEED-ACCOUNT MARKER
-/// (identity-by-construction), not a nickname allowlist.
+/// One seeded peer. [pubKey] is a deterministic, well-formed 64-hex Tox public
+/// key used ONLY for local seeding — it never reaches the DHT, so it does not
+/// need to correspond to a reachable account; tox_friend_add_norequest stores
+/// it verbatim. [nickname] is the display name cached locally so conversations
+/// render a real name instead of the raw key.
 class Persona {
   const Persona({
-    required this.instance,
+    required this.pubKey,
     required this.nickname,
     required this.statusMessage,
   });
 
-  final String instance;
+  final String pubKey;
   final String nickname;
   final String statusMessage;
 }
 
-const personaA = Persona(
-  instance: 'ShotA',
-  nickname: 'Mia',
-  statusMessage: 'Hiking, coffee, and P2P chat',
-);
-const personaB = Persona(
-  instance: 'ShotB',
+/// The hero account registered live on each platform (its real Tox ID is
+/// assigned at registration; only the nickname/status are seed inputs).
+const heroNickname = 'Mia';
+const heroStatusMessage = 'Hiking, coffee, and P2P chat';
+
+// Deterministic 64-hex public keys (8 groups of 8) for the seeded peers. They
+// are intentionally fake-but-valid: distinct from each other and from any real
+// account, accepted verbatim by tox_friend_add_norequest.
+const personaAlex = Persona(
+  pubKey: '8F2A1C7D4E9B0356A1D8F24C6B3E9075C2A4F18D5E7B0C93D6A180F42B9C3E57',
   nickname: 'Alex Chen',
   statusMessage: 'On the trail somewhere',
 );
-const personaC = Persona(
-  instance: 'ShotC',
+const personaSofia = Persona(
+  pubKey: 'B6C4019E7A2D58F30C9147BE6A35D082F41C9D5E70A8B264E3F1097C5D8240AB',
   nickname: 'Sofia 🌸',
   statusMessage: 'Probably reading',
 );
-const personaD = Persona(
-  instance: 'ShotD',
+const personaKenta = Persona(
+  pubKey: 'C8013D6F9B47A2E05C8F1340A96BD27E4F0581CA3D9E76B240178FC5E9A3B602',
   nickname: 'Kenta 健太',
   statusMessage: '東京 ⇄ everywhere',
 );
 
-const allPersonas = [personaA, personaB, personaC, personaD];
+/// The "new friend" applicant — deliberately NOT a friend, so it surfaces on
+/// the New-Contacts page.
+const applicantPubKey =
+    'D4A37F015C8E29B6403DA17FE8259C04B6F381DA9027E5C4136A80FB5E29D7C3';
+const applicantNickname = 'Jordan Lee';
+const applicantWording =
+    'Hey Mia! Jordan from the Saturday trail crew — let\'s connect 🥾';
 
-/// Group seeded by ShotA (private NGC + invite — same-host reliable).
-const groupName = 'Weekend Hikers 🏔';
+/// All seeded FRIENDS (Alex is the hero's C2C partner; Alex + Sofia are the
+/// extra group members whose injected lines must resolve to a name).
+const seededFriends = [personaAlex, personaSofia, personaKenta];
 
-/// One scripted line. [fromA] true = ShotA sends, false = the peer sends.
-class ScriptLine {
-  const ScriptLine(this.fromA, this.text);
-  final bool fromA;
+/// One scripted C2C line. [fromHero] true = the hero (self) sent it; false =
+/// the peer sent it. Rendered as a DELIVERED bubble either way.
+class C2cLine {
+  const C2cLine(this.fromHero, this.text);
+  final bool fromHero;
   final String text;
 }
 
-/// ShotA ↔ ShotB hero conversation. Mixed directions, emoji, and two
-/// anchor lines used by the media/reply steps:
-///   - [bReplyAnchor] is the B line ShotA quotes via l3_reply_text (the
-///     quote bubble renders sender-side only — plan F14);
-///   - the photo + PDF are sent by B right after [bPhotoLeadIn] so the
-///     image bubble is INBOUND on ShotA (extension-classified — plan F6).
-const bReplyAnchor = 'Lake trail this Saturday? The larches just turned 🍂';
-const bPhotoLeadIn = 'Found the view from last month — look at this';
-
-// Ordered so the visually rich beats (photo thumbnail, PDF tile, quoted
-// reply) land in the BOTTOM ~7 rows — the chat pane shows roughly the last
-// 8-9 bubbles at 1280×800, and the freshen line adds one more below.
-const conversationAB = [
-  ScriptLine(false, 'Hey Mia! Made it back from Patagonia 🎒'),
-  ScriptLine(true, 'Alex!! Welcome back. How was the W trek?'),
-  ScriptLine(false, 'Unreal. Knees are filing a formal complaint though'),
-  ScriptLine(true, 'Haha, worth it 😄'),
-  ScriptLine(false, bReplyAnchor),
-  // ShotA's QUOTED reply to bReplyAnchor is sent by the driver between
-  // these lines via l3_reply_text (not a plain ScriptLine).
-  ScriptLine(false, 'Trailhead at 7am, back before the rain hits'),
-  ScriptLine(true, 'Deal. I will bring the good thermos ☕'),
-  ScriptLine(false, bPhotoLeadIn),
-  // <- B sends lake-trail.png here (driver step)
-  ScriptLine(true, 'Okay WOW. That is the wallpaper now 😍'),
-  // <- B sends Trip-Plan.pdf here (driver step)
-  ScriptLine(true, 'Got it. See you Saturday 🥾'),
+/// Hero ↔ Alex conversation — mixed directions, emoji, lands a friendly
+/// weekend-hike thread. The last ~8 lines are what the chat pane shows.
+const conversationWithAlex = [
+  C2cLine(false, 'Hey Mia! Made it back from Patagonia 🎒'),
+  C2cLine(true, 'Alex!! Welcome back. How was the W trek?'),
+  C2cLine(false, 'Unreal. My knees are filing a formal complaint though'),
+  C2cLine(true, 'Haha, worth it 😄'),
+  C2cLine(false, 'Lake trail this Saturday? The larches just turned 🍂'),
+  C2cLine(true, 'Yes! North loop or the lakeside start?'),
+  C2cLine(false, 'Lakeside — trailhead at 7am, back before the rain'),
+  C2cLine(true, 'Deal. I\'ll bring the good thermos ☕'),
+  C2cLine(false, 'Perfect. Sending the route tonight 🗺️'),
+  C2cLine(true, 'See you Saturday 🥾'),
 ];
 
-/// AB history size when fully seeded: 10 texts + 1 quoted reply + 2 files.
-const conversationABSeededCount = 13;
+/// Group seeded by the hero.
+const groupName = 'Weekend Hikers 🏔';
 
-/// ShotA's quoted reply (sent via l3_reply_text against [bReplyAnchor]).
-const aQuotedReply = 'Which trailhead — north loop or the lakeside start?';
-
-/// ShotA ↔ ShotC (Sofia). Short + warm; her conversation stays UNOPENED
-/// during the scene walk so her unread badge survives (plan F7), and she is
-/// the recv-opt mute demo (opt=1).
-const conversationAC = [
-  ScriptLine(false, 'Mia! I finished the book you lent me 📖'),
-  ScriptLine(true, 'Already?! Okay, verdict?'),
-  ScriptLine(false, 'Cried twice on the train. 10/10'),
-  ScriptLine(true, 'Knew it. Coffee this week and we debrief ☕'),
+/// Group chatter — (senderPubKey | 'self', text). 'self' goes through the real
+/// l3_send_group_text path; everyone else is injected via l3_inject_group_text
+/// with their (seeded-friend) public key so the name resolves. `final` (not
+/// const) so the lines can reference the persona keys without duplicating them.
+final List<(String, String)> groupScript = [
+  ('self', 'Made us a group for Saturday 🏔'),
+  (personaAlex.pubKey, 'Excellent. 7am at the north lot?'),
+  (personaSofia.pubKey, 'In! Bringing trail mix 🥜'),
+  ('self', '7am works. Weather says clear until 3pm'),
+  (personaAlex.pubKey, 'I\'ve got the map + first aid kit'),
+  (personaSofia.pubKey, 'Someone please bring a real camera 📷'),
+  ('self', 'On it. Lakeside lunch at the halfway point?'),
+  (personaAlex.pubKey, 'Approved 🙌'),
 ];
-
-/// ShotA ↔ ShotD (Kenta). Multilingual flavor; also stays unopened.
-const conversationAD = [
-  ScriptLine(false, 'Just landed in Tokyo! 東京に着いたよ 🗼'),
-  ScriptLine(true, 'Safe travels!! Send photos of everything'),
-  ScriptLine(false, 'The convenience stores alone deserve an album'),
-];
-
-/// Group chatter — (senderInstance, text). Sent in order.
-const groupScript = [
-  ('ShotA', 'Made us a group for Saturday 🏔'),
-  ('ShotB', 'Excellent. 7am at the north lot?'),
-  ('ShotC', 'In! Bringing trail mix 🥜'),
-  ('ShotA', '7am works. Weather says clear until 3pm'),
-  ('ShotB', 'I have the map + first aid kit'),
-  ('ShotC', 'Someone please bring a real camera 📷'),
-  ('ShotA', 'On it. Lakeside lunch at the halfway point?'),
-  ('ShotB', 'Approved 🙌'),
-];
-
-/// Fresh "just now" lines injected at every boot BEFORE any conversation is
-/// opened (activePeerId == null → unread increments). C/D badges survive the
-/// whole scene walk; B's clears when scene 01 opens the hero chat.
-const freshenB = [
-  'Forecast update: still clear for Saturday ☀️',
-];
-const freshenC = [
-  'Found the sequel at the bookshop today!! 📚',
-  'No spoilers but the first chapter is ALREADY too much',
-];
-const freshenD = ['Shibuya at night is something else 🌃'];
-
-/// Search query used by scene 12 — guaranteed by the AB script above.
-const searchQuery = 'trailhead';
-
-// ───────────────────────── generated media ─────────────────────────
-
-/// Generate the inbound "photo" — a stylized mountain-lake scene (gradient
-/// sky, sun, ridgelines, water) at 1200×800. Pure-procedural: no copyright,
-/// deterministic output, looks intentional as a thumbnail. Returns the path.
-Future<String> ensureLakeTrailPng(Directory mediaDir) async {
-  final file = File('${mediaDir.path}/lake-trail.png');
-  if (await file.exists() && (await file.length()) > 0) return file.path;
-  await mediaDir.create(recursive: true);
-
-  const w = 1200, h = 800;
-  final canvas = img.Image(width: w, height: h);
-
-  // Sky: dusk gradient (deep indigo → warm peach at the horizon line).
-  const horizon = 520;
-  for (var y = 0; y < horizon; y++) {
-    final t = y / horizon;
-    final r = (30 + 225 * math.pow(t, 2.2)).round();
-    final g = (41 + 130 * math.pow(t, 2.0)).round();
-    final b = (84 + 70 * t).round();
-    for (var x = 0; x < w; x++) {
-      canvas.setPixelRgb(x, y, r, g, b);
-    }
-  }
-  // Sun disc with soft halo.
-  const sunX = 850, sunY = 360, sunR = 46;
-  for (var y = sunY - 120; y < sunY + 120; y++) {
-    for (var x = sunX - 120; x < sunX + 120; x++) {
-      if (x < 0 || y < 0 || x >= w || y >= horizon) continue;
-      final d = math.sqrt(
-        (x - sunX) * (x - sunX) + (y - sunY) * (y - sunY).toDouble(),
-      );
-      if (d < sunR) {
-        canvas.setPixelRgb(x, y, 255, 236, 200);
-      } else if (d < 120) {
-        final p = canvas.getPixel(x, y);
-        final mix = (1 - (d - sunR) / (120 - sunR)) * 0.35;
-        canvas.setPixelRgb(
-          x,
-          y,
-          (p.r + (255 - p.r) * mix).round(),
-          (p.g + (236 - p.g) * mix).round(),
-          (p.b + (200 - p.b) * mix).round(),
-        );
-      }
-    }
-  }
-  // Two mountain ridgelines (far: hazy slate; near: deep pine).
-  int ridgeFar(int x) =>
-      (300 +
-              90 * math.sin(x / 170) +
-              45 * math.sin(x / 61 + 2.1) +
-              18 * math.sin(x / 23 + 0.7))
-          .round();
-  int ridgeNear(int x) =>
-      (430 +
-              70 * math.sin(x / 120 + 4.0) +
-              35 * math.sin(x / 47 + 1.2) +
-              12 * math.sin(x / 17 + 3.3))
-          .round();
-  for (var x = 0; x < w; x++) {
-    final f = ridgeFar(x);
-    for (var y = f; y < horizon; y++) {
-      final fade = ((y - f) / (horizon - f) * 24).round();
-      canvas.setPixelRgb(x, y, 71 + fade, 85 + fade, 105 + fade);
-    }
-    final n = ridgeNear(x);
-    for (var y = n; y < horizon; y++) {
-      canvas.setPixelRgb(x, y, 22, 51, 47);
-    }
-  }
-  // Water: vertical reflection gradient with sun glint + ripple banding.
-  for (var y = horizon; y < h; y++) {
-    final t = (y - horizon) / (h - horizon);
-    for (var x = 0; x < w; x++) {
-      var r = (40 + 50 * (1 - t)).round();
-      var g = (70 + 60 * (1 - t)).round();
-      var b = (110 + 50 * (1 - t)).round();
-      final ripple = math.sin(y / 3.0 + x / 90.0);
-      if ((x - sunX).abs() < 60 + 90 * t && ripple > 0.55) {
-        r += 90;
-        g += 70;
-        b += 40;
-      }
-      canvas.setPixelRgb(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
-    }
-  }
-
-  await file.writeAsBytes(img.encodePng(canvas));
-  print('[seed-media] generated ${file.path}');
-  return file.path;
-}
-
-/// Generate a tiny but STRUCTURALLY VALID single-page PDF ("Trip Plan") so
-/// the seeded file bubble is honest — opening it shows a real page instead
-/// of a broken file. Plain Latin-1 content, no compression.
-Future<String> ensureTripPlanPdf(Directory mediaDir) async {
-  final file = File('${mediaDir.path}/Trip-Plan.pdf');
-  if (await file.exists() && (await file.length()) > 0) return file.path;
-  await mediaDir.create(recursive: true);
-
-  const content = 'BT /F1 24 Tf 72 720 Td (Weekend Hikers - Trip Plan) Tj '
-      '0 -36 Td /F1 14 Tf (07:00  Meet at the north lot) Tj '
-      '0 -22 Td (07:15  Lakeside start, counter-clockwise loop) Tj '
-      '0 -22 Td (12:00  Lunch at the halfway point) Tj '
-      '0 -22 Td (15:00  Back before the rain) Tj ET';
-  final objects = <String>[
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
-        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-  ];
-  final buf = StringBuffer('%PDF-1.4\n');
-  final offsets = <int>[];
-  for (var i = 0; i < objects.length; i++) {
-    offsets.add(buf.length);
-    buf.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
-  }
-  final xref = buf.length;
-  buf.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
-  for (final off in offsets) {
-    buf.write('${off.toString().padLeft(10, '0')} 00000 n \n');
-  }
-  buf.write(
-    'trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
-    'startxref\n$xref\n%%EOF\n',
-  );
-  await file.writeAsString(buf.toString());
-  print('[seed-media] generated ${file.path}');
-  return file.path;
-}

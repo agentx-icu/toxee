@@ -66,9 +66,17 @@ class FakeUnreadTotal {
 }
 
 class FakeFriendApplication {
-  FakeFriendApplication({required this.userID, required this.wording});
+  FakeFriendApplication({
+    required this.userID,
+    required this.wording,
+    this.nickName,
+  });
   final String userID;
   final String wording;
+
+  /// Optional applicant display name (Tox requests carry none at the protocol
+  /// level; the L3 seed harness fills it for demo "new friend" requests).
+  final String? nickName;
 }
 
 class FakeFriendDeleted {

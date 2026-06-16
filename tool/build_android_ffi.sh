@@ -39,9 +39,14 @@ command -v cmake >/dev/null || { err "cmake missing"; exit 1; }
 # --- locate NDK ---
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 if [[ -z "${NDK:-}" ]]; then
-  NDK="$(ls -d "$SDK/ndk/"* 2>/dev/null | sort -V | tail -1)"
+  # Pick the HIGHEST-version NDK that is actually COMPLETE (has the cmake
+  # toolchain). A stalled/partial download (e.g. 28.2 missing build/cmake) is
+  # otherwise selected by a plain `tail -1` and fails the build.
+  for _cand in $(ls -d "$SDK/ndk/"* 2>/dev/null | sort -Vr); do
+    if [[ -f "$_cand/build/cmake/android.toolchain.cmake" ]]; then NDK="$_cand"; break; fi
+  done
 fi
-[[ -n "$NDK" && -f "$NDK/build/cmake/android.toolchain.cmake" ]] || { err "Android NDK not found (set NDK=)"; exit 1; }
+[[ -n "${NDK:-}" && -f "${NDK:-}/build/cmake/android.toolchain.cmake" ]] || { err "Android NDK not found (set NDK= to a complete install)"; exit 1; }
 HOSTTAG="$(ls -d "$NDK/toolchains/llvm/prebuilt/"* | head -1)"
 TOOLBIN="$HOSTTAG/bin"
 NCPU="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"

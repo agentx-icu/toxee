@@ -709,10 +709,15 @@ class FakeIM {
   Future<void> _emitFriendAppsWithFriends(
       List<({String userId, String nickName, String status, bool online})> friends) async {
     final apps = await ffi.getFriendApplications();
+    final seededNicks = ffi.seededApplicationNicknames;
     final friendIds = friends.map((f) => f.userId).toSet();
     final out = apps
         .where((a) => !friendIds.contains(a.userId))
-        .map((a) => FakeFriendApplication(userID: a.userId, wording: a.wording))
+        .map((a) => FakeFriendApplication(
+              userID: a.userId,
+              wording: a.wording,
+              nickName: seededNicks[a.userId],
+            ))
         .toList();
     bus.emit(topicFriendApps, out);
   }

@@ -1094,6 +1094,37 @@ extension _HomePageBootstrap on _HomePageState {
       return true;
     });
     _bag.add(() => registerL3OpenChatInvoker(null));
+    registerL3OpenSelfProfileInvoker(() async {
+      if (!mounted) return false;
+      // Mirror the user-avatar tap: showSelfProfile resolves the real Tox ID
+      // then renders layout-aware (right pane on desktop/tablet, fullscreen
+      // route on phones) — so the screenshot pipeline opens the same surface on
+      // every platform. Fire-and-forget: awaiting would not return until the
+      // page is dismissed, stalling the service-extension reply.
+      final nick = await Prefs.getNickname();
+      final status = await Prefs.getStatusMessage();
+      if (!mounted) return false;
+      unawaited(
+        showSelfProfile(
+          context,
+          widget.service,
+          widget.service.connectionStatusStream,
+          nickName: nick,
+          statusMessage: status,
+        ),
+      );
+      return true;
+    });
+    _bag.add(() => registerL3OpenSelfProfileInvoker(null));
+    registerL3PopToRootInvoker(() async {
+      if (!mounted) return false;
+      // Pop every route/dialog above HomePage (mobile message + profile routes,
+      // desktop modals) so the screenshot pipeline re-navigates from a known
+      // root on every layout. No-op on desktop when nothing is pushed.
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return true;
+    });
+    _bag.add(() => registerL3PopToRootInvoker(null));
     registerL3OpenGlobalSearchInvoker(() async {
       if (!mounted) return false;
       // The global search overlay is pushed onto the desktop master-detail
@@ -1290,14 +1321,17 @@ extension _HomePageBootstrap on _HomePageState {
           try {
             if (!stillCurrent()) return;
             final mapped = list.map((a) {
-              final inferredNickname = inferFriendRequestNicknameFromWording(
-                a.wording,
-              );
+              // Prefer an explicit applicant nickname when present (the L3 seed
+              // harness sets one — Tox requests normally carry none); otherwise
+              // fall back to best-effort inference from the request wording.
+              final nickname = (a.nickName != null && a.nickName!.isNotEmpty)
+                  ? a.nickName
+                  : inferFriendRequestNicknameFromWording(a.wording);
               return V2TimFriendApplication(
                 userID: a.userID,
                 addWording: a.wording,
                 type: 1,
-                nickname: inferredNickname,
+                nickname: nickname,
                 faceUrl: null,
               );
             }).toList();

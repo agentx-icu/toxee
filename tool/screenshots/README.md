@@ -1,77 +1,87 @@
-# Product-screenshot pipeline
+# Product-screenshot pipeline (cross-platform)
 
-One command produces the product screenshots for every main feature, using
-four REAL toxee instances with persistent, reusable seed data (accounts,
-friendships, a group, rich conversations). Output lands in `./screenshot/`.
+One command captures the 5 product scenes on **four platforms** — desktop
+(macOS), Android, iPad, and iOS (iPhone) — in light theme. Output lands in
+`./screenshot/<platform>/`.
 
 ```bash
-./tool/screenshots/capture.sh                 # reuse seed (fast) or first-run seed
-./tool/screenshots/capture.sh --build         # (re)build the L3-enabled debug app first
-./tool/screenshots/capture.sh --reset         # surgical seed rebuild from scratch
-./tool/screenshots/capture.sh --sync-site     # + downscale curated copies to doc/product/assets/
-./tool/screenshots/capture.sh --p0-only       # only the 8 must-have scenes
-./tool/screenshots/capture.sh --include-incall  # also the in-call scene (may hit mic TCC prompt)
+./tool/screenshots/capture.sh                              # all four platforms
+./tool/screenshots/capture.sh --platforms desktop,ios      # a subset
+./tool/screenshots/capture.sh --platforms desktop --build  # force a rebuild
+./tool/screenshots/capture.sh --platforms desktop --reset  # fresh macOS seed
 ```
 
-**While it runs, don't touch mouse/keyboard** — the scene walk owns window
-focus (same constraint as the real-UI test harness).
+Each platform launches **one real toxee instance** with the L3 debug surface
+(`MCP_BINDING=skill` + `TOXEE_L3_TEST=true`), seeds demo data **locally** (no
+peer, no P2P), drives the real UI, and captures:
 
-Plan + design rationale:
-`docs/plans/2026-06-03-product-screenshots-and-landing-page.md`.
+| scene | what |
+|---|---|
+| `c2c` | 1:1 chat with "Alex Chen" — delivered bubbles both directions |
+| `group_chat` | the "Weekend Hikers 🏔" group with multi-sender history |
+| `new_application` | the New-Contacts page with a pending "Jordan Lee" request |
+| `self_profile` | the hero's profile (nickname, status, Tox ID + QR) |
+| `settings` | the settings page |
 
-## What it does
+While it runs, **don't steal foreground from the macOS window** (the desktop
+scene walk owns the foreground; mobile sims render off-screen).
 
-1. **Launch** `ShotA` (hero, "Mia") + `ShotB/C/D` partners via
-   `tool/mcp_test/launch_toxee_instance.sh`, with
-   `TOXEE_MULTI_RUNTIME_ROOT` + `TOXEE_INSTANCE_APP_SUPPORT_DIR` pointed at
-   the self-contained seed root `tool/screenshots/_seed_runtime/`
-   (gitignored). First run registers the personas via `l3_register_account`
-   (any nickname — the persistent seed-account marker authorizes the l3
-   tools); later runs auto-login and REUSE everything.
-2. **Doctor** the manifest (`_seed_runtime/seed_manifest.json`) against live
-   state. "Manifest present but account not restored" means something
-   external wiped the shared defaults (the fixture-C harness clears the whole
-   `com.toxee.app` domain) → exit 2, re-run with `--reset`.
-3. **Seed (idempotent)** friendships A↔B/C/D, the private NGC group
-   `Weekend Hikers 🏔` (invite + auto-accept; full-mesh loopback DHT), and
-   the scripted conversations — inbound photo (image bubble), `Trip-Plan.pdf`
-   (file bubble), a sender-side quoted reply, emoji, group chatter, pinned
-   group, muted contact.
-4. **Freshen** every run BEFORE any conversation opens: ShotB/C/D send new
-   lines so timestamps read "just now" and ShotC/D carry unread badges
-   through the whole scene walk (their conversations are never opened).
-5. **Scene walk** on the hero instance — real tabs, real tiles, real
-   overlays — capturing via `flutter_skill.screenshot` (window must be
-   foreground; actual PNG size is measured and logged, not assumed).
+## Targets (override via env)
 
-## Scenes
-
-| P0 (hard-fail) | P1 (warn-only) | P2 (flag) |
+| platform | default device | env override |
 |---|---|---|
-| 01 conversations (master-detail, badges/pin/mute) | 09 incoming call (ringing) | 15 in-call (`--include-incall`) |
-| 02 hero chat (photo/reply/emoji) | 10 outgoing call (ringing) | |
-| 03 group chat | 11 zh locale | |
-| 04 contacts | 12 message search | |
-| 05 profile + Tox ID QR | 13 Applications/IRC | |
-| 06 settings | | |
-| 07/08 dark list + dark chat | | |
+| `desktop` | the macOS app | — |
+| `android` | first `adb` emulator | `TOXEE_SHOT_ANDROID_SERIAL` |
+| `ios` | booted iPhone, else iPhone 16 Pro | `TOXEE_SHOT_IOS_UDID` |
+| `ipad` | booted iPad, else iPad Pro 13-inch (M4) | `TOXEE_SHOT_IPAD_UDID` |
 
-Call shots are taken in the RINGING state on both sides: the AV service is
-already initialized at session boot, but mic capture only starts on accept —
-so no TCC prompt is involved (the in-call scene is opt-in for that reason).
+Mobile devices/sims must exist; the tool boots a simulator if needed and builds
++ installs the debug app itself.
+
+## How it works
+
+Everything is seeded **per-instance via new debug-only L3 tools** — no fragile
+cross-platform P2P. The tools are gated to test/seed accounts and tree-shaken
+from release builds:
+
+- `l3_seed_friend {userId, nickname}` — add a confirmed friend by public key
+  (`tox_friend_add_norequest`, no handshake) with a cached display name.
+- `l3_inject_c2c_text {userId, text, isSelf, epochMs}` — materialize a DELIVERED
+  text bubble in either direction.
+- `l3_inject_friend_application {userId, nickname, wording}` — a pending inbound
+  friend request for the New-Contacts page.
+- `l3_create_group` + `l3_inject_group_text` — the group + its history.
+- `l3_open_self_profile` / `l3_pop_to_root` — layout-agnostic navigation hooks.
+
+Navigation is **layout-aware**: desktop + iPad render the wide master-detail
+shell (`l3_open_chat` binds the right pane); Android + iPhone render the narrow
+bottom-nav shell (chats open as a pushed route, popped via `l3_pop_to_root`
+between scenes). Capture is `flutter_skill.screenshot`, which renders the
+Flutter layer (`RenderRepaintBoundary.toImage`) identically on every platform —
+no host-window grab, no screen-recording permission.
+
+### Per-platform launch + VM-service discovery
+
+- **desktop** — built via `run_toxee.sh` and launched through
+  `tool/mcp_test/launch_toxee_instance.sh` (ws URI from `instance.json`). Self-
+  heals a missing Xcode debug-dylib with one clean rebuild.
+- **android** — `flutter build apk` (NDK FFI via `tool/build_android_ffi.sh`),
+  `adb install`, `am start`; the VM URI is read from **logcat** and the port is
+  `adb forward`ed to the host. App data is cleared each run (`pm clear`).
+- **ios / ipad** — `flutter build ios --simulator` + the tim2tox FFI framework
+  injected into `Runner.app/Frameworks` (`tool/build_ios_sim_ffi.sh`), installed
+  via `simctl`; the VM URI is read from the unified **log stream** and reached
+  directly (the sim shares the host's localhost). App reinstalled each run.
+
+Mobile runs always start from a fresh account (the equivalent of desktop
+`--reset`) for deterministic captures.
 
 ## Maintenance notes
 
-- The app must be built with the L3 surface compiled in
-  (`MCP_BINDING=skill` + `TOXEE_L3_TEST=true` dart-defines). `--build` does
-  this via `TOXEE_BUILD_ONLY=1 ./run_toxee.sh`.
-- Partner instances run from per-instance `.app` copies under
-  `_seed_runtime/app_copies/`, refreshed by executable-mtime comparison
-  (stale-dylib gotcha).
-- `--reset` is SURGICAL: seed root + container `multi_instance/Shot*`
-  leftovers + only the `toxee_shot*.`-prefixed `com.toxee.app` defaults keys.
-  It never runs `defaults delete com.toxee.app`.
-- Generated media (procedural lake photo PNG + a tiny valid PDF) is cached
-  under `_seed_runtime/generated_media/`.
-- The product page consumes the curated copies in `doc/product/assets/`
-  (committed); refresh them with `--sync-site`.
+- The macOS seed account persists under `_seed_runtime/` (gitignored); `--reset`
+  rebuilds it. Mobile state lives on the device/sim and is cleared each run.
+- The debug app must be built with the L3 surface (`--build` does this).
+- `screenshot/` is gitignored — curate/copy out anything you want to keep.
+- A per-machine NDK override (when the default Flutter NDK is a partial install)
+  goes in the gitignored `android/local.properties` as
+  `flutter.ndkVersion=<version>`; committed config stays portable.

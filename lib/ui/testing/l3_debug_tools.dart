@@ -103,6 +103,10 @@ L3OpenAddGroupDialogInvoker? _l3OpenAddGroupDialogInvoker;
 typedef L3OpenChatInvoker =
     Future<bool> Function({String? userId, String? groupId});
 L3OpenChatInvoker? _l3OpenChatInvoker;
+typedef L3OpenSelfProfileInvoker = Future<bool> Function();
+L3OpenSelfProfileInvoker? _l3OpenSelfProfileInvoker;
+typedef L3PopToRootInvoker = Future<bool> Function();
+L3PopToRootInvoker? _l3PopToRootInvoker;
 typedef L3OpenGlobalSearchInvoker = Future<bool> Function();
 L3OpenGlobalSearchInvoker? _l3OpenGlobalSearchInvoker;
 typedef L3OpenGroupAddMemberInvoker = Future<bool> Function(String groupId);
@@ -162,6 +166,14 @@ void registerL3OpenAddGroupDialogInvoker(L3OpenAddGroupDialogInvoker? fn) {
 
 void registerL3OpenChatInvoker(L3OpenChatInvoker? fn) {
   if (kL3TestSurfaceEnabled) _l3OpenChatInvoker = fn;
+}
+
+void registerL3OpenSelfProfileInvoker(L3OpenSelfProfileInvoker? fn) {
+  if (kL3TestSurfaceEnabled) _l3OpenSelfProfileInvoker = fn;
+}
+
+void registerL3PopToRootInvoker(L3PopToRootInvoker? fn) {
+  if (kL3TestSurfaceEnabled) _l3PopToRootInvoker = fn;
 }
 
 void registerL3OpenGlobalSearchInvoker(L3OpenGlobalSearchInvoker? fn) {
@@ -344,6 +356,8 @@ void registerL3DebugToolsIfEnabled() {
     'l3_set_export_save_path, l3_set_account_import_pick_path, '
     'l3_set_attachment_pick_path, '
     'l3_reply_text, l3_forward_message, l3_inject_c2c_custom, '
+    'l3_inject_c2c_text, l3_seed_friend, l3_inject_friend_application, '
+    'l3_open_self_profile, l3_pop_to_root, '
     'l3_set_setting, l3_set_pinned, l3_set_self_profile, '
     'l3_simulate_notification_tap, l3_set_c2c_recv_opt, l3_send_file, '
     'l3_create_group, l3_join_group, l3_leave_group, l3_send_group_text, '
@@ -362,6 +376,11 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3ReplyTextEntry());
   addMcpTool(_l3ForwardMessageEntry());
   addMcpTool(_l3InjectC2cCustomEntry());
+  addMcpTool(_l3InjectC2cTextEntry());
+  addMcpTool(_l3SeedFriendEntry());
+  addMcpTool(_l3InjectFriendApplicationEntry());
+  addMcpTool(_l3OpenSelfProfileEntry());
+  addMcpTool(_l3PopToRootEntry());
   addMcpTool(_l3DumpStateEntry());
   addMcpTool(_l3ClearHistoryEntry());
   addMcpTool(_l3ClearActiveConversationEntry());
@@ -898,6 +917,332 @@ MCPCallEntry _l3InjectC2cCustomEntry() => MCPCallEntry.tool(
         'customData': StringSchema(description: 'Alias for data.'),
       },
     ),
+  ),
+);
+
+/// SEED HARNESS: materialize one DELIVERED plain-text C2C bubble (inbound or
+/// sender-side) without a peer — for the product-screenshot pipeline. Plain
+/// text (not custom), so the chat renders a normal bubble.
+MCPCallEntry _l3InjectC2cTextEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_inject_c2c_text: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_inject_c2c_text: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    String norm(Object? v) {
+      var id = v?.toString().trim() ?? '';
+      if (id.startsWith('c2c_')) id = id.substring(4);
+      return id;
+    }
+
+    var userId = norm(request['userId'] ?? request['conversationId']);
+    if (userId.isEmpty) userId = ffi.activePeerId ?? '';
+    final text = (request['text'] ?? '').toString();
+    if (userId.isEmpty || text.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_inject_c2c_text: need "userId" and "text"',
+        parameters: {'ok': false, 'error': 'bad_args'},
+      );
+    }
+    final groupReject = await _rejectIfGroupTarget(
+      'l3_inject_c2c_text',
+      userId,
+      ffi.knownGroups,
+      ffi.quitGroups,
+    );
+    if (groupReject != null) return groupReject;
+    final isSelf =
+        (request['isSelf'] ?? 'false').toString().toLowerCase() == 'true';
+    final epochMs = int.tryParse((request['epochMs'] ?? '').toString());
+    try {
+      final ingested = ffi.ingestC2cText(
+        peer: userId,
+        text: text,
+        isSelf: isSelf,
+        epochMs: epochMs,
+      );
+      return MCPCallResult(
+        message: ingested ? 'c2c text ingested' : 'skipped (blocked)',
+        parameters: {
+          'ok': true,
+          'ingested': ingested,
+          'userId': userId,
+          'isSelf': isSelf,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_inject_c2c_text failed', e, st);
+      return MCPCallResult(
+        message: 'l3_inject_c2c_text: failed: $e',
+        parameters: {'ok': false, 'error': 'inject_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_inject_c2c_text',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING, C2C only): materialize one '
+        'DELIVERED plain-text C2C bubble via the FfiChatService ingestion '
+        'pipeline WITHOUT a peer. isSelf=false (default) → inbound from userId '
+        '(bumps unread when the chat is inactive); isSelf=true → sender-side '
+        'delivered bubble (no unread, no offline "sending" state). Pass epochMs '
+        'to order a scripted back-and-forth.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'userId': StringSchema(
+          description:
+              'Conversation peer (bare or c2c_). Defaults to active chat.',
+        ),
+        'text': StringSchema(description: 'Bubble text.'),
+        'isSelf': StringSchema(
+          description: 'true = sender-side delivered; false (default) = inbound.',
+        ),
+        'epochMs': StringSchema(
+          description: 'Optional epoch millis to control ordering.',
+        ),
+      },
+    ),
+  ),
+);
+
+/// SEED HARNESS: add a confirmed local friend by public key (tox norequest add)
+/// with a cached display name — so a seeded C2C / group conversation renders a
+/// real name instead of the raw key, with no real handshake. Idempotent.
+MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_seed_friend: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_seed_friend: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    final userId = (request['userId'] ?? '').toString().trim();
+    final nickname = (request['nickname'] ?? '').toString().trim();
+    if (userId.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_seed_friend: need "userId"',
+        parameters: {'ok': false, 'error': 'missing_user_id'},
+      );
+    }
+    if (userId.startsWith('group_')) {
+      return MCPCallResult(
+        message: 'l3_seed_friend: groups unsupported',
+        parameters: {'ok': false, 'error': 'group_unsupported'},
+      );
+    }
+    try {
+      // Idempotent: only norequest-add when this pubkey isn't already a friend
+      // (a re-add returns TOX_ERR_FRIEND_ADD_ALREADY_SENT → acceptFriend throws).
+      final pk = _toxIdPublicKey(userId);
+      final friends = await ffi.getFriendList();
+      final exists = friends.any((f) => _toxIdPublicKey(f.userId) == pk);
+      if (!exists) {
+        // acceptFriendRequest() → tox_friend_add_norequest(public_key): adds a
+        // friend by key with no incoming request required
+        // (AcceptFriendApplication never consults a queue), so this works for a
+        // fully synthetic peer.
+        await ffi.acceptFriendRequest(userId);
+      }
+      if (nickname.isNotEmpty) {
+        await ffi.seedLocalFriendNickname(userId, nickname);
+      }
+      await FakeUIKit.instance.im?.refreshContacts();
+      await FakeUIKit.instance.im?.refreshConversations();
+      AppLogger.info(
+        '[L3] l3_seed_friend: ${exists ? 'updated' : 'added'} '
+        '${pk.substring(0, pk.length.clamp(0, 16))} as "$nickname"',
+      );
+      return MCPCallResult(
+        message: 'friend seeded',
+        parameters: {
+          'ok': true,
+          'userId': userId,
+          'nickname': nickname,
+          'alreadyFriend': exists,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_seed_friend failed', e, st);
+      return MCPCallResult(
+        message: 'l3_seed_friend: failed: $e',
+        parameters: {'ok': false, 'error': 'seed_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_seed_friend',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING): add a confirmed local '
+        'friend by public key via tox_friend_add_norequest (no handshake) and '
+        'cache its display name, so a seeded conversation renders a real name. '
+        'Idempotent — re-runs only refresh the cached nickname.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'userId': StringSchema(description: 'Friend Tox ID / public key.'),
+        'nickname': StringSchema(description: 'Display name to cache.'),
+      },
+      required: ['userId'],
+    ),
+  ),
+);
+
+/// SEED HARNESS: materialize a pending INBOUND friend application (New-Friends
+/// page) without a peer, optionally with the applicant's display name.
+MCPCallEntry _l3InjectFriendApplicationEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_inject_friend_application: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_inject_friend_application: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    final userId = (request['userId'] ?? '').toString().trim();
+    final nickname = (request['nickname'] ?? '').toString().trim();
+    final wording = (request['wording'] ?? '').toString();
+    if (userId.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_inject_friend_application: need "userId"',
+        parameters: {'ok': false, 'error': 'missing_user_id'},
+      );
+    }
+    if (userId.startsWith('group_')) {
+      return MCPCallResult(
+        message: 'l3_inject_friend_application: groups unsupported',
+        parameters: {'ok': false, 'error': 'group_unsupported'},
+      );
+    }
+    try {
+      ffi.seedFriendApplication(
+        userId: userId,
+        wording: wording.isEmpty ? 'Hi! Add me on Tox?' : wording,
+        nickName: nickname.isEmpty ? null : nickname,
+      );
+      // The New-Contacts list queries getFriendApplicationList on open; the
+      // contacts badge picks it up on the next 5s steady poll. Nudge contacts
+      // so the badge updates promptly too.
+      await FakeUIKit.instance.im?.refreshContacts();
+      AppLogger.info(
+        '[L3] l3_inject_friend_application: seeded '
+        '${userId.substring(0, userId.length.clamp(0, 16))} ("$nickname")',
+      );
+      return MCPCallResult(
+        message: 'friend application seeded',
+        parameters: {'ok': true, 'userId': userId, 'nickname': nickname},
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_inject_friend_application failed', e, st);
+      return MCPCallResult(
+        message: 'l3_inject_friend_application: failed: $e',
+        parameters: {'ok': false, 'error': 'inject_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_inject_friend_application',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING): materialize one pending '
+        'INBOUND friend application (the New-Friends page) without a peer. '
+        'Optional "nickname" sets the applicant display name (Tox requests '
+        'carry none); "wording" is the request message.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'userId': StringSchema(description: 'Applicant Tox ID / public key.'),
+        'nickname': StringSchema(description: 'Applicant display name.'),
+        'wording': StringSchema(description: 'Request message.'),
+      },
+      required: ['userId'],
+    ),
+  ),
+);
+
+/// Navigation-stability hook: open the self-profile page (Tox ID + QR) through
+/// the SAME layout-aware showSelfProfile() the user-avatar tap uses (right pane
+/// on desktop/tablet, fullscreen route on phones). UNGATED like l3_open_chat.
+MCPCallEntry _l3OpenSelfProfileEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_open_self_profile: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    final invoker = _l3OpenSelfProfileInvoker;
+    if (invoker == null) {
+      return MCPCallResult(
+        message: 'l3_open_self_profile: invoker not registered',
+        parameters: {'ok': false, 'error': 'invoker_not_registered'},
+      );
+    }
+    final opened = await invoker();
+    AppLogger.info(
+      '[L3] l3_open_self_profile: ${opened ? 'opened' : 'FAILED to open'}',
+    );
+    return MCPCallResult(
+      message: opened ? 'self profile opened' : 'l3_open_self_profile failed',
+      parameters: {'ok': opened},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_open_self_profile',
+    description:
+        'Navigation-stability hook: open the self-profile page (Tox ID + QR) '
+        'via the layout-aware showSelfProfile() the avatar tap uses. Works on '
+        'desktop/tablet (right pane) and phones (fullscreen route).',
+    inputSchema: ObjectSchema(properties: {}),
+  ),
+);
+
+/// Navigation-stability hook: pop every pushed route / dialog back to the
+/// HomePage root (the mobile message route, the profile route/modal, desktop
+/// dialogs). Layout-agnostic — lets the screenshot pipeline re-navigate from a
+/// known state between scenes on phones (where l3_force_home_root only swaps
+/// the tab and does not pop the UIKit-pushed route).
+MCPCallEntry _l3PopToRootEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final invoker = _l3PopToRootInvoker;
+    if (invoker == null) {
+      return MCPCallResult(
+        message: 'l3_pop_to_root: invoker not registered',
+        parameters: {'ok': false, 'error': 'invoker_not_registered'},
+      );
+    }
+    final ok = await invoker();
+    return MCPCallResult(
+      message: ok ? 'popped to root' : 'l3_pop_to_root failed',
+      parameters: {'ok': ok},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_pop_to_root',
+    description:
+        'Navigation-stability hook: pop all pushed routes / dialogs back to the '
+        'HomePage root (mobile message/profile routes, desktop modals). '
+        'Layout-agnostic; use between screenshot scenes on phones.',
+    inputSchema: ObjectSchema(properties: {}),
   ),
 );
 

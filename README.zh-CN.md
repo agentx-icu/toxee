@@ -31,15 +31,19 @@
 
 ## 功能截图
 
-真实应用（macOS）一览，点击图片查看原图。完整功能展示见自包含产品页 **[`doc/product/index.html`](doc/product/index.html)**（在浏览器中打开）；全部图片位于 [`doc/product/assets/`](doc/product/assets)。
+真实应用，一套 Flutter 代码，运行于**桌面（macOS）、Android、iPad 与 iOS**（点击图片查看原图）。全部图片位于 [`doc/product/assets/`](doc/product/assets)；完整功能展示见自包含产品页 **[`doc/product/index.html`](doc/product/index.html)**（在浏览器中打开）。
 
-| 会话列表 | 群聊 | 个人资料 & Tox ID 二维码 |
-| :---: | :---: | :---: |
-| [![会话列表与富消息聊天](doc/product/assets/01_conversations.png)](doc/product/assets/01_conversations.png) | [![群聊](doc/product/assets/03_chat_group.png)](doc/product/assets/03_chat_group.png) | [![个人资料与 Tox ID 二维码名片](doc/product/assets/05_profile_qr.png)](doc/product/assets/05_profile_qr.png) |
-| **深色主题** | **来电** | **消息搜索** |
-| [![深色主题聊天](doc/product/assets/08_dark_chat.png)](doc/product/assets/08_dark_chat.png) | [![来电界面](doc/product/assets/09_incoming_call.png)](doc/product/assets/09_incoming_call.png) | [![消息搜索](doc/product/assets/12_search.png)](doc/product/assets/12_search.png) |
+**同一个单聊，在每个平台上：**
 
-产品页还展示：富消息（图片 / 文件 / 引用回复）、带在线状态的联系人、浅色 / 深色主题，以及多语言界面（en / 中文 / 日本語 / 한국어 / العربية）。
+| 桌面 | iPad | Android | iOS |
+| :---: | :---: | :---: | :---: |
+| [![macOS 上的聊天](doc/product/assets/desktop/c2c.png)](doc/product/assets/desktop/c2c.png) | [![iPad 上的聊天](doc/product/assets/ipad/c2c.png)](doc/product/assets/ipad/c2c.png) | [![Android 上的聊天](doc/product/assets/android/c2c.png)](doc/product/assets/android/c2c.png) | [![iOS 上的聊天](doc/product/assets/ios/c2c.png)](doc/product/assets/ios/c2c.png) |
+
+**更多（桌面）：**
+
+| 群聊 | 新的朋友 | 个人资料 & Tox ID 二维码 | 设置 |
+| :---: | :---: | :---: | :---: |
+| [![群聊](doc/product/assets/desktop/group_chat.png)](doc/product/assets/desktop/group_chat.png) | [![好友申请](doc/product/assets/desktop/new_application.png)](doc/product/assets/desktop/new_application.png) | [![个人资料与 Tox ID 二维码名片](doc/product/assets/desktop/self_profile.png)](doc/product/assets/desktop/self_profile.png) | [![设置](doc/product/assets/desktop/settings.png)](doc/product/assets/desktop/settings.png) |
 
 > 这些截图由 `./tool/screenshots/capture.sh` 从运行中的应用自动生成 —— 详见 [`tool/screenshots/README.md`](tool/screenshots/README.md)。
 
