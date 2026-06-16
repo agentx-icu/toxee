@@ -279,6 +279,13 @@ resolve_ffi_framework_path() {
   local c
   for c in "${candidates[@]}"; do
     if [[ -d "$c" && -f "$c/tim2tox_ffi" ]]; then
+      # build_ios_sim_ffi.sh writes the SIMULATOR framework to the same
+      # build/ios/ path. Packaging a simulator slice into an iphoneos (real
+      # device) app crashes at launch, so skip any IOSSIMULATOR-platform binary.
+      if vtool -show-build "$c/tim2tox_ffi" 2>/dev/null | grep -qi "IOSSIMULATOR"; then
+        echo "resolve_ffi_framework_path: skipping simulator framework at $c" >&2
+        continue
+      fi
       echo "$c"
       return
     fi

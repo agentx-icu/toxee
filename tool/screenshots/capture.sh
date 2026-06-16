@@ -105,7 +105,7 @@ sync_site() {
   case "$platform" in android|ios) w=0 ;; esac
   for s in c2c group_chat new_application self_profile settings; do
     src="$OUT_ROOT/$platform/$s.png"
-    [[ -f "$src" ]] || continue
+    [[ -f "$src" ]] || { warn "sync-site: $platform/$s.png missing — committed asset left stale"; continue; }
     if [[ "$w" -gt 0 ]]; then
       sips --resampleWidth "$w" "$src" --out "$dst/$s.png" >/dev/null 2>&1
     else
@@ -157,8 +157,11 @@ capture_desktop() {
 # ───────────────────────────── android ──────────────────────────────────────
 capture_android() {
   local serial="${TOXEE_SHOT_ANDROID_SERIAL:-}"
-  [[ -z "$serial" ]] && serial="$(adb devices | awk 'NR>1 && $2=="device"{print $1; exit}')"
-  [[ -z "$serial" ]] && { err "android: no device (start the toxee_test emulator)"; return 1; }
+  # Auto-default to an EMULATOR only — this run does `pm clear com.toxee.app`,
+  # so never auto-target (and wipe) a connected physical device. Targeting a
+  # real device is opt-in via TOXEE_SHOT_ANDROID_SERIAL.
+  [[ -z "$serial" ]] && serial="$(adb devices | awk 'NR>1 && $2=="device" && $1 ~ /^emulator-/{print $1; exit}')"
+  [[ -z "$serial" ]] && { err "android: no emulator running (start one, or set TOXEE_SHOT_ANDROID_SERIAL to a device you're OK clearing — the run does \`pm clear\`)"; return 1; }
   if ! find "$REPO_ROOT/android/app/src/main/jniLibs" -name libtim2tox_ffi.so 2>/dev/null | grep -q .; then
     step "android: building FFI .so (tool/build_android_ffi.sh)"
     (cd "$REPO_ROOT" && bash tool/build_android_ffi.sh)
