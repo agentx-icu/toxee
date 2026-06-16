@@ -1134,12 +1134,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               width: ResponsiveLayout.responsiveSidebarWidth(
                                 context,
                               ),
-                              // The custom 48px title bar (DesktopWindowFrame)
-                              // sits above the whole app and already reserves
-                              // space for the macOS traffic lights, so the
-                              // sidebar needs no extra top inset here.
+                              // Frameless window: the macOS traffic lights
+                              // overlay the top-left of the rail, so reserve
+                              // vertical space here to keep the user avatar
+                              // clear of them. The rail background still fills
+                              // up to the top edge behind the lights.
                               child: Column(
                                 children: [
+                                  if (PlatformUtils.isMacOS)
+                                    const SizedBox(
+                                      height: ResponsiveLayout
+                                          .macTitleBarReservedHeight,
+                                    ),
                                   Expanded(child: _uikitSidebar()),
                                 ],
                               ),

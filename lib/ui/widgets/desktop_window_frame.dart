@@ -6,20 +6,18 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../util/platform_utils.dart';
 
-const double kDesktopWindowFrameHeight = 48.0;
+/// Height of the transparent draggable strip at the top of the frameless window.
+const double kDesktopTitleBarDragHeight = 38.0;
 
-/// Width reserved at the leading edge of the title bar on macOS so the custom
-/// title content never sits under the native traffic-light buttons (which are
-/// shown by `window_manager` with `windowButtonVisibility: true`).
-const double _kMacTrafficLightReserve = 72.0;
-
-/// Shared desktop-only custom title bar used after the native system title bar
-/// is hidden via `window_manager`.
+/// Frameless desktop window chrome, matching the reference design.
 ///
-/// Window controls follow each platform's convention, like the reference
-/// design: on macOS the native traffic lights stay at the top-left and we draw
-/// no buttons; on Windows/Linux we draw native-styled min/max/close at the
-/// top-right.
+/// There is NO separate title-bar strip and NO app-name/icon label — the app
+/// content (nav rail, conversation list, chat) fills to the very top edge. On
+/// macOS the native traffic lights overlay the top-left of the nav rail (which
+/// reserves vertical space for them so the avatar sits clear), and a
+/// transparent drag strip across the top lets the window be moved while taps
+/// fall through to the header content below. On Windows/Linux the
+/// native-styled caption buttons sit at the top-right.
 class DesktopWindowFrame extends StatefulWidget {
   const DesktopWindowFrame({super.key, required this.child});
 
@@ -83,87 +81,63 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
       return widget.child;
     }
 
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
     final isMac = Platform.isMacOS;
-    final titleColor = scheme.onSurface;
+    // Width occupied by the Windows/Linux caption buttons (3 × 46).
+    const captionWidth = 46.0 * 3;
 
-    return ColoredBox(
-      color: theme.scaffoldBackgroundColor,
-      child: Column(
-        children: [
-          Material(
-            color: scheme.surface,
-            child: Container(
-              height: kDesktopWindowFrameHeight,
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: scheme.outlineVariant),
-                ),
-              ),
+    return Stack(
+      children: [
+        // Content fills the whole window — no title-bar strip pushing it down.
+        Positioned.fill(child: widget.child),
+
+        // Transparent window-drag strip. `HitTestBehavior.translucent` + a
+        // pan-only recognizer means taps fall through to the header content
+        // (search box, chat header, action buttons) while a drag moves the
+        // window. Kept clear of the native macOS traffic lights (left) and of
+        // the caption buttons (right, Windows/Linux).
+        Positioned(
+          top: 0,
+          left: isMac ? 78 : 0,
+          right: isMac ? 0 : captionWidth,
+          height: kDesktopTitleBarDragHeight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onPanStart: (_) => unawaited(windowManager.startDragging()),
+            child: const SizedBox.expand(),
+          ),
+        ),
+
+        // Windows / Linux caption buttons at the top-right. macOS uses its
+        // native traffic lights, so nothing is drawn there.
+        if (!isMac)
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // macOS: keep clear of the native traffic-light cluster.
-                  if (isMac) const SizedBox(width: _kMacTrafficLightReserve),
-                  Expanded(
-                    child: DragToMoveArea(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onDoubleTap: _toggleMaximize,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isMac ? 4 : 14,
-                          ),
-                          child: Row(
-                            children: [
-                              Image.asset(
-                                isDark
-                                    ? 'assets/app_icon_white.png'
-                                    : 'assets/app_icon.png',
-                                width: 18,
-                                height: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Toxee',
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: titleColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+                  _WindowControlButton(
+                    icon: Icons.remove_rounded,
+                    onPressed: () => windowManager.minimize(),
                   ),
-                  // Windows / Linux: native-styled caption buttons at top-right.
-                  // macOS uses its native traffic lights, so no buttons here.
-                  if (!isMac) ...[
-                    _WindowControlButton(
-                      icon: Icons.remove_rounded,
-                      onPressed: () => windowManager.minimize(),
-                    ),
-                    _WindowControlButton(
-                      icon: _isMaximized
-                          ? Icons.filter_none_rounded
-                          : Icons.crop_square_rounded,
-                      onPressed: _toggleMaximize,
-                    ),
-                    _WindowControlButton(
-                      icon: Icons.close_rounded,
-                      danger: true,
-                      onPressed: () => windowManager.close(),
-                    ),
-                  ],
+                  _WindowControlButton(
+                    icon: _isMaximized
+                        ? Icons.filter_none_rounded
+                        : Icons.crop_square_rounded,
+                    onPressed: _toggleMaximize,
+                  ),
+                  _WindowControlButton(
+                    icon: Icons.close_rounded,
+                    danger: true,
+                    onPressed: () => windowManager.close(),
+                  ),
                 ],
               ),
             ),
           ),
-          Expanded(child: widget.child),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -211,7 +185,7 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
             duration: const Duration(milliseconds: 140),
             curve: Curves.easeOutCubic,
             width: 46,
-            height: kDesktopWindowFrameHeight,
+            height: kDesktopTitleBarDragHeight,
             color: backgroundColor,
             alignment: Alignment.center,
             child: Icon(widget.icon, size: 17, color: iconColor),
