@@ -193,10 +193,14 @@ cat > "$OUT_FW/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign --force --sign - "$OUT_FW" 2>/dev/null || warn "codesign framework failed"
+# These artifacts are dlopen'd from the app bundle, so a bad signature is a hard
+# failure (the simulator loader rejects it) — abort instead of warning + DONE.
+codesign --force --sign - "$OUT_FW" || { err "codesign framework failed"; exit 1; }
+codesign --verify --strict "$OUT_FW" || { err "codesign --verify failed for framework"; exit 1; }
 
 install_name_tool -id "@rpath/libtim2tox_ffi.dylib" "$UNIVERSAL"
-codesign --force --sign - "$UNIVERSAL" 2>/dev/null || warn "codesign dylib failed (sim may reject it)"
+codesign --force --sign - "$UNIVERSAL" || { err "codesign dylib failed"; exit 1; }
+codesign --verify --strict "$UNIVERSAL" || { err "codesign --verify failed for dylib"; exit 1; }
 
 info "Framework: $OUT_FW"
 info "Dylib:     $UNIVERSAL"
