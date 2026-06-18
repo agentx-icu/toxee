@@ -261,6 +261,12 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
     super.initState();
     AppTheme.mode.addListener(_syncUIKitThemeBrightness);
     _syncUIKitThemeBrightness();
+    // The UIKit conversation app-bar has its own brightness toggle. Route it
+    // through AppTheme (our single source of truth) so the Material ThemeData
+    // — scaffold background, bottom nav — switches together with the UIKit
+    // colors instead of leaving half the screen in the old theme. AppTheme's
+    // listener above then syncs the UIKit brightness back.
+    TencentCloudChatTheme.onBrightnessToggleRequest = _toggleThemeBrightness;
     // Observe app lifecycle so we can re-emit the unread total on resume,
     // keeping the OS dock/launcher badge accurate when the user reads or
     // dismisses messages on another device while toxee is backgrounded.
@@ -275,6 +281,19 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
         ? Brightness.dark
         : Brightness.light;
     TencentCloudChatTheme.init(brightness: brightness);
+  }
+
+  /// Flips whatever brightness is currently *visible* to its opposite, picking
+  /// an explicit light/dark mode (resolving `system` against the OS) so the
+  /// in-UIKit toggle always produces a visible change and keeps both theme
+  /// systems in sync.
+  void _toggleThemeBrightness() {
+    final mode = AppTheme.mode.value;
+    final isDark = mode == ThemeMode.dark ||
+        (mode == ThemeMode.system &&
+            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.dark);
+    unawaited(AppTheme.set(isDark ? ThemeMode.light : ThemeMode.dark));
   }
 
   @override
@@ -297,6 +316,10 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AppTheme.mode.removeListener(_syncUIKitThemeBrightness);
+    if (TencentCloudChatTheme.onBrightnessToggleRequest ==
+        _toggleThemeBrightness) {
+      TencentCloudChatTheme.onBrightnessToggleRequest = null;
+    }
     super.dispose();
   }
 

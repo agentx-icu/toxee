@@ -45,7 +45,7 @@ class DesignTokens {
 
   // ── Surfaces (light) ──
   static const Color scaffoldLight = Color(0xFFFFFFFF);
-  static const Color railLight = Color(0xFFEBEEF5); // periwinkle (sampled #E1EBF6)
+  static const Color railLight = Color(0xFFE4E8F5); // periwinkle (sampled #E4E8F5)
   static const Color listPanelLight = Color(0xFFFFFFFF);
   static const Color chatBgLight = Color(0xFFFFFFFF);
   static const Color selectedLight = Color(0xFFE5ECF4); // selected conv row
@@ -67,13 +67,13 @@ class DesignTokens {
   static const Color cardDark = Color(0xFF232427);
 
   // ── Message bubbles ──
-  static const Color selfBubbleLight = Color(0xFFE8F0FE); // pale blue (sampled)
+  static const Color selfBubbleLight = Color(0xFFD1E3FF); // Feishu sent blue (sampled #D1E3FF)
   static const Color selfBubbleTextLight = Color(0xFF1F2329);
   static const Color otherBubbleLight = Color(0xFFF3F4F6); // gray (sampled)
   static const Color otherBubbleTextLight = Color(0xFF1F2329);
-  static const Color selfBubbleDark = Color(0xFF15315F); // deep blue (sampled)
+  static const Color selfBubbleDark = Color(0xFF123062); // Feishu sent blue dark (sampled #123062)
   static const Color selfBubbleTextDark = Color(0xFFE6E8EB);
-  static const Color otherBubbleDark = Color(0xFF26292E); // sampled #1F2329, lifted
+  static const Color otherBubbleDark = Color(0xFF262626); // Feishu received dark (sampled #262626)
   static const Color otherBubbleTextDark = Color(0xFFE6E8EB);
   static const double bubbleRadius = 12.0;
 

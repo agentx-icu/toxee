@@ -112,8 +112,16 @@ Future<int> _main(List<String> args) async {
     // Best-effort: let DHT connect so the profile shows "online" (cosmetic).
     await s.waitConnectedBestEffort(secs: 10);
 
-    // ── light theme + english, then the 5 scenes ────────────────────────
-    await s.l3('l3_set_setting', {'key': 'themeMode', 'value': 'light'});
+    // ── theme + english, then the 5 scenes ───────────────────────────────
+    // Theme defaults to light; override with TOXEE_SHOT_THEME=dark to capture
+    // the dark palette (e.g. to verify the dark theme covers every surface).
+    final shotTheme = (Platform.environment['TOXEE_SHOT_THEME'] ?? 'light')
+        .toLowerCase()
+        .trim();
+    await s.l3('l3_set_setting', {
+      'key': 'themeMode',
+      'value': shotTheme == 'dark' ? 'dark' : 'light',
+    });
     await s.l3('l3_set_setting', {'key': 'languageCode', 'value': 'en'});
     if (isDesktop) await s.setWindowBounds(_windowW, _windowH);
     await s.waitMs(900);
