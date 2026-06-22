@@ -1069,3 +1069,72 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   attempts; the runner's `_maxRealUiAttempts=2` retries on ANY failure — read the
   first complete attempt's RESULTS, don't wait for the wasteful retry). Gates:
   analyze 217/0-new, validate-only 0, INDEX 178 playbooks.
+
+- 2026-06-22 **RUN PHASE (post-Feishu-restyle re-validation, session N).** Ran the
+  written-unrun P1/P2/P3 campaigns against the CURRENT build (toxee `de24f3d`,
+  fork `97c0a16` = Feishu restyle layered on top of the campaign fork keys; all
+  campaign keys verified present). The restyle (which landed AFTER these campaigns
+  were last validated) shifted the desktop chat layout and introduced several
+  real-UI regressions. Findings + fixes:
+
+  **CRITICAL OPS BUG FIXED — orphan app instances broke 2-process handshakes.**
+  The runner runs instances from APP COPIES named `ToxeeA-*.app` / `ToxeeB-*.app`
+  under `.multi_instance_runtime/app_copies/`. A teardown gap leaves these copies
+  ALIVE after a run (esp. after the wasteful failure-retry); a leftover B-copy
+  holds DHT bootstrap port 33446, so the NEXT campaign's loopback DHT never
+  converges → "A never received B's friend request" → handshake FAILS (0 cases
+  run). The standard `pkill -f "Toxee.app/Contents/MacOS/Toxee"` MISSES the copies
+  (path is `ToxeeB-*.app/...`, not `Toxee.app/...`). RULE: between every campaign,
+  kill with the BROAD pattern `pkill -f "Contents/MacOS/Toxee"` and verify DHT
+  ports 33445-33448 are free (`lsof -nP -iUDP | grep 3344`). Serialized helper:
+  pre-clean → run ONE campaign fully → post-clean. This alone unblocked the
+  2-process campaigns.
+
+  **CLEAN PASS (single-instance, no handshake):** rui-p1-single 5/5,
+  rui-p1-extra 2/2, rui-account-conf-extra 6/6, rui-account-deep-extra 1/1.
+
+  **REGRESSION 1 (FIXED, driver-only, high-leverage): desktop message context
+  menu wouldn't open** → broke recall/forward (p1-chat) AND any message-menu
+  campaign. ROOT CAUSE (live-probed): the restyle widened the chat pane; the SELF
+  bubble's secondary-tap Listener sits at ≈1.24× rowCenter.x (was ~1.5×), and 1.8×
+  fell off-screen, so `_openMessageMenuReal`'s bias factors missed the self bubble.
+  FIX: biasFactor → `[1.24,0.6,1.32,0.5,1.12,0.7,1.0,0.45]`
+  (`drive_real_ui_pair_chat.dart`). LIVE-VALIDATED: `forward_to_group_target` now
+  PASSES; rui-p1-chat 6/8 → 7/8.
+
+  **REGRESSION 2 (FIXED send, driver-only): desktop attachment file/photo/video
+  sent nothing.** ROOT CAUSE (live-confirmed `currentConversation=null`): the
+  row-tap chat-open left the message-input userID unbound, so toxee `_sendMedia`'s
+  `if (userId != null)` guard silently skipped `sendFile`. FIX: bind via the
+  production `_openChat` (l3_open_chat) right before the tap in
+  `_hveAttachmentPickAndSend`. LIVE-VALIDATED: SEND now works (sentId non-empty,
+  rowRendered=true). RESIDUAL: `received=false` — same-host file DELIVERY to B does
+  not complete in-window (B auto-accept exists at `fake_msg_provider.dart:144`, so
+  likely a same-host transfer timing/receive-render gap, NOT a missing feature) —
+  deeper follow-up.
+
+  **DEEP-GAP (flaky, NOT a restyle regression): rui-p1-chat `chat_recall_message`.**
+  After the menu fix, the DATA recall works (aGone=true bGone=true) but the A-side
+  LOCAL_REVOKED tombstone TIP render lags/doesn't appear (`tombstone=false`). The
+  restyle did NOT touch the tip-render files (only the file bubble) — this is the
+  same render-timing flakiness session-3's fix (`cc7792d`) documented ("can lag at
+  8s"). Data path intact; render-only.
+
+  **REMAINING (need live investigation): rui-c2c-extra 3/5** —
+  `c2c_global_search_contact_opens_chat` (tapped=true opened=false: search-result
+  tap doesn't navigate; converter DOES set userID so not the obvious null-bug) +
+  `c2c_conv_delete_cancel` (conversation_list_item `key_offstage_only` — the conv
+  row resolves fine in isolation, so this is a STATE CASCADE: the failed
+  global_search likely leaves its overlay/route covering the list. Candidate
+  driver fix: always close the search overlay at the end of global_search + pop to
+  root before conv_delete_cancel).
+
+  **STILL UNRUN (next session):** rui-c2c-deep-extra, rui-group-conf-member-extra,
+  rui-group-conf-deep-extra, rui-p2-keys, rui-p2-reply, rui-p2-verify,
+  rui-p3-writable, rui-p1-relaunch. The menu-bias fix should help all menu-driven
+  ones; expect more restyle layout regressions in group menus / member lists.
+
+  Diagnostic: new inert `probe_restyle_diag` single-app scenario
+  (`drive_real_ui_pair_chat.dart` + dispatch) seeds a friend+messages and reports
+  window size / conv-row offstage / which secondary-tap x opens the message menu —
+  the tool that root-caused REGRESSION 1.

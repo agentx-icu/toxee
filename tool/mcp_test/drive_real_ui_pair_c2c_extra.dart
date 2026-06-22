@@ -232,11 +232,27 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
     '[pair] c2c_global_search_contact_opens_chat: rowKey=$rowKey '
     'tapped=$tapped opened=$opened',
   );
+  // ALWAYS dismiss the search overlay before returning — on the NOT-opened path a
+  // still-pushed search route would cover the conversation list for the NEXT case
+  // (conv_delete_cancel saw `conversation_list_item` resolve `key_offstage_only`
+  // because the list sat behind the leaked search route). The opened path already
+  // closes via _navigateToMessage's _closeSearch, so this is a harmless no-op there.
+  if (await inst.waitKey('message_search_field', timeoutSecs: 1)) {
+    await _closeGlobalSearch(inst);
+  }
   return opened;
 }
 
 Future<bool> _c2ceConvDeleteCancel(Inst inst, String toxFriend) async {
   final convId = _c2cConvId(toxFriend);
+  // Defensive: clear any leftover pushed overlay (e.g. a search route from a
+  // prior case) so the conversation list is ONSTAGE before we seed/secondary-tap
+  // its row — otherwise the row resolves `key_offstage_only` behind the overlay.
+  if (await inst.waitKey('message_search_field', timeoutSecs: 1)) {
+    await _closeGlobalSearch(inst);
+  }
+  await inst.l3('l3_pop_to_root', {});
+  await Future<void>.delayed(const Duration(milliseconds: 400));
   if (!await _seedConvRow(inst, toxFriend)) {
     print('[pair] c2c_conv_delete_cancel: could not seed row');
     return false;

@@ -970,6 +970,15 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: override failed $override');
       return false;
     }
+    // Re-bind the chat via the production `_openChat` path right before the tap:
+    // the desktop attachment option's onTap captures the message-input's userID
+    // at build time. After a row-tap open (or a prior case) the input can carry a
+    // STALE/null userID, so `_sendMedia` would pick the file but skip `sendFile`
+    // (the `if (userId != null)` guard) and silently send nothing. l3_open_chat
+    // re-binds currentConversation + the right-pane input userID (live-probed:
+    // the send then fires), keeping the asserted action the real keyed button tap.
+    await a.openChatViaL3(userId: _pubkey(toxB));
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     if (!await a.tapKeyAt(buttonKey)) {
       print('[pair] attachment picker: $buttonKey not tappable');
       return false;

@@ -228,6 +228,9 @@ Future<int> _main(List<String> args) async {
       await _ensureRestoredHome(a, restored.a);
       await _ensureRestoredHome(b, restored.b);
     }
+    if (scenario == 'probe_restyle_diag') {
+      return await runProbeRestyleDiag(a);
+    }
     if (scenario == 'reset_friendship') {
       return await runResetFriendship(a, b, nickA, nickB);
     }

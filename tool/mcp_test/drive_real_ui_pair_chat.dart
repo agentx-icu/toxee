@@ -209,7 +209,13 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   // bubbles — e.g. a narrow inbound `[Custom]` placeholder sits far left of the
   // pane centre, so a centre/right tap misses its Listener.onPointerDown and no
   // menu opens). Cover both sides + centre.
-  const biasFactor = <double>[1.0, 1.5, 0.6, 1.8, 0.45, 0.7];
+  // Bias factors relative to the pane-center rowCenter.x. Live-probed on the
+  // Feishu-restyle layout (1280-wide window, rowCenter.x≈831): the SELF (outbound)
+  // bubble's Listener.onPointerDown sits at ≈1.24× rowCenter.x (x≈1030), NOT the
+  // old 1.5× (x≈1247, which overshoots past the bubble's right edge → no menu).
+  // The PEER (inbound) bubble sits at ≈0.6×. Cover the self range (1.12–1.32) and
+  // the peer range (0.45–0.7) densely; 1.8× fell OFF-SCREEN on this wider pane.
+  const biasFactor = <double>[1.24, 0.6, 1.32, 0.5, 1.12, 0.7, 1.0, 0.45];
   for (var attempt = 0; attempt < biasFactor.length; attempt++) {
     var tapped = false;
     try {
@@ -251,6 +257,148 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
 Future<void> _dismissMessageMenu(Inst inst) async {
   await inst.tapAt(8, 8);
   await Future<void>.delayed(const Duration(milliseconds: 500));
+}
+
+/// DIAGNOSTIC (single-app, no rebuild): seed a friend + a self/peer bubble + open
+/// chat, then report window size, conversation_list_item resolution (offstage?),
+/// per-message row center, and which absolute secondary-tap x opens the message
+/// menu. Used to root-cause the Feishu-restyle real-UI regressions.
+Future<int> runProbeRestyleDiag(Inst a) async {
+  await a.foreground();
+  await ensureHome(a, 'ProbeAlice', requireHomeMenu: false);
+  final marked = await a.markAccountTest();
+  try {
+  final ws = await a.windowSize();
+  print('PROBE marked=$marked windowSize=$ws');
+  const peer =
+      'A1B2C3D4E5F60718293041526374859617283940516273849506A1B2C3D4E5F6';
+  final seed = await a.l3('l3_seed_friend', {
+    'userId': peer,
+    'nickname': 'ProbeBob',
+  });
+  print('PROBE seed ok=${seed['ok']}');
+  await a.l3('l3_inject_c2c_text', {
+    'userId': peer,
+    'text': 'PROBE-SELF-MSG',
+    'isSelf': 'true',
+  });
+  await a.l3('l3_inject_c2c_text', {
+    'userId': peer,
+    'text': 'PROBE-PEER-MSG',
+    'isSelf': 'false',
+  });
+  final open = await a.l3('l3_open_chat', {'userId': peer});
+  print('PROBE open ok=${open['ok']}');
+  await Future<void>.delayed(const Duration(seconds: 3));
+  final convRaw = await a.l3('ui_key_center', {
+    'key': 'conversation_list_item:c2c_$peer',
+  });
+  print('PROBE convKeyCenter=$convRaw');
+  final msgs = await _c2cMessages(a, peer);
+  print('PROBE msgCount=${msgs.length}');
+  final width = ws?.w.toDouble() ?? 1280.0;
+  for (final m in msgs) {
+    final id = (m['msgID'] ?? m['id'] ?? '').toString();
+    final isSelf = m['isSelf'];
+    final rowKey = 'message_list_item:$id';
+    final rowRaw = await a.l3('ui_key_center', {'key': rowKey});
+    final rc = await a.keyCenter(rowKey);
+    print('PROBE row isSelf=$isSelf rowCenter=$rowRaw');
+    if (rc == null) continue;
+    // Scan absolute x positions across the chat pane at the row's y; report which
+    // opens the message menu (i.e. where the bubble Listener.onPointerDown is).
+    final xs = <double>[
+      rc.x,
+      rc.x * 1.24,
+      rc.x * 1.5,
+      width - 60,
+      width - 120,
+      width - 200,
+      rc.x * 0.6,
+      width * 0.5,
+      450,
+      550,
+    ];
+    for (final x in xs) {
+      if (x <= 0 || x >= width) continue;
+      try {
+        await a.secondaryTapAt(x, rc.y);
+      } on DriveError catch (e) {
+        print('PROBE   secTap x=${x.toStringAsFixed(0)} ERR=${e.message}');
+        continue;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      final opened =
+          await a.waitKeyCenter('message_menu_item:copy', timeoutSecs: 1) ||
+          await a.waitKeyCenter('message_menu_item:delete', timeoutSecs: 1);
+      print('PROBE   secTap x=${x.toStringAsFixed(0)} y=${rc.y.toStringAsFixed(0)} '
+          'menuOpened=$opened');
+      if (opened) {
+        await _dismissMessageMenu(a);
+        break;
+      }
+    }
+  }
+  // ATTACHMENT diagnostic: confirm whether the desktop file button actually
+  // sends (codex hypothesis: userID==null reaches _sendMedia → silent skip).
+  await a.l3('l3_open_chat', {'userId': peer});
+  await Future<void>.delayed(const Duration(seconds: 1));
+  final src = File('/tmp/probe_attach.txt');
+  await src.writeAsString('PROBE-ATTACH-FILE');
+  final ov = await a.l3('l3_set_attachment_pick_path', {'path': src.path});
+  print('PROBE attach override ok=${ov['ok']}');
+  final beforeIds = {
+    for (final m in await _c2cMessages(a, peer)) (m['msgID'] ?? m['id']).toString(),
+  };
+  final tapOk = await a.tapKeyAt('message_attachment_file_button');
+  print('PROBE attach fileButton tapKeyAt=$tapOk');
+  await Future<void>.delayed(const Duration(seconds: 3));
+  final afterMsgs = await _c2cMessages(a, peer);
+  final newFile = afterMsgs
+      .where((m) =>
+          !beforeIds.contains((m['msgID'] ?? m['id']).toString()) &&
+          m['mediaKind']?.toString() == 'file')
+      .length;
+  print('PROBE attach newFileMsgs=$newFile totalBefore=${beforeIds.length} '
+      'totalAfter=${afterMsgs.length}');
+  await a.l3('l3_set_attachment_pick_path', {'path': ''});
+
+  // SEARCH diagnostic: open global search, type the peer prefix, tap the conv
+  // result, report whether currentConversation became the target (opened).
+  // pop any open chat profile / overlay first so the shortcut isn't swallowed
+  await a.l3('l3_pop_to_root', {});
+  await Future<void>.delayed(const Duration(milliseconds: 600));
+  var searchOpen = false;
+  for (var i = 0; i < 4 && !searchOpen; i++) {
+    await a.foreground();
+    await a.osaSearchShortcut();
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    searchOpen = await a.waitKey('message_search_field', timeoutSecs: 3);
+  }
+  print('PROBE search opened=$searchOpen');
+  if (searchOpen) {
+    await a.focusType('message_search_field', peer.substring(0, 6));
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    const convResultKey = 'search_result_conversation:c2c_$peer';
+    final resRaw = await a.l3('ui_key_center', {'key': convResultKey});
+    print('PROBE search resultKey=$resRaw');
+    final tapped = await a.tapKeyCenter(convResultKey, timeoutSecs: 5) ||
+        await a.tryTapKey(convResultKey, retries: 2);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final cur = await a.dumpState();
+    print('PROBE search tapped=$tapped afterTap currentConversation='
+        '${cur['currentConversation']} homeShellTab=${cur['homeShellTab']}');
+  }
+  await a.shot('/tmp/probe_restyle_A.png');
+  return 0;
+  } finally {
+    // codex: the account-test marker authorizes the broad gated L3 surface — always
+    // revoke it (and clear any attachment override) even if the probe throws.
+    if (marked) {
+      await a.l3('l3_set_attachment_pick_path', {'path': ''});
+      await a.unmarkAccountTest();
+    }
+  }
 }
 
 /// Send a real OWN composer message into the chat with [tox] and return its
