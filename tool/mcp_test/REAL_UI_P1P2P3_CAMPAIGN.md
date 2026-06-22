@@ -1187,3 +1187,37 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   **OPS NOTE — handshake DHT flake.** Even with clean DHT ports, the same-host
   friend-request handshake often needs 2-3 send attempts or the runner's full
   relaunch-retry to converge (~5-8 min/campaign). Not a code bug; environmental.
+
+- 2026-06-22 **FILE-DELIVERY ROOT CAUSE FIXED → rui-native-boundary-guards GREEN.**
+  Continued on the shared file-delivery blocker. `drive_fixture_c_file` (S21/S24)
+  PASSES, proving 2-process file delivery WORKS when the sender waits for the peer
+  ONLINE and passes content (not a host path). The real-UI attachment failure was
+  FIVE compounding causes (toxee commit `694e130`, codex "Findings: none"):
+  1. BIND (toxee `_sendMedia`): the captured option userID was stale/null after a
+     master-detail switch → fall back to `UikitDataFacade.currentConversation`.
+  2. BIND (driver `_ensureBoundChat`): retry `_openChat` + verify currentConversation.
+  3. DELIVERY (driver `_waitFriendOnline`): wait for the peer ONLINE (not just
+     friend-added) before sending — wait FIRST, then bind right before the tap.
+  4. FILE-READ (l3): a sandboxed app can't read a driver `/tmp` file (FFI -6
+     "Cannot read file") → `l3_set_attachment_pick_path` now takes `contentB64` and
+     the APP materializes it under Directory.systemTemp, mirroring l3_send_file.
+  5. ASSERT (driver): the SENDER record carries the file under `filePath` (not
+     `fileName`) → match the filePath basename too.
+  **LIVE: rui-native-boundary-guards passed=2/0, attachment_entry_buttons_render
+  PASS (fileSent=true imageSent=true received=true).**
+
+  **paste-image (p2-verify):** the SEND now works again (single `_openChat` bind +
+  online-wait; the multi-retry `_ensureBoundChat` disrupted the fork Cmd+V composer
+  → reverted for paste, commit `4e9f282`). Delivery is validated-by-proxy (identical
+  to the attachment path). Final live PASS was BLOCKED only by same-host DHT
+  degradation late in the session (B repeatedly failed to connect / handshake
+  flaked) — environmental; expect PASS on a fresh run where B connects.
+
+  **NET CAMPAIGN STATUS:** CLEAN PASS — rui-p1-single, rui-p1-extra,
+  rui-account-conf-extra, rui-account-deep-extra, rui-p2-reply,
+  **rui-native-boundary-guards**. IMPROVED+committed — rui-p1-chat 7/8 (recall
+  render-lag gap), rui-c2c-extra 4/5 (search-nav), rui-p2-keys 1/3 (chip+presence),
+  rui-p2-verify (paste send fixed; delivery env-blocked this session). UNRUN —
+  rui-c2c-deep-extra, rui-group-conf-member-extra, rui-group-conf-deep-extra,
+  rui-p3-writable, rui-p1-relaunch (the menu-bias + bind + online-wait fixes should
+  carry the media/menu ones; same-host DHT degradation gates them late-session).
