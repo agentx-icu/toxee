@@ -1138,3 +1138,52 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   (`drive_real_ui_pair_chat.dart` + dispatch) seeds a friend+messages and reports
   window size / conv-row offstage / which secondary-tap x opens the message menu —
   the tool that root-caused REGRESSION 1.
+
+- 2026-06-22 **RUN PHASE continued — more campaigns run, shared root causes found.**
+  Committed driver fixes: toxee `ec06a2d` (menu-bias + attachment bind +
+  conv-offstage + probe) and `e9a258a` (paste-image bind belt).
+
+  **NEW PASS:** rui-p2-reply 1/1 (reply_quote_real — exercises the message-menu
+  Reply action; the menu-bias fix carries it). rui-p2-keys `sticker_face_cell_send`
+  PASS.
+
+  **SHARED ROOT CAUSE — `currentConversation=null` after the handshake.** Every
+  2-process chat run logs `conversation-list openChat fallback …
+  homeShellTab=contacts currentConversation=null`: after the friend-accept the app
+  sits on the CONTACTS tab, so `openChat`'s conv-row tap can't bind the chat; the
+  l3 fallback fixes `_chatSurfaceReady` but the master-detail composer's userID can
+  stay stale, so SEND paths that read it (attachment `_sendMedia`, desktop
+  paste-image) silently send nothing. FIX (applied per-case, validated): bind via
+  the production `_openChat` (`openChatViaL3`) right before the send. Candidate
+  deeper fix: make `_ensureChatOpen` always re-bind via `_openChat` so no per-case
+  belt is needed.
+
+  **SHARED RESIDUAL — same-host file DELIVERY (`received=false`).** After the bind
+  belt, attachment (native-boundary) AND paste-image (p2-verify) both SEND
+  correctly (sentId set, row rendered) but B never receives the file/image in-window
+  (60s). B auto-accepts incoming files (`fake_msg_provider.dart:144`), so this is a
+  same-host file-transfer completion/receive-render gap, NOT a missing feature —
+  the single blocker for both cases. (Text/sticker wire delivery works fine.)
+
+  **OTHER DEEP-GAPS (each its own investigation):**
+  - rui-p1-chat `chat_recall_message`: data recall works; LOCAL_REVOKED tombstone
+    TIP render lags (flaky, NOT a restyle regression — tip-render files untouched).
+  - rui-c2c-extra `c2c_global_search_contact_opens_chat`: search-result tap doesn't
+    navigate (tapped=true opened=false); converter+_mapConv both set userID, so not
+    the null-bug — needs a live search-open (the single-app probe can't open search
+    due to osascript focus). 
+  - rui-p2-keys `new_messages_chip_tap` (chipShown=false) + `presence_dot_relaunch`
+    (onlineAfterData=false after B relaunch).
+
+  **CAMPAIGN TALLY (this session):**
+  CLEAN PASS: rui-p1-single 5/5, rui-p1-extra 2/2, rui-account-conf-extra 6/6,
+  rui-account-deep-extra 1/1, rui-p2-reply 1/1.
+  IMPROVED: rui-p1-chat 6/8→7/8, rui-c2c-extra 3/5→4/5, rui-p2-keys 1/3,
+  rui-native-boundary-guards (attachment SEND fixed; delivery residual),
+  rui-p2-verify (paste SEND fixed; delivery residual).
+  STILL UNRUN: rui-c2c-deep-extra, rui-group-conf-member-extra,
+  rui-group-conf-deep-extra, rui-p3-writable, rui-p1-relaunch.
+
+  **OPS NOTE — handshake DHT flake.** Even with clean DHT ports, the same-host
+  friend-request handshake often needs 2-3 send attempts or the runner's full
+  relaunch-retry to converge (~5-8 min/campaign). Not a code bug; environmental.
