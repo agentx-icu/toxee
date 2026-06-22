@@ -107,6 +107,13 @@ Future<bool> _p2vPasteImageIntoComposer(
   if (!await _ensureChatOpen(a, toxB)) {
     return false;
   }
+  // Re-bind currentConversation + the right-pane composer userID via the
+  // production _openChat (l3_open_chat) before the paste: a row-tap open can
+  // leave currentConversation null (logged "currentConversation=null"), so the
+  // desktop paste handler's send fires against an unbound peer and no image
+  // message is created. The asserted action stays the real Cmd+V + confirm tap.
+  await a.openChatViaL3(userId: _pubkey(toxB));
+  await Future<void>.delayed(const Duration(milliseconds: 600));
 
   final beforeIds = {
     for (final m in await _c2cMessages(a, toxB)) _p2kMessageId(m),
