@@ -952,19 +952,19 @@ Future<bool> _hveAttachmentPickAndSend(
   final beforeB = {
     for (final m in await _c2cMessages(b, toxA)) _p2kMessageId(m),
   };
-  final source = File(
-    '/tmp/${DateTime.now().microsecondsSinceEpoch}_$fileName',
-  );
   var marked = false;
   try {
-    await source.writeAsBytes(base64Decode(contentB64));
     marked = await a.markAccountTest();
     if (!marked) {
       print('[pair] attachment picker: markAccountTest failed');
       return false;
     }
+    // Pass contentB64 so the APP writes the source file under its own sandbox
+    // container — a driver-written /tmp file is NOT readable by the sandboxed app
+    // (the native send fails with FFI -6 "Cannot read file").
     final override = await a.l3('l3_set_attachment_pick_path', {
-      'path': source.path,
+      'contentB64': contentB64,
+      'fileName': fileName,
     });
     if (override['ok'] != true) {
       print('[pair] attachment picker: override failed $override');
@@ -977,18 +977,37 @@ Future<bool> _hveAttachmentPickAndSend(
     // (the `if (userId != null)` guard) and silently send nothing. l3_open_chat
     // re-binds currentConversation + the right-pane input userID (live-probed:
     // the send then fires), keeping the asserted action the real keyed button tap.
-    await a.openChatViaL3(userId: _pubkey(toxB));
-    await Future<void>.delayed(const Duration(milliseconds: 600));
+    // A FILE transfer needs B actually ONLINE (not just friend-added): the file
+    // offer is dropped if issued before B connects, so B never receives it. Wait
+    // FIRST (the wait polls dumpState for up to 60s), THEN bind the chat right
+    // before the tap — binding before a long wait would let the master-detail
+    // composer userID go stale again (observed: sentId empties out).
+    if (!await _waitFriendOnline(a, toxB, timeoutSecs: 60)) {
+      print('[pair] attachment picker: WARN B not online before send');
+    }
+    if (!await _ensureBoundChat(a, toxB)) {
+      print('[pair] attachment picker: WARN chat bind not verified before send');
+    }
     if (!await a.tapKeyAt(buttonKey)) {
       print('[pair] attachment picker: $buttonKey not tappable');
       return false;
     }
+    // Match on fileName OR the filePath basename: the SENDER-side history record
+    // carries the file under `filePath` (the app-temp source path), while the
+    // RECEIVER record exposes `fileName` — mirror fixture_c_file and accept both.
+    bool fileMatches(Map<String, dynamic> m) {
+      final nameField = m['fileName']?.toString() ?? '';
+      final fp = m['filePath']?.toString() ?? '';
+      final base = fp.isEmpty ? '' : fp.split('/').last;
+      return nameField.contains(fileName) || base.contains(fileName);
+    }
+
     final sent = await _p2kWaitC2cMessageWhere(a, toxB, (m) {
       final id = _p2kMessageId(m);
       return !beforeA.contains(id) &&
           m['isSelf'] == true &&
           m['mediaKind']?.toString() == mediaKind &&
-          (m['fileName']?.toString() ?? '').contains(fileName);
+          fileMatches(m);
     }, timeoutSecs: 35);
     final sentId = _p2kMessageId(sent);
     final rowRendered =
@@ -999,7 +1018,7 @@ Future<bool> _hveAttachmentPickAndSend(
       return !beforeB.contains(id) &&
           m['isSelf'] == false &&
           m['mediaKind']?.toString() == mediaKind &&
-          (m['fileName']?.toString() ?? '').contains(fileName);
+          fileMatches(m);
     }, timeoutSecs: 60);
     print(
       '[pair] attachment picker: key=$buttonKey mediaKind=$mediaKind '
@@ -1015,9 +1034,8 @@ Future<bool> _hveAttachmentPickAndSend(
       }
       await a.unmarkAccountTest();
     }
-    if (await source.exists()) {
-      await source.delete();
-    }
+    // The source file now lives inside the app's sandbox container (written by
+    // l3_set_attachment_pick_path), so there is no driver-side /tmp file to clean.
   }
 }
 

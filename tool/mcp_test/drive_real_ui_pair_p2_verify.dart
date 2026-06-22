@@ -112,8 +112,15 @@ Future<bool> _p2vPasteImageIntoComposer(
   // leave currentConversation null (logged "currentConversation=null"), so the
   // desktop paste handler's send fires against an unbound peer and no image
   // message is created. The asserted action stays the real Cmd+V + confirm tap.
-  await a.openChatViaL3(userId: _pubkey(toxB));
-  await Future<void>.delayed(const Duration(milliseconds: 600));
+  // The pasted image is sent as a FILE transfer — wait for B ONLINE (not just
+  // friend-added) FIRST, THEN bind the chat right before the paste (binding before
+  // a long wait lets the composer userID go stale → send no-ops).
+  if (!await _waitFriendOnline(a, toxB, timeoutSecs: 60)) {
+    print('[pair] paste_image_into_composer: WARN B not online before paste');
+  }
+  if (!await _ensureBoundChat(a, toxB)) {
+    print('[pair] paste_image_into_composer: WARN chat bind not verified');
+  }
 
   final beforeIds = {
     for (final m in await _c2cMessages(a, toxB)) _p2kMessageId(m),

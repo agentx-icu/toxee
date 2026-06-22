@@ -708,6 +708,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _MediaPickType.image => appL10n.photo,
       _MediaPickType.video => appL10n.video,
     };
+    // The desktop attachment toolbar option's onTap captures `userID` at BUILD
+    // time from the fork message-input's data provider, which can lag a
+    // master-detail conversation switch (observed: a freshly-opened chat sends
+    // with userID == null, so the `if (userId != null)` guard below silently
+    // dropped the send). Fall back to the CURRENTLY-bound conversation — the
+    // single source of truth set by _selectConversation — so the real button tap
+    // always targets the open chat. Harmless when the captured id is already set.
+    if ((userId == null || userId.isEmpty) &&
+        (groupId == null || groupId.isEmpty)) {
+      final cur = UikitDataFacade.currentConversation;
+      userId = cur?.userID;
+      groupId = cur?.groupID;
+    }
     String? pickedPath;
     if (groupId != null && groupId.isNotEmpty) {
       _showSnackBar(appL10n.sendingToGroupsNotSupported(label));

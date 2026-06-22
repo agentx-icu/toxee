@@ -3111,6 +3111,38 @@ MCPCallEntry _l3SetAttachmentPickPathEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'non_test_account'},
       );
     }
+    // PREFER contentB64: a sandboxed macOS app can only READ files it wrote under
+    // its OWN container, so an external `/tmp` path the driver wrote is unreadable
+    // and the real attachment send fails at the FFI with -6 ("Cannot read file").
+    // When content is supplied, the APP materializes it under Directory.systemTemp
+    // (inside the container) and points the override at THAT app-readable path,
+    // mirroring l3_send_file. (`path` stays for already-app-accessible files.)
+    final contentB64 = request['contentB64']?.toString();
+    if (contentB64 != null && contentB64.isNotEmpty) {
+      final name = (request['fileName']?.toString().trim().isNotEmpty ?? false)
+          ? request['fileName']!.toString().trim()
+          : 'l3_attach.bin';
+      final List<int> bytes;
+      try {
+        bytes = base64Decode(contentB64);
+      } on FormatException catch (e) {
+        return MCPCallResult(
+          message: 'l3_set_attachment_pick_path: contentB64 not valid base64: $e',
+          parameters: {'ok': false, 'error': 'bad_base64'},
+        );
+      }
+      final dir = await Directory.systemTemp.createTemp('l3attach');
+      final f = File('${dir.path}/$name');
+      await f.writeAsBytes(bytes);
+      _attachmentPickFilePathOverride = f.path;
+      AppLogger.info(
+        '[L3] l3_set_attachment_pick_path: materialized $name -> ${f.path}',
+      );
+      return MCPCallResult(
+        message: 'attachment pick override materialized',
+        parameters: {'ok': true, 'path': f.path},
+      );
+    }
     final path = _normalizeExportSaveOverridePath(request['path']?.toString());
     _attachmentPickFilePathOverride = path;
     AppLogger.info(
@@ -3129,14 +3161,23 @@ MCPCallEntry _l3SetAttachmentPickPathEntry() => MCPCallEntry.tool(
     description:
         'L3 TEST ONLY (test/seed account): set or clear the debug-only '
         'message attachment picker override. Drive the real toolbar/menu first; '
-        'the native file picker then returns this fixed path. Pass an empty '
-        'path to clear.',
+        'the native file picker then returns this fixed path. PREFER "contentB64" '
+        '+ "fileName" (the app writes a sandbox-readable file); a host "path" '
+        'under /tmp is NOT readable by the sandboxed app. Pass an empty path to clear.',
     inputSchema: ObjectSchema(
       properties: {
         'path': StringSchema(
           description:
               'Absolute media/file path to return from attachment pickFiles. '
-              'Empty clears.',
+              'Empty clears. Use only for already-app-accessible files.',
+        ),
+        'contentB64': StringSchema(
+          description:
+              'Base64 file bytes; the app writes them to a sandbox-readable temp '
+              'file and returns THAT path. Preferred over "path".',
+        ),
+        'fileName': StringSchema(
+          description: 'File name for the materialized contentB64 file.',
         ),
       },
     ),

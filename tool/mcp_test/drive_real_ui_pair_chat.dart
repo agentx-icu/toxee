@@ -105,6 +105,50 @@ part of 'drive_real_ui_pair.dart';
 // ===========================================================================
 
 /// Open the C2C chat with [tox] and assert the chat surface is ready.
+/// Poll [inst]'s `dumpState().friends` until the friend identified by [peerTox]
+/// reports `online == true`, or the timeout elapses. A FRESH friend-ADD handshake
+/// only proves the friend is in the list — a FILE transfer additionally needs the
+/// peer to be CONNECTED/online (`drive_fixture_c_file` waits the same way before
+/// sending; without it the file offer is issued before B is online and never
+/// delivers → `received=false`). Returns false (no throw) on timeout so callers
+/// can log a soft gap.
+Future<bool> _waitFriendOnline(
+  Inst inst,
+  String peerTox, {
+  int timeoutSecs = 60,
+}) async {
+  final pk = _pubkey(peerTox);
+  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
+  while (DateTime.now().isBefore(deadline)) {
+    final s = await inst.dumpState();
+    for (final f in (s['friends'] as List? ?? const [])) {
+      if (f is Map &&
+          _pubkey(f['userId']?.toString() ?? '') == pk &&
+          f['online'] == true) {
+        return true;
+      }
+    }
+    await Future<void>.delayed(const Duration(seconds: 1));
+  }
+  return false;
+}
+
+/// Reliably bind the master-detail chat for [peerTox] via the production
+/// `_openChat` (l3_open_chat) and VERIFY currentConversation took, retrying a few
+/// times. A single openChatViaL3 is flaky post-restyle (the app sits on the
+/// Contacts tab after a fresh handshake; the bind sometimes doesn't land), and
+/// the fork composer's userID only refreshes once currentConversation actually
+/// switches — so a media send right after an unverified bind silently no-ops.
+Future<bool> _ensureBoundChat(Inst inst, String peerTox, {int tries = 4}) async {
+  final convId = _c2cConvId(peerTox);
+  for (var i = 0; i < tries; i++) {
+    await inst.openChatViaL3(userId: _pubkey(peerTox));
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (await _chatSurfaceReady(inst, convId, timeoutSecs: 4)) return true;
+  }
+  return false;
+}
+
 Future<bool> _ensureChatOpen(Inst inst, String tox) async {
   // A prior case can leave the friend's contact profile pushed ON TOP of the
   // chat; pop it first so the chat surface is actually interactable (otherwise
