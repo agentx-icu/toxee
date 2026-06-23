@@ -173,10 +173,14 @@ Future<bool> _hveC2cSearchResultOpensTargetMessage(
   final historyKey = 'search_history_message_$msgId';
   if (resultKey != null) {
     await inst.tapKeyCenter(resultKey, timeoutSecs: 6);
+    // The history rows are ListTiles inside a ListView.builder; flutter_skill's
+    // whole-tree `waitKey` can't see keyed list rows (same constraint the group
+    // member-list rows hit), so resolve via the element-tree walk (`waitKeyCenter`)
+    // — consistent with the `tapKeyCenter` below.
     windowOpened =
         await inst.waitText('Search Chat History', timeoutSecs: 8) ||
-        await inst.waitKey(historyKey, timeoutSecs: 8);
-    historyRowShown = await inst.waitKey(historyKey, timeoutSecs: 10);
+        await inst.waitKeyCenter(historyKey, timeoutSecs: 8);
+    historyRowShown = await inst.waitKeyCenter(historyKey, timeoutSecs: 10);
     if (historyRowShown) {
       await inst.tapKeyCenter(historyKey, timeoutSecs: 6);
       returnedToChat = await _chatSurfaceReady(inst, c2c, timeoutSecs: 12);
