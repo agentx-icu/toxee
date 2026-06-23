@@ -1182,15 +1182,15 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         BootstrapTarget('B', b.vm, b.iso),
       ]);
       bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
-      await _setAutoAcceptGroupInvites(b, true);
       autoAcceptMutated = true;
       // Best-effort here (NOT an abort): the 1i cases (71/72/73/74/75/76/80/82/
       // 83/84) don't need auto-accept, and the 2p cases give it more time via
       // case-77's 90s member-count poll + retries. If it never propagates, the
       // 2p cases honestly FAIL on their own member-count gate (no false pass).
-      if (!await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 10)) {
+      // Re-issues the account-scoped set per round (see the helper).
+      if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
         print('[sweep] sweep_group2: WARN B autoAcceptGroupInvites not yet live '
-            'after 10s — 2p cases (77/78/79/81) may need more time');
+            '— 2p cases (77/78/79/81) may need more time');
       }
 
       final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -1515,11 +1515,11 @@ Future<int> runGroup2Case(
       BootstrapTarget('B', b.vm, b.iso),
     ]);
     final bPrior = await _getAutoAcceptGroupInvites(b);
-    await _setAutoAcceptGroupInvites(b, true);
     // Hard gate (codex P2): B's auto-accept must actually be LIVE before the
     // invite, else B silently misses the auto-join and the case false-FAILs.
-    // Restore + abort if it never propagates (mirrors _establishTwoProcessGroup).
-    if (!await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 10)) {
+    // Re-issues the account-scoped set per round (see the helper); restore +
+    // abort if it never propagates.
+    if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
       if (!bPrior) {
         try {
           await _setAutoAcceptGroupInvites(b, false);

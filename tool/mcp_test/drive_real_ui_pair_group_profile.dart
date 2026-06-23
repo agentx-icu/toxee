@@ -322,8 +322,7 @@ Future<int> runGroupAddMemberPicker(
 
   final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   final bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
-  await _setAutoAcceptGroupInvites(b, true);
-  if (!await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 10)) {
+  if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
     if (!bPriorAutoAccept) {
       try {
         await _setAutoAcceptGroupInvites(b, false);
@@ -444,8 +443,9 @@ Future<_EstablishedGroup?> _establishTwoProcessGroup(
 
   final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   final bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
-  await _setAutoAcceptGroupInvites(b, true);
-  if (!await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 10)) {
+  // Re-issue the account-scoped set per round (group-conf-deep/member reach this
+  // via _gcmeWithEstablishedTarget) — see _ensureAutoAcceptGroupInvitesLive.
+  if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
     if (!bPriorAutoAccept) {
       try {
         await _setAutoAcceptGroupInvites(b, false);

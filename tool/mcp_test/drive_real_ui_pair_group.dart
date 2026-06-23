@@ -407,6 +407,28 @@ Future<bool> _waitAutoAcceptGroupInvites(
   return false;
 }
 
+/// Turn B's auto-accept-group-invites ON and confirm it actually went live,
+/// RE-ISSUING the set each round (not once). The Prefs flag is account-scoped
+/// (`autoAcceptGroupInvites_<currentToxId>`), and right after a launch / case
+/// reuse the current-account resolution can still be settling, so a single set
+/// can land before the scope is final while the dump-read (also scoped to the
+/// now-current account) never sees it — observed intermittently as
+/// "B autoAcceptGroupInvites did not take effect" under same-host load. Setting
+/// again each round, once the account context has settled, makes the write+read
+/// converge. Idempotent + strictly more robust than a single set. Returns whether
+/// it went live; callers handle their own restore-on-fail.
+Future<bool> _ensureAutoAcceptGroupInvitesLive(
+  Inst inst, {
+  int attempts = 3,
+}) async {
+  var live = false;
+  for (var i = 0; i < attempts && !live; i++) {
+    await _setAutoAcceptGroupInvites(inst, true);
+    live = await _waitAutoAcceptGroupInvites(inst, true, timeoutSecs: 8);
+  }
+  return live;
+}
+
 /// Resolve B's auto-joined group for THIS attempt. B's auto-joined PRIVATE group
 /// does not reliably surface in Dart-side `knownGroups` (that only tracks
 /// SELF-created groups), so look at its type==2 CONVERSATIONS. Binds
@@ -718,19 +740,7 @@ Future<int> runGroupMessage(
   // accepted over the friend link). Capture the prior value to RESTORE it after,
   // so this scenario doesn't leak mutated account state into later reused runs.
   final bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
-  // RE-ISSUE the set per verify-round, not once: the Prefs write is account
-  // scoped (autoAcceptGroupInvites_<currentToxId>), and right after a launch/
-  // case-reuse the current-account resolution can still be settling, so a single
-  // set can land before the scope is final and the dump-read (also scoped to the
-  // now-current account) never sees it — observed intermittently as
-  // "did not take effect" under same-host load. Setting again each round, once
-  // the account context is settled, makes the write+read converge.
-  var autoAcceptLive = false;
-  for (var attempt = 0; attempt < 3 && !autoAcceptLive; attempt++) {
-    await _setAutoAcceptGroupInvites(b, true);
-    autoAcceptLive = await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 8);
-  }
-  if (!autoAcceptLive) {
+  if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
     if (!bPriorAutoAccept) {
       try {
         await _setAutoAcceptGroupInvites(b, false);
