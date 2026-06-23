@@ -215,12 +215,18 @@ Future<bool> _p1rOfflinePendingRelaunch(
       pending: true,
       timeoutSecs: 20,
     );
+    // Resolve the pending bubble + spinner via the element-tree walk
+    // (waitKeyCenter): they are rows inside the message ListView, which
+    // flutter_skill's whole-tree waitKey can't always see (same constraint the
+    // group member-list / search-history rows hit). Observed: pendingId present
+    // in the dump but waitKey(message_list_item) / waitKey(message_send_status)
+    // both false.
     final pendingRow =
         pendingId != null &&
-        await a.waitKey('message_list_item:$pendingId', timeoutSecs: 6);
+        await a.waitKeyCenter('message_list_item:$pendingId', timeoutSecs: 6);
     final pendingSpinner =
         pendingId != null &&
-        await a.waitKey(
+        await a.waitKeyCenter(
           'message_send_status:$pendingId:sending',
           timeoutSecs: 6,
         );
