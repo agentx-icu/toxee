@@ -1388,3 +1388,31 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   (auth broken: ~/.codex/auth.json has an access_token but EMPTY refresh_token →
   401 "Missing bearer" / "Invalid refresh_token: empty string"; needs a fresh
   `codex login`).
+
+- 2026-06-23 **offline_pending_relaunch — ROOT-CAUSED + scoped (NOT a quick fix; no prod bug).**
+  Full cross-layer trace of the outbound optimistic-message id:
+  - `Tim2ToxSdkPlatform.createTextMessage` (`tim2tox_sdk_platform.dart:~4379`) mints
+    the OPTIMISTIC bubble id as `<ms>_<sender>` (NO seq).
+  - The rendered bubble keys by `message.msgID ?? message.id ?? <ts>_<sender>`
+    (`message_row_container.dart:286`); the sending spinner by
+    `message_send_status:<message.msgID>:sending` (`message_item.dart:91`).
+  - `Tim2ToxSdkPlatform.sendMessage` → `provider.sendText(userID, groupID, text)`
+    passes ONLY text (`tim2tox_sdk_platform.dart:5241`); `FfiChatService.sendText`
+    (`ffi_chat_service.dart:3885`) INDEPENDENTLY mints the persisted ChatMessage.msgID
+    as `<ms>_<seq>_<sender>` (the `_msgIDSequence++` guards same-ms collisions).
+  - The l3 dump emits `ChatMessage.msgID` (`l3_debug_tools.dart:5931`) → the persisted
+    `<ms>_<seq>_<sender>`.
+  - **By design** the two ids differ — `tim2tox_sdk_platform.dart:5204` comment:
+    "We use message text as key because FfiChatService returns messages with new
+    msgIDs". The optimistic↔streamed copies are reconciled BY TEXT, not msgID. No
+    reconciliation fires while the message is PENDING (B offline, never acked), so the
+    rendered bubble keeps `<ms>_<sender>` while the dump reports `<ms>_<seq>_<sender>`
+    → `message_list_item:<dumpId>` / `message_send_status:<dumpId>:sending` never match.
+  NO PRODUCTION BUG: a real user's pending bubble renders + the by-text reconciliation
+  updates it on confirm; only the TEST wrongly assumed bubble-id == persisted-id.
+  TRUE FIX (scoped, deferred — needs codex + healthy-DHT regression): generate the
+  msgID ONCE and flow it through `ChatMessageProvider.sendText` →
+  `FfiChatService.sendText` → `FakeMsgProvider` with a COLLISION-SAFE format (the
+  optimistic format has no seq), and re-key the text-based reconciliation/forward
+  tracking onto msgID. Touches dedup/reply/recall/forward (all msgID-load-bearing),
+  so it must NOT be rushed without codex (auth currently broken) on a degraded DHT.
