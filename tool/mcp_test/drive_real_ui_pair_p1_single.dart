@@ -84,9 +84,25 @@ const _p1SecondNick = 'RuiP1Sw';
 /// (snackbar + dialog stays), so the failure mode is a loud FAIL, never a
 /// stray deletion.
 const _p1DeleteConfirmWordCandidates = <String>{
-  'delete', 'confirm', 'remove', 'account', 'permanent', 'cancel',
-  'proceed', 'warning', 'caution', 'irreversible', 'data', 'erase',
-  'type', 'word', 'verify', 'submit', 'final', 'accept', 'continue',
+  'delete',
+  'confirm',
+  'remove',
+  'account',
+  'permanent',
+  'cancel',
+  'proceed',
+  'warning',
+  'caution',
+  'irreversible',
+  'data',
+  'erase',
+  'type',
+  'word',
+  'verify',
+  'submit',
+  'final',
+  'accept',
+  'continue',
 };
 
 /// EN template of `deleteAccountConfirmWordPrompt` (lib/l10n/app_en.arb):
@@ -325,21 +341,16 @@ Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
     // --- (c) contacts page: navigate via the KEYED sidebar tab (locale-
     // independent). HARD: the contacts tab actually becomes active in the zh
     // session (proves the keyed sidebar nav + the contacts route render under
-    // zh). The 新联系人 SUBTAB label is asserted SOFT (logged, not gated):
-    // live-confirmed PRODUCT i18n GAP — toxee pushes zh to the UIKit intl
-    // singleton (setLocale is synchronous, `_currentLocale` takes precedence)
-    // AND keys the contact tab on `languageCode`, yet the UIKit contact-tab
-    // TTabItem subtab labels (New Contacts / Blocked Users / Contacts / Groups)
-    // still render the PRE-switch locale until app restart — a UIKit contact-tab
-    // rebuild/caching subtlety that needs live instrumentation to pin down (the
-    // page TITLE + sidebar + settings + profile all localize correctly). Recorded
-    // as an owed product i18n investigation in REAL_UI_P1P2P3_CAMPAIGN.md; this
-    // case must not HARD-fail on a separate pre-existing UIKit bug.
-    final contactsOpened =
-        await _p1SelectHomeTab(inst, 'sidebar_contacts_tab', 'contacts');
+    // zh). The 新联系人 SUBTAB label is HARD now: the UIKit intl singleton and
+    // contact tab keys should live-apply the locale without requiring restart.
+    final contactsOpened = await _p1SelectHomeTab(
+      inst,
+      'sidebar_contacts_tab',
+      'contacts',
+    );
     final contactsSubtabZh =
         contactsOpened && await inst.waitText('新联系人', timeoutSecs: 4);
-    final contactsZh = contactsOpened; // HARD = navigated; subtab = SOFT below
+    final contactsZh = contactsOpened && contactsSubtabZh;
 
     // --- (d) self-profile overlay: open via the real sidebar avatar (the
     // landmark `profile_edit_toggle` is a KEY → locale-independent), assert a
@@ -362,8 +373,8 @@ Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
       '[pair] zh_locale_page_walk: zhPersisted=$zhPersisted '
       'settingsZh=$settingsZh sidebar(chats=$sidebarChatsZh '
       'contacts=$sidebarContactsZh settings=$sidebarSettingsZh) '
-      'contactsOpened=$contactsZh contactsSubtabZh=$contactsSubtabZh'
-      '(SOFT — UIKit subtab i18n gap) profile(open=$profileOpened zh=$profileZh '
+      'contactsOpened=$contactsOpened contactsSubtabZh=$contactsSubtabZh '
+      'profile(open=$profileOpened zh=$profileZh '
       'closed=$profileClosed) reverted=$reverted enBack=$enBack',
     );
     return zhPersisted &&
@@ -388,8 +399,10 @@ Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
     } catch (_) {}
     final guardOk = await _p1RevertLocaleToEnglish(inst);
     if (!guardOk) {
-      print('[pair] zh_locale_page_walk: FINALLY-GUARD could not verify EN '
-          'locale — later EN-text cases may be poisoned');
+      print(
+        '[pair] zh_locale_page_walk: FINALLY-GUARD could not verify EN '
+        'locale — later EN-text cases may be poisoned',
+      );
     }
   }
 }
@@ -431,8 +444,10 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
   // TWO edit dialogs; `_changeGroupName` has no re-entry guard).
   await openGroupChat(inst, groupId: gid, groupName: name, viaL3Seam: true);
   await _openGroupProfile(inst);
-  if (!await inst.tapKeyCenter('group_profile_edit_name_button',
-      timeoutSecs: 8)) {
+  if (!await inst.tapKeyCenter(
+    'group_profile_edit_name_button',
+    timeoutSecs: 8,
+  )) {
     print('[pair] conference_rename_leave: edit-name button not tappable');
     return false;
   }
@@ -444,8 +459,10 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
   await Future<void>.delayed(const Duration(milliseconds: 300));
   // The confirm pops via popDialogIfCurrent (double-pop absorbed), but keep
   // the single-fire discipline for dialog pop buttons.
-  if (!await inst.tapKeyCenter('group_profile_edit_name_confirm_button',
-      timeoutSecs: 6)) {
+  if (!await inst.tapKeyCenter(
+    'group_profile_edit_name_confirm_button',
+    timeoutSecs: 6,
+  )) {
     print('[pair] conference_rename_leave: edit-name confirm not tappable');
     return false;
   }
@@ -527,8 +544,10 @@ Future<bool> _p1SettingsSwitchAccountEntry(
   await _openSettings(inst);
   final swapKey = 'settings_account_switch_button:$primaryToxId';
   if (!await _settingsScrollTo(inst, swapKey)) {
-    print('[pair] settings_switch_account_entry: swap button not brought '
-        'onstage (continuing — tapKey fallback may still reach it)');
+    print(
+      '[pair] settings_switch_account_entry: swap button not brought '
+      'onstage (continuing — tapKey fallback may still reach it)',
+    );
   }
   final dialogUp = await _p1OpenDialogViaKey(
     inst,
@@ -541,8 +560,10 @@ Future<bool> _p1SettingsSwitchAccountEntry(
     return false;
   }
   // Confirm (single-fire; popDialogIfCurrent absorbs a stray double anyway).
-  if (!await inst.tapKeyCenter('settings_account_switch_confirm_button',
-      timeoutSecs: 6)) {
+  if (!await inst.tapKeyCenter(
+    'settings_account_switch_confirm_button',
+    timeoutSecs: 6,
+  )) {
     print('[pair] settings_switch_account_entry: confirm not tappable');
     return false;
   }
@@ -559,14 +580,16 @@ Future<bool> _p1SettingsSwitchAccountEntry(
   var homeReady = false;
   for (var i = 0; i < 40 && !homeReady; i++) {
     final s = await inst.dumpState();
-    final sessionOk = s['sessionReady'] == true &&
+    final sessionOk =
+        s['sessionReady'] == true &&
         s['currentAccountToxId']?.toString() == primaryToxId;
     // `homeShellTab` is sourced from a HomePage-registered snapshot reader that
     // does not reliably re-register after a switch-back teardown+boot (and
     // `new_entry_menu_button` is likewise sometimes absent then), so accept
     // EITHER the dump tab OR the persistent sidebar avatar key as proof the
     // HomePage shell is mounted + usable.
-    homeReady = sessionOk &&
+    homeReady =
+        sessionOk &&
         (s['homeShellTab'] != null ||
             await inst.waitKey('sidebar_user_avatar', timeoutSecs: 1));
     if (!homeReady) {
@@ -603,8 +626,7 @@ Future<String> _p1RegisterSecondAccount(Inst inst, String nick) async {
   await _dismissFirstRunWizardIfPresent(inst);
   await inst.foreground();
   await inst.waitKey('new_entry_menu_button', timeoutSecs: 25);
-  final tox =
-      (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
+  final tox = (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
   print('[pair] p1 register-second: tox=${_shortId(tox)} (nick "$nick")');
   return tox;
 }
@@ -619,10 +641,7 @@ Future<String> _p1RegisterSecondAccount(Inst inst, String nick) async {
 /// login_page.dart `_showAccountManagementMenu`) → dismiss NON-destructively
 /// (ESC; barrier-tap fallback) → the card is still present and the session is
 /// still logged out (nothing fired).
-Future<bool> _p1AccountCardManagementMenu(
-  Inst inst,
-  String targetToxId,
-) async {
+Future<bool> _p1AccountCardManagementMenu(Inst inst, String targetToxId) async {
   if (targetToxId.isEmpty) {
     print('[pair] account_card_management_menu: empty target toxId');
     return false;
@@ -641,8 +660,10 @@ Future<bool> _p1AccountCardManagementMenu(
     try {
       await inst.longPressKey(cardKey); // default 800 ms > 500 ms timeout
     } on DriveError catch (e) {
-      print('[pair] account_card_management_menu: long-press warn: '
-          '${e.message}');
+      print(
+        '[pair] account_card_management_menu: long-press warn: '
+        '${e.message}',
+      );
     }
     menuUp = await inst.waitKey(
       'login_account_management_export_option',
@@ -652,8 +673,10 @@ Future<bool> _p1AccountCardManagementMenu(
       // Abort early if the gesture degenerated into a TAP (a quick-login
       // would be in flight) — never keep long-pressing a logging-in page.
       if ((await inst.dumpState())['sessionReady'] == true) {
-        print('[pair] account_card_management_menu: long-press fell through '
-            'as a TAP — quick-login fired (gesture regression)');
+        print(
+          '[pair] account_card_management_menu: long-press fell through '
+          'as a TAP — quick-login fired (gesture regression)',
+        );
         return false;
       }
       await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -765,8 +788,10 @@ Future<bool> _p1AccountDeleteFullFlow(
   // tapKey only as the below-fold fallback — direct invoke fires once).
   await _openSettings(inst);
   if (!await _settingsScrollTo(inst, 'settings_delete_account_button')) {
-    print('[pair] account_delete_full_flow: delete button not brought '
-        'onstage (continuing — tapKey fallback may still reach it)');
+    print(
+      '[pair] account_delete_full_flow: delete button not brought '
+      'onstage (continuing — tapKey fallback may still reach it)',
+    );
   }
   final dialogUp = await _p1OpenDialogViaKey(
     inst,
@@ -793,8 +818,10 @@ Future<bool> _p1AccountDeleteFullFlow(
   }
   await inst.focusType('settings_delete_account_confirm_input', word);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  if (!await inst.tapKeyCenter('settings_delete_account_confirm_button',
-      timeoutSecs: 6)) {
+  if (!await inst.tapKeyCenter(
+    'settings_delete_account_confirm_button',
+    timeoutSecs: 6,
+  )) {
     print('[pair] account_delete_full_flow: confirm button not tappable');
     return false;
   }
@@ -802,8 +829,12 @@ Future<bool> _p1AccountDeleteFullFlow(
   // logged-out state, then require the PRIMARY card to render (proves the
   // saved-account list loaded) BEFORE asserting #2's card is gone — "gone
   // because the list hasn't loaded yet" must not false-pass.
-  final loggedOut =
-      await _waitBoolState(inst, 'sessionReady', false, timeoutSecs: 60);
+  final loggedOut = await _waitBoolState(
+    inst,
+    'sessionReady',
+    false,
+    timeoutSecs: 60,
+  );
   if (!loggedOut) {
     print('[pair] account_delete_full_flow: never returned to the LoginPage');
     return false;
@@ -828,7 +859,8 @@ Future<bool> _p1AccountDeleteFullFlow(
   final dumpGone = listTrusted && !savedIds.contains(secondTox);
   await inst.shot('/tmp/ui_p1_delete_${inst.name}.png');
   // 5. Quick-login back into the primary.
-  final backOnPrimary = await _quickLoginNoPassword(inst, primaryToxId) &&
+  final backOnPrimary =
+      await _quickLoginNoPassword(inst, primaryToxId) &&
       (await inst.dumpState())['currentAccountToxId']?.toString() ==
           primaryToxId;
   if (secondCardGone && dumpGone) {
@@ -861,10 +893,14 @@ Future<void> _p1NormalizeBetweenCases(Inst inst) async {
     await _normalizeLoginBetweenCases(inst);
     // A stray bottom sheet / dialog from a failed case: one ESC is harmless
     // on the bare LoginPage/HomePage and pops a stranded surface.
-    if (await inst.waitKey('login_account_management_export_option',
-            timeoutSecs: 1) ||
-        await inst.waitKey('settings_delete_account_confirm_input',
-            timeoutSecs: 1)) {
+    if (await inst.waitKey(
+          'login_account_management_export_option',
+          timeoutSecs: 1,
+        ) ||
+        await inst.waitKey(
+          'settings_delete_account_confirm_input',
+          timeoutSecs: 1,
+        )) {
       try {
         await inst.osaEscape();
       } on DriveError {
@@ -872,8 +908,7 @@ Future<void> _p1NormalizeBetweenCases(Inst inst) async {
       }
     }
     final st = await inst.dumpState();
-    if (st['sessionReady'] == true &&
-        st['languageCode']?.toString() != 'en') {
+    if (st['sessionReady'] == true && st['languageCode']?.toString() != 'en') {
       print('[sweep] p1 normalize: locale is ${st['languageCode']} -> en');
       await _p1RevertLocaleToEnglish(inst);
     }
@@ -915,25 +950,28 @@ Future<bool> _p1EnsureCleanEnd(
     try {
       await returnToChatsHome(inst, rounds: 4);
     } on DriveError catch (e) {
-      print('[sweep] p1 end-clean: returnToChatsHome best-effort: ${e.message}');
+      print(
+        '[sweep] p1 end-clean: returnToChatsHome best-effort: ${e.message}',
+      );
     }
     final finalState = await inst.dumpState();
-    final onPrimary = finalState['sessionReady'] == true &&
+    final onPrimary =
+        finalState['sessionReady'] == true &&
         (finalState['currentAccountToxId']?.toString() ?? '') == primaryToxId;
     // No-leftover verdict (codex P1): a non-empty holder means case 5 never
     // verifiably deleted the throwaway — PROVE it against the persisted
     // saved-account store, not the holder alone (a case-5 FAIL after the
     // actual deletion must not false-dirty the verdict). The guard itself
     // never runs the destructive delete; it only verifies.
-    final savedIds =
-        (finalState['savedAccountToxIds'] as List? ?? const [])
-            .map((e) => e.toString())
-            .toList();
+    final savedIds = (finalState['savedAccountToxIds'] as List? ?? const [])
+        .map((e) => e.toString())
+        .toList();
     // Sentinel (codex confirm-round P2): [] is ambiguous (read error vs truly
     // empty) — only trust an absence verdict when the list can see the
     // always-saved PRIMARY account.
     final listTrusted = savedIds.contains(primaryToxId);
-    final noLeftover = secondToxHolder.isEmpty ||
+    final noLeftover =
+        secondToxHolder.isEmpty ||
         (listTrusted && !savedIds.contains(secondToxHolder.first));
     final leftover = secondToxHolder.isNotEmpty
         ? _shortId(secondToxHolder.first)
@@ -1041,8 +1079,10 @@ Future<int> runP1SingleSweep(Inst a, String nickA) async {
     // cases below fail honestly on their own LoginPage preconditions.
     final lo = await _logoutToLoginPage(a);
     if (lo.isEmpty) {
-      print('[sweep] sweep_p1_single: pre-4 logout failed — cases 4/5 will '
-          'fail their LoginPage preconditions');
+      print(
+        '[sweep] sweep_p1_single: pre-4 logout failed — cases 4/5 will '
+        'fail their LoginPage preconditions',
+      );
     }
     // 4 — card management menu. Prefer #2's card (the brief's target); fall
     // back to the primary's card when #3 failed before registering so the
@@ -1085,12 +1125,12 @@ Future<int> runP1SingleSweep(Inst a, String nickA) async {
 
 /// Whether [scenario] is one of the 5 Batch-II P1 single-instance cases.
 bool _isP1SingleCaseScenario(String scenario) => const {
-      'zh_locale_page_walk',
-      'conference_rename_leave',
-      'settings_switch_account_entry',
-      'account_card_management_menu',
-      'account_delete_full_flow',
-    }.contains(scenario);
+  'zh_locale_page_walk',
+  'conference_rename_leave',
+  'settings_switch_account_entry',
+  'account_card_management_menu',
+  'account_delete_full_flow',
+}.contains(scenario);
 
 /// Run a single Batch-II case standalone with its minimal prelude (the sweep
 /// is the canonical entry). All cases drive only A; B stays launched-but-idle.
@@ -1119,8 +1159,11 @@ Future<int> runP1SingleCase(Inst a, String nickA, String scenario) async {
       // via the SAME real delete flow (here it is cleanup, not the gate's
       // subject) and gate the exit on the cleanup landing too.
       final holder = <String>[];
-      final switched =
-          await _p1SettingsSwitchAccountEntry(a, primaryToxId, holder);
+      final switched = await _p1SettingsSwitchAccountEntry(
+        a,
+        primaryToxId,
+        holder,
+      );
       var cleaned = true;
       if (holder.isNotEmpty) {
         if ((await _logoutToLoginPage(a)).isEmpty) {

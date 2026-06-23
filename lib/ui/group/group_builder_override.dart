@@ -571,7 +571,10 @@ class _ToxeeGroupProfileContentState
           })
           .catchError((Object e, StackTrace st) {
             AppLogger.logError(
-              '[GroupProfile] setGroupInfo peer-propagation failed', e, st);
+              '[GroupProfile] setGroupInfo peer-propagation failed',
+              e,
+              st,
+            );
           }),
     );
     // Persist the Prefs-driven display + refresh the conversation list so the
@@ -582,8 +585,7 @@ class _ToxeeGroupProfileContentState
       await Prefs.setGroupName(widget.groupInfo.groupID, value);
       await FakeUIKit.instance.im?.refreshConversations();
     } on Object catch (e, st) {
-      AppLogger.logError(
-        '[GroupProfile] rename local persist failed', e, st);
+      AppLogger.logError('[GroupProfile] rename local persist failed', e, st);
     }
   }
 
@@ -689,8 +691,8 @@ class _ToxeeGroupProfileContentState
               child: SelectableText(
                 key: UiKeys.groupProfileIdText,
                 chatId != null && chatId!.isNotEmpty
-                    ? "Group ID: $chatId"
-                    : "Group ID: $displayGroupID",
+                    ? "${tL10n.groupID}: $chatId"
+                    : "${tL10n.groupID}: $displayGroupID",
                 style: TextStyle(
                   fontSize: textStyle.fontsize_12,
                   color: chatId != null && chatId!.isNotEmpty

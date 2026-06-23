@@ -253,6 +253,12 @@
   "uninstallIrcAppConfirm": "确定要卸载IRC频道应用吗？所有IRC频道将被移除，您将退出所有IRC群组。",
   "addIrcChannel": "添加频道",
   "ircChannels": "IRC频道",
+  "ircStatusDisconnected": "已断开",
+  "ircStatusConnecting": "连接中",
+  "ircStatusConnected": "已连接",
+  "ircStatusAuthenticating": "认证中",
+  "ircStatusReconnecting": "重连中",
+  "ircStatusError": "错误",
   "ircServerConfig": "IRC服务器配置",
   "@ircServerConfig": {
     "description": "IRC服务器配置部分标题"
@@ -641,6 +647,8 @@
   "pairWithAnotherDevice": "与已有此账号的另一台设备配对",
   "devicesSectionTitle": "设备",
   "done": "完成",
+  "unknownError": "未知错误",
+  "unknown": "未知",
   "runtimeForegroundTitle": "Toxee 正在运行",
   "runtimeForegroundBody": "保持连接，以便接收消息和通话。",
   "runtimeForegroundSettingsLabel": "通知设置",

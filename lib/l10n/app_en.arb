@@ -489,6 +489,30 @@
   "@ircChannels": {
     "description": "Label for list of IRC channels"
   },
+  "ircStatusDisconnected": "Disconnected",
+  "@ircStatusDisconnected": {
+    "description": "IRC channel connection status: disconnected"
+  },
+  "ircStatusConnecting": "Connecting",
+  "@ircStatusConnecting": {
+    "description": "IRC channel connection status: connecting"
+  },
+  "ircStatusConnected": "Connected",
+  "@ircStatusConnected": {
+    "description": "IRC channel connection status: connected"
+  },
+  "ircStatusAuthenticating": "Authenticating",
+  "@ircStatusAuthenticating": {
+    "description": "IRC channel connection status: authenticating"
+  },
+  "ircStatusReconnecting": "Reconnecting",
+  "@ircStatusReconnecting": {
+    "description": "IRC channel connection status: reconnecting"
+  },
+  "ircStatusError": "Error",
+  "@ircStatusError": {
+    "description": "IRC channel connection status: error"
+  },
   "ircServerConfig": "IRC Server Configuration",
   "@ircServerConfig": {
     "description": "Title for IRC server configuration section"

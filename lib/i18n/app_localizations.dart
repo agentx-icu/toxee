@@ -1318,6 +1318,42 @@ abstract class AppLocalizations {
   /// **'IRC Channels'**
   String get ircChannels;
 
+  /// IRC channel connection status: disconnected
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get ircStatusDisconnected;
+
+  /// IRC channel connection status: connecting
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get ircStatusConnecting;
+
+  /// IRC channel connection status: connected
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get ircStatusConnected;
+
+  /// IRC channel connection status: authenticating
+  ///
+  /// In en, this message translates to:
+  /// **'Authenticating'**
+  String get ircStatusAuthenticating;
+
+  /// IRC channel connection status: reconnecting
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnecting'**
+  String get ircStatusReconnecting;
+
+  /// IRC channel connection status: error
+  ///
+  /// In en, this message translates to:
+  /// **'Error'**
+  String get ircStatusError;
+
   /// Title for IRC server configuration section
   ///
   /// In en, this message translates to:

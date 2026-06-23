@@ -653,6 +653,24 @@ class AppLocalizationsKo extends AppLocalizations {
   String get ircChannels => 'IRC 채널';
 
   @override
+  String get ircStatusDisconnected => 'Disconnected';
+
+  @override
+  String get ircStatusConnecting => 'Connecting';
+
+  @override
+  String get ircStatusConnected => 'Connected';
+
+  @override
+  String get ircStatusAuthenticating => 'Authenticating';
+
+  @override
+  String get ircStatusReconnecting => 'Reconnecting';
+
+  @override
+  String get ircStatusError => 'Error';
+
+  @override
   String get ircServerConfig => 'IRC 서버 설정';
 
   @override

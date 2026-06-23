@@ -72,7 +72,8 @@ void main() {
         expect(
           await Prefs.getLanguageCode(),
           code,
-          reason: 'Prefs must persist and return the exact language code "$code"',
+          reason:
+              'Prefs must persist and return the exact language code "$code"',
         );
       });
     }
@@ -83,7 +84,8 @@ void main() {
       expect(
         await Prefs.getLanguageCode(),
         'ja',
-        reason: 'A subsequent setLanguageCode must overwrite the previous value',
+        reason:
+            'A subsequent setLanguageCode must overwrite the previous value',
       );
     });
 
@@ -96,15 +98,52 @@ void main() {
     });
   });
 
+  group('generated Chinese app strings', () {
+    test(
+      'fallback labels are localized instead of falling back to English',
+      () {
+        final zhHans = lookupAppLocalizations(
+          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+        );
+        final zhHant = lookupAppLocalizations(
+          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+        );
+
+        expect(zhHans.unknown, '未知');
+        expect(zhHans.unknownError, '未知错误');
+        expect(zhHans.ircStatusDisconnected, '已断开');
+        expect(zhHans.ircStatusConnecting, '连接中');
+        expect(zhHans.ircStatusConnected, '已连接');
+        expect(zhHans.ircStatusAuthenticating, '认证中');
+        expect(zhHans.ircStatusReconnecting, '重连中');
+        expect(zhHans.ircStatusError, '错误');
+        expect(zhHant.unknown, '未知');
+        expect(zhHant.unknownError, '未知錯誤');
+        expect(zhHant.ircStatusDisconnected, '已斷開');
+        expect(zhHant.ircStatusConnecting, '連線中');
+        expect(zhHant.ircStatusConnected, '已連線');
+        expect(zhHant.ircStatusAuthenticating, '認證中');
+        expect(zhHant.ircStatusReconnecting, '重新連線中');
+        expect(zhHant.ircStatusError, '錯誤');
+      },
+    );
+  });
+
   group('Prefs locale round-trip incl. scriptCode (zh Hans/Hant)', () {
     test('plain Locale(en) round-trips without a scriptCode', () async {
       await Prefs.setLocale(const Locale('en'));
       final got = await Prefs.getLocale();
       expect(got, isNotNull, reason: 'A stored locale must be retrievable');
-      expect(got!.languageCode, 'en',
-          reason: 'languageCode must survive the round-trip');
-      expect(got.scriptCode, isNull,
-          reason: 'A plain locale must not gain a scriptCode');
+      expect(
+        got!.languageCode,
+        'en',
+        reason: 'languageCode must survive the round-trip',
+      );
+      expect(
+        got.scriptCode,
+        isNull,
+        reason: 'A plain locale must not gain a scriptCode',
+      );
     });
 
     test('zh_Hans round-trips preserving scriptCode Hans', () async {
@@ -112,10 +151,16 @@ void main() {
       await Prefs.setLocale(locale);
       final got = await Prefs.getLocale();
       expect(got, isNotNull);
-      expect(got!.languageCode, 'zh',
-          reason: 'Simplified Chinese languageCode must survive');
-      expect(got.scriptCode, 'Hans',
-          reason: 'Simplified Chinese scriptCode (Hans) must survive');
+      expect(
+        got!.languageCode,
+        'zh',
+        reason: 'Simplified Chinese languageCode must survive',
+      );
+      expect(
+        got.scriptCode,
+        'Hans',
+        reason: 'Simplified Chinese scriptCode (Hans) must survive',
+      );
     });
 
     test('zh_Hant round-trips preserving scriptCode Hant', () async {
@@ -123,34 +168,50 @@ void main() {
       await Prefs.setLocale(locale);
       final got = await Prefs.getLocale();
       expect(got, isNotNull);
-      expect(got!.languageCode, 'zh',
-          reason: 'Traditional Chinese languageCode must survive');
-      expect(got.scriptCode, 'Hant',
-          reason: 'Traditional Chinese scriptCode (Hant) must survive');
+      expect(
+        got!.languageCode,
+        'zh',
+        reason: 'Traditional Chinese languageCode must survive',
+      );
+      expect(
+        got.scriptCode,
+        'Hant',
+        reason: 'Traditional Chinese scriptCode (Hant) must survive',
+      );
     });
 
     test('Hans and Hant are distinct stored values, not collapsed', () async {
       await Prefs.setLocale(
-          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'));
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      );
       final first = await Prefs.getLocale();
       await Prefs.setLocale(
-          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'));
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
       final second = await Prefs.getLocale();
       expect(first!.scriptCode, 'Hant');
-      expect(second!.scriptCode, 'Hans',
-          reason: 'Switching zh script must not silently keep the old script');
+      expect(
+        second!.scriptCode,
+        'Hans',
+        reason: 'Switching zh script must not silently keep the old script',
+      );
     });
 
     test('every supported scriptCode-qualified locale round-trips', () async {
       for (final locale in AppLocalizations.supportedLocales) {
         await Prefs.setLocale(locale);
         final got = await Prefs.getLocale();
-        expect(got, isNotNull,
-            reason: 'Supported locale $locale must persist');
-        expect(got!.languageCode, locale.languageCode,
-            reason: 'languageCode mismatch for supported locale $locale');
-        expect(got.scriptCode, locale.scriptCode,
-            reason: 'scriptCode mismatch for supported locale $locale');
+        expect(got, isNotNull, reason: 'Supported locale $locale must persist');
+        expect(
+          got!.languageCode,
+          locale.languageCode,
+          reason: 'languageCode mismatch for supported locale $locale',
+        );
+        expect(
+          got.scriptCode,
+          locale.scriptCode,
+          reason: 'scriptCode mismatch for supported locale $locale',
+        );
       }
     });
   });
@@ -158,24 +219,34 @@ void main() {
   group('AppLocale controller round-trip + cold restart', () {
     test('set(locale) updates the notifier immediately', () async {
       await AppLocale.set(const Locale('ko'));
-      expect(AppLocale.locale.value.languageCode, 'ko',
-          reason: 'AppLocale.set must update the in-memory notifier');
+      expect(
+        AppLocale.locale.value.languageCode,
+        'ko',
+        reason: 'AppLocale.set must update the in-memory notifier',
+      );
     });
 
     test('set(locale) persists through Prefs', () async {
       await AppLocale.set(const Locale('ja'));
-      expect(await Prefs.getLanguageCode(), 'ja',
-          reason: 'AppLocale.set must persist the language code to Prefs');
+      expect(
+        await Prefs.getLanguageCode(),
+        'ja',
+        reason: 'AppLocale.set must persist the language code to Prefs',
+      );
     });
 
     test('set(zh_Hant) persists the scriptCode-qualified locale', () async {
       await AppLocale.set(
-          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'));
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      );
       final stored = await Prefs.getLocale();
       expect(stored, isNotNull);
       expect(stored!.languageCode, 'zh');
-      expect(stored.scriptCode, 'Hant',
-          reason: 'AppLocale.set must persist the zh scriptCode');
+      expect(
+        stored.scriptCode,
+        'Hant',
+        reason: 'AppLocale.set must persist the zh scriptCode',
+      );
     });
 
     test('cold restart reflects persisted locale, not the default', () async {
@@ -187,21 +258,32 @@ void main() {
       AppLocale.locale.value = const Locale('en');
 
       await AppLocale.initFromPrefs();
-      expect(AppLocale.locale.value.languageCode, 'ko',
-          reason: 'After restart AppLocale must restore the persisted '
-              'language, not fall back to the system/default');
+      expect(
+        AppLocale.locale.value.languageCode,
+        'ko',
+        reason:
+            'After restart AppLocale must restore the persisted '
+            'language, not fall back to the system/default',
+      );
     });
 
     test('cold restart restores zh scriptCode exactly', () async {
       await AppLocale.set(
-          const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'));
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
       AppLocale.locale.value = const Locale('en');
 
       await AppLocale.initFromPrefs();
-      expect(AppLocale.locale.value.languageCode, 'zh',
-          reason: 'Restored language must be Chinese');
-      expect(AppLocale.locale.value.scriptCode, 'Hans',
-          reason: 'Restored Chinese variant must keep scriptCode Hans');
+      expect(
+        AppLocale.locale.value.languageCode,
+        'zh',
+        reason: 'Restored language must be Chinese',
+      );
+      expect(
+        AppLocale.locale.value.scriptCode,
+        'Hans',
+        reason: 'Restored Chinese variant must keep scriptCode Hans',
+      );
     });
   });
 
@@ -218,27 +300,39 @@ void main() {
       // the app keeps tracking system changes until the user picks explicitly.
       // This is fully deterministic regardless of the host system locale.
       await AppLocale.initFromPrefs();
-      expect(await Prefs.getLanguageCode(), isNull,
-          reason: 'Following the system locale must not write a stored code');
+      expect(
+        await Prefs.getLanguageCode(),
+        isNull,
+        reason: 'Following the system locale must not write a stored code',
+      );
     });
 
-    test('initFromPrefs with empty store resolves to a supported locale',
-        () async {
-      await AppLocale.initFromPrefs();
-      // Whatever the host system locale is, resolution must land inside the
-      // supported set (its only escape hatch is the en fallback). This guards
-      // against resolving to an unsupported/garbage locale, but NOT against a
-      // specific wrong rule (e.g. a regression to "always en when unset" would
-      // still satisfy this coarse assertion — that gap is documented above and
-      // is not lockable from a pure unit test).
-      const supportedCodes = <String>['ar', 'en', 'ja', 'ko', 'zh'];
-      expect(supportedCodes, contains(AppLocale.locale.value.languageCode),
-          reason: 'System resolution must yield a supported languageCode '
-              '(unsupported codes fall back to en)');
-      if (AppLocale.locale.value.languageCode == 'zh') {
-        expect(AppLocale.locale.value.scriptCode, anyOf('Hans', 'Hant'),
-            reason: 'Resolved Chinese must carry a Hans/Hant scriptCode');
-      }
-    });
+    test(
+      'initFromPrefs with empty store resolves to a supported locale',
+      () async {
+        await AppLocale.initFromPrefs();
+        // Whatever the host system locale is, resolution must land inside the
+        // supported set (its only escape hatch is the en fallback). This guards
+        // against resolving to an unsupported/garbage locale, but NOT against a
+        // specific wrong rule (e.g. a regression to "always en when unset" would
+        // still satisfy this coarse assertion — that gap is documented above and
+        // is not lockable from a pure unit test).
+        const supportedCodes = <String>['ar', 'en', 'ja', 'ko', 'zh'];
+        expect(
+          supportedCodes,
+          contains(AppLocale.locale.value.languageCode),
+          reason:
+              'System resolution must yield a supported languageCode '
+              '(unsupported codes fall back to en)',
+        );
+        if (AppLocale.locale.value.languageCode == 'zh') {
+          expect(
+            AppLocale.locale.value.scriptCode,
+            anyOf('Hans', 'Hant'),
+            reason: 'Resolved Chinese must carry a Hans/Hant scriptCode',
+          );
+        }
+      },
+    );
   });
 }

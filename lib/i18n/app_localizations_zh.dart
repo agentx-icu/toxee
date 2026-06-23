@@ -644,6 +644,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ircChannels => 'IRC频道';
 
   @override
+  String get ircStatusDisconnected => '已断开';
+
+  @override
+  String get ircStatusConnecting => '连接中';
+
+  @override
+  String get ircStatusConnected => '已连接';
+
+  @override
+  String get ircStatusAuthenticating => '认证中';
+
+  @override
+  String get ircStatusReconnecting => '重连中';
+
+  @override
+  String get ircStatusError => '错误';
+
+  @override
   String get ircServerConfig => 'IRC服务器配置';
 
   @override
@@ -1167,7 +1185,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get startupFailed => 'Startup Failed';
 
   @override
-  String get unknownError => 'Unknown error';
+  String get unknownError => '未知错误';
 
   @override
   String get goToLogin => 'Go to Login';
@@ -1213,7 +1231,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importedAccount => 'Imported Account';
 
   @override
-  String get unknown => 'Unknown';
+  String get unknown => '未知';
 
   @override
   String sendingToGroupsNotSupported(String label) {
@@ -2205,6 +2223,24 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ircChannels => 'IRC频道';
 
   @override
+  String get ircStatusDisconnected => '已断开';
+
+  @override
+  String get ircStatusConnecting => '连接中';
+
+  @override
+  String get ircStatusConnected => '已连接';
+
+  @override
+  String get ircStatusAuthenticating => '认证中';
+
+  @override
+  String get ircStatusReconnecting => '重连中';
+
+  @override
+  String get ircStatusError => '错误';
+
+  @override
   String get ircServerConfig => 'IRC服务器配置';
 
   @override
@@ -2682,6 +2718,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get thisAccountIsAlreadyLoggedIn => '此账号已登录';
+
+  @override
+  String get unknownError => '未知错误';
+
+  @override
+  String get unknown => '未知';
 
   @override
   String searchSummary(int contacts, int groups, int messages) {
@@ -3513,6 +3555,24 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ircChannels => 'IRC頻道';
 
   @override
+  String get ircStatusDisconnected => '已斷開';
+
+  @override
+  String get ircStatusConnecting => '連線中';
+
+  @override
+  String get ircStatusConnected => '已連線';
+
+  @override
+  String get ircStatusAuthenticating => '認證中';
+
+  @override
+  String get ircStatusReconnecting => '重新連線中';
+
+  @override
+  String get ircStatusError => '錯誤';
+
+  @override
   String get ircServerConfig => 'IRC伺服器配置';
 
   @override
@@ -3989,6 +4049,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get thisAccountIsAlreadyLoggedIn => '此帳號已登入';
+
+  @override
+  String get unknownError => '未知錯誤';
+
+  @override
+  String get unknown => '未知';
 
   @override
   String searchSummary(int contacts, int groups, int messages) {

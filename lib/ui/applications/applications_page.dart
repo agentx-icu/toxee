@@ -287,22 +287,22 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     super.dispose();
   }
 
-  String _getStatusText(int status) {
+  String _getStatusText(AppLocalizations appL10n, int status) {
     switch (status) {
       case 0:
-        return 'Disconnected';
+        return appL10n.ircStatusDisconnected;
       case 1:
-        return 'Connecting';
+        return appL10n.ircStatusConnecting;
       case 2:
-        return 'Connected';
+        return appL10n.ircStatusConnected;
       case 3:
-        return 'Authenticating';
+        return appL10n.ircStatusAuthenticating;
       case 4:
-        return 'Reconnecting';
+        return appL10n.ircStatusReconnecting;
       case 5:
-        return 'Error';
+        return appL10n.ircStatusError;
       default:
-        return 'Unknown';
+        return appL10n.unknown;
     }
   }
 
@@ -1009,7 +1009,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  _getStatusText(_channelStatus[channel]!),
+                                  _getStatusText(
+                                    appL10n,
+                                    _channelStatus[channel]!,
+                                  ),
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: _getStatusColor(
                                       _channelStatus[channel]!,

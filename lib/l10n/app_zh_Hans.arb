@@ -483,6 +483,12 @@
   "@ircChannels": {
     "description": "Label for list of IRC channels"
   },
+  "ircStatusDisconnected": "已断开",
+  "ircStatusConnecting": "连接中",
+  "ircStatusConnected": "已连接",
+  "ircStatusAuthenticating": "认证中",
+  "ircStatusReconnecting": "重连中",
+  "ircStatusError": "错误",
   "ircConfigSaved": "IRC配置已保存",
   "@ircConfigSaved": {
     "description": "Success message when IRC configuration is saved"
@@ -767,6 +773,8 @@
   "markConversationAsRead": "标为已读",
   "deleteConversationTitle": "删除会话？",
   "deleteConversationBody": "将从聊天列表中移除“{name}”。聊天记录仍保留在本地。",
+  "unknownError": "未知错误",
+  "unknown": "未知",
   "runtimeForegroundTitle": "Toxee 正在运行",
   "runtimeForegroundBody": "保持连接，以便接收消息和通话。",
   "runtimeForegroundSettingsLabel": "通知设置",
