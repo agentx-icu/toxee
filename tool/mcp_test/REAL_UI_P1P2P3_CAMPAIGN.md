@@ -1376,3 +1376,15 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   bubble actually uses). The `waitKeyCenter` change (3bafebb) is retained as a
   harmless, codebase-consistent improvement; the speculative chat-bind was reverted.
   call_from_profile_tiles + group_join_by_id_real_ui remain env-limited as recorded.
+
+- 2026-06-23 **tim2tox member-dedup MOVED TO SOURCE + pin bumped (maintainer approved).**
+  The NGC ghost-duplicate group-member dedup now lives at the correct layer —
+  tim2tox `getGroupMemberList` de-dupes by Tox public key (tim2tox `8948e5c`, pushed
+  to anonymoussoft/tim2tox origin/master). The pin-respecting l3_group_member_list
+  seam workaround (was 801467a) is REMOVED; the seam reports the source list verbatim
+  again. `_memberRowKeyFor` driver hardening retained. toxee `312426c` bumps the pin
+  443d597 -> 8948e5c + reverts the l3 seam. LIVE re-validated: rui-group-conf-member-extra
+  5/5 PASS with the dedup at the source. code-reviewer clean; **codex still owed**
+  (auth broken: ~/.codex/auth.json has an access_token but EMPTY refresh_token →
+  401 "Missing bearer" / "Invalid refresh_token: empty string"; needs a fresh
+  `codex login`).
