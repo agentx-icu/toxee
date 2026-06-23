@@ -36,6 +36,7 @@ import '../../util/responsive_layout.dart';
 import '../login_page.dart';
 import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
+import 'sidebar.dart' show showSelfProfile;
 import '../pairing/pairing_host_page.dart';
 import '../testing/l3_debug_tools.dart';
 
@@ -1110,7 +1111,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await Prefs.setCurrentAccountToxId(null);
 
       if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
+      await Navigator.of(context).pushAndRemoveUntil(
         AppPageRoute<void>(page: const LoginPage()),
         (route) => false,
       );
@@ -1130,6 +1131,331 @@ class _SettingsPageState extends State<SettingsPage> {
     await Navigator.of(
       context,
     ).push<void>(AppPageRoute<void>(page: PairingHostPage(toxId: toxId)));
+  }
+
+  Future<void> _openMobileProfile() async {
+    await showSelfProfile(
+      context,
+      widget.service,
+      widget.connectionStatusStream,
+      nickName: _currentNickname,
+      onProfileSaved: (_, __) async {
+        await _loadCurrentNickname();
+        await _loadAccountList();
+      },
+      onAvatarChanged: (_) => _loadAvatarPath(),
+    );
+    if (!mounted) return;
+    await _loadCurrentNickname();
+    await _loadAvatarPath();
+  }
+
+  void _pushMobileSettingsSection(String title, Widget child) {
+    Navigator.of(context).push<void>(
+      AppPageRoute<void>(
+        page: Scaffold(
+          appBar: AppBar(title: Text(title)),
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              children: [child],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileSettingsIndex(BuildContext context, dynamic colorTheme) {
+    final appL10n = AppLocalizations.of(context)!;
+    final tL10n = TencentCloudChatLocalizations.of(context);
+    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+
+    Widget sectionTile({
+      required IconData icon,
+      required String title,
+      String? subtitle,
+      required VoidCallback onTap,
+    }) {
+      return Card(
+        elevation: 0,
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: outlineVariant),
+          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+        ),
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: subtitle == null ? null : Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      );
+    }
+
+    Widget avatar() {
+      final nickname = _currentNickname ?? '';
+      return CircleAvatar(
+        radius: 28,
+        backgroundColor: colorTheme.primaryColor,
+        child:
+            _avatarPath != null &&
+                _avatarPath!.isNotEmpty &&
+                File(_avatarPath!).existsSync()
+            ? ClipOval(
+                child: Image.file(
+                  File(_avatarPath!),
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
+              )
+            : Text(
+                (nickname.isNotEmpty ? nickname[0] : 'U').toUpperCase(),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: colorTheme.onPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+      );
+    }
+
+    return ListView(
+      key: UiKeys.settingsScrollView,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      children: [
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: outlineVariant),
+            borderRadius: BorderRadius.circular(
+              AppThemeConfig.cardBorderRadius,
+            ),
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(AppSpacing.md),
+            leading: avatar(),
+            title: Text(_currentNickname ?? appL10n.profile),
+            subtitle: Text(appL10n.profile),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: _openMobileProfile,
+          ),
+        ),
+        AppSpacing.verticalMd,
+        sectionTile(
+          icon: Icons.badge_outlined,
+          title: appL10n.accountInfo,
+          onTap: () => _pushMobileSettingsSection(
+            appL10n.accountInfo,
+            _buildMobileAccountInfoCard(context, colorTheme),
+          ),
+        ),
+        sectionTile(
+          icon: Icons.manage_accounts_outlined,
+          title: appL10n.accountManagement,
+          onTap: () => _pushMobileSettingsSection(
+            appL10n.accountManagement,
+            _buildMobileAccountManagementCard(context, colorTheme),
+          ),
+        ),
+        sectionTile(
+          icon: Icons.palette_outlined,
+          title: tL10n?.appearance ?? appL10n.appearance,
+          onTap: () => _pushMobileSettingsSection(
+            tL10n?.appearance ?? appL10n.appearance,
+            GlobalSettingsSection(
+              colorTheme: colorTheme,
+              toxId: widget.service.accountKey,
+              onDownloadsConfigChanged: () {
+                AppLogger.debug('[Settings] downloads config changed');
+              },
+            ),
+          ),
+        ),
+        sectionTile(
+          icon: Icons.hub_outlined,
+          title: appL10n.bootstrapNodes,
+          onTap: () => _pushMobileSettingsSection(
+            appL10n.bootstrapNodes,
+            BootstrapSettingsSection(
+              service: widget.service,
+              colorTheme: colorTheme,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileAccountInfoCard(BuildContext context, dynamic colorTheme) {
+    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+    final toxId = _currentAccountToxId ?? widget.service.accountKey;
+    Future<void> copyToxId() async {
+      await Clipboard.setData(ClipboardData(text: toxId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.idCopiedToClipboard),
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: outlineVariant),
+        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionHeader(title: AppLocalizations.of(context)!.accountInfo),
+            AppSpacing.verticalMd,
+            Text(
+              AppLocalizations.of(context)!.userId,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: colorTheme.secondaryTextColor,
+              ),
+            ),
+            AppSpacing.verticalXs,
+            GestureDetector(
+              onLongPress: copyToxId,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: SelectableText(
+                  toxId,
+                  key: UiKeys.settingsCopyToxIdButton,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontFamily: 'monospace',
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ),
+            AppSpacing.verticalMd,
+            _HoverableSettingsRow(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLocalizations.of(context)!.autoLogin,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        AppSpacing.verticalXs,
+                        Text(
+                          AppLocalizations.of(context)!.autoLoginDesc,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colorTheme.secondaryTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    key: UiKeys.settingsAutoLoginSwitch,
+                    value: _autoLogin,
+                    onChanged: (value) => _setAutoLogin(value),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: AppSpacing.xl),
+            _HoverableSettingsRow(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLocalizations.of(
+                            context,
+                          )!.autoAcceptFriendRequests,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        AppSpacing.verticalXs,
+                        Text(
+                          AppLocalizations.of(
+                            context,
+                          )!.autoAcceptFriendRequestsDesc,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colorTheme.secondaryTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: widget.autoAcceptFriends,
+                    onChanged: widget.onAutoAcceptFriendsChanged,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileAccountManagementCard(
+    BuildContext context,
+    dynamic colorTheme,
+  ) {
+    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+    return Card(
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: outlineVariant),
+        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionHeader(
+              title: AppLocalizations.of(context)!.accountManagement,
+            ),
+            AppSpacing.verticalMd,
+            ..._accountList.map((account) {
+              final accountToxId = account['toxId'] ?? '';
+              final currentId =
+                  _currentAccountToxId ?? widget.service.accountKey;
+              final isCurrentAccount = compareToxIds(accountToxId, currentId);
+              return _AccountCardItem(
+                account: account,
+                isCurrentAccount: isCurrentAccount,
+                colorTheme: colorTheme,
+                onSwitch: () => _switchAccount(account),
+                currentChip: Chip(
+                  label: Text(AppLocalizations.of(context)!.current),
+                  backgroundColor: colorTheme.primaryColor,
+                  labelStyle: TextStyle(color: colorTheme.onPrimary),
+                ),
+                subtitle: Text(
+                  '${AppLocalizations.of(context)!.lastLogin}: ${_formatLastLoginTime(account['lastLoginTime'], context)}',
+                ),
+              );
+            }),
+            AppSpacing.verticalMd,
+            OutlinedButton.icon(
+              icon: const Icon(Icons.download, size: 18),
+              label: Text(AppLocalizations.of(context)!.importAccount),
+              onPressed: _importAccount,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1156,14 +1482,16 @@ class _SettingsPageState extends State<SettingsPage> {
         }
         return TencentCloudChatThemeWidget(
           build: (context, colorTheme, textStyle) => SafeArea(
-            child: ListView(
-              // Stable scroll anchor for real-UI automation (wheel-scroll to the
-              // below-the-fold Global / Bootstrap sections). See
-              // UiKeys.settingsScrollView.
-              key: UiKeys.settingsScrollView,
-              padding: ResponsiveLayout.responsivePadding(context),
-              children: _buildSettingsChildren(context, colorTheme),
-            ),
+            child: ResponsiveLayout.isMobile(context)
+                ? _buildMobileSettingsIndex(context, colorTheme)
+                : ListView(
+                    // Stable scroll anchor for real-UI automation (wheel-scroll to the
+                    // below-the-fold Global / Bootstrap sections). See
+                    // UiKeys.settingsScrollView.
+                    key: UiKeys.settingsScrollView,
+                    padding: ResponsiveLayout.responsivePadding(context),
+                    children: _buildSettingsChildren(context, colorTheme),
+                  ),
           ),
         );
       },
@@ -1354,7 +1682,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             const SizedBox(height: 16),
             if (widget.hasPassword) ...[
               Text(
-                AppLocalizations.of(context)!.deleteAccountEnterPasswordToConfirm,
+                AppLocalizations.of(
+                  context,
+                )!.deleteAccountEnterPasswordToConfirm,
               ),
               const SizedBox(height: 8),
               TextField(
@@ -1372,7 +1702,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 ),
               ),
             ] else ...[
-              Text(AppLocalizations.of(context)!.deleteAccountTypeWordToConfirm),
+              Text(
+                AppLocalizations.of(context)!.deleteAccountTypeWordToConfirm,
+              ),
               const SizedBox(height: 8),
               Text(
                 AppLocalizations.of(
@@ -1383,9 +1715,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               const SizedBox(height: 4),
               SelectableText(
                 widget.confirmWord!,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               TextField(

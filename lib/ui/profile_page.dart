@@ -209,11 +209,15 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() => _editMode = false);
       final tL10n = TencentCloudChatLocalizations.of(context);
       AppSnackBar.showSuccess(
-          context, tL10n?.saveContact ?? AppLocalizations.of(context)!.saved);
+        context,
+        tL10n?.saveContact ?? AppLocalizations.of(context)!.saved,
+      );
     } catch (e) {
       if (!mounted) return;
       AppSnackBar.showError(
-          context, AppLocalizations.of(context)!.failedToSave(e.toString()));
+        context,
+        AppLocalizations.of(context)!.failedToSave(e.toString()),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -242,10 +246,11 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) setState(() {});
   }
 
-  QrCardRenderInputs _qrInputs(
-      {required Color primaryColor,
-      required Color textColor,
-      required Locale locale}) {
+  QrCardRenderInputs _qrInputs({
+    required Color primaryColor,
+    required Color textColor,
+    required Locale locale,
+  }) {
     final cardText = _cardTextController.text.trim().isNotEmpty
         ? _cardTextController.text.trim()
         : (AppLocalizations.of(context)?.scanQrCodeToAddContact ?? '');
@@ -271,16 +276,35 @@ class _ProfilePageState extends State<ProfilePage> {
     final appL10n = AppLocalizations.of(context)!;
     try {
       final inputs = _qrInputs(
-          primaryColor: primaryColor, textColor: textColor, locale: locale);
+        primaryColor: primaryColor,
+        textColor: textColor,
+        locale: locale,
+      );
+      if (Platform.isAndroid || Platform.isIOS) {
+        final qrPath = await _qrCache.getOrGenerate(inputs);
+        final savedPath = await saveQrToGallery(qrPath);
+        if (!mounted) return;
+        AppSnackBar.showSuccess(
+          context,
+          savedPath == null
+              ? appL10n.saved
+              : '${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath',
+        );
+        return;
+      }
       final savedPath = await pickDirectoryAndSaveQr(inputs);
       if (savedPath == null) return;
       if (!mounted) return;
       AppSnackBar.showSuccess(
-          context, '${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath');
+        context,
+        '${tL10n?.saveFileSuccess ?? appL10n.saved}: $savedPath',
+      );
     } catch (e) {
       if (!mounted) return;
       AppSnackBar.showError(
-          context, AppLocalizations.of(context)!.failedToSave(e.toString()));
+        context,
+        AppLocalizations.of(context)!.failedToSave(e.toString()),
+      );
     }
   }
 
@@ -293,7 +317,9 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (!mounted) return;
       AppSnackBar.showError(
-          context, AppLocalizations.of(context)!.copyFailed(e.toString()));
+        context,
+        AppLocalizations.of(context)!.copyFailed(e.toString()),
+      );
     }
   }
 
@@ -305,7 +331,10 @@ class _ProfilePageState extends State<ProfilePage> {
       AppSnackBar.showSuccess(context, appL10n.idCopiedToClipboard);
     } catch (e, st) {
       AppLogger.logError(
-          '[ProfilePage] Failed to copy Tox ID to clipboard', e, st);
+        '[ProfilePage] Failed to copy Tox ID to clipboard',
+        e,
+        st,
+      );
       if (!mounted) return;
       AppSnackBar.showError(context, appL10n.copyFailed(e.toString()));
     }
@@ -329,8 +358,10 @@ class _ProfilePageState extends State<ProfilePage> {
       _invalidateQrCard();
     } catch (e) {
       if (!mounted) return;
-      AppSnackBar.showError(context,
-          AppLocalizations.of(context)!.failedToUpdateAvatar(e.toString()));
+      AppSnackBar.showError(
+        context,
+        AppLocalizations.of(context)!.failedToUpdateAvatar(e.toString()),
+      );
     }
   }
 
@@ -360,7 +391,11 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildConnectionAware(
-      BuildContext context, colorTheme, tL10n, Locale locale) {
+    BuildContext context,
+    colorTheme,
+    tL10n,
+    Locale locale,
+  ) {
     final stream = widget.connectionStatusStream;
     if (widget.isEditable && stream != null) {
       return StreamBuilder<bool>(
@@ -369,35 +404,51 @@ class _ProfilePageState extends State<ProfilePage> {
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             AppLogger.logError(
-                '[ProfilePage] connection status stream error', snapshot.error);
+              '[ProfilePage] connection status stream error',
+              snapshot.error,
+            );
           }
           return _buildContent(
-              context, colorTheme, tL10n, snapshot.data ?? widget.online, locale);
+            context,
+            colorTheme,
+            tL10n,
+            snapshot.data ?? widget.online,
+            locale,
+          );
         },
       );
     }
     return _buildContent(context, colorTheme, tL10n, widget.online, locale);
   }
 
-  Widget _buildContent(BuildContext context, colorTheme, tL10n,
-      bool isConnected, Locale locale) {
+  Widget _buildContent(
+    BuildContext context,
+    colorTheme,
+    tL10n,
+    bool isConnected,
+    Locale locale,
+  ) {
     final appL10n = AppLocalizations.of(context)!;
     final displayName = widget.isEditable
         ? _effectiveDisplayName
         : (widget.nickName?.isNotEmpty == true
-            ? widget.nickName!.trim()
-            : widget.userId);
+              ? widget.nickName!.trim()
+              : widget.userId);
     final statusText = _resolveStatusText(appL10n);
-    final displayInitial =
-        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
-    final qrFuture = _qrCache.getOrGenerate(_qrInputs(
-      primaryColor: colorTheme.primaryColor,
-      textColor: colorTheme.primaryTextColor,
-      locale: locale,
-    ));
+    final displayInitial = displayName.isNotEmpty
+        ? displayName[0].toUpperCase()
+        : '?';
+    final qrFuture = _qrCache.getOrGenerate(
+      _qrInputs(
+        primaryColor: colorTheme.primaryColor,
+        textColor: colorTheme.primaryTextColor,
+        locale: locale,
+      ),
+    );
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final fallbackContentWidth =
-        (screenWidth > 0 && screenWidth < 440) ? screenWidth - 32 : 440.0;
+    final fallbackContentWidth = (screenWidth > 0 && screenWidth < 440)
+        ? screenWidth - 32
+        : 440.0;
 
     final header = ProfileHeader(
       displayName: displayName,

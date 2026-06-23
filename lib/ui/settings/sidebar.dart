@@ -219,9 +219,7 @@ Widget buildSidebar({
       child: Container(
         decoration: BoxDecoration(
           color: railColor,
-          border: Border(
-            right: BorderSide(color: dividerColor, width: 1),
-          ),
+          border: Border(right: BorderSide(color: dividerColor, width: 1)),
         ),
         child: Column(
           children: [
@@ -238,8 +236,7 @@ Widget buildSidebar({
               service: service,
               connectionStatusStream: connectionStatusStream,
             ),
-            Divider(height: 1, thickness: 1, color: dividerColor),
-            AppSpacing.verticalSm,
+            AppSpacing.verticalMd,
             _SidebarItem(
               key: UiKeys.sidebarChats,
               context: context,
@@ -282,7 +279,7 @@ Widget buildSidebar({
                   'Settings',
               onTap: () => onTap(3),
             ),
-            AppSpacing.verticalSm,
+            AppSpacing.verticalLg,
           ],
         ),
       ),
@@ -413,10 +410,7 @@ class _UserAvatarState extends State<_UserAvatar> {
               onTap: () => _openProfile(context),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  vertical: AppSpacing.lg,
-                  horizontal: AppSpacing.sm,
-                ),
+                padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
                 child: StreamBuilder<bool>(
                   stream: widget.connectionStatusStream,
                   initialData: widget
@@ -425,8 +419,7 @@ class _UserAvatarState extends State<_UserAvatar> {
                   builder: (context, snapshot) {
                     final isConnected =
                         snapshot.data ?? widget.service.isConnected;
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
+                    return Row(
                       children: [
                         Stack(
                           alignment: Alignment.center,
@@ -434,7 +427,7 @@ class _UserAvatarState extends State<_UserAvatar> {
                           children: [
                             // Use CircleAvatar; when no avatar, use same default as chat (UIKit)
                             CircleAvatar(
-                              radius: 28,
+                              radius: 22,
                               backgroundColor: colorTheme.primaryColor,
                               child:
                                   _avatarPath != null &&
@@ -446,22 +439,22 @@ class _UserAvatarState extends State<_UserAvatar> {
                                         key: ValueKey(
                                           'sidebar-avatar-${_avatarPath!}-$_avatarVersion',
                                         ),
-                                        width: 56,
-                                        height: 56,
+                                        width: 44,
+                                        height: 44,
                                         fit: BoxFit.cover,
-                                        // 56pt × 3× DPR = 168px raster — caps the
+                                        // 44pt × 3× DPR = 132px raster — caps the
                                         // decoded buffer instead of decoding the
                                         // source avatar file at full resolution.
-                                        cacheWidth: 168,
-                                        cacheHeight: 168,
+                                        cacheWidth: 132,
+                                        cacheHeight: 132,
                                       ),
                                     )
                                   : ClipOval(
                                       child: Image.asset(
                                         'images/default_user_icon.png',
                                         package: 'tencent_cloud_chat_common',
-                                        width: 56,
-                                        height: 56,
+                                        width: 44,
+                                        height: 44,
                                         fit: BoxFit.cover,
                                       ),
                                     ),
@@ -475,8 +468,8 @@ class _UserAvatarState extends State<_UserAvatar> {
                               right: -2,
                               bottom: -2,
                               child: Container(
-                                width: 12,
-                                height: 12,
+                                width: 10,
+                                height: 10,
                                 decoration: BoxDecoration(
                                   color: isConnected
                                       ? AppThemeConfig.successColor
@@ -491,41 +484,46 @@ class _UserAvatarState extends State<_UserAvatar> {
                             ),
                           ],
                         ),
-                        // Display nickname below avatar
-                        if (_nickname != null && _nickname!.isNotEmpty) ...[
-                          AppSpacing.verticalSm,
-                          SizedBox(
-                            width: double.infinity,
-                            child: Text(
-                              _nickname!,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: colorTheme.primaryTextColor,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                        const SizedBox(width: 14),
+                        if (_nickname != null && _nickname!.isNotEmpty)
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _nickname!,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: colorTheme.primaryTextColor,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.2,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  isConnected
+                                      ? (AppLocalizations.of(
+                                              context,
+                                            )?.statusOnline ??
+                                            'Online')
+                                      : (AppLocalizations.of(
+                                              context,
+                                            )?.statusOffline ??
+                                            'Offline'),
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: isConnected
+                                        ? AppThemeConfig.successColor
+                                        : colorTheme.secondaryTextColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
                           ),
-                          AppSpacing.verticalXs,
-                          Text(
-                            isConnected
-                                ? (AppLocalizations.of(context)?.statusOnline ??
-                                      'Online')
-                                : (AppLocalizations.of(
-                                        context,
-                                      )?.statusOffline ??
-                                      'Offline'),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: isConnected
-                                  ? AppThemeConfig.successColor
-                                  : colorTheme.secondaryTextColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
                       ],
                     );
                   },
@@ -592,122 +590,122 @@ class _SidebarItemState extends State<_SidebarItem> {
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
-          child: InkWell(
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: disableAnims ? Duration.zero : AppDurations.fast,
-              width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 56),
-              padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.md,
-                horizontal: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: bg,
-                border: Border(
-                  left: BorderSide(
-                    color: widget.selected ? selColor : Colors.transparent,
-                    width: 3,
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: widget.onTap,
+              child: AnimatedContainer(
+                duration: disableAnims ? Duration.zero : AppDurations.fast,
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 52),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 18,
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
-                        widget.icon,
-                        size: 22,
-                        color: widget.selected ? selColor : baseColor,
-                      ),
-                      if (widget.showUnreadCount)
-                        Positioned(
-                          top: -5,
-                          right: -6,
-                          child: UnconstrainedBox(
-                            child: TencentCloudChatConversationTotalUnreadCount(
-                              builder: (BuildContext _, int totalUnreadCount) {
-                                if (totalUnreadCount == 0) {
-                                  return const SizedBox.shrink();
-                                }
-                                final displayText = totalUnreadCount > 99
-                                    ? "99+"
-                                    : "$totalUnreadCount";
-                                // Constraint-based sizing instead of fixed
-                                // pixel widths — matches the bottom-nav
-                                // badge in home_page.dart and lets text
-                                // scale gracefully.
-                                return Semantics(
-                                  label:
-                                      AppLocalizations.of(
-                                        context,
-                                      )?.unreadMessagesSemantics(
-                                        totalUnreadCount,
-                                      ) ??
-                                      'Unread messages: $totalUnreadCount',
-                                  container: true,
-                                  child: ExcludeSemantics(
-                                    child: UnconstrainedBox(
-                                      child: Container(
-                                        constraints: const BoxConstraints(
-                                          minWidth: 16,
-                                        ),
-                                        height: 16,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: AppSpacing.xs,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: DesignTokens.unreadBadge,
-                                          borderRadius: BorderRadius.circular(
-                                            AppThemeConfig.badgeBorderRadius,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          widget.icon,
+                          size: 23,
+                          color: widget.selected ? selColor : baseColor,
+                        ),
+                        if (widget.showUnreadCount)
+                          Positioned(
+                            top: -5,
+                            right: -6,
+                            child: UnconstrainedBox(
+                              child: TencentCloudChatConversationTotalUnreadCount(
+                                builder: (BuildContext _, int totalUnreadCount) {
+                                  if (totalUnreadCount == 0) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final displayText = totalUnreadCount > 99
+                                      ? "99+"
+                                      : "$totalUnreadCount";
+                                  // Constraint-based sizing instead of fixed
+                                  // pixel widths — matches the bottom-nav
+                                  // badge in home_page.dart and lets text
+                                  // scale gracefully.
+                                  return Semantics(
+                                    label:
+                                        AppLocalizations.of(
+                                          context,
+                                        )?.unreadMessagesSemantics(
+                                          totalUnreadCount,
+                                        ) ??
+                                        'Unread messages: $totalUnreadCount',
+                                    container: true,
+                                    child: ExcludeSemantics(
+                                      child: UnconstrainedBox(
+                                        child: Container(
+                                          constraints: const BoxConstraints(
+                                            minWidth: 16,
                                           ),
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            displayText,
-                                            // Automation-only: present only
-                                            // while totalUnreadCount > 0; its
-                                            // data is the rendered count.
-                                            key: UiKeys.sidebarChatsUnreadBadge,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.labelSmall
-                                                ?.copyWith(
-                                                  color:
-                                                      DesignTokens.onUnreadBadge,
-                                                  fontWeight: FontWeight.w600,
-                                                  height: 1.0,
-                                                  fontSize: 10,
-                                                  fontFeatures: const [
-                                                    FontFeature.tabularFigures(),
-                                                  ],
-                                                ),
-                                            textAlign: TextAlign.center,
+                                          height: 16,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: AppSpacing.xs,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: DesignTokens.unreadBadge,
+                                            borderRadius: BorderRadius.circular(
+                                              AppThemeConfig.badgeBorderRadius,
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              displayText,
+                                              // Automation-only: present only
+                                              // while totalUnreadCount > 0; its
+                                              // data is the rendered count.
+                                              key: UiKeys
+                                                  .sidebarChatsUnreadBadge,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.labelSmall
+                                                  ?.copyWith(
+                                                    color: DesignTokens
+                                                        .onUnreadBadge,
+                                                    fontWeight: FontWeight.w600,
+                                                    height: 1.0,
+                                                    fontSize: 10,
+                                                    fontFeatures: const [
+                                                      FontFeature.tabularFigures(),
+                                                    ],
+                                                  ),
+                                              textAlign: TextAlign.center,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                  AppSpacing.verticalXs,
-                  Text(
-                    widget.label,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: widget.selected ? selColor : baseColor,
-                      fontWeight: widget.selected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 14),
+                    Text(
+                      widget.label,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: widget.selected ? selColor : baseColor,
+                        fontWeight: widget.selected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -794,106 +792,106 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
-          child: InkWell(
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: _disableAnims ? Duration.zero : AppDurations.fast,
-              width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 56),
-              padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.md,
-                horizontal: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: bg,
-                border: Border(
-                  left: BorderSide(
-                    color: widget.selected ? selColor : Colors.transparent,
-                    width: 3,
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: widget.onTap,
+              child: AnimatedContainer(
+                duration: _disableAnims ? Duration.zero : AppDurations.fast,
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 52),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 18,
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Icon(
-                        widget.icon,
-                        size: 22,
-                        color: widget.selected ? selColor : baseColor,
-                      ),
-                      if (_applicationUnreadCount > 0)
-                        Positioned(
-                          top: -5,
-                          right: -6,
-                          child: UnconstrainedBox(
-                            child: Builder(
-                              builder: (context) {
-                                final displayText = _applicationUnreadCount > 99
-                                    ? "99+"
-                                    : "$_applicationUnreadCount";
-                                return Semantics(
-                                  label:
-                                      AppLocalizations.of(
-                                        context,
-                                      )?.unreadMessagesSemantics(
-                                        _applicationUnreadCount,
-                                      ) ??
-                                      'Unread messages: $_applicationUnreadCount',
-                                  container: true,
-                                  child: ExcludeSemantics(
-                                    child: Container(
-                                      constraints: const BoxConstraints(
-                                        minWidth: 16,
-                                      ),
-                                      height: 16,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: AppSpacing.xs,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: DesignTokens.unreadBadge,
-                                        borderRadius: BorderRadius.circular(
-                                          AppThemeConfig.badgeBorderRadius,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          widget.icon,
+                          size: 23,
+                          color: widget.selected ? selColor : baseColor,
+                        ),
+                        if (_applicationUnreadCount > 0)
+                          Positioned(
+                            top: -5,
+                            right: -6,
+                            child: UnconstrainedBox(
+                              child: Builder(
+                                builder: (context) {
+                                  final displayText =
+                                      _applicationUnreadCount > 99
+                                      ? "99+"
+                                      : "$_applicationUnreadCount";
+                                  return Semantics(
+                                    label:
+                                        AppLocalizations.of(
+                                          context,
+                                        )?.unreadMessagesSemantics(
+                                          _applicationUnreadCount,
+                                        ) ??
+                                        'Unread messages: $_applicationUnreadCount',
+                                    container: true,
+                                    child: ExcludeSemantics(
+                                      child: Container(
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
                                         ),
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          displayText,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color:
-                                                    DesignTokens.onUnreadBadge,
-                                                fontWeight: FontWeight.w600,
-                                                height: 1.0,
-                                                fontSize: 10,
-                                              ),
-                                          textAlign: TextAlign.center,
+                                        height: 16,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: AppSpacing.xs,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: DesignTokens.unreadBadge,
+                                          borderRadius: BorderRadius.circular(
+                                            AppThemeConfig.badgeBorderRadius,
+                                          ),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            displayText,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color: DesignTokens
+                                                      .onUnreadBadge,
+                                                  fontWeight: FontWeight.w600,
+                                                  height: 1.0,
+                                                  fontSize: 10,
+                                                ),
+                                            textAlign: TextAlign.center,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                  AppSpacing.verticalXs,
-                  Text(
-                    widget.label,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: widget.selected ? selColor : baseColor,
-                      fontWeight: widget.selected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 14),
+                    Text(
+                      widget.label,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: widget.selected ? selColor : baseColor,
+                        fontWeight: widget.selected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

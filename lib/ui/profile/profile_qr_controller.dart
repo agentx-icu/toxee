@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../util/qr_card_generator.dart';
@@ -30,22 +31,21 @@ class QrCardRenderInputs {
   final int qrCardVersion;
 
   String cacheKey() {
-    final avatarKey =
-        (avatarPath ?? '').isNotEmpty ? avatarPath! : 'no-avatar';
+    final avatarKey = (avatarPath ?? '').isNotEmpty ? avatarPath! : 'no-avatar';
     return '$displayName|${locale.languageCode}|${_colorKey(primaryColor)}'
         '|${_colorKey(textColor)}|$avatarKey|$avatarVersion|$bottomText'
         '|$qrCardVersion';
   }
 
   Future<String> generate() => ContactQrCardGenerator.generateTempCard(
-        userId: userId,
-        displayName: displayName,
-        locale: locale,
-        bottomText: bottomText,
-        primaryColor: primaryColor,
-        textColor: textColor,
-        avatarPath: avatarPath,
-      );
+    userId: userId,
+    displayName: displayName,
+    locale: locale,
+    bottomText: bottomText,
+    primaryColor: primaryColor,
+    textColor: textColor,
+    avatarPath: avatarPath,
+  );
 
   Future<String> saveToDirectory(Directory directory) =>
       ContactQrCardGenerator.saveToDirectory(
@@ -92,4 +92,17 @@ Future<String?> pickDirectoryAndSaveQr(QrCardRenderInputs inputs) async {
   final directoryPath = await FilePicker.platform.getDirectoryPath();
   if (directoryPath == null) return null;
   return inputs.saveToDirectory(Directory(directoryPath));
+}
+
+const MethodChannel _qrSaveChannel = MethodChannel('toxee/qr_save');
+
+/// Save an existing QR image to the user's system photo gallery.
+/// Returns the platform-specific URI/path reported by the native layer.
+Future<String?> saveQrToGallery(String path) async {
+  if (!(Platform.isAndroid || Platform.isIOS)) return null;
+  final result = await _qrSaveChannel.invokeMethod<String>(
+    'saveImageToGallery',
+    {'path': path},
+  );
+  return result;
 }

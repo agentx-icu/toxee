@@ -9,6 +9,7 @@ import '../../util/lan_bootstrap_service.dart';
 import '../../util/logger.dart';
 import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
+import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
 import '../testing/ui_keys.dart';
 import '../widgets/app_page_route.dart';
@@ -589,11 +590,17 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
             if (_bootstrapNodeMode != 'lan' &&
                 (_bootstrapNodeMode == 'manual' ||
                     _currentBootstrapNode != null)) ...[
-              Row(
+              Flex(
+                direction: ResponsiveLayout.isMobile(context)
+                    ? Axis.vertical
+                    : Axis.horizontal,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (_currentBootstrapNode != null) ...[
-                    Expanded(
+                    SizedBox(
+                      width: ResponsiveLayout.isMobile(context)
+                          ? double.infinity
+                          : null,
                       child: Container(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         decoration: BoxDecoration(
@@ -644,8 +651,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                               ),
                             if (_nodeTestResult != null) ...[
                               AppSpacing.verticalSm,
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
+                              Wrap(
+                                spacing: AppSpacing.sm,
+                                runSpacing: AppSpacing.xs,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   _StatusPill(
                                     label: _nodeTestResult == 'success'
@@ -656,8 +665,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                         : Theme.of(context).colorScheme.error,
                                   ),
                                   if (_nodeLatency != null &&
-                                      _nodeTestResult == 'success') ...[
-                                    AppSpacing.horizontalSm,
+                                      _nodeTestResult == 'success')
                                     Text(
                                       '${_nodeLatency}ms',
                                       // Tabular figures so latency numerics
@@ -673,7 +681,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                             ],
                                           ),
                                     ),
-                                  ],
                                 ],
                               ),
                             ],
@@ -681,10 +688,13 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                         ),
                       ),
                     ),
-                    AppSpacing.horizontalSm,
+                    ResponsiveLayout.isMobile(context)
+                        ? AppSpacing.verticalSm
+                        : AppSpacing.horizontalSm,
                   ],
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
                     children: [
                       if (_currentBootstrapNode != null)
                         OutlinedButton.icon(
@@ -714,8 +724,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 page: BootstrapNodesPage(
                                   service: widget.service,
                                   onNodeSelected: () async {
-                                    if (mounted)
+                                    if (mounted) {
                                       await _loadCurrentBootstrapNode();
+                                    }
                                   },
                                 ),
                               ),

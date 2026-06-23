@@ -129,7 +129,10 @@ class ResponsiveLayout {
       return mobile;
     }
     // Fallback chain: desktop -> tablet -> mobile
-    return desktop ?? tablet ?? mobile ?? (throw ArgumentError('At least one value must be provided'));
+    return desktop ??
+        tablet ??
+        mobile ??
+        (throw ArgumentError('At least one value must be provided'));
   }
 
   /// Get responsive padding based on screen size.
@@ -168,12 +171,7 @@ class ResponsiveLayout {
 
   /// Get responsive column count for grid layouts
   static int responsiveColumnCount(BuildContext context) {
-    return responsiveValue<int>(
-      context,
-      mobile: 1,
-      tablet: 2,
-      desktop: 3,
-    );
+    return responsiveValue<int>(context, mobile: 1, tablet: 2, desktop: 3);
   }
 
   /// Get responsive font size multiplier
@@ -197,15 +195,14 @@ class ResponsiveLayout {
   }
 
   /// Get responsive sidebar width
-  /// Mobile / large-phone (bottom-nav tier): 0 (uses Drawer instead of a
-  /// permanent sidebar). Tablet: 80 (compact icon sidebar). Desktop: 100
-  /// (icon + label sidebar).
+  /// Mobile / large-phone (bottom-nav tier): 0 (uses bottom nav). Tablet: 72
+  /// (compact icon sidebar). Desktop: 180 — enough for icon + short label.
   // Sidebar visibility and bottom-nav visibility are controlled by the same
   // check (`shouldShowBottomNav`) so the two never disagree (e.g. landscape
   // large-phones used to get a sidebar AND a bottom nav).
   static double responsiveSidebarWidth(BuildContext context) {
     if (shouldShowBottomNav(context)) return 0.0;
-    return isDesktop(context) ? 100.0 : 80.0;
+    return isDesktop(context) ? 180.0 : 72.0;
   }
 
   /// Get responsive bottom navigation bar height.

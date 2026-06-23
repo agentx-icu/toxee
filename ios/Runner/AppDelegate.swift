@@ -1,6 +1,7 @@
 import Flutter
 import AVFoundation
 import Foundation
+import Photos
 import UIKit
 
 @main
@@ -77,6 +78,41 @@ import UIKit
             code: "SET_FAILED",
             message: "setResourceValues failed for \(path): \(error.localizedDescription)",
             details: nil))
+        }
+      }
+
+      let qrSaveChannel = FlutterMethodChannel(
+        name: "toxee/qr_save",
+        binaryMessenger: controller.binaryMessenger)
+      qrSaveChannel.setMethodCallHandler { (call, result) in
+        guard call.method == "saveImageToGallery" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        guard
+          let args = call.arguments as? [String: Any],
+          let path = args["path"] as? String, !path.isEmpty,
+          let image = UIImage(contentsOfFile: path)
+        else {
+          result(FlutterError(
+            code: "INVALID_ARGS",
+            message: "Expected readable image path",
+            details: nil))
+          return
+        }
+        PHPhotoLibrary.shared().performChanges({
+          PHAssetChangeRequest.creationRequestForAsset(from: image)
+        }) { success, error in
+          DispatchQueue.main.async {
+            if success {
+              result(path)
+            } else {
+              result(FlutterError(
+                code: "SAVE_FAILED",
+                message: error?.localizedDescription ?? "Could not save image to Photos",
+                details: nil))
+            }
+          }
         }
       }
     }

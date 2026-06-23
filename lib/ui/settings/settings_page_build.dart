@@ -197,7 +197,9 @@ extension _SettingsPageBuild on _SettingsPageState {
                             side: danger ? BorderSide(color: errorColor) : null,
                             padding: compact
                                 ? const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 12)
+                                    horizontal: 10,
+                                    vertical: 12,
+                                  )
                                 : null,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(
@@ -209,7 +211,9 @@ extension _SettingsPageBuild on _SettingsPageState {
                         );
                       }
 
-                      List<Widget> buildAccountButtons({required bool compact}) {
+                      List<Widget> buildAccountButtons({
+                        required bool compact,
+                      }) {
                         return [
                           accountAction(
                             key: UiKeys.settingsExportAccountButton,
@@ -259,12 +263,12 @@ extension _SettingsPageBuild on _SettingsPageState {
                           // destructive row below).
                           final buttons = buildAccountButtons(compact: true);
                           Widget gridRow(Widget left, Widget right) => Row(
-                                children: [
-                                  Expanded(child: left),
-                                  const SizedBox(width: AppSpacing.sm),
-                                  Expanded(child: right),
-                                ],
-                              );
+                            children: [
+                              Expanded(child: left),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(child: right),
+                            ],
+                          );
                           return Column(
                             children: [
                               gridRow(buttons[0], buttons[1]),
@@ -343,43 +347,6 @@ extension _SettingsPageBuild on _SettingsPageState {
                         Switch(
                           value: widget.autoAcceptFriends,
                           onChanged: widget.onAutoAcceptFriendsChanged,
-                        ),
-                      ],
-                    ),
-                  ),
-                  AppSpacing.verticalLg,
-                  Divider(height: 1, color: outlineVariant),
-                  AppSpacing.verticalMd,
-                  _HoverableSettingsRow(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                AppLocalizations.of(
-                                  context,
-                                )!.autoAcceptGroupInvites,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              AppSpacing.verticalXs,
-                              Text(
-                                AppLocalizations.of(
-                                  context,
-                                )!.autoAcceptGroupInvitesDesc,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: colorTheme.secondaryTextColor,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: widget.autoAcceptGroupInvites,
-                          onChanged: widget.onAutoAcceptGroupInvitesChanged,
                         ),
                       ],
                     ),

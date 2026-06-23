@@ -59,18 +59,13 @@ extension _HomePageBootstrap on _HomePageState {
         child: TencentCloudChatContactGroupItemContent(group: group),
       ),
       // setBuilders is destructive (any slot not passed is nulled) — re-supply
-      // the app-bar-name override (including the trailing `NewEntryButton`)
-      // here so it stays mounted after the post-contacts-load override is
-      // applied, and so a later route-dispose restore can be healed by
-      // calling this helper again (restored-account boot path).
-      contactAppBarNameBuilder: ({String? title}) => ContactAppBarNameOverride(
-        title: title,
-        trailing: NewEntryButton(
-          onAddFriend: _showAddFriendDialog,
-          onCreateGroup: _showAddGroupDialog,
-          onJoinIrcChannel: _ircAppInstalled ? _showJoinIrcChannelDialog : null,
-        ),
-      ),
+      // the app-bar-name override here so it stays mounted after the
+      // post-contacts-load override is applied, and so a later route-dispose
+      // restore can be healed by calling this helper again (restored-account
+      // boot path). Contacts intentionally has no trailing New Chat affordance;
+      // chat creation lives in the Chats tab.
+      contactAppBarNameBuilder: ({String? title}) =>
+          ContactAppBarNameOverride(title: title),
     );
   }
 
@@ -228,18 +223,10 @@ extension _HomePageBootstrap on _HomePageState {
       ),
       // Suppress UIKit's built-in `Icons.maps_ugc_outlined` MenuAnchor in the
       // contacts-tab title row. Tencent-IM's "Add Contact" / "Add Group" flows
-      // search by userID and don't work on Tox; toxee's own `NewEntryButton`
-      // (Tox ID/QR, Create Group, Join IRC) is mounted inside the override's
-      // `trailing` slot — same visual position as the upstream icon, but
-      // routed through the Tox-aware dialogs.
-      contactAppBarNameBuilder: ({String? title}) => ContactAppBarNameOverride(
-        title: title,
-        trailing: NewEntryButton(
-          onAddFriend: _showAddFriendDialog,
-          onCreateGroup: _showAddGroupDialog,
-          onJoinIrcChannel: _ircAppInstalled ? _showJoinIrcChannelDialog : null,
-        ),
-      ),
+      // search by userID and don't work on Tox. Contacts intentionally has no
+      // trailing New Chat affordance; chat creation lives in the Chats tab.
+      contactAppBarNameBuilder: ({String? title}) =>
+          ContactAppBarNameOverride(title: title),
     );
 
     final searchRegisterResult = search_pkg.CustomSearchManager.register();
@@ -369,7 +356,7 @@ extension _HomePageBootstrap on _HomePageState {
                   // one between the event and this post-frame callback.
                   final stillCurrent =
                       UikitDataFacade.currentConversation?.conversationID ==
-                          conversationID;
+                      conversationID;
                   if (!stillCurrent) return;
                   final doRebuild = _currentConversationID != conversationID;
                   final doFlip =
@@ -894,8 +881,9 @@ extension _HomePageBootstrap on _HomePageState {
     // admin / self call-record detection break the same way). `getSelfToxId()`
     // is a synchronous FFI read available right after login.
     final selfToxId = widget.service.getSelfToxId();
-    final currentUserId =
-        (selfToxId != null && selfToxId.isNotEmpty) ? selfToxId : selfId;
+    final currentUserId = (selfToxId != null && selfToxId.isNotEmpty)
+        ? selfToxId
+        : selfId;
     AppLogger.debug(
       '[HomePage] _buildHomePage: Setting current user info, '
       'selfId=$selfId selfToxId=$selfToxId',
@@ -1083,7 +1071,10 @@ extension _HomePageBootstrap on _HomePageState {
     // unconditional null here would clobber the new reader and leave the dump's
     // homeShellTab null after every account switch.
     _bag.add(() {
-      if (identical(currentL3HomeShellSnapshotReader, homeShellSnapshotReader)) {
+      if (identical(
+        currentL3HomeShellSnapshotReader,
+        homeShellSnapshotReader,
+      )) {
         registerL3HomeShellSnapshotReader(null);
       }
     });

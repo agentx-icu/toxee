@@ -123,6 +123,17 @@ capture_desktop() {
     # The launcher keeps app-support (profile/history) under the sandbox
     # container, not the seed root — clear it too or a reset leaves stale data.
     rm -rf "$HOME/Library/Containers/com.toxee.app/Data/Library/Application Support/com.toxee.app/multi_instance/Shot"
+    # SharedPreferences on macOS are stored in the app plist; the per-instance
+    # prefix from launch_toxee_instance.sh (`TOXEE_SHARED_PREFS_PREFIX=toxee_shot.`)
+    # is applied to keys, not to the plist filename. Delete only the screenshot
+    # keys so unrelated multi-instance fixtures (`toxee_a.`, `toxee_b.`) survive.
+    local prefs_plist="$HOME/Library/Containers/com.toxee.app/Data/Library/Preferences/com.toxee.app.plist"
+    if [[ -f "$prefs_plist" ]]; then
+      while IFS= read -r key; do
+        [[ "$key" == toxee_shot.* ]] || continue
+        /usr/libexec/PlistBuddy -c "Delete :$key" "$prefs_plist" >/dev/null 2>&1 || true
+      done < <(/usr/libexec/PlistBuddy -c 'Print' "$prefs_plist" 2>/dev/null | sed -nE 's/^[[:space:]]+(toxee_shot\.[^ =]+)[[:space:]]*=.*/\1/p')
+    fi
   fi
   build_macos() { (cd "$REPO_ROOT" && MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh "$@"); }
   if [[ "$BUILD" == "1" || ! -x "$APP_BUNDLE/Contents/MacOS/Toxee" ]]; then

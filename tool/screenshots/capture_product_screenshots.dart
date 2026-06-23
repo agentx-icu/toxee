@@ -32,7 +32,11 @@ import 'package:vm_service/vm_service_io.dart';
 import 'seed_data.dart';
 
 /// macOS window size (wide layout). iPad/phone use the device screen.
-const _windowW = 1280, _windowH = 832;
+///
+/// Feishu's reference desktop screenshots use a roomy wide macOS window where
+/// the UI reads as rail + conversation list + chat pane. Keep product shots on
+/// the same aspect so pixel review compares like with like.
+const _windowW = 2000, _windowH = 1468;
 
 /// Wide = rail + master-detail (desktop, tablet); narrow = bottom nav + pushed
 /// routes (phone). Drives how a chat is opened and whether routes need popping.
@@ -99,7 +103,10 @@ Future<int> _main(List<String> args) async {
     // connection), and a long idle wait here can let the session re-init and
     // transiently drop FakeUIKit.im.ffi out from under the seed tools.
     for (final p in seededFriends) {
-      await s.l3('l3_seed_friend', {'userId': p.pubKey, 'nickname': p.nickname});
+      await s.l3('l3_seed_friend', {
+        'userId': p.pubKey,
+        'nickname': p.nickname,
+      });
     }
     await _seedC2c(s);
     final groupId = await _seedGroup(s);
@@ -180,7 +187,8 @@ Future<void> _seedC2c(_Shot s) async {
   }
   print('[seed] injecting C2C with ${personaAlex.nickname}');
   // Space timestamps 1 min apart, ending "now", so the thread reads naturally.
-  var ms = DateTime.now().millisecondsSinceEpoch -
+  var ms =
+      DateTime.now().millisecondsSinceEpoch -
       conversationWithAlex.length * 60000;
   for (final line in conversationWithAlex) {
     await s.l3('l3_inject_c2c_text', {
@@ -435,8 +443,7 @@ class _Shot {
   Future<Map<String, dynamic>> skill(
     String method, [
     Map<String, Object?> args = const {},
-  ]) =>
-      _raw('ext.flutter.flutter_skill.$method', args);
+  ]) => _raw('ext.flutter.flutter_skill.$method', args);
 
   Future<Map<String, dynamic>> dumpState({String? userId, String? convId}) =>
       _raw('ext.mcp.toolkit.l3_dump_state', {
@@ -540,9 +547,10 @@ class _Shot {
   /// tap the real conversation row, which pushes the UIKit message route.
   Future<void> openChat({String? userId, String? groupId}) async {
     if (kind == _DeviceKind.wide) {
-      await l3('l3_open_chat', userId != null
-          ? {'userId': userId}
-          : {'groupId': groupId});
+      await l3(
+        'l3_open_chat',
+        userId != null ? {'userId': userId} : {'groupId': groupId},
+      );
       return;
     }
     await l3('l3_force_home_root', {'tab': 'chats'});
