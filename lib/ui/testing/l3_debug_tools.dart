@@ -4734,42 +4734,20 @@ MCPCallEntry _l3GroupMemberListEntry() => MCPCallEntry.tool(
         );
       }
       final raw = res.data?.memberInfoList;
-      // De-duplicate by Tox public key. The NGC peer enumeration underneath
-      // getGroupMemberList is keyed by ephemeral per-session peer ids, so a peer
-      // that churns (disconnect/reconnect — frequent when many instances run on
-      // one host) can surface multiple times for the SAME public key (observed:
-      // member count grows 2->3->4 across rapid create/leave cycles, with the
-      // peer's row userID repeated verbatim). The real UI member-list page
-      // collapses these in its render, so this seam must report the same
-      // canonical view — otherwise a consumer (e.g. the 2-process member-row
-      // resolver) can't tell which entry maps to the rendered row. Keep the
-      // highest-role entry per pubkey so a ghost Member copy can't shadow the
-      // Owner/Admin. The deeper source-level fix belongs in tim2tox
-      // getGroupMemberList; deferred per the submodule-pin freeze.
-      final byPk = <String, V2TimGroupMemberFullInfo>{};
-      final pkOrder = <String>[];
+      // NGC ghost-duplicate members (same pubkey under multiple ephemeral peer
+      // ids after same-host churn) are now collapsed at the source in tim2tox
+      // getGroupMemberList, so this seam reports them verbatim.
+      final members = <Map<String, Object?>>[];
       if (raw != null) {
         for (final m in raw) {
-          final pk = toToxPublicKey(m.userID);
-          final existing = byPk[pk];
-          if (existing == null) {
-            byPk[pk] = m;
-            pkOrder.add(pk);
-          } else if ((m.role ?? 0) > (existing.role ?? 0)) {
-            byPk[pk] = m;
-          }
+          final uid = m.userID;
+          members.add({
+            'userID': uid,
+            'nickName': m.nickName,
+            'role': m.role,
+            'isSelf': selfPk.isNotEmpty && toToxPublicKey(uid) == selfPk,
+          });
         }
-      }
-      final members = <Map<String, Object?>>[];
-      for (final pk in pkOrder) {
-        final m = byPk[pk]!;
-        final uid = m.userID;
-        members.add({
-          'userID': uid,
-          'nickName': m.nickName,
-          'role': m.role,
-          'isSelf': selfPk.isNotEmpty && pk == selfPk,
-        });
       }
       AppLogger.info(
         '[L3] l3_group_member_list: group=$groupId count=${members.length}',
