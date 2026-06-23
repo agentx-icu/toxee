@@ -1221,3 +1221,54 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   rui-c2c-deep-extra, rui-group-conf-member-extra, rui-group-conf-deep-extra,
   rui-p3-writable, rui-p1-relaunch (the menu-bias + bind + online-wait fixes should
   carry the media/menu ones; same-host DHT degradation gates them late-session).
+
+- 2026-06-22 **ENV BLOCKER (new session) — osascript Accessibility (TCC 1002).**
+  Rebuilt against current HEAD (toxee `0087be4`, i18n commit changed `lib/` + fork
+  `4dcb69e`), DHT ports clean, ran rui-p2-verify → BLOCKED at step-1 account
+  registration: `System Events got an error: osascript is not allowed to send
+  keystrokes. (1002)` (runner rc=78). ROOT CAUSE: macOS TCC attributes Accessibility
+  to the GUI app at the **process-tree root**. This session runs Claude via the Emacs
+  ACP bridge (Bash shell → `claude` SDK → `node` → **/Applications/Emacs.app**), so the
+  responsible app is **Emacs.app**, which is NOT enabled in System Settings → Privacy &
+  Security → Accessibility. Every real-UI campaign registers an account via
+  `focusType` → clipboard paste → `Cmd+V` (real keystrokes) as its FIRST step, so ALL
+  2-proc real-UI campaigns are 100% blocked until granted. NOT code-fixable (`tccutil`
+  only resets; TCC.db is SIP-protected; sandbox-disable doesn't help; enterText swap
+  SIGSEGVs the Flutter engine — the very reason the harness uses osascript). FIX = one
+  manual grant: enable **Emacs.app** in the Accessibility pane (or relaunch Claude from
+  a terminal that already holds it, e.g. Terminal.app), then re-run from rui-p2-verify.
+  Prior sessions weren't blocked because they ran under such a terminal. Diagnostic:
+  `osascript -e 'tell application "System Events" to key code 53'` → 1002 confirms;
+  empty `keystroke ""` returns 0 even unauthorized (don't use it to test).
+
+- 2026-06-22 **POST-GRANT RUN — rui-p2-verify + rui-c2c-extra GREEN (2 root-cause fixes).**
+  After Emacs.app was granted Accessibility, re-ran on clean DHT:
+  - **rui-p2-verify PASS (5-layer send/delivery already worked; only the ASSERTION
+    was wrong).** Live diag: the pasted-image SEND completes end-to-end (sentId set,
+    row rendered, B receives), but the SENDER-side history record stores the image
+    name ONLY under `filePath` (basename `paste_image_<nonce>.png`) with `fileName`
+    null. The old assertion checked the (null) `fileName` → "sender image not in
+    dump". Fix = match `paste_image_*.png` across EITHER `fileName` or the `filePath`
+    basename, both sender + receiver (mirrors attachment fix 694e103/694e130). Live:
+    `sentId=… row=true received=true` passed=1/0. codex: No findings. Committed `a2c2158`.
+  - **rui-c2c-extra 5/5 PASS — `c2c_global_search_contact_opens_chat` was a REAL
+    product bug.** Live diag pinned it precisely: after tapping a C2C conversation in
+    the global-search overlay, `currentConversation` binds correctly and the composer
+    mounts (`hasInput=true`), but `homeShellTab=contacts` — the chat is hidden behind
+    the Contacts pane. ROOT CAUSE: the search path (`custom_search _navigateToMessage`,
+    desktop branch) sets `UikitDataFacade.currentConversation` DIRECTLY without
+    flipping the home shell to the Chats tab, unlike every other open-chat path
+    (conversation-row tap, contact-profile Send-Message, notification routing — all do
+    `_index = 0`). FIX (production, `lib/ui/home_page_bootstrap.dart`): the HomePage
+    `currentConversation` event-bus listener (the single chokepoint that already
+    rebuilds the message widget) now also flips `_index = 0` on desktop master-detail
+    whenever a conversation binds, even when re-opening the current one. Restructured
+    to schedule on `(changed || needsTabFlip)`, re-read `stillCurrent`/`doRebuild`
+    in-callback, and keep the expensive rebuild + `clearConversationGroup` gated on an
+    actual conversation change. Mobile pushes a ChatPage route (no pane bind), so it's
+    unaffected (`_lastShouldShowMasterDetail==false`). This fix ALSO covers
+    `sweep_c2c_deep_extra`'s `c2c_search_result_opens_target_message` (same path).
+    code-reviewer: no critical, 1 refinement applied (early-exit to avoid a no-op
+    setState). **codex review OWED** (provider 503 at review time; retry pending).
+    Diagnostics added to `drive_real_ui_pair_c2c_extra.dart` (failure-only) +
+    `drive_real_ui_pair_p2_verify.dart`. Live: rui-c2c-extra 5/5, endFriends=true.

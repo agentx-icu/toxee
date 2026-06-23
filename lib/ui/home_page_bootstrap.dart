@@ -347,15 +347,50 @@ extension _HomePageBootstrap on _HomePageState {
             final currentConv = data.currentConversation;
             if (currentConv != null) {
               final conversationID = currentConv.conversationID;
-              if (_currentConversationID != conversationID) {
+              final changed = _currentConversationID != conversationID;
+              // On desktop master-detail, binding a conversation must surface the
+              // Chats tab. Every other open-chat path (conversation-row tap,
+              // contact-profile "Send Message", notification routing) flips
+              // _index to 0 explicitly, but the GLOBAL-SEARCH path
+              // (custom_search `_navigateToMessage`) sets currentConversation
+              // directly without flipping — so a chat opened from search while
+              // on Contacts/Settings binds + mounts its composer yet stays hidden
+              // behind that pane (live-confirmed: homeShellTab=contacts,
+              // currentConversation bound, hasInput=true). Flip here so ALL
+              // currentConversation bindings consistently reveal the chat, even
+              // when re-opening the already-current conversation. Mobile pushes a
+              // ChatPage route instead of binding the pane, so it has no such gap.
+              final needsTabFlip =
+                  _lastShouldShowMasterDetail == true && _index != 0;
+              if (changed || needsTabFlip) {
                 SchedulerBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && _currentConversationID != conversationID) {
-                    _bootstrapSetState(() {
+                  if (!mounted) return;
+                  // Re-read live state: another binding may have superseded this
+                  // one between the event and this post-frame callback.
+                  final stillCurrent =
+                      UikitDataFacade.currentConversation?.conversationID ==
+                          conversationID;
+                  if (!stillCurrent) return;
+                  final doRebuild = _currentConversationID != conversationID;
+                  final doFlip =
+                      _lastShouldShowMasterDetail == true && _index != 0;
+                  // A competing binding between the event and this callback may
+                  // have already done the rebuild (doRebuild now false) and the
+                  // tab may already be on Chats (doFlip false). Skip the
+                  // setState entirely rather than rebuild with a no-op lambda.
+                  if (!doRebuild && !doFlip) return;
+                  _bootstrapSetState(() {
+                    if (doRebuild) {
                       _messageWidgetKeys.clear();
                       _currentConversationID = conversationID;
                       _messageWidgetKeyCounter++;
                       _messageWidgetKeys[conversationID] = UniqueKey();
-                    });
+                    }
+                    if (doFlip) {
+                      _index = 0;
+                    }
+                  });
+                  if (doRebuild) {
                     unawaited(
                       NotificationService.instance.clearConversationGroup(
                         conversationID,

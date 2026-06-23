@@ -228,6 +228,24 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
       tapped &&
       await _chatSurfaceReady(inst, _c2cConvId(toxFriend), timeoutSecs: 12);
   await inst.shot('/tmp/ui_c2c_search_open_chat_${inst.name}.png');
+  // DIAGNOSTIC (case B): when opened=false despite tapped=true, capture WHICH
+  // _chatSurfaceReady condition failed — shellTab must be 'chats', the bound
+  // currentConversation.conversationID must equal _c2cConvId, and the composer
+  // (chat_input_text_field) must be present. This pinpoints whether the search
+  // tap failed to switch the home tab, failed to bind the conversation, or
+  // failed to mount the chat surface.
+  if (!opened) {
+    final ds = await inst.dumpState();
+    final cur = (ds['currentConversation'] as Map?)?.cast<String, dynamic>();
+    final hasInput = await inst.waitKey('chat_input_text_field', timeoutSecs: 1);
+    print(
+      '[pair] c2c_global_search_contact_opens_chat DIAG: '
+      'expect=${_c2cConvId(toxFriend)} '
+      'homeShellTab=${ds['homeShellTab']} '
+      'currentConversation=${cur?['conversationID']} '
+      'hasInput=$hasInput',
+    );
+  }
   print(
     '[pair] c2c_global_search_contact_opens_chat: rowKey=$rowKey '
     'tapped=$tapped opened=$opened',
