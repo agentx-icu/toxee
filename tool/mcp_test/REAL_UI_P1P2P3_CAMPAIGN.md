@@ -1437,3 +1437,18 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   (2) Even with a valid chat-id, B joining a PUBLIC group is env-limited (same-host
       public NGC DHT join is flaky; the group-message work switched to PRIVATE+invite
       for this reason). codex review owed.
+
+- 2026-06-23 **codex reviews DONE (auth restored) — production CLEAN, 1 test P2 fixed.**
+  Ran the owed codex reviews on the session's fixes:
+  - PRODUCTION code: global-search tab-flip (f2673a1), tim2tox getGroupMemberList
+    pubkey dedup (8948e5c), l3_group_chat_id tool + l3 member-list revert (d1c57bd)
+    → **"No severity-rated issues found in either change."**
+  - TEST drivers: one **P2** — the auto-accept re-issue loop (72453ee) had landed in
+    `runGroupMessage`, NOT in `_establishTwoProcessGroup` (the function group-conf-deep/
+    member reach via `_gcmeWithEstablishedTarget`), so that path could still false-fail
+    "B autoAcceptGroupInvites did not take effect". FIXED (974bd51): extracted
+    `_ensureAutoAcceptGroupInvitesLive` and routed ALL FIVE establish gates through it
+    (runGroupMessage, _establishTwoProcessGroup, runGroupAddMemberPicker, 2x
+    sweep_group2). Behavior-safe (idempotent set, strictly >= a single set).
+  All other test-driver changes (p2-verify assertion, search/offline-pending
+  waitKeyCenter, conference viaL3Seam, group_join chat-id) — no issues.
