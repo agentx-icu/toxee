@@ -1361,3 +1361,18 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   was revoked mid-session (needs interactive `codex login`). ENV-GATED tonight
   (degraded same-host DHT, recovers on fresh session): rui-group-conf-deep-extra
   single-attempt 3/3, rui-p1-relaunch call/group-join/offline-pending.
+
+- 2026-06-23 **offline_pending_relaunch — ROOT CAUSE refined (NOT a waitKey issue).**
+  Re-ran with the bubble/spinner resolved via `waitKeyCenter` AND with an explicit
+  `openChatViaL3` chat-bind before the offline send — BOTH still gave
+  `pendingId=<set> pendingRow=false pendingSpinner=false`. So neither key-resolution
+  nor chat-bind is the blocker: the pending message IS in the dump
+  (`ChatMessage.msgID` = e.g. `1782195246275_0_FlutterUIKitClient`) but the rendered
+  OPTIMISTIC bubble is keyed by a DIFFERENT (temp/optimistic) msgID, so
+  `message_list_item:<dump msgID>` / `message_send_status:<dump msgID>:sending` never
+  match. FOLLOW-UP (deep, data/render-layer): align the optimistic pending-message id
+  between the dump (`ChatMessage.msgID`) and the UIKit rendered `V2TimMessage.id/msgID`
+  before the send is confirmed (or have the dump expose the optimistic/temp id the
+  bubble actually uses). The `waitKeyCenter` change (3bafebb) is retained as a
+  harmless, codebase-consistent improvement; the speculative chat-bind was reverted.
+  call_from_profile_tiles + group_join_by_id_real_ui remain env-limited as recorded.
