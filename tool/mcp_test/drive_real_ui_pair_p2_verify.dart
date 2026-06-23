@@ -173,29 +173,65 @@ Future<bool> _p2vPasteImageIntoComposer(
       return false;
     }
 
+    // The pasted-image record carries its name as `paste_image_<appNonce>.png`.
+    // Match on `fileName` OR the `filePath` basename: the SENDER-side history
+    // record stores the name ONLY under `filePath` (app-temp source path) with
+    // `fileName` null, while the RECEIVER record exposes it under `fileName`.
+    // Mirrors the attachment-path fix (694e130) — verified live: the send always
+    // worked; the prior assertion only ever checked the (null) `fileName`.
+    String pastedName(Map<String, dynamic> m) {
+      final nameField = m['fileName']?.toString() ?? '';
+      if (nameField.startsWith('paste_image_') && nameField.endsWith('.png')) {
+        return nameField;
+      }
+      final fp = m['filePath']?.toString() ?? '';
+      final base = fp.isEmpty ? '' : fp.split('/').last;
+      if (base.startsWith('paste_image_') && base.endsWith('.png')) return base;
+      return '';
+    }
+
     final sent = await _p2kWaitC2cMessageWhere(a, toxB, (m) {
       final id = _p2kMessageId(m);
-      final fileName = m['fileName']?.toString() ?? '';
       return !beforeIds.contains(id) &&
           m['isSelf'] == true &&
           m['mediaKind']?.toString() == 'image' &&
-          fileName.startsWith('paste_image_') &&
-          fileName.endsWith('.png');
+          pastedName(m).isNotEmpty;
     }, timeoutSecs: 30);
     final sentId = _p2kMessageId(sent);
-    final fileName = sent?['fileName']?.toString() ?? '';
+    final fileName = sent == null ? '' : pastedName(sent);
     if (sent == null || sentId.isEmpty || fileName.isEmpty) {
-      print('[pair] paste_image_into_composer: sender image not in dump');
+      // DIAGNOSTIC: dump A's recent c2c messages so we can tell whether the send
+      // (a) never happened (bind-null no-op) or (b) happened but the record
+      // stores the image name under a different field/pattern (filePath vs
+      // fileName), mirroring the attachment-path discovery in 694e130.
+      final all = await _c2cMessages(a, toxB);
+      final tail = all.length > 6 ? all.sublist(all.length - 6) : all;
+      for (final m in tail) {
+        print(
+          '[pair] paste_image DIAG msg: id=${_p2kMessageId(m)} '
+          'isSelf=${m['isSelf']} mediaKind=${m['mediaKind']} '
+          'fileName=${m['fileName']} filePath=${m['filePath']} '
+          'elemType=${m['elemType']} text=${m['text']}',
+        );
+      }
+      print('[pair] paste_image_into_composer: sender image not in dump '
+          '(count=${all.length})');
       return false;
     }
     final row = await a.waitKey('message_list_item:$sentId', timeoutSecs: 8);
+    // Receiver match: same `paste_image_<nonce>.png` across either field (the
+    // sender's app-chosen basename is what the file offer carries to B).
     final received = await _p2kWaitC2cMessageWhere(
       b,
       toxA,
-      (m) =>
-          m['isSelf'] == false &&
-          m['mediaKind']?.toString() == 'image' &&
-          m['fileName']?.toString() == fileName,
+      (m) {
+        if (m['isSelf'] != false) return false;
+        if (m['mediaKind']?.toString() != 'image') return false;
+        final nameField = m['fileName']?.toString() ?? '';
+        final fp = m['filePath']?.toString() ?? '';
+        final base = fp.isEmpty ? '' : fp.split('/').last;
+        return nameField == fileName || base == fileName;
+      },
       timeoutSecs: 60,
     );
     print(
