@@ -152,25 +152,34 @@ Future<({double x, double y})?> _scrollProfileButtonIntoBand(
 /// open the member-list page first.
 Future<String?> _memberRowKeyFor(Inst inst, String gid, String memberTox) async {
   final memberPk = _pubkey(memberTox);
+  List<String> lastNonSelf = const [];
   for (var attempt = 0; attempt < 8; attempt++) {
     try {
       final r = await inst.l3('l3_group_member_list', {'groupId': gid});
       final members = (r['members'] as List?) ?? const [];
       final nonSelf = <String>[];
-      String? exact;
+      // ALL members whose pubkey matches the target peer (not just the last):
+      // same-host NGC churn can surface the SAME peer under multiple ephemeral
+      // member userIDs (ghost duplicates). The bridge now de-dupes by pubkey, but
+      // if any residual dup slips through, try each matching userID's row key —
+      // the one the de-duped UI actually rendered will resolve.
+      final pkMatches = <String>[];
       for (final m in members) {
         if (m is! Map || m['isSelf'] == true) continue;
         final uid = m['userID']?.toString() ?? '';
         if (uid.isEmpty) continue;
         nonSelf.add(uid);
-        if (_pubkey(uid) == memberPk) exact = uid;
+        if (_pubkey(uid) == memberPk) pkMatches.add(uid);
       }
-      // An exact friend-pubkey match wins (covers a long-term-keyed member);
-      // else accept the SINGLE non-self member (the 2-member scenario contract
-      // these cases assert). Refuse to GUESS among multiple non-self rows — a
-      // leaked third member must not make us select/kick the wrong peer.
-      final candidate = exact ?? (nonSelf.length == 1 ? nonSelf.first : null);
-      if (candidate != null) {
+      lastNonSelf = nonSelf;
+      // Prefer pubkey matches; else accept the SINGLE non-self member (the
+      // 2-member scenario contract). Refuse to GUESS among multiple unrelated
+      // non-self rows — a leaked third member must not select/kick the wrong peer.
+      final candidates = <String>[
+        ...pkMatches,
+        if (pkMatches.isEmpty && nonSelf.length == 1) nonSelf.first,
+      ];
+      for (final candidate in candidates) {
         final key = 'group_member_list_item:$candidate';
         // keyCenter (element-tree walk) — flutter_skill can't see the keyed
         // GestureDetector row.
@@ -179,6 +188,8 @@ Future<String?> _memberRowKeyFor(Inst inst, String gid, String memberTox) async 
     } on DriveError catch (_) {/* retry — NGC peer info may still be syncing */}
     await Future<void>.delayed(const Duration(seconds: 1));
   }
+  print('[pair] _memberRowKeyFor: no row for peer=$memberPk in group=$gid '
+      '(nonSelf=$lastNonSelf)');
   return null;
 }
 
