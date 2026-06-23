@@ -646,8 +646,16 @@ Future<bool> _hveConferenceBidirectionalMessageLifecycle(
     run: (est) async {
       final aCount = await _groupMemberCount(a, est.groupIdA);
       final bCount = await _groupMemberCount(b, est.groupIdB);
-      await openGroupChat(b, groupId: est.groupIdB, groupName: est.groupName);
-      await openGroupChat(a, groupId: est.groupIdA, groupName: est.groupName);
+      // Open via the production _openChat seam (viaL3Seam): this conference is
+      // FRESHLY created with no messages, so it sorts to the BOTTOM of the conv
+      // list (ts 0) — below the fold once the sweep's earlier cases have added
+      // rows — where a real row tap can't reliably reach the unbuilt row. The
+      // asserted action here is the MESSAGE lifecycle (send/receive both ways),
+      // not the chat-open gesture, so deterministic opening is appropriate.
+      await openGroupChat(b,
+          groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
+      await openGroupChat(a,
+          groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
 
       final nonce = DateTime.now().microsecondsSinceEpoch;
       final mA = 'RUIHVCONF-A-$nonce';
@@ -658,8 +666,10 @@ Future<bool> _hveConferenceBidirectionalMessageLifecycle(
         timeoutSecs: 60,
       );
 
-      await openGroupChat(a, groupId: est.groupIdA, groupName: est.groupName);
-      await openGroupChat(b, groupId: est.groupIdB, groupName: est.groupName);
+      await openGroupChat(a,
+          groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
+      await openGroupChat(b,
+          groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
       final mB = 'RUIHVCONF-B-$nonce';
       final bSent = await sendComposerMessage(b, mB);
       final aGot = await _waitGroupMessageAnyConversation(

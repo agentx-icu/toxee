@@ -705,8 +705,19 @@ Future<int> runGroupMessage(
   // accepted over the friend link). Capture the prior value to RESTORE it after,
   // so this scenario doesn't leak mutated account state into later reused runs.
   final bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
-  await _setAutoAcceptGroupInvites(b, true);
-  if (!await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 10)) {
+  // RE-ISSUE the set per verify-round, not once: the Prefs write is account
+  // scoped (autoAcceptGroupInvites_<currentToxId>), and right after a launch/
+  // case-reuse the current-account resolution can still be settling, so a single
+  // set can land before the scope is final and the dump-read (also scoped to the
+  // now-current account) never sees it — observed intermittently as
+  // "did not take effect" under same-host load. Setting again each round, once
+  // the account context is settled, makes the write+read converge.
+  var autoAcceptLive = false;
+  for (var attempt = 0; attempt < 3 && !autoAcceptLive; attempt++) {
+    await _setAutoAcceptGroupInvites(b, true);
+    autoAcceptLive = await _waitAutoAcceptGroupInvites(b, true, timeoutSecs: 8);
+  }
+  if (!autoAcceptLive) {
     if (!bPriorAutoAccept) {
       try {
         await _setAutoAcceptGroupInvites(b, false);
