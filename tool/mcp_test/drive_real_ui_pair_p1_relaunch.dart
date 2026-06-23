@@ -413,9 +413,14 @@ Future<bool> _p1rGroupJoinByIdRealUi(Inst a, Inst b) async {
   final groupName = 'RUIP1JOIN-$nonce';
   final alias = 'JoinAlias-$nonce';
   final created = await _createGroupViaUI(a, groupName, groupType: 'public');
-  final gid = created.groupId.trim();
-  if (!RegExp(r'^[0-9A-Fa-f]{64}$').hasMatch(gid)) {
-    print('[pair] group_join_by_id_real_ui: public gid not 64-hex: $gid');
+  // B joins a PUBLIC group by its 64-char NGC CHAT-ID, not A's local group id
+  // ("tox_N"). _createGroupViaUI now resolves the chat-id for public groups; B's
+  // own local group id matches the chat-id (exact/prefix), so the chat-id is also
+  // what B's joined conversation is keyed by (see drive_fixture_c_join).
+  final chatId = created.chatId.trim();
+  if (!RegExp(r'^[0-9A-Fa-f]{64}$').hasMatch(chatId)) {
+    print('[pair] group_join_by_id_real_ui: public chat-id not 64-hex: '
+        '"$chatId" (localGid=${created.groupId})');
     return false;
   }
   await b.foreground();
@@ -429,7 +434,7 @@ Future<bool> _p1rGroupJoinByIdRealUi(Inst a, Inst b) async {
     print('[pair] group_join_by_id_real_ui: join id input missing');
     return false;
   }
-  await b.focusType('add_group_join_id_input', gid);
+  await b.focusType('add_group_join_id_input', chatId);
   await b.focusType('add_group_join_message_input', 'real-ui join $nonce');
   await b.focusType('add_group_alias_input', alias);
   if (!await _p1cTapTextOnce(b, 'Send Join Request')) {
@@ -438,19 +443,20 @@ Future<bool> _p1rGroupJoinByIdRealUi(Inst a, Inst b) async {
   }
   final joined = await _waitConversationListed(
     b,
-    'group_$gid',
+    'group_$chatId',
     timeoutSecs: 45,
   );
   final aliasVisible = joined && await b.waitText(alias, timeoutSecs: 8);
   if (joined) {
-    await openGroupChat(b, groupId: gid, groupName: alias);
+    await openGroupChat(b, groupId: chatId, groupName: alias);
   }
   final groupSurface =
       joined &&
       await b.waitKey('chat_input_text_field', timeoutSecs: 8) &&
       await sendComposerMessage(b, 'RUIP1JOIN-MSG-$nonce');
   print(
-    '[pair] group_join_by_id_real_ui: gid=${_shortId(gid)} joined=$joined '
+    '[pair] group_join_by_id_real_ui: chatId=${_shortId(chatId)} '
+    'localGid=${created.groupId} joined=$joined '
     'aliasVisible=$aliasVisible groupSurface=$groupSurface',
   );
   return joined && aliasVisible && groupSurface;

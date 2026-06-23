@@ -1416,3 +1416,24 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
   optimistic format has no seq), and re-key the text-based reconciliation/forward
   tracking onto msgID. Touches dedup/reply/recall/forward (all msgID-load-bearing),
   so it must NOT be rushed without codex (auth currently broken) on a degraded DHT.
+
+- 2026-06-23 **group_join_by_id_real_ui — id-concept fixed; chat-id resolution + DHT join remain.**
+  The test fed A's LOCAL group id ("tox_1") into B's join-by-id dialog and into B's
+  conversation check — both WRONG: a PUBLIC group is joined by its 64-char NGC
+  chat-id, and B's joined-group conversation is keyed by that chat-id (exact/prefix;
+  see drive_fixture_c_join). Fixes:
+  - New `l3_group_chat_id` tool (read-only, test-gated): resolves a group's 64-char
+    chat-id from its local id via `ffi.getGroupChatId` (12x retry).
+  - `_createGroupViaUI` now populates `_CreatedGroup.chatId` for PUBLIC groups.
+  - The test uses `created.chatId` for the join id, the 64-hex gate, and B's
+    conversation/open checks (was A's local id everywhere).
+  RESIDUAL (two scoped follow-ups, both needing a healthy DHT + live introspection):
+  (1) `getGroupChatId(localGid)` returns EMPTY for the UI-add-group-created public
+      group, though `l3_create_group`'s C++-created public groups DO resolve a 64-hex
+      chat-id — the UI submit calls the SAME `service.createGroup(name, 'Public')`, so
+      this is unexpected; needs live introspection of `getGroupChatIdNative` for the
+      UI-created group (timing vs id-mapping). Now fails CLEARLY:
+      `chat-id not 64-hex: "" (localGid=tox_1)`.
+  (2) Even with a valid chat-id, B joining a PUBLIC group is env-limited (same-host
+      public NGC DHT join is flaky; the group-message work switched to PRIVATE+invite
+      for this reason). codex review owed.

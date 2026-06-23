@@ -410,6 +410,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3SetC2CRecvOptEntry());
   addMcpTool(_l3SendFileEntry());
   addMcpTool(_l3CreateGroupEntry());
+  addMcpTool(_l3GroupChatIdEntry());
   addMcpTool(_l3JoinGroupEntry());
   addMcpTool(_l3LeaveGroupEntry());
   addMcpTool(_l3SendGroupTextEntry());
@@ -4216,6 +4217,69 @@ MCPCallEntry _l3CreateGroupEntry() => MCPCallEntry.tool(
               'public (default, chat-id-joinable) | private (invite-only).',
         ),
       },
+    ),
+  ),
+);
+
+/// Resolve a group's 64-char public NGC chat-id from its LOCAL group id
+/// (e.g. "tox_1"). toxee's createGroup (and the real add-group UI) returns the
+/// local id, but joining a PUBLIC group BY ID needs the chat-id
+/// (tox_group_get_chat_id). The chat-id can lag the create by a tick, so retry
+/// briefly. Read-only; test/seed account only (mirrors l3_create_group's gate).
+MCPCallEntry _l3GroupChatIdEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_group_chat_id: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_group_chat_id: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    final gid = (request['groupId'] as Object?)?.toString().trim() ?? '';
+    if (gid.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_group_chat_id: need "groupId"',
+        parameters: {'ok': false, 'error': 'missing_group_id'},
+      );
+    }
+    String? chatId;
+    for (var i = 0; i < 12; i++) {
+      chatId = ffi.getGroupChatId(gid);
+      if (chatId != null && chatId.length == 64) break;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    final resolved = chatId != null && chatId.length == 64;
+    AppLogger.info('[L3] l3_group_chat_id: group=$gid chatId=$chatId');
+    return MCPCallResult(
+      message: resolved ? 'group chat id' : 'l3_group_chat_id: not resolved',
+      parameters: {
+        'ok': resolved,
+        'groupId': gid,
+        'chatId': chatId,
+        if (!resolved) 'error': 'chat_id_unresolved',
+      },
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_group_chat_id',
+    description:
+        'L3 TEST ONLY (test/seed account, read-only): resolve a group\'s '
+        '64-char public NGC chat-id from its LOCAL group id (groupId, e.g. '
+        '"tox_1"). Needed to join a PUBLIC group by id (the create path returns '
+        'the local id, not the joinable chat-id).',
+    inputSchema: ObjectSchema(
+      properties: {
+        'groupId': StringSchema(
+          description: 'The local group id (e.g. "tox_1").',
+        ),
+      },
+      required: ['groupId'],
     ),
   ),
 );

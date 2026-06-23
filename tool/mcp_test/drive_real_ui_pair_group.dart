@@ -292,7 +292,20 @@ Future<_CreatedGroup> _createGroupViaUI(
       'after Create',
     );
   }
-  return _CreatedGroup(groupId: gid, chatId: '');
+  // For a PUBLIC group, resolve the 64-char NGC chat-id (a peer joins BY this id,
+  // not the local "tox_N"). The create path only knows the local id; the chat-id
+  // can lag the create by a tick, so the l3 resolver retries. Private/conference
+  // groups join by invite (no chat-id needed) — skip the lookup for them.
+  var chatId = '';
+  if (groupType == 'public') {
+    try {
+      final r = await inst.l3('l3_group_chat_id', {'groupId': gid});
+      if (r['ok'] == true) chatId = r['chatId']?.toString() ?? '';
+    } on DriveError catch (e) {
+      print('[${inst.name}] real-UI create: chat-id resolve failed: ${e.message}');
+    }
+  }
+  return _CreatedGroup(groupId: gid, chatId: chatId);
 }
 
 /// Real-UI invite for fresh/non-test accounts where `l3_invite_to_group` is
