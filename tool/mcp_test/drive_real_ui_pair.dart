@@ -296,6 +296,9 @@ Future<int> _main(List<String> args) async {
     if (scenario == 'sweep_settings2') {
       return await runSettingsSweep2(a, nickA);
     }
+    if (scenario == 'sweep_ios_settings_main') {
+      return await runIosSettingsMainSweep(a, nickA);
+    }
     if (scenario == 'settings_surface_sections') {
       await ensureHome(a, nickA);
       return await _settingsSurfaceSections(a) ? 0 : 1;

@@ -577,6 +577,9 @@ Future<bool> sendComposerMessage(
   String text, {
   bool clearFirst = true,
 }) async {
+  if (_isWindowsRealUi) {
+    return _sendComposerMessageWindows(inst, text, clearFirst: clearFirst);
+  }
   for (var outer = 0; outer < 2; outer++) {
     await inst.foreground();
     // The outer `chat_input_text_field` key is a reliable presence anchor, but
@@ -610,6 +613,50 @@ Future<bool> sendComposerMessage(
       label: 'sendComposerMessage retry',
       ready: () => _chatsHomeReady(inst, timeoutSecs: 2),
     );
+  }
+  return false;
+}
+
+/// Windows/headless synthetic send: focus the composer BY KEY (the macOS
+/// fixed-coordinate tap is wrong for the Windows window size), set the body with
+/// flutter_skill `enterText`, then invoke the REAL composer Enter-send via
+/// `l3_composer_send` (the fork's `_submitDesktopSend` seam — same code path as
+/// pressing Enter). Verifies delivery the same way the macOS path does.
+Future<bool> _sendComposerMessageWindows(
+  Inst inst,
+  String text, {
+  bool clearFirst = true,
+}) async {
+  for (var outer = 0; outer < 3; outer++) {
+    if (!await inst.waitKey('chat_input_text_field', timeoutSecs: 8)) {
+      await _forceHomeRootAndWait(
+        inst,
+        tab: 'chats',
+        label: 'win sendComposer: reach chat surface',
+        ready: () => _chatsHomeReady(inst, timeoutSecs: 2),
+      );
+      continue;
+    }
+    await inst.tapKey('chat_input_text_field'); // focus the composer editable
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (clearFirst) {
+      await inst.skill('enterText', {'text': ''});
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    await inst.skill('enterText', {'text': text});
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final r = await inst.l3('l3_composer_send');
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      if (await _anyConversationLastMessageIs(inst, text)) return true;
+      if (r['ok'] != true) {
+        // Composer not mounted / lost focus — re-focus and re-enter the text.
+        await inst.tapKey('chat_input_text_field');
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await inst.skill('enterText', {'text': text});
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    }
   }
   return false;
 }

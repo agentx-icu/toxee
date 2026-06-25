@@ -48,6 +48,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Locale, Size, ThemeMode;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mcp_toolkit/mcp_toolkit.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
+    show debugRealUiDesktopComposerSend;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
@@ -373,6 +375,8 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3StartCallEntry());
   addMcpTool(_l3CallActionEntry());
   addMcpTool(_l3SendTextEntry());
+  addMcpTool(_l3ComposerSendEntry());
+  addMcpTool(_l3SetClipboardEntry());
   addMcpTool(_l3ReplyTextEntry());
   addMcpTool(_l3ForwardMessageEntry());
   addMcpTool(_l3InjectC2cCustomEntry());
@@ -1336,6 +1340,56 @@ MCPCallEntry _l3SendTextEntry() => MCPCallEntry.tool(
               'conversation id. group_* is rejected (C2C only).',
         ),
       },
+      required: ['text'],
+    ),
+  ),
+);
+
+MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final hook = debugRealUiDesktopComposerSend;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_composer_send: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    hook();
+    return MCPCallResult(
+      message: 'composer send invoked',
+      parameters: {'ok': true},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_composer_send',
+    description:
+        'L3 TEST ONLY: invoke the desktop chat composer REAL Enter-to-send '
+        'action (the exact inputMethods.sendTextMessage path) on whatever text '
+        'is currently in the composer field. The headless/Windows equivalent of '
+        'pressing Enter (no OS key injection available); drive the text in first '
+        'with flutter_skill enterText. Returns {ok, error?}.',
+    inputSchema: ObjectSchema(properties: {}),
+  ),
+);
+
+MCPCallEntry _l3SetClipboardEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString() ?? '';
+    await Clipboard.setData(ClipboardData(text: text));
+    return MCPCallResult(
+      message: 'clipboard set',
+      parameters: {'ok': true, 'len': text.length},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_clipboard',
+    description:
+        'L3 TEST ONLY: set the app-process clipboard (Clipboard.setData) so an '
+        'in-app Paste control reads it. Windows/headless equivalent of pbcopy — '
+        'a driver-side clipboard lives in a different window-station and is '
+        'invisible to the app.',
+    inputSchema: ObjectSchema(
+      properties: {'text': StringSchema(description: 'Clipboard text')},
       required: ['text'],
     ),
   ),

@@ -3,7 +3,14 @@ part of 'drive_real_ui_pair.dart';
 
 /// B drives the add-friend dialog targeting A's tox id (real UI).
 Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
-  await ensureNewEntryShell(b);
+  // The new_entry_menu_button (NewEntryButton) is not rendered on the Windows
+  // desktop wide layout, so ensureNewEntryShell (which requires it) can't be
+  // satisfied. The dialog-open path below already falls back to the
+  // layout-independent openAddFriendDialogViaL3, so skip the shell-ensure on
+  // Windows and let that seam open the real AddFriendDialog directly.
+  if (!_isWindowsRealUi) {
+    await ensureNewEntryShell(b);
+  }
   var dialogReady = false;
   // The keyed NewEntry menu (new_entry_menu_button) lives in the CONTACTS app
   // bar. On a fresh non-test account B usually sits on the Chats home and can't
@@ -11,7 +18,7 @@ Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
   // straight through the tab-independent, non-blocking L3 invoker instead of
   // blind coordinate taps on the wrong tab (which can stray-open a conversation
   // and leave B in a non-reusable shell). Confirm via the dialog's input field.
-  if (await _homeShellTab(b) != 'contacts' &&
+  if ((_isWindowsRealUi || await _homeShellTab(b) != 'contacts') &&
       await b.openAddFriendDialogViaL3()) {
     await Future<void>.delayed(const Duration(milliseconds: 800));
     if (await b.waitKey('add_friend_id_input', timeoutSecs: 3)) {
@@ -58,7 +65,7 @@ Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
       'contact_app_bar_trailing_override',
       timeoutSecs: 1,
     );
-    final shotPath = '/tmp/add_friend_dialog_${b.name}.png';
+    final shotPath = _portableTmp('/tmp/add_friend_dialog_${b.name}.png');
     await b.shot(shotPath);
     throw DriveError(
       '[${b.name}] add-friend dialog did not open '
@@ -100,7 +107,7 @@ Future<void> driveRespondToApplication(
   // (1280x768 window: the first row under the Contacts sub-tab) to open the
   // application list. Finding to fix in the fork: give the row a tappable key.
   if (!await a.tryTapKey('contact_new_contacts_tab')) {
-    await a.tapText('New Contacts');
+    await _tryTapText(a, 'New Contacts');
     await a.tapAt(240, 173);
   }
   // Wait for B's application to arrive in the model.
@@ -133,7 +140,15 @@ Future<void> driveRespondToApplication(
       : 'contact_application_decline_button';
   var tapped = await a.tryTapKey('$keyBase:$userId', retries: 2);
   if (!tapped) {
-    tapped = await _tapApplicationActionByCoordinate(a, accept: accept);
+    tapped = await _tapApplicationActionByCoordinate(
+      a,
+      userId: userId,
+      otherTox: toxB,
+      accept: accept,
+    );
+  }
+  if (!tapped && accept) {
+    tapped = await _tapApplicationAcceptViaDetail(a, userId, toxB);
   }
   // Prefer the keyed control; fall back to the visible Accept/Decline label.
   if (!tapped) {
@@ -152,7 +167,7 @@ Future<void> driveRespondViaDetail(Inst a, String toxB) async {
   await ensureContactsShell(a);
   await a.foreground();
   if (!await a.tryTapKey('contact_new_contacts_tab')) {
-    await a.tapText('New Contacts');
+    await _tryTapText(a, 'New Contacts');
     await a.tapAt(240, 173);
   }
   // Wait for B's application to arrive in the model.
@@ -241,13 +256,55 @@ Future<void> _refreshApplicationList(
 
 Future<bool> _tapApplicationActionByCoordinate(
   Inst a, {
+  required String userId,
+  required String otherTox,
   required bool accept,
 }) async {
   await a.foreground();
-  // First application row action buttons in the 1280x768 desktop layout.
-  await a.tapAt(accept ? 1088 : 1170, 208);
-  await Future<void>.delayed(const Duration(milliseconds: 700));
-  return true;
+  // First application row action buttons in the 1280x768 desktop layout. The
+  // Feishu restyle shifted row geometry, so try a small horizontal band and
+  // only report success if the action's model-side effect is observable. A raw
+  // coordinate tap itself always returns success, which used to false-positive
+  // while leaving the application pending.
+  final xs = accept
+      ? const <num>[1008, 1048, 1088, 1128]
+      : const <num>[1128, 1170, 1210];
+  for (final x in xs) {
+    await a.tapAt(x, 208);
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    final state = await a.dumpState();
+    final apps = (state['friendApplications'] as List?) ?? const [];
+    final appGone = !apps.any(
+      (e) => e is Map && _pubkey(e['userId']?.toString() ?? '') == _pubkey(userId),
+    );
+    if (accept) {
+      if (await areFriends(a, otherTox)) return true;
+    } else if (appGone) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Future<bool> _tapApplicationAcceptViaDetail(
+  Inst a,
+  String userId,
+  String otherTox,
+) async {
+  await a.foreground();
+  if (!await a.tryTapKey('contact_application_item:$userId', retries: 2)) {
+    await a.tapAt(700, 208);
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 1200));
+  final detailKey = 'contact_application_detail_accept_button:$userId';
+  if (await a.waitKey(detailKey, timeoutSecs: 8)) {
+    if (!await a.tapKeyCenter(detailKey, timeoutSecs: 6)) {
+      await a.tapKey(detailKey);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    return areFriends(a, otherTox);
+  }
+  return false;
 }
 
 Future<bool> areFriends(Inst x, String otherTox) async {

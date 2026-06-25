@@ -3,6 +3,27 @@ part of 'drive_real_ui_pair.dart';
 
 const _skillNs = 'ext.flutter.flutter_skill';
 const _mcpNs = 'ext.mcp.toolkit';
+final _realUiPlatform =
+    (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
+bool get _isIosRealUi => _realUiPlatform == 'ios';
+
+/// Headless Windows: no host osascript, and OS-level key/paste injection cannot
+/// reach the app's window-station, so EVERY input goes through synthetic
+/// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam. Unlike
+/// iOS (which runs on a macOS host and still uses osascript for foreground /
+/// send / paste), Windows overrides the whole osa* primitive surface below.
+bool get _isWindowsRealUi => _realUiPlatform == 'windows';
+
+/// Translate a hardcoded `/tmp/<name>` debug path (screenshots, scratch files)
+/// to the host's temp dir so the driver runs on Windows, which has no `/tmp`.
+/// Non-`/tmp/` paths pass through unchanged.
+String _portableTmp(String path) {
+  if (path.startsWith('/tmp/')) {
+    return '${Directory.systemTemp.path}'
+        '${Platform.pathSeparator}${path.substring('/tmp/'.length)}';
+  }
+  return path;
+}
 
 /// Run osascript with a hard timeout so a hung System Events call (an
 /// unresponsive window / stuck modal — System Events is effectively serial, so
@@ -11,12 +32,20 @@ const _mcpNs = 'ext.mcp.toolkit';
 /// non-zero exit as a non-fatal osascript failure.
 Future<ProcessResult> _osaRun(List<String> args, {int timeoutSecs = 20}) async {
   try {
-    return await Process.run('osascript', args)
-        .timeout(Duration(seconds: timeoutSecs));
+    return await Process.run(
+      'osascript',
+      args,
+    ).timeout(Duration(seconds: timeoutSecs));
   } on TimeoutException {
-    return ProcessResult(0, 124, '', 'osascript timed out after ${timeoutSecs}s');
+    return ProcessResult(
+      0,
+      124,
+      '',
+      'osascript timed out after ${timeoutSecs}s',
+    );
   }
 }
+
 const _sidebarTabX = 50;
 const _sidebarChatsY = 220;
 const _sidebarContactsY = 288;
@@ -125,7 +154,10 @@ class Inst {
 
   Future<void> _refreshWsUriFromRuntime() async {
     try {
-      final pairFile = File('tool/mcp_test/.multi_instance_runtime/pair.json');
+      final pairFile = File(
+        Platform.environment['TOXEE_REAL_UI_PAIR_JSON'] ??
+            'tool/mcp_test/.multi_instance_runtime/pair.json',
+      );
       if (!await pairFile.exists()) return;
       final root =
           jsonDecode(await pairFile.readAsString()) as Map<String, dynamic>;
@@ -207,16 +239,13 @@ class Inst {
           ? Duration(milliseconds: timeoutArgMs + 25000)
           : const Duration(seconds: 45);
       final resp = await vm
-          .callServiceExtension(
-            method,
-            isolateId: iso,
-            args: strArgs,
-          )
+          .callServiceExtension(method, isolateId: iso, args: strArgs)
           .timeout(
             callTimeout,
             onTimeout: () => throw DriveError(
-                '$name: $method timed out after ${callTimeout.inSeconds}s '
-                '(app isolate unresponsive)'),
+              '$name: $method timed out after ${callTimeout.inSeconds}s '
+              '(app isolate unresponsive)',
+            ),
           );
       return (resp.json ?? const <String, dynamic>{}).cast<String, dynamic>();
     }
@@ -242,6 +271,12 @@ class Inst {
 
   /// macOS-foreground this instance's window. Required before any UI phase.
   Future<void> foreground() async {
+    if (_isWindowsRealUi) {
+      // Headless Windows drives purely via synthetic flutter_skill RPC, which is
+      // window-station / OS-focus independent; bringing the window forward is
+      // both unnecessary and impossible from a non-interactive SSH session.
+      return;
+    }
     final r = await _osaRun([
       '-e',
       'tell application "System Events" to set frontmost of '
@@ -441,6 +476,10 @@ class Inst {
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
   Future<void> focusType(String key, String text) async {
+    if (_isIosRealUi || _isWindowsRealUi) {
+      await focusTypeSynthetic(key, text);
+      return;
+    }
     await foreground();
     if (!await tapKeyCenter(key)) {
       await tapKey(key);
@@ -559,11 +598,7 @@ class Inst {
 
   /// One mouse-wheel scroll at [key]'s center (dy positive scrolls down).
   Future<void> scrollAt(String key, {double dx = 0, required double dy}) async {
-    final r = await l3('ui_scroll_at', {
-      'key': key,
-      'dx': '$dx',
-      'dy': '$dy',
-    });
+    final r = await l3('ui_scroll_at', {'key': key, 'dx': '$dx', 'dy': '$dy'});
     if (r['ok'] != true) {
       throw DriveError('[$name] ui_scroll_at "$key" failed: $r');
     }
@@ -574,8 +609,12 @@ class Inst {
   /// over the message-list viewport hits whatever Scrollable is under it, so the
   /// scroll lands even when the oldest row is offscreen (a key-center scroll on
   /// an unrendered row would have no RenderBox to resolve).
-  Future<void> scrollAtCoords(num x, num y,
-      {double dx = 0, required double dy}) async {
+  Future<void> scrollAtCoords(
+    num x,
+    num y, {
+    double dx = 0,
+    required double dy,
+  }) async {
     final r = await l3('ui_scroll_at', {
       'x': '$x',
       'y': '$y',
@@ -748,15 +787,19 @@ class Inst {
     }
   }
 
-  Future<void> osaType(String text) {
+  Future<void> osaType(String text) async {
+    if (_isWindowsRealUi) {
+      // Synthetic text entry — sets the focused EditableText's value in one shot
+      // (proven to land verbatim on Windows, no SIGSEGV unlike macOS).
+      await skill('enterText', {'text': text});
+      return;
+    }
     // Escape backslash and double-quote for the AppleScript string literal so
     // arbitrary field text (now the primary typing path via [focusType]) types
     // verbatim rather than breaking the script. `!`, `@`, `.`, `-`, digits and
     // letters need no escaping inside an AppleScript string.
     final escaped = text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    return _osa(
-      'tell application "System Events" to keystroke "$escaped"',
-    );
+    await _osa('tell application "System Events" to keystroke "$escaped"');
   }
 
   /// Place [text] on the macOS clipboard (via `pbcopy`) and paste it into the
@@ -764,6 +807,10 @@ class Inst {
   /// characters, so long strings (Tox ids, 76 chars) land verbatim. Used by
   /// [focusType] for any text at/above [_osaPasteThreshold].
   Future<void> osaPaste(String text) async {
+    if (_isWindowsRealUi) {
+      await skill('enterText', {'text': text});
+      return;
+    }
     final proc = await Process.start('pbcopy', const <String>[]);
     proc.stdin.write(text);
     await proc.stdin.close();
@@ -779,43 +826,89 @@ class Inst {
       'tell application "System Events" to keystroke "v" using command down',
     );
   }
-  Future<void> osaReturn() =>
-      _osa('tell application "System Events" to key code 36');
+
+  Future<void> osaReturn() async {
+    if (_isWindowsRealUi) {
+      // The desktop composer's Enter-to-send rides FocusNode.onKey
+      // (RawKeyDownEvent), un-reachable by synthetic enterText and by any
+      // headless OS key injection. `l3_composer_send` invokes the EXACT same
+      // `_submitDesktopSend()` the real Enter triggers (real field text + real
+      // inputMethods.sendTextMessage). See the fork composer seam.
+      await l3('l3_composer_send');
+      return;
+    }
+    await _osa('tell application "System Events" to key code 36');
+  }
 
   /// Shift+Enter — the desktop composer maps Shift/Alt/Ctrl/Meta+Enter to
   /// INSERT a newline (no send); see `_handleKeyEvent` in
   /// tencent_cloud_chat_message_input_desktop.dart. A genuine OS chord so the
   /// production RawKeyEvent path runs (synthetic enterText can't reach it).
-  Future<void> osaShiftReturn() => _osa(
-        'tell application "System Events" to key code 36 using shift down',
-      );
-  Future<void> osaEscape() =>
-      _osa('tell application "System Events" to key code 53');
+  Future<void> osaShiftReturn() async {
+    if (_isWindowsRealUi) {
+      // Multiline insert (Shift+Enter) has no pure-synthetic equivalent; the few
+      // multiline cases must enterText the full "a\nb" body in one shot instead.
+      // No-op here so the surrounding flow doesn't error.
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to key code 36 using shift down',
+    );
+  }
+
+  Future<void> osaEscape() async {
+    if (_isWindowsRealUi) {
+      // Best-effort dismiss (close search/overlay/dialog) via the navigation
+      // hook — the headless equivalent of pressing Escape.
+      await l3('l3_pop_to_root');
+      return;
+    }
+    await _osa('tell application "System Events" to key code 53');
+  }
 
   /// Send Cmd+Ctrl+F — the global conversation-search shortcut
   /// (`_OpenSearchIntent` in home_page.dart, the only entry to the search
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
-  Future<void> osaSearchShortcut() => _osa(
-        'tell application "System Events" to keystroke "f" using '
-        '{command down, control down}',
-      );
+  Future<void> osaSearchShortcut() async {
+    if (_isWindowsRealUi) {
+      await l3('l3_open_global_search');
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "f" using '
+      '{command down, control down}',
+    );
+  }
 
   /// Send Cmd+Ctrl+N — the "new conversation" shortcut (`_NewConversationIntent`
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
-  Future<void> osaNewConversationShortcut() => _osa(
-        'tell application "System Events" to keystroke "n" using '
-        '{command down, control down}',
-      );
+  Future<void> osaNewConversationShortcut() async {
+    if (_isWindowsRealUi) {
+      await l3('l3_open_add_friend_dialog');
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "n" using '
+      '{command down, control down}',
+    );
+  }
 
   /// Send Cmd+Ctrl+, — the "open settings" shortcut (`_OpenSettingsIntent` in
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
-  Future<void> osaOpenSettingsShortcut() => _osa(
-        'tell application "System Events" to keystroke "," using '
-        '{command down, control down}',
-      );
+  Future<void> osaOpenSettingsShortcut() async {
+    if (_isWindowsRealUi) {
+      // Headless equivalent: jump the home shell to the Settings tab.
+      await l3('l3_force_home_root', {'tab': 'settings'});
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "," using '
+      '{command down, control down}',
+    );
+  }
 
   /// Place [text] on the macOS clipboard via `pbcopy` WITHOUT pasting — for cases
   /// that then exercise an in-app "Paste" control (e.g. the add-friend paste
@@ -823,6 +916,13 @@ class Inst {
   /// [osaPaste] this does NOT send Cmd+V, so the asserted action stays the real
   /// in-app button.
   Future<void> setClipboard(String text) async {
+    if (_isWindowsRealUi) {
+      // Set the clipboard from INSIDE the app (Flutter Clipboard.setData) so the
+      // in-app paste button reads it. A driver-side Set-Clipboard would land in a
+      // different Windows window-station and be invisible to the headless app.
+      await l3('l3_set_clipboard', {'text': text});
+      return;
+    }
     final proc = await Process.start('pbcopy', const <String>[]);
     proc.stdin.write(text);
     await proc.stdin.close();
@@ -835,6 +935,12 @@ class Inst {
   }
 
   Future<void> osaClear() async {
+    if (_isWindowsRealUi) {
+      // enterText replaces the focused field's whole value, so an empty string
+      // clears it (the macOS Cmd+A + Delete equivalent).
+      await skill('enterText', {'text': ''});
+      return;
+    }
     await _osa(
       'tell application "System Events" to keystroke "a" using command down',
     );
@@ -924,7 +1030,8 @@ class Inst {
       print('[$name] shot empty (window backgrounded?)');
       return;
     }
-    await File(path).writeAsBytes(base64Decode(img));
-    print('[$name] shot -> $path');
+    final outPath = _portableTmp(path);
+    await File(outPath).writeAsBytes(base64Decode(img));
+    print('[$name] shot -> $outPath');
   }
 }

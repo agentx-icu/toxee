@@ -15,6 +15,7 @@ usage: fixture_c_unified_runner.dart [--tier=non-media|media|all]
        [--class=2proc-l3|2proc-ui] [--id=<script>[,<script>]]
        [--real-ui-scenario=<name>[,<name>]]
        [--real-ui-campaign=<name>[,<name>]] [--include-destructive]
+       [--real-ui-platform=macos|ios]
        [--list|--plan-json|--dry-run|--validate-only]
        [--list-real-ui-campaigns]
 
@@ -40,13 +41,16 @@ Real-UI helpers:
 
 const _manifestPath = 'tool/mcp_test/fixture_c_manifest.json';
 const _pairManifest = 'tool/mcp_test/fixtures/paired_for_e2e_manifest.json';
-const _pairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
+const _macosPairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
+const _iosPairJson = 'tool/mcp_test/.ios_runtime/pair.json';
 const _defaultRealUiNickA = 'RealUiAlice';
 const _defaultRealUiNickB = 'RealUiBob';
 
 const _validTiers = {'non-media', 'media', 'all'};
 const _validClasses = {'2proc-l3', '2proc-ui'};
 const _validBases = {'paired_for_e2e', 'fresh', 'real-ui'};
+const _validRealUiPlatforms = {'macos', 'ios'};
+String _realUiPlatform = 'macos';
 
 /// Exit code a real-UI driver returns when a scenario is a SKIP (its surface
 /// genuinely does not exist on this platform — e.g. the Batch-2 avatar cases,
@@ -84,6 +88,7 @@ const _validRealUiScenarios = {
   // Batch 1 — settings sweep 2 (single-instance, no-friend). The 12 cases are
   // individually runnable; sweep_settings2 chains them on one launch.
   'sweep_settings2',
+  'sweep_ios_settings_main',
   'settings_surface_sections',
   'settings_theme_dark',
   'settings_theme_light_back',
@@ -429,6 +434,24 @@ const _realUiCampaigns = <String, List<String>>{
   'rui-p2-verify': ['sweep_p2_verify'],
   // P1/P2/P3 campaign Batch VIII — P3 writable subset.
   'rui-p3-writable': ['sweep_p3_writable'],
+  // iOS true-App first-pass coverage. These sweeps start from fresh accounts and
+  // establish any needed friendship/group state internally, so they do not rely
+  // on the macOS-only restored Fixture C pair.
+  'rui-ios-account-settings': [
+    'sweep_login',
+    'sweep_ios_settings_main',
+    'sweep_p1_single',
+    'sweep_account_conf_extra',
+  ],
+  'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
+  'rui-ios-main': [
+    'sweep_login',
+    'sweep_ios_settings_main',
+    'sweep_p1_single',
+    'sweep_account_conf_extra',
+    'sweep_chat',
+    'sweep_group2',
+  ],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -682,6 +705,7 @@ Future<int> _run(List<String> args) async {
   }
 
   final plan = _Plan.fromEntries(selected, opts: opts);
+  _realUiPlatform = opts.realUiPlatform;
 
   if (opts.list) {
     _printList(selected);
@@ -718,6 +742,7 @@ class _Options {
     required this.idFilter,
     required this.realUiScenarios,
     required this.realUiCampaigns,
+    required this.realUiPlatform,
     this.error,
   });
 
@@ -733,6 +758,7 @@ class _Options {
   final Set<String> idFilter;
   final List<String> realUiScenarios;
   final List<String> realUiCampaigns;
+  final String realUiPlatform;
   final String? error;
 
   static _Options parse(List<String> args) {
@@ -748,6 +774,7 @@ class _Options {
     final idFilter = <String>{};
     final realUiScenarios = <String>[];
     final realUiCampaigns = <String>[];
+    var realUiPlatform = 'macos';
     String? error;
 
     for (final arg in args) {
@@ -775,6 +802,8 @@ class _Options {
         realUiCampaigns.addAll(
           _splitFlagList(arg.substring('--real-ui-campaign='.length)),
         );
+      } else if (arg.startsWith('--real-ui-platform=')) {
+        realUiPlatform = arg.substring('--real-ui-platform='.length);
       } else if (arg == '-h' || arg == '--help' || arg == 'help') {
         showUsage = true;
       } else if (arg == '--list-real-ui-campaigns') {
@@ -786,6 +815,9 @@ class _Options {
 
     if (!_validTiers.contains(tier)) {
       error ??= 'unknown tier: $tier';
+    }
+    if (!_validRealUiPlatforms.contains(realUiPlatform)) {
+      error ??= 'unknown real-UI platform: $realUiPlatform';
     }
     final badClasses = classFilter.difference(_validClasses);
     if (badClasses.isNotEmpty) {
@@ -819,6 +851,7 @@ class _Options {
       idFilter: idFilter,
       realUiScenarios: realUiScenarios,
       realUiCampaigns: realUiCampaigns,
+      realUiPlatform: realUiPlatform,
       error: error,
     );
   }
@@ -1215,7 +1248,7 @@ List<String> _symbolicRealUiCommands(_PlannedEntry planned) {
     final requiredState = _requiredRealUiState(scenario);
     if (!pairActive) {
       final restore = _restoreForRealUiState(requiredState);
-      commands.add(_launchPairCommand(restore: restore));
+      commands.add(_launchRealUiPairCommand(restore: restore));
       pairActive = true;
       pairState = requiredState;
       pairNeedsRestoreBoot = restore != null;
@@ -1227,15 +1260,15 @@ List<String> _symbolicRealUiCommands(_PlannedEntry planned) {
         pairNeedsRestoreBoot = false;
       } else if (pairState == _realUiStateNoFriend &&
           requiredState == _realUiStateFriends) {
-        commands.add(_stopPairCommand());
+        commands.add(_stopRealUiPairCommand());
         final restore = _restoreForRealUiState(requiredState);
-        commands.add(_launchPairCommand(restore: restore));
+        commands.add(_launchRealUiPairCommand(restore: restore));
         pairState = requiredState;
         pairNeedsRestoreBoot = restore != null;
       } else {
-        commands.add(_stopPairCommand());
+        commands.add(_stopRealUiPairCommand());
         final restore = _restoreForRealUiState(requiredState);
-        commands.add(_launchPairCommand(restore: restore));
+        commands.add(_launchRealUiPairCommand(restore: restore));
         pairState = requiredState;
         pairNeedsRestoreBoot = restore != null;
       }
@@ -1244,14 +1277,17 @@ List<String> _symbolicRealUiCommands(_PlannedEntry planned) {
           previousScenario: previousScenario,
           nextScenario: scenario,
         )) {
-      commands.add(_stopPairCommand());
-      commands.add(_launchPairCommand());
+      commands.add(_stopRealUiPairCommand());
+      commands.add(_launchRealUiPairCommand());
       pairState = _realUiStateNoFriend;
       pairNeedsRestoreBoot = false;
     }
 
+    final envPrefix = _realUiPlatform == 'ios'
+        ? 'TOXEE_REAL_UI_PAIR_JSON=$_iosPairJson TOXEE_REAL_UI_PLATFORM=ios '
+        : '';
     commands.add(
-      'dart run tool/mcp_test/${planned.entry.driver} '
+      '${envPrefix}dart run tool/mcp_test/${planned.entry.driver} '
       '${pairNeedsRestoreBoot ? '--boot-restored ' : ''}'
       '${_shellLiteral(scenario)} '
       '"\$A_WS" "\$A_PID" "\$A_NICK" "\$B_WS" "\$B_PID" "\$B_NICK"',
@@ -1262,7 +1298,7 @@ List<String> _symbolicRealUiCommands(_PlannedEntry planned) {
   }
 
   if (pairActive) {
-    commands.add(_stopPairCommand());
+    commands.add(_stopRealUiPairCommand());
   }
   return commands;
 }
@@ -1418,6 +1454,7 @@ String _requiredRealUiState(String scenario) {
     // Batch 1 — settings sweep 2: single-instance (drive only A, B idle), no
     // friendship required, so they run from a fresh no-friend launch.
     case 'sweep_settings2':
+    case 'sweep_ios_settings_main':
     case 'settings_surface_sections':
     case 'settings_theme_dark':
     case 'settings_theme_light_back':
@@ -1738,6 +1775,7 @@ String _resultRealUiState(String scenario) {
     case 'group_menu_delete_confirm':
     // Batch 1 — settings sweep 2: single-instance, leaves friendship untouched.
     case 'sweep_settings2':
+    case 'sweep_ios_settings_main':
     case 'settings_surface_sections':
     case 'settings_theme_dark':
     case 'settings_theme_light_back':
@@ -1858,12 +1896,34 @@ String? _restoreForRealUiState(String state) {
   return null;
 }
 
-String _symbolicRealUiResetCommand() =>
-    'dart run tool/mcp_test/drive_real_ui_pair.dart $_internalRealUiResetScenario '
-    '"\$A_WS" "\$A_PID" "\$A_NICK" "\$B_WS" "\$B_PID" "\$B_NICK"';
+String _symbolicRealUiResetCommand() {
+  final envPrefix = _realUiPlatform == 'ios'
+      ? 'TOXEE_REAL_UI_PAIR_JSON=$_iosPairJson TOXEE_REAL_UI_PLATFORM=ios '
+      : '';
+  return '${envPrefix}dart run tool/mcp_test/drive_real_ui_pair.dart '
+      '$_internalRealUiResetScenario '
+      '"\$A_WS" "\$A_PID" "\$A_NICK" "\$B_WS" "\$B_PID" "\$B_NICK"';
+}
 
 String _legacyShellCommand(_Entry entry) =>
     'bash tool/mcp_test/${entry.script}';
+
+String _realUiPairJson() =>
+    _realUiPlatform == 'ios' ? _iosPairJson : _macosPairJson;
+
+String _realUiLaunchScript() => _realUiPlatform == 'ios'
+    ? 'tool/mcp_test/launch_ios_fixture_c_pair.sh'
+    : 'tool/mcp_test/launch_fixture_c_pair.sh';
+
+String _realUiStopScript() => _realUiPlatform == 'ios'
+    ? 'tool/mcp_test/stop_ios_fixture_c_pair.sh'
+    : 'tool/mcp_test/stop_fixture_c_pair.sh';
+
+Map<String, String> _realUiDriverEnv() => {
+  ...Platform.environment,
+  'TOXEE_REAL_UI_PAIR_JSON': _realUiPairJson(),
+  'TOXEE_REAL_UI_PLATFORM': _realUiPlatform,
+};
 
 String _launchPairCommand({String? restore}) {
   if (restore == null || restore.isEmpty) {
@@ -1872,7 +1932,15 @@ String _launchPairCommand({String? restore}) {
   return 'TOXEE_FIXTURE_C_RESTORE=$restore tool/mcp_test/launch_fixture_c_pair.sh';
 }
 
+String _launchRealUiPairCommand({String? restore}) {
+  final script = _realUiLaunchScript();
+  if (restore == null || restore.isEmpty) return script;
+  return 'TOXEE_FIXTURE_C_RESTORE=$restore $script';
+}
+
 String _stopPairCommand() => 'tool/mcp_test/stop_fixture_c_pair.sh';
+
+String _stopRealUiPairCommand() => _realUiStopScript();
 
 String _quietStopPairCommand() =>
     'tool/mcp_test/stop_fixture_c_pair.sh >/dev/null 2>&1 || true';
@@ -1973,7 +2041,7 @@ Future<int> _executeLegacyEntry(_Entry entry) async {
 }
 
 Future<int> _executeDirectEntry(_Entry entry, {required bool paired}) async {
-  final runtime = _RuntimePair.load(_pairJson);
+  final runtime = _RuntimePair.load(_macosPairJson);
   final args = <String>[
     'run',
     'tool/mcp_test/${entry.driver}',
@@ -1998,7 +2066,7 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
       var resetApplied = false;
       if (!pairActive) {
         final restore = _restoreForRealUiState(requiredState);
-        final launchRc = await _launchPair(restore: restore);
+        final launchRc = await _launchRealUiPair(restore: restore);
         if (launchRc != 0) {
           return launchRc;
         }
@@ -2016,9 +2084,9 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
           pairNeedsRestoreBoot = false;
           resetApplied = true;
         } else {
-          await _bestEffortStopPair();
+          await _bestEffortStopRealUiPair();
           final restore = _restoreForRealUiState(requiredState);
-          final launchRc = await _launchPair(restore: restore);
+          final launchRc = await _launchRealUiPair(restore: restore);
           if (launchRc != 0) {
             return launchRc;
           }
@@ -2030,8 +2098,8 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
             previousScenario: previousScenario,
             nextScenario: scenario,
           )) {
-        await _bestEffortStopPair();
-        final launchRc = await _launchPair();
+        await _bestEffortStopRealUiPair();
+        final launchRc = await _launchRealUiPair();
         if (launchRc != 0) {
           return launchRc;
         }
@@ -2095,7 +2163,7 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
     return 0;
   } finally {
     if (pairActive) {
-      await _bestEffortStopPair();
+      await _bestEffortStopRealUiPair();
     }
   }
 }
@@ -2120,8 +2188,8 @@ Future<int> _retryRealUiScenarioFromFreshLaunch({
 }) async {
   for (var attempt = 1; attempt <= attempts; attempt++) {
     stdout.writeln('[unified] $reason (attempt $attempt/$attempts)');
-    await _bestEffortStopPair();
-    final relaunchRc = await _launchPair(
+    await _bestEffortStopRealUiPair();
+    final relaunchRc = await _launchRealUiPair(
       restore: _restoreForRealUiState(requiredState),
     );
     if (relaunchRc != 0) {
@@ -2149,7 +2217,7 @@ Future<int> _executeRealUiScenario(
   required bool bootRestored,
 }) async {
   final runtime = _RuntimePair.load(
-    _pairJson,
+    _realUiPairJson(),
     fallbackNickA: _defaultRealUiNickA,
     fallbackNickB: _defaultRealUiNickB,
   );
@@ -2165,12 +2233,12 @@ Future<int> _executeRealUiScenario(
     runtime.b.wsUri,
     '${runtime.b.pid}',
     runtime.b.nickname,
-  ]);
+  ], environment: _realUiDriverEnv());
 }
 
 Future<int> _executeInternalRealUiReset() async {
   final runtime = _RuntimePair.load(
-    _pairJson,
+    _realUiPairJson(),
     fallbackNickA: _defaultRealUiNickA,
     fallbackNickB: _defaultRealUiNickB,
   );
@@ -2185,7 +2253,7 @@ Future<int> _executeInternalRealUiReset() async {
     runtime.b.wsUri,
     '${runtime.b.pid}',
     runtime.b.nickname,
-  ]);
+  ], environment: _realUiDriverEnv());
 }
 
 Future<int> _launchPair({String? restore}) async {
@@ -2202,6 +2270,19 @@ Future<int> _launchPair({String? restore}) async {
 
 Future<void> _bestEffortStopPair() async {
   await Process.run('bash', ['tool/mcp_test/stop_fixture_c_pair.sh']);
+}
+
+Future<int> _launchRealUiPair({String? restore}) async {
+  final env = <String, String>{
+    ...Platform.environment,
+    if (restore != null && restore.isNotEmpty)
+      'TOXEE_FIXTURE_C_RESTORE': restore,
+  };
+  return _runProcess(['bash', _realUiLaunchScript()], environment: env);
+}
+
+Future<void> _bestEffortStopRealUiPair() async {
+  await Process.run('bash', [_realUiStopScript()]);
 }
 
 Future<int> _runProcess(

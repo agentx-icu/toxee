@@ -54,7 +54,10 @@ Future<void> ensureHome(
     // window is foregrounded so any in-flight frame settles.
     print('[${inst.name}] already logged in (${st['nickname']})');
     if (!requireHomeMenu ||
-        await _chatsHomeReady(inst, timeoutSecs: 2) ||
+        // Poll out the StartupGate connection wait (≤20s) before falling back to
+        // the off-home recovery below. `homeShellTab != null` is layout-robust;
+        // `new_entry_menu_button` is absent on the desktop wide layout.
+        await _waitChatsHome(inst, timeoutSecs: 30) ||
         await inst.waitKey('new_entry_menu_button', timeoutSecs: 2)) {
       return;
     }
@@ -112,7 +115,8 @@ Future<void> ensureHome(
   if (!requireHomeMenu) {
     return;
   }
-  if (!await inst.waitKey('new_entry_menu_button', timeoutSecs: 25)) {
+  if (!await _waitChatsHome(inst, timeoutSecs: 35) &&
+      !await inst.waitKey('new_entry_menu_button', timeoutSecs: 25)) {
     throw DriveError('[${inst.name}] did not reach HomePage after register');
   }
   print('[${inst.name}] on HomePage ($nickname)');
@@ -328,7 +332,7 @@ Future<void> ensureNewEntryShell(Inst inst, {int rounds = 4}) async {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       continue;
     }
-    if (await _selectChatsTab(inst)) {
+    if (await _selectContactsTab(inst)) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       continue;
     }
@@ -343,7 +347,7 @@ Future<void> ensureNewEntryShell(Inst inst, {int rounds = 4}) async {
     await Future<void>.delayed(const Duration(milliseconds: 900));
   }
   final st = await inst.dumpState();
-  final shotPath = '/tmp/recover_new_entry_${inst.name}.png';
+  final shotPath = _portableTmp('/tmp/recover_new_entry_${inst.name}.png');
   final hasBack = await inst.waitText('Back', timeoutSecs: 1);
   final hasNewEntry = await inst.waitKey(
     'new_entry_menu_button',
@@ -448,7 +452,8 @@ class _RestoredPair {
     final root =
         jsonDecode(
               await File(
-                'tool/mcp_test/.multi_instance_runtime/pair.json',
+                Platform.environment['TOXEE_REAL_UI_PAIR_JSON'] ??
+                    'tool/mcp_test/.multi_instance_runtime/pair.json',
               ).readAsString(),
             )
             as Map<String, dynamic>;
@@ -634,13 +639,25 @@ Future<bool> _contactsHomeReady(Inst inst, {int timeoutSecs = 1}) async {
     'new_entry_menu_button',
     timeoutSecs: timeoutSecs,
   );
+  final hasContactAppBarMenu = await inst.waitKey(
+    'contact_app_bar_menu_button',
+    timeoutSecs: timeoutSecs,
+  );
+  final hasContactAppBarTrailing = await inst.waitKey(
+    'contact_app_bar_trailing_override',
+    timeoutSecs: timeoutSecs,
+  );
   final hasContactsLanding =
       await inst.waitKey(
         'contact_new_contacts_tab',
         timeoutSecs: timeoutSecs,
       ) ||
       await inst.waitText('New Contacts', timeoutSecs: timeoutSecs);
-  return hasContactsSidebar && (hasNewEntry || hasContactsLanding);
+  return hasContactsSidebar &&
+      (hasNewEntry ||
+          hasContactAppBarMenu ||
+          hasContactAppBarTrailing ||
+          hasContactsLanding);
 }
 
 Future<bool> _newEntryShellReady(Inst inst, {int timeoutSecs = 1}) async {
@@ -899,6 +916,23 @@ int _runShellRecoverySelfTest() {
   return 0;
 }
 
+/// Poll [_chatsHomeReady] until the home shell is observable or [timeoutSecs]
+/// elapses. Needed because the `_StartupGate` "Establishing encrypted channel"
+/// screen blocks up to 20s waiting for the first Tox connection (main.dart's
+/// `_waitForConnectionAndNavigate` timeout) before pushing HomePage — a single
+/// one-shot check right after `sessionReady` flips can land mid-gate, when
+/// `homeShellTab` is still null. On the desktop wide layout the historical
+/// `new_entry_menu_button` landmark is not rendered, so `homeShellTab != null`
+/// (what `_chatsHomeReady` accepts) is the reliable signal.
+Future<bool> _waitChatsHome(Inst inst, {int timeoutSecs = 30}) async {
+  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await _chatsHomeReady(inst, timeoutSecs: 1)) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+  }
+  return false;
+}
+
 Future<bool> _chatsHomeReady(Inst inst, {int timeoutSecs = 1}) async {
   final st = await inst.dumpState();
   if (st['sessionReady'] != true) return false;
@@ -1007,6 +1041,18 @@ Future<bool> _selectChatsTab(Inst inst) async {
       return true;
     }
   }
+  if (_isIosRealUi && await _tryTapText(inst, 'Chats')) {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
+      return true;
+    }
+  }
+  if (_isIosRealUi && await inst.tapKeyCenter('bottom_nav_chats_tab')) {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
+      return true;
+    }
+  }
   if (await _tryTapText(inst, 'Chats')) {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
@@ -1026,6 +1072,18 @@ Future<bool> _selectChatsTab(Inst inst) async {
 
 Future<bool> _selectContactsTab(Inst inst) async {
   if (await inst.tryTapKey('sidebar_contacts_tab', retries: 2)) {
+    if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
+      return true;
+    }
+  }
+  if (_isIosRealUi && await _tryTapText(inst, 'Contacts')) {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
+      return true;
+    }
+  }
+  if (_isIosRealUi && await inst.tapKeyCenter('bottom_nav_contacts_tab')) {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
       return true;
     }

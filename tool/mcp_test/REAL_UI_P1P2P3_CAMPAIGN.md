@@ -354,6 +354,47 @@ Platform run plan for the run-phase owner:
 
 ### Addendum — P1 extra feasible follow-ups (`drive_real_ui_pair_p1_extra.dart`)
 
+### Addendum — iOS true-App run-phase entry (`--real-ui-platform=ios`)
+
+**STATUS: WRITTEN (runner plumbing; live pass pending)** — Added the iOS
+Simulator real-App pair entry for P1/P2/P3 run-phase coverage. The unified runner
+now accepts `--real-ui-platform=ios` for `2proc-ui` runs, switches pair launch and
+`pair.json` lookup to `tool/mcp_test/.ios_runtime/`, and passes
+`TOXEE_REAL_UI_PAIR_JSON` into the real-UI driver. Existing macOS Fixture C and
+real-UI behavior remains the default.
+
+New scripts:
+
+- `tool/mcp_test/launch_ios_fixture_c_pair.sh` launches A and B with
+  `launch_toxee_ios_instance.sh`, probes both VM services, and writes the same
+  `pair.json` schema used by the macOS pair harness.
+- `tool/mcp_test/stop_ios_fixture_c_pair.sh` stops only the recorded A/B
+  `flutter run` processes through `stop_toxee_instance.sh` with the iOS runtime
+  root; it does not kill Simulator or unrelated app processes.
+
+First-pass iOS campaigns:
+
+- `rui-ios-account-settings`: registration/login, account switch/delete/menu,
+  import/export entry guards, settings theme/locale/bootstrap/password/logout,
+  and conference profile/search/send-message surfaces.
+- `rui-ios-chat-main`: C2C chat sweep plus group/conference sweep, each starting
+  from a fresh pair and establishing friendship/group state internally.
+- `rui-ios-main`: account/settings plus chat/group coverage in one named run.
+
+Run commands:
+
+```bash
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-account-settings
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-chat-main
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-main
+```
+
+Limitations for this first iOS entry: `TOXEE_FIXTURE_C_RESTORE` is rejected by
+the iOS launcher until an iOS fixture restore path exists, so the iOS campaigns
+intentionally use sweeps that create their own account/friend/group state. The
+desktop relaunch quartet (`sweep_p1_relaunch`) remains excluded because it calls
+the macOS `launch_toxee_instance.sh` path internally.
+
 **STATUS: DONE (written, unrun)** — 2/2 WRITTEN, 0 SKIP. Added
 `drive_real_ui_pair_p1_extra.dart` plus dispatch/runner registration
 (`sweep_p1_extra`, `rui-p1-extra`) for the two inventory P1 items that are

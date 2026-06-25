@@ -387,7 +387,7 @@ Future<int> runProbeRestyleDiag(Inst a) async {
   // sends (codex hypothesis: userID==null reaches _sendMedia → silent skip).
   await a.l3('l3_open_chat', {'userId': peer});
   await Future<void>.delayed(const Duration(seconds: 1));
-  final src = File('/tmp/probe_attach.txt');
+  final src = File(_portableTmp('/tmp/probe_attach.txt'));
   await src.writeAsString('PROBE-ATTACH-FILE');
   final ov = await a.l3('l3_set_attachment_pick_path', {'path': src.path});
   print('PROBE attach override ok=${ov['ok']}');

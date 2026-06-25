@@ -131,6 +131,18 @@ abstract final class AppPaths {
   static Future<String> getProfileStorageRoot() async {
     final custom = await Prefs.getProfileStorageRoot();
     if (custom != null && custom.isNotEmpty) return custom;
+    // Harness isolation: when TOXEE_APP_SUPPORT_DIR is set (paired real-UI test
+    // instances), the account/profile store MUST live under the per-instance
+    // support dir on every platform — otherwise two instances share one store.
+    // The platform defaults below use fixed production paths (e.g. %APPDATA% on
+    // Windows) that bypass the override, so honor it explicitly here.
+    final harnessOverride =
+        debugApplicationSupportOverride?.trim() ??
+        Platform.environment[_appSupportOverrideEnv]?.trim();
+    if (harnessOverride != null && harnessOverride.isNotEmpty) {
+      final base = await applicationSupportPath; // honors the override
+      return p.join(base, 'profiles');
+    }
     if (Platform.isMacOS) {
       final base = await applicationSupportPath;
       final root = p.join(base, 'profiles');
