@@ -62,10 +62,16 @@ extension _HomePageBootstrap on _HomePageState {
       // the app-bar-name override here so it stays mounted after the
       // post-contacts-load override is applied, and so a later route-dispose
       // restore can be healed by calling this helper again (restored-account
-      // boot path). Contacts intentionally has no trailing New Chat affordance;
-      // chat creation lives in the Chats tab.
-      contactAppBarNameBuilder: ({String? title}) =>
-          ContactAppBarNameOverride(title: title),
+      // boot path). Keep the tox-aware new-entry affordance in the Contacts
+      // app bar; UIKit's built-in Tencent-IM menu remains suppressed.
+      contactAppBarNameBuilder: ({String? title}) => ContactAppBarNameOverride(
+        title: title,
+        trailing: NewEntryButton(
+          onAddFriend: _showAddFriendDialog,
+          onCreateGroup: _showAddGroupDialog,
+          onJoinIrcChannel: _showJoinIrcChannelDialog,
+        ),
+      ),
     );
   }
 
@@ -223,10 +229,16 @@ extension _HomePageBootstrap on _HomePageState {
       ),
       // Suppress UIKit's built-in `Icons.maps_ugc_outlined` MenuAnchor in the
       // contacts-tab title row. Tencent-IM's "Add Contact" / "Add Group" flows
-      // search by userID and don't work on Tox. Contacts intentionally has no
-      // trailing New Chat affordance; chat creation lives in the Chats tab.
-      contactAppBarNameBuilder: ({String? title}) =>
-          ContactAppBarNameOverride(title: title),
+      // search by userID and don't work on Tox; render toxee's Tox-aware entry
+      // menu in the app bar instead.
+      contactAppBarNameBuilder: ({String? title}) => ContactAppBarNameOverride(
+        title: title,
+        trailing: NewEntryButton(
+          onAddFriend: _showAddFriendDialog,
+          onCreateGroup: _showAddGroupDialog,
+          onJoinIrcChannel: _showJoinIrcChannelDialog,
+        ),
+      ),
     );
 
     final searchRegisterResult = search_pkg.CustomSearchManager.register();
@@ -1147,7 +1159,21 @@ extension _HomePageBootstrap on _HomePageState {
       // Pop every route/dialog above HomePage (mobile message + profile routes,
       // desktop modals) so the screenshot pipeline re-navigates from a known
       // root on every layout. No-op on desktop when nothing is pushed.
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      //
+      // Stop at HomePage's OWN route, not just `isFirst`: when HomePage is not
+      // the absolute-first route (it can sit above a startup/gate route, or in a
+      // nested navigator), a bare `popUntil(isFirst)` pops HomePage itself off —
+      // disposing it, which both leaves a blank shell AND unregisters every L3
+      // invoker this bootstrap installed (root cause of the Windows
+      // l3_open_add_group_dialog "invoker not registered" mid-sweep, since the
+      // harness routes Escape through l3_pop_to_root). `ModalRoute.of(context)`
+      // is HomePage's route; popUntil stops at whichever of (homeRoute, first)
+      // it reaches first from the top, so dialogs/sub-routes above HomePage are
+      // dismissed but HomePage survives.
+      final homeRoute = ModalRoute.of(context);
+      Navigator.of(context).popUntil(
+        (route) => route.isFirst || identical(route, homeRoute),
+      );
       return true;
     });
     _bag.add(() => registerL3PopToRootInvoker(null));

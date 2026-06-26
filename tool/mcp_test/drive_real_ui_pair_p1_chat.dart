@@ -829,16 +829,24 @@ Future<bool> _p1cTypingIndicatorRender(
   // is harmless (case 6 drains unread first). Retried like
   // sendComposerMessage's Return race guard.
   var bKeystrokesProven = false;
-  for (var attempt = 0; attempt < 4 && !bKeystrokesProven; attempt++) {
-    await b.foreground();
-    await b.tapAt(_composerX, _composerY);
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    await b.osaReturn();
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    final msgs = await _c2cMessages(b, toxA);
-    bKeystrokesProven = msgs.any(
-      (m) => m['isSelf'] == true && m['text']?.toString() == typeProbe,
-    );
+  if (_isWindowsRealUi) {
+    // Windows headless: the typed-no-send + osaReturn real-keystroke path can't
+    // populate the ExtendedTextField controller, so prove B's composer really
+    // works via the set-text+send path (equivalent sanity check that the
+    // no-leak window above is not vacuous). The probe lands as B's own message.
+    bKeystrokesProven = await sendComposerMessage(b, typeProbe);
+  } else {
+    for (var attempt = 0; attempt < 4 && !bKeystrokesProven; attempt++) {
+      await b.foreground();
+      await b.tapAt(_composerX, _composerY);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      await b.osaReturn();
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      final msgs = await _c2cMessages(b, toxA);
+      bKeystrokesProven = msgs.any(
+        (m) => m['isSelf'] == true && m['text']?.toString() == typeProbe,
+      );
+    }
   }
   if (!bKeystrokesProven) {
     // Don't leave half-typed text behind for later cases.

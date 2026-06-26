@@ -234,7 +234,7 @@ class Inst {
       // margin) for those; a fixed 45s for fast calls (tap/dump/scroll) — long
       // enough to absorb a transiently-busy isolate (e.g. an account-switch
       // teardown+boot) while still catching a genuine multi-minute hang.
-      final timeoutArgMs = int.tryParse('${strArgs['timeout'] ?? ''}');
+      final timeoutArgMs = int.tryParse(strArgs['timeout'] ?? '');
       final callTimeout = timeoutArgMs != null
           ? Duration(milliseconds: timeoutArgMs + 25000)
           : const Duration(seconds: 45);
@@ -296,6 +296,17 @@ class Inst {
   /// resize). Used by the responsive layout-swap case (narrow the window past
   /// the 720pt bottom-nav breakpoint, then restore).
   Future<bool> resizeWindow(num width, num height) async {
+    if (_isWindowsRealUi) {
+      // No osascript on Windows — drive the app's own window_manager via the
+      // l3_window_state seam (setSize + center). Returns whether it applied.
+      final r = await l3('l3_window_state', {
+        'state': 'bounds',
+        'width': '$width',
+        'height': '$height',
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      return r['ok'] == true;
+    }
     await foreground();
     final r = await _osaRun([
       '-e',
@@ -316,6 +327,15 @@ class Inst {
   /// OS actually applied the new bounds (so a refused/clamped resize is detected
   /// rather than silently treated as applied).
   Future<({num w, num h})?> windowSize() async {
+    if (_isWindowsRealUi) {
+      // Read the live logical size via the app's window_manager seam.
+      final r = await l3('l3_window_state', {'state': 'query_bounds'});
+      if (r['ok'] != true) return null;
+      final w = num.tryParse('${r['width']}');
+      final h = num.tryParse('${r['height']}');
+      if (w == null || h == null) return null;
+      return (w: w, h: h);
+    }
     final r = await _osaRun([
       '-e',
       'tell application "System Events" to tell '
@@ -357,7 +377,24 @@ class Inst {
   }
 
   Future<void> forceHomeRoot({String tab = 'chats'}) async {
-    final r = await l3('l3_force_home_root', {'tab': tab});
+    var r = await l3('l3_force_home_root', {'tab': tab});
+    if (r['ok'] != true &&
+        r['error'] == 'non_test_account' &&
+        _isWindowsRealUi) {
+      // Windows headless cannot recover a drifted/blank shell via real-UI nav
+      // (no OS input), so the non-test gate would dead-loop the blank-shell
+      // recovery (root-caused live: contacts/app-entry pre-handshake cases drift
+      // to a blank shell that only l3_force_home_root can pop back). Temporarily
+      // grant the seed marker so the recovery can run, then revoke it so the
+      // sweep's privilege state is unchanged. Navigation-stability ONLY — no
+      // asserted action depends on this transient grant.
+      final marked = await markAccountTest();
+      try {
+        r = await l3('l3_force_home_root', {'tab': tab});
+      } finally {
+        if (marked) await unmarkAccountTest();
+      }
+    }
     if (r['ok'] != true) {
       if (r['error'] == 'non_test_account') navToolsUnavailable = true;
       throw DriveError('[$name] l3_force_home_root failed: $r');
@@ -510,7 +547,15 @@ class Inst {
   Future<void> focusTypeSynthetic(String key, String text) async {
     await tapKey(key);
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    final r = await skill('enterText', {'text': text});
+    // Target the field BY KEY first: a focus-less enterText fails ("No focused
+    // TextField found") when tapKey couldn't focus the editable (e.g. an
+    // off-screen field like the profile status field, vs. the always-visible
+    // nickname field). enterText(key:) finds the widget in the tree regardless
+    // of focus/visibility. Fall back to the focused-field form.
+    var r = await skill('enterText', {'key': key, 'text': text});
+    if (r['success'] != true) {
+      r = await skill('enterText', {'text': text});
+    }
     if (r['success'] != true) {
       throw DriveError('[$name] focusType "$key" enterText failed: $r');
     }
@@ -900,8 +945,10 @@ class Inst {
   /// (`setState(() => _index = 3)`).
   Future<void> osaOpenSettingsShortcut() async {
     if (_isWindowsRealUi) {
-      // Headless equivalent: jump the home shell to the Settings tab.
-      await l3('l3_force_home_root', {'tab': 'settings'});
+      // Headless equivalent: jump the home shell to the Settings tab. Use the
+      // self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
+      // non-test app-entry account doesn't silently no-op the gated tool.
+      await forceHomeRoot(tab: 'settings');
       return;
     }
     await _osa(

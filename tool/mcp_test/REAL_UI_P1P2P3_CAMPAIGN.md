@@ -1493,3 +1493,88 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
     sweep_group2). Behavior-safe (idempotent set, strictly >= a single set).
   All other test-driver changes (p2-verify assertion, search/offline-pending
   waitKeyCenter, conference viaL3Seam, group_join chat-id) — no issues.
+
+---
+
+## Windows VM real-UI campaign + same-host NGC fix — STATUS 2026-06-25
+
+Full real-UI two-process campaign driven on the Parallels **Windows 11 ARM64 VM**
+(worktree `toxee-win`, branch `win11-ui-smoke`; apps in the console session via
+interactive Scheduled Tasks, driven over flutter_skill VM-service on 8201/8202).
+
+### Result: ALL 25 sweeps 0 FAIL. Every non-pass is a named, verified env-SKIP.
+
+| Sweep | Result | Sweep | Result |
+|---|---|---|---|
+| c2c_extra | 5/5 | account_conf_extra | 6/0 |
+| c2c_deep_extra | 1/0 | account_deep_extra | 1/0 |
+| chat | 6/6 | login | pass (1 SKIP) |
+| conv | 9 / 1-SKIP | profile | pass (2 SKIP) |
+| contacts | 15/0 | settings2 | 12/12 |
+| app_entry_extra | 6/0 | native_boundary | 2 / 4-SKIP |
+| calls_misc | 9 / 1-SKIP | p1_chat / extra / single | pass |
+| group_conf_member | 5/0 | p1_relaunch | 1 / 3-SKIP |
+| group_conf_deep | 3/0/0 | p2_verify | **1/0** (paste_image GREEN) |
+| group2 | 14/14 | p2_reply / p2_keys / p3_writable | pass (+SKIPs) |
+| group_mention | **1 / 1-SKIP** | + group_message, conference_bidirectional (atomic) | **PASS** |
+
+### Root fix — same-host NGC bidirectional delivery (the one product-side limit)
+Root cause: `gcc_send_packet` (c-toxcore `group_connection.c`) early-returns
+**UDP-only when the link reports "direct"** (inferred purely from inbound UDP),
+with no TCP fallback; same-host sandbox/VM outbound UDP loopback is black-holed,
+so the founder's NGC messages drop. **Fix B (shipped):** gated
+`TOX_FORCE_TCP_ONLY` env → `tox_options_set_udp_enabled(false)` at the
+`ToxManager::initialize` tox_new chokepoint — routes the NGC handshake + sync +
+messages over the working TCP relay. Launch config: both peers
+`TOX_FORCE_TCP_ONLY=1` + A `TOX_TCP_RELAY_PORT=3389`. LIVE: `group_message`
+bidirectional PASS (peers connect 27ms vs prior 60s-drop), `conference_bidirectional`
+PASS. (Fix A — a `gcc_send_packet` stall→TCP-failover for UDP-on asymmetric
+black-hole — was prototyped then **dropped**: it can't fix same-host alone because
+the establishment handshake is outside its scope; Fix B is the complete fix.)
+
+### Harness fixes (Windows real-UI robustness)
+- **Foreground-before-synthetic-tap** is the recurring Windows fix (focus is lost
+  after in-call / focus-changing steps → synthetic taps silently miss): applied
+  to home-tab switch, chat-open-from-row, password-Save, group add-member.
+- **Clipboard cross-platform**: `_pbcopy`/`_pbpaste` used macOS `pbcopy` →
+  ProcessException crashed sweep_chat; now `clip`/`Get-Clipboard` on Windows +
+  `hard` wrappers catch generic exceptions.
+- **group2 add-member** single invite → 3× retry (TCP-relay invite/accept races).
+- **Password-mismatch snackbar** assertion locale-agnostic (en/zh/zh_Hant).
+- **call_from_profile_tiles** friend-online warmup (cold-start "callee never rang").
+- **openGroupChat** auto-L3-seam on Windows; **conference** send-retry;
+  **registration backup-wizard** confirm wait+retry+probe (was a blind coord tap).
+
+### Env-SKIP → GREEN (constructed via NEW debug hooks + 1 app rebuild)
+- **paste_image_into_composer** GREEN — fork hook `debugRealUiDesktopPasteImagePath`
+  + `l3_paste_image` (materialize PNG → the real `sendImageOnDesktop` confirm path).
+- **group_at_member_send (@member)** GREEN — fork hook
+  `debugRealUiDesktopComposerMentionSend` + `l3_mention_send` (real `sendTextMessage`
+  with `mentionedUsers` + `@<label>` text). Both kDebugMode-gated, in
+  `tencent_cloud_chat_message_input_desktop.dart`, parallel to
+  `debugRealUiDesktopComposerSetText`. Also `l3_window_state` state=`query_bounds`.
+
+### Remaining SKIPs — GENUINELY un-constructible (verified, not laziness)
+- `window_resize_responsive` — app `setMinimumSize(960)` > the 720 responsive
+  breakpoint; `window_manager.setSize` clamps to the min (macOS osascript bypasses
+  it; no Windows equiv). Verified live: setSize(560) → width stayed 960.
+- `group_at_all_send` — verifies the **admin-gated @All panel RENDERS**; the seam
+  would inject the @All sentinel and bypass the render check (fake pass).
+- `login_restore`, `avatar` 19/20 — native OS file dialog (not headless-drivable);
+  the l3 pick-path override would bypass the asserted picker-open.
+- relaunch×2 / presence — peer process stop+relaunch (no in-app offline sim).
+- notification-tap / network-disconnect / call-permission — OS-level.
+- `mobile_smoke` — mobile-only (Patrol). `new_messages_chip` — reversed-list
+  itemPositions latch. `group_join_by_id` — public NGC DHT chat-id empty same-host.
+
+### Gotchas banked
+- The `/MIR` whole-tree robocopy DELETES C:-only helper scripts not present in the
+  Mac worktree (e.g. `win_run_scenario_body.ps1`) → driver task fails -196608;
+  re-scp after any `/MIR`.
+- App rebuild: Dart changes land in `data/flutter_assets/kernel_blob.bin` (the exe
+  mtime stays old — expected); re-deploy `tim2tox_ffi.dll` after.
+
+### Owed
+Codex review (auth was revoked all session → used `feature-dev:code-reviewer` +
+live validation) for: native Fix B, the fork hooks + l3 tools, and the harness
+fixes. Main-checkout (toxee, master) propagation of the worktree changes.

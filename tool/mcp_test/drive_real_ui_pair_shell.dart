@@ -107,8 +107,20 @@ Future<void> ensureHome(
   if (await inst.waitText('Save your account file', timeoutSecs: 20)) {
     await inst.tapText("I'll do it later");
     await Future<void>.delayed(const Duration(milliseconds: 1200));
-    if (!await _tryTapText(inst, 'I understand, continue')) {
-      await inst.tapAt(894, 520);
+    // An "I understand, continue" confirmation follows and can render a beat
+    // later than the dismiss tap, so a single-shot tap often misses it — the
+    // wizard then stays up and blocks HomePage (observed on the slower-startup
+    // UDP-enabled Windows config: the blind 894,520 fallback misfired and B
+    // never reached HomePage). Retry the confirm, probing HomePage between
+    // tries so we stop as soon as the wizard is gone, then a blind tap last.
+    for (var i = 0; i < 4; i++) {
+      if (await _waitChatsHome(inst, timeoutSecs: 2) ||
+          await inst.waitKey('new_entry_menu_button', timeoutSecs: 1)) {
+        break;
+      }
+      if (!await _tryTapText(inst, 'I understand, continue')) {
+        await inst.tapAt(894, 520);
+      }
       await Future<void>.delayed(const Duration(milliseconds: 900));
     }
   }
@@ -123,6 +135,21 @@ Future<void> ensureHome(
 }
 
 Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
+  // Windows multi-account churn: after a quick-login the session can transiently
+  // flicker to not-ready while the FFI re-inits, and the navigation recoveries
+  // below ALL require sessionReady=true (a logged-in-but-resettling app would be
+  // mis-treated as unrecoverable and throw). Wait once, upfront, for the session
+  // to settle when an account IS present — doesn't consume a recovery round.
+  if (_isWindowsRealUi) {
+    final st = await inst.dumpState();
+    if (st['sessionReady'] != true &&
+        (st['currentAccountToxId']?.toString() ?? '').isNotEmpty) {
+      for (var i = 0; i < 25; i++) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if ((await inst.dumpState())['sessionReady'] == true) break;
+      }
+    }
+  }
   for (var round = 0; round < rounds; round++) {
     await inst.foreground();
     if (await _chatsHomeReady(inst, timeoutSecs: 2)) {

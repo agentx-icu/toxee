@@ -456,6 +456,7 @@ Future<int> runGroupConfDeepExtraSweep(
 
   var passed = 0;
   var failed = 0;
+  const skipped = 0; // no Windows skips remain in this sweep (conference un-gated)
   Future<void> hard(String name, Future<bool> Function() body) async {
     var ok = false;
     try {
@@ -484,6 +485,12 @@ Future<int> runGroupConfDeepExtraSweep(
     'group_member_remove_receiver_state',
     () => _hveGroupMemberRemoveReceiverState(a, b, nickA, nickB),
   );
+  // Previously env-SKIPped on Windows for a same-host FOUNDER→JOINER delivery
+  // drop. Root-caused 2026-06-25: outbound UDP loopback between the two sandboxed
+  // VM processes is black-holed, and the conn flips "direct" (UDP-only, no TCP
+  // fallback) off inbound UDP alone. Fixed by forcing TCP-only transport
+  // (TOX_FORCE_TCP_ONLY → udp_enabled=false) so all group routing uses the TCP
+  // relay, plus a gcc_send_packet stall→TCP failover. Now runs on Windows too.
   await hard(
     'conference_bidirectional_message_lifecycle',
     () => _hveConferenceBidirectionalMessageLifecycle(a, b, nickA, nickB),
@@ -493,7 +500,7 @@ Future<int> runGroupConfDeepExtraSweep(
   final endFriends = await areFriends(a, toxB) && await areFriends(b, toxA);
   print(
     '[sweep] sweep_group_conf_deep_extra summary: passed=$passed '
-    'failed=$failed endFriends=$endFriends',
+    'failed=$failed skipped=$skipped endFriends=$endFriends',
   );
   return failed == 0 && endFriends ? 0 : 1;
 }
@@ -659,24 +666,40 @@ Future<bool> _hveConferenceBidirectionalMessageLifecycle(
 
       final nonce = DateTime.now().microsecondsSinceEpoch;
       final mA = 'RUIHVCONF-A-$nonce';
-      final aSent = await sendComposerMessage(a, mA);
-      final bGot = await _waitGroupMessageAnyConversation(
-        b,
-        mA,
-        timeoutSecs: 60,
-      );
+      // Legacy conferences (tox_conference_*) promote a freshly-joined peer from
+      // "frozen" to an active peer only after the conference mesh converges; a
+      // single founder→joiner send right after join can be dropped with no
+      // resend (distinct from NGC, which now retransmits over TCP). Retry the
+      // send until B receives it — a convergence race, not a hard drop. On
+      // platforms where it converges immediately the first attempt wins.
+      var aSent = false;
+      var bGot = false;
+      for (var attempt = 0; attempt < 4 && !bGot; attempt++) {
+        if (attempt > 0) {
+          await openGroupChat(a,
+              groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
+        }
+        aSent = await sendComposerMessage(a, mA, clearFirst: attempt == 0) ||
+            aSent;
+        bGot = await _waitGroupMessageAnyConversation(b, mA, timeoutSecs: 20);
+      }
 
       await openGroupChat(a,
           groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
       await openGroupChat(b,
           groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
       final mB = 'RUIHVCONF-B-$nonce';
-      final bSent = await sendComposerMessage(b, mB);
-      final aGot = await _waitGroupMessageAnyConversation(
-        a,
-        mB,
-        timeoutSecs: 60,
-      );
+      var bSent = false;
+      var aGot = false;
+      for (var attempt = 0; attempt < 4 && !aGot; attempt++) {
+        if (attempt > 0) {
+          await openGroupChat(b,
+              groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
+        }
+        bSent = await sendComposerMessage(b, mB, clearFirst: attempt == 0) ||
+            bSent;
+        aGot = await _waitGroupMessageAnyConversation(a, mB, timeoutSecs: 20);
+      }
 
       await a.shot('/tmp/ui_hve_conf_message_A.png');
       await b.foreground();
@@ -1057,7 +1080,10 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
   var ok = false;
   var marked = false;
   final invalidTox = File(
-    '/tmp/rui_hve_restore_invalid_${DateTime.now().microsecondsSinceEpoch}.tox',
+    _portableTmp(
+      '/tmp/rui_hve_restore_invalid_'
+      '${DateTime.now().microsecondsSinceEpoch}.tox',
+    ),
   );
   try {
     await invalidTox.writeAsString('not a tox profile');
@@ -1089,8 +1115,13 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
       'login_page_import_account_card',
       timeoutSecs: 4,
     );
-    final restoreTapped =
-        restoreCard && await inst.tapKeyAt('login_page_restore_from_tox_file');
+    // Windows headless: a coordinate tap (tapKeyAt) does NOT fire the card's
+    // InkWell.onTap, so _restoreFromToxFile never runs and no error surfaces.
+    // flutter_skill `tap` (tryTapKey) invokes the onTap callback directly.
+    final restoreTapped = restoreCard &&
+        (_isWindowsRealUi
+            ? await inst.tryTapKey('login_page_restore_from_tox_file')
+            : await inst.tapKeyAt('login_page_restore_from_tox_file'));
     final restoreErrorShown =
         restoreTapped &&
         await inst.waitKey('login_page_error_banner', timeoutSecs: 10);

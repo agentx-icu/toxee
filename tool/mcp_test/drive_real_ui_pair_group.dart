@@ -112,7 +112,13 @@ Future<void> openGroupChat(
   // runGroupCreate, where the fresh group is the sole/top row of an empty list)
   // keep exercising — and can still regression-fail on — the keyed row onTap
   // rather than masking it through L3 (codex).
-  if (viaL3Seam &&
+  // On the headless Windows VM the synthetic conversation-row tap does not
+  // reliably open a freshly-created group (the row sorts to the bottom of the
+  // list with ts 0 and a coordinate tap on the clipped row drops its onTap),
+  // leaving currentConversation on the prior c2c. Route through the production
+  // `_openChat` handler there by default — same seam the chat sweeps use for
+  // first-chat-open. Other platforms keep the real row-tap unless viaL3Seam.
+  if ((viaL3Seam || _isWindowsRealUi) &&
       await inst.openChatViaL3(groupId: groupId) &&
       await _chatSurfaceReadyForAnyGroup(
         inst,
@@ -354,7 +360,9 @@ Future<void> _inviteToGroupViaUI(
   }
   // KeyedSubtree-wrapped item → single-fire select (the toggle would net-empty
   // under flutter_skill's double tap otherwise). Confirm is likewise wrapped so
-  // its invite+pop fires once.
+  // its invite+pop fires once. Foreground first so a focus-dependent tap lands.
+  await inst.foreground();
+  await Future<void>.delayed(const Duration(milliseconds: 200));
   await inst.tapKey(itemKey);
   await Future<void>.delayed(const Duration(milliseconds: 300));
   await inst.tapKey('group_member_invite_confirm_button');

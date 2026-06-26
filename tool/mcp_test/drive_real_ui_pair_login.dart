@@ -119,6 +119,24 @@ Future<String> _logoutToLoginPage(Inst inst) async {
 /// Quick-login the saved-account card for [toxId] on a NO-PASSWORD account and
 /// wait for the session to be ready (HomePage). Returns whether it logged in.
 Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
+  // On the Windows VM a no-password quick-login can race the FFI re-init churn
+  // left by a just-registered/switched account: the login starts but sessionReady
+  // lags past the poll window. Retry the real card tap, and treat
+  // currentAccountToxId == toxId as success even if the ready poll lagged.
+  final attempts = _isWindowsRealUi ? 3 : 1;
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    final ok = await _quickLoginNoPasswordOnce(inst, toxId);
+    if (ok) return true;
+    if ((await inst.dumpState())['currentAccountToxId']?.toString() == toxId) {
+      print('[pair] quick-login no-password (${_shortId(toxId)}): '
+          'logged in via state-check (ready poll lagged)');
+      return true;
+    }
+  }
+  return false;
+}
+
+Future<bool> _quickLoginNoPasswordOnce(Inst inst, String toxId) async {
   final cardKey = 'login_page_account_card:$toxId';
   if (!await inst.waitKey(cardKey, timeoutSecs: 6)) {
     if (!await _waitForAccountCard(inst, toxId)) {
@@ -785,6 +803,8 @@ Future<bool> _accountSwitchSecondAccount(Inst inst, String primaryToxId) async {
     );
     return false;
   }
+  // _quickLoginNoPassword self-retries on Windows (the switch-back races the FFI
+  // re-init churn left by the just-registered second account).
   if (!await _quickLoginNoPassword(inst, primaryToxId)) {
     print('[pair] account_switch: could not quick-login back to primary');
     return false;

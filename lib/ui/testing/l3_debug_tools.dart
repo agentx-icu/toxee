@@ -49,7 +49,11 @@ import 'package:flutter/material.dart' show Locale, Size, ThemeMode;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mcp_toolkit/mcp_toolkit.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
-    show debugRealUiDesktopComposerSend;
+    show
+        debugRealUiDesktopComposerSend,
+        debugRealUiDesktopComposerSetText,
+        debugRealUiDesktopComposerMentionSend,
+        debugRealUiDesktopPasteImagePath;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
@@ -63,6 +67,7 @@ import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/account_service.dart';
 import '../../util/app_bootstrap_coordinator.dart';
 import '../../util/appearance_sync.dart';
+import '../../util/harness_environment.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
@@ -72,10 +77,6 @@ import '../../util/tox_utils.dart';
 /// keeps the whole surface out of profile/release builds.
 const bool kL3TestSurfaceEnabled =
     kDebugMode && bool.fromEnvironment('TOXEE_L3_TEST');
-
-const String _l3SharedPrefsPrefixEnv = 'TOXEE_SHARED_PREFS_PREFIX';
-const String _l3AppSupportDirEnv = 'TOXEE_APP_SUPPORT_DIR';
-const String _l3TccfGlobalSubdirEnv = 'TOXEE_TCCF_GLOBAL_SUBDIR';
 
 typedef L3ExportSaveFileInvoker =
     Future<String?> Function(String dialogTitle, String fileName);
@@ -276,13 +277,14 @@ String? _normalizeExportSaveOverridePath(String? path) {
 Map<String, String?> _l3HarnessEnvironmentSnapshot(Map<String, String> env) {
   String? clean(String key) {
     final value = env[key]?.trim();
-    return value == null || value.isEmpty ? null : value;
+    if (value != null && value.isNotEmpty) return value;
+    return HarnessEnvironment.value(key);
   }
 
   return {
-    'sharedPrefsPrefix': clean(_l3SharedPrefsPrefixEnv),
-    'appSupportDirOverride': clean(_l3AppSupportDirEnv),
-    'tccfGlobalSubdir': clean(_l3TccfGlobalSubdirEnv),
+    'sharedPrefsPrefix': clean(HarnessEnvironment.sharedPrefsPrefixKey),
+    'appSupportDirOverride': clean(HarnessEnvironment.appSupportDirKey),
+    'tccfGlobalSubdir': clean(HarnessEnvironment.tccfGlobalSubdirKey),
   };
 }
 
@@ -376,6 +378,8 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3CallActionEntry());
   addMcpTool(_l3SendTextEntry());
   addMcpTool(_l3ComposerSendEntry());
+  addMcpTool(_l3MentionSendEntry());
+  addMcpTool(_l3PasteImageEntry());
   addMcpTool(_l3SetClipboardEntry());
   addMcpTool(_l3ReplyTextEntry());
   addMcpTool(_l3ForwardMessageEntry());
@@ -1009,7 +1013,8 @@ MCPCallEntry _l3InjectC2cTextEntry() => MCPCallEntry.tool(
         ),
         'text': StringSchema(description: 'Bubble text.'),
         'isSelf': StringSchema(
-          description: 'true = sender-side delivered; false (default) = inbound.',
+          description:
+              'true = sender-side delivered; false (default) = inbound.',
         ),
         'epochMs': StringSchema(
           description: 'Optional epoch millis to control ordering.',
@@ -1061,8 +1066,15 @@ MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
         // acceptFriendRequest() → tox_friend_add_norequest(public_key): adds a
         // friend by key with no incoming request required
         // (AcceptFriendApplication never consults a queue), so this works for a
-        // fully synthetic peer.
-        await ffi.acceptFriendRequest(userId);
+        // fully synthetic peer. Pass the 64-char PUBLIC KEY (not the 76-char full
+        // Tox ID): the native AcceptFriendApplication tox_hex_to_bytes into a
+        // 32-byte buffer needs exactly 64 hex chars, so a full Tox ID was
+        // rejected ("Invalid UserID format") and the friend was never really
+        // added — only a cosmetic local nickname remained, so a two-process
+        // seed produced no real P2P friendship. (The native handler is also
+        // hardened to normalize either form; this keeps the seed correct even
+        // against an un-rebuilt native lib.)
+        await ffi.acceptFriendRequest(pk);
       }
       if (nickname.isNotEmpty) {
         await ffi.seedLocalFriendNickname(userId, nickname);
@@ -1354,6 +1366,24 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'no_active_composer'},
       );
     }
+    // Optional `text`: set the composer field DIRECTLY before sending. On
+    // Windows flutter_skill enterText does not reliably populate this composer's
+    // controller (no coordinate-tap focus available headless), so a typed-then-
+    // Enter flow sends an empty message. Setting the text here makes
+    // multi-line / long / emoji sends deterministic.
+    final text = request['text']?.toString();
+    if (text != null) {
+      final setText = debugRealUiDesktopComposerSetText;
+      if (setText == null) {
+        return MCPCallResult(
+          message: 'l3_composer_send: no desktop composer setter mounted',
+          parameters: {'ok': false, 'error': 'no_active_composer_setter'},
+        );
+      }
+      setText(text);
+      // Let the field rebuild with the new text before the send reads it.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
     hook();
     return MCPCallResult(
       message: 'composer send invoked',
@@ -1364,11 +1394,116 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
     name: 'l3_composer_send',
     description:
         'L3 TEST ONLY: invoke the desktop chat composer REAL Enter-to-send '
-        'action (the exact inputMethods.sendTextMessage path) on whatever text '
-        'is currently in the composer field. The headless/Windows equivalent of '
-        'pressing Enter (no OS key injection available); drive the text in first '
-        'with flutter_skill enterText. Returns {ok, error?}.',
-    inputSchema: ObjectSchema(properties: {}),
+        'action (the exact inputMethods.sendTextMessage path). With "text", set '
+        'the composer field directly first (deterministic, no enterText needed) '
+        'then send; without it, send whatever is currently in the field. The '
+        'headless/Windows equivalent of pressing Enter. Returns {ok, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'text': StringSchema(
+        description: 'Optional text to set in the composer before sending.',
+      ),
+    }),
+  ),
+);
+
+MCPCallEntry _l3MentionSendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final hook = debugRealUiDesktopComposerMentionSend;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_mention_send: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    final userId = request['userId']?.toString() ?? '';
+    final label = request['label']?.toString() ?? '';
+    final text = request['text']?.toString() ?? '';
+    if (userId.isEmpty || label.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_mention_send: needs non-empty "userId" and "label"',
+        parameters: {'ok': false, 'error': 'bad_args'},
+      );
+    }
+    hook(userId, label, text);
+    return MCPCallResult(
+      message: 'mention send invoked',
+      parameters: {'ok': true},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_mention_send',
+    description:
+        'L3 TEST ONLY: send an @-mention to a group member through the REAL '
+        'desktop composer send path (sendTextMessage with mentionedUsers), '
+        'without the mention panel (which needs char-by-char "@" typing the '
+        'headless harness cannot drive). The bubble text carries "@<label>" and '
+        'the userID rides in mentionedUsers. Returns {ok, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'userId': StringSchema(description: 'Mentioned member userID.'),
+      'label': StringSchema(description: 'Mention display label (@<label>).'),
+      'text': StringSchema(description: 'Message text after the @ tag.'),
+    }),
+  ),
+);
+
+MCPCallEntry _l3PasteImageEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final hook = debugRealUiDesktopPasteImagePath;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_paste_image: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    final path = request['path']?.toString() ?? '';
+    final b64 = request['contentB64']?.toString() ?? '';
+    String imagePath = path;
+    // If raw bytes are supplied, materialize them to a sandbox-readable temp
+    // file named paste_image_<nonce>.png (the name the real paste flow uses, so
+    // the sender-side history record matches the production naming).
+    if (b64.isNotEmpty) {
+      try {
+        final dir = await getApplicationSupportDirectory();
+        final nonce = DateTime.now().microsecondsSinceEpoch;
+        final f = File('${dir.path}/paste_image_$nonce.png');
+        await f.writeAsBytes(base64Decode(b64), flush: true);
+        imagePath = f.path;
+      } catch (e) {
+        return MCPCallResult(
+          message: 'l3_paste_image: failed to materialize image: $e',
+          parameters: {'ok': false, 'error': 'materialize_failed'},
+        );
+      }
+    }
+    if (imagePath.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_paste_image: needs "path" or "contentB64"',
+        parameters: {'ok': false, 'error': 'bad_args'},
+      );
+    }
+    hook(imagePath);
+    return MCPCallResult(
+      message: 'paste image staged',
+      parameters: {'ok': true, 'path': imagePath},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_paste_image',
+    description:
+        'L3 TEST ONLY: stage an image into the desktop composer through the '
+        'REAL paste handler (sendImageOnDesktop → the desktop send-image confirm '
+        'dialog), as if pasted via Ctrl/Cmd+V. The OS clipboard + keystroke are '
+        'not headless-automatable; pass "contentB64" (raw PNG bytes, written to '
+        'a paste_image_<nonce>.png temp) or an app-readable "path". Returns '
+        '{ok, path, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'path': StringSchema(
+        description: 'App-readable image file path to stage.',
+      ),
+      'contentB64': StringSchema(
+        description: 'Base64 PNG bytes; materialized to a temp paste_image.',
+      ),
+    }),
   ),
 );
 
@@ -3182,7 +3317,8 @@ MCPCallEntry _l3SetAttachmentPickPathEntry() => MCPCallEntry.tool(
         bytes = base64Decode(contentB64);
       } on FormatException catch (e) {
         return MCPCallResult(
-          message: 'l3_set_attachment_pick_path: contentB64 not valid base64: $e',
+          message:
+              'l3_set_attachment_pick_path: contentB64 not valid base64: $e',
           parameters: {'ok': false, 'error': 'bad_base64'},
         );
       }
@@ -5562,6 +5698,21 @@ MCPCallEntry _l3WindowStateEntry() => MCPCallEntry.tool(
           await windowManager.setSize(Size(width, height));
           await windowManager.center();
           break;
+        case 'query_bounds':
+          // Read-only: return the current logical window size so a real-UI
+          // responsive-layout test can read the original size, resize, and
+          // verify the new size was applied (Windows has no osascript window
+          // query; this is the cross-platform seam).
+          final size = await windowManager.getSize();
+          return MCPCallResult(
+            message: 'window bounds queried',
+            parameters: {
+              'ok': true,
+              'state': 'query_bounds',
+              'width': size.width,
+              'height': size.height,
+            },
+          );
         default:
           return MCPCallResult(
             message:

@@ -1181,9 +1181,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 child: Column(
                                   children: [
                                     const MacTitleBarInset(),
-                                    Expanded(
-                                      child: _buildMainPane(context),
-                                    ),
+                                    Expanded(child: _buildMainPane(context)),
                                   ],
                                 ),
                               ),
@@ -1475,6 +1473,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           items: [
             BottomNavigationBarItem(
               icon: Stack(
+                key: UiKeys.bottomNavChats,
                 clipBehavior: Clip.none,
                 children: [
                   const Icon(Icons.chat_bubble_outline),
@@ -1549,18 +1548,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               label: l10n.chats,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.contacts_outlined),
-              activeIcon: const Icon(Icons.contacts),
+              icon: const Icon(
+                Icons.contacts_outlined,
+                key: UiKeys.bottomNavContacts,
+              ),
+              activeIcon: const Icon(
+                Icons.contacts,
+                key: UiKeys.bottomNavContacts,
+              ),
               label: l10n.contacts,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.apps_outlined),
-              activeIcon: const Icon(Icons.apps),
+              icon: const Icon(
+                Icons.apps_outlined,
+                key: UiKeys.bottomNavApplications,
+              ),
+              activeIcon: const Icon(
+                Icons.apps,
+                key: UiKeys.bottomNavApplications,
+              ),
               label: l10n.applications,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.settings_outlined),
-              activeIcon: const Icon(Icons.settings),
+              icon: const Icon(
+                Icons.settings_outlined,
+                key: UiKeys.bottomNavSettings,
+              ),
+              activeIcon: const Icon(
+                Icons.settings,
+                key: UiKeys.bottomNavSettings,
+              ),
               label: l10n.settings,
             ),
           ],
@@ -1673,8 +1690,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Expanded(
                 child: SettingsPage(
                   service: widget.service,
-                  connectionStatusStream:
-                      widget.service.connectionStatusStream,
+                  connectionStatusStream: widget.service.connectionStatusStream,
                   autoAcceptFriends: _autoAcceptFriends,
                   onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
                   autoAcceptGroupInvites: _autoAcceptGroupInvites,

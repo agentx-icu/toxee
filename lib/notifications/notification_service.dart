@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../util/harness_environment.dart';
 import '../util/logger.dart';
 
 /// OS-level notifications for incoming messages.
@@ -141,7 +142,8 @@ class NotificationService {
     if (_initialized || _initializing) return;
     if (!_platformSupported) {
       AppLogger.debug(
-          '[NotificationService] Platform not supported (${Platform.operatingSystem}); skipping');
+        '[NotificationService] Platform not supported (${Platform.operatingSystem}); skipping',
+      );
       _initialized = true;
       return;
     }
@@ -156,8 +158,9 @@ class NotificationService {
         requestBadgePermission: false,
         requestSoundPermission: false,
       );
-      const linuxInit =
-          LinuxInitializationSettings(defaultActionName: 'Open Toxee');
+      const linuxInit = LinuxInitializationSettings(
+        defaultActionName: 'Open Toxee',
+      );
       const initSettings = InitializationSettings(
         android: androidInit,
         iOS: darwinInit,
@@ -179,20 +182,24 @@ class NotificationService {
           _launchPayload = details?.notificationResponse?.payload;
           if (_launchPayload != null) {
             AppLogger.info(
-                '[NotificationService] Cold-start notification payload captured: $_launchPayload');
+              '[NotificationService] Cold-start notification payload captured: $_launchPayload',
+            );
           }
         }
       } catch (e) {
         // Non-fatal: cold-start launch info is best-effort.
         AppLogger.debug(
-            '[NotificationService] getNotificationAppLaunchDetails failed: $e');
+          '[NotificationService] getNotificationAppLaunchDetails failed: $e',
+        );
       }
 
       // Android: create the channels up front so the user can manage them
       // from system settings even before the first notification fires.
       if (Platform.isAndroid) {
-        final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+        final androidImpl = _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         if (androidImpl != null) {
           // NOTE: Android notification channels are immutable once created.
           // Existing installs that already have these channels keep whatever
@@ -254,39 +261,64 @@ class NotificationService {
       // proceeds immediately; the prompt still appears and we log the outcome
       // (and any error) when it resolves. macOS behaves the same way before the
       // permission has been decided, so it is handled identically.
-      if (Platform.isIOS) {
-        final iosImpl = _plugin.resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
+      final notificationPromptDisabled = HarnessEnvironment.boolValue(
+        HarnessEnvironment.disableNotificationPermissionKey,
+      );
+      if (notificationPromptDisabled &&
+          (Platform.isIOS || Platform.isAndroid)) {
+        AppLogger.info(
+          '[NotificationService] Notification permission prompt disabled by harness',
+        );
+      } else if (Platform.isIOS) {
+        final iosImpl = _plugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
         if (iosImpl != null) {
-          unawaited(iosImpl
-              .requestPermissions(alert: true, badge: true, sound: true)
-              .then(
-            (granted) => AppLogger.info(
-                '[NotificationService] iOS permission granted=$granted'),
-            onError: (Object e) => AppLogger.warn(
-                '[NotificationService] iOS permission request failed: $e'),
-          ));
+          unawaited(
+            iosImpl
+                .requestPermissions(alert: true, badge: true, sound: true)
+                .then(
+                  (granted) => AppLogger.info(
+                    '[NotificationService] iOS permission granted=$granted',
+                  ),
+                  onError: (Object e) => AppLogger.warn(
+                    '[NotificationService] iOS permission request failed: $e',
+                  ),
+                ),
+          );
         }
       } else if (Platform.isMacOS) {
-        final macImpl = _plugin.resolvePlatformSpecificImplementation<
-            MacOSFlutterLocalNotificationsPlugin>();
+        final macImpl = _plugin
+            .resolvePlatformSpecificImplementation<
+              MacOSFlutterLocalNotificationsPlugin
+            >();
         if (macImpl != null) {
-          unawaited(macImpl
-              .requestPermissions(alert: true, badge: true, sound: true)
-              .then(
-            (granted) => AppLogger.info(
-                '[NotificationService] macOS permission granted=$granted'),
-            onError: (Object e) => AppLogger.warn(
-                '[NotificationService] macOS permission request failed: $e'),
-          ));
+          unawaited(
+            macImpl
+                .requestPermissions(alert: true, badge: true, sound: true)
+                .then(
+                  (granted) => AppLogger.info(
+                    '[NotificationService] macOS permission granted=$granted',
+                  ),
+                  onError: (Object e) => AppLogger.warn(
+                    '[NotificationService] macOS permission request failed: $e',
+                  ),
+                ),
+          );
         }
       }
 
       _initialized = true;
-      AppLogger.info('[NotificationService] Initialized on ${Platform.operatingSystem}');
+      AppLogger.info(
+        '[NotificationService] Initialized on ${Platform.operatingSystem}',
+      );
     } catch (e, st) {
       AppLogger.logError(
-          '[NotificationService] init() failed; notifications disabled', e, st);
+        '[NotificationService] init() failed; notifications disabled',
+        e,
+        st,
+      );
     } finally {
       _initializing = false;
     }
@@ -347,7 +379,8 @@ class NotificationService {
       await _ensureAndroidPermission();
       if (_androidPermissionGranted == false) {
         AppLogger.debug(
-            '[NotificationService] Android notifications denied; skipping notify for conv=$conversationId');
+          '[NotificationService] Android notifications denied; skipping notify for conv=$conversationId',
+        );
         return;
       }
     }
@@ -371,8 +404,9 @@ class NotificationService {
 
       final id = _idFor(conversationId);
       final isGrouped = lines.length > 1;
-      final summary =
-          isGrouped ? '${lines.length} new messages from $senderName' : null;
+      final summary = isGrouped
+          ? '${lines.length} new messages from $senderName'
+          : null;
 
       // Android inbox style — preserves per-message lines plus a summary
       // count. The summary is shown when the notification is collapsed.
@@ -433,7 +467,8 @@ class NotificationService {
       // a persistent platform issue (denied permission, missing channel) is
       // visible without spamming error on every message.
       AppLogger.warn(
-          '[NotificationService] showMessageNotification failed for conv=$conversationId: $e');
+        '[NotificationService] showMessageNotification failed for conv=$conversationId: $e',
+      );
       AppLogger.debug('[NotificationService] stack: $st');
     }
   }
@@ -460,14 +495,16 @@ class NotificationService {
       await _ensureAndroidPermission();
       if (_androidPermissionGranted == false) {
         AppLogger.debug(
-            '[NotificationService] Android notifications denied; skipping friend req notify for $senderId');
+          '[NotificationService] Android notifications denied; skipping friend req notify for $senderId',
+        );
         return;
       }
     }
 
     try {
       final clampedBody = _clampBody(
-          requestMessage.isEmpty ? '(no message)' : requestMessage);
+        requestMessage.isEmpty ? '(no message)' : requestMessage,
+      );
 
       final id = _idFor('friend_req:$senderId');
 
@@ -492,7 +529,9 @@ class NotificationService {
 
       await _plugin.show(
         id,
-        senderName.isEmpty ? 'New friend request' : 'Friend request: $senderName',
+        senderName.isEmpty
+            ? 'New friend request'
+            : 'Friend request: $senderName',
         clampedBody,
         NotificationDetails(
           android: androidDetails,
@@ -504,7 +543,8 @@ class NotificationService {
       );
     } catch (e, st) {
       AppLogger.warn(
-          '[NotificationService] showFriendRequestNotification failed for $senderId: $e');
+        '[NotificationService] showFriendRequestNotification failed for $senderId: $e',
+      );
       AppLogger.debug('[NotificationService] stack: $st');
     }
   }
@@ -520,7 +560,8 @@ class NotificationService {
       await _plugin.cancel(_idFor(conversationId));
     } catch (e) {
       AppLogger.debug(
-          '[NotificationService] cancel failed for conv=$conversationId: $e');
+        '[NotificationService] cancel failed for conv=$conversationId: $e',
+      );
     }
   }
 
@@ -575,7 +616,8 @@ class NotificationService {
       await _ensureAndroidPermission();
       if (_androidPermissionGranted == false) {
         AppLogger.debug(
-            '[NotificationService] Android notifications denied; skipping missed-call notify for $peerId');
+          '[NotificationService] Android notifications denied; skipping missed-call notify for $peerId',
+        );
         return;
       }
     }
@@ -618,7 +660,8 @@ class NotificationService {
       );
     } catch (e, st) {
       AppLogger.warn(
-          '[NotificationService] showMissedCallNotification failed for $peerId: $e');
+        '[NotificationService] showMissedCallNotification failed for $peerId: $e',
+      );
       AppLogger.debug('[NotificationService] stack: $st');
     }
   }
@@ -673,8 +716,10 @@ class NotificationService {
 
   Future<void> _runEnsureAndroidPermission() async {
     try {
-      final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final androidImpl = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (androidImpl == null) {
         // Plugin didn't expose the Android impl — treat as granted to avoid
         // disabling notifications on an environment where we can't even ask.
@@ -686,7 +731,8 @@ class NotificationService {
         if (alreadyEnabled == true) {
           _androidPermissionGranted = true;
           AppLogger.info(
-              '[NotificationService] Android notifications already enabled');
+            '[NotificationService] Android notifications already enabled',
+          );
           return;
         }
         // alreadyEnabled is false or null — ask. The plugin returns true if
@@ -696,16 +742,21 @@ class NotificationService {
         _androidPermissionGranted = granted ?? true;
         if (_androidPermissionGranted == true) {
           AppLogger.info(
-              '[NotificationService] Android POST_NOTIFICATIONS granted');
+            '[NotificationService] Android POST_NOTIFICATIONS granted',
+          );
         } else {
           AppLogger.warn(
-              '[NotificationService] Android POST_NOTIFICATIONS denied — notifications will be silently dropped this session');
+            '[NotificationService] Android POST_NOTIFICATIONS denied — notifications will be silently dropped this session',
+          );
         }
       } catch (e, st) {
         // Don't poison the channel on a transient platform-side failure —
         // treat as granted so the user still has a chance of getting banners.
         AppLogger.logError(
-            '[NotificationService] _ensureAndroidPermission failed', e, st);
+          '[NotificationService] _ensureAndroidPermission failed',
+          e,
+          st,
+        );
         _androidPermissionGranted = true;
       }
     } finally {

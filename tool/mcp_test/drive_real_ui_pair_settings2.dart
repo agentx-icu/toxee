@@ -459,8 +459,9 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
         await inst.tapKeyAt('settings_language_option_en')) {
       reverted = await _waitStringState(inst, 'languageCode', 'en');
     }
-    if (!reverted)
+    if (!reverted) {
       await Future<void>.delayed(const Duration(milliseconds: 600));
+    }
   }
   // Confirm the English label is back (the load-bearing post-revert invariant).
   await inst.foreground();
@@ -828,14 +829,35 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
   // mismatch it shows a snackbar and returns WITHOUT popping. So flutter_skill's
   // double-fire `tap` is safe here (no route to double-pop), but we use the
   // single-fire center tap to mirror the matching-path harness convention.
-  if (!await inst.tapKeyCenter('settings_set_password_save_button')) {
-    print('[pair] password_mismatch: save button not tappable');
-    return false;
+  // Foreground + re-tap Save until the mismatch snackbar appears: a synthetic
+  // center-tap on the dialog's Save button can silently miss on the headless
+  // Windows VM (the window isn't active after the field focusType), so the
+  // mismatch handler never runs and no snackbar shows. Re-tapping is safe — on a
+  // mismatch the handler only shows the snackbar and returns (no Navigator.pop).
+  // The snackbar text is LOCALIZED, so assert any shipped locale variant.
+  const variants = [
+    'Passwords do not match', // en
+    '密码不匹配', // zh
+    '密碼不匹配', // zh_Hant
+  ];
+  var snackbar = false;
+  for (var attempt = 0; attempt < 4 && !snackbar; attempt++) {
+    await inst.foreground();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!await inst.tapKeyCenter('settings_set_password_save_button')) {
+      print('[pair] password_mismatch: save button not tappable');
+      return false;
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (!snackbar && DateTime.now().isBefore(deadline)) {
+      for (final v in variants) {
+        if (await inst.waitText(v, timeoutSecs: 1)) {
+          snackbar = true;
+          break;
+        }
+      }
+    }
   }
-  final snackbar = await inst.waitText(
-    'Passwords do not match',
-    timeoutSecs: 8,
-  );
   // The dialog must STILL be open (its keyed field present) — proves the
   // mismatch short-circuited before the pop.
   final dialogStays = await inst.waitKey(
