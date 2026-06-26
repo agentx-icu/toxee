@@ -428,7 +428,9 @@ Future<bool> _aeeLoginImportAccountCardOpen(Inst inst, String nickA) async {
   var ok = false;
   var marked = false;
   final invalidTox = File(
-    '/tmp/rui_aee_import_invalid_${DateTime.now().microsecondsSinceEpoch}.tox',
+    _portableTmp(
+      '/tmp/rui_aee_import_invalid_${DateTime.now().microsecondsSinceEpoch}.tox',
+    ),
   );
   try {
     await invalidTox.writeAsString('not a tox profile');

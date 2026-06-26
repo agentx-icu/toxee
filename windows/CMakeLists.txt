@@ -181,3 +181,19 @@ if(DEFINED ENV{VCPKG_ROOT})
     "$ENV{VCPKG_ROOT}/installed/${_TIM2TOX_VCPKG_TRIPLET}/bin/libsodium.dll")
 endif()
 toxee_install_newest_existing("libsodium.dll" ${_TIM2TOX_LIBSODIUM_DLL_CANDIDATES})
+
+# tim2tox_ffi.dll also dynamically links the vcpkg pthreads runtime
+# (pthreadVC3.dll, release) on Windows because c-toxcore uses pthreads-win32.
+# Bundle it next to the runner for the same reason as libsodium.dll: a missing
+# transitive dependency makes the FFI library fail to load at startup with
+# "error code 126" (ERROR_MOD_NOT_FOUND) even though tim2tox_ffi.dll is present.
+# tool/ci/build_tim2tox.sh captures it into native-artifacts; fall back to the
+# vcpkg bin dir (release pthreadVC3.dll only — the debug build is pthreadVC3d.dll).
+set(_TIM2TOX_PTHREAD_DLL_CANDIDATES
+  "${_TIM2TOX_NATIVE_ARTIFACTS_DIR}/pthreadVC3.dll"
+)
+if(DEFINED ENV{VCPKG_ROOT})
+  list(APPEND _TIM2TOX_PTHREAD_DLL_CANDIDATES
+    "$ENV{VCPKG_ROOT}/installed/${_TIM2TOX_VCPKG_TRIPLET}/bin/pthreadVC3.dll")
+endif()
+toxee_install_newest_existing("pthreadVC3.dll" ${_TIM2TOX_PTHREAD_DLL_CANDIDATES})

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -5,6 +7,7 @@ import '../util/app_tray.dart';
 import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs.dart';
+import 'windows_window_resurface.dart';
 
 class _WindowStateListener with WindowListener {
   bool _closing = false;
@@ -94,6 +97,40 @@ class DesktopShellBootstrap {
     });
     if (AppTray.instance.isSupported) {
       await AppTray.instance.init();
+    }
+    // Windows/VM HiDPI re-surface nudge. window_manager's
+    // hidden-create → setBounds → show sequence can leave the Flutter engine's
+    // render surface (swapchain) sized to the PRE-show window metrics, so the
+    // painted scene fills only part of the grown window and the rest composites
+    // black. Observed live on a Parallels HiDPI Windows guest as a large black
+    // band above the UI. A resize emits a fresh WM_SIZE the engine tracks,
+    // forcing it to re-surface to the real client area — BUT only once the engine
+    // has actually created its surface (the FIRST frame, after runApp). Nudging
+    // inside waitUntilReadyToShow is too early and has no effect, so fire it
+    // post-first-frame, off the bootstrap path (not awaited). Grow then restore
+    // (matches the proven SetWindowPos repro) with a settle between so the engine
+    // processes each resize. Desktop-window-only — no mobile counterpart (mobile
+    // has no window_manager surface). macOS is unaffected (it renders correctly
+    // without the nudge), so gate to Windows to avoid a needless startup flicker.
+    if (PlatformUtils.isWindows) {
+      unawaited(_nudgeRenderSurfaceAfterFirstFrame());
+    }
+  }
+
+  /// Forces the Flutter engine to re-size its render surface to the real window
+  /// client area after the first frame (see the call site for why). Fire-and-
+  /// forget; failures are non-fatal (the worst case is the pre-existing band).
+  ///
+  /// NOTE: this issues a raw user32 `SetWindowPos` (via dart:ffi) rather than
+  /// `windowManager.setSize` — the latter was verified live to NOT retrigger the
+  /// engine re-surface, while a real SetWindowPos does.
+  static Future<void> _nudgeRenderSurfaceAfterFirstFrame() async {
+    try {
+      // Wait past the first rendered frame so the engine surface exists.
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      await nudgeWindowsRenderSurface();
+    } catch (e) {
+      AppLogger.warn('Window re-surface nudge failed: $e');
     }
   }
 }

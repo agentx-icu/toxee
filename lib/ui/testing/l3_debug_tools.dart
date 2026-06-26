@@ -48,6 +48,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Locale, Size, ThemeMode;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mcp_toolkit/mcp_toolkit.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
+    show
+        debugRealUiDesktopComposerSend,
+        debugRealUiDesktopComposerSetText,
+        debugRealUiDesktopComposerMentionSend,
+        debugRealUiDesktopPasteImagePath;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart'
@@ -377,6 +383,9 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3SendTextEntry());
   addMcpTool(_l3ComposerSetTextEntry());
   addMcpTool(_l3ComposerSendEntry());
+  addMcpTool(_l3MentionSendEntry());
+  addMcpTool(_l3PasteImageEntry());
+  addMcpTool(_l3SetClipboardEntry());
   addMcpTool(_l3ReplyTextEntry());
   addMcpTool(_l3ForwardMessageEntry());
   addMcpTool(_l3InjectC2cCustomEntry());
@@ -1062,8 +1071,15 @@ MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
         // acceptFriendRequest() → tox_friend_add_norequest(public_key): adds a
         // friend by key with no incoming request required
         // (AcceptFriendApplication never consults a queue), so this works for a
-        // fully synthetic peer.
-        await ffi.acceptFriendRequest(userId);
+        // fully synthetic peer. Pass the 64-char PUBLIC KEY (not the 76-char full
+        // Tox ID): the native AcceptFriendApplication tox_hex_to_bytes into a
+        // 32-byte buffer needs exactly 64 hex chars, so a full Tox ID was
+        // rejected ("Invalid UserID format") and the friend was never really
+        // added — only a cosmetic local nickname remained, so a two-process
+        // seed produced no real P2P friendship. (The native handler is also
+        // hardened to normalize either form; this keeps the seed correct even
+        // against an un-rebuilt native lib.)
+        await ffi.acceptFriendRequest(pk);
       }
       if (nickname.isNotEmpty) {
         await ffi.seedLocalFriendNickname(userId, nickname);
@@ -1346,6 +1362,187 @@ MCPCallEntry _l3SendTextEntry() => MCPCallEntry.tool(
   ),
 );
 
+MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString();
+    // Mixed macOS<->iOS / mobile: prefer the combined set-text-and-send seam so a
+    // macOS peer can send over the VM service while a Simulator peer holds the
+    // foreground (no osascript keystrokes), and the mobile composer (which
+    // ignores synthetic enterText) sends via the production path.
+    if (text != null) {
+      final combined = debugRealUiDesktopComposerSendText ??
+          debugRealUiMobileComposerSendText;
+      if (combined != null) {
+        combined(text);
+        return MCPCallResult(
+          message: 'composer text sent',
+          parameters: {'ok': true, 'length': text.length},
+        );
+      }
+    }
+    // Desktop / Windows: set the field DIRECTLY (flutter_skill enterText can't
+    // reach this composer's controller headless on Windows), then invoke the REAL
+    // Enter-send (the exact inputMethods.sendTextMessage path).
+    final hook = debugRealUiDesktopComposerSend;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_composer_send: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    if (text != null) {
+      final setText = debugRealUiDesktopComposerSetText;
+      if (setText != null) {
+        setText(text);
+        // Let the field rebuild with the new text before the send reads it.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      }
+    }
+    hook();
+    return MCPCallResult(
+      message: 'composer send invoked',
+      parameters: {'ok': true},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_composer_send',
+    description:
+        'L3 TEST ONLY: send the open chat composer text via the production '
+        'inputMethods.sendTextMessage path (the Enter-key / send-button code). '
+        'With "text" set the field first (deterministic); routes to the mobile / '
+        'mixed-run combined seam when mounted, else the desktop set-text+Enter '
+        'path. Returns {ok, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'text': StringSchema(
+        description: 'Optional text to set in the composer before sending.',
+      ),
+    }),
+  ),
+);
+
+MCPCallEntry _l3MentionSendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final hook = debugRealUiDesktopComposerMentionSend;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_mention_send: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    final userId = request['userId']?.toString() ?? '';
+    final label = request['label']?.toString() ?? '';
+    final text = request['text']?.toString() ?? '';
+    if (userId.isEmpty || label.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_mention_send: needs non-empty "userId" and "label"',
+        parameters: {'ok': false, 'error': 'bad_args'},
+      );
+    }
+    hook(userId, label, text);
+    return MCPCallResult(
+      message: 'mention send invoked',
+      parameters: {'ok': true},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_mention_send',
+    description:
+        'L3 TEST ONLY: send an @-mention to a group member through the REAL '
+        'desktop composer send path (sendTextMessage with mentionedUsers), '
+        'without the mention panel (which needs char-by-char "@" typing the '
+        'headless harness cannot drive). The bubble text carries "@<label>" and '
+        'the userID rides in mentionedUsers. Returns {ok, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'userId': StringSchema(description: 'Mentioned member userID.'),
+      'label': StringSchema(description: 'Mention display label (@<label>).'),
+      'text': StringSchema(description: 'Message text after the @ tag.'),
+    }),
+  ),
+);
+
+MCPCallEntry _l3PasteImageEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final hook = debugRealUiDesktopPasteImagePath;
+    if (hook == null) {
+      return MCPCallResult(
+        message: 'l3_paste_image: no desktop composer mounted',
+        parameters: {'ok': false, 'error': 'no_active_composer'},
+      );
+    }
+    final path = request['path']?.toString() ?? '';
+    final b64 = request['contentB64']?.toString() ?? '';
+    String imagePath = path;
+    // If raw bytes are supplied, materialize them to a sandbox-readable temp
+    // file named paste_image_<nonce>.png (the name the real paste flow uses, so
+    // the sender-side history record matches the production naming).
+    if (b64.isNotEmpty) {
+      try {
+        final dir = await getApplicationSupportDirectory();
+        final nonce = DateTime.now().microsecondsSinceEpoch;
+        final f = File('${dir.path}/paste_image_$nonce.png');
+        await f.writeAsBytes(base64Decode(b64), flush: true);
+        imagePath = f.path;
+      } catch (e) {
+        return MCPCallResult(
+          message: 'l3_paste_image: failed to materialize image: $e',
+          parameters: {'ok': false, 'error': 'materialize_failed'},
+        );
+      }
+    }
+    if (imagePath.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_paste_image: needs "path" or "contentB64"',
+        parameters: {'ok': false, 'error': 'bad_args'},
+      );
+    }
+    hook(imagePath);
+    return MCPCallResult(
+      message: 'paste image staged',
+      parameters: {'ok': true, 'path': imagePath},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_paste_image',
+    description:
+        'L3 TEST ONLY: stage an image into the desktop composer through the '
+        'REAL paste handler (sendImageOnDesktop → the desktop send-image confirm '
+        'dialog), as if pasted via Ctrl/Cmd+V. The OS clipboard + keystroke are '
+        'not headless-automatable; pass "contentB64" (raw PNG bytes, written to '
+        'a paste_image_<nonce>.png temp) or an app-readable "path". Returns '
+        '{ok, path, error?}.',
+    inputSchema: ObjectSchema(properties: {
+      'path': StringSchema(
+        description: 'App-readable image file path to stage.',
+      ),
+      'contentB64': StringSchema(
+        description: 'Base64 PNG bytes; materialized to a temp paste_image.',
+      ),
+    }),
+  ),
+);
+
+MCPCallEntry _l3SetClipboardEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString() ?? '';
+    await Clipboard.setData(ClipboardData(text: text));
+    return MCPCallResult(
+      message: 'clipboard set',
+      parameters: {'ok': true, 'len': text.length},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_clipboard',
+    description:
+        'L3 TEST ONLY: set the app-process clipboard (Clipboard.setData) so an '
+        'in-app Paste control reads it. Windows/headless equivalent of pbcopy — '
+        'a driver-side clipboard lives in a different window-station and is '
+        'invisible to the app.',
+    inputSchema: ObjectSchema(
+      properties: {'text': StringSchema(description: 'Clipboard text')},
+    ),
+  ),
+);
+
 /// L3 real-UI seam: populate the MOBILE chat composer's text through its
 /// controller. The mobile composer is an ExtendedTextField that does NOT pick
 /// up flutter_skill's synthetic `enterText` (so its onChanged never fires and
@@ -1381,50 +1578,6 @@ MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
     inputSchema: ObjectSchema(
       properties: {
         'text': StringSchema(description: 'Composer text to set.'),
-      },
-      required: ['text'],
-    ),
-  ),
-);
-
-/// L3 composer SEND seam (mobile): set the open chat composer text and send it
-/// through the production `inputMethods.sendTextMessage` path — the same call
-/// `chat_send_button` onTap makes. Used because the synthetic tap on the send
-/// button does not reliably fire on a compact phone, leaving the message stuck
-/// in the composer. iOS/Android only.
-MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
-  handler: (request) async {
-    final text = request['text']?.toString() ?? '';
-    // Prefer whichever composer is mounted: desktop OR mobile. Driving the
-    // composer over the VM service (instead of osascript keystrokes) is what lets
-    // a macOS peer stay backgrounded while an iOS-Simulator peer holds the
-    // foreground — required so the sim peer survives a full real-UI sweep.
-    final sender =
-        debugRealUiDesktopComposerSendText ?? debugRealUiMobileComposerSendText;
-    if (sender == null) {
-      return MCPCallResult(
-        message: 'l3_composer_send: no composer mounted (open a chat first)',
-        parameters: {'ok': false, 'error': 'no_composer'},
-      );
-    }
-    sender(text);
-    AppLogger.info('[L3] l3_composer_send: sent composer text (${text.length} chars)');
-    return MCPCallResult(
-      message: 'composer text sent',
-      parameters: {'ok': true, 'length': text.length},
-    );
-  },
-  definition: MCPToolDefinition(
-    name: 'l3_composer_send',
-    description:
-        'L3 TEST ONLY (mobile): set the open chat composer text and SEND it via '
-        'the production inputMethods.sendTextMessage path (the same call the '
-        'chat_send_button onTap makes). Use when the synthetic send-button tap '
-        'does not fire on a compact phone. No-op error if no mobile composer is '
-        'mounted.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'text': StringSchema(description: 'Composer text to set and send.'),
       },
       required: ['text'],
     ),
@@ -5599,6 +5752,21 @@ MCPCallEntry _l3WindowStateEntry() => MCPCallEntry.tool(
           await windowManager.setSize(Size(width, height));
           await windowManager.center();
           break;
+        case 'query_bounds':
+          // Read-only: return the current logical window size so a real-UI
+          // responsive-layout test can read the original size, resize, and
+          // verify the new size was applied (Windows has no osascript window
+          // query; this is the cross-platform seam).
+          final size = await windowManager.getSize();
+          return MCPCallResult(
+            message: 'window bounds queried',
+            parameters: {
+              'ok': true,
+              'state': 'query_bounds',
+              'width': size.width,
+              'height': size.height,
+            },
+          );
         default:
           return MCPCallResult(
             message:

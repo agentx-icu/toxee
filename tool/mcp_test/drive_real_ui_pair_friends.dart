@@ -3,7 +3,14 @@ part of 'drive_real_ui_pair.dart';
 
 /// B drives the add-friend dialog targeting A's tox id (real UI).
 Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
-  await ensureNewEntryShell(b);
+  // The new_entry_menu_button (NewEntryButton) is not rendered on the Windows
+  // desktop wide layout, so ensureNewEntryShell (which requires it) can't be
+  // satisfied. The dialog-open path below already falls back to the
+  // layout-independent openAddFriendDialogViaL3, so skip the shell-ensure on
+  // Windows and let that seam open the real AddFriendDialog directly.
+  if (!_isWindowsRealUi) {
+    await ensureNewEntryShell(b);
+  }
   var dialogReady = false;
   // The keyed NewEntry menu (new_entry_menu_button) lives in the CONTACTS app
   // bar. On a fresh non-test account B usually sits on the Chats home and can't
@@ -11,7 +18,7 @@ Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
   // straight through the tab-independent, non-blocking L3 invoker instead of
   // blind coordinate taps on the wrong tab (which can stray-open a conversation
   // and leave B in a non-reusable shell). Confirm via the dialog's input field.
-  if (await _homeShellTab(b) != 'contacts' &&
+  if ((_isWindowsRealUi || await _homeShellTab(b) != 'contacts') &&
       await b.openAddFriendDialogViaL3()) {
     await Future<void>.delayed(const Duration(milliseconds: 800));
     if (await b.waitKey('add_friend_id_input', timeoutSecs: 3)) {
@@ -58,7 +65,7 @@ Future<void> driveAddFriend(Inst b, String toxA, {String? message}) async {
       'contact_app_bar_trailing_override',
       timeoutSecs: 1,
     );
-    final shotPath = '/tmp/add_friend_dialog_${b.name}.png';
+    final shotPath = _portableTmp('/tmp/add_friend_dialog_${b.name}.png');
     await b.shot(shotPath);
     throw DriveError(
       '[${b.name}] add-friend dialog did not open '

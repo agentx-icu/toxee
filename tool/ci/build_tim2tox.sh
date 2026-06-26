@@ -539,12 +539,19 @@ build_desktop_target() {
         # 2) powershell.exe: used by vcpkg's applocal.ps1 post-build step.
         # Git Bash (MSYS) typically exposes it under /c/WINDOWS/...
         export PATH="/c/WINDOWS/System32/WindowsPowerShell/v1.0:$PATH"
+        # CMAKE_BUILD_TYPE is REQUIRED for single-config generators (Ninja): the
+        # `cmake --build --config Release` below is a no-op for them, so without
+        # this the dll links the DEBUG CRT (MSVCP140D.dll / ucrtbased.dll) +
+        # pthreadVC3d.dll and fails to load at runtime with error 126. It is
+        # harmless for the multi-config VS generator (which honors --config).
         VCPKG_ROOT="$vcpkg_root_win" cmake -S "$source_dir_win" -B "$build_dir_win" \
           "${generator_args[@]}" \
           -DCMAKE_TOOLCHAIN_FILE="$toolchain_file" \
+          -DCMAKE_BUILD_TYPE=Release \
           "${configure_args[@]}"
       else
-        cmake -S "$source_dir_win" -B "$build_dir_win" "${generator_args[@]}" "${configure_args[@]}"
+        cmake -S "$source_dir_win" -B "$build_dir_win" "${generator_args[@]}" \
+          -DCMAKE_BUILD_TYPE=Release "${configure_args[@]}"
       fi
       ;;
     *)
@@ -563,6 +570,12 @@ build_desktop_target() {
   if [[ "$target" == "windows" && -n "${VCPKG_ROOT:-}" ]]; then
     ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "libsodium.dll" "$OUTPUT_DIR" >/dev/null || \
       ci_warn "libsodium.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
+    # c-toxcore links vcpkg pthreads on Windows, so tim2tox_ffi.dll imports the
+    # release pthreadVC3.dll. Capture it next to libsodium.dll so the runner
+    # bundle is self-contained (otherwise the FFI load fails with error 126).
+    # The pattern excludes the debug pthreadVC3d.dll by name.
+    ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "pthreadVC3.dll" "$OUTPUT_DIR" >/dev/null || \
+      ci_warn "pthreadVC3.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
   fi
 
   if [[ "$target" == "linux" ]]; then

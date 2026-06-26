@@ -6,6 +6,24 @@ const _mcpNs = 'ext.mcp.toolkit';
 final _realUiPlatform =
     (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
 
+/// Headless Windows: no host osascript, and OS-level key/paste injection cannot
+/// reach the app's window-station, so EVERY input goes through synthetic
+/// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam. Unlike
+/// iOS (which runs on a macOS host and still uses osascript for foreground /
+/// send / paste), Windows overrides the whole osa* primitive surface below.
+bool get _isWindowsRealUi => _realUiPlatform == 'windows';
+
+/// Translate a hardcoded `/tmp/<name>` debug path (screenshots, scratch files)
+/// to the host's temp dir so the driver runs on Windows, which has no `/tmp`.
+/// Non-`/tmp/` paths pass through unchanged.
+String _portableTmp(String path) {
+  if (path.startsWith('/tmp/')) {
+    return '${Directory.systemTemp.path}'
+        '${Platform.pathSeparator}${path.substring('/tmp/'.length)}';
+  }
+  return path;
+}
+
 /// Per-instance platform. A HETEROGENEOUS pair (e.g. A=macOS desktop acting as a
 /// TCP relay + B=iOS Simulator connecting over it) sets
 /// `TOXEE_REAL_UI_PLATFORM_A` / `TOXEE_REAL_UI_PLATFORM_B`; each [Inst] resolves
@@ -321,7 +339,7 @@ class Inst {
       // margin) for those; a fixed 45s for fast calls (tap/dump/scroll) — long
       // enough to absorb a transiently-busy isolate (e.g. an account-switch
       // teardown+boot) while still catching a genuine multi-minute hang.
-      final timeoutArgMs = int.tryParse('${strArgs['timeout'] ?? ''}');
+      final timeoutArgMs = int.tryParse(strArgs['timeout'] ?? '');
       final callTimeout = timeoutArgMs != null
           ? Duration(milliseconds: timeoutArgMs + 25000)
           : const Duration(seconds: 45);
@@ -366,6 +384,12 @@ class Inst {
   /// suspend the sim app, and App Nap is disabled on the Simulator, so the iOS
   /// VM service stays up in the background without any osascript activate.
   Future<void> foreground() async {
+    if (_isWindowsRealUi) {
+      // Headless Windows drives purely via synthetic flutter_skill RPC, which is
+      // window-station / OS-focus independent; bringing the window forward is
+      // both unnecessary and impossible from a non-interactive SSH session.
+      return;
+    }
     if (isIos) {
       // iOS real-UI driving is purely VM-service; synthetic input needs no window
       // focus. Activating Simulator.app does NOT foreground the iOS scene
@@ -399,6 +423,17 @@ class Inst {
   /// resize). Used by the responsive layout-swap case (narrow the window past
   /// the 720pt bottom-nav breakpoint, then restore).
   Future<bool> resizeWindow(num width, num height) async {
+    if (_isWindowsRealUi) {
+      // No osascript on Windows — drive the app's own window_manager via the
+      // l3_window_state seam (setSize + center). Returns whether it applied.
+      final r = await l3('l3_window_state', {
+        'state': 'bounds',
+        'width': '$width',
+        'height': '$height',
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      return r['ok'] == true;
+    }
     await foreground();
     final r = await _osaRun([
       '-e',
@@ -419,6 +454,15 @@ class Inst {
   /// OS actually applied the new bounds (so a refused/clamped resize is detected
   /// rather than silently treated as applied).
   Future<({num w, num h})?> windowSize() async {
+    if (_isWindowsRealUi) {
+      // Read the live logical size via the app's window_manager seam.
+      final r = await l3('l3_window_state', {'state': 'query_bounds'});
+      if (r['ok'] != true) return null;
+      final w = num.tryParse('${r['width']}');
+      final h = num.tryParse('${r['height']}');
+      if (w == null || h == null) return null;
+      return (w: w, h: h);
+    }
     final r = await _osaRun([
       '-e',
       'tell application "System Events" to tell '
@@ -460,7 +504,24 @@ class Inst {
   }
 
   Future<void> forceHomeRoot({String tab = 'chats'}) async {
-    final r = await l3('l3_force_home_root', {'tab': tab});
+    var r = await l3('l3_force_home_root', {'tab': tab});
+    if (r['ok'] != true &&
+        r['error'] == 'non_test_account' &&
+        _isWindowsRealUi) {
+      // Windows headless cannot recover a drifted/blank shell via real-UI nav
+      // (no OS input), so the non-test gate would dead-loop the blank-shell
+      // recovery (root-caused live: contacts/app-entry pre-handshake cases drift
+      // to a blank shell that only l3_force_home_root can pop back). Temporarily
+      // grant the seed marker so the recovery can run, then revoke it so the
+      // sweep's privilege state is unchanged. Navigation-stability ONLY — no
+      // asserted action depends on this transient grant.
+      final marked = await markAccountTest();
+      try {
+        r = await l3('l3_force_home_root', {'tab': tab});
+      } finally {
+        if (marked) await unmarkAccountTest();
+      }
+    }
     if (r['ok'] != true) {
       if (r['error'] == 'non_test_account') navToolsUnavailable = true;
       throw DriveError('[$name] l3_force_home_root failed: $r');
@@ -579,13 +640,14 @@ class Inst {
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
   Future<void> focusType(String key, String text) async {
-    if (isIos || _mixedMacosIos) {
-      // iOS: System Events can't reach the sim. Mixed macOS peer: avoid osascript
-      // entirely so the Simulator stays frontmost. Both use flutter_skill
-      // synthetic input (enterText), which sets the field text atomically (no
-      // char mangling). Safe on regular TextFields (register/search/remark); the
-      // composer ExtendedTextField — which DOES SIGSEGV on synthetic input — is
-      // never driven through focusType (it uses l3_composer_send).
+    if (isIos || _isWindowsRealUi || _mixedMacosIos) {
+      // iOS: System Events can't reach the sim. Windows: no host osascript.
+      // Mixed macOS peer: avoid osascript entirely so the Simulator stays
+      // frontmost. All use flutter_skill synthetic input (enterText), which sets
+      // the field text atomically (no char mangling). Safe on regular TextFields
+      // (register/search/remark); the composer ExtendedTextField — which DOES
+      // SIGSEGV on synthetic input — is never driven through focusType (it uses
+      // l3_composer_send).
       await focusTypeSynthetic(key, text);
       return;
     }
@@ -619,7 +681,15 @@ class Inst {
   Future<void> focusTypeSynthetic(String key, String text) async {
     await tapKey(key);
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    final r = await skill('enterText', {'text': text});
+    // Target the field BY KEY first: a focus-less enterText fails ("No focused
+    // TextField found") when tapKey couldn't focus the editable (e.g. an
+    // off-screen field like the profile status field, vs. the always-visible
+    // nickname field). enterText(key:) finds the widget in the tree regardless
+    // of focus/visibility. Fall back to the focused-field form.
+    var r = await skill('enterText', {'key': key, 'text': text});
+    if (r['success'] != true) {
+      r = await skill('enterText', {'text': text});
+    }
     if (r['success'] != true) {
       throw DriveError('[$name] focusType "$key" enterText failed: $r');
     }
@@ -902,13 +972,19 @@ class Inst {
     }
   }
 
-  Future<void> osaType(String text) {
+  Future<void> osaType(String text) async {
+    if (_isWindowsRealUi) {
+      // Synthetic text entry — sets the focused EditableText's value in one shot
+      // (proven to land verbatim on Windows, no SIGSEGV unlike macOS).
+      await skill('enterText', {'text': text});
+      return;
+    }
     // Escape backslash and double-quote for the AppleScript string literal so
     // arbitrary field text (now the primary typing path via [focusType]) types
     // verbatim rather than breaking the script. `!`, `@`, `.`, `-`, digits and
     // letters need no escaping inside an AppleScript string.
     final escaped = text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    return _osa('tell application "System Events" to keystroke "$escaped"');
+    await _osa('tell application "System Events" to keystroke "$escaped"');
   }
 
   /// Place [text] on the macOS clipboard (via `pbcopy`) and paste it into the
@@ -916,6 +992,10 @@ class Inst {
   /// characters, so long strings (Tox ids, 76 chars) land verbatim. Used by
   /// [focusType] for any text at/above [_osaPasteThreshold].
   Future<void> osaPaste(String text) async {
+    if (_isWindowsRealUi) {
+      await skill('enterText', {'text': text});
+      return;
+    }
     final proc = await Process.start('pbcopy', const <String>[]);
     proc.stdin.write(text);
     await proc.stdin.close();
@@ -932,42 +1012,90 @@ class Inst {
     );
   }
 
-  Future<void> osaReturn() =>
-      _osa('tell application "System Events" to key code 36');
+  Future<void> osaReturn() async {
+    if (_isWindowsRealUi) {
+      // The desktop composer's Enter-to-send rides FocusNode.onKey
+      // (RawKeyDownEvent), un-reachable by synthetic enterText and by any
+      // headless OS key injection. `l3_composer_send` invokes the EXACT same
+      // `_submitDesktopSend()` the real Enter triggers (real field text + real
+      // inputMethods.sendTextMessage). See the fork composer seam.
+      await l3('l3_composer_send');
+      return;
+    }
+    await _osa('tell application "System Events" to key code 36');
+  }
 
   /// Shift+Enter — the desktop composer maps Shift/Alt/Ctrl/Meta+Enter to
   /// INSERT a newline (no send); see `_handleKeyEvent` in
   /// tencent_cloud_chat_message_input_desktop.dart. A genuine OS chord so the
   /// production RawKeyEvent path runs (synthetic enterText can't reach it).
-  Future<void> osaShiftReturn() =>
-      _osa('tell application "System Events" to key code 36 using shift down');
-  Future<void> osaEscape() =>
-      _osa('tell application "System Events" to key code 53');
+  Future<void> osaShiftReturn() async {
+    if (_isWindowsRealUi) {
+      // Multiline insert (Shift+Enter) has no pure-synthetic equivalent; the few
+      // multiline cases must enterText the full "a\nb" body in one shot instead.
+      // No-op here so the surrounding flow doesn't error.
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to key code 36 using shift down',
+    );
+  }
+
+  Future<void> osaEscape() async {
+    if (_isWindowsRealUi) {
+      // Best-effort dismiss (close search/overlay/dialog) via the navigation
+      // hook — the headless equivalent of pressing Escape.
+      await l3('l3_pop_to_root');
+      return;
+    }
+    await _osa('tell application "System Events" to key code 53');
+  }
 
   /// Send Cmd+Ctrl+F — the global conversation-search shortcut
   /// (`_OpenSearchIntent` in home_page.dart, the only entry to the search
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
-  Future<void> osaSearchShortcut() => _osa(
-    'tell application "System Events" to keystroke "f" using '
-    '{command down, control down}',
-  );
+  Future<void> osaSearchShortcut() async {
+    if (_isWindowsRealUi) {
+      await l3('l3_open_global_search');
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "f" using '
+      '{command down, control down}',
+    );
+  }
 
   /// Send Cmd+Ctrl+N — the "new conversation" shortcut (`_NewConversationIntent`
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
-  Future<void> osaNewConversationShortcut() => _osa(
-    'tell application "System Events" to keystroke "n" using '
-    '{command down, control down}',
-  );
+  Future<void> osaNewConversationShortcut() async {
+    if (_isWindowsRealUi) {
+      await l3('l3_open_add_friend_dialog');
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "n" using '
+      '{command down, control down}',
+    );
+  }
 
   /// Send Cmd+Ctrl+, — the "open settings" shortcut (`_OpenSettingsIntent` in
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
-  Future<void> osaOpenSettingsShortcut() => _osa(
-    'tell application "System Events" to keystroke "," using '
-    '{command down, control down}',
-  );
+  Future<void> osaOpenSettingsShortcut() async {
+    if (_isWindowsRealUi) {
+      // Headless equivalent: jump the home shell to the Settings tab. Use the
+      // self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
+      // non-test app-entry account doesn't silently no-op the gated tool.
+      await forceHomeRoot(tab: 'settings');
+      return;
+    }
+    await _osa(
+      'tell application "System Events" to keystroke "," using '
+      '{command down, control down}',
+    );
+  }
 
   /// Place [text] on the macOS clipboard via `pbcopy` WITHOUT pasting — for cases
   /// that then exercise an in-app "Paste" control (e.g. the add-friend paste
@@ -975,6 +1103,13 @@ class Inst {
   /// [osaPaste] this does NOT send Cmd+V, so the asserted action stays the real
   /// in-app button.
   Future<void> setClipboard(String text) async {
+    if (_isWindowsRealUi) {
+      // Set the clipboard from INSIDE the app (Flutter Clipboard.setData) so the
+      // in-app paste button reads it. A driver-side Set-Clipboard would land in a
+      // different Windows window-station and be invisible to the headless app.
+      await l3('l3_set_clipboard', {'text': text});
+      return;
+    }
     final proc = await Process.start('pbcopy', const <String>[]);
     proc.stdin.write(text);
     await proc.stdin.close();
@@ -987,6 +1122,12 @@ class Inst {
   }
 
   Future<void> osaClear() async {
+    if (_isWindowsRealUi) {
+      // enterText replaces the focused field's whole value, so an empty string
+      // clears it (the macOS Cmd+A + Delete equivalent).
+      await skill('enterText', {'text': ''});
+      return;
+    }
     await _osa(
       'tell application "System Events" to keystroke "a" using command down',
     );
@@ -1076,7 +1217,8 @@ class Inst {
       print('[$name] shot empty (window backgrounded?)');
       return;
     }
-    await File(path).writeAsBytes(base64Decode(img));
-    print('[$name] shot -> $path');
+    final outPath = _portableTmp(path);
+    await File(outPath).writeAsBytes(base64Decode(img));
+    print('[$name] shot -> $outPath');
   }
 }

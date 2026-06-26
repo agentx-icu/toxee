@@ -634,13 +634,27 @@ Future<bool> _groupAddMemberFullJoin(
   String gid,
   String toxB,
 ) async {
-  await _inviteToGroupViaUI(a, gid, toxB);
+  // Re-invite if B doesn't join in time: same-host the invite/accept handshake
+  // (over the TCP relay) can race, and a single shot occasionally never lands.
+  // Mirrors _establishTwoProcessGroup's 3-attempt retry. Re-opening the picker
+  // after B has already joined would throw "contact not selectable", so once B
+  // is a member we stop; any throw mid-retry is tolerated and re-checked.
   var memberCount = 0;
-  final deadline = DateTime.now().add(const Duration(seconds: 90));
-  while (DateTime.now().isBefore(deadline)) {
-    memberCount = await _groupMemberCount(a, gid);
-    if (memberCount >= 2) break;
-    await Future<void>.delayed(const Duration(seconds: 1));
+  for (var attempt = 0; attempt < 3 && memberCount < 2; attempt++) {
+    try {
+      await _inviteToGroupViaUI(a, gid, toxB);
+    } on DriveError catch (e) {
+      // B may already be (partially) in the group → the picker no longer lists
+      // them; fall through to the member-count poll rather than failing.
+      print('[pair] group_add_member_full_join: re-invite attempt '
+          '${attempt + 1} threw (${e.message}); polling member count');
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 35));
+    while (DateTime.now().isBefore(deadline)) {
+      memberCount = await _groupMemberCount(a, gid);
+      if (memberCount >= 2) break;
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
   }
   await a.shot('/tmp/ui_g2_add_member_A.png');
   await b.foreground();

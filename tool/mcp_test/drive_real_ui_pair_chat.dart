@@ -415,7 +415,7 @@ Future<int> runProbeRestyleDiag(Inst a) async {
   // sends (codex hypothesis: userID==null reaches _sendMedia → silent skip).
   await a.l3('l3_open_chat', {'userId': peer});
   await Future<void>.delayed(const Duration(seconds: 1));
-  final src = File('/tmp/probe_attach.txt');
+  final src = File(_portableTmp('/tmp/probe_attach.txt'));
   await src.writeAsString('PROBE-ATTACH-FILE');
   final ov = await a.l3('l3_set_attachment_pick_path', {'path': src.path});
   print('PROBE attach override ok=${ov['ok']}');
@@ -518,9 +518,16 @@ Future<bool> _chatOpenFromRow(Inst inst, String tox) async {
     print('[pair] chat_open_from_row: row $rowKey not present');
     return false;
   }
-  await inst.tapKey(rowKey);
-  await Future<void>.delayed(const Duration(milliseconds: 1200));
-  final ready = await _chatSurfaceReady(inst, convId, timeoutSecs: 10);
+  // Re-tap with a fresh foreground each round: a synthetic row tap can silently
+  // miss on the headless Windows VM when the window isn't the active one.
+  var ready = false;
+  for (var attempt = 0; attempt < 4 && !ready; attempt++) {
+    await inst.foreground();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await inst.tapKey(rowKey);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    ready = await _chatSurfaceReady(inst, convId, timeoutSecs: 6);
+  }
   final headerShown =
       await inst.waitKey('message_header_profile_avatar', timeoutSecs: 6);
   await inst.shot('/tmp/ui_chat_open_${inst.name}.png');
@@ -544,6 +551,36 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
   final line1 = 'RUIB6ML1-$nonce';
   final line2 = 'RUIB6ML2-$nonce';
   final expected = '$line1\n$line2';
+  // Windows: the incremental build below (paste line1 → Shift+Enter → paste
+  // line2) cannot work headless — osaPaste maps to flutter_skill enterText which
+  // REPLACES the field (line1 is lost) and there is no OS Shift+Enter chord to
+  // insert the newline into the composer controller. Send the full two-line text
+  // atomically via the deterministic set-text path (the newline is carried in
+  // the message body, exactly what this case asserts cross-delivers).
+  if (_isWindowsRealUi) {
+    // Direct single set-text+send per attempt, then assert via the REAL message
+    // text (not the conversation preview, which may collapse the newline). Retry
+    // only when the message did not deliver, so a slow verify can't trigger a
+    // duplicate send.
+    var aHasBoth = false;
+    for (var attempt = 0; attempt < 3 && !aHasBoth; attempt++) {
+      if (!await a.waitKey('chat_input_text_field', timeoutSecs: 8)) {
+        await _ensureChatOpen(a, toxB);
+        continue;
+      }
+      await a.l3('l3_composer_send', {'text': expected});
+      aHasBoth = await _waitC2cMessageText(a, toxB, expected,
+          isSelf: true, timeoutSecs: 6);
+    }
+    final bReceived = aHasBoth &&
+        await _waitC2cMessageText(b, toxA, expected,
+            isSelf: false, timeoutSecs: 60);
+    await a.shot('/tmp/ui_chat_multiline_A.png');
+    print('[pair] chat_multiline_send: expected='
+        '"${expected.replaceAll('\n', '\\n')}" '
+        'aHasBoth=$aHasBoth bReceived=$bReceived');
+    return aHasBoth && bReceived;
+  }
   // Focus the composer, type line1, Shift+Enter (newline), type line2, Enter.
   for (var outer = 0; outer < 2; outer++) {
     await a.foreground();
@@ -800,15 +837,25 @@ Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
   return clip == text;
 }
 
-/// Read the macOS clipboard via `pbpaste`.
+/// Read the OS clipboard: `pbpaste` on macOS, PowerShell `Get-Clipboard` on
+/// Windows (no pbpaste there — running it throws ProcessException and would
+/// crash the whole sweep).
 Future<String> _pbpaste() async {
+  if (Platform.isWindows) {
+    final r = await Process.run(
+      'powershell',
+      const ['-NoProfile', '-Command', 'Get-Clipboard -Raw'],
+    );
+    return (r.stdout as String?)?.replaceAll('\r', '').trimRight() ?? '';
+  }
   final r = await Process.run('pbpaste', const []);
   return (r.stdout as String?)?.trimRight() ?? '';
 }
 
-/// Seed the macOS clipboard via `pbcopy` (sentinel pre-clear).
+/// Seed the OS clipboard (sentinel pre-clear): `pbcopy` on macOS, `clip` on
+/// Windows.
 Future<void> _pbcopy(String text) async {
-  final p = await Process.start('pbcopy', const []);
+  final p = await Process.start(Platform.isWindows ? 'clip' : 'pbcopy', const []);
   p.stdin.write(text);
   await p.stdin.close();
   await p.exitCode;
@@ -1455,6 +1502,11 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
     } on DriveError catch (e) {
       ok = false;
       detail = 'DriveError: ${e.message}';
+    } on Object catch (e) {
+      // Any other exception (e.g. a ProcessException from a platform-specific
+      // helper) is a case FAIL, not a sweep-crashing unhandled throw.
+      ok = false;
+      detail = '$e';
     }
     if (ok) {
       passed++;

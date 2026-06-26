@@ -68,6 +68,11 @@ Future<int> runP2VerifySweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var passed = 0;
   var failed = 0;
+  const skipped = 0;
+  // Windows now stages the image through the production paste handler via the
+  // l3_paste_image fork hook (the OS clipboard + Ctrl+V remain undrivable
+  // headless, but the same sendImageOnDesktop path runs), so the case is no
+  // longer skipped — it runs on both platforms.
   try {
     final ok = await _p2vPasteImageIntoComposer(a, b, toxA, toxB);
     if (ok) {
@@ -85,7 +90,8 @@ Future<int> runP2VerifySweep(Inst a, Inst b, String nickA, String nickB) async {
     print(st);
   }
 
-  print('[sweep] sweep_p2_verify summary: passed=$passed failed=$failed');
+  print('[sweep] sweep_p2_verify summary: passed=$passed failed=$failed '
+      'skipped=$skipped');
   await returnToChatsHome(a, rounds: 4);
   await returnToChatsHome(b, rounds: 4);
   return failed == 0 ? 0 : 1;
@@ -100,8 +106,8 @@ Future<bool> _p2vPasteImageIntoComposer(
   String toxA,
   String toxB,
 ) async {
-  if (!Platform.isMacOS) {
-    print('[pair] paste_image_into_composer: macOS-only clipboard seeding');
+  if (!Platform.isMacOS && !_isWindowsRealUi) {
+    print('[pair] paste_image_into_composer: macOS/Windows clipboard seeding only');
     return false;
   }
   if (!await _ensureChatOpen(a, toxB)) {
@@ -143,19 +149,36 @@ Future<bool> _p2vPasteImageIntoComposer(
   await png.writeAsBytes(base64Decode(pngB64), flush: true);
 
   try {
-    if (!await _p2vSetClipboardImage(png)) {
-      print('[pair] paste_image_into_composer: failed to seed image clipboard');
-      return false;
+    if (_isWindowsRealUi) {
+      // Headless Windows: the OS clipboard + Ctrl+V aren't drivable (the
+      // driver's clipboard lives in a different window-station, invisible to the
+      // app). Stage the SAME image through the production paste handler via
+      // l3_paste_image, which writes it to a paste_image_<nonce>.png temp and
+      // calls sendImageOnDesktop — landing on the same confirm popup as a real
+      // Ctrl+V paste.
+      final r = await a.l3('l3_paste_image', {
+        'contentB64': base64Encode(await png.readAsBytes()),
+      });
+      if (r['ok'] != true) {
+        print('[pair] paste_image_into_composer: l3_paste_image failed: $r');
+        return false;
+      }
+    } else {
+      if (!await _p2vSetClipboardImage(png)) {
+        print(
+            '[pair] paste_image_into_composer: failed to seed image clipboard');
+        return false;
+      }
+      await a.foreground();
+      if (!await a.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) {
+        print('[pair] paste_image_into_composer: composer key not tappable');
+        return false;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await a._osa(
+        'tell application "System Events" to keystroke "v" using command down',
+      );
     }
-    await a.foreground();
-    if (!await a.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) {
-      print('[pair] paste_image_into_composer: composer key not tappable');
-      return false;
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    await a._osa(
-      'tell application "System Events" to keystroke "v" using command down',
-    );
 
     if (!await a.waitKey(
       'desktop_send_image_confirm_button',

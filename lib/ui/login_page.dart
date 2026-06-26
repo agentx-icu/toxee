@@ -1344,6 +1344,13 @@ class _LoginPageState extends State<LoginPage> {
                               ],
                               const SizedBox(height: AppSpacing.sm),
                               _LoginActionCard(
+                                // Automation anchor for the "Register new
+                                // account" action (mirrors the keyed import
+                                // card above so UI drivers can reach the
+                                // register flow by key, not localized text).
+                                key: const Key(
+                                  'login_page_register_account_card',
+                                ),
                                 icon: Icons.person_add_outlined,
                                 label: AppLocalizations.of(
                                   context,

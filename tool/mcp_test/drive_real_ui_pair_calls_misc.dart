@@ -519,31 +519,20 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
   }
   // Tap the REAL sidebar Contacts tab (IndexedStack index switch). The chats
   // tab branch is KEPT ALIVE off-stage, so its open-chat detail must survive.
-  if (!await inst.tapKeyCenter('sidebar_contacts_tab', timeoutSecs: 6)) {
-    print('[pair] home_tabs_cycle: contacts tab not tappable');
-    return false;
-  }
-  await Future<void>.delayed(const Duration(milliseconds: 800));
-  final onContacts = await _waitHomeShellTab(inst, 'contacts');
+  // A synthetic center-tap on the sidebar tab occasionally doesn't fire its
+  // onTap on the headless Windows VM, so re-tap until the shell tab switches
+  // (still the production tab widget — retention assertion stays valid).
+  final onContacts =
+      await _tapHomeTabUntil(inst, 'sidebar_contacts_tab', 'contacts');
   final retainedThroughContacts =
       await _homeShellCurrentConversationId(inst) == c2c;
-  // Tap the REAL sidebar Settings tab.
-  if (!await inst.tapKeyCenter('sidebar_settings_tab', timeoutSecs: 6)) {
-    print('[pair] home_tabs_cycle: settings tab not tappable');
-    return false;
-  }
-  await Future<void>.delayed(const Duration(milliseconds: 800));
-  final onSettings = await _waitHomeShellTab(inst, 'settings');
+  final onSettings =
+      await _tapHomeTabUntil(inst, 'sidebar_settings_tab', 'settings');
   final retainedThroughSettings =
       await _homeShellCurrentConversationId(inst) == c2c;
   // Tap back to the REAL sidebar Chats tab — the retained IndexedStack branch
   // re-stages the SAME open chat WITHOUT re-opening it.
-  if (!await inst.tapKeyCenter('sidebar_chats_tab', timeoutSecs: 6)) {
-    print('[pair] home_tabs_cycle: chats tab not tappable');
-    return false;
-  }
-  await Future<void>.delayed(const Duration(milliseconds: 800));
-  final onChats = await _waitHomeShellTab(inst, 'chats');
+  final onChats = await _tapHomeTabUntil(inst, 'sidebar_chats_tab', 'chats');
   // The retained chat detail surfaces with NO re-open — assert the chat surface
   // is ready AND the open conversation is still the C2C one.
   final retained =
@@ -563,6 +552,26 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
       onSettings &&
       retainedThroughSettings &&
       retained;
+}
+
+/// Tap a sidebar home tab and wait for the shell tab to switch, re-tapping if a
+/// synthetic center-tap didn't fire the tab's onTap (headless Windows). Returns
+/// true once the shell reports [tab]. Tapping a tab you're already on is a no-op,
+/// so the retries are safe.
+Future<bool> _tapHomeTabUntil(Inst inst, String tabKey, String tab) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    // Foreground first: after the in-call cases the window can lose focus, so a
+    // synthetic tab tap silently misses until the app window is active again.
+    await inst.foreground();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    if (!await inst.tapKeyCenter(tabKey, timeoutSecs: 6)) {
+      print('[pair] home_tabs_cycle: $tabKey not tappable');
+      return false;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (await _waitHomeShellTab(inst, tab, timeoutSecs: 3)) return true;
+  }
+  return false;
 }
 
 /// Poll until the home shell's tab equals [tab] ('chats'|'contacts'|'settings').
@@ -752,6 +761,19 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
 ///   - null  : the window refused scripted resize (SKIP(resize-refused) — the
 ///             raw-launched window can't be sized; never a fake pass)
 Future<bool?> _windowResizeResponsive(Inst inst) async {
+  // The window resize + size query go through l3_window_state, which is
+  // test-account-gated. This single-instance case isn't otherwise test-marked
+  // (unlike the message/call sweeps), so grant the seed marker for its duration
+  // on Windows (no-op on macOS, which resizes via osascript).
+  final markedForResize = _isWindowsRealUi && await inst.markAccountTest();
+  try {
+    return await _windowResizeResponsiveBody(inst);
+  } finally {
+    if (markedForResize) await inst.unmarkAccountTest();
+  }
+}
+
+Future<bool?> _windowResizeResponsiveBody(Inst inst) async {
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
   final original = await inst.windowSize();
@@ -778,7 +800,10 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
   if (applied == null || applied.w >= 720) {
     print(
       '[pair] window_resize_responsive: width not applied past breakpoint '
-      '(applied=$applied) — SKIP(resize-refused)',
+      '(applied=$applied) — SKIP(resize-refused). On Windows the app enforces a '
+      '960px minimum window width (setMinimumSize) which window_manager.setSize '
+      'clamps to — below the 720 responsive breakpoint is unreachable (macOS '
+      'narrows via osascript, which bypasses the min; no reliable Windows equiv).',
     );
     // Restore best-effort before bailing.
     await inst.resizeWindow(original.w, original.h);
@@ -942,50 +967,67 @@ Future<int> runCallsMiscSweep(
       // the peer (calls need a live transport, like runCallVoice).
       await a.waitState((s) => s['isConnected'] == true, label: 'A connected');
       await b.waitState((s) => s['isConnected'] == true, label: 'B connected');
-
-      // --- VOICE BLOCK: 86 (leaves inCall) → 89 (callee hangup) → 90 (record). ---
-      // Snapshot the call-record baseline BEFORE the call so case 90 requires a
-      // NEW record (codex P2 — a restored launch may carry stale records).
-      final recordBaseline = await _callRecordCount(a, toxB);
-      await hard(
-        'call_mute_toggle_incall',
-        () => _callMuteToggleIncall(a, b, toxA),
-      );
-      await hard('call_callee_hangup', () => _callCalleeHangup(a, b, toxA));
-      await hard(
-        'call_record_bubble_renders',
-        () => _callRecordBubbleRenders(a, toxB, baseline: recordBaseline),
-      );
-
-      // --- 88: missed-call record (B cancels an unanswered ring). ---
-      await hard(
-        'call_missed_record_row',
-        () => _callMissedRecordRow(a, b, toxA, toxB),
-      );
-
-      // --- VIDEO BLOCK: 85 + 87 driven together (camera toggle DURING the
-      // same video call). Tally each separately. ---
-      final video = await _callVideoWithCameraToggle(a, b, toxA);
-      if (video.videoCall) {
-        passed++;
-        results['call_video_accept_hangup'] = 'PASS';
-        print('[sweep] call_video_accept_hangup: PASS');
-      } else {
-        failed++;
-        results['call_video_accept_hangup'] = 'FAIL';
-        print('[sweep] call_video_accept_hangup: FAIL');
+      // The very FIRST call races the friend-connection coming ONLINE after the
+      // (norequest-seeded) friendship: isConnected is DHT-level, but a call needs
+      // the PEER online. Warm up — poll the friend's online flag both ways — so
+      // call_mute_toggle_incall doesn't fail on a cold start.
+      Future<bool> friendOnline(Inst inst, String peerTox) async {
+        final pk = _pubkey(peerTox);
+        final friends = ((await inst.dumpState())['friends'] as List?) ?? const [];
+        return friends.any((f) =>
+            f is Map && _pubkey(f['userId']?.toString() ?? '') == pk &&
+            f['online'] == true);
       }
-      if (video.cameraToggle) {
-        passed++;
-        results['call_camera_toggle_incall'] = 'PASS';
-        print('[sweep] call_camera_toggle_incall: PASS');
-      } else {
-        failed++;
-        results['call_camera_toggle_incall'] = 'FAIL';
-        print('[sweep] call_camera_toggle_incall: FAIL');
+      for (var i = 0; i < 40; i++) {
+        if (await friendOnline(a, toxB) && await friendOnline(b, toxA)) break;
+        await Future<void>.delayed(const Duration(seconds: 1));
       }
-      // Make sure no call lingers into the misc cases.
-      await _ensureBothIdle(a, b);
+
+      {
+        // --- VOICE BLOCK: 86 (leaves inCall) → 89 (callee hangup) → 90 (record). ---
+        // Snapshot the call-record baseline BEFORE the call so case 90 requires a
+        // NEW record (codex P2 — a restored launch may carry stale records).
+        final recordBaseline = await _callRecordCount(a, toxB);
+        await hard(
+          'call_mute_toggle_incall',
+          () => _callMuteToggleIncall(a, b, toxA),
+        );
+        await hard('call_callee_hangup', () => _callCalleeHangup(a, b, toxA));
+        await hard(
+          'call_record_bubble_renders',
+          () => _callRecordBubbleRenders(a, toxB, baseline: recordBaseline),
+        );
+
+        // --- 88: missed-call record (B cancels an unanswered ring). ---
+        await hard(
+          'call_missed_record_row',
+          () => _callMissedRecordRow(a, b, toxA, toxB),
+        );
+
+        // --- VIDEO BLOCK: 85 + 87 driven together (camera toggle DURING the
+        // same video call). Tally each separately. ---
+        final video = await _callVideoWithCameraToggle(a, b, toxA);
+        if (video.videoCall) {
+          passed++;
+          results['call_video_accept_hangup'] = 'PASS';
+          print('[sweep] call_video_accept_hangup: PASS');
+        } else {
+          failed++;
+          results['call_video_accept_hangup'] = 'FAIL';
+          print('[sweep] call_video_accept_hangup: FAIL');
+        }
+        if (video.cameraToggle) {
+          passed++;
+          results['call_camera_toggle_incall'] = 'PASS';
+          print('[sweep] call_camera_toggle_incall: PASS');
+        } else {
+          failed++;
+          results['call_camera_toggle_incall'] = 'FAIL';
+          print('[sweep] call_camera_toggle_incall: FAIL');
+        }
+        // Make sure no call lingers into the misc cases.
+        await _ensureBothIdle(a, b);
+      }
 
       // --- MISC: 91 → 92 → 94 → 93 (resize last). ---
       await hard(

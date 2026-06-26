@@ -123,25 +123,36 @@ Future<int> runGroupMentionSweep(
 
     // group_at_all_send — REAL gate now (the @All identity blocker is fixed:
     // real-tox-id currentUser + normalized admin match → @All renders for the
-    // owner). Reuses the same group.
-    var okAll = false;
-    try {
-      okAll = await _gmAtAllSend(a, est.groupIdA, est.groupName);
-    } on PermissionBlockedError {
-      rethrow;
-    } on Object catch (e, st) {
-      okAll = false;
-      print('[sweep] sweep_group_mention EXCEPTION in group_at_all_send: $e');
-      print(st);
-    }
-    if (okAll) {
-      passed++;
+    // owner). Reuses the same group. WINDOWS SKIP: this case's whole point is
+    // proving the ADMIN-GATED @All entry RENDERS in the mention panel, which
+    // only appears from real char-by-char "@" typing through onChanged — the
+    // l3_mention_send seam used for @member would just inject the @All sentinel
+    // and BYPASS the render check (a fake pass), so it stays SKIP-with-reason.
+    if (_isWindowsRealUi) {
+      skipped++;
+      print('[sweep] sweep_group_mention SKIP: group_at_all_send — verifies the '
+          'admin-gated @All panel RENDERS, which needs char-by-char "@" typing '
+          '(undrivable headless); the mention seam would bypass the render check');
     } else {
-      failed++;
+      var okAll = false;
+      try {
+        okAll = await _gmAtAllSend(a, est.groupIdA, est.groupName);
+      } on PermissionBlockedError {
+        rethrow;
+      } on Object catch (e, st) {
+        okAll = false;
+        print('[sweep] sweep_group_mention EXCEPTION in group_at_all_send: $e');
+        print(st);
+      }
+      if (okAll) {
+        passed++;
+      } else {
+        failed++;
+      }
+      print(
+        '[sweep] sweep_group_mention ${okAll ? 'PASS' : 'FAIL'}: group_at_all_send',
+      );
     }
-    print(
-      '[sweep] sweep_group_mention ${okAll ? 'PASS' : 'FAIL'}: group_at_all_send',
-    );
   } finally {
     await _gmCleanup(a, b, nickA, nickB, est);
   }
@@ -257,7 +268,12 @@ Future<String> _gmTypeMentionAndSend(
   String mentionKey,
   String nonce,
 ) async {
-  await openGroupChat(a, groupId: gidA, groupName: gname);
+  // Windows: a freshly-created group sorts to the conversation-list bottom where
+  // a synthetic coordinate row-tap doesn't reliably fire its onTap (→
+  // currentConversation null). Open via the production _openChat seam (the
+  // asserted action is the @-mention, not opening the group).
+  await openGroupChat(a,
+      groupId: gidA, groupName: gname, viaL3Seam: _isWindowsRealUi);
   await a.foreground();
   await Future<void>.delayed(const Duration(milliseconds: 400));
   await a.tapAt(_composerX, _composerY);
@@ -310,13 +326,38 @@ Future<bool> _gmAtMemberSend(
     return false;
   }
   final nonce = ' atmem${DateTime.now().microsecondsSinceEpoch}';
-  final last = await _gmTypeMentionAndSend(
-    a,
-    gidA,
-    gname,
-    'mention_member:${member.userID}',
-    nonce,
-  );
+  String last;
+  if (_isWindowsRealUi) {
+    // The mention panel only renders from real char-by-char "@" typing through
+    // the composer's onChanged, which the headless Windows harness can't drive.
+    // Send the @-mention through the production composer mention-send seam
+    // (l3_mention_send → sendTextMessage with mentionedUsers + "@<label>" text),
+    // the exact data a real select-member-then-send produces. Retry until the
+    // target group's last message carries the nonce.
+    await openGroupChat(a, groupId: gidA, groupName: gname, viaL3Seam: true);
+    await a.foreground();
+    final convId = 'group_$gidA';
+    last = '';
+    for (var attempt = 0;
+        attempt < 4 && !last.contains(nonce.trim());
+        attempt++) {
+      await a.l3('l3_mention_send', {
+        'userId': member.userID,
+        'label': member.label,
+        'text': nonce.trim(),
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      last = await _lastMessageForConversation(a, convId);
+    }
+  } else {
+    last = await _gmTypeMentionAndSend(
+      a,
+      gidA,
+      gname,
+      'mention_member:${member.userID}',
+      nonce,
+    );
+  }
   await a.shot('/tmp/ui_group_mention_member_${a.name}.png');
   final sent = last.contains(nonce.trim());
   // Assert the fork-inserted label (nickName ?? userID), NOT the runner nickB —

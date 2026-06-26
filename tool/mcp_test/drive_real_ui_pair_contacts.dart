@@ -1138,7 +1138,11 @@ Future<void> _wireSweepLoopbackBootstrap(Inst a, Inst b) async {
         // before a friend request routes between them (the addBootstrapNode
         // call returns immediately; the DHT handshake follows). The send loop in
         // _establishFriendshipForSweep re-submits if it's still not enough.
-        settle: const Duration(seconds: 12));
+        // The Windows VM's same-host onion convergence is markedly slower than
+        // macOS's rich/low-latency public DHT (root-caused live: the friend
+        // application DOES arrive, but ~3-4 min after the first send), so give
+        // the loopback DHT a longer settle there.
+        settle: Duration(seconds: _isWindowsRealUi ? 30 : 12));
   } on DriveError catch (e) {
     print('[sweep] loopback-bootstrap: best-effort failed: ${e.message}');
   } finally {
@@ -1182,6 +1186,26 @@ Future<bool> _establishFriendshipForSweep(
   // bootstrap tools and is REVOKED immediately, so the sweep body's privilege
   // state is unchanged.
   await _wireSweepLoopbackBootstrap(a, b);
+  // Windows VM: the same-host ONION friend-request handshake is unreliable
+  // (root-caused live: the request sometimes never converges even after ~7 min /
+  // 6 re-sends). For sweeps that only need the precondition friendship (the
+  // asserted action is a later real widget/gesture, NOT add-friend itself),
+  // establish it DETERMINISTICALLY via mutual tox_friend_add_norequest
+  // (`l3_seed_friend` on BOTH sides) over the loopback DHT — a real P2P
+  // friendship that carries live C2C messages, with no onion required. This is
+  // the same class of connectivity SEEDING as the loopback bootstrap above
+  // (marker granted only to call the gated seed tool, revoked immediately). The
+  // dedicated add-friend cases still exercise the real add-friend UI. Falls back
+  // to the onion send-loop below if the seed can't be applied.
+  if (_isWindowsRealUi) {
+    if (await _seedMutualFriendship(a, b, toxA, toxB, nickA, nickB)) {
+      print('[sweep] contacts: deterministic mutual-norequest seed established '
+          '(Windows same-host onion bypass)');
+      return true;
+    }
+    print('[sweep] contacts: WARN mutual-norequest seed failed — falling back '
+        'to real-UI onion handshake');
+  }
   // iOS Simulator FAST PATH: a backgrounded sim only survives ~2.5-3 min of
   // sustained driving, and the same-host onion friend-request rarely routes —
   // 3 send attempts × ~40 polls burns ~2 min of that budget before falling back
@@ -1215,10 +1239,20 @@ Future<bool> _establishFriendshipForSweep(
   // even with the bootstrap — the request can be dropped before the local DHT
   // converges). Re-submitting via the real UI keeps the asserted action real.
   var appArrived = false;
-  for (var sendAttempt = 0; sendAttempt < 3 && !appArrived; sendAttempt++) {
+  // Windows VM same-host DHT convergence is much slower than macOS (the friend
+  // application arrives, but ~3-4 min after the first send vs. seconds on macOS
+  // — the local-mesh onion path is thin relative to a rich public DHT). Give
+  // Windows a larger send/poll budget; the loop still returns the instant the
+  // application arrives, so a fast environment pays nothing extra.
+  final maxSends = _isWindowsRealUi ? 6 : 3;
+  final recvAttempts = _isWindowsRealUi ? 70 : 40;
+  for (var sendAttempt = 0;
+      sendAttempt < maxSends && !appArrived;
+      sendAttempt++) {
     if (sendAttempt > 0) {
       print('[sweep] contacts: A has not received B\'s request yet — '
-          're-submitting the real-UI add-friend (attempt ${sendAttempt + 1}/3)');
+          're-submitting the real-UI add-friend '
+          '(attempt ${sendAttempt + 1}/$maxSends)');
     }
     if (await _hasPendingApplication(a, toxB) || await areFriends(a, toxB)) {
       appArrived = true;
@@ -1230,10 +1264,10 @@ Future<bool> _establishFriendshipForSweep(
         () async =>
             await _hasPendingApplication(a, toxB) || await areFriends(a, toxB),
         label: 'A received B request (send attempt ${sendAttempt + 1})',
-        attempts: 40);
+        attempts: recvAttempts);
   }
   if (!appArrived) {
-    print('[sweep] contacts: B request never reached A after 3 sends — '
+    print('[sweep] contacts: B request never reached A after $maxSends sends — '
         'same-host onion friend-request did not route (a documented same-host '
         'env limitation). Falling back to DETERMINISTIC mutual l3_seed_friend '
         '(tox_friend_add_norequest both sides): a REAL Tox friendship (P2P '
@@ -1284,6 +1318,52 @@ Future<bool> _establishFriendshipForSweep(
       label: 'B has A (sweep handshake)', attempts: 60);
   print('[sweep] contacts: handshake aHasB=$aHasB bHasA=$bHasA');
   return aHasB && bHasA;
+}
+
+/// Deterministic precondition friendship for same-host two-process sweeps:
+/// BOTH instances `tox_friend_add_norequest` the other's pubkey (via the gated
+/// `l3_seed_friend`), forming a real mutual P2P friendship over the loopback
+/// DHT with NO onion friend-request round-trip. Used on the Windows VM where
+/// the onion handshake is unreliable. The seed-marker is granted only to call
+/// `l3_seed_friend` and REVOKED immediately after, so the sweep body keeps its
+/// original (non-test) privilege state. Returns true iff both sides see the
+/// friendship.
+Future<bool> _seedMutualFriendship(
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+  String nickA,
+  String nickB,
+) async {
+  final markedA = await a.markAccountTest();
+  final markedB = await b.markAccountTest();
+  try {
+    if (!markedA || !markedB) {
+      print('[sweep] mutual-seed: could not test-mark both accounts '
+          '(A=$markedA B=$markedB)');
+      return false;
+    }
+    final ra = await a.l3('l3_seed_friend', {'userId': toxB, 'nickname': nickB});
+    final rb = await b.l3('l3_seed_friend', {'userId': toxA, 'nickname': nickA});
+    if (ra['ok'] != true || rb['ok'] != true) {
+      print('[sweep] mutual-seed: l3_seed_friend failed '
+          '(A.ok=${ra['ok']} B.ok=${rb['ok']})');
+      return false;
+    }
+    // Both norequest-added each other; the friend entry is local-immediate, the
+    // P2P connection forms once the loopback DHT links them. areFriends polls the
+    // friend list (the authoritative precondition the sweep cases rely on).
+    final aHasB = await _retryBool(() => areFriends(a, toxB),
+        label: 'A has B (mutual-seed)', attempts: 30);
+    final bHasA = await _retryBool(() => areFriends(b, toxA),
+        label: 'B has A (mutual-seed)', attempts: 30);
+    print('[sweep] mutual-seed: aHasB=$aHasB bHasA=$bHasA');
+    return aHasB && bHasA;
+  } finally {
+    if (markedA) await a.unmarkAccountTest();
+    if (markedB) await b.unmarkAccountTest();
+  }
 }
 
 /// sweep_contacts — Batch 4: chain all 15 contacts/friend-profile cases on ONE

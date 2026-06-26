@@ -1154,7 +1154,21 @@ extension _HomePageBootstrap on _HomePageState {
       // Pop every route/dialog above HomePage (mobile message + profile routes,
       // desktop modals) so the screenshot pipeline re-navigates from a known
       // root on every layout. No-op on desktop when nothing is pushed.
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      //
+      // Stop at HomePage's OWN route, not just `isFirst`: when HomePage is not
+      // the absolute-first route (it can sit above a startup/gate route, or in a
+      // nested navigator), a bare `popUntil(isFirst)` pops HomePage itself off —
+      // disposing it, which both leaves a blank shell AND unregisters every L3
+      // invoker this bootstrap installed (root cause of the Windows
+      // l3_open_add_group_dialog "invoker not registered" mid-sweep, since the
+      // harness routes Escape through l3_pop_to_root). `ModalRoute.of(context)`
+      // is HomePage's route; popUntil stops at whichever of (homeRoute, first)
+      // it reaches first from the top, so dialogs/sub-routes above HomePage are
+      // dismissed but HomePage survives.
+      final homeRoute = ModalRoute.of(context);
+      Navigator.of(context).popUntil(
+        (route) => route.isFirst || identical(route, homeRoute),
+      );
       return true;
     });
     _bag.add(() => registerL3PopToRootInvoker(null));
