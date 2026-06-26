@@ -50,6 +50,10 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mcp_toolkit/mcp_toolkit.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart'
+    show debugRealUiMobileComposerSetText, debugRealUiMobileComposerSendText;
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
+    show debugRealUiDesktopComposerSendText;
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -61,6 +65,7 @@ import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/account_service.dart';
 import '../../util/app_bootstrap_coordinator.dart';
 import '../../util/appearance_sync.dart';
+import '../../util/harness_environment.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
@@ -70,10 +75,6 @@ import '../../util/tox_utils.dart';
 /// keeps the whole surface out of profile/release builds.
 const bool kL3TestSurfaceEnabled =
     kDebugMode && bool.fromEnvironment('TOXEE_L3_TEST');
-
-const String _l3SharedPrefsPrefixEnv = 'TOXEE_SHARED_PREFS_PREFIX';
-const String _l3AppSupportDirEnv = 'TOXEE_APP_SUPPORT_DIR';
-const String _l3TccfGlobalSubdirEnv = 'TOXEE_TCCF_GLOBAL_SUBDIR';
 
 typedef L3ExportSaveFileInvoker =
     Future<String?> Function(String dialogTitle, String fileName);
@@ -274,13 +275,14 @@ String? _normalizeExportSaveOverridePath(String? path) {
 Map<String, String?> _l3HarnessEnvironmentSnapshot(Map<String, String> env) {
   String? clean(String key) {
     final value = env[key]?.trim();
-    return value == null || value.isEmpty ? null : value;
+    if (value != null && value.isNotEmpty) return value;
+    return HarnessEnvironment.value(key);
   }
 
   return {
-    'sharedPrefsPrefix': clean(_l3SharedPrefsPrefixEnv),
-    'appSupportDirOverride': clean(_l3AppSupportDirEnv),
-    'tccfGlobalSubdir': clean(_l3TccfGlobalSubdirEnv),
+    'sharedPrefsPrefix': clean(HarnessEnvironment.sharedPrefsPrefixKey),
+    'appSupportDirOverride': clean(HarnessEnvironment.appSupportDirKey),
+    'tccfGlobalSubdir': clean(HarnessEnvironment.tccfGlobalSubdirKey),
   };
 }
 
@@ -373,6 +375,8 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3StartCallEntry());
   addMcpTool(_l3CallActionEntry());
   addMcpTool(_l3SendTextEntry());
+  addMcpTool(_l3ComposerSetTextEntry());
+  addMcpTool(_l3ComposerSendEntry());
   addMcpTool(_l3ReplyTextEntry());
   addMcpTool(_l3ForwardMessageEntry());
   addMcpTool(_l3InjectC2cCustomEntry());
@@ -1005,7 +1009,8 @@ MCPCallEntry _l3InjectC2cTextEntry() => MCPCallEntry.tool(
         ),
         'text': StringSchema(description: 'Bubble text.'),
         'isSelf': StringSchema(
-          description: 'true = sender-side delivered; false (default) = inbound.',
+          description:
+              'true = sender-side delivered; false (default) = inbound.',
         ),
         'epochMs': StringSchema(
           description: 'Optional epoch millis to control ordering.',
@@ -1335,6 +1340,91 @@ MCPCallEntry _l3SendTextEntry() => MCPCallEntry.tool(
               'Alternative to userId: a c2c_<toxId> '
               'conversation id. group_* is rejected (C2C only).',
         ),
+      },
+      required: ['text'],
+    ),
+  ),
+);
+
+/// L3 real-UI seam: populate the MOBILE chat composer's text through its
+/// controller. The mobile composer is an ExtendedTextField that does NOT pick
+/// up flutter_skill's synthetic `enterText` (so its onChanged never fires and
+/// `chat_send_button` never appears). The mounted input registers
+/// `debugRealUiMobileComposerSetText` (debug builds); calling it fires the
+/// controller listener → reveals the send button → the driver then taps it for
+/// a REAL send. iOS/Android only — the desktop composer is keystroke-driven.
+MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString() ?? '';
+    final setter = debugRealUiMobileComposerSetText;
+    if (setter == null) {
+      return MCPCallResult(
+        message: 'l3_composer_set_text: no mobile composer mounted '
+            '(open a chat first; desktop uses keystrokes)',
+        parameters: {'ok': false, 'error': 'no_composer'},
+      );
+    }
+    setter(text);
+    AppLogger.info('[L3] l3_composer_set_text: set composer text (${text.length} chars)');
+    return MCPCallResult(
+      message: 'composer text set',
+      parameters: {'ok': true, 'length': text.length},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_composer_set_text',
+    description:
+        'L3 TEST ONLY (mobile): set the open chat composer text via its '
+        'controller so the send button appears, enabling a real chat_send_button '
+        'tap. Synthetic enterText cannot drive the ExtendedTextField composer. '
+        'No-op error if no mobile composer is mounted.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'text': StringSchema(description: 'Composer text to set.'),
+      },
+      required: ['text'],
+    ),
+  ),
+);
+
+/// L3 composer SEND seam (mobile): set the open chat composer text and send it
+/// through the production `inputMethods.sendTextMessage` path — the same call
+/// `chat_send_button` onTap makes. Used because the synthetic tap on the send
+/// button does not reliably fire on a compact phone, leaving the message stuck
+/// in the composer. iOS/Android only.
+MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString() ?? '';
+    // Prefer whichever composer is mounted: desktop OR mobile. Driving the
+    // composer over the VM service (instead of osascript keystrokes) is what lets
+    // a macOS peer stay backgrounded while an iOS-Simulator peer holds the
+    // foreground — required so the sim peer survives a full real-UI sweep.
+    final sender =
+        debugRealUiDesktopComposerSendText ?? debugRealUiMobileComposerSendText;
+    if (sender == null) {
+      return MCPCallResult(
+        message: 'l3_composer_send: no composer mounted (open a chat first)',
+        parameters: {'ok': false, 'error': 'no_composer'},
+      );
+    }
+    sender(text);
+    AppLogger.info('[L3] l3_composer_send: sent composer text (${text.length} chars)');
+    return MCPCallResult(
+      message: 'composer text sent',
+      parameters: {'ok': true, 'length': text.length},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_composer_send',
+    description:
+        'L3 TEST ONLY (mobile): set the open chat composer text and SEND it via '
+        'the production inputMethods.sendTextMessage path (the same call the '
+        'chat_send_button onTap makes). Use when the synthetic send-button tap '
+        'does not fire on a compact phone. No-op error if no mobile composer is '
+        'mounted.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'text': StringSchema(description: 'Composer text to set and send.'),
       },
       required: ['text'],
     ),
@@ -3128,7 +3218,8 @@ MCPCallEntry _l3SetAttachmentPickPathEntry() => MCPCallEntry.tool(
         bytes = base64Decode(contentB64);
       } on FormatException catch (e) {
         return MCPCallResult(
-          message: 'l3_set_attachment_pick_path: contentB64 not valid base64: $e',
+          message:
+              'l3_set_attachment_pick_path: contentB64 not valid base64: $e',
           parameters: {'ok': false, 'error': 'bad_base64'},
         );
       }

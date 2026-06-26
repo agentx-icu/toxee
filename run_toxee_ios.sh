@@ -374,7 +374,34 @@ ios_bundle_id() {
 build_ios_simulator_app() {
   : >"$FLUTTER_BUILD_LOG"
   info "Building iOS simulator app ($MODE)..."
-  (cd "$FLUTTER_APP_DIR" && flutter build ios --simulator --"$MODE" --dart-define=FLUTTER_BUILD_MODE="$MODE") >>"$FLUTTER_BUILD_LOG" 2>&1
+  local -a flutter_build_args=(
+    build ios --simulator --"$MODE"
+    --dart-define=FLUTTER_BUILD_MODE="$MODE"
+  )
+  if [[ -n "${MCP_BINDING:-}" ]]; then
+    case "${MCP_BINDING}" in
+      skill|marionette|stock)
+        flutter_build_args+=("--dart-define=MCP_BINDING=${MCP_BINDING}")
+        flutter_build_args+=("--dart-define=TOXEE_L3_TEST=${TOXEE_L3_TEST:-true}")
+        info "MCP_BINDING=${MCP_BINDING} TOXEE_L3_TEST=${TOXEE_L3_TEST:-true}"
+        ;;
+      *)
+        error "Invalid MCP_BINDING='${MCP_BINDING}'. Allowed: skill|marionette|stock."
+        exit 2
+        ;;
+    esac
+  fi
+  for define_name in \
+    TOXEE_APP_SUPPORT_DIR \
+    TOXEE_LOG_DIR \
+    TOXEE_SHARED_PREFS_PREFIX \
+    TOXEE_TCCF_GLOBAL_SUBDIR \
+    TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT; do
+    if [[ -n "${!define_name:-}" ]]; then
+      flutter_build_args+=("--dart-define=${define_name}=${!define_name}")
+    fi
+  done
+  (cd "$FLUTTER_APP_DIR" && flutter "${flutter_build_args[@]}") >>"$FLUTTER_BUILD_LOG" 2>&1
 
   local app_bundle
   app_bundle="$(ios_app_bundle_path)"
@@ -451,4 +478,3 @@ case "$ACTION" in
     run_ios_simulator_app
     ;;
 esac
-

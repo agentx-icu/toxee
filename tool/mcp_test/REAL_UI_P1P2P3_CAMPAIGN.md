@@ -354,6 +354,49 @@ Platform run plan for the run-phase owner:
 
 ### Addendum — P1 extra feasible follow-ups (`drive_real_ui_pair_p1_extra.dart`)
 
+### Addendum — iOS true-App run-phase entry (`--real-ui-platform=ios`)
+
+**STATUS: WRITTEN (runner plumbing; live pass pending)** — Added the iOS
+Simulator real-App pair entry for P1/P2/P3 run-phase coverage. The unified runner
+now accepts `--real-ui-platform=ios` for `2proc-ui` runs, switches pair launch and
+`pair.json` lookup to `tool/mcp_test/.ios_runtime/`, and passes
+`TOXEE_REAL_UI_PAIR_JSON` into the real-UI driver. Existing macOS Fixture C and
+real-UI behavior remains the default.
+
+New scripts:
+
+- `tool/mcp_test/launch_ios_fixture_c_pair.sh` launches A and B with
+  `launch_toxee_ios_instance.sh`, probes both VM services, and writes the same
+  `pair.json` schema used by the macOS pair harness.
+- `tool/mcp_test/stop_ios_fixture_c_pair.sh` stops only the recorded A/B
+  `flutter run` processes through `stop_toxee_instance.sh` with the iOS runtime
+  root; it does not kill Simulator or unrelated app processes.
+
+First-pass iOS campaigns:
+
+- `rui-ios-account-settings`: registration/login, native import entry guard,
+  password lock/unlock, account switch, and mobile Settings index/Account
+  Info/Account Management/Appearance/Bootstrap section coverage.
+- `rui-ios-chat-main`: C2C chat sweep plus group/conference sweep, each starting
+  from a fresh pair and establishing friendship/group state internally.
+- `rui-ios-main`: account/settings plus chat/group coverage in one named run.
+
+Run commands:
+
+```bash
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-account-settings
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-chat-main
+dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-main
+```
+
+Limitations for this first iOS entry: `TOXEE_FIXTURE_C_RESTORE` is rejected by
+the iOS launcher until an iOS fixture restore path exists, so the iOS campaigns
+intentionally use sweeps that create their own account/friend/group state. The
+desktop relaunch quartet (`sweep_p1_relaunch`) remains excluded because it calls
+the macOS `launch_toxee_instance.sh` path internally. Desktop-only P1 single
+extras (`sweep_p1_single`) are not included in the first iOS account/settings
+bundle; iOS uses `sweep_ios_settings_main` for the mobile Settings surface.
+
 **STATUS: DONE (written, unrun)** — 2/2 WRITTEN, 0 SKIP. Added
 `drive_real_ui_pair_p1_extra.dart` plus dispatch/runner registration
 (`sweep_p1_extra`, `rui-p1-extra`) for the two inventory P1 items that are
@@ -1452,3 +1495,91 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
     sweep_group2). Behavior-safe (idempotent set, strictly >= a single set).
   All other test-driver changes (p2-verify assertion, search/offline-pending
   waitKeyCenter, conference viaL3Seam, group_join chat-id) — no issues.
+
+## macOS↔iOS-Simulator real-UI message sweep — DEFINITIVE PLATFORM WALL (2026-06-25)
+
+**Goal:** drive `sweep_chat` (16 C2C cases) to all-pass with a TRUE iOS app via real
+widgets (request: "keep going until all cases pass on ios"). Pursued iOS↔iOS first,
+then macOS(A)↔iOS-sim(B) over the TCP relay.
+
+**VERDICT — IMPOSSIBLE on a single Mac's iOS Simulator; a REAL iOS DEVICE is required.**
+Not inferred — proven from ~10 angles with device-log evidence. Prior sessions
+(memories `tcp_relay_xplatform_2026-06-24`, `realui_ios_campaign_2026-06-24`) suspected
+this; this session nailed the exact mechanism.
+
+### The wall — 3 PROVEN facts
+1. **A driven, BACKGROUNDED sim app is RBS-terminated ~150–240 s into a sweep.** Idle /
+   foreground it survives indefinitely (verified: 320 s of `l3_dump_state` hammering with
+   the Simulator backgrounded, 0 kills). It is the SUSTAINED driving of a *backgrounded*
+   scene that trips the background-execution limit.
+2. **The message-receive flow backgrounds B's iOS SCENE even with the Simulator
+   CONTINUOUSLY frontmost.** A fine-grained (4 s) `frontmost` poll showed `Simulator` the
+   ENTIRE run with NO front-steal, yet right after `chat_open_from_row: PASS` the device
+   log shows `scene content state changed: notReady` → `Scene invalidated` → SIGTERM
+   (signal 15, `isUserKill:0`). So keeping the macOS peer off-front does NOT keep B's iOS
+   scene foreground — something in the message flow backgrounds the scene from inside the
+   sim, host-uncontrollable.
+3. **NO keep-alive prevents it — the Simulator does not emulate background audio.** With
+   an ACTIVE, audibly-PLAYING real 400 Hz tone (`[KeepAlive] keep-alive started:
+   sessionActive=self, play=true`), the kill log STILL reads `Verify background audio
+   activity … Recording: 0`. Digital-silence WAV: same. Location keep-alive (auth=Always=3,
+   GPS fixes flowing): also killed. The `audio` background-mode exemption does not exist on
+   the sim.
+
+### Tried + RULED OUT (all → identical death)
+silent-audio keep-alive · real-audio keep-alive · location keep-alive · window-focus
+activation (Window-menu select / AXRaise / in-window click — NONE fire `didBecomeActive`,
+so a backgrounded sim scene can't be re-foregrounded by script) · dual TCP relay · sim↔sim
+(2 sims: the non-active device backgrounds + dies) · sole-sim + Simulator-frontmost ·
+A-driven-purely-via-VM-service (osascript suppressed, Simulator continuously frontmost) ·
+periodic Simulator-`activate` heartbeat (60 s / 3 s hold) ON and OFF.
+
+### Best result per run
+Setup + cross-platform handshake + `chat_open_from_row: PASS`, then B dies at case 2
+`chat_long_text_send` (B receives → scene backgrounds → SIGTERM).
+
+### VALIDATED + WORKING this session (KEEP — committable infrastructure)
+- **Crash fix** — friend-callback JSON-key ABI (`tim2tox/ffi/dart_compat_listeners.cpp`);
+  +SDK patch 0017 dispatcher try/catch; +BlackListAdded emits objects. Shared → all
+  platforms.
+- **Page-error fix** — contact `faceUrl!` null-deref → `?? ''` (fork
+  `tencent_cloud_chat_contact_application_info.dart`).
+- **macOS app REBUILT** with the crash-fix + TCP-relay FFI. GOTCHA: `bootstrap_deps.dart
+  --force` WIPES `third_party/tencent_cloud_chat_sdk/macos/Frameworks/dart_native_imsdk.framework`
+  — the vendored `.zip` has NO binary (only Resources/Versions structure); the framework
+  binary is the FFI-symbol-providing dylib placed at build time. RECOVER by `ditto`-ing the
+  app bundle's EMBEDDED `…/Toxee.app/Contents/Frameworks/dart_native_imsdk.framework` back
+  to the source path, then `MCP_BINDING=skill TOXEE_L3_TEST=true TOXEE_BUILD_ONLY=1
+  ./run_toxee.sh --skip-bootstrap`.
+- **Cross-platform macOS↔iOS HANDSHAKE over the relay** (real UI): B adds A via real
+  add-friend widgets, A taps ACCEPT → `handshake aHasB=true bHasA=true`. Plus
+  `chat_open_from_row: PASS` cross-platform.
+- **Mixed-pair harness:**
+  - `launch_mixed_macos_ios_pair.sh` — A=macOS relay (`TOX_TCP_RELAY_PORT=3389`) + B=SOLE
+    iOS sim (shuts down all other booted sims so B is always the active device).
+  - `_mixedMacosIos` (`drive_real_ui_pair_inst.dart`) — in a heterogeneous pair the macOS
+    peer is driven PURELY via VM-service: `_osaRun` suppressed (exit 0, so no keystroke
+    leaks into the foreground Simulator and callers don't abort), `foreground()` no-op,
+    `focusType` → synthetic `enterText`, composer → `l3_composer_send`. Set in `main()`
+    as `a.isIos != b.isIos`.
+  - DESKTOP composer-send seam: `debugRealUiDesktopComposerSendText` (fork
+    `tencent_cloud_chat_message_input_desktop.dart`) wired into `l3_composer_send`
+    (desktop-then-mobile auto-select).
+  - `startSimulatorKeepAlive()` — ONE initial Simulator-`activate` (no periodic; re-activate
+    can cycle the iOS scene active→inactive).
+  - Backup-wizard dismissal fix — `_dismissBackupWizardIfPresent` by KEY
+    (`firstRunBackupWizard.laterButton`), called from `ensureHome` AND the blank-shell
+    recovery; the old `waitText('Save your account file')` gate missed on the iOS sim and
+    stranded the wizard → non-test `forceHomeRoot` loop.
+
+### THE PATH — real iOS device
+A physical device has a normal app lifecycle (not background-killed for being non-frontmost)
+and honors background audio; the mixed harness above runs the full sweep UNCHANGED against a
+device. On a single-Mac Simulator it is irreducibly blocked.
+
+### CLEANUP OWED (keep-alive is DEAD on the sim; Info.plist affects PRODUCTION)
+Revert (proven useless): `ios/Runner/KeepAliveAudioController.swift`, its `AppDelegate`
+hooks + the pbxproj entries, AND the `location` `UIBackgroundModes` entry + the Location
+permission strings in `ios/Runner/Info.plist` (Apple review flags unused background modes).
+Keep everything else above. **codex review OWED on the whole session** (provider 503 all
+session; self-validated via live runs + analyzer).

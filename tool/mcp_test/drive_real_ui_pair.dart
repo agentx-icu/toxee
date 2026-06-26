@@ -221,6 +221,14 @@ Future<int> _main(List<String> args) async {
   final nickB = positional[6];
   await a.connect();
   await b.connect();
+  // A HETEROGENEOUS macOS+iOS pair drives the macOS peer purely via VM-service so
+  // the iOS Simulator can stay frontmost (a backgrounded sim peer is RBS-killed
+  // ~4 min into sustained driving; a foreground sim app has no such limit —
+  // verified 320s+). For an all-macOS pair this is false (normal osascript).
+  _mixedMacosIos = a.isIos != b.isIos;
+  if (a.isIos || b.isIos) {
+    startSimulatorKeepAlive();
+  }
   try {
     _RestoredPair? restored;
     if (bootRestored) {
@@ -295,6 +303,9 @@ Future<int> _main(List<String> args) async {
     // Batch 1 — settings sweep 2 (single-instance; drive only A).
     if (scenario == 'sweep_settings2') {
       return await runSettingsSweep2(a, nickA);
+    }
+    if (scenario == 'sweep_ios_settings_main') {
+      return await runIosSettingsMainSweep(a, nickA);
     }
     if (scenario == 'settings_surface_sections') {
       await ensureHome(a, nickA);
@@ -1134,6 +1145,7 @@ Future<int> _main(List<String> args) async {
     print('[pair] ERROR: ${e.message}');
     return 1;
   } finally {
+    stopSimulatorKeepAlive();
     await a.dispose();
     await b.dispose();
   }

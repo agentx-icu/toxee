@@ -1228,12 +1228,18 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
             segments: [
               ButtonSegment<String>(
                 value: 'manual',
-                label: Text(l10n.manualMode),
+                label: KeyedSubtree(
+                  key: UiKeys.settingsBootstrapModeManual,
+                  child: Text(l10n.manualMode),
+                ),
                 icon: const Icon(Icons.tune, size: 18),
               ),
               ButtonSegment<String>(
                 value: 'auto',
-                label: Text(l10n.autoMode),
+                label: KeyedSubtree(
+                  key: UiKeys.settingsBootstrapModeAuto,
+                  child: Text(l10n.autoMode),
+                ),
                 icon: const Icon(Icons.public, size: 18),
               ),
             ],

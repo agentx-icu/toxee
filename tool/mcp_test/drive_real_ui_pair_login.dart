@@ -49,7 +49,11 @@ const _b3SecondNick = 'RuiSweepB3';
 /// return whether it appeared. The async saved-account-list load only pumps
 /// while the window is foreground (a backgrounded window stalls it), so
 /// re-foreground each round. Mirrors `_settingsLogoutRelogin`'s recovery loop.
-Future<bool> _waitForAccountCard(Inst inst, String toxId, {int rounds = 15}) async {
+Future<bool> _waitForAccountCard(
+  Inst inst,
+  String toxId, {
+  int rounds = 15,
+}) async {
   final cardKey = 'login_page_account_card:$toxId';
   for (var round = 0; round < rounds; round++) {
     await inst.foreground();
@@ -72,14 +76,22 @@ Future<String> _logoutToLoginPage(Inst inst) async {
     print('[pair] logout: no current toxId');
     return '';
   }
-  await _openSettings(inst);
+  if (inst.isIos) {
+    if (!await _openMobileAccountManagement(inst)) {
+      print('[pair] logout: Account Management section did not open');
+      return '';
+    }
+  } else {
+    await _openSettings(inst);
+  }
   // The logout opener is BELOW the fold of the settings ListView (_openSettings
   // leaves the list scrolled to the TOP). A bare tapKey is flaky: when the
   // button sits beyond flutter_skill's cacheExtent it isn't built, so the tap
   // lands on nothing and the confirm dialog never opens ("logout: confirm
   // dialog did not open"). Scroll it into the visible band first, then
   // center-tap its resolved position (tryTapKey fallback).
-  if (!await _settingsScrollTo(inst, 'settings_logout_button')) {
+  if (!inst.isIos &&
+      !await _settingsScrollTo(inst, 'settings_logout_button')) {
     print('[pair] logout: logout button not in band');
   }
   if (!await inst.tapKeyCenter('settings_logout_button', timeoutSecs: 6)) {
@@ -96,7 +108,9 @@ Future<String> _logoutToLoginPage(Inst inst) async {
   if (!await _waitForAccountCard(inst, toxId)) {
     await inst.foreground();
     await inst.shot('/tmp/ui_b3_logout_${inst.name}.png');
-    print('[pair] logout: account card never rendered (tox=${_shortId(toxId)})');
+    print(
+      '[pair] logout: account card never rendered (tox=${_shortId(toxId)})',
+    );
     return '';
   }
   return toxId;
@@ -126,7 +140,12 @@ Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
     return false;
   }
   await inst.foreground();
-  final ready = await _waitBoolState(inst, 'sessionReady', true, timeoutSecs: 40);
+  final ready = await _waitBoolState(
+    inst,
+    'sessionReady',
+    true,
+    timeoutSecs: 40,
+  );
   // Land on the home shell so the next case can re-open Settings cleanly.
   if (ready) {
     await inst.foreground();
@@ -182,7 +201,11 @@ Future<bool> _loginRegisterOpenBack(Inst inst) async {
 /// keyed card is present AND both the nickname Text and the tox-prefix Text are
 /// onstage. PRECONDITION: logged out (the sweep logs out first); [toxId]/[nick]
 /// are the primary account's.
-Future<bool> _loginAccountCardRenders(Inst inst, String toxId, String nick) async {
+Future<bool> _loginAccountCardRenders(
+  Inst inst,
+  String toxId,
+  String nick,
+) async {
   await inst.foreground();
   final cardKey = 'login_page_account_card:$toxId';
   final cardShown =
@@ -249,7 +272,10 @@ Future<bool> _backOutOfRegister(Inst inst) async {
     return true; // already off the RegisterPage
   }
   if (await inst.tapKeyCenter('register_back_button', timeoutSecs: 6)) {
-    if (await inst.waitKeyGone('register_page_nickname_field', timeoutSecs: 6)) {
+    if (await inst.waitKeyGone(
+      'register_page_nickname_field',
+      timeoutSecs: 6,
+    )) {
       return true;
     }
   }
@@ -395,11 +421,26 @@ Future<bool> _registerPasswordStrengthFlips(Inst inst) async {
 /// direct off-screen `_tryInvokeCallback` fires exactly once). Returns whether
 /// the dialog's keyed field appeared.
 Future<bool> _openSetPasswordDialog(Inst inst) async {
-  await _openSettings(inst);
-  final onScreen = await _settingsScrollTo(inst, 'settings_set_password_button');
+  if (inst.isIos) {
+    if (!await _openMobileAccountManagement(inst)) {
+      print('[pair] set_password: Account Management section did not open');
+      return false;
+    }
+  } else {
+    await _openSettings(inst);
+  }
+  final onScreen = inst.isIos
+      ? await inst.waitKey('settings_set_password_button', timeoutSecs: 4)
+      : await _settingsScrollTo(inst, 'settings_set_password_button');
   if (onScreen) {
-    if (await inst.tapKeyCenter('settings_set_password_button', timeoutSecs: 4)) {
-      if (await inst.waitKey('settings_set_password_new_field', timeoutSecs: 8)) {
+    if (await inst.tapKeyCenter(
+      'settings_set_password_button',
+      timeoutSecs: 4,
+    )) {
+      if (await inst.waitKey(
+        'settings_set_password_new_field',
+        timeoutSecs: 8,
+      )) {
         return true;
       }
     }
@@ -423,7 +464,10 @@ Future<bool> _setKnownPassword(Inst inst, String pw) async {
     return false;
   }
   // Real PBKDF2 runs on the live isolate (~25s budget per the settings recipe).
-  final saved = await inst.waitText('Password set successfully', timeoutSecs: 30);
+  final saved = await inst.waitText(
+    'Password set successfully',
+    timeoutSecs: 30,
+  );
   final dialogClosed = await inst.waitKeyGone(
     'settings_set_password_new_field',
     timeoutSecs: 8,
@@ -594,7 +638,9 @@ Future<bool> _loginPasswordCorrectUnlocks(Inst inst, String toxId) async {
     await inst.waitKey('new_entry_menu_button', timeoutSecs: 15);
   }
   if (!unlocked) {
-    print('[pair] password_correct: session did not unlock with the correct pw');
+    print(
+      '[pair] password_correct: session did not unlock with the correct pw',
+    );
     return false;
   }
   // RESTORE the no-password state via the production remove-password surface,
@@ -770,7 +816,9 @@ Future<void> _normalizeLoginBetweenCases(Inst inst) async {
       await inst.waitKeyGone('login_quick_password_field', timeoutSecs: 3);
     }
   } on DriveError catch (e) {
-    print('[sweep] login normalize: best-effort failed (ignored): ${e.message}');
+    print(
+      '[sweep] login normalize: best-effort failed (ignored): ${e.message}',
+    );
   }
 }
 
@@ -973,7 +1021,10 @@ Future<int> runLoginSweep(Inst inst, String nick) async {
       results['initial_logout'] = 'FAIL';
     } else {
       // 22 — register open/back (on the LoginPage).
-      await hard('login_register_open_back', () => _loginRegisterOpenBack(inst));
+      await hard(
+        'login_register_open_back',
+        () => _loginRegisterOpenBack(inst),
+      );
       // 21 — saved-account card renders (still on the LoginPage).
       await hard(
         'login_account_card_renders',

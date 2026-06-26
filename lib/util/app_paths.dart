@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'logger.dart';
+import 'harness_environment.dart';
 import 'prefs.dart';
 
 /// Centralized paths for app data (settings dir, avatars, downloads, history).
@@ -16,8 +17,6 @@ abstract final class AppPaths {
   /// keep disjoint `account_data/`, `profiles/`, `logs/`, `avatars/`, and
   /// `file_recv/` trees even when they share the same macOS bundle id /
   /// sandbox. Production never sets this env var.
-  static const _appSupportOverrideEnv = 'TOXEE_APP_SUPPORT_DIR';
-
   @visibleForTesting
   static String? debugApplicationSupportOverride;
 
@@ -25,7 +24,7 @@ abstract final class AppPaths {
   static Future<Directory> get applicationSupport async {
     final override =
         debugApplicationSupportOverride?.trim() ??
-        Platform.environment[_appSupportOverrideEnv]?.trim();
+        HarnessEnvironment.value(HarnessEnvironment.appSupportDirKey);
     if (override != null && override.isNotEmpty) {
       final dir = Directory(override);
       if (!await dir.exists()) {

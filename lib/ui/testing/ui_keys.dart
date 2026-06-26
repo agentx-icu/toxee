@@ -49,6 +49,10 @@ class UiKeys {
   /// layout swap signal), then restores the width and asserts it's GONE. The
   /// bar carries no semantic content of its own, so keying it is safe.
   static const Key homeBottomNav = Key('home_bottom_nav');
+  static const Key bottomNavChats = Key('bottom_nav_chats_tab');
+  static const Key bottomNavContacts = Key('bottom_nav_contacts_tab');
+  static const Key bottomNavApplications = Key('bottom_nav_applications_tab');
+  static const Key bottomNavSettings = Key('bottom_nav_settings_tab');
 
   // Login page (lib/ui/login_page.dart).
   static const Key loginPageRestoreFromToxFile = Key(
@@ -169,6 +173,9 @@ class UiKeys {
   // windows (the campaign's scrollUntilKey target). The ListView itself carries
   // no semantic content, so keying it is automation-only and safe.
   static const Key settingsScrollView = Key('settings_scroll_view');
+  static const Key settingsMobileSectionBackButton = Key(
+    'settings_mobile_section_back_button',
+  );
   static const Key settingsExportAccountButton = Key(
     'settings_export_account_button',
   );
@@ -259,7 +266,9 @@ class UiKeys {
   // automation can deterministically dismiss the pushed search route (it is a
   // route, so a home-shell tab switch does not pop it, and the field-focused
   // Escape needs an explicit binding — both addressed alongside this key).
-  static const Key messageSearchCloseButton = Key('message_search_close_button');
+  static const Key messageSearchCloseButton = Key(
+    'message_search_close_button',
+  );
   static Key searchResultMessage(String conversationId) =>
       Key('search_result_message_$conversationId');
   // Conversation/group result ROWS in the global search (custom_search.dart) —

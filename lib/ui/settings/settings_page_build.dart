@@ -7,11 +7,6 @@ extension _SettingsPageBuild on _SettingsPageState {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final outlineVariant = scheme.outlineVariant;
-    // Brightness-aware destructive tint: errorLight (#F54A45) in light mode,
-    // errorDark (#FF6159) in dark — resolved from the color scheme so logout /
-    // delete keep ≥4.5:1 contrast on both the white and near-black settings
-    // cards (the prior const AppThemeConfig.errorColor was light-only).
-    final errorColor = scheme.error;
     // Stagger top-level settings sections (Account / Global / Bootstrap) for
     // a subtle entrance. Respects reduced-motion via MediaQuery.
     final disableAnims = MediaQuery.disableAnimationsOf(context);
@@ -161,125 +156,7 @@ extension _SettingsPageBuild on _SettingsPageState {
                     ),
                   ),
                   AppSpacing.verticalMd,
-                  // The four account actions. The destructive ones (Log Out /
-                  // Delete Account) keep the error-tinted styling so their
-                  // intent stays distinguishable from the neutral Export / Set
-                  // Password buttons.
-                  //
-                  // Layout is width-adaptive: a single natural row when there
-                  // is room (desktop / tablet pane), otherwise a tidy 2×2 grid
-                  // of equal-width buttons. A plain `Wrap` packed the four
-                  // different-width buttons into ragged rows on a phone
-                  // (Export alone / Set Password+Log Out / Delete alone).
-                  Builder(
-                    builder: (context) {
-                      // [compact] tightens horizontal padding so the full label
-                      // fits inside a half-width grid cell on a phone (the
-                      // theme default of 20pt truncates "Export Account" etc.).
-                      OutlinedButton accountAction({
-                        required Key key,
-                        required IconData icon,
-                        required String label,
-                        required VoidCallback onPressed,
-                        bool danger = false,
-                        bool compact = false,
-                      }) {
-                        return OutlinedButton.icon(
-                          key: key,
-                          icon: Icon(icon, size: 18),
-                          label: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: danger ? errorColor : null,
-                            side: danger ? BorderSide(color: errorColor) : null,
-                            padding: compact
-                                ? const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 12,
-                                  )
-                                : null,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppThemeConfig.buttonBorderRadius,
-                              ),
-                            ),
-                          ),
-                          onPressed: onPressed,
-                        );
-                      }
-
-                      List<Widget> buildAccountButtons({
-                        required bool compact,
-                      }) {
-                        return [
-                          accountAction(
-                            key: UiKeys.settingsExportAccountButton,
-                            icon: Icons.upload_file,
-                            label: AppLocalizations.of(context)!.exportAccount,
-                            onPressed: _showExportOptions,
-                            compact: compact,
-                          ),
-                          accountAction(
-                            key: UiKeys.settingsSetPasswordButton,
-                            icon: Icons.lock,
-                            label: AppLocalizations.of(context)!.setPassword,
-                            onPressed: _setAccountPassword,
-                            compact: compact,
-                          ),
-                          accountAction(
-                            key: UiKeys.settingsLogoutButton,
-                            icon: Icons.logout,
-                            label: AppLocalizations.of(context)!.logOut,
-                            onPressed: _logout,
-                            danger: true,
-                            compact: compact,
-                          ),
-                          accountAction(
-                            key: UiKeys.settingsDeleteAccountButton,
-                            icon: Icons.delete_outline,
-                            label: AppLocalizations.of(context)!.deleteAccount,
-                            onPressed: () =>
-                                _showDeleteAccountConfirmation(context),
-                            danger: true,
-                            compact: compact,
-                          ),
-                        ];
-                      }
-
-                      return LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Enough room for all four side by side.
-                          if (constraints.maxWidth >= 640) {
-                            return Wrap(
-                              spacing: AppSpacing.sm,
-                              runSpacing: AppSpacing.sm,
-                              children: buildAccountButtons(compact: false),
-                            );
-                          }
-                          // Phone: equal-width 2×2 grid (neutral row above,
-                          // destructive row below).
-                          final buttons = buildAccountButtons(compact: true);
-                          Widget gridRow(Widget left, Widget right) => Row(
-                            children: [
-                              Expanded(child: left),
-                              const SizedBox(width: AppSpacing.sm),
-                              Expanded(child: right),
-                            ],
-                          );
-                          return Column(
-                            children: [
-                              gridRow(buttons[0], buttons[1]),
-                              AppSpacing.verticalSm,
-                              gridRow(buttons[2], buttons[3]),
-                            ],
-                          );
-                        },
-                      );
-                    },
-                  ),
+                  _buildAccountActionButtons(context),
                   AppSpacing.verticalLg,
                   Divider(height: 1, color: outlineVariant),
                   AppSpacing.verticalMd,

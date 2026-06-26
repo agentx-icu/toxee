@@ -3,20 +3,110 @@ part of 'drive_real_ui_pair.dart';
 
 const _skillNs = 'ext.flutter.flutter_skill';
 const _mcpNs = 'ext.mcp.toolkit';
+final _realUiPlatform =
+    (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
+
+/// Per-instance platform. A HETEROGENEOUS pair (e.g. A=macOS desktop acting as a
+/// TCP relay + B=iOS Simulator connecting over it) sets
+/// `TOXEE_REAL_UI_PLATFORM_A` / `TOXEE_REAL_UI_PLATFORM_B`; each [Inst] resolves
+/// its OWN platform from that, falling back to the global `TOXEE_REAL_UI_PLATFORM`
+/// so existing homogeneous runs are byte-for-byte unchanged. This is required
+/// because macOS and iOS need different input paths (macOS drives the composer
+/// via osascript keystrokes — synthetic enterText SIGSEGVs the macOS engine;
+/// the iOS Simulator can't be reached by System Events at all and must use
+/// flutter_skill synthetic input), so a single global flag can't serve both.
+String _resolveInstPlatform(String name) =>
+    (Platform.environment['TOXEE_REAL_UI_PLATFORM_$name'] ?? _realUiPlatform)
+        .trim();
+
+/// Serialize ALL osascript invocations through a single async chain. System
+/// Events is effectively serial anyway, but more importantly this lets the iOS
+/// Simulator keep-alive heartbeat ([startSimulatorKeepAlive]) bring the Simulator
+/// to the front + HOLD it there for a few seconds ATOMICALLY — without a macOS
+/// peer's keystroke landing in the Simulator mid-hold (which would corrupt that
+/// op). Every macOS osascript op and the heartbeat take turns on this chain.
+Future<void> _osaChainTail = Future<void>.value();
+Future<T> _serializeOsa<T>(Future<T> Function() op) {
+  final prev = _osaChainTail;
+  final done = Completer<void>();
+  _osaChainTail = done.future;
+  return prev.then((_) => op()).whenComplete(done.complete);
+}
+
+/// True when this run is a HETEROGENEOUS macOS+iOS pair. The macOS peer is then
+/// driven PURELY via the VM service (flutter_skill / L3 / l3_composer_send) and
+/// never via osascript, so the iOS Simulator can stay frontmost — its sole sim
+/// peer is RBS-killed if backgrounded under sustained driving, and a foreground
+/// sim app has no such limit. Set in `main()`.
+bool _mixedMacosIos = false;
 
 /// Run osascript with a hard timeout so a hung System Events call (an
 /// unresponsive window / stuck modal — System Events is effectively serial, so
 /// one wedged call can stall every later one) can't wedge the driver. On
 /// timeout returns a failed ProcessResult (exit 124); callers already treat a
 /// non-zero exit as a non-fatal osascript failure.
-Future<ProcessResult> _osaRun(List<String> args, {int timeoutSecs = 20}) async {
-  try {
-    return await Process.run('osascript', args)
-        .timeout(Duration(seconds: timeoutSecs));
-  } on TimeoutException {
-    return ProcessResult(0, 124, '', 'osascript timed out after ${timeoutSecs}s');
+Future<ProcessResult> _osaRun(List<String> args, {int timeoutSecs = 20}) {
+  if (_mixedMacosIos) {
+    // Suppress ALL driver osascript in a mixed run: a keystroke to a non-front
+    // macOS app would leak into the FOREGROUND Simulator (the iOS peer) and
+    // corrupt it, and any `activate` would background the Simulator and kill the
+    // sim peer. (The Simulator keep-alive uses Process.run directly, not this.)
+    // Return exit 0 (not a failure) so callers that throw on osascript failure
+    // don't ABORT the run — the macOS peer's critical paths (register, text
+    // entry, composer, return-to-home) are all routed to VM-service equivalents;
+    // any osascript-only nicety (search shortcut, escape) simply no-ops, letting
+    // that specific case fail in isolation rather than killing the whole sweep.
+    return Future<ProcessResult>.value(
+      ProcessResult(0, 0, '', 'osascript suppressed (mixed macOS+iOS run)'),
+    );
   }
+  return _serializeOsa(() async {
+    try {
+      return await Process.run(
+        'osascript',
+        args,
+      ).timeout(Duration(seconds: timeoutSecs));
+    } on TimeoutException {
+      return ProcessResult(
+        0,
+        124,
+        '',
+        'osascript timed out after ${timeoutSecs}s',
+      );
+    }
+  });
 }
+
+/// Keep the (sole) iOS Simulator foregrounded so the sim peer survives a full
+/// sweep. A backgrounded sim app is RBS-terminated after ~4 min of sustained
+/// VM-service driving (a background-execution limit); a FOREGROUND sim app has no
+/// such limit (verified: 320s+ alive while frontmost, vs death at ~240s
+/// backgrounded). The driver is headless, so the only thing that backgrounds the
+/// Simulator is the macOS peer's osascript foreground — this heartbeat re-fronts
+/// it every 60s (holding 3s so the iOS scene actually re-activates), serialized
+/// with all osascript so it never lands focus mid-keystroke. The user accepted
+/// per-peer foregrounding ("foreground each peer before driving it").
+Timer? _simKeepAliveTimer;
+void startSimulatorKeepAlive() {
+  _simKeepAliveTimer?.cancel();
+  Future<void> bringFront() => _serializeOsa(() async {
+        await Process.run(
+            'osascript', ['-e', 'tell application "Simulator" to activate']);
+        await Future<void>.delayed(const Duration(seconds: 3));
+      });
+  // Bring the Simulator to the front ONCE. In a mixed run the macOS peer is
+  // driven purely via VM-service and never fronts itself, so a single activate
+  // keeps the Simulator frontmost for the whole sweep — NO periodic re-activate
+  // (re-`activate`ing an already-front app can cycle the iOS scene
+  // active→inactive, which backgrounds + kills the sim peer).
+  unawaited(bringFront());
+}
+
+void stopSimulatorKeepAlive() {
+  _simKeepAliveTimer?.cancel();
+  _simKeepAliveTimer = null;
+}
+
 const _sidebarTabX = 50;
 const _sidebarChatsY = 220;
 const _sidebarContactsY = 288;
@@ -46,10 +136,16 @@ class PermissionBlockedError extends DriveError {
 bool _isNonTestAccountError(Object e) => '$e'.contains('non_test_account');
 
 class Inst {
-  Inst(this.name, this.ws, this.pid);
+  Inst(this.name, this.ws, this.pid) : platform = _resolveInstPlatform(name);
   final String name;
   String ws;
   int pid;
+
+  /// This instance's platform ('macos' | 'ios'), resolved per-instance so a
+  /// mixed macOS↔iOS pair drives each side with its correct input path.
+  final String platform;
+  bool get isIos => platform == 'ios';
+
   late VmService vm;
   late String iso;
 
@@ -87,7 +183,18 @@ class Inst {
         try {
           await vm.dispose();
         } catch (_) {}
-        await _refreshWsUriFromRuntime();
+        // Try the CURRENT endpoint for the first few attempts before refreshing
+        // the URI from the runtime stdio log. A transient WebSocket blip (e.g.
+        // the iOS Simulator VM service hiccuping under sustained driving) leaves
+        // the real VM service alive on the SAME port — verified: the port stays
+        // listening across a macOS-app foreground. The stdio log, by contrast,
+        // can contain stale flutter "Lost connection"/reconnect ports that are
+        // NOT the live service, so refreshing eagerly chased a dead port (the
+        // sweep's spurious "port 60789" reconnect failures). Only consult the
+        // log after the known-good endpoint has clearly failed several times.
+        if (attempt >= 4) {
+          await _refreshWsUriFromRuntime();
+        }
         if (attempt < attempts) {
           await Future<void>.delayed(Duration(milliseconds: 800 * attempt));
         }
@@ -116,6 +223,15 @@ class Inst {
 
   Future<void> _reconnect() async {
     print('[$name] VM service connection dropped — reconnecting $ws');
+    if (isIos) {
+      // In sim↔sim driving there is no macOS peer foregrounding to suspend this
+      // app, so we must NOT bring the Simulator to front (user directive: do not
+      // steal the host's focus/mouse or top the Simulator window). App Nap is
+      // disabled on the Simulator, so the iOS app keeps running in the
+      // background; a dropped VM service almost always rebinds on its own. Just
+      // settle briefly, re-resolve the ws URI from runtime, and reconnect.
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+    }
     try {
       await vm.dispose();
     } catch (_) {}
@@ -125,7 +241,10 @@ class Inst {
 
   Future<void> _refreshWsUriFromRuntime() async {
     try {
-      final pairFile = File('tool/mcp_test/.multi_instance_runtime/pair.json');
+      final pairFile = File(
+        Platform.environment['TOXEE_REAL_UI_PAIR_JSON'] ??
+            'tool/mcp_test/.multi_instance_runtime/pair.json',
+      );
       if (!await pairFile.exists()) return;
       final root =
           jsonDecode(await pairFile.readAsString()) as Map<String, dynamic>;
@@ -207,16 +326,13 @@ class Inst {
           ? Duration(milliseconds: timeoutArgMs + 25000)
           : const Duration(seconds: 45);
       final resp = await vm
-          .callServiceExtension(
-            method,
-            isolateId: iso,
-            args: strArgs,
-          )
+          .callServiceExtension(method, isolateId: iso, args: strArgs)
           .timeout(
             callTimeout,
             onTimeout: () => throw DriveError(
-                '$name: $method timed out after ${callTimeout.inSeconds}s '
-                '(app isolate unresponsive)'),
+              '$name: $method timed out after ${callTimeout.inSeconds}s '
+              '(app isolate unresponsive)',
+            ),
           );
       return (resp.json ?? const <String, dynamic>{}).cast<String, dynamic>();
     }
@@ -240,8 +356,30 @@ class Inst {
     Map<String, Object?> p = const {},
   ]) => _raw('$_mcpNs.$m', p);
 
-  /// macOS-foreground this instance's window. Required before any UI phase.
+  /// macOS-foreground this instance's window. Required before any UI phase on
+  /// desktop (osascript keystroke/Return helpers need the window frontmost).
+  ///
+  /// On iOS this is a deliberate NO-OP: real-UI driving is purely VM-service
+  /// (flutter_skill / L3), so it never needs the Simulator window focused, and
+  /// the user directive forbids stealing the host's focus/mouse or topping the
+  /// Simulator window. In sim↔sim runs there is no macOS peer foregrounding to
+  /// suspend the sim app, and App Nap is disabled on the Simulator, so the iOS
+  /// VM service stays up in the background without any osascript activate.
   Future<void> foreground() async {
+    if (isIos) {
+      // iOS real-UI driving is purely VM-service; synthetic input needs no window
+      // focus. Activating Simulator.app does NOT foreground the iOS scene
+      // (didBecomeActive doesn't fire) and only disrupts the VM-service driving,
+      // so it is a deliberate no-op. (Whether a backgrounded sim survives a long
+      // sweep is an OS-level limit handled by the launcher topology, not here.)
+      return;
+    }
+    if (_mixedMacosIos) {
+      // macOS peer in a mixed macOS+iOS pair: do NOT steal the front from the iOS
+      // Simulator (its sole sim peer dies if backgrounded under driving). Driven
+      // purely via VM-service, so no window focus is needed.
+      return;
+    }
     final r = await _osaRun([
       '-e',
       'tell application "System Events" to set frontmost of '
@@ -441,6 +579,16 @@ class Inst {
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
   Future<void> focusType(String key, String text) async {
+    if (isIos || _mixedMacosIos) {
+      // iOS: System Events can't reach the sim. Mixed macOS peer: avoid osascript
+      // entirely so the Simulator stays frontmost. Both use flutter_skill
+      // synthetic input (enterText), which sets the field text atomically (no
+      // char mangling). Safe on regular TextFields (register/search/remark); the
+      // composer ExtendedTextField — which DOES SIGSEGV on synthetic input — is
+      // never driven through focusType (it uses l3_composer_send).
+      await focusTypeSynthetic(key, text);
+      return;
+    }
     await foreground();
     if (!await tapKeyCenter(key)) {
       await tapKey(key);
@@ -559,11 +707,7 @@ class Inst {
 
   /// One mouse-wheel scroll at [key]'s center (dy positive scrolls down).
   Future<void> scrollAt(String key, {double dx = 0, required double dy}) async {
-    final r = await l3('ui_scroll_at', {
-      'key': key,
-      'dx': '$dx',
-      'dy': '$dy',
-    });
+    final r = await l3('ui_scroll_at', {'key': key, 'dx': '$dx', 'dy': '$dy'});
     if (r['ok'] != true) {
       throw DriveError('[$name] ui_scroll_at "$key" failed: $r');
     }
@@ -574,8 +718,12 @@ class Inst {
   /// over the message-list viewport hits whatever Scrollable is under it, so the
   /// scroll lands even when the oldest row is offscreen (a key-center scroll on
   /// an unrendered row would have no RenderBox to resolve).
-  Future<void> scrollAtCoords(num x, num y,
-      {double dx = 0, required double dy}) async {
+  Future<void> scrollAtCoords(
+    num x,
+    num y, {
+    double dx = 0,
+    required double dy,
+  }) async {
     final r = await l3('ui_scroll_at', {
       'x': '$x',
       'y': '$y',
@@ -731,6 +879,12 @@ class Inst {
   // enterText, and Enter-to-send rides the legacy FocusNode.onKey RawKeyEvent
   // path — both need genuine OS events. ---
   Future<void> _osa(String script) async {
+    // No-op on iOS: System Events keystrokes target the frontmost MACOS app and
+    // cannot reach the Simulator. Every osa* keystroke helper funnels through
+    // here, so an iOS instance silently skips them (its real input goes through
+    // flutter_skill synthetic input / L3 instead). Guards against an accidental
+    // osa* call on an iOS peer throwing mid-sweep.
+    if (isIos) return;
     final r = await _osaRun(['-e', script]);
     if (r.exitCode != 0) {
       final stderrText = '${r.stderr}'.trim();
@@ -754,9 +908,7 @@ class Inst {
     // verbatim rather than breaking the script. `!`, `@`, `.`, `-`, digits and
     // letters need no escaping inside an AppleScript string.
     final escaped = text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    return _osa(
-      'tell application "System Events" to keystroke "$escaped"',
-    );
+    return _osa('tell application "System Events" to keystroke "$escaped"');
   }
 
   /// Place [text] on the macOS clipboard (via `pbcopy`) and paste it into the
@@ -779,6 +931,7 @@ class Inst {
       'tell application "System Events" to keystroke "v" using command down',
     );
   }
+
   Future<void> osaReturn() =>
       _osa('tell application "System Events" to key code 36');
 
@@ -786,9 +939,8 @@ class Inst {
   /// INSERT a newline (no send); see `_handleKeyEvent` in
   /// tencent_cloud_chat_message_input_desktop.dart. A genuine OS chord so the
   /// production RawKeyEvent path runs (synthetic enterText can't reach it).
-  Future<void> osaShiftReturn() => _osa(
-        'tell application "System Events" to key code 36 using shift down',
-      );
+  Future<void> osaShiftReturn() =>
+      _osa('tell application "System Events" to key code 36 using shift down');
   Future<void> osaEscape() =>
       _osa('tell application "System Events" to key code 53');
 
@@ -797,25 +949,25 @@ class Inst {
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
   Future<void> osaSearchShortcut() => _osa(
-        'tell application "System Events" to keystroke "f" using '
-        '{command down, control down}',
-      );
+    'tell application "System Events" to keystroke "f" using '
+    '{command down, control down}',
+  );
 
   /// Send Cmd+Ctrl+N — the "new conversation" shortcut (`_NewConversationIntent`
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
   Future<void> osaNewConversationShortcut() => _osa(
-        'tell application "System Events" to keystroke "n" using '
-        '{command down, control down}',
-      );
+    'tell application "System Events" to keystroke "n" using '
+    '{command down, control down}',
+  );
 
   /// Send Cmd+Ctrl+, — the "open settings" shortcut (`_OpenSettingsIntent` in
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
   Future<void> osaOpenSettingsShortcut() => _osa(
-        'tell application "System Events" to keystroke "," using '
-        '{command down, control down}',
-      );
+    'tell application "System Events" to keystroke "," using '
+    '{command down, control down}',
+  );
 
   /// Place [text] on the macOS clipboard via `pbcopy` WITHOUT pasting — for cases
   /// that then exercise an in-app "Paste" control (e.g. the add-friend paste

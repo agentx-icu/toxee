@@ -1154,7 +1154,14 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.of(context).push<void>(
       AppPageRoute<void>(
         page: Scaffold(
-          appBar: AppBar(title: Text(title)),
+          appBar: AppBar(
+            leading: IconButton(
+              key: UiKeys.settingsMobileSectionBackButton,
+              icon: const Icon(Icons.arrow_back_ios_new),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            title: Text(title),
+          ),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.md),
@@ -1425,6 +1432,10 @@ class _SettingsPageState extends State<SettingsPage> {
             SectionHeader(
               title: AppLocalizations.of(context)!.accountManagement,
             ),
+            AppSpacing.verticalMd,
+            _buildAccountActionButtons(context),
+            AppSpacing.verticalLg,
+            Divider(height: 1, color: outlineVariant),
             AppSpacing.verticalMd,
             ..._accountList.map((account) {
               final accountToxId = account['toxId'] ?? '';

@@ -41,10 +41,12 @@ Future<void> _openSettings(Inst inst) async {
       await returnToChatsHome(inst, rounds: 3);
     }
     if (round > 0) {
-      try {
-        await inst.osaEscape();
-      } on DriveError {
-        // best-effort
+      if (!inst.isIos) {
+        try {
+          await inst.osaEscape();
+        } on DriveError {
+          // best-effort
+        }
       }
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
@@ -66,6 +68,11 @@ Future<void> _openSettings(Inst inst) async {
     if (!await inst.tapKeyCenter('sidebar_settings_tab')) {
       await inst.tryTapKey('sidebar_settings_tab');
     }
+    if (inst.isIos && !await _settingsTabActive(inst)) {
+      if (!await inst.tapKeyCenter('bottom_nav_settings_tab', timeoutSecs: 4)) {
+        await inst.tryTapKey('bottom_nav_settings_tab');
+      }
+    }
     // Poll the active-tab signal (the switch is a setState that lands within a
     // frame or two).
     for (var i = 0; i < 6; i++) {
@@ -80,6 +87,170 @@ Future<void> _openSettings(Inst inst) async {
   }
   await inst.shot('/tmp/ui_settings_noopen_${inst.name}.png');
   throw DriveError('[${inst.name}] settings did not become the active tab');
+}
+
+Future<bool> _openMobileAccountManagement(Inst inst) async {
+  if (!inst.isIos) return true;
+  await _openSettings(inst);
+  if (await inst.waitKey('settings_logout_button', timeoutSecs: 1) ||
+      await inst.waitKey('settings_set_password_button', timeoutSecs: 1)) {
+    return true;
+  }
+  if (!await _tryTapText(inst, 'Account Management')) {
+    return false;
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 700));
+  return await inst.waitKey('settings_logout_button', timeoutSecs: 4) ||
+      await inst.waitKey('settings_set_password_button', timeoutSecs: 4);
+}
+
+Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
+  if (!inst.isIos) return false;
+  // Drilling into a mobile settings sub-section pushes a new route whose AppBar
+  // leading carries `settings_mobile_section_back_button` (see
+  // SettingsPage._pushMobileSettingsSection). The previous implementation tapped
+  // the section title and returned true after a fixed 700ms WITHOUT confirming
+  // the push landed. On a just-booted/cold app (the first drill-in right after
+  // login) the title tap could fire before the index list was hit-testable, so
+  // the section never opened yet the helper reported success — the caller's
+  // `waitKey` then raced a page that was not there and the case flaked. Confirm
+  // the route actually pushed (back button present), and retry the tap. This
+  // mirrors the self-verifying open in _openMobileAccountManagement.
+  for (var attempt = 0; attempt < 3; attempt++) {
+    // If a prior step left us inside a section (mis-popped), the index title is
+    // not tappable — pop back out first.
+    if (await inst.waitKey(
+      'settings_mobile_section_back_button',
+      timeoutSecs: 1,
+    )) {
+      await _backFromMobileSettingsSection(inst);
+    }
+    await _openSettings(inst);
+    if (await _tryTapText(inst, title) &&
+        await inst.waitKey(
+          'settings_mobile_section_back_button',
+          timeoutSecs: 4,
+        )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Future<void> _backFromMobileSettingsSection(Inst inst) async {
+  if (!inst.isIos) return;
+  if (!await inst.tapKeyCenter(
+    'settings_mobile_section_back_button',
+    timeoutSecs: 3,
+  )) {
+    await inst.tapAt(28, 90);
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 700));
+}
+
+Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
+  await ensureHome(inst, nick);
+  final results = <String, bool>{};
+
+  Future<void> run(String name, Future<bool> Function() body) async {
+    try {
+      final ok = await body();
+      results[name] = ok;
+      print('[sweep] $name: ${ok ? 'PASS' : 'FAIL'}');
+    } catch (e) {
+      results[name] = false;
+      print('[sweep] $name: FAIL ($e)');
+    }
+  }
+
+  await run('ios_settings_index_sections', () async {
+    await _openSettings(inst);
+    final accountInfo = await inst.waitText('Account Info', timeoutSecs: 4);
+    final accountMgmt = await inst.waitText(
+      'Account Management',
+      timeoutSecs: 4,
+    );
+    final appearance = await inst.waitText('Appearance', timeoutSecs: 4);
+    final bootstrap = await inst.waitText('Bootstrap Nodes', timeoutSecs: 4);
+    return accountInfo && accountMgmt && appearance && bootstrap;
+  });
+
+  await run('ios_settings_account_info', () async {
+    if (!await _openMobileSettingsSection(inst, 'Account Info')) return false;
+    final hasCopyKey = await inst.waitKey(
+      'settings_copy_tox_id_button',
+      timeoutSecs: 4,
+    );
+    final hasAutoLogin = await inst.waitKey(
+      'settings_auto_login_switch',
+      timeoutSecs: 4,
+    );
+    await _backFromMobileSettingsSection(inst);
+    return hasCopyKey && hasAutoLogin;
+  });
+
+  await run('ios_settings_account_management', () async {
+    if (!await _openMobileAccountManagement(inst)) return false;
+    final hasExport = await inst.waitKey(
+      'settings_export_account_button',
+      timeoutSecs: 4,
+    );
+    final hasPassword = await inst.waitKey(
+      'settings_set_password_button',
+      timeoutSecs: 4,
+    );
+    final hasLogout = await inst.waitKey(
+      'settings_logout_button',
+      timeoutSecs: 4,
+    );
+    final hasDelete = await inst.waitKey(
+      'settings_delete_account_button',
+      timeoutSecs: 4,
+    );
+    await _backFromMobileSettingsSection(inst);
+    return hasExport && hasPassword && hasLogout && hasDelete;
+  });
+
+  await run('ios_settings_appearance', () async {
+    if (!await _openMobileSettingsSection(inst, 'Appearance')) return false;
+    final hasTheme = await inst.waitKey(
+      'settings_theme_segment',
+      timeoutSecs: 4,
+    );
+    final hasLanguage = await inst.waitKey(
+      'settings_language_selector',
+      timeoutSecs: 4,
+    );
+    final hasDownload = await inst.waitKey(
+      'settings_download_limit_field',
+      timeoutSecs: 4,
+    );
+    await _backFromMobileSettingsSection(inst);
+    return hasTheme && hasLanguage && hasDownload;
+  });
+
+  await run('ios_settings_bootstrap', () async {
+    if (!await _openMobileSettingsSection(inst, 'Bootstrap Nodes'))
+      return false;
+    final hasAuto = await inst.waitKey(
+      'settings_bootstrap_mode_auto',
+      timeoutSecs: 4,
+    );
+    final hasManual = await inst.waitKey(
+      'settings_bootstrap_mode_manual',
+      timeoutSecs: 4,
+    );
+    await _backFromMobileSettingsSection(inst);
+    return hasAuto && hasManual;
+  });
+
+  final failed = results.entries.where((entry) => !entry.value).toList();
+  print(
+    '[sweep] sweep_ios_settings_main RESULTS: '
+    '${results.length - failed.length} PASS / ${failed.length} FAIL ($results)',
+  );
+  await inst.shot('/tmp/ui_ios_settings_main_${inst.name}.png');
+  return failed.isEmpty ? 0 : 1;
 }
 
 /// Poll l3_dump_state until a top-level bool field equals [want] (no throw).
@@ -279,10 +450,9 @@ Future<bool> _settingsLogoutRelogin(Inst inst) async {
     await inst.shot('/tmp/ui_logout_${inst.name}.png');
     try {
       final inter = await inst.skill('interactiveStructured', const {});
-      final keys = RegExp('login_page_account_card:[A-Za-z0-9]+')
-          .allMatches(inter.toString())
-          .map((m) => m.group(0))
-          .toSet();
+      final keys = RegExp(
+        'login_page_account_card:[A-Za-z0-9]+',
+      ).allMatches(inter.toString()).map((m) => m.group(0)).toSet();
       print('[pair] logout DIAG: card keys seen=$keys want=$cardKey');
     } catch (_) {}
     return false;
@@ -321,14 +491,18 @@ Future<bool> _settingsLogoutDoubleFire(Inst inst) async {
   await inst.tapKey('settings_logout_confirm_button');
   final cardKey = 'login_page_account_card:$toxId';
   var loggedOut = false, notBlank = false, cardShows = false;
-  for (var round = 0; round < 15 && !(loggedOut && notBlank && cardShows);
-      round++) {
+  for (
+    var round = 0;
+    round < 15 && !(loggedOut && notBlank && cardShows);
+    round++
+  ) {
     await inst.foreground();
     loggedOut = (await inst.dumpState())['sessionReady'] != true;
     final inter = await inst.skill('interactiveStructured', const {});
     final data = inter['data'];
     final els = data is Map ? data['elements'] : null;
-    notBlank = els is List && els.isNotEmpty; // empty == the blank-Navigator bug
+    notBlank =
+        els is List && els.isNotEmpty; // empty == the blank-Navigator bug
     if (loggedOut) cardShows = await inst.waitKey(cardKey, timeoutSecs: 1);
     if (!(loggedOut && notBlank && cardShows)) {
       await Future<void>.delayed(const Duration(milliseconds: 700));

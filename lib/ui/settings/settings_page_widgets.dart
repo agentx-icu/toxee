@@ -64,7 +64,9 @@ class _AccountCardItemState extends State<_AccountCardItem> {
           margin: EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(
+              AppThemeConfig.cardBorderRadius,
+            ),
           ),
           child: ListTile(
             leading: CircleAvatar(
@@ -75,9 +77,9 @@ class _AccountCardItemState extends State<_AccountCardItem> {
               backgroundColor: widget.isCurrentAccount
                   ? widget.colorTheme.primaryColor
                   : (Theme.of(context).brightness == Brightness.dark
-                          ? AppThemeConfig.secondaryTextColorDark
-                          : AppThemeConfig.secondaryTextColorLight)
-                      .withValues(alpha: 0.20),
+                            ? AppThemeConfig.secondaryTextColorDark
+                            : AppThemeConfig.secondaryTextColorLight)
+                        .withValues(alpha: 0.20),
               child: Text(
                 accountNickname.isNotEmpty
                     ? accountNickname[0].toUpperCase()
@@ -86,8 +88,8 @@ class _AccountCardItemState extends State<_AccountCardItem> {
                   color: widget.isCurrentAccount
                       ? widget.colorTheme.onPrimary
                       : (Theme.of(context).brightness == Brightness.dark
-                          ? AppThemeConfig.primaryTextColorDark
-                          : AppThemeConfig.primaryTextColorLight),
+                            ? AppThemeConfig.primaryTextColorDark
+                            : AppThemeConfig.primaryTextColorLight),
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -110,6 +112,102 @@ class _AccountCardItemState extends State<_AccountCardItem> {
           ),
         ),
       ),
+    );
+  }
+}
+
+extension _AccountActionButtons on _SettingsPageState {
+  Widget _buildAccountActionButtons(BuildContext context) {
+    final errorColor = Theme.of(context).colorScheme.error;
+
+    OutlinedButton accountAction({
+      required Key key,
+      required IconData icon,
+      required String label,
+      required VoidCallback onPressed,
+      bool danger = false,
+      bool compact = false,
+    }) {
+      return OutlinedButton.icon(
+        key: key,
+        icon: Icon(icon, size: 18),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: danger ? errorColor : null,
+          side: danger ? BorderSide(color: errorColor) : null,
+          padding: compact
+              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 12)
+              : null,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(
+              AppThemeConfig.buttonBorderRadius,
+            ),
+          ),
+        ),
+        onPressed: onPressed,
+      );
+    }
+
+    List<Widget> buildAccountButtons({required bool compact}) {
+      return [
+        accountAction(
+          key: UiKeys.settingsExportAccountButton,
+          icon: Icons.upload_file,
+          label: AppLocalizations.of(context)!.exportAccount,
+          onPressed: _showExportOptions,
+          compact: compact,
+        ),
+        accountAction(
+          key: UiKeys.settingsSetPasswordButton,
+          icon: Icons.lock,
+          label: AppLocalizations.of(context)!.setPassword,
+          onPressed: _setAccountPassword,
+          compact: compact,
+        ),
+        accountAction(
+          key: UiKeys.settingsLogoutButton,
+          icon: Icons.logout,
+          label: AppLocalizations.of(context)!.logOut,
+          onPressed: _logout,
+          danger: true,
+          compact: compact,
+        ),
+        accountAction(
+          key: UiKeys.settingsDeleteAccountButton,
+          icon: Icons.delete_outline,
+          label: AppLocalizations.of(context)!.deleteAccount,
+          onPressed: () => _showDeleteAccountConfirmation(context),
+          danger: true,
+          compact: compact,
+        ),
+      ];
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 640) {
+          return Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: buildAccountButtons(compact: false),
+          );
+        }
+        final buttons = buildAccountButtons(compact: true);
+        Widget gridRow(Widget left, Widget right) => Row(
+          children: [
+            Expanded(child: left),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(child: right),
+          ],
+        );
+        return Column(
+          children: [
+            gridRow(buttons[0], buttons[1]),
+            AppSpacing.verticalSm,
+            gridRow(buttons[2], buttons[3]),
+          ],
+        );
+      },
     );
   }
 }

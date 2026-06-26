@@ -156,12 +156,32 @@ Future<bool> _ensureChatOpen(Inst inst, String tox) async {
   // taps land on the profile).
   await inst.foreground();
   await _dismissFriendProfileToUnderlying(inst);
+  final convId = _c2cConvId(tox);
+  // Already open? Skip ALL navigation — re-opening an open chat is pure churn.
+  if (await _chatSurfaceReady(inst, convId, timeoutSecs: 2)) {
+    return true;
+  }
+  // iOS Simulator: prefer the LIGHT, deterministic l3_open_chat nav seam FIRST.
+  // The heavy real-UI open (conversation-list row tap → forceHomeRoot(contacts)
+  // → ensureContactsShell → contacts-profile → seam) churns navigation for ~4s+,
+  // and under sustained two-process sim driving that repeated churn destabilizes
+  // / terminates the app mid-sweep (the chat-long-text death). Chat-OPEN here is
+  // only a prerequisite (the case's asserted action — send/menu/recall — stays a
+  // real widget gesture), and l3_open_chat IS the production `_openChat` path, so
+  // preferring it loses no realism. Desktop keeps the heavy-first path (no churn
+  // death there, and the row-tap open is its own assertion).
+  if (inst.isIos) {
+    await inst.openChatViaL3(userId: _pubkey(tox));
+    if (await _chatSurfaceReady(inst, convId, timeoutSecs: 8)) {
+      return true;
+    }
+  }
   try {
     await openChat(inst, tox);
   } on DriveError catch (e) {
     print('[pair] _ensureChatOpen: ${e.message}');
   }
-  if (await _chatSurfaceReady(inst, _c2cConvId(tox), timeoutSecs: 8)) {
+  if (await _chatSurfaceReady(inst, convId, timeoutSecs: 8)) {
     return true;
   }
   // Fallback: drive the production `_openChat` path via the ungated l3_open_chat
@@ -173,7 +193,7 @@ Future<bool> _ensureChatOpen(Inst inst, String tox) async {
   // `c2c_<pubkey>` — a full tox id would open a non-matching conv and fail
   // readiness (codex). `_pubkey` is idempotent for an already-pubkey id.
   await inst.openChatViaL3(userId: _pubkey(tox));
-  return _chatSurfaceReady(inst, _c2cConvId(tox), timeoutSecs: 8);
+  return _chatSurfaceReady(inst, convId, timeoutSecs: 8);
 }
 
 /// The ORDERED list of message entries (dump `messages[]`) for the C2C
@@ -208,6 +228,14 @@ Future<String?> _ownMessageId(Inst inst, String tox, String text) async {
 Future<bool> _waitC2cMessageText(Inst inst, String tox, String text,
     {bool? isSelf, int timeoutSecs = 60}) async {
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
+  // Poll SPACING scales with the wait: a long receive-verify (up to 60s for
+  // relay delivery) polled every 500ms hammers a backgrounded iOS sim with
+  // ~120 VM-service dumps, and that sustained load gets the receiver terminated
+  // mid-sweep (the chat-long-text death — the polled peer, not the sender,
+  // dies). ~2.5s spacing on long waits keeps it idle enough to survive while
+  // still catching relay delivery (a few seconds) promptly. Short waits keep a
+  // tight 500ms cadence for snappy same-process assertions.
+  final intervalMs = timeoutSecs >= 15 ? 2500 : 500;
   while (DateTime.now().isBefore(deadline)) {
     final msgs = await _c2cMessages(inst, tox);
     if (msgs.any((m) =>
@@ -215,7 +243,7 @@ Future<bool> _waitC2cMessageText(Inst inst, String tox, String text,
         (isSelf == null || m['isSelf'] == isSelf))) {
       return true;
     }
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(Duration(milliseconds: intervalMs));
   }
   return false;
 }

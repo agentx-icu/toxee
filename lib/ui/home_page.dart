@@ -30,6 +30,8 @@ import '../sdk_fake/fake_msg_provider.dart';
 import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
+import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart'
+    show navigateToMessage;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
 import 'package:tencent_cloud_chat_common/tuicore/tencent_cloud_chat_core.dart';
@@ -692,6 +694,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _index = 0; // Ensure Chats tab is visible
       _inContactProfileContext = false;
     });
+    // On a COMPACT (phone) layout there is no master-detail right pane, so
+    // `_selectConversation` (which only binds `currentConversation`) is a NO-OP:
+    // the chat never opens. This silently broke opening a chat with a friend
+    // that has no conversation row yet — a just-accepted friend, or the
+    // contact-profile "Send a message" tile, or the notification/l3 open seam.
+    // Push the UIKit mobile message route instead (the SAME path the
+    // conversation-list tap and global-search use). Wide layouts keep the
+    // right-pane bind.
+    if (!ResponsiveLayout.shouldShowMasterDetail(context)) {
+      final hasGroup = groupId != null && groupId.isNotEmpty;
+      navigateToMessage(
+        context: context,
+        options: TencentCloudChatMessageOptions(
+          userID: hasGroup ? null : peerId,
+          groupID: hasGroup ? groupId : null,
+        ),
+      );
+      unawaited(_updateTray());
+      return;
+    }
     _selectConversation(peerId: peerId, groupId: groupId);
     unawaited(_updateTray());
   }
@@ -1181,9 +1203,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 child: Column(
                                   children: [
                                     const MacTitleBarInset(),
-                                    Expanded(
-                                      child: _buildMainPane(context),
-                                    ),
+                                    Expanded(child: _buildMainPane(context)),
                                   ],
                                 ),
                               ),
@@ -1475,6 +1495,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           items: [
             BottomNavigationBarItem(
               icon: Stack(
+                key: UiKeys.bottomNavChats,
                 clipBehavior: Clip.none,
                 children: [
                   const Icon(Icons.chat_bubble_outline),
@@ -1549,18 +1570,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               label: l10n.chats,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.contacts_outlined),
-              activeIcon: const Icon(Icons.contacts),
+              icon: const Icon(
+                Icons.contacts_outlined,
+                key: UiKeys.bottomNavContacts,
+              ),
+              activeIcon: const Icon(
+                Icons.contacts,
+                key: UiKeys.bottomNavContacts,
+              ),
               label: l10n.contacts,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.apps_outlined),
-              activeIcon: const Icon(Icons.apps),
+              icon: const Icon(
+                Icons.apps_outlined,
+                key: UiKeys.bottomNavApplications,
+              ),
+              activeIcon: const Icon(
+                Icons.apps,
+                key: UiKeys.bottomNavApplications,
+              ),
               label: l10n.applications,
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.settings_outlined),
-              activeIcon: const Icon(Icons.settings),
+              icon: const Icon(
+                Icons.settings_outlined,
+                key: UiKeys.bottomNavSettings,
+              ),
+              activeIcon: const Icon(
+                Icons.settings,
+                key: UiKeys.bottomNavSettings,
+              ),
               label: l10n.settings,
             ),
           ],
@@ -1673,8 +1712,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Expanded(
                 child: SettingsPage(
                   service: widget.service,
-                  connectionStatusStream:
-                      widget.service.connectionStatusStream,
+                  connectionStatusStream: widget.service.connectionStatusStream,
                   autoAcceptFriends: _autoAcceptFriends,
                   onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
                   autoAcceptGroupInvites: _autoAcceptGroupInvites,

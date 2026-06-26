@@ -63,7 +63,11 @@ Future<bool> _waitFieldWhere(
 /// language list collapsed / re-select the same segment. The labels carry no
 /// key, so `tapKeyCenter` cannot be used — this is its text-matched twin.
 /// Returns false (no throw) when no positively-sized match is found.
-Future<bool> _tapTextCenter(Inst inst, String text, {int timeoutSecs = 6}) async {
+Future<bool> _tapTextCenter(
+  Inst inst,
+  String text, {
+  int timeoutSecs = 6,
+}) async {
   if (!await inst.waitText(text, timeoutSecs: timeoutSecs)) return false;
   for (var attempt = 0; attempt < 5; attempt++) {
     final r = await inst.skill('interactiveStructured', const {});
@@ -148,11 +152,7 @@ Future<double?> _keyedCenterY(Inst inst, String key) async {
 /// the same crash-free path the desktop composer uses. Best-effort: the
 /// manual-node cases assert field PRESENCE (waitKey), not the typed value, so a
 /// type that doesn't fully land still leaves a valid gate.
-Future<void> _fillFieldViaKeystrokes(
-  Inst inst,
-  String key,
-  String text,
-) async {
+Future<void> _fillFieldViaKeystrokes(Inst inst, String key, String text) async {
   // Focus the field via a single real pointer tap at its CURRENT on-screen
   // center, then drive real keystrokes. Deliberately does NOT reset the scroll
   // to the top first: a single large `dy:-6000` wheel reset on the settings
@@ -182,8 +182,8 @@ Future<bool> _settingsScrollTo(Inst inst, String targetKey) async {
   return _scrollKeyIntoBand(
     inst,
     targetKey,
-    topBand: _settingsViewTop,
-    bottomBand: _settingsViewBottom,
+    topBand: inst.isIos ? 80 : _settingsViewTop,
+    bottomBand: inst.isIos ? 620 : _settingsViewBottom,
   );
 }
 
@@ -206,7 +206,10 @@ Future<bool> _scrollKeyIntoBand(
   // the band straight to above it between checks (the "never reached" overshoot).
   double? prevCy;
   var stalledScans = 0;
-  for (var step = 0; step < 30; step++) {
+  final maxSteps = inst.isIos ? 45 : 30;
+  final scrollDelta = inst.isIos ? 110.0 : 160.0;
+  final maxBottom = inst.isIos ? 690.0 : _settingsViewBottomMax;
+  for (var step = 0; step < maxSteps; step++) {
     final cy = await _keyedCenterY(inst, targetKey);
     if (cy != null && cy >= topBand && cy <= bottomBand) return true;
     // Detect a max-scroll-extent STALL: a bottom-anchored last element stops
@@ -215,21 +218,19 @@ Future<bool> _scrollKeyIntoBand(
     // extended bottom (it's fully visible + tappable, just below the band).
     if (cy != null && prevCy != null && (cy - prevCy).abs() < 4) {
       stalledScans++;
-      if (stalledScans >= 2 &&
-          cy >= topBand &&
-          cy <= _settingsViewBottomMax) {
+      if (stalledScans >= 2 && cy >= topBand && cy <= maxBottom) {
         return true;
       }
     } else {
       stalledScans = 0;
     }
     prevCy = cy;
-    await inst.scrollAt(_settingsScrollKey, dy: 160);
+    await inst.scrollAt(_settingsScrollKey, dy: scrollDelta);
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
   final cy = await _keyedCenterY(inst, targetKey);
   // Final acceptance also honours the extended bottom for a bottom-anchored row.
-  return cy != null && cy >= topBand && cy <= _settingsViewBottomMax;
+  return cy != null && cy >= topBand && cy <= maxBottom;
 }
 
 /// case 1 — settings_surface_sections: open Settings, scroll the whole page,
@@ -349,7 +350,8 @@ Future<bool> _settingsThemeDark(Inst inst) async {
 Future<bool> _settingsThemeLightBack(Inst inst) async {
   await _openSettings(inst);
   final tapped = await _tapThemeSegment(inst, 'Light');
-  final persisted = tapped && await _waitStringState(inst, 'themeMode', 'light');
+  final persisted =
+      tapped && await _waitStringState(inst, 'themeMode', 'light');
   final labelVisible = await inst.waitText('Light', timeoutSecs: 4);
   print(
     '[pair] settings_theme_light_back: tapped=$tapped '
@@ -371,8 +373,12 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
   // render BELOW it on expand are within the visible viewport (the
   // "option not tappable" failure was the expanded 简体中文 row sitting below the
   // fold). A prior case can leave the list scrolled, so this resets + re-anchors.
-  await _scrollKeyIntoBand(inst, 'settings_language_selector',
-      topBand: 110, bottomBand: 300);
+  await _scrollKeyIntoBand(
+    inst,
+    'settings_language_selector',
+    topBand: 110,
+    bottomBand: 300,
+  );
   // Expand by tapping the selector row, then choose 简体中文. SINGLE-FIRE: the
   // selector InkWell toggles `_languageExpanded`, so a double-fire would open AND
   // re-close it (net no-op). The keyed row IS tappable via tapKeyCenter (a single
@@ -380,8 +386,12 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
   var expanded = false;
   for (var attempt = 0; attempt < 4 && !expanded; attempt++) {
     if (!await inst.tapKeyAt('settings_language_selector')) {
-      await _scrollKeyIntoBand(inst, 'settings_language_selector',
-          topBand: 110, bottomBand: 300);
+      await _scrollKeyIntoBand(
+        inst,
+        'settings_language_selector',
+        topBand: 110,
+        bottomBand: 300,
+      );
       if (!await inst.tapKeyAt('settings_language_selector')) break;
     }
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -421,14 +431,22 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
   // while in Chinese. The collapsed selector now shows "简体中文" — anchor the
   // KEYED selector row in the upper band (so its options below are visible), tap
   // it to expand, then tap the "English" option.
-  await _scrollKeyIntoBand(inst, 'settings_language_selector',
-      topBand: 110, bottomBand: 300);
+  await _scrollKeyIntoBand(
+    inst,
+    'settings_language_selector',
+    topBand: 110,
+    bottomBand: 300,
+  );
   var reverted = false;
   for (var attempt = 0; attempt < 4 && !reverted; attempt++) {
     // Expand (single-fire) the now-Chinese-labelled selector, then pick English.
     if (!await inst.tapKeyAt('settings_language_selector')) {
-      await _scrollKeyIntoBand(inst, 'settings_language_selector',
-          topBand: 110, bottomBand: 300);
+      await _scrollKeyIntoBand(
+        inst,
+        'settings_language_selector',
+        topBand: 110,
+        bottomBand: 300,
+      );
       if (!await inst.tapKeyAt('settings_language_selector')) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         continue;
@@ -441,7 +459,8 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
         await inst.tapKeyAt('settings_language_option_en')) {
       reverted = await _waitStringState(inst, 'languageCode', 'en');
     }
-    if (!reverted) await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (!reverted)
+      await Future<void>.delayed(const Duration(milliseconds: 600));
   }
   // Confirm the English label is back (the load-bearing post-revert invariant).
   await inst.foreground();
@@ -536,7 +555,9 @@ Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
   // mode flip can silently miss (the observed `backAuto=false` flake).
   for (var attempt = 0; attempt < 3; attempt++) {
     if (!await _settingsScrollTo(inst, key)) {
-      print('[pair] bootstrap mode: tile "$key" never reached (attempt $attempt)');
+      print(
+        '[pair] bootstrap mode: tile "$key" never reached (attempt $attempt)',
+      );
       await Future<void>.delayed(const Duration(milliseconds: 400));
       continue;
     }
@@ -546,7 +567,12 @@ Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
     if (!await inst.tapKeyCenter(key)) {
       await inst.tapKeyAt(key);
     }
-    if (await _waitStringState(inst, 'bootstrapNodeMode', mode, timeoutSecs: 6)) {
+    if (await _waitStringState(
+      inst,
+      'bootstrapNodeMode',
+      mode,
+      timeoutSecs: 6,
+    )) {
       return true;
     }
   }
@@ -618,7 +644,10 @@ Future<bool> _settingsBootstrapManualAddNode(Inst inst) async {
     print('[pair] bootstrap_manual_add: expand button not tappable');
     return false;
   }
-  final hostShown = await inst.waitKey('manual_node_host_field', timeoutSecs: 6);
+  final hostShown = await inst.waitKey(
+    'manual_node_host_field',
+    timeoutSecs: 6,
+  );
   if (!hostShown) {
     print('[pair] bootstrap_manual_add: host field did not appear');
     return false;
@@ -637,13 +666,23 @@ Future<bool> _settingsBootstrapManualAddNode(Inst inst) async {
   // typing one field + asserting every field key is present is the faithful
   // "form mounts + accepts input" gate for S89; re-focusing each narrow field
   // separately only added flakiness without strengthening the assertion.
-  await _fillFieldViaKeystrokes(inst, 'manual_node_host_field', 'tox.example.org');
-  final portShown = await inst.waitKey('manual_node_port_field', timeoutSecs: 4);
+  await _fillFieldViaKeystrokes(
+    inst,
+    'manual_node_host_field',
+    'tox.example.org',
+  );
+  final portShown = await inst.waitKey(
+    'manual_node_port_field',
+    timeoutSecs: 4,
+  );
   final pubkeyShown = await inst.waitKey(
     'manual_node_pubkey_field',
     timeoutSecs: 4,
   );
-  final testShown = await inst.waitKey('manual_node_test_button', timeoutSecs: 4);
+  final testShown = await inst.waitKey(
+    'manual_node_test_button',
+    timeoutSecs: 4,
+  );
   print(
     '[pair] settings_bootstrap_manual_add_node: manualMode=$manualMode '
     'host=$hostShown port=$portShown pubkey=$pubkeyShown test=$testShown',
@@ -793,7 +832,10 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
     print('[pair] password_mismatch: save button not tappable');
     return false;
   }
-  final snackbar = await inst.waitText('Passwords do not match', timeoutSecs: 8);
+  final snackbar = await inst.waitText(
+    'Passwords do not match',
+    timeoutSecs: 8,
+  );
   // The dialog must STILL be open (its keyed field present) — proves the
   // mismatch short-circuited before the pop.
   final dialogStays = await inst.waitKey(
@@ -893,7 +935,9 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
   try {
     final st = await inst.dumpState();
     if (st['languageCode']?.toString() != 'en') {
-      print('[sweep] normalize: locale is ${st['languageCode']} -> reverting en');
+      print(
+        '[sweep] normalize: locale is ${st['languageCode']} -> reverting en',
+      );
       await _openSettings(inst);
       // The selector shows the current NATIVE label; expand + pick English.
       // Try the known non-English native labels (zh-Hans/zh-Hant/ja/ko/ar).
@@ -1008,8 +1052,10 @@ Future<int> runSettingsSweep2(Inst inst, String nick) async {
     // false-failed by leftover state. Idempotent / best-effort (never throws).
     await _normalizeBetweenCases(inst);
   }
-  print('[sweep] sweep_settings2 RESULTS: $passed PASS / $failed FAIL '
-      '(${cases.length} total)');
+  print(
+    '[sweep] sweep_settings2 RESULTS: $passed PASS / $failed FAIL '
+    '(${cases.length} total)',
+  );
   await inst.shot('/tmp/ui_settings_sweep2_${inst.name}.png');
   return failed == 0 ? 0 : 1;
 }

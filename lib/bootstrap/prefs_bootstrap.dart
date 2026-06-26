@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_bootstrap_result.dart';
 import '../util/logger.dart';
+import '../util/harness_environment.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs.dart';
 import '../util/prefs_upgrader.dart';
@@ -13,11 +12,11 @@ import '../util/prefs_upgrader.dart';
 class PrefsBootstrap {
   PrefsBootstrap._();
 
-  static const _sharedPrefsPrefixEnv = 'TOXEE_SHARED_PREFS_PREFIX';
-
   /// Returns null on success; [AppBootstrapUpgradeRequired] when upgrade required.
   static Future<AppBootstrapUpgradeRequired?> initialize() async {
-    final prefix = Platform.environment[_sharedPrefsPrefixEnv]?.trim();
+    final prefix = HarnessEnvironment.value(
+      HarnessEnvironment.sharedPrefsPrefixKey,
+    );
     if (prefix != null && prefix.isNotEmpty) {
       SharedPreferences.setPrefix(prefix);
     }
