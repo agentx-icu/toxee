@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.toxee.app.refresh</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -24,6 +30,39 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tox._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access for video calls and to scan pairing QR codes from your other device.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs network access to connect to other users via P2P protocol.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access for voice calls.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Toxee saves received photos and videos to your library when you choose to.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Toxee needs access to your photo library to send photos and videos.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Toxee uses notifications to alert you to new messages, friend requests, and incoming calls.</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>audio</string>
+		<string>fetch</string>
+	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -40,77 +79,6 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	<!--
-	     M13 (2026-05-19 review): NSAllowsArbitraryLoads is required by
-	     transitive dependencies that use NSURLSession with arbitrary HTTP
-	     (SDWebImage for HTTP avatar/image URLs, GCDWebServer / HLS reverse
-	     proxy for in-app media). The Tox protocol itself uses BSD sockets
-	     and would not need ATS exceptions; we retain this only for those
-	     SDKs. KNOWN APP STORE SUBMISSION RISK: Apple review may require a
-	     justification or reject blanket `NSAllowsArbitraryLoads`. Before
-	     submission, replace the blanket allow with targeted
-	     <NSExceptionDomains> entries for the actual HTTP hosts you serve
-	     to those SDKs.
-	-->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<!-- Tox bootstrap may use plain UDP/TCP to known DHT nodes; ATS does not apply to UDP, kept for HTTP fallback paths -->
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app needs network access to connect to other users via P2P protocol.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_tox._tcp</string>
-	</array>
-	<key>UIFileSharingEnabled</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>This app needs microphone access for voice calls.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>This app needs camera access for video calls and to scan pairing QR codes from your other device.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Toxee needs access to your photo library to send photos and videos.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Toxee saves received photos and videos to your library when you choose to.</string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>Toxee uses notifications to alert you to new messages, friend requests, and incoming calls.</string>
-	<!--
-	     iOS background execution modes:
-	     - `voip`: keeps the VoIP socket alive when the app is backgrounded
-	       so calls already in progress (or invitations received while
-	       socket is still warm) can be handled. NOTE: this does NOT enable
-	       terminated-app receive — that requires PushKit + a relay server,
-	       which toxee doesn't have because Tox is pure P2P. See
-	       doc/architecture/MOBILE_BACKGROUND.en.md.
-	     - `audio`: keeps the audio session running during calls and
-	       ringtone playback when the app is backgrounded.
-	     - `fetch`: lets iOS occasionally wake the app to give the Tox
-	       polling loop a brief CPU slice via BGAppRefreshTask. Throttled
-	       by iOS based on usage patterns (no SLA).
-	-->
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>voip</string>
-		<string>audio</string>
-		<string>fetch</string>
-	</array>
-	<!--
-	     BGAppRefreshTask identifier registered by BackgroundTaskController.
-	     iOS only invokes handlers for identifiers listed here. Keep in
-	     sync with `BackgroundTaskController.refreshIdentifier`.
-	-->
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.toxee.app.refresh</string>
 	</array>
 </dict>
 </plist>

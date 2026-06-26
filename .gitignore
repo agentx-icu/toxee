@@ -56,6 +56,7 @@ tool/vendor_state.json
 .claude/
 .cache/
 .worktrees/
+.slim/deepwork/
 dist/
 
 # Canonical docs live in `doc/` (singular). Block accidental writes to the

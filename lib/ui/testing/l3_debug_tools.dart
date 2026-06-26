@@ -56,6 +56,10 @@ import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desk
         debugRealUiDesktopPasteImagePath;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart'
+    show debugRealUiMobileComposerSetText, debugRealUiMobileComposerSendText;
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
+    show debugRealUiDesktopComposerSendText;
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -377,6 +381,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3StartCallEntry());
   addMcpTool(_l3CallActionEntry());
   addMcpTool(_l3SendTextEntry());
+  addMcpTool(_l3ComposerSetTextEntry());
   addMcpTool(_l3ComposerSendEntry());
   addMcpTool(_l3MentionSendEntry());
   addMcpTool(_l3PasteImageEntry());
@@ -1359,6 +1364,25 @@ MCPCallEntry _l3SendTextEntry() => MCPCallEntry.tool(
 
 MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
   handler: (request) async {
+    final text = request['text']?.toString();
+    // Mixed macOS<->iOS / mobile: prefer the combined set-text-and-send seam so a
+    // macOS peer can send over the VM service while a Simulator peer holds the
+    // foreground (no osascript keystrokes), and the mobile composer (which
+    // ignores synthetic enterText) sends via the production path.
+    if (text != null) {
+      final combined = debugRealUiDesktopComposerSendText ??
+          debugRealUiMobileComposerSendText;
+      if (combined != null) {
+        combined(text);
+        return MCPCallResult(
+          message: 'composer text sent',
+          parameters: {'ok': true, 'length': text.length},
+        );
+      }
+    }
+    // Desktop / Windows: set the field DIRECTLY (flutter_skill enterText can't
+    // reach this composer's controller headless on Windows), then invoke the REAL
+    // Enter-send (the exact inputMethods.sendTextMessage path).
     final hook = debugRealUiDesktopComposerSend;
     if (hook == null) {
       return MCPCallResult(
@@ -1366,23 +1390,13 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'no_active_composer'},
       );
     }
-    // Optional `text`: set the composer field DIRECTLY before sending. On
-    // Windows flutter_skill enterText does not reliably populate this composer's
-    // controller (no coordinate-tap focus available headless), so a typed-then-
-    // Enter flow sends an empty message. Setting the text here makes
-    // multi-line / long / emoji sends deterministic.
-    final text = request['text']?.toString();
     if (text != null) {
       final setText = debugRealUiDesktopComposerSetText;
-      if (setText == null) {
-        return MCPCallResult(
-          message: 'l3_composer_send: no desktop composer setter mounted',
-          parameters: {'ok': false, 'error': 'no_active_composer_setter'},
-        );
+      if (setText != null) {
+        setText(text);
+        // Let the field rebuild with the new text before the send reads it.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
       }
-      setText(text);
-      // Let the field rebuild with the new text before the send reads it.
-      await Future<void>.delayed(const Duration(milliseconds: 60));
     }
     hook();
     return MCPCallResult(
@@ -1393,11 +1407,11 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
   definition: MCPToolDefinition(
     name: 'l3_composer_send',
     description:
-        'L3 TEST ONLY: invoke the desktop chat composer REAL Enter-to-send '
-        'action (the exact inputMethods.sendTextMessage path). With "text", set '
-        'the composer field directly first (deterministic, no enterText needed) '
-        'then send; without it, send whatever is currently in the field. The '
-        'headless/Windows equivalent of pressing Enter. Returns {ok, error?}.',
+        'L3 TEST ONLY: send the open chat composer text via the production '
+        'inputMethods.sendTextMessage path (the Enter-key / send-button code). '
+        'With "text" set the field first (deterministic); routes to the mobile / '
+        'mixed-run combined seam when mounted, else the desktop set-text+Enter '
+        'path. Returns {ok, error?}.',
     inputSchema: ObjectSchema(properties: {
       'text': StringSchema(
         description: 'Optional text to set in the composer before sending.',
@@ -1525,6 +1539,46 @@ MCPCallEntry _l3SetClipboardEntry() => MCPCallEntry.tool(
         'invisible to the app.',
     inputSchema: ObjectSchema(
       properties: {'text': StringSchema(description: 'Clipboard text')},
+    ),
+  ),
+);
+
+/// L3 real-UI seam: populate the MOBILE chat composer's text through its
+/// controller. The mobile composer is an ExtendedTextField that does NOT pick
+/// up flutter_skill's synthetic `enterText` (so its onChanged never fires and
+/// `chat_send_button` never appears). The mounted input registers
+/// `debugRealUiMobileComposerSetText` (debug builds); calling it fires the
+/// controller listener → reveals the send button → the driver then taps it for
+/// a REAL send. iOS/Android only — the desktop composer is keystroke-driven.
+MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    final text = request['text']?.toString() ?? '';
+    final setter = debugRealUiMobileComposerSetText;
+    if (setter == null) {
+      return MCPCallResult(
+        message: 'l3_composer_set_text: no mobile composer mounted '
+            '(open a chat first; desktop uses keystrokes)',
+        parameters: {'ok': false, 'error': 'no_composer'},
+      );
+    }
+    setter(text);
+    AppLogger.info('[L3] l3_composer_set_text: set composer text (${text.length} chars)');
+    return MCPCallResult(
+      message: 'composer text set',
+      parameters: {'ok': true, 'length': text.length},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_composer_set_text',
+    description:
+        'L3 TEST ONLY (mobile): set the open chat composer text via its '
+        'controller so the send button appears, enabling a real chat_send_button '
+        'tap. Synthetic enterText cannot drive the ExtendedTextField composer. '
+        'No-op error if no mobile composer is mounted.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'text': StringSchema(description: 'Composer text to set.'),
+      },
       required: ['text'],
     ),
   ),

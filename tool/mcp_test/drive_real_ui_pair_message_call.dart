@@ -89,7 +89,17 @@ Future<String?> _callState(Inst inst) async {
 Future<String?> _currentConversationId(Inst inst) async {
   final s = await inst.dumpState();
   final cur = (s['currentConversation'] as Map?)?.cast<String, dynamic>();
-  return cur?['conversationID']?.toString();
+  final desktop = cur?['conversationID']?.toString();
+  if (desktop != null && desktop.isNotEmpty) return desktop;
+  // Compact (mobile/iOS) layout: the open chat binds the home-shell route
+  // (`homeShellCurrentConversationId`), NOT the desktop master-detail
+  // `currentConversation` (which stays null on a phone). Without this fallback
+  // _chatSurfaceReady never matches on iOS even with the chat fully open +
+  // composer mounted, so openChat exhausts every path and throws — aborting the
+  // whole sweep at the first chat case.
+  final compact = s['homeShellCurrentConversationId']?.toString();
+  if (compact != null && compact.isNotEmpty) return compact;
+  return desktop;
 }
 
 Future<bool> _waitActiveChatPeerOnline(
@@ -327,6 +337,22 @@ Future<void> openChat(
   if (preferConversationList && await ready()) {
     return;
   }
+  // iOS: the conversation list lives in the home shell, but a pushed route (a
+  // just-accepted friend profile, a prior open chat, etc.) sits OVER it — so
+  // homeShellTab is still 'chats' yet the conversation row is OFFSTAGE behind
+  // the route. A tap then resolves to that offstage copy (observed:
+  // `ui_key_center candidates: 2`) and never navigates. Force a clean Chats
+  // root first (pops pushed routes / clears the profile context) so the row is
+  // onstage and tappable. Mirrors the screenshot pipeline's mobile openChat
+  // (l3_force_home_root tab:chats → tap row). Best-effort on a non-test account.
+  if (inst.isIos && !await ready()) {
+    try {
+      await inst.forceHomeRoot(tab: 'chats');
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    } on DriveError {
+      // non-test account → forceHomeRoot refused; fall through to the taps.
+    }
+  }
   if (preferConversationList &&
       await _homeShellTab(inst) == 'chats' &&
       await _waitConversationListed(inst, targetConversation)) {
@@ -363,7 +389,16 @@ Future<void> openChat(
   // under 2-process foreground contention — the root cause that gated every
   // chat sweep's first-chat-open) falls through to the deterministic
   // l3_open_chat navigation seam instead of aborting the whole case.
-  if (await _openChatViaContactsProfile(
+  //
+  // SKIPPED on the iOS Simulator: this path does a heavy forceHomeRoot +
+  // ensureContactsShell + profile-navigation burst (~4.5s), and under sustained
+  // backgrounded sim driving that burst intermittently TERMINATES the app (the
+  // chat-open sim death). The l3_open_chat seam below is the SAME production
+  // `_openChat` path but light, so on iOS we go straight to it. The
+  // conversation-list row tap above remains the primary real-UI open; only this
+  // heavy no-row fallback is replaced. Desktop keeps the full real flow.
+  if (!inst.isIos &&
+      await _openChatViaContactsProfile(
     inst,
     fullId: fullId,
     friendPubkey: friendPubkey,
@@ -580,6 +615,19 @@ Future<bool> sendComposerMessage(
   if (_isWindowsRealUi) {
     return _sendComposerMessageWindows(inst, text, clearFirst: clearFirst);
   }
+  // iOS Simulator: System Events keystrokes (osaClear/osaPaste/osaReturn) cannot
+  // reach the sim, and the mobile composer has a real tappable send button. Type
+  // via flutter_skill synthetic input and tap chat_send_button instead. (The
+  // synthetic enterText that SIGSEGVs the macOS Flutter engine on the desktop
+  // ExtendedTextField is safe on the iOS mobile input.)
+  // Route to the VM-service composer seam (l3_composer_send) for BOTH the iOS
+  // peer (the Simulator can't receive System Events) AND the macOS peer of a
+  // mixed macOS+iOS pair (osascript paste/return would steal focus + background
+  // the Simulator, killing the sim peer). l3_composer_send auto-selects the
+  // desktop or mobile composer hook.
+  if (inst.isIos || _mixedMacosIos) {
+    return _sendComposerMessageIos(inst, text);
+  }
   for (var outer = 0; outer < 2; outer++) {
     await inst.foreground();
     // The outer `chat_input_text_field` key is a reliable presence anchor, but
@@ -653,6 +701,36 @@ Future<bool> _sendComposerMessageWindows(
         await Future<void>.delayed(const Duration(milliseconds: 300));
       }
     }
+  }
+  return false;
+}
+
+/// iOS real-UI composer send: focus the mobile composer, enter the text via
+/// flutter_skill synthetic input (which flips the input's `_showSendButton` on
+/// via onChanged), then tap the keyed mobile send button. Verifies by polling
+/// the conversation's last message. No osascript — the Simulator can't receive
+/// System Events. `enterText` REPLACES the field contents, so a stale draft is
+/// implicitly cleared (no separate clear step).
+Future<bool> _sendComposerMessageIos(Inst inst, String text) async {
+  for (var attempt = 0; attempt < 6; attempt++) {
+    if (!await inst.waitKey('chat_input_text_field', timeoutSecs: 8)) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      continue;
+    }
+    // The mobile composer is an ExtendedTextField that ignores flutter_skill's
+    // synthetic enterText, AND a synthetic tap on chat_send_button does not
+    // reliably fire its InkWell.onTap on a compact phone (diagnosed live: the
+    // send button renders but the tap never invokes sendTextMessage, so the
+    // message stays in the composer). l3_composer_send sets the text and invokes
+    // the SAME production inputMethods.sendTextMessage the button onTap calls —
+    // the send LOGIC stays the real app path; only the tap gesture is replaced.
+    final sent = await inst.l3('l3_composer_send', {'text': text});
+    if (sent['ok'] != true) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      continue;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    if (await _anyConversationLastMessageIs(inst, text)) return true;
   }
   return false;
 }

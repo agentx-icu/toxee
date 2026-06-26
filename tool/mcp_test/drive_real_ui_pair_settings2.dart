@@ -182,8 +182,8 @@ Future<bool> _settingsScrollTo(Inst inst, String targetKey) async {
   return _scrollKeyIntoBand(
     inst,
     targetKey,
-    topBand: _isIosRealUi ? 80 : _settingsViewTop,
-    bottomBand: _isIosRealUi ? 620 : _settingsViewBottom,
+    topBand: inst.isIos ? 80 : _settingsViewTop,
+    bottomBand: inst.isIos ? 620 : _settingsViewBottom,
   );
 }
 
@@ -206,9 +206,9 @@ Future<bool> _scrollKeyIntoBand(
   // the band straight to above it between checks (the "never reached" overshoot).
   double? prevCy;
   var stalledScans = 0;
-  final maxSteps = _isIosRealUi ? 45 : 30;
-  final scrollDelta = _isIosRealUi ? 110.0 : 160.0;
-  final maxBottom = _isIosRealUi ? 690.0 : _settingsViewBottomMax;
+  final maxSteps = inst.isIos ? 45 : 30;
+  final scrollDelta = inst.isIos ? 110.0 : 160.0;
+  final maxBottom = inst.isIos ? 690.0 : _settingsViewBottomMax;
   for (var step = 0; step < maxSteps; step++) {
     final cy = await _keyedCenterY(inst, targetKey);
     if (cy != null && cy >= topBand && cy <= bottomBand) return true;

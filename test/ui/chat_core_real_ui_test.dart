@@ -373,7 +373,7 @@ void main() {
       final emojiBtn = find.byKey(const ValueKey('emoji_panel_button'));
       expect(emojiBtn, findsOneWidget);
       // Initial state: emoji glyph shown, keyboard-toggle glyph absent.
-      expect(find.byIcon(Icons.emoji_emotions), findsOneWidget);
+      expect(find.byIcon(Icons.emoji_emotions_outlined), findsOneWidget);
       expect(find.byIcon(Icons.keyboard_alt_outlined), findsNothing);
 
       await tester.tap(emojiBtn);
@@ -382,7 +382,7 @@ void main() {
       // Toggled: the glyph flips to the keyboard-toggle icon (panel-open state),
       // and the emoji glyph is gone — proving the keyed button drives the toggle.
       expect(find.byIcon(Icons.keyboard_alt_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.emoji_emotions), findsNothing);
+      expect(find.byIcon(Icons.emoji_emotions_outlined), findsNothing);
     },
   );
 

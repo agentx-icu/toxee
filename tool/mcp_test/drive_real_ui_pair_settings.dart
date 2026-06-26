@@ -41,7 +41,7 @@ Future<void> _openSettings(Inst inst) async {
       await returnToChatsHome(inst, rounds: 3);
     }
     if (round > 0) {
-      if (!_isIosRealUi) {
+      if (!inst.isIos) {
         try {
           await inst.osaEscape();
         } on DriveError {
@@ -68,7 +68,7 @@ Future<void> _openSettings(Inst inst) async {
     if (!await inst.tapKeyCenter('sidebar_settings_tab')) {
       await inst.tryTapKey('sidebar_settings_tab');
     }
-    if (_isIosRealUi && !await _settingsTabActive(inst)) {
+    if (inst.isIos && !await _settingsTabActive(inst)) {
       if (!await inst.tapKeyCenter('bottom_nav_settings_tab', timeoutSecs: 4)) {
         await inst.tryTapKey('bottom_nav_settings_tab');
       }
@@ -90,7 +90,7 @@ Future<void> _openSettings(Inst inst) async {
 }
 
 Future<bool> _openMobileAccountManagement(Inst inst) async {
-  if (!_isIosRealUi) return true;
+  if (!inst.isIos) return true;
   await _openSettings(inst);
   if (await inst.waitKey('settings_logout_button', timeoutSecs: 1) ||
       await inst.waitKey('settings_set_password_button', timeoutSecs: 1)) {
@@ -105,15 +105,40 @@ Future<bool> _openMobileAccountManagement(Inst inst) async {
 }
 
 Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
-  if (!_isIosRealUi) return false;
-  await _openSettings(inst);
-  if (!await _tryTapText(inst, title)) return false;
-  await Future<void>.delayed(const Duration(milliseconds: 700));
-  return true;
+  if (!inst.isIos) return false;
+  // Drilling into a mobile settings sub-section pushes a new route whose AppBar
+  // leading carries `settings_mobile_section_back_button` (see
+  // SettingsPage._pushMobileSettingsSection). The previous implementation tapped
+  // the section title and returned true after a fixed 700ms WITHOUT confirming
+  // the push landed. On a just-booted/cold app (the first drill-in right after
+  // login) the title tap could fire before the index list was hit-testable, so
+  // the section never opened yet the helper reported success — the caller's
+  // `waitKey` then raced a page that was not there and the case flaked. Confirm
+  // the route actually pushed (back button present), and retry the tap. This
+  // mirrors the self-verifying open in _openMobileAccountManagement.
+  for (var attempt = 0; attempt < 3; attempt++) {
+    // If a prior step left us inside a section (mis-popped), the index title is
+    // not tappable — pop back out first.
+    if (await inst.waitKey(
+      'settings_mobile_section_back_button',
+      timeoutSecs: 1,
+    )) {
+      await _backFromMobileSettingsSection(inst);
+    }
+    await _openSettings(inst);
+    if (await _tryTapText(inst, title) &&
+        await inst.waitKey(
+          'settings_mobile_section_back_button',
+          timeoutSecs: 4,
+        )) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Future<void> _backFromMobileSettingsSection(Inst inst) async {
-  if (!_isIosRealUi) return;
+  if (!inst.isIos) return;
   if (!await inst.tapKeyCenter(
     'settings_mobile_section_back_button',
     timeoutSecs: 3,

@@ -76,7 +76,7 @@ Future<String> _logoutToLoginPage(Inst inst) async {
     print('[pair] logout: no current toxId');
     return '';
   }
-  if (_isIosRealUi) {
+  if (inst.isIos) {
     if (!await _openMobileAccountManagement(inst)) {
       print('[pair] logout: Account Management section did not open');
       return '';
@@ -90,7 +90,7 @@ Future<String> _logoutToLoginPage(Inst inst) async {
   // lands on nothing and the confirm dialog never opens ("logout: confirm
   // dialog did not open"). Scroll it into the visible band first, then
   // center-tap its resolved position (tryTapKey fallback).
-  if (!_isIosRealUi &&
+  if (!inst.isIos &&
       !await _settingsScrollTo(inst, 'settings_logout_button')) {
     print('[pair] logout: logout button not in band');
   }
@@ -444,7 +444,7 @@ Future<bool> _registerPasswordStrengthFlips(Inst inst) async {
 /// direct off-screen `_tryInvokeCallback` fires exactly once). Returns whether
 /// the dialog's keyed field appeared.
 Future<bool> _openSetPasswordDialog(Inst inst) async {
-  if (_isIosRealUi) {
+  if (inst.isIos) {
     if (!await _openMobileAccountManagement(inst)) {
       print('[pair] set_password: Account Management section did not open');
       return false;
@@ -452,7 +452,7 @@ Future<bool> _openSetPasswordDialog(Inst inst) async {
   } else {
     await _openSettings(inst);
   }
-  final onScreen = _isIosRealUi
+  final onScreen = inst.isIos
       ? await inst.waitKey('settings_set_password_button', timeoutSecs: 4)
       : await _settingsScrollTo(inst, 'settings_set_password_button');
   if (onScreen) {

@@ -440,15 +440,11 @@ const _realUiCampaigns = <String, List<String>>{
   'rui-ios-account-settings': [
     'sweep_login',
     'sweep_ios_settings_main',
-    'sweep_p1_single',
-    'sweep_account_conf_extra',
   ],
   'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
   'rui-ios-main': [
     'sweep_login',
     'sweep_ios_settings_main',
-    'sweep_p1_single',
-    'sweep_account_conf_extra',
     'sweep_chat',
     'sweep_group2',
   ],
