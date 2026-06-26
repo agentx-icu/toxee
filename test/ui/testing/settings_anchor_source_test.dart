@@ -14,6 +14,9 @@ void main() {
   final settingsPage = File(
     'lib/ui/settings/settings_page.dart',
   ).readAsStringSync();
+  final settingsWidgets = File(
+    'lib/ui/settings/settings_page_widgets.dart',
+  ).readAsStringSync();
 
   _expectContains(
     uiKeys,
@@ -56,12 +59,12 @@ void main() {
     'settings copy button attachment',
   );
   _expectContains(
-    settingsBuild,
+    settingsWidgets,
     'key: UiKeys.settingsSetPasswordButton',
     'settings set-password button attachment',
   );
   _expectContains(
-    settingsBuild,
+    settingsWidgets,
     'key: UiKeys.settingsLogoutButton',
     'settings logout button attachment',
   );
