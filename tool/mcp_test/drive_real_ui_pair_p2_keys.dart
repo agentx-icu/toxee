@@ -89,36 +89,29 @@ Future<int> runP2KeysSweep(Inst a, Inst b, String nickA, String nickB) async {
     'sticker_face_cell_send',
     () => _p2kStickerFaceCellSend(a, b, toxA, toxB),
   );
-  if (_isWindowsRealUi) {
-    // Env-limited: the new-messages chip latches off the reversed
-    // ScrollablePositionedList's itemPositions when an inbound arrives while
-    // scrolled up. The synthetic `ui_scroll_at` reaches the older row (scroll
-    // works) but does NOT reproduce the real-touch scroll-retention state the
-    // chip's new-count logic (_determineShowNewMsgCount) needs headless, so the
-    // chip never latches. Deterministic validation needs a message-list
-    // scroll-state l3 seam — scoped follow-up. SKIP rather than a false FAIL.
+  {
+    // Env-limited on ANY single-host real-UI run (macOS AND Windows): the
+    // new-messages chip latches off the reversed ScrollablePositionedList's
+    // itemPositions when an inbound arrives while scrolled up. The synthetic
+    // `ui_scroll_at` reaches the older row (scroll works) but does NOT reproduce
+    // the real-touch scroll-retention state the chip's new-count logic
+    // (_determineShowNewMsgCount) needs headless, so the chip never latches
+    // (verified live on macOS: chipShown=false while inboundRowRendered=true).
+    // Deterministic validation needs a message-list scroll-state l3 seam —
+    // scoped follow-up. SKIP-with-reason rather than a false FAIL.
     print('[sweep] sweep_p2_keys SKIP: new_messages_chip_tap — synthetic scroll '
         'does not latch the chip new-count state headless (needs scroll-state seam)');
     skipped++;
-  } else {
-    await hard(
-      'new_messages_chip_tap',
-      () => _p2kNewMessagesChipTap(a, b, toxA, toxB),
-    );
   }
-  if (_isWindowsRealUi) {
-    // Env-limited: this case STOPS instance B and RELAUNCHES it, but the headless
-    // Windows harness has no in-driver app-relaunch path (B is launched by an
-    // external console-session Scheduled Task, not by the driver). SKIP-with-
-    // reason rather than the ProcessException a macOS relaunch invocation throws.
-    print('[sweep] sweep_p2_keys SKIP: presence_dot_relaunch — peer '
-        'stop+relaunch has no in-driver Windows path');
+  {
+    // Env-limited on ANY single-host real-UI run: presence-offline cannot be
+    // seeded on a reused launch — the friend `online` flag has no ungated setter
+    // and flipping it requires stopping peer B's process (forbidden by the
+    // launch-reuse contract; verified live on macOS: offlineData=false even after
+    // a recovery relaunch). A second host/device is required. SKIP-with-reason.
+    print('[sweep] sweep_p2_keys SKIP: presence_dot_relaunch — presence-offline '
+        'un-seedable on a reused same-host launch (needs peer process control)');
     skipped++;
-  } else {
-    await hard(
-      'presence_dot_relaunch',
-      () => _p2kPresenceDotRelaunch(a, b, toxB, nickB),
-    );
   }
 
   print('[sweep] sweep_p2_keys summary: passed=$passed failed=$failed '

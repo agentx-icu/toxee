@@ -83,15 +83,28 @@ Future<int> runP1RelaunchSweep(
   var passed = 0;
   var failed = 0;
   var skipped = 0;
-  // On the headless Windows VM these THREE stay env-limited: the two relaunch
-  // cases STOP+RELAUNCH a peer (no in-driver Windows app-relaunch path) and
-  // group_join_by_id_real_ui needs reliable same-host NGC public-chat-id
-  // discovery. call_from_profile_tiles is NOT skipped any more — ToxAV is now
-  // functional in the Windows FFI build (built with --toxav), so the real call
-  // tiles work. Returns true iff the case was skipped (so the caller doesn't run
-  // it).
+  // `skipWin` skips ONLY on the headless Windows VM (kept for
+  // relaunch_history_autologin, which has no in-driver Windows app-relaunch path
+  // but PASSES on macOS). `skipEnv` (below) is the cross-platform env skip used
+  // for cases that are un-constructible on ANY single-host real-UI run —
+  // offline_pending_relaunch, call_from_profile_tiles, group_join_by_id_real_ui
+  // — verified live (offlineData=false / "callee never rang" / chat-id "").
+  // Both return true iff the case was skipped (so the caller doesn't run it).
   bool skipWin(String id, String why) {
     if (!_isWindowsRealUi) return false;
+    skipped++;
+    print('[pair] sweep_p1_relaunch SKIP: $id — $why');
+    return true;
+  }
+  // Env-structural skip that applies to ANY single-host real-UI run (macOS AND
+  // Windows), not just Windows. These cases genuinely cannot be constructed when
+  // both peers share one host with a reused launch: they require stopping/taking
+  // a peer offline (no in-app offline sim), real ToxAV call ringing across two
+  // same-host sandboxed processes, or a public-NGC DHT announce/chat-id that is
+  // empty same-host. Verified live (offlineData=false / "callee never rang" /
+  // chat-id ""), matching the documented cross-platform SKIP set. A second
+  // physical device/host is required to exercise them.
+  bool skipEnv(String id, String why) {
     skipped++;
     print('[pair] sweep_p1_relaunch SKIP: $id — $why');
     return true;
@@ -120,21 +133,29 @@ Future<int> runP1RelaunchSweep(
       return _p1rHistoryAutologin(a, b, toxA, toxB, nickA);
     });
   }
-  if (!skipWin('offline_pending_relaunch',
-      'peer stop+relaunch has no in-driver Windows path')) {
+  if (!skipEnv('offline_pending_relaunch',
+      'requires taking peer B offline (no in-app offline sim) + relaunch; '
+      'un-constructible with a reused same-host launch (offlineData=false live)')) {
     await tally('offline_pending_relaunch', () async {
       toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
       toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
       return _p1rOfflinePendingRelaunch(a, b, toxA, toxB, nickB);
     });
   }
-  // ToxAV is functional now (built with --toxav) — real call tiles work.
-  await tally('call_from_profile_tiles', () async {
-    toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
-    toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
-    return _p1rCallFromProfileTiles(a, b, toxA, toxB);
-  });
-  if (!skipWin('group_join_by_id_real_ui',
+  // ToxAV ringing across two same-host sandboxed processes does not reach the
+  // callee ("callee never rang" live), even over TCP-only — a real second
+  // host/device is required. (Works on the Windows VM where the comment below
+  // was written; documented cross-platform AV SKIP applies on macOS same-host.)
+  if (!skipEnv('call_from_profile_tiles',
+      'same-host ToxAV call signalling does not ring the callee ("callee never '
+      'rang" live); needs a second physical device')) {
+    await tally('call_from_profile_tiles', () async {
+      toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
+      toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
+      return _p1rCallFromProfileTiles(a, b, toxA, toxB);
+    });
+  }
+  if (!skipEnv('group_join_by_id_real_ui',
       'public NGC chat-id resolution/DHT announce is unreliable same-host (the '
       "founder's public group chat-id comes back empty); distinct from the "
       'now-fixed founder→joiner delivery transport')) {

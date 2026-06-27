@@ -268,12 +268,14 @@ Future<String> _gmTypeMentionAndSend(
   String mentionKey,
   String nonce,
 ) async {
-  // Windows: a freshly-created group sorts to the conversation-list bottom where
-  // a synthetic coordinate row-tap doesn't reliably fire its onTap (→
-  // currentConversation null). Open via the production _openChat seam (the
-  // asserted action is the @-mention, not opening the group).
-  await openGroupChat(a,
-      groupId: gidA, groupName: gname, viaL3Seam: _isWindowsRealUi);
+  // A freshly-created group sorts to the conversation-list bottom (no message →
+  // ts 0) where a synthetic coordinate row-tap doesn't reliably fire its onTap
+  // (→ currentConversation null). This is timing-sensitive and reproduces on
+  // macOS too, especially under same-host TCP-only transport (slower group
+  // connect). Open via the production `_openChat` seam on ALL platforms — the
+  // asserted action here is the @-mention insert + send, NOT opening the group
+  // from the list (that row-tap is covered by group-create / group2 sweeps).
+  await openGroupChat(a, groupId: gidA, groupName: gname, viaL3Seam: true);
   await a.foreground();
   await Future<void>.delayed(const Duration(milliseconds: 400));
   await a.tapAt(_composerX, _composerY);

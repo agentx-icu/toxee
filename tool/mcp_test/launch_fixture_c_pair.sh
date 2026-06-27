@@ -148,7 +148,22 @@ launch_pair_once() (
             "$MCP_DIR/restore_fixture_c_pair.sh"
     fi
 
-    "$MCP_DIR/launch_toxee_instance.sh" A
+    # Same-host TCP-only mode (opt-in via TOXEE_PAIR_TCP_ONLY=1). On a single host
+    # two sandboxed Toxee processes cannot reliably exchange NGC group traffic over
+    # UDP loopback (c-toxcore gcc_send_packet early-returns UDP-only once a link is
+    # inferred "direct", and same-host outbound UDP loopback is black-holed). Force
+    # both peers TCP-only and make A a localhost TCP relay (port 3389, which B's
+    # add_bootstrap_node already probes) so group/conference delivery is
+    # deterministic. Empty when not opted in → identical to the previous default.
+    A_TCP_ENV=()
+    B_TCP_ENV=()
+    if [[ "${TOXEE_PAIR_TCP_ONLY:-}" == "1" || "${TOXEE_PAIR_TCP_ONLY:-}" == "true" ]]; then
+        A_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="${TOXEE_PAIR_TCP_RELAY_PORT:-3389}")
+        B_TCP_ENV=(TOX_FORCE_TCP_ONLY=1)
+        echo "launch_fixture_c_pair.sh: TCP-only same-host mode ON (A relay port ${TOXEE_PAIR_TCP_RELAY_PORT:-3389})" >&2
+    fi
+
+    env ${A_TCP_ENV[@]+"${A_TCP_ENV[@]}"} "$MCP_DIR/launch_toxee_instance.sh" A
     wait_for_instance_json "$RUNTIME_ROOT/A/instance.json"
     A_WS_URI="$(jq -r '.ws_uri' "$RUNTIME_ROOT/A/instance.json")"
     if [[ "$SKIP_VM_PROBE" != "1" ]]; then
@@ -160,7 +175,7 @@ launch_pair_once() (
     # the rest of the harness unchanged.
     APP_B_COPY="$COPIES_DIR/ToxeeB-$(date +%s)-$$.app"
     /usr/bin/ditto "$APP_BUNDLE" "$APP_B_COPY"
-    TOXEE_APP_BUNDLE="$APP_B_COPY" "$MCP_DIR/launch_toxee_instance.sh" B
+    env ${B_TCP_ENV[@]+"${B_TCP_ENV[@]}"} TOXEE_APP_BUNDLE="$APP_B_COPY" "$MCP_DIR/launch_toxee_instance.sh" B
     wait_for_instance_json "$RUNTIME_ROOT/B/instance.json"
     B_WS_URI="$(jq -r '.ws_uri' "$RUNTIME_ROOT/B/instance.json")"
     if [[ "$SKIP_VM_PROBE" != "1" ]]; then
