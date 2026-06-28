@@ -49,6 +49,39 @@ flutter test integration_test/ --exclude-tags=needs-native  # Same but skip smok
 (cd third_party/tim2tox/auto_tests && RUN_VIRTUAL=1 ./run_tests_ordered.sh 1,3,12 14)
 ```
 
+### L3 single-process MCP suite — same 46 specs on all five platforms
+
+`tool/mcp_test/run_l3_scenarios.dart` is platform-agnostic: it attaches to ANY
+reachable Dart VM service whose app was built with `--dart-define=TOXEE_L3_TEST=true`.
+The per-platform launchers below build with that define, expose the VM service,
+and write the ws URI to `build/vm_service_uri.txt`; the runner then attaches
+**unchanged**. `--class=l3-gate` selects the hermetic (no-echo-peer) partition
+that runs identically everywhere. Each launcher runs in its own OS context
+(desktop builds are local to that OS; Android/iOS attach from a host with the
+device).
+
+```bash
+# macOS (reference): build+launch writes build/vm_service_uri.txt, then attach.
+MCP_BINDING=marionette ./run_toxee.sh        # in another shell / TOXEE_BUILD_ONLY=1 to build only
+dart run tool/mcp_test/run_l3_scenarios.dart "$(cat build/vm_service_uri.txt)" --class=l3-gate
+
+# Linux (run ON the Linux box) — one-shot: launch, run the hermetic suite, tear down.
+./run_toxee_linux.sh --run-l3
+
+# Android (run on a host with adb + a connected device/emulator; FFI .so in jniLibs first
+# via tool/build_android_ffi.sh). flutter run --machine auto-forwards the device VM service.
+./run_toxee_android.sh --action l3 --run-l3
+
+# iOS Simulator (reuses the existing instance launcher; TOXEE_IOS_DEVICE_TYPE=tablet for iPad).
+tool/mcp_test/launch_toxee_ios_instance.sh A   # writes .ios_runtime/A/instance.json (ws_uri)
+dart run tool/mcp_test/run_l3_scenarios.dart "$(jq -r .ws_uri tool/mcp_test/.ios_runtime/A/instance.json)" --class=l3-gate
+```
+
+```powershell
+# Windows (run ON the Windows host, PowerShell 5.1+).
+powershell -ExecutionPolicy Bypass -File run_toxee_windows.ps1 -RunL3
+```
+
 If `flutter pub get` fails with a `package_config.json` parse error, run `dart tool/bootstrap_deps.dart` (note: no `run`) before retrying — `pubspec_overrides.yaml` must be generated before pub resolution.
 
 Day-to-day development is centered on macOS. iOS/Android builds need extra platform setup (see `doc/operations/BUILD_AND_DEPLOY.en.md`).
