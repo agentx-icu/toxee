@@ -10,11 +10,76 @@ VM_PROBE_DART="$MCP_DIR/probe_vm_service.dart"
 FIXTURE_RESTORE_MODE="${TOXEE_FIXTURE_C_RESTORE:-}"
 SKIP_VM_PROBE="${TOXEE_IOS_SKIP_VM_PROBE:-0}"
 DEVICE_TYPE="${TOXEE_IOS_DEVICE_TYPE:-phone}"
+FIXTURES_DIR="$MCP_DIR/fixtures"
+FIXTURE_MANIFEST="${TOXEE_FIXTURE_C_MANIFEST:-$FIXTURES_DIR/paired_for_e2e_manifest.json}"
 
+# iOS fixture restore: copy a PRE-PAIRED snapshot (accounts already registered +
+# already mutual friends + chat history) into each instance's app_support dir so
+# scenarios SKIP registration + friend-add (the drivers boot it via
+# l3_boot_existing_account). iOS reuses the portable macOS paired_for_e2e
+# snapshot: tox_profile.tox is Tox savedata (keypair + friend list) and the chat
+# history is Dart-side JSON — both platform-independent — and launch_toxee_ios_
+# instance.sh points the app's TOXEE_APP_SUPPORT_DIR at $RUNTIME_ROOT/<name>/
+# app_support, the same support-root contract macOS restore_fixture_c_pair.sh uses.
+RESTORE_ENABLED=0
 if [[ -n "$FIXTURE_RESTORE_MODE" ]]; then
-    echo "launch_ios_fixture_c_pair.sh: TOXEE_FIXTURE_C_RESTORE is not implemented for iOS yet ($FIXTURE_RESTORE_MODE)" >&2
-    exit 66
+    case "$FIXTURE_RESTORE_MODE" in
+        paired_for_e2e) RESTORE_ENABLED=1 ;;
+        *)
+            echo "launch_ios_fixture_c_pair.sh: unsupported TOXEE_FIXTURE_C_RESTORE mode for iOS: $FIXTURE_RESTORE_MODE (only paired_for_e2e)" >&2
+            exit 66 ;;
+    esac
+    [[ -f "$FIXTURE_MANIFEST" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: fixture manifest missing: $FIXTURE_MANIFEST" >&2
+        exit 66
+    }
+    command -v jq >/dev/null 2>&1 || {
+        echo "launch_ios_fixture_c_pair.sh: jq required for fixture restore" >&2
+        exit 66
+    }
 fi
+
+# Copy the paired snapshot for one instance into its app_support dir. Must run
+# AFTER the per-instance runtime dir is wiped (below) and BEFORE that instance's
+# app boots, so l3_boot_existing_account finds the restored profile.
+restore_ios_instance() {
+    local name="$1"
+    local fixture_dir tox_id friend_id prefix src dest profile_file history_file
+    fixture_dir="$(jq -r --arg n "$name" '.instances[$n].fixture_dir // empty' "$FIXTURE_MANIFEST")"
+    tox_id="$(jq -r --arg n "$name" '.instances[$n].tox_id // empty' "$FIXTURE_MANIFEST")"
+    friend_id="$(jq -r --arg n "$name" '.instances[$n].friend_tox_id // empty' "$FIXTURE_MANIFEST")"
+    [[ -n "$fixture_dir" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: manifest missing instances.$name.fixture_dir" >&2
+        exit 66
+    }
+    [[ -n "$tox_id" && -n "$friend_id" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: manifest missing instances.$name.tox_id/friend_tox_id" >&2
+        exit 66
+    }
+    prefix="${tox_id:0:16}"
+    src="$FIXTURES_DIR/$fixture_dir"
+    dest="$RUNTIME_ROOT/$name/app_support"
+    profile_file="$dest/profiles/p_${prefix}/tox_profile.tox"
+    history_file="$dest/account_data/${prefix}/chat_history/${friend_id}.json"
+    [[ -d "$src" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: fixture source missing for $name: $src" >&2
+        exit 66
+    }
+    mkdir -p "$dest"
+    cp -a "$src/." "$dest/"
+    # Post-copy integrity checks (mirror restore_fixture_c_pair.sh): catch a
+    # partial/mislaid snapshot here with a deterministic message instead of a
+    # cryptic l3_boot_existing_account failure after launch.
+    [[ -f "$profile_file" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: $name restore missing profile: $profile_file" >&2
+        exit 66
+    }
+    [[ -f "$history_file" ]] || {
+        echo "launch_ios_fixture_c_pair.sh: $name restore missing chat history: $history_file" >&2
+        exit 66
+    }
+    echo "[ios-restore] $name <- $src"
+}
 
 wait_for_instance_json() {
     local path="$1"
@@ -71,6 +136,7 @@ select_simulators() {
 write_pair_json() {
     /usr/bin/python3 - "$RUNTIME_ROOT/A/instance.json" "$RUNTIME_ROOT/B/instance.json" "$PAIR_JSON" <<'PY'
 import json
+import os
 import sys
 
 a_file, b_file, out_file = sys.argv[1:4]
@@ -79,13 +145,15 @@ with open(a_file) as fa:
 with open(b_file) as fb:
     b = json.load(fb)
 
+restore_mode = os.environ.get("TOXEE_FIXTURE_C_RESTORE") or None
+
 doc = {
     "format_version": 1,
     "instances": {"A": a, "B": b},
     "fixture_restore": {
-        "mode": None,
+        "mode": restore_mode,
         "report": None,
-        "restored": None,
+        "restored": restore_mode is not None,
     },
     "checks": {
         "distinct_pids": a["pid"] != b["pid"],
@@ -123,6 +191,7 @@ fi
 # TOXEE_IOS_TCP_RELAY_PORT (default 3389); B connects to it as a client below.
 # Both sims share the host network stack, so enabling a relay on BOTH makes the
 # second tox_new fail with TOX_ERR_NEW_PORT_ALLOC — hence A only.
+if [[ "$RESTORE_ENABLED" == "1" ]]; then restore_ios_instance A; fi
 TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_SIMULATOR_ID="${SIMULATORS[0]}" \
     TOXEE_IOS_TCP_RELAY_PORT="${TOXEE_IOS_TCP_RELAY_PORT:-3389}" \
@@ -138,6 +207,7 @@ fi
 # continuous DHT/relay network I/O) keeps getting RunningBoard background grace —
 # which is why the relay peer A survives sustained driving while a plain client
 # peer is killed. Giving B its own relay extends the same survival to B.
+if [[ "$RESTORE_ENABLED" == "1" ]]; then restore_ios_instance B; fi
 TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_SIMULATOR_ID="${SIMULATORS[1]}" \
     TOXEE_IOS_TCP_RELAY_PORT="$(( ${TOXEE_IOS_TCP_RELAY_PORT:-3389} + 1 ))" \

@@ -894,6 +894,7 @@ class _Entry {
     required this.driverArgs,
     required this.scenarioCommands,
     required this.legacyOnly,
+    required this.tcpOnly,
     required this.launchNote,
   });
 
@@ -909,6 +910,11 @@ class _Entry {
   final List<String> driverArgs;
   final List<String> scenarioCommands;
   final bool legacyOnly;
+  // Same-host NGC two-process discovery is ~40% flaky over UDP, so NGC gates
+  // (join/member_list) launch their shared pair with TOXEE_PAIR_TCP_ONLY=1 —
+  // which makes same-host NGC deterministic — instead of relaunching a fresh
+  // UDP pair per attempt. Routes the entry into the 'ngc-paired-reuse' group.
+  final bool tcpOnly;
   final String? launchNote;
 
   factory _Entry.fromJson(int index, Map<String, dynamic> json) {
@@ -925,6 +931,7 @@ class _Entry {
       driverArgs: _stringList(json['driverArgs']),
       scenarioCommands: _stringList(json['scenarioCommands']),
       legacyOnly: json['legacyOnly'] == true,
+      tcpOnly: json['tcpOnly'] == true,
       launchNote: json['launchNote']?.toString(),
     );
   }
@@ -941,6 +948,7 @@ class _Entry {
       'driver': driver,
       'driverArgs': driverArgs,
       'legacyOnly': legacyOnly,
+      if (tcpOnly) 'tcpOnly': tcpOnly,
     };
     if (scenarioCommands.isNotEmpty) {
       doc['scenarioCommands'] = scenarioCommands;
@@ -1048,6 +1056,7 @@ class _Plan {
 
   factory _Plan.fromEntries(List<_Entry> entries, {required _Options opts}) {
     final paired = <_PlannedEntry>[];
+    final ngc = <_PlannedEntry>[];
     final fresh = <_PlannedEntry>[];
     final media = <_PlannedEntry>[];
     final realUi = <_PlannedEntry>[];
@@ -1075,6 +1084,8 @@ class _Plan {
         }
       } else if (entry.legacyOnly) {
         legacy.add(planned);
+      } else if (entry.tcpOnly) {
+        ngc.add(planned);
       } else {
         paired.add(planned);
       }
@@ -1082,6 +1093,7 @@ class _Plan {
 
     return _Plan([
       if (paired.isNotEmpty) _Group('paired-reuse', paired),
+      if (ngc.isNotEmpty) _Group('ngc-paired-reuse', ngc),
       for (final entry in fresh) _Group('fresh-isolated', [entry]),
       if (media.isNotEmpty) _Group('media-paired-reuse', media),
       if (realUi.isNotEmpty) _Group('real-ui', realUi),
@@ -1188,6 +1200,20 @@ List<String> _commandsForGroup(_Group group) {
     case 'media-paired-reuse':
       return [
         _launchPairCommand(restore: 'paired_for_e2e'),
+        // Boot+verify the pair once up front: unlike the other media drivers,
+        // drive_fixture_c_call.dart does not self-boot, and the boot is
+        // idempotent for the ones that do (their ensureReady skips when
+        // sessionReady is already true).
+        _pairBootCommand(),
+        for (final entry in group.entries)
+          _symbolicDriverCommand(entry.entry, paired: true),
+        _stopPairCommand(),
+      ];
+    case 'ngc-paired-reuse':
+      // NGC join/member_list on ONE TCP-only shared pair (deterministic
+      // same-host NGC) instead of relaunching a fresh UDP pair per attempt.
+      return [
+        _launchPairCommand(restore: 'paired_for_e2e', tcpOnly: true),
         for (final entry in group.entries)
           _symbolicDriverCommand(entry.entry, paired: true),
         _stopPairCommand(),
@@ -1921,12 +1947,20 @@ Map<String, String> _realUiDriverEnv() => {
   'TOXEE_REAL_UI_PLATFORM': _realUiPlatform,
 };
 
-String _launchPairCommand({String? restore}) {
+String _launchPairCommand({String? restore, bool tcpOnly = false}) {
+  final prefix = tcpOnly ? 'TOXEE_PAIR_TCP_ONLY=1 ' : '';
   if (restore == null || restore.isEmpty) {
-    return 'tool/mcp_test/launch_fixture_c_pair.sh';
+    return '${prefix}tool/mcp_test/launch_fixture_c_pair.sh';
   }
-  return 'TOXEE_FIXTURE_C_RESTORE=$restore tool/mcp_test/launch_fixture_c_pair.sh';
+  return '${prefix}TOXEE_FIXTURE_C_RESTORE=$restore '
+      'tool/mcp_test/launch_fixture_c_pair.sh';
 }
+
+/// Symbolic command for the canonical pair boot+verify driver (used as the
+/// up-front boot step for the media group, whose call driver does not self-boot).
+String _pairBootCommand() =>
+    'dart run tool/mcp_test/drive_fixture_c_pair.dart "\$A_WS" "\$B_WS" '
+    '--fixture-manifest $_pairManifest';
 
 String _launchRealUiPairCommand({String? restore}) {
   final script = _realUiLaunchScript();
@@ -1963,10 +1997,12 @@ Future<int> _executeGroup(_Group group) async {
   switch (group.mode) {
     case 'paired-reuse':
       return _executeSharedPairGroup(group.entries);
+    case 'ngc-paired-reuse':
+      return _executeSharedPairGroup(group.entries, tcpOnly: true);
     case 'fresh-isolated':
       return _executeFreshEntry(group.entries.single.entry);
     case 'media-paired-reuse':
-      return _executeSharedPairGroup(group.entries);
+      return _executeSharedPairGroup(group.entries, bootFirst: true);
     case 'real-ui':
       for (final entry in group.entries) {
         final rc = await _executeRealUiEntry(entry);
@@ -1981,13 +2017,28 @@ Future<int> _executeGroup(_Group group) async {
   return 0;
 }
 
-Future<int> _executeSharedPairGroup(List<_PlannedEntry> entries) async {
+Future<int> _executeSharedPairGroup(
+  List<_PlannedEntry> entries, {
+  bool tcpOnly = false,
+  bool bootFirst = false,
+}) async {
   await _bestEffortStopPair();
-  final launchRc = await _launchPair(restore: 'paired_for_e2e');
+  final launchRc = await _launchPair(
+    restore: 'paired_for_e2e',
+    tcpOnly: tcpOnly,
+  );
   if (launchRc != 0) {
     return launchRc;
   }
   try {
+    if (bootFirst) {
+      // The call driver does not self-boot; boot+verify the pair once up front.
+      // Idempotent for the media drivers that do self-boot.
+      final bootRc = await _executePairBoot();
+      if (bootRc != 0) {
+        return bootRc;
+      }
+    }
     for (final planned in entries) {
       final rc = await _executeDirectEntry(planned.entry, paired: true);
       if (rc != 0) {
@@ -1998,6 +2049,19 @@ Future<int> _executeSharedPairGroup(List<_PlannedEntry> entries) async {
   } finally {
     await _bestEffortStopPair();
   }
+}
+
+Future<int> _executePairBoot() async {
+  final runtime = _RuntimePair.load(_macosPairJson);
+  return _runProcess([
+    'dart',
+    'run',
+    'tool/mcp_test/drive_fixture_c_pair.dart',
+    runtime.a.wsUri,
+    runtime.b.wsUri,
+    '--fixture-manifest',
+    _pairManifest,
+  ]);
 }
 
 Future<int> _executeFreshEntry(_Entry entry) async {
@@ -2252,11 +2316,14 @@ Future<int> _executeInternalRealUiReset() async {
   ], environment: _realUiDriverEnv());
 }
 
-Future<int> _launchPair({String? restore}) async {
+Future<int> _launchPair({String? restore, bool tcpOnly = false}) async {
   final env = <String, String>{
     ...Platform.environment,
     if (restore != null && restore.isNotEmpty)
       'TOXEE_FIXTURE_C_RESTORE': restore,
+    // Same-host NGC discovery is ~40% flaky over UDP; TCP-only (A as relay,
+    // both forced TCP) makes it deterministic for the NGC reuse group.
+    if (tcpOnly) 'TOXEE_PAIR_TCP_ONLY': '1',
   };
   return _runProcess([
     'bash',

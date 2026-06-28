@@ -251,7 +251,8 @@
       "base": "paired_for_e2e",
       "driver": "drive_fixture_c_join.dart",
       "driverArgs": [],
-      "legacyOnly": true
+      "legacyOnly": false,
+      "tcpOnly": true
     },
     {
       "script": "run_fixture_c_member_list.sh",
@@ -299,7 +300,7 @@
       "base": "paired_for_e2e",
       "driver": "drive_fixture_c_call.dart",
       "driverArgs": [],
-      "legacyOnly": true
+      "legacyOnly": false
     },
     {
       "script": "run_fixture_c_missed_call.sh",
