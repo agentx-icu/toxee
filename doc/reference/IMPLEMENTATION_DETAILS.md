@@ -22,13 +22,13 @@
 
 ## 集成方案
 
-toxee 当前使用**二进制替换 + 混合 Platform** 方案来集成 Tim2Tox（上游仓库 [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)）。另见 [architecture/HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)。
+toxee 当前使用**二进制替换 + 混合 Platform** 方案来集成 Tim2Tox（上游仓库 [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）。另见 [architecture/HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)。
 
 **多实例支持说明**：
 - toxee 使用默认 Tox 实例（通过 `V2TIMManagerImpl::GetInstance()`）
 - 无需创建测试实例，直接使用 `TIMManager.instance` 即可
 - 多实例功能主要用于自动化测试场景（如 `tim2tox/auto_tests`）
-- 参见 [Tim2Tox](https://github.com/anonymoussoft/tim2tox) [多实例支持文档](../../third_party/tim2tox/doc/development/MULTI_INSTANCE_SUPPORT.md) 了解详细信息
+- 参见 [Tim2Tox](https://github.com/agentx-icu/tim2tox) [多实例支持文档](../../third_party/tim2tox/doc/development/MULTI_INSTANCE_SUPPORT.md) 了解详细信息
 
 ### 当前方案：混合架构
 
@@ -118,7 +118,7 @@ V2TIMMessageManagerImpl::SendMessage(...)
 - ✅ 灵活性强（可以自定义实现）
 - ✅ 易于扩展
 
-**详细说明**: 参见 [Tim2Tox](https://github.com/anonymoussoft/tim2tox) [架构](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.md) 和 [二进制替换](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md)
+**详细说明**: 参见 [Tim2Tox](https://github.com/agentx-icu/tim2tox) [架构](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.md) 和 [二进制替换](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md)
 
 ## 接口适配器实现
 

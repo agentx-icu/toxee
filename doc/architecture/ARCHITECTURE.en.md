@@ -283,7 +283,7 @@ tox_friend_send_message() (c-toxcore)
 
 ### 1. Tim2Tox layer (`tim2tox_dart` package)
 
-Tim2Tox upstream repo: [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox). In toxee it is used as a submodule at `third_party/tim2tox`.
+Tim2Tox upstream repo: [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox). In toxee it is used as a submodule at `third_party/tim2tox`.
 
 #### 1.1 FFI binding layer (`lib/ffi/`)
 

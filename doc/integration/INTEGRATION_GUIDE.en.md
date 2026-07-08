@@ -2,7 +2,7 @@
 > Language: [Chinese](INTEGRATION_GUIDE.md) | [English](INTEGRATION_GUIDE.en.md)
 
 
-This document explains how to integrate [Tim2Tox](https://github.com/anonymoussoft/tim2tox) into a Flutter application, including interface adapter implementation, initialization process, and best practices.
+This document explains how to integrate [Tim2Tox](https://github.com/agentx-icu/tim2tox) into a Flutter application, including interface adapter implementation, initialization process, and best practices.
 
 ## Contents
 
@@ -15,7 +15,7 @@ This document explains how to integrate [Tim2Tox](https://github.com/anonymousso
 
 ## Overview
 
-toxee shows how to integrate [Tim2Tox](https://github.com/anonymoussoft/tim2tox) into a Flutter app. The integration process includes:
+toxee shows how to integrate [Tim2Tox](https://github.com/agentx-icu/tim2tox) into a Flutter app. The integration process includes:
 
 1. **Implement interface adapter**: Map the abstract interface of Tim2Tox to the specific implementation of the client
 2. **Initialization Service**: Create and initialize FfiChatService
@@ -559,4 +559,4 @@ TencentImSDKPlugin.v2TIMManager.initSDK(
 - [toxee Build and Deployment](../operations/BUILD_AND_DEPLOY.en.md) - Detailed build steps
 - [Troubleshooting](../TROUBLESHOOTING.en.md) - FAQ
 - [Main README](../../README.md) - Project Overview
-- [Tim2Tox](https://github.com/anonymoussoft/tim2tox) documentation ([local index](../../third_party/tim2tox/doc/README.en.md))
+- [Tim2Tox](https://github.com/agentx-icu/tim2tox) documentation ([local index](../../third_party/tim2tox/doc/README.en.md))

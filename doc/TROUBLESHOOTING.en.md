@@ -668,5 +668,5 @@ CachedNetworkImage(
 - [toxee Build and Deployment](operations/BUILD_AND_DEPLOY.en.md) - Build environment, per-platform steps (also check this doc’s FAQ for build failures)
 - [getting-started.en.md](getting-started.en.md) - Clone to run
 - [Dependency bootstrap](operations/DEPENDENCY_BOOTSTRAP.en.md) - Bootstrap order and options
-- [Integration Guide](integration/INTEGRATION_GUIDE.en.md) - Guide to integrating [Tim2Tox](https://github.com/anonymoussoft/tim2tox)
+- [Integration Guide](integration/INTEGRATION_GUIDE.en.md) - Guide to integrating [Tim2Tox](https://github.com/agentx-icu/tim2tox)
 - [Main README](../README.md) - Project Overview

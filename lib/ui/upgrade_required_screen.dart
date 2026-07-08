@@ -11,7 +11,7 @@ import '../util/prefs.dart';
 /// Canonical release page for toxee. Hardcoded rather than wired to a remote
 /// config: this screen is shown precisely when the local app is behind the
 /// data file, so any "fetch the URL from the server" approach would be racy.
-const String _kReleasesUrl = 'https://github.com/anonymoussoft/toxee/releases';
+const String _kReleasesUrl = 'https://github.com/agentx-icu/toxee/releases';
 
 /// Shown when stored preferences were saved by a newer app version.
 /// Prompts the user to upgrade the app and does not overwrite their data.

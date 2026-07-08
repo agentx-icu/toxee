@@ -1427,7 +1427,7 @@ move on. The harness + build + the 3 P1 fixes are validated working live.
 - 2026-06-23 **tim2tox member-dedup MOVED TO SOURCE + pin bumped (maintainer approved).**
   The NGC ghost-duplicate group-member dedup now lives at the correct layer —
   tim2tox `getGroupMemberList` de-dupes by Tox public key (tim2tox `8948e5c`, pushed
-  to anonymoussoft/tim2tox origin/master). The pin-respecting l3_group_member_list
+  to agentx-icu/tim2tox origin/master). The pin-respecting l3_group_member_list
   seam workaround (was 801467a) is REMOVED; the seam reports the source list verbatim
   again. `_memberRowKeyFor` driver hardening retained. toxee `312426c` bumps the pin
   443d597 -> 8948e5c + reverts the l3 seam. LIVE re-validated: rui-group-conf-member-extra

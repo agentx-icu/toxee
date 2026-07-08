@@ -283,7 +283,7 @@ tox_friend_send_message() (c-toxcore)
 
 ### 1. Tim2Tox 层 (`tim2tox_dart` 包)
 
-Tim2Tox 上游仓库：[https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)。toxee 中通过 submodule 使用于 `third_party/tim2tox`。
+Tim2Tox 上游仓库：[https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)。toxee 中通过 submodule 使用于 `third_party/tim2tox`。
 
 #### 1.1 FFI 绑定层 (`lib/ffi/`)
 

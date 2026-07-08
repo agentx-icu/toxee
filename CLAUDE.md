@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**toxee** is a Flutter chat client that integrates Tencent Cloud Chat UIKit on top of **tox** (Tox P2P network) instead of Tencent Cloud IM. The bridge between UIKit-style APIs and tox lives in a separate framework called **Tim2Tox** (`third_party/tim2tox`, upstream `anonymoussoft/tim2tox`). toxee depends on Tim2Tox; Tim2Tox does not depend on toxee.
+**toxee** is a Flutter chat client that integrates Tencent Cloud Chat UIKit on top of **tox** (Tox P2P network) instead of Tencent Cloud IM. The bridge between UIKit-style APIs and tox lives in a separate framework called **Tim2Tox** (`third_party/tim2tox`, upstream `agentx-icu/tim2tox`). toxee depends on Tim2Tox; Tim2Tox does not depend on toxee.
 
 ## Common commands
 

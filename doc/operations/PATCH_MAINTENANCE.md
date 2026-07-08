@@ -5,7 +5,7 @@
 
 - **toxee** 拥有 submodule 指针（如 `third_party/tim2tox`、`third_party/chat-uikit-flutter`）及 bootstrap 编排。不对 `chat-uikit-flutter` 打补丁；UIKit 定制以普通提交存在于 fork 中。
 - **tim2tox** 拥有 `tencent_cloud_chat_sdk` 补丁及 SDK lock/应用工具：`tool/tencent_cloud_chat_sdk.lock.json`（版本、归档 URL、可选 SHA-256）与 `tool/apply_sdk_patches.dart`（将补丁系列应用到指定 SDK 目录）。所有仅针对 SDK 的修改存放在 `patches/tencent_cloud_chat_sdk/<version>/` 下，以 `series` 文件及有序的 `.patch` 文件形式存在。
-- **chat-uikit-flutter** 的定制在 fork（`anonymoussoft/chat-uikit-flutter`）中维护。在 toxee 中更新 submodule 指针即可使用；UIKit 不做补丁应用。
+- **chat-uikit-flutter** 的定制在 fork（`agentx-icu/chat-uikit-flutter`）中维护。在 toxee 中更新 submodule 指针即可使用；UIKit 不做补丁应用。
 
 ## SDK 补丁流程
 

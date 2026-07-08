@@ -7,7 +7,7 @@
   [Main README](../README.md) “5-minute overview” + “Quick start” → full steps: [getting-started.md](getting-started.en.md); if issues → [operations/DEPENDENCY_BOOTSTRAP.en.md](operations/DEPENDENCY_BOOTSTRAP.en.md) → [TROUBLESHOOTING.en.md](TROUBLESHOOTING.en.md).
 
 - **Integrators (integrating Tim2Tox into your client)**  
-  [Main README](../README.md) “Relationship with Tim2Tox” → [integration/INTEGRATION_GUIDE.md](integration/INTEGRATION_GUIDE.en.md) → [architecture/HYBRID_ARCHITECTURE.md](architecture/HYBRID_ARCHITECTURE.en.md) → (optional) [reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.en.md), [Tim2Tox docs](https://github.com/anonymoussoft/tim2tox) ([local doc](../third_party/tim2tox/doc/README.en.md)) INTEGRATION_OVERVIEW / API.
+  [Main README](../README.md) “Relationship with Tim2Tox” → [integration/INTEGRATION_GUIDE.md](integration/INTEGRATION_GUIDE.en.md) → [architecture/HYBRID_ARCHITECTURE.md](architecture/HYBRID_ARCHITECTURE.en.md) → (optional) [reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.en.md), [Tim2Tox docs](https://github.com/agentx-icu/tim2tox) ([local doc](../third_party/tim2tox/doc/README.en.md)) INTEGRATION_OVERVIEW / API.
 
 - **Maintainers (change code, debug, release)**  
   [Main README](../README.md) “Current architecture overview” → Maintainer index below → [architecture/MAINTAINER_ARCHITECTURE.md](architecture/MAINTAINER_ARCHITECTURE.en.md) → [reference/IMPLEMENTATION_DETAILS.md](reference/IMPLEMENTATION_DETAILS.en.md), [reference/ACCOUNT_AND_SESSION.md](reference/ACCOUNT_AND_SESSION.en.md) → for build/debug: [operations/BUILD_AND_DEPLOY.en.md](operations/BUILD_AND_DEPLOY.en.md), [operations/DEPENDENCY_BOOTSTRAP.en.md](operations/DEPENDENCY_BOOTSTRAP.en.md), [TROUBLESHOOTING.en.md](TROUBLESHOOTING.en.md), [operations/PATCH_MAINTENANCE.en.md](operations/PATCH_MAINTENANCE.en.md).
@@ -42,6 +42,6 @@
 ## Cross-project references
 
 - [Main README](../README.md)
-- **Tim2Tox** (upstream repo [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)): [Documentation index](../third_party/tim2tox/doc/README.en.md), [Bootstrap and polling](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.en.md), [API reference](../third_party/tim2tox/doc/api/API_REFERENCE.en.md)
+- **Tim2Tox** (upstream repo [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)): [Documentation index](../third_party/tim2tox/doc/README.en.md), [Bootstrap and polling](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.en.md), [API reference](../third_party/tim2tox/doc/api/API_REFERENCE.en.md)
 
 Implementation plans (for agent/developers): [docs/plans/](../docs/plans/). Historical/one-off docs: [archive/](archive/README.en.md).

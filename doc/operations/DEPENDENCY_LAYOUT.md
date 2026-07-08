@@ -18,12 +18,12 @@
 ```
 toxee/
 ├── third_party/
-│   ├── tim2tox/                 # git submodule (https://github.com/anonymoussoft/tim2tox)
+│   ├── tim2tox/                 # git submodule (https://github.com/agentx-icu/tim2tox)
 │   │   ├── tool/
 │   │   │   ├── tencent_cloud_chat_sdk.lock.json   # SDK 版本与归档 URL
 │   │   │   └── apply_sdk_patches.dart             # 将 patch 系列应用到 SDK 目录
 │   │   └── patches/tencent_cloud_chat_sdk/<ver>/  # series 与 *.patch 文件
-│   ├── chat-uikit-flutter/      # git submodule（anonymoussoft/chat-uikit-flutter  fork）
+│   ├── chat-uikit-flutter/      # git submodule（agentx-icu/chat-uikit-flutter  fork）
 │   └── tencent_cloud_chat_sdk/  # 生成：下载并打补丁后的 vendor 树
 ├── tool/
 │   ├── bootstrap_deps.dart      # bootstrap CLI（协调 submodule、vendor，调用 tim2tox apply）
@@ -31,7 +31,7 @@ toxee/
 └── pubspec_overrides.yaml       # 生成；将本地依赖指向 third_party/
 ```
 
-- **third_party/tim2tox**（上游 [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)）与 **third_party/chat-uikit-flutter** 为 git submodule，由 `dart run tool/bootstrap_deps.dart` 初始化与更新。
+- **third_party/tim2tox**（上游 [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）与 **third_party/chat-uikit-flutter** 为 git submodule，由 `dart run tool/bootstrap_deps.dart` 初始化与更新。
 - **third_party/tencent_cloud_chat_sdk** 不入库，由 bootstrap 从锁定的归档下载并打补丁生成。
 - **pubspec_overrides.yaml** 由 bootstrap 生成，使 `flutter pub get` 仅从 `third_party/` 下解析 tim2tox_dart、tencent_cloud_chat_sdk 及所有 UIKit 包。
 

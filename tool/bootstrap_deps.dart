@@ -17,8 +17,8 @@ void main(List<String> args) async {
   //    Do this first so third_party/tim2tox exists and contains the lock file.
   const submodulePaths = ['third_party/tim2tox', 'third_party/chat-uikit-flutter'];
   const submoduleUrls = {
-    'third_party/tim2tox': 'https://github.com/anonymoussoft/tim2tox.git',
-    'third_party/chat-uikit-flutter': 'https://github.com/anonymoussoft/chat-uikit-flutter.git',
+    'third_party/tim2tox': 'https://github.com/agentx-icu/tim2tox.git',
+    'third_party/chat-uikit-flutter': 'https://github.com/agentx-icu/chat-uikit-flutter.git',
   };
   int code = await _run(repoRoot, 'git', ['submodule', 'sync', '--recursive']);
   if (code != 0) {

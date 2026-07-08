@@ -2,7 +2,7 @@
 > 语言 / Language: [中文](INTEGRATION_GUIDE.md) | [English](INTEGRATION_GUIDE.en.md)
 
 
-本文档说明如何把 [Tim2Tox](https://github.com/anonymoussoft/tim2tox) 集成到 Flutter 应用，包括接口适配器实现、初始化流程和最佳实践。
+本文档说明如何把 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 集成到 Flutter 应用，包括接口适配器实现、初始化流程和最佳实践。
 
 ## 目录
 
@@ -15,7 +15,7 @@
 
 ## 概述
 
-toxee 展示了如何将 [Tim2Tox](https://github.com/anonymoussoft/tim2tox) 集成到 Flutter 应用中。集成过程包括：
+toxee 展示了如何将 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 集成到 Flutter 应用中。集成过程包括：
 
 1. **实现接口适配器**: 将 Tim2Tox 的抽象接口映射到客户端的具体实现
 2. **初始化服务**: 创建和初始化 FfiChatService
@@ -574,4 +574,4 @@ TencentImSDKPlugin.v2TIMManager.initSDK(
 - [toxee 构建与部署](../operations/BUILD_AND_DEPLOY.md) - 详细构建步骤
 - [故障排除](../TROUBLESHOOTING.md) - 常见问题解答
 - [主 README](../../README.zh-CN.md) - 项目概述
-- [Tim2Tox](https://github.com/anonymoussoft/tim2tox) 文档（[本地索引](../../third_party/tim2tox/doc/README.md)）
+- [Tim2Tox](https://github.com/agentx-icu/tim2tox) 文档（[本地索引](../../third_party/tim2tox/doc/README.md)）

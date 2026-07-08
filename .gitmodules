@@ -1,7 +1,7 @@
 [submodule "third_party/tim2tox"]
 	path = third_party/tim2tox
-	url = https://github.com/anonymoussoft/tim2tox.git
+	url = https://github.com/agentx-icu/tim2tox.git
 [submodule "third_party/chat-uikit-flutter"]
 	path = third_party/chat-uikit-flutter
-	url = https://github.com/anonymoussoft/chat-uikit-flutter.git
+	url = https://github.com/agentx-icu/chat-uikit-flutter.git
 	branch = v2

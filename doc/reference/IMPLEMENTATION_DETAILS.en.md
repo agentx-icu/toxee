@@ -21,13 +21,13 @@ Also see [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.en.md) to 
 
 ## Integration solution
 
-toxee currently uses the **Binary Replacement + Hybrid Platform** scheme to integrate Tim2Tox (upstream repo [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)). See also [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.en.md).
+toxee currently uses the **Binary Replacement + Hybrid Platform** scheme to integrate Tim2Tox (upstream repo [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)). See also [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.en.md).
 
 **Multiple instance support instructions**:
 - toxee uses default Tox instance (via `V2TIMManagerImpl::GetInstance()`)
 - No need to create a test instance, just use `TIMManager.instance` directly
 - The multi-instance function is mainly used in automated testing scenarios (such as `tim2tox/auto_tests`)
-- See [Tim2Tox](https://github.com/anonymoussoft/tim2tox) [multi-instance support documentation](../../third_party/tim2tox/doc/development/MULTI_INSTANCE_SUPPORT.en.md) for details
+- See [Tim2Tox](https://github.com/agentx-icu/tim2tox) [multi-instance support documentation](../../third_party/tim2tox/doc/development/MULTI_INSTANCE_SUPPORT.en.md) for details
 
 ### Current solution: hybrid architecture
 
@@ -114,7 +114,7 @@ V2TIMMessageManagerImpl::SendMessage(...)
 - ✅ Strong flexibility (can be customized)
 - ✅ Easy to expand
 
-**Details**: See [Tim2Tox](https://github.com/anonymoussoft/tim2tox) [Architecture](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.en.md) and [Binary Replacement](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.en.md)
+**Details**: See [Tim2Tox](https://github.com/agentx-icu/tim2tox) [Architecture](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.en.md) and [Binary Replacement](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.en.md)
 
 ## Interface adapter implementation
 

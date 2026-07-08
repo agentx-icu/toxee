@@ -34,7 +34,7 @@
 ```
 你正在为 toxee 做代码 review。toxee 是 Flutter chat 客户端，把 Tencent Cloud Chat UIKit
 跑在 Tox P2P 网络上（不是 Tencent Cloud IM）。它依赖一个外部框架 Tim2Tox
-（third_party/tim2tox，源 anonymoussoft/tim2tox），通过两条路径把 UIKit 调用桥到 Tox：
+（third_party/tim2tox，源 agentx-icu/tim2tox），通过两条路径把 UIKit 调用桥到 Tox：
 
 1. **二进制替换路径**：main() 调用 setNativeLibraryName('tim2tox_ffi')，让 UIKit
    的 SDK 调用走 libtim2tox_ffi 而不是 dart_native_imsdk。

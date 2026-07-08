@@ -7,7 +7,7 @@
   [主 README](../README.zh-CN.md)「5 分钟理解」+「快速开始」→ 完整步骤见 [getting-started.md](getting-started.md)；若遇问题 → [operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md) → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 
 - **接入方（集成 Tim2Tox 到自己的客户端）**  
-  [主 README](../README.zh-CN.md)「与 Tim2Tox 的关系」→ [integration/INTEGRATION_GUIDE.md](integration/INTEGRATION_GUIDE.md) → [architecture/HYBRID_ARCHITECTURE.md](architecture/HYBRID_ARCHITECTURE.md) →（按需）[reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.md)、[Tim2Tox 文档](https://github.com/anonymoussoft/tim2tox)（[本地 doc](../third_party/tim2tox/doc/README.md)）的 INTEGRATION_OVERVIEW / API 等。
+  [主 README](../README.zh-CN.md)「与 Tim2Tox 的关系」→ [integration/INTEGRATION_GUIDE.md](integration/INTEGRATION_GUIDE.md) → [architecture/HYBRID_ARCHITECTURE.md](architecture/HYBRID_ARCHITECTURE.md) →（按需）[reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.md)、[Tim2Tox 文档](https://github.com/agentx-icu/tim2tox)（[本地 doc](../third_party/tim2tox/doc/README.md)）的 INTEGRATION_OVERVIEW / API 等。
 
 - **维护者（改代码、排错、发版）**  
   [主 README](../README.zh-CN.md)「当前架构概览」→ 本页维护入口 → [architecture/MAINTAINER_ARCHITECTURE.md](architecture/MAINTAINER_ARCHITECTURE.md) → [reference/IMPLEMENTATION_DETAILS.md](reference/IMPLEMENTATION_DETAILS.md)、[reference/ACCOUNT_AND_SESSION.md](reference/ACCOUNT_AND_SESSION.md) → 构建/排障时 [operations/BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md)、[operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md)、[operations/PATCH_MAINTENANCE.md](operations/PATCH_MAINTENANCE.md)。
@@ -42,6 +42,6 @@
 ## 跨项目联动
 
 - [主 README](../README.zh-CN.md)
-- **Tim2Tox**（上游仓库 [https://github.com/anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)）：[文档索引](../third_party/tim2tox/doc/README.md)、[Bootstrap 与轮询](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.md)、[API 参考](../third_party/tim2tox/doc/api/API_REFERENCE.md)
+- **Tim2Tox**（上游仓库 [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）：[文档索引](../third_party/tim2tox/doc/README.md)、[Bootstrap 与轮询](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.md)、[API 参考](../third_party/tim2tox/doc/api/API_REFERENCE.md)
 
 实施计划（面向 agent/开发者）见 [docs/plans/](../docs/plans/)。历史/一次性文档归档见 [doc/archive/](archive/README.md)。

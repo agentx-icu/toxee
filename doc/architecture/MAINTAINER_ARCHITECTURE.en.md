@@ -370,4 +370,4 @@ HomePage.initState()
 - [ARCHITECTURE.md](ARCHITECTURE.en.md) — Overall architecture and data flow
 - [reference/ACCOUNT_AND_SESSION.md](../reference/ACCOUNT_AND_SESSION.en.md) — Account and session lifecycle
 - [reference/IMPLEMENTATION_DETAILS.md](../reference/IMPLEMENTATION_DETAILS.en.md) — Implementation details and message/event handling
-- [Tim2Tox](https://github.com/anonymoussoft/tim2tox) [architecture](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.md) — Compatibility layer and dual path
+- [Tim2Tox](https://github.com/agentx-icu/tim2tox) [architecture](../../third_party/tim2tox/doc/architecture/ARCHITECTURE.md) — Compatibility layer and dual path

@@ -9,7 +9,7 @@
 ## Understand this project in 5 minutes
 
 - **What toxee is**: a runnable Flutter chat app that uses Tencent Cloud Chat UIKit for UI and **tox** as the backend over the Tox P2P network.
-- **What Tim2Tox is**: the compatibility layer / framework that bridges UIKit-style APIs to tox (located in `third_party/tim2tox`, upstream repo: [anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)); it is not the chat application itself.
+- **What Tim2Tox is**: the compatibility layer / framework that bridges UIKit-style APIs to tox (located in `third_party/tim2tox`, upstream repo: [agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)); it is not the chat application itself.
 - **One-line architecture summary**: toxee integrates Tim2Tox with a hybrid approach of "binary replacement + Platform", where most SDK calls still go through `NativeLibraryManager -> Dart*`, while history, polling, calling, and some stateful flows are implemented through `Tim2ToxSdkPlatform -> FfiChatService`.
 - **Shortest path to run it**: clone -> `dart run tool/bootstrap_deps.dart` -> `flutter pub get` -> `./build_all.sh --platform macos --mode debug` or `./run_toxee.sh`.
 
@@ -62,7 +62,7 @@ The real app, one Flutter codebase, on **desktop (macOS), Android, iPad, and iOS
 | Dimension | Tim2Tox | toxee |
 | --- | --- | --- |
 | **Role** | Compatibility layer / framework: provides the C++ core, C FFI, Dart wrappers, and SDK Platform implementation that any Flutter client can integrate with. | Client app / example app: consumes Tim2Tox and implements account flows, UI, Bootstrap, history, calling bridge, and app-specific wiring. |
-| **Location** | `third_party/tim2tox` (git submodule, upstream: [anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)). | Repository root. |
+| **Location** | `third_party/tim2tox` (git submodule, upstream: [agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)). | Repository root. |
 | **Dependency direction** | Tim2Tox does not depend on toxee; it receives capabilities such as preferences, logging, and Bootstrap through interfaces. | toxee depends on `tim2tox_dart`, implements the interfaces Tim2Tox expects, constructs `FfiChatService`, and configures the Platform path. |
 
 **Call relationship (simplified)**:
@@ -245,7 +245,7 @@ Common entry points:
 - Read this README's "Understand this project in 5 minutes", "Relationship with Tim2Tox", and "Current architecture at a glance" sections, then follow the role-based reading path in [doc/README.en.md](doc/README.en.md).
 - If you are touching startup, logging, or dependency bootstrap, start with `lib/main.dart`, `lib/bootstrap/logging_bootstrap.dart`, and `tool/bootstrap_deps.dart`.
 - If you are touching messages, conversations, or history, start with `lib/sdk_fake/` and [doc/architecture/HYBRID_ARCHITECTURE.en.md](doc/architecture/HYBRID_ARCHITECTURE.en.md).
-- If you need to change Tim2Tox itself, work in `third_party/tim2tox` (upstream: [anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)) and use [third_party/tim2tox/doc/README.en.md](third_party/tim2tox/doc/README.en.md) as the local documentation entry point.
+- If you need to change Tim2Tox itself, work in `third_party/tim2tox` (upstream: [agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)) and use [third_party/tim2tox/doc/README.en.md](third_party/tim2tox/doc/README.en.md) as the local documentation entry point.
 
 ---
 

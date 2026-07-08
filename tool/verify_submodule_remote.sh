@@ -46,7 +46,7 @@ fi
 #   <name>\t<path>\t<url>
 # git config --get-regexp prints lines like:
 #   submodule.<name>.path third_party/tim2tox
-#   submodule.<name>.url  https://github.com/anonymoussoft/tim2tox.git
+#   submodule.<name>.url  https://github.com/agentx-icu/tim2tox.git
 ENTRIES_FILE="$(mktemp -t verify_submod_entries.XXXXXX)"
 trap 'rm -f "$ENTRIES_FILE"' EXIT
 

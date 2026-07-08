@@ -9,7 +9,7 @@
 ## 5 分钟内理解本项目
 
 - **toxee 是什么**：一个可运行的 Flutter 聊天 App，用 Tencent Cloud Chat UIKit 做界面，用 **tox** 做后端，走 Tox P2P 网络。
-- **Tim2Tox 是什么**：连接 UIKit 与 tox 的兼容层/框架（在 `third_party/tim2tox`，上游仓库：[anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)）；不是聊天应用本身。
+- **Tim2Tox 是什么**：连接 UIKit 与 tox 的兼容层/框架（在 `third_party/tim2tox`，上游仓库：[agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）；不是聊天应用本身。
 - **架构一句话总结**：toxee 通过「二进制替换 + Platform」混合架构接入 Tim2Tox，大部分 SDK 调用走 `NativeLibraryManager -> Dart*`，历史/轮询/通话等由 `Tim2ToxSdkPlatform -> FfiChatService` 补足。
 - **最短跑起来**：克隆 -> `dart run tool/bootstrap_deps.dart` -> `flutter pub get` -> `./build_all.sh --platform macos --mode debug` 或 `./run_toxee.sh`。
 
@@ -62,7 +62,7 @@
 | 维度 | Tim2Tox | toxee |
 | --- | --- | --- |
 | **角色** | 兼容层/框架：提供 C++ 核心、C FFI、Dart 封装与 SDK Platform 实现，供任意 Flutter 客户端接入。 | 客户端/示例应用：消费 Tim2Tox，实现账号、UI、Bootstrap、历史、通话桥等。 |
-| **位置** | `third_party/tim2tox`（submodule，上游：[anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)）。 | 本仓库根目录。 |
+| **位置** | `third_party/tim2tox`（submodule，上游：[agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）。 | 本仓库根目录。 |
 | **依赖方向** | Tim2Tox 不依赖 toxee；通过接口注入依赖偏好、日志、Bootstrap 等能力。 | toxee 依赖 `tim2tox_dart`，并实现 Tim2Tox 所需接口、构造 `FfiChatService`、设置 Platform 路径。 |
 
 **调用关系（简化）**：
@@ -245,7 +245,7 @@ iOS 现在分两种模式：
 - 阅读本 README 的「5 分钟内理解本项目」「它与 Tim2Tox 的关系」「当前架构概览」，再按 [doc/README.md](doc/README.md) 中与你角色匹配的阅读路径继续。
 - 如果你要改启动、日志或依赖引导，先看 `lib/main.dart`、`lib/bootstrap/logging_bootstrap.dart`、`tool/bootstrap_deps.dart`。
 - 如果你要改消息、会话或历史，先看 `lib/sdk_fake/` 和 [doc/architecture/HYBRID_ARCHITECTURE.md](doc/architecture/HYBRID_ARCHITECTURE.md)。
-- 如果需要修改 Tim2Tox 本体，请在 `third_party/tim2tox` 中工作（上游：[anonymoussoft/tim2tox](https://github.com/anonymoussoft/tim2tox)），本地文档入口见 [third_party/tim2tox/doc/README.md](third_party/tim2tox/doc/README.md)。
+- 如果需要修改 Tim2Tox 本体，请在 `third_party/tim2tox` 中工作（上游：[agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)），本地文档入口见 [third_party/tim2tox/doc/README.md](third_party/tim2tox/doc/README.md)。
 
 ---
 

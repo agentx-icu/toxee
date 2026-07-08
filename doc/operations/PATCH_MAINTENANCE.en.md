@@ -5,7 +5,7 @@
 
 - **toxee** owns submodule pointers (e.g. `third_party/tim2tox`, `third_party/chat-uikit-flutter`) and bootstrap orchestration. It does not patch `chat-uikit-flutter`; UIKit customizations live as normal commits in the fork.
 - **tim2tox** owns `tencent_cloud_chat_sdk` patches and the SDK lock/apply tooling: `tool/tencent_cloud_chat_sdk.lock.json` (version, archive URL, optional SHA-256) and `tool/apply_sdk_patches.dart` (applies the patch series to a given SDK dir). All SDK-only changes are stored under `patches/tencent_cloud_chat_sdk/<version>/` as a `series` file plus ordered `.patch` files.
-- **chat-uikit-flutter** customizations are maintained in the fork (`anonymoussoft/chat-uikit-flutter`). Consume them by updating the submodule pointer in toxee; no patch application for UIKit.
+- **chat-uikit-flutter** customizations are maintained in the fork (`agentx-icu/chat-uikit-flutter`). Consume them by updating the submodule pointer in toxee; no patch application for UIKit.
 
 ## SDK patch workflow
 

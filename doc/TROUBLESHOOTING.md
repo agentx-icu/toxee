@@ -670,5 +670,5 @@ CachedNetworkImage(
 - [toxee 构建与部署](operations/BUILD_AND_DEPLOY.md) - 构建环境、各平台步骤、依赖安装（构建失败时也可先查本文「常见问题」）
 - [getting-started.md](getting-started.md) - 从克隆到跑起来
 - [依赖引导](operations/DEPENDENCY_BOOTSTRAP.md) - bootstrap 顺序与选项
-- [集成指南](integration/INTEGRATION_GUIDE.md) - 集成 [Tim2Tox](https://github.com/anonymoussoft/tim2tox) 指南
+- [集成指南](integration/INTEGRATION_GUIDE.md) - 集成 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 指南
 - [主 README](../README.zh-CN.md) - 项目概述
