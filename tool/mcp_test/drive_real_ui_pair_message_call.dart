@@ -620,12 +620,14 @@ Future<bool> sendComposerMessage(
   // via flutter_skill synthetic input and tap chat_send_button instead. (The
   // synthetic enterText that SIGSEGVs the macOS Flutter engine on the desktop
   // ExtendedTextField is safe on the iOS mobile input.)
-  // Route to the VM-service composer seam (l3_composer_send) for BOTH the iOS
-  // peer (the Simulator can't receive System Events) AND the macOS peer of a
-  // mixed macOS+iOS pair (osascript paste/return would steal focus + background
-  // the Simulator, killing the sim peer). l3_composer_send auto-selects the
-  // desktop or mobile composer hook.
-  if (inst.isIos || _mixedMacosIos) {
+  // Route to the VM-service composer seam (l3_composer_send) for the iOS peer
+  // (the Simulator can't receive System Events), the Android peer (the app is on
+  // a device — no host osascript at all), AND the macOS peer of a mixed
+  // macOS+iOS pair (osascript paste/return would steal focus + background the
+  // Simulator, killing the sim peer). l3_composer_send auto-selects the desktop
+  // or mobile composer hook. (Windows is handled by the _isWindowsRealUi branch
+  // above; this mobile path covers the OTHER headless platform, Android.)
+  if (inst.isIos || inst.isAndroid || _mixedMacosIos) {
     return _sendComposerMessageIos(inst, text);
   }
   for (var outer = 0; outer < 2; outer++) {

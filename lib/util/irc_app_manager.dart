@@ -36,16 +36,9 @@ class IrcAppManager {
     _isInstalled = true;
     await Prefs.setIrcAppInstalled(true);
     
-    // Load IRC dynamic library
-    final exeDir = File(Platform.resolvedExecutable).parent;
-    final dylib = File('${exeDir.path}/libirc_client.dylib');
-    String libraryPath = dylib.path;
-    
-    // Try alternative path if not found
-    if (!dylib.existsSync()) {
-      libraryPath = 'libirc_client.dylib';
-    }
-    
+    // Load IRC dynamic library (platform-aware: .dll/.so/.dylib).
+    final libraryPath = _ircLibraryPath();
+
     final success = await service.loadIrcLibrary(libraryPath);
     if (!success) {
       AppLogger.log('[IRC] Failed to load IRC dynamic library from: $libraryPath');
@@ -93,6 +86,35 @@ class IrcAppManager {
     _isInstalled = false;
     _channels = [];
     _channelToGroupId.clear();
+  }
+
+  /// Resolve the IRC client native library path for the CURRENT platform. The
+  /// library is named per-platform — `libirc_client.dll` (Windows),
+  /// `libirc_client.so` (Android/Linux), `libirc_client.dylib` (macOS/iOS) — so
+  /// the loader must NOT hardcode `.dylib` (that made `loadIrcLibrary` fail on
+  /// Windows/Android even when the matching library was bundled). On desktop the
+  /// library is bundled next to the executable; on Android the bundled `.so` is
+  /// resolved by bare name from the APK's native-lib dir.
+  String _ircLibraryPath() {
+    final String fileName;
+    if (Platform.isWindows) {
+      fileName = 'libirc_client.dll';
+    } else if (Platform.isMacOS || Platform.isIOS) {
+      fileName = 'libirc_client.dylib';
+    } else {
+      fileName = 'libirc_client.so'; // Android + Linux
+    }
+    if (Platform.isAndroid) {
+      return fileName;
+    }
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent;
+      final candidate = File('${exeDir.path}/$fileName');
+      if (candidate.existsSync()) return candidate.path;
+    } catch (_) {
+      // Fall through to the bare name (let the dynamic loader search).
+    }
+    return fileName;
   }
 
   /// Add an IRC channel and create/join the corresponding group
@@ -210,16 +232,9 @@ class IrcAppManager {
     if (_isInstalled) {
       final isLoaded = await service.isIrcLibraryLoaded();
       if (!isLoaded) {
-        // Try to load the library
-        final exeDir = File(Platform.resolvedExecutable).parent;
-        final dylib = File('${exeDir.path}/libirc_client.dylib');
-        String libraryPath = dylib.path;
-        
-        // Try alternative path if not found
-        if (!dylib.existsSync()) {
-          libraryPath = 'libirc_client.dylib';
-        }
-        
+        // Try to load the library (platform-aware: .dll/.so/.dylib).
+        final libraryPath = _ircLibraryPath();
+
         final loadSuccess = await service.loadIrcLibrary(libraryPath);
         if (!loadSuccess) {
           AppLogger.log('[IRC] Failed to load IRC library during restoreChannelMappings');

@@ -6,11 +6,26 @@ const _mcpNs = 'ext.mcp.toolkit';
 final _realUiPlatform =
     (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
 
-/// Headless Windows: no host osascript, and OS-level key/paste injection cannot
-/// reach the app's window-station, so EVERY input goes through synthetic
-/// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam. Unlike
-/// iOS (which runs on a macOS host and still uses osascript for foreground /
-/// send / paste), Windows overrides the whole osa* primitive surface below.
+/// Headless real-UI platforms — **Windows desktop** and **Android device/
+/// emulator**. Neither can be reached by host osascript / OS-level key/paste
+/// injection (Windows has no host osascript and its app runs in a separate
+/// window-station; the Android app runs on a device whose VM service is merely
+/// adb-forwarded to this host), so EVERY input goes through synthetic
+/// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam, and the
+/// osa* primitive surface below is overridden wholesale. This is distinct from
+/// iOS, which also drives via VM-service synthetic input but runs on the SAME
+/// macOS host (its launcher topology, not this flag, governs sim survival).
+bool get _isHeadlessRealUi =>
+    _realUiPlatform == 'windows' || _realUiPlatform == 'android';
+
+/// Windows-DESKTOP-only flag, kept distinct from [_isHeadlessRealUi] for the
+/// scenario drivers that carry empirical *Windows-specific* tuning (slower
+/// settle waits, higher send/recv retry counts, desktop-window resize) which
+/// must NOT be blanket-applied to Android. The shared INPUT layer (foreground /
+/// focusType / osa* primitives in this file, and the returnToChatsHome settle in
+/// the shell) uses [_isHeadlessRealUi] because both headless platforms drive
+/// purely via synthetic VM-service input; the per-campaign timing knobs below
+/// stay gated on Windows until Android is independently dogfooded for them.
 bool get _isWindowsRealUi => _realUiPlatform == 'windows';
 
 /// Translate a hardcoded `/tmp/<name>` debug path (screenshots, scratch files)
@@ -163,6 +178,7 @@ class Inst {
   /// mixed macOS↔iOS pair drives each side with its correct input path.
   final String platform;
   bool get isIos => platform == 'ios';
+  bool get isAndroid => platform == 'android';
 
   late VmService vm;
   late String iso;
@@ -285,20 +301,31 @@ class Inst {
       final stdioFile = File(stdioLogPath);
       if (!await stdioFile.exists()) return;
       final lines = await stdioFile.readAsLines();
-      String? latestVmHttp;
-      final vmLinePattern = RegExp(
+      String? refreshedWs;
+      // Desktop / direct-launch stdio announces an http VM-service line; Android
+      // `flutter run --machine` instead emits the forwarded URI as a ws:// value
+      // inside a `"wsUri":"..."` JSON field. Accept BOTH so a dropped connection
+      // can re-resolve on every platform.
+      final wsUriPattern = RegExp(
+        r'"wsUri":"(ws://127\.0\.0\.1:\d+(?:/[A-Za-z0-9_=-]+)?/ws)"',
+      );
+      final httpPattern = RegExp(
         r'http://127\.0\.0\.1:\d+(?:/[A-Za-z0-9_=-]+)?/?',
       );
       for (final line in lines.reversed) {
-        final match = vmLinePattern.firstMatch(line);
-        if (match != null) {
-          latestVmHttp = match.group(0);
+        final wsMatch = wsUriPattern.firstMatch(line);
+        if (wsMatch != null) {
+          refreshedWs = wsMatch.group(1);
+          break;
+        }
+        final httpMatch = httpPattern.firstMatch(line);
+        if (httpMatch != null) {
+          final http = httpMatch.group(0)!.replaceFirst(RegExp(r'/$'), '');
+          refreshedWs = '${http.replaceFirst('http:', 'ws:')}/ws';
           break;
         }
       }
-      if (latestVmHttp == null || latestVmHttp.isEmpty) return;
-      latestVmHttp = latestVmHttp.replaceFirst(RegExp(r'/$'), '');
-      final refreshedWs = '${latestVmHttp.replaceFirst('http:', 'ws:')}/ws';
+      if (refreshedWs == null || refreshedWs.isEmpty) return;
       if (refreshedWs != ws) {
         print(
           '[$name] refreshed VM service URI from runtime: $ws -> $refreshedWs',
@@ -384,7 +411,7 @@ class Inst {
   /// suspend the sim app, and App Nap is disabled on the Simulator, so the iOS
   /// VM service stays up in the background without any osascript activate.
   Future<void> foreground() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Headless Windows drives purely via synthetic flutter_skill RPC, which is
       // window-station / OS-focus independent; bringing the window forward is
       // both unnecessary and impossible from a non-interactive SSH session.
@@ -423,7 +450,7 @@ class Inst {
   /// resize). Used by the responsive layout-swap case (narrow the window past
   /// the 720pt bottom-nav breakpoint, then restore).
   Future<bool> resizeWindow(num width, num height) async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // No osascript on Windows — drive the app's own window_manager via the
       // l3_window_state seam (setSize + center). Returns whether it applied.
       final r = await l3('l3_window_state', {
@@ -454,7 +481,7 @@ class Inst {
   /// OS actually applied the new bounds (so a refused/clamped resize is detected
   /// rather than silently treated as applied).
   Future<({num w, num h})?> windowSize() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Read the live logical size via the app's window_manager seam.
       final r = await l3('l3_window_state', {'state': 'query_bounds'});
       if (r['ok'] != true) return null;
@@ -507,7 +534,7 @@ class Inst {
     var r = await l3('l3_force_home_root', {'tab': tab});
     if (r['ok'] != true &&
         r['error'] == 'non_test_account' &&
-        _isWindowsRealUi) {
+        _isHeadlessRealUi) {
       // Windows headless cannot recover a drifted/blank shell via real-UI nav
       // (no OS input), so the non-test gate would dead-loop the blank-shell
       // recovery (root-caused live: contacts/app-entry pre-handshake cases drift
@@ -640,7 +667,7 @@ class Inst {
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
   Future<void> focusType(String key, String text) async {
-    if (isIos || _isWindowsRealUi || _mixedMacosIos) {
+    if (isIos || _isHeadlessRealUi || _mixedMacosIos) {
       // iOS: System Events can't reach the sim. Windows: no host osascript.
       // Mixed macOS peer: avoid osascript entirely so the Simulator stays
       // frontmost. All use flutter_skill synthetic input (enterText), which sets
@@ -949,12 +976,13 @@ class Inst {
   // enterText, and Enter-to-send rides the legacy FocusNode.onKey RawKeyEvent
   // path — both need genuine OS events. ---
   Future<void> _osa(String script) async {
-    // No-op on iOS: System Events keystrokes target the frontmost MACOS app and
-    // cannot reach the Simulator. Every osa* keystroke helper funnels through
-    // here, so an iOS instance silently skips them (its real input goes through
-    // flutter_skill synthetic input / L3 instead). Guards against an accidental
-    // osa* call on an iOS peer throwing mid-sweep.
-    if (isIos) return;
+    // No-op on iOS and on the headless platforms (Windows/Android): System
+    // Events keystrokes target the frontmost MACOS app and cannot reach a
+    // Simulator, a Windows window-station, or an Android device. Every osa*
+    // keystroke helper already branches to a synthetic/L3 path before reaching
+    // here, so this is a defensive net against a future osa* caller that forgets
+    // to — it silently skips rather than firing a stray host keystroke / throwing.
+    if (isIos || _isHeadlessRealUi) return;
     final r = await _osaRun(['-e', script]);
     if (r.exitCode != 0) {
       final stderrText = '${r.stderr}'.trim();
@@ -973,7 +1001,7 @@ class Inst {
   }
 
   Future<void> osaType(String text) async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Synthetic text entry — sets the focused EditableText's value in one shot
       // (proven to land verbatim on Windows, no SIGSEGV unlike macOS).
       await skill('enterText', {'text': text});
@@ -992,7 +1020,7 @@ class Inst {
   /// characters, so long strings (Tox ids, 76 chars) land verbatim. Used by
   /// [focusType] for any text at/above [_osaPasteThreshold].
   Future<void> osaPaste(String text) async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       await skill('enterText', {'text': text});
       return;
     }
@@ -1013,7 +1041,7 @@ class Inst {
   }
 
   Future<void> osaReturn() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // The desktop composer's Enter-to-send rides FocusNode.onKey
       // (RawKeyDownEvent), un-reachable by synthetic enterText and by any
       // headless OS key injection. `l3_composer_send` invokes the EXACT same
@@ -1030,7 +1058,7 @@ class Inst {
   /// tencent_cloud_chat_message_input_desktop.dart. A genuine OS chord so the
   /// production RawKeyEvent path runs (synthetic enterText can't reach it).
   Future<void> osaShiftReturn() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Multiline insert (Shift+Enter) has no pure-synthetic equivalent; the few
       // multiline cases must enterText the full "a\nb" body in one shot instead.
       // No-op here so the surrounding flow doesn't error.
@@ -1042,7 +1070,7 @@ class Inst {
   }
 
   Future<void> osaEscape() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Best-effort dismiss (close search/overlay/dialog) via the navigation
       // hook — the headless equivalent of pressing Escape.
       await l3('l3_pop_to_root');
@@ -1056,7 +1084,7 @@ class Inst {
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
   Future<void> osaSearchShortcut() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       await l3('l3_open_global_search');
       return;
     }
@@ -1070,7 +1098,7 @@ class Inst {
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
   Future<void> osaNewConversationShortcut() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       await l3('l3_open_add_friend_dialog');
       return;
     }
@@ -1084,7 +1112,7 @@ class Inst {
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
   Future<void> osaOpenSettingsShortcut() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Headless equivalent: jump the home shell to the Settings tab. Use the
       // self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
       // non-test app-entry account doesn't silently no-op the gated tool.
@@ -1103,7 +1131,7 @@ class Inst {
   /// [osaPaste] this does NOT send Cmd+V, so the asserted action stays the real
   /// in-app button.
   Future<void> setClipboard(String text) async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // Set the clipboard from INSIDE the app (Flutter Clipboard.setData) so the
       // in-app paste button reads it. A driver-side Set-Clipboard would land in a
       // different Windows window-station and be invisible to the headless app.
@@ -1122,7 +1150,7 @@ class Inst {
   }
 
   Future<void> osaClear() async {
-    if (_isWindowsRealUi) {
+    if (_isHeadlessRealUi) {
       // enterText replaces the focused field's whole value, so an empty string
       // clears it (the macOS Cmd+A + Delete equivalent).
       await skill('enterText', {'text': ''});

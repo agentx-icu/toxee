@@ -140,7 +140,21 @@ bundle_dylib() {
   cp "$dep_src" "$APP_EXE_DIR/" || { echo -e "${YELLOW}Warning: Failed to copy $dep_name${NC}"; return 0; }
 
   install_name_tool -change "$dep_old" "@loader_path/$dep_name" "$dylib_in_bundle" >> "$FLUTTER_BUILD_LOG" 2>&1 || true
+  ad_hoc_sign_dylib "$APP_EXE_DIR/$dep_name"
   echo -e "${GREEN}  Bundled $dep_name${NC}"
+}
+
+ad_hoc_sign_dylib() {
+  local dylib="$1"
+  [[ -f "$dylib" ]] || return 0
+  if ! command -v codesign >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: codesign not found; $dylib may fail to load on macOS${NC}"
+    return 0
+  fi
+  codesign --force --sign - "$dylib" >> "$FLUTTER_BUILD_LOG" 2>&1 || {
+    echo -e "${YELLOW}Warning: Failed to ad-hoc sign $(basename "$dylib")${NC}"
+    return 0
+  }
 }
 
 # ============================================================
@@ -303,6 +317,7 @@ bundle_libs() {
       cp "$sodium_src" "$APP_EXE_DIR/" || true
       install_name_tool -change "$sodium_old" "@loader_path/$sodium_name" "$ffi_dylib" >> "$FLUTTER_BUILD_LOG" 2>&1 || true
       install_name_tool -change "$sodium_old" "@loader_path/$sodium_name" "$irc_dylib" >> "$FLUTTER_BUILD_LOG" 2>&1 || true
+      ad_hoc_sign_dylib "$APP_EXE_DIR/$sodium_name"
       echo -e "${GREEN}  Bundled $sodium_name${NC}"
     fi
   fi
@@ -310,6 +325,25 @@ bundle_libs() {
   # Bundle opus and vpx (toxav dependencies)
   bundle_dylib "$ffi_dylib" 'libopus\..*dylib' "opus"
   bundle_dylib "$ffi_dylib" 'libvpx\..*dylib'  "libvpx"
+
+  bundle_dylib "$irc_dylib" 'libssl\..*dylib' "openssl@3"
+  bundle_dylib "$irc_dylib" 'libcrypto\..*dylib' "openssl@3"
+  local ssl_name crypto_name ssl_dylib crypto_dylib
+  ssl_name=$(otool -L "$irc_dylib" | awk '/@loader_path\/libssl\..*dylib/ {print $1; exit}' | xargs basename 2>/dev/null || true)
+  crypto_name=$(otool -L "$irc_dylib" | awk '/@loader_path\/libcrypto\..*dylib/ {print $1; exit}' | xargs basename 2>/dev/null || true)
+  ssl_dylib="$APP_EXE_DIR/$ssl_name"
+  if [[ -f "$ssl_dylib" ]]; then
+    local crypto_old
+    crypto_old=$(otool -L "$ssl_dylib" | awk '/libcrypto\..*dylib/ {print $1; exit}' || true)
+    if [[ -n "$crypto_old" && -n "$crypto_name" ]]; then
+      install_name_tool -change "$crypto_old" "@loader_path/$crypto_name" "$ssl_dylib" >> "$FLUTTER_BUILD_LOG" 2>&1 || true
+    fi
+    ad_hoc_sign_dylib "$ssl_dylib"
+  fi
+  crypto_dylib="$APP_EXE_DIR/$crypto_name"
+  ad_hoc_sign_dylib "$ffi_dylib"
+  ad_hoc_sign_dylib "$irc_dylib"
+  ad_hoc_sign_dylib "$crypto_dylib"
 }
 
 # ============================================================

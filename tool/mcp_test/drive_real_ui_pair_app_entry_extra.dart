@@ -18,6 +18,8 @@ const _appEntryExtraCases = {
   'add_friend_paste_clipboard',
   'keyboard_new_conversation_shortcut',
   'keyboard_open_settings_shortcut',
+  'irc_join_channel_real_controls',
+  'irc_join_channel_loopback_live',
   'register_password_visibility_toggle',
   'login_import_account_card_open',
 };
@@ -36,11 +38,21 @@ Future<int> runAppEntryExtraCase(Inst a, String nickA, String scenario) async {
         await _aeeKeyboardNewConversationShortcut(a),
       'keyboard_open_settings_shortcut' =>
         await _aeeKeyboardOpenSettingsShortcut(a),
+      'irc_join_channel_real_controls' => await _aeeIrcJoinChannelRealControls(
+        a,
+      ),
+      'irc_join_channel_loopback_live' => await _aeeIrcJoinChannelLoopbackLive(
+        a,
+      ),
       'register_password_visibility_toggle' =>
         await _aeeRegisterPasswordVisibilityToggle(a, nickA),
-      'login_import_account_card_open' =>
-        await _aeeLoginImportAccountCardOpen(a, nickA),
-      _ => throw ArgumentError('unsupported app-entry-extra scenario: $scenario'),
+      'login_import_account_card_open' => await _aeeLoginImportAccountCardOpen(
+        a,
+        nickA,
+      ),
+      _ => throw ArgumentError(
+        'unsupported app-entry-extra scenario: $scenario',
+      ),
     };
   } finally {
     await _aeeNormalize(a, nickA);
@@ -78,7 +90,10 @@ Future<int> runAppEntryExtraSweep(Inst a, String nickA) async {
   // HomePage cases first (cheap, no logout), then the two LoginPage cases that
   // log out + relogin — so a relogin failure can't cascade into the home cases.
   await hard('new_entry_menu_surface', () => _aeeNewEntryMenuSurface(a));
-  await hard('add_friend_paste_clipboard', () => _aeeAddFriendPasteClipboard(a));
+  await hard(
+    'add_friend_paste_clipboard',
+    () => _aeeAddFriendPasteClipboard(a),
+  );
   await hard(
     'keyboard_new_conversation_shortcut',
     () => _aeeKeyboardNewConversationShortcut(a),
@@ -86,6 +101,14 @@ Future<int> runAppEntryExtraSweep(Inst a, String nickA) async {
   await hard(
     'keyboard_open_settings_shortcut',
     () => _aeeKeyboardOpenSettingsShortcut(a),
+  );
+  await hard(
+    'irc_join_channel_real_controls',
+    () => _aeeIrcJoinChannelRealControls(a),
+  );
+  await hard(
+    'irc_join_channel_loopback_live',
+    () => _aeeIrcJoinChannelLoopbackLive(a),
   );
   await hard(
     'register_password_visibility_toggle',
@@ -194,11 +217,17 @@ Future<bool> _aeeNewEntryMenuSurface(Inst inst) async {
     } on DriveError {
       break;
     }
-    closed = await inst.waitKeyGone('new_entry_add_contact_item', timeoutSecs: 3);
+    closed = await inst.waitKeyGone(
+      'new_entry_add_contact_item',
+      timeoutSecs: 3,
+    );
   }
   if (!closed) {
     await inst.tapAt(_sidebarTabX, _sidebarChatsY);
-    closed = await inst.waitKeyGone('new_entry_add_contact_item', timeoutSecs: 3);
+    closed = await inst.waitKeyGone(
+      'new_entry_add_contact_item',
+      timeoutSecs: 3,
+    );
   }
 
   print(
@@ -223,7 +252,9 @@ Future<bool> _aeeAddFriendPasteClipboard(Inst inst) async {
   try {
     await inst.setClipboard(probe);
   } on DriveError catch (e) {
-    print('[pair] add_friend_paste_clipboard: setClipboard failed: ${e.message}');
+    print(
+      '[pair] add_friend_paste_clipboard: setClipboard failed: ${e.message}',
+    );
     await _closeAddFriendDialog(inst);
     return false;
   }
@@ -335,13 +366,202 @@ Future<bool> _aeeKeyboardOpenSettingsShortcut(Inst inst) async {
   return onSettings;
 }
 
+/// irc_join_channel_real_controls: prepare deterministic local IRC installed
+/// state through the L3 test seam, then drive the REAL Applications-page Add IRC
+/// Channel button and dialog controls. This proves the user-visible IRC join
+/// surface is tappable without loading libirc_client or contacting a live server.
+Future<bool> _aeeIrcJoinChannelRealControls(Inst inst) async {
+  final channel = '#rui-irc-${DateTime.now().microsecondsSinceEpoch}';
+  var marked = false;
+  try {
+    marked = await inst.markAccountTest();
+    if (!marked) {
+      print('[pair] irc_join_channel_real_controls: markAccountTest failed');
+      return false;
+    }
+    final reset = await inst.l3('l3_irc_set_state', {'reset': true});
+    if (reset['ok'] != true) {
+      print('[pair] irc_join_channel_real_controls: reset failed $reset');
+      return false;
+    }
+    final prepared = await inst.l3('l3_irc_set_state', {
+      'installed': true,
+      'server': 'irc.invalid.local',
+      'port': 6667,
+      'useSasl': false,
+      'channels': '[]',
+      'localAddOverride': true,
+    });
+    if (prepared['ok'] != true) {
+      print('[pair] irc_join_channel_real_controls: prepare failed $prepared');
+      return false;
+    }
+
+    await ensureHome(inst, '');
+    if (!await inst.tapKeyCenter('sidebar_applications_tab', timeoutSecs: 4)) {
+      if (!await inst.tapKeyCenter(
+        'bottom_nav_applications_tab',
+        timeoutSecs: 4,
+      )) {
+        print(
+          '[pair] irc_join_channel_real_controls: applications tab missing',
+        );
+        return false;
+      }
+    }
+    if (!await inst.waitKey(
+      'applications_irc_add_channel_button',
+      timeoutSecs: 10,
+    )) {
+      print('[pair] irc_join_channel_real_controls: add button missing');
+      return false;
+    }
+    if (!await inst.tapKeyCenter('applications_irc_add_channel_button')) {
+      await inst.tapKey('applications_irc_add_channel_button');
+    }
+    if (!await inst.waitKey(
+      'irc_channel_dialog_channel_field',
+      timeoutSecs: 8,
+    )) {
+      print('[pair] irc_join_channel_real_controls: dialog did not open');
+      return false;
+    }
+    await inst.focusType('irc_channel_dialog_channel_field', channel);
+    await inst.focusType('irc_channel_dialog_password_field', 'rui-secret');
+    await inst.focusType('irc_channel_dialog_nickname_field', 'ruiNick');
+    if (!await inst.tapKeyCenter('irc_channel_dialog_join_button')) {
+      await inst.tapKey('irc_channel_dialog_join_button');
+    }
+    final tileKey = 'applications_irc_channel_tile:$channel';
+    final tileShown = await inst.waitKey(tileKey, timeoutSecs: 12);
+    final state = await inst.dumpState();
+    final stateContains = ((state['ircChannels'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .contains(channel);
+    await inst.shot('/tmp/ui_app_entry_irc_join_${inst.name}.png');
+    print(
+      '[pair] irc_join_channel_real_controls: tile=$tileShown '
+      'stateContains=$stateContains channel=$channel',
+    );
+    return tileShown && stateContains;
+  } finally {
+    if (marked) {
+      try {
+        await inst.l3('l3_irc_remove_channel_local', {'channel': channel});
+        await inst.l3('l3_irc_set_state', {'reset': true});
+      } on Object catch (e) {
+        print('[pair] irc_join_channel_real_controls: cleanup failed: $e');
+      }
+      await inst.unmarkAccountTest();
+    }
+    await returnToChatsHome(inst, rounds: 4);
+  }
+}
+
+Future<bool> _aeeIrcJoinChannelLoopbackLive(Inst inst) async {
+  final channel = '#rui-live-${DateTime.now().microsecondsSinceEpoch}';
+  // Bind host/port come from the driver env so the remote/mobile platforms can
+  // pre-forward a KNOWN loopback port (Android `adb reverse`). macOS / iOS /
+  // Windows set nothing here -> ephemeral 127.0.0.1, unchanged. The app is told
+  // to connect to `server.host:server.port`, which on Android is the device-side
+  // 127.0.0.1:<reversed-port> that adb tunnels back to this host.
+  final server = await LocalIrcServer.startFromEnv(Platform.environment);
+  var marked = false;
+  try {
+    marked = await inst.markAccountTest();
+    if (!marked) {
+      print('[pair] irc_join_channel_loopback_live: markAccountTest failed');
+      return false;
+    }
+    final reset = await inst.l3('l3_irc_set_state', {'reset': true});
+    if (reset['ok'] != true) {
+      print('[pair] irc_join_channel_loopback_live: reset failed $reset');
+      return false;
+    }
+
+    await ensureHome(inst, '');
+    if (!await inst.tapKeyCenter('sidebar_applications_tab', timeoutSecs: 4)) {
+      if (!await inst.tapKeyCenter(
+        'bottom_nav_applications_tab',
+        timeoutSecs: 4,
+      )) {
+        print(
+          '[pair] irc_join_channel_loopback_live: applications tab missing',
+        );
+        return false;
+      }
+    }
+    if (await inst.waitKey('applications_irc_install_button', timeoutSecs: 4)) {
+      if (!await inst.tapKeyCenter('applications_irc_install_button')) {
+        await inst.tapKey('applications_irc_install_button');
+      }
+    }
+    if (!await inst.waitKey('applications_irc_server_field', timeoutSecs: 12)) {
+      print('[pair] irc_join_channel_loopback_live: config fields missing');
+      return false;
+    }
+    await inst.focusType('applications_irc_server_field', server.host);
+    await inst.focusType('applications_irc_port_field', '${server.port}');
+    if (!await inst.tapKeyCenter('applications_irc_save_config_button')) {
+      await inst.tapKey('applications_irc_save_config_button');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!await inst.tapKeyCenter('applications_irc_add_channel_button')) {
+      await inst.tapKey('applications_irc_add_channel_button');
+    }
+    if (!await inst.waitKey(
+      'irc_channel_dialog_channel_field',
+      timeoutSecs: 8,
+    )) {
+      print('[pair] irc_join_channel_loopback_live: dialog did not open');
+      return false;
+    }
+    await inst.focusType('irc_channel_dialog_channel_field', channel);
+    await inst.focusType('irc_channel_dialog_password_field', 'rui-secret');
+    await inst.focusType('irc_channel_dialog_nickname_field', 'ruiNick');
+    if (!await inst.tapKeyCenter('irc_channel_dialog_join_button')) {
+      await inst.tapKey('irc_channel_dialog_join_button');
+    }
+
+    final joined = await server.waitForCommandContaining('JOIN $channel');
+    final tileKey = 'applications_irc_channel_tile:$channel';
+    final tileShown = await inst.waitKey(tileKey, timeoutSecs: 12);
+    final state = await inst.dumpState();
+    final stateContains = ((state['ircChannels'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .contains(channel);
+    await inst.shot('/tmp/ui_app_entry_irc_live_${inst.name}.png');
+    print(
+      '[pair] irc_join_channel_loopback_live: tile=$tileShown '
+      'stateContains=$stateContains joined=$joined channel=$channel '
+      'server=${server.host}:${server.port}',
+    );
+    return tileShown && stateContains;
+  } finally {
+    if (marked) {
+      try {
+        await inst.l3('l3_irc_remove_channel_local', {'channel': channel});
+        await inst.l3('l3_irc_set_state', {'reset': true});
+      } on Object catch (e) {
+        print('[pair] irc_join_channel_loopback_live: cleanup failed: $e');
+      }
+      await inst.unmarkAccountTest();
+    }
+    await server.dispose();
+    await returnToChatsHome(inst, rounds: 4);
+  }
+}
+
 /// register_password_visibility_toggle: on the RegisterPage, type a password,
 /// then tap the visibility toggle and assert the obscure state flips both ways.
 /// The flip is observed via the state-suffixed icon key
 /// (`register_password_visibility_icon_{obscured|visible}`) added to the icon —
 /// the IconButton key stays stable for tapping. Logs out first, relogins in the
 /// finally so the launch stays reusable.
-Future<bool> _aeeRegisterPasswordVisibilityToggle(Inst inst, String nickA) async {
+Future<bool> _aeeRegisterPasswordVisibilityToggle(
+  Inst inst,
+  String nickA,
+) async {
   // Capture the account id BEFORE logout: production logout clears
   // currentAccountToxId, so a partial logout would leave the end-clean unable to
   // recover (dumpState would report no id). The finally relogins with this id.
@@ -353,11 +573,15 @@ Future<bool> _aeeRegisterPasswordVisibilityToggle(Inst inst, String nickA) async
   var ok = false;
   try {
     if ((await _logoutToLoginPage(inst)).isEmpty) {
-      print('[pair] register_password_visibility_toggle: logout to login failed');
+      print(
+        '[pair] register_password_visibility_toggle: logout to login failed',
+      );
       return false;
     }
     if (!await _openRegisterPage(inst)) {
-      print('[pair] register_password_visibility_toggle: RegisterPage did not open');
+      print(
+        '[pair] register_password_visibility_toggle: RegisterPage did not open',
+      );
       return false;
     }
     // Give the password field content (the toggle works regardless; this makes the

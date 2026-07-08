@@ -5,6 +5,7 @@ import '../../util/app_spacing.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/app_theme_config.dart';
+import '../testing/ui_keys.dart';
 
 class IrcChannelDialog extends StatefulWidget {
   const IrcChannelDialog({super.key});
@@ -55,7 +56,9 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
         );
         return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+            borderRadius: BorderRadius.circular(
+              AppThemeConfig.cardBorderRadius,
+            ),
             side: BorderSide(color: scheme.outlineVariant),
           ),
           clipBehavior: Clip.antiAlias,
@@ -65,10 +68,7 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  height: 4,
-                  color: colorTheme.primaryColor,
-                ),
+                Container(height: 4, color: colorTheme.primaryColor),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.xl),
                   child: Form(
@@ -88,16 +88,20 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                         ),
                         AppSpacing.verticalSm,
                         TextFormField(
+                          key: UiKeys.ircChannelDialogChannelField,
                           controller: _channelController,
                           textAlignVertical: TextAlignVertical.center,
                           decoration: InputDecoration(
                             hintText: appL10n?.ircChannelHint ?? '#channel',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                              borderRadius: BorderRadius.circular(
+                                AppThemeConfig.inputBorderRadius,
+                              ),
                             ),
-                            prefixText: _channelController.text.isEmpty ||
-                                _channelController.text.startsWith('#') ||
-                                _channelController.text.startsWith('&')
+                            prefixText:
+                                _channelController.text.isEmpty ||
+                                    _channelController.text.startsWith('#') ||
+                                    _channelController.text.startsWith('&')
                                 ? null
                                 : '#',
                           ),
@@ -109,21 +113,31 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                         ),
                         AppSpacing.verticalLg,
                         Text(
-                          appL10n?.ircChannelPassword ?? 'Channel Password (optional)',
+                          appL10n?.ircChannelPassword ??
+                              'Channel Password (optional)',
                           style: fieldLabelStyle,
                         ),
                         AppSpacing.verticalSm,
                         TextFormField(
+                          key: UiKeys.ircChannelDialogPasswordField,
                           controller: _passwordController,
                           textAlignVertical: TextAlignVertical.center,
                           decoration: InputDecoration(
-                            hintText: appL10n?.ircChannelPasswordHint ?? 'Leave empty if no password',
+                            hintText:
+                                appL10n?.ircChannelPasswordHint ??
+                                'Leave empty if no password',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                              borderRadius: BorderRadius.circular(
+                                AppThemeConfig.inputBorderRadius,
+                              ),
                             ),
                             suffixIcon: IconButton(
+                              key: UiKeys
+                                  .ircChannelDialogPasswordVisibilityToggle,
                               icon: Icon(
-                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                _obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
                               ),
                               onPressed: () {
                                 setState(() {
@@ -138,17 +152,23 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                         ),
                         AppSpacing.verticalLg,
                         Text(
-                          appL10n?.ircCustomNickname ?? 'Custom IRC Nickname (optional)',
+                          appL10n?.ircCustomNickname ??
+                              'Custom IRC Nickname (optional)',
                           style: fieldLabelStyle,
                         ),
                         AppSpacing.verticalSm,
                         TextFormField(
+                          key: UiKeys.ircChannelDialogNicknameField,
                           controller: _nicknameController,
                           textAlignVertical: TextAlignVertical.center,
                           decoration: InputDecoration(
-                            hintText: appL10n?.ircCustomNicknameHint ?? 'Leave empty to use auto-generated nickname',
+                            hintText:
+                                appL10n?.ircCustomNicknameHint ??
+                                'Leave empty to use auto-generated nickname',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+                              borderRadius: BorderRadius.circular(
+                                AppThemeConfig.inputBorderRadius,
+                              ),
                             ),
                           ),
                         ),
@@ -165,27 +185,38 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             TextButton(
+                              key: UiKeys.ircChannelDialogCancelButton,
                               onPressed: () => popDialogIfCurrent(context),
                               style: TextButton.styleFrom(
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                                  borderRadius: BorderRadius.circular(
+                                    AppThemeConfig.buttonBorderRadius,
+                                  ),
                                 ),
                               ),
                               child: Text(appL10n?.cancel ?? 'Cancel'),
                             ),
                             AppSpacing.horizontalSm,
                             ElevatedButton(
+                              key: UiKeys.ircChannelDialogJoinButton,
                               onPressed: () {
                                 if (_formKey.currentState!.validate()) {
                                   // _validateChannel already enforces a leading
                                   // `#` or `&` — no normalization needed here.
-                                  final channel = _channelController.text.trim();
-                                  final password = _passwordController.text.trim();
-                                  final nickname = _nicknameController.text.trim();
+                                  final channel = _channelController.text
+                                      .trim();
+                                  final password = _passwordController.text
+                                      .trim();
+                                  final nickname = _nicknameController.text
+                                      .trim();
                                   popDialogIfCurrent(context, (
                                     channel: channel,
-                                    password: password.isEmpty ? null : password,
-                                    nickname: nickname.isEmpty ? null : nickname,
+                                    password: password.isEmpty
+                                        ? null
+                                        : password,
+                                    nickname: nickname.isEmpty
+                                        ? null
+                                        : nickname,
                                   ));
                                 }
                               },
@@ -193,7 +224,9 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                                 backgroundColor: colorTheme.primaryColor,
                                 foregroundColor: colorTheme.onPrimary,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                                  borderRadius: BorderRadius.circular(
+                                    AppThemeConfig.buttonBorderRadius,
+                                  ),
                                 ),
                               ),
                               child: Text(appL10n?.join ?? 'Join'),

@@ -1,0 +1,23 @@
+{
+  "id": "L3-irc-install-state",
+  "suite": "settings",
+  "description": "IRC install/config local-state gate (hermetic, single-instance): drive test-only l3_irc_set_state with an .invalid server and prove IRC prefs round-trip through l3_dump_state. No libirc_client load and no live IRC network dependency. Self-cleans by resetting IRC state.",
+  "requiresEchoPeer": false,
+  "target": "3116CBE0974181B6EC4B32555413655B42C7456A93C6AF98A23E95127B587244",
+  "steps": [
+    { "action": "irc_set_state", "reset": true },
+    { "action": "irc_set_state", "installed": true, "server": "irc.invalid.local", "port": 6667, "useSasl": false, "channels": [] },
+    { "action": "wait_for", "predicate": "state_equals", "field": "ircInstalled", "equals": true, "timeoutSecs": 5 },
+    { "action": "wait_for", "predicate": "state_equals", "field": "ircServer", "equals": "irc.invalid.local", "timeoutSecs": 5 },
+    { "action": "wait_for", "predicate": "state_equals", "field": "ircPort", "equals": 6667, "timeoutSecs": 5 }
+  ],
+  "assertions": [
+    { "type": "state", "field": "ircInstalled", "equals": true },
+    { "type": "state", "field": "ircServer", "equals": "irc.invalid.local" },
+    { "type": "state", "field": "ircPort", "equals": 6667 },
+    { "type": "state", "field": "ircUseSasl", "equals": false }
+  ],
+  "teardown": [
+    { "action": "irc_set_state", "reset": true }
+  ]
+}

@@ -150,7 +150,7 @@ Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
   // below ALL require sessionReady=true (a logged-in-but-resettling app would be
   // mis-treated as unrecoverable and throw). Wait once, upfront, for the session
   // to settle when an account IS present — doesn't consume a recovery round.
-  if (_isWindowsRealUi) {
+  if (_isHeadlessRealUi) {
     final st = await inst.dumpState();
     if (st['sessionReady'] != true &&
         (st['currentAccountToxId']?.toString() ?? '').isNotEmpty) {

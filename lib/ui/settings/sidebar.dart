@@ -21,8 +21,8 @@ import '../../i18n/app_localizations.dart';
 import '../profile_page.dart';
 import '../testing/ui_keys.dart';
 
-/// 临时屏蔽 sidebar 的「应用」入口，改为 true 可恢复显示
-const bool _showApplicationsEntry = false;
+/// Controls whether the sidebar exposes the Applications entry.
+const bool _showApplicationsEntry = true;
 
 /// Opens the current user's profile.
 ///

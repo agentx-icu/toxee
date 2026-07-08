@@ -15,7 +15,7 @@ usage: fixture_c_unified_runner.dart [--tier=non-media|media|all]
        [--class=2proc-l3|2proc-ui] [--id=<script>[,<script>]]
        [--real-ui-scenario=<name>[,<name>]]
        [--real-ui-campaign=<name>[,<name>]] [--include-destructive]
-       [--real-ui-platform=macos|ios]
+       [--real-ui-platform=macos|ios|android|windows]
        [--list|--plan-json|--dry-run|--validate-only]
        [--list-real-ui-campaigns]
 
@@ -36,20 +36,120 @@ Real-UI helpers:
                        expand a named merged campaign of compatible real-UI
                        scenarios
   --list-real-ui-campaigns
-                       print the built-in reusable real-UI campaign catalog
+                        print the built-in reusable real-UI campaign catalog
+
+Platform support (all four have A/B real-UI pair launchers wired in):
+  macos                 launch_fixture_c_pair.sh (run on the Mac)
+  ios                   launch_ios_fixture_c_pair.sh (two Simulators on the Mac)
+  android               launch_android_fixture_c_pair.sh (run on a host with adb
+                        + two devices/emulators; the loopback IRC server is made
+                        reachable via `adb reverse`)
+  windows               launch_windows_fixture_c_pair.ps1 (run the runner ON the
+                        Windows host; two flutter-run instances share its loopback)
+  Note: the irc_join_channel_loopback_live JOIN needs the native libirc_client
+  library (bundled on macOS); irc_join_channel_real_controls is pure-Dart and
+  portable. See tool/mcp_test/REAL_UI_TWO_PROCESS.md.
 ''';
 
 const _manifestPath = 'tool/mcp_test/fixture_c_manifest.json';
 const _pairManifest = 'tool/mcp_test/fixtures/paired_for_e2e_manifest.json';
 const _macosPairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
 const _iosPairJson = 'tool/mcp_test/.ios_runtime/pair.json';
+const _androidPairJson = 'tool/mcp_test/.android_runtime/pair.json';
+const _windowsPairJson = 'tool/mcp_test/.windows_runtime/pair.json';
 const _defaultRealUiNickA = 'RealUiAlice';
 const _defaultRealUiNickB = 'RealUiBob';
+
+/// Fixed loopback IRC port for the Android real-UI platform. The Android app
+/// runs on a device/emulator, so the host-side LocalIrcServer (started by the
+/// driver) is only reachable through `adb reverse tcp:<port> tcp:<port>`, which
+/// the Android pair launcher sets up BEFORE the driver picks a port — hence a
+/// known fixed value rather than an ephemeral one. The runner injects this into
+/// both the launch env (so the launcher reverses it) and the driver env (so
+/// `LocalIrcServer.startFromEnv` binds it). macOS / iOS / Windows share the host
+/// loopback and keep the ephemeral default (no reverse-forward needed).
+const _androidIrcLoopbackPort = '16667';
+
+/// Per-platform wiring for the real-UI A/B pair: where the runtime pair.json
+/// lands, which launch/stop scripts produce + tear it down, how those scripts
+/// are invoked (bash vs PowerShell), whether the runner builds the app on the
+/// host before launching, and the fixed IRC loopback port (Android only). This
+/// replaces the scattered `_realUiPlatform == 'ios' ? ... : ...` branches so a
+/// new platform is one map entry.
+class _RealUiPlatformConfig {
+  const _RealUiPlatformConfig({
+    required this.pairJson,
+    required this.launchScript,
+    required this.stopScript,
+    required this.usesPowershell,
+    required this.prebuildOnHost,
+    this.ircLoopbackPort,
+  });
+
+  /// Relative path to the runtime pair.json the launcher writes / the runner +
+  /// driver read (ws_uri / pid / nickname per instance).
+  final String pairJson;
+  final String launchScript;
+  final String stopScript;
+
+  /// PowerShell `.ps1` launch/stop scripts (Windows) are invoked via
+  /// `powershell -ExecutionPolicy Bypass -File <script>`; bash `.sh` scripts run
+  /// directly. Governs both the symbolic dry-run/plan-json output and execution.
+  final bool usesPowershell;
+
+  /// macOS builds the app bundle once via `run_toxee.sh` before the pair launch;
+  /// the iOS/Android/Windows launch scripts self-build, so the runner skips it.
+  final bool prebuildOnHost;
+
+  /// Fixed IRC loopback port for `adb reverse` (Android). Null on the
+  /// same-host-loopback platforms (macOS/iOS/Windows), which keep ephemeral.
+  final String? ircLoopbackPort;
+}
+
+const _realUiPlatformConfigs = <String, _RealUiPlatformConfig>{
+  'macos': _RealUiPlatformConfig(
+    pairJson: _macosPairJson,
+    launchScript: 'tool/mcp_test/launch_fixture_c_pair.sh',
+    stopScript: 'tool/mcp_test/stop_fixture_c_pair.sh',
+    usesPowershell: false,
+    prebuildOnHost: true,
+  ),
+  'ios': _RealUiPlatformConfig(
+    pairJson: _iosPairJson,
+    launchScript: 'tool/mcp_test/launch_ios_fixture_c_pair.sh',
+    stopScript: 'tool/mcp_test/stop_ios_fixture_c_pair.sh',
+    usesPowershell: false,
+    prebuildOnHost: false,
+  ),
+  'android': _RealUiPlatformConfig(
+    pairJson: _androidPairJson,
+    launchScript: 'tool/mcp_test/launch_android_fixture_c_pair.sh',
+    stopScript: 'tool/mcp_test/stop_android_fixture_c_pair.sh',
+    usesPowershell: false,
+    prebuildOnHost: false,
+    ircLoopbackPort: _androidIrcLoopbackPort,
+  ),
+  'windows': _RealUiPlatformConfig(
+    pairJson: _windowsPairJson,
+    launchScript: 'tool/mcp_test/launch_windows_fixture_c_pair.ps1',
+    stopScript: 'tool/mcp_test/stop_windows_fixture_c_pair.ps1',
+    usesPowershell: true,
+    prebuildOnHost: false,
+  ),
+};
+
+_RealUiPlatformConfig get _realUiConfig =>
+    _realUiPlatformConfigs[_realUiPlatform] ?? _realUiPlatformConfigs['macos']!;
 
 const _validTiers = {'non-media', 'media', 'all'};
 const _validClasses = {'2proc-l3', '2proc-ui'};
 const _validBases = {'paired_for_e2e', 'fresh', 'real-ui'};
-const _validRealUiPlatforms = {'macos', 'ios'};
+const _validRealUiPlatforms = {'macos', 'ios', 'android', 'windows'};
+// All four platforms now have A/B pair launchers wired into this runner, so this
+// blocker map is empty. It is kept as the seam for declaring a future platform
+// "known but not yet wired" (a non-empty entry makes `--real-ui-platform=<name>`
+// fail with the stated reason) without re-introducing scattered special-cases.
+const _unsupportedRealUiPlatforms = <String, String>{};
 String _realUiPlatform = 'macos';
 
 /// Exit code a real-UI driver returns when a scenario is a SKIP (its surface
@@ -294,6 +394,8 @@ const _validRealUiScenarios = {
   'add_friend_paste_clipboard',
   'keyboard_new_conversation_shortcut',
   'keyboard_open_settings_shortcut',
+  'irc_join_channel_real_controls',
+  'irc_join_channel_loopback_live',
   'register_password_visibility_toggle',
   'login_import_account_card_open',
   // Group @-mention — §7.5.1 two-process: real desktop mention panel + send.
@@ -437,10 +539,7 @@ const _realUiCampaigns = <String, List<String>>{
   // iOS true-App first-pass coverage. These sweeps start from fresh accounts and
   // establish any needed friendship/group state internally, so they do not rely
   // on the macOS-only restored Fixture C pair.
-  'rui-ios-account-settings': [
-    'sweep_login',
-    'sweep_ios_settings_main',
-  ],
+  'rui-ios-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
   'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
   'rui-ios-main': [
     'sweep_login',
@@ -703,6 +802,18 @@ Future<int> _run(List<String> args) async {
   final plan = _Plan.fromEntries(selected, opts: opts);
   _realUiPlatform = opts.realUiPlatform;
 
+  // Android/Windows real-UI support only NO-FRIEND scenarios today: their A/B
+  // launchers reject TOXEE_FIXTURE_C_RESTORE (paired_for_e2e restore into a
+  // sandboxed device / per-instance Windows store is not implemented). Reject a
+  // friendship-dependent scenario HERE — at planning time, so --plan-json and
+  // --dry-run also fail — instead of planning a restore the launcher would
+  // hard-reject mid-run.
+  final restoreGapError = _realUiRestoreGap(plan);
+  if (restoreGapError != null) {
+    stderr.writeln(restoreGapError);
+    return 64;
+  }
+
   if (opts.list) {
     _printList(selected);
     return 0;
@@ -814,6 +925,11 @@ class _Options {
     }
     if (!_validRealUiPlatforms.contains(realUiPlatform)) {
       error ??= 'unknown real-UI platform: $realUiPlatform';
+    }
+    final unsupportedReason = _unsupportedRealUiPlatforms[realUiPlatform];
+    if (unsupportedReason != null) {
+      error ??=
+          'unsupported real-UI platform: $realUiPlatform ($unsupportedReason)';
     }
     final badClasses = classFilter.difference(_validClasses);
     if (badClasses.isNotEmpty) {
@@ -1305,9 +1421,7 @@ List<String> _symbolicRealUiCommands(_PlannedEntry planned) {
       pairNeedsRestoreBoot = false;
     }
 
-    final envPrefix = _realUiPlatform == 'ios'
-        ? 'TOXEE_REAL_UI_PAIR_JSON=$_iosPairJson TOXEE_REAL_UI_PLATFORM=ios '
-        : '';
+    final envPrefix = _realUiSymbolicDriverEnvPrefix();
     commands.add(
       '${envPrefix}dart run tool/mcp_test/${planned.entry.driver} '
       '${pairNeedsRestoreBoot ? '--boot-restored ' : ''}'
@@ -1586,6 +1700,8 @@ String _requiredRealUiState(String scenario) {
     case 'add_friend_paste_clipboard':
     case 'keyboard_new_conversation_shortcut':
     case 'keyboard_open_settings_shortcut':
+    case 'irc_join_channel_real_controls':
+    case 'irc_join_channel_loopback_live':
     case 'register_password_visibility_toggle':
     case 'login_import_account_card_open':
     // Group @-mention — establishes its OWN friendship + group when needed, so it
@@ -1880,6 +1996,8 @@ String _resultRealUiState(String scenario) {
     case 'add_friend_paste_clipboard':
     case 'keyboard_new_conversation_shortcut':
     case 'keyboard_open_settings_shortcut':
+    case 'irc_join_channel_real_controls':
+    case 'irc_join_channel_loopback_live':
     case 'register_password_visibility_toggle':
     case 'login_import_account_card_open':
     // Account/conference focused expansion — all cases clean their temporary
@@ -1918,11 +2036,33 @@ String? _restoreForRealUiState(String state) {
   return null;
 }
 
+/// Returns an error string when the selected real-UI platform cannot run one of
+/// the planned scenarios because it would require a `paired_for_e2e` restore that
+/// the platform's launcher does not implement (Android/Windows). Null when every
+/// planned scenario is launchable on the platform.
+String? _realUiRestoreGap(_Plan plan) {
+  if (_realUiPlatform != 'android' && _realUiPlatform != 'windows') return null;
+  final unsupported = <String>{};
+  for (final group in plan.groups) {
+    if (group.mode != 'real-ui') continue;
+    for (final entry in group.entries) {
+      for (final scenario in entry.realUiScenarios) {
+        if (_requiredRealUiState(scenario) == _realUiStateFriends) {
+          unsupported.add(scenario);
+        }
+      }
+    }
+  }
+  if (unsupported.isEmpty) return null;
+  return '[unified] real-UI platform "$_realUiPlatform" supports only no-friend '
+      'scenarios today (its A/B launcher does not implement paired_for_e2e '
+      'restore); friendship-dependent scenario(s) not allowed: '
+      '${unsupported.toList()..sort()}';
+}
+
 String _symbolicRealUiResetCommand() {
-  final envPrefix = _realUiPlatform == 'ios'
-      ? 'TOXEE_REAL_UI_PAIR_JSON=$_iosPairJson TOXEE_REAL_UI_PLATFORM=ios '
-      : '';
-  return '${envPrefix}dart run tool/mcp_test/drive_real_ui_pair.dart '
+  return '${_realUiSymbolicDriverEnvPrefix()}'
+      'dart run tool/mcp_test/drive_real_ui_pair.dart '
       '$_internalRealUiResetScenario '
       '"\$A_WS" "\$A_PID" "\$A_NICK" "\$B_WS" "\$B_PID" "\$B_NICK"';
 }
@@ -1930,21 +2070,52 @@ String _symbolicRealUiResetCommand() {
 String _legacyShellCommand(_Entry entry) =>
     'bash tool/mcp_test/${entry.script}';
 
-String _realUiPairJson() =>
-    _realUiPlatform == 'ios' ? _iosPairJson : _macosPairJson;
+String _realUiPairJson() => _realUiConfig.pairJson;
 
-String _realUiLaunchScript() => _realUiPlatform == 'ios'
-    ? 'tool/mcp_test/launch_ios_fixture_c_pair.sh'
-    : 'tool/mcp_test/launch_fixture_c_pair.sh';
+/// The env-prefix prepended to the symbolic driver/reset commands in dry-run /
+/// plan-json output. macOS needs none (the driver defaults to the macOS pair
+/// json + `macos` platform); the other platforms set the pair json + platform
+/// (+ the fixed IRC loopback port for Android). This mirrors `_realUiDriverEnv`,
+/// which sets the same values for live execution.
+String _realUiSymbolicDriverEnvPrefix() {
+  if (_realUiPlatform == 'macos') return '';
+  final cfg = _realUiConfig;
+  final buffer = StringBuffer(
+    'TOXEE_REAL_UI_PAIR_JSON=${cfg.pairJson} '
+    'TOXEE_REAL_UI_PLATFORM=$_realUiPlatform ',
+  );
+  final ircPort = cfg.ircLoopbackPort;
+  if (ircPort != null) {
+    buffer.write('TOXEE_IRC_LOOPBACK_PORT=$ircPort ');
+  }
+  return buffer.toString();
+}
 
-String _realUiStopScript() => _realUiPlatform == 'ios'
-    ? 'tool/mcp_test/stop_ios_fixture_c_pair.sh'
-    : 'tool/mcp_test/stop_fixture_c_pair.sh';
+/// Symbolic launch/stop invocation token. Bash `.sh` scripts are printed as the
+/// bare path (the live runner runs them via `bash`); PowerShell `.ps1` scripts
+/// are printed as a `powershell -ExecutionPolicy Bypass -File <script>` line so
+/// the Windows dry-run is faithful to how the runner executes it.
+String _realUiLaunchInvocation() => _realUiScriptInvocation(_realUiConfig.launchScript);
+
+String _realUiStopInvocation() => _realUiScriptInvocation(_realUiConfig.stopScript);
+
+String _realUiScriptInvocation(String script) => _realUiConfig.usesPowershell
+    ? 'powershell -ExecutionPolicy Bypass -File $script'
+    : script;
+
+/// Argv for `Process.start` to run a real-UI launch/stop script: `bash <script>`
+/// for `.sh`, `powershell -ExecutionPolicy Bypass -File <script>` for `.ps1`.
+List<String> _realUiScriptExecCommand(String script) =>
+    _realUiConfig.usesPowershell
+    ? ['powershell', '-ExecutionPolicy', 'Bypass', '-File', script]
+    : ['bash', script];
 
 Map<String, String> _realUiDriverEnv() => {
   ...Platform.environment,
   'TOXEE_REAL_UI_PAIR_JSON': _realUiPairJson(),
   'TOXEE_REAL_UI_PLATFORM': _realUiPlatform,
+  if (_realUiConfig.ircLoopbackPort != null)
+    'TOXEE_IRC_LOOPBACK_PORT': _realUiConfig.ircLoopbackPort!,
 };
 
 String _launchPairCommand({String? restore, bool tcpOnly = false}) {
@@ -1963,14 +2134,22 @@ String _pairBootCommand() =>
     '--fixture-manifest $_pairManifest';
 
 String _launchRealUiPairCommand({String? restore}) {
-  final script = _realUiLaunchScript();
-  if (restore == null || restore.isEmpty) return script;
-  return 'TOXEE_FIXTURE_C_RESTORE=$restore $script';
+  // The symbolic env prefix uses bash `VAR=value cmd` convention (the runner's
+  // own host context) even for the PowerShell launch invocation; live execution
+  // passes these via the process environment (`_launchRealUiPair`), not a shell
+  // prefix, so the representation stays faithful in WHAT is set, if not in
+  // copy-paste syntax. The Android launch ALSO receives TOXEE_IRC_LOOPBACK_PORT
+  // live (for adb reverse), so include it here too.
+  final ircPort = _realUiConfig.ircLoopbackPort;
+  final ircPrefix = ircPort != null ? 'TOXEE_IRC_LOOPBACK_PORT=$ircPort ' : '';
+  final invocation = _realUiLaunchInvocation();
+  if (restore == null || restore.isEmpty) return '$ircPrefix$invocation';
+  return '${ircPrefix}TOXEE_FIXTURE_C_RESTORE=$restore $invocation';
 }
 
 String _stopPairCommand() => 'tool/mcp_test/stop_fixture_c_pair.sh';
 
-String _stopRealUiPairCommand() => _realUiStopScript();
+String _stopRealUiPairCommand() => _realUiStopInvocation();
 
 String _quietStopPairCommand() =>
     'tool/mcp_test/stop_fixture_c_pair.sh >/dev/null 2>&1 || true';
@@ -2336,16 +2515,48 @@ Future<void> _bestEffortStopPair() async {
 }
 
 Future<int> _launchRealUiPair({String? restore}) async {
+  final cfg = _realUiConfig;
+  if (cfg.prebuildOnHost) {
+    // macOS only: build the debug Toxee.app once via run_toxee.sh before the
+    // pair launch (the iOS/Android/Windows launch scripts self-build, so the
+    // runner skips this for them).
+    final buildRc = await _runProcess(
+      ['bash', 'run_toxee.sh', '--skip-bootstrap'],
+      environment: {
+        ...Platform.environment,
+        'MCP_BINDING': 'skill',
+        'TOXEE_L3_TEST': 'true',
+        'TOXEE_BUILD_ONLY': '1',
+      },
+    );
+    if (buildRc != 0) return buildRc;
+  }
   final env = <String, String>{
     ...Platform.environment,
     if (restore != null && restore.isNotEmpty)
       'TOXEE_FIXTURE_C_RESTORE': restore,
+    // Android: hand the fixed IRC loopback port to the launcher so it can
+    // `adb reverse` it on both devices before the driver binds the server.
+    if (cfg.ircLoopbackPort != null)
+      'TOXEE_IRC_LOOPBACK_PORT': cfg.ircLoopbackPort!,
   };
-  return _runProcess(['bash', _realUiLaunchScript()], environment: env);
+  final rc = await _runProcess(
+    _realUiScriptExecCommand(cfg.launchScript),
+    environment: env,
+  );
+  if (rc != 0) {
+    // A failed pair launch can leave one instance running (e.g. A came up, B
+    // failed) — the launch returns non-zero before the runner marks the pair
+    // active, so its outer finally won't stop it. Best-effort tear down here so
+    // a stray instance doesn't leak or hold a fixed VM/IRC port for the retry.
+    await _bestEffortStopRealUiPair();
+  }
+  return rc;
 }
 
 Future<void> _bestEffortStopRealUiPair() async {
-  await Process.run('bash', [_realUiStopScript()]);
+  final cmd = _realUiScriptExecCommand(_realUiConfig.stopScript);
+  await Process.run(cmd.first, cmd.sublist(1));
 }
 
 Future<int> _runProcess(

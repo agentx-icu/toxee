@@ -40,6 +40,9 @@
 //   - l3_set_account_import_pick_path {path?}          override restore/import pickFiles
 //   - l3_set_attachment_pick_path {path?}              override message attachment pickFiles
 //   - l3_accept_friend_request {userId}                deterministic accept
+//   - l3_irc_set_state {reset?, installed?, server?, port?, useSasl?, channels?, localAddOverride?} local IRC prefs
+//   - l3_irc_add_channel_local {channel, groupId?}      local IRC group mapping
+//   - l3_irc_remove_channel_local {channel, groupId?}   remove local IRC state
 
 import 'dart:convert';
 import 'dart:io';
@@ -72,6 +75,7 @@ import '../../util/account_service.dart';
 import '../../util/app_bootstrap_coordinator.dart';
 import '../../util/appearance_sync.dart';
 import '../../util/harness_environment.dart';
+import '../../util/irc_app_manager.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
@@ -89,6 +93,7 @@ bool? _l3TestSurfaceEnabledOverrideForTests;
 String? _exportSaveFilePathOverride;
 String? _accountImportPickFilePathOverride;
 String? _attachmentPickFilePathOverride;
+bool _ircLocalAddOverrideEnabled = false;
 
 /// S46/S47: the live auto-accept setter hook. `l3_set_setting` only writes
 /// Prefs, but the inbound friend-application / group-invite listeners read a
@@ -150,6 +155,25 @@ Map<String, Map<String, Object?>> projectFileTransfers(
             : 0,
         'path': e.value.path,
       },
+  };
+}
+
+@visibleForTesting
+Map<String, Object?> projectIrcState({
+  required bool installed,
+  required List<String> channels,
+  required String server,
+  required int port,
+  required bool useSasl,
+  required Map<String, String> channelGroups,
+}) {
+  return {
+    'ircInstalled': installed,
+    'ircChannels': channels,
+    'ircServer': server,
+    'ircPort': port,
+    'ircUseSasl': useSasl,
+    'ircChannelGroups': channelGroups,
   };
 }
 
@@ -229,6 +253,18 @@ String? get debugCurrentAccountImportPickOverridePath =>
 
 String? get debugCurrentAttachmentPickOverridePath =>
     _isL3TestSurfaceActive ? _attachmentPickFilePathOverride : null;
+
+bool get debugL3IrcLocalAddOverrideEnabled =>
+    _isL3TestSurfaceActive && _ircLocalAddOverrideEnabled;
+
+/// Bumped by `l3_irc_set_state` whenever it mutates the IRC prefs/install state.
+/// The Applications page loads its install-state + channel list ONCE in initState
+/// (it lives in the home shell's IndexedStack, so it is built up-front and is NOT
+/// rebuilt on tab switch), so an EXTERNAL l3 state change would otherwise not
+/// surface — the Add-Channel button would stay hidden and the channel list stale,
+/// even though dump_state (which reads prefs) shows the new values. The page
+/// listens to this notifier and re-runs its state load on bump. Test-only signal.
+final ValueNotifier<int> debugApplicationsIrcReloadSignal = ValueNotifier<int>(0);
 
 /// Mirrors [runL3AwareExportSaveFilePicker] for the avatar image picker: returns
 /// the override path when set, else delegates to the real [pickFiles].
@@ -318,6 +354,11 @@ void debugSetAttachmentPickFileOverridePathForTests(String? path) {
 }
 
 @visibleForTesting
+void debugSetIrcLocalAddOverrideForTests(bool value) {
+  _ircLocalAddOverrideEnabled = value;
+}
+
+@visibleForTesting
 void debugResetL3FilePickerOverridesForTests() {
   _exportSaveFilePathOverride = null;
   _avatarPickPathOverride = null;
@@ -372,6 +413,8 @@ void registerL3DebugToolsIfEnabled() {
     'l3_set_avatar_pick_path, l3_pick_avatar, l3_set_typing, '
     'l3_window_state, l3_invite_to_group, l3_kick_group_member, '
     'l3_group_member_list, l3_dht_info, l3_add_bootstrap_node, '
+    'l3_irc_set_state, l3_irc_add_channel_local, '
+    'l3_irc_remove_channel_local, '
     'l3_contact_search). '
     'TOXEE_L3_TEST is set — this MUST NOT happen in release.',
   );
@@ -437,6 +480,9 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3GroupMemberListEntry());
   addMcpTool(_l3DhtInfoEntry());
   addMcpTool(_l3AddBootstrapNodeEntry());
+  addMcpTool(_l3IrcSetStateEntry());
+  addMcpTool(_l3IrcAddChannelLocalEntry());
+  addMcpTool(_l3IrcRemoveChannelLocalEntry());
   addMcpTool(_l3ContactSearchEntry());
   // UNGATED group-campaign plumbing hooks (work on fresh/non-test accounts).
   // These mirror the test-gated set_setting(autoAcceptGroupInvites) /
@@ -540,6 +586,81 @@ Future<MCPCallResult?> _rejectIfGroupTarget(
     );
   }
   return null;
+}
+
+bool? _parseOptionalBool(Object? raw) {
+  if (raw == null) return null;
+  if (raw is bool) return raw;
+  final text = raw.toString().trim().toLowerCase();
+  if (text == 'true') return true;
+  if (text == 'false') return false;
+  return null;
+}
+
+List<String>? _parseOptionalStringList(Object? raw) {
+  if (raw == null) return null;
+  if (raw is List) {
+    return [
+      for (final value in raw)
+        if (value.toString().trim().isNotEmpty) value.toString().trim(),
+    ];
+  }
+  final text = raw.toString().trim();
+  if (text.isEmpty) return <String>[];
+  try {
+    final decoded = jsonDecode(text);
+    if (decoded is List) {
+      return [
+        for (final value in decoded)
+          if (value.toString().trim().isNotEmpty) value.toString().trim(),
+      ];
+    }
+  } on FormatException {
+    // Fall back to comma-separated input below.
+  }
+  return [
+    for (final part in text.split(','))
+      if (part.trim().isNotEmpty) part.trim(),
+  ];
+}
+
+String _normalizeIrcChannelName(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return '';
+  return trimmed.startsWith('#') || trimmed.startsWith('&')
+      ? trimmed
+      : '#$trimmed';
+}
+
+String _defaultL3IrcGroupId(String channel) {
+  final body = channel
+      .toLowerCase()
+      .replaceFirst(RegExp(r'^#+'), '')
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
+  return 'l3_irc_${body.isEmpty ? 'channel' : body}';
+}
+
+Future<Map<String, String>> _readIrcChannelGroups() async {
+  final out = <String, String>{};
+  final groups = <String>{...await Prefs.getGroups()};
+  final ffi = FakeUIKit.instance.im?.ffi;
+  if (ffi != null) groups.addAll(ffi.knownGroups);
+  for (final groupId in groups) {
+    final name = await Prefs.getGroupName(groupId);
+    if (name != null && name.startsWith('IRC: ')) {
+      out[name.substring(5)] = groupId;
+    }
+  }
+  return out;
+}
+
+Future<void> _removeLocalIrcGroupMapping(String groupId) async {
+  if (groupId.isEmpty) return;
+  await Prefs.setGroupName(groupId, '');
+  final groups = await Prefs.getGroups();
+  if (groups.remove(groupId)) await Prefs.setGroups(groups);
+  await Prefs.removeQuitGroup(groupId);
 }
 
 /// S18: send a REPLY (quoted message). Builds the V2TIM `messageReply`
@@ -1370,7 +1491,8 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
     // foreground (no osascript keystrokes), and the mobile composer (which
     // ignores synthetic enterText) sends via the production path.
     if (text != null) {
-      final combined = debugRealUiDesktopComposerSendText ??
+      final combined =
+          debugRealUiDesktopComposerSendText ??
           debugRealUiMobileComposerSendText;
       if (combined != null) {
         combined(text);
@@ -1412,11 +1534,13 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
         'With "text" set the field first (deterministic); routes to the mobile / '
         'mixed-run combined seam when mounted, else the desktop set-text+Enter '
         'path. Returns {ok, error?}.',
-    inputSchema: ObjectSchema(properties: {
-      'text': StringSchema(
-        description: 'Optional text to set in the composer before sending.',
-      ),
-    }),
+    inputSchema: ObjectSchema(
+      properties: {
+        'text': StringSchema(
+          description: 'Optional text to set in the composer before sending.',
+        ),
+      },
+    ),
   ),
 );
 
@@ -1452,11 +1576,13 @@ MCPCallEntry _l3MentionSendEntry() => MCPCallEntry.tool(
         'without the mention panel (which needs char-by-char "@" typing the '
         'headless harness cannot drive). The bubble text carries "@<label>" and '
         'the userID rides in mentionedUsers. Returns {ok, error?}.',
-    inputSchema: ObjectSchema(properties: {
-      'userId': StringSchema(description: 'Mentioned member userID.'),
-      'label': StringSchema(description: 'Mention display label (@<label>).'),
-      'text': StringSchema(description: 'Message text after the @ tag.'),
-    }),
+    inputSchema: ObjectSchema(
+      properties: {
+        'userId': StringSchema(description: 'Mentioned member userID.'),
+        'label': StringSchema(description: 'Mention display label (@<label>).'),
+        'text': StringSchema(description: 'Message text after the @ tag.'),
+      },
+    ),
   ),
 );
 
@@ -1510,14 +1636,16 @@ MCPCallEntry _l3PasteImageEntry() => MCPCallEntry.tool(
         'not headless-automatable; pass "contentB64" (raw PNG bytes, written to '
         'a paste_image_<nonce>.png temp) or an app-readable "path". Returns '
         '{ok, path, error?}.',
-    inputSchema: ObjectSchema(properties: {
-      'path': StringSchema(
-        description: 'App-readable image file path to stage.',
-      ),
-      'contentB64': StringSchema(
-        description: 'Base64 PNG bytes; materialized to a temp paste_image.',
-      ),
-    }),
+    inputSchema: ObjectSchema(
+      properties: {
+        'path': StringSchema(
+          description: 'App-readable image file path to stage.',
+        ),
+        'contentB64': StringSchema(
+          description: 'Base64 PNG bytes; materialized to a temp paste_image.',
+        ),
+      },
+    ),
   ),
 );
 
@@ -1556,13 +1684,16 @@ MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
     final setter = debugRealUiMobileComposerSetText;
     if (setter == null) {
       return MCPCallResult(
-        message: 'l3_composer_set_text: no mobile composer mounted '
+        message:
+            'l3_composer_set_text: no mobile composer mounted '
             '(open a chat first; desktop uses keystrokes)',
         parameters: {'ok': false, 'error': 'no_composer'},
       );
     }
     setter(text);
-    AppLogger.info('[L3] l3_composer_set_text: set composer text (${text.length} chars)');
+    AppLogger.info(
+      '[L3] l3_composer_set_text: set composer text (${text.length} chars)',
+    );
     return MCPCallResult(
       message: 'composer text set',
       parameters: {'ok': true, 'length': text.length},
@@ -1576,9 +1707,7 @@ MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
         'tap. Synthetic enterText cannot drive the ExtendedTextField composer. '
         'No-op error if no mobile composer is mounted.',
     inputSchema: ObjectSchema(
-      properties: {
-        'text': StringSchema(description: 'Composer text to set.'),
-      },
+      properties: {'text': StringSchema(description: 'Composer text to set.')},
       required: ['text'],
     ),
   ),
@@ -4528,6 +4657,289 @@ MCPCallEntry _l3GroupChatIdEntry() => MCPCallEntry.tool(
   ),
 );
 
+MCPCallEntry _l3IrcSetStateEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final reset = _parseOptionalBool(request['reset']) ?? false;
+    if (request.containsKey('reset') &&
+        _parseOptionalBool(request['reset']) == null) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: reset must be true|false',
+        parameters: {'ok': false, 'error': 'bad_reset'},
+      );
+    }
+    final installed = _parseOptionalBool(request['installed']);
+    final useSasl = _parseOptionalBool(request['useSasl']);
+    final localAddOverride = _parseOptionalBool(request['localAddOverride']);
+    if (request.containsKey('installed') && installed == null) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: installed must be true|false',
+        parameters: {'ok': false, 'error': 'bad_installed'},
+      );
+    }
+    if (request.containsKey('useSasl') && useSasl == null) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: useSasl must be true|false',
+        parameters: {'ok': false, 'error': 'bad_use_sasl'},
+      );
+    }
+    if (request.containsKey('localAddOverride') && localAddOverride == null) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: localAddOverride must be true|false',
+        parameters: {'ok': false, 'error': 'bad_local_add_override'},
+      );
+    }
+    final portRaw = request['port'];
+    final port = portRaw == null
+        ? null
+        : int.tryParse(portRaw.toString().trim());
+    if (portRaw != null && (port == null || port <= 0)) {
+      return MCPCallResult(
+        message: 'l3_irc_set_state: port must be a positive integer',
+        parameters: {'ok': false, 'error': 'bad_port'},
+      );
+    }
+    try {
+      if (reset) {
+        await Prefs.setIrcAppInstalled(false);
+        await Prefs.setIrcChannels(const <String>[]);
+        await Prefs.setIrcServer('.invalid');
+        await Prefs.setIrcPort(6667);
+        await Prefs.setIrcUseSasl(false);
+        _ircLocalAddOverrideEnabled = false;
+      }
+      if (installed != null) await Prefs.setIrcAppInstalled(installed);
+      final server = (request['server'] as Object?)?.toString().trim();
+      if (server != null) await Prefs.setIrcServer(server);
+      if (port != null) await Prefs.setIrcPort(port);
+      if (useSasl != null) await Prefs.setIrcUseSasl(useSasl);
+      if (localAddOverride != null) {
+        _ircLocalAddOverrideEnabled = localAddOverride;
+      }
+      final channels = _parseOptionalStringList(request['channels']);
+      if (channels != null) {
+        await Prefs.setIrcChannels([
+          for (final channel in channels) _normalizeIrcChannelName(channel),
+        ]);
+      }
+      // Sync the IN-MEMORY IrcAppManager from the prefs we just wrote. The
+      // Applications page surfaces the Add-Channel button from
+      // `IrcAppManager().isInstalled` (in-memory) + lists `IrcAppManager().channels`,
+      // NOT from Prefs directly — so without this re-init the page never reflects
+      // an l3-set `installed:true` (the add button stays hidden, and an
+      // l3-seeded channel list stays empty) even though dump_state (which reads
+      // Prefs) shows the new values. `init()` re-reads installed + channels from
+      // Prefs WITHOUT loading the native libirc_client (the localAddOverride path
+      // needs no native lib). Surfaced live on Windows by irc_join_channel_real_controls.
+      await IrcAppManager().init();
+      // Tell the (already-built, IndexedStack-cached) Applications page to reload
+      // its install-state + channel list so this mutation surfaces in the UI.
+      debugApplicationsIrcReloadSignal.value =
+          debugApplicationsIrcReloadSignal.value + 1;
+      final params = projectIrcState(
+        installed: await Prefs.getIrcAppInstalled(),
+        channels: await Prefs.getIrcChannels(),
+        server: await Prefs.getIrcServer(),
+        port: await Prefs.getIrcPort(),
+        useSasl: await Prefs.getIrcUseSasl(),
+        channelGroups: await _readIrcChannelGroups(),
+      );
+      AppLogger.info('[L3] l3_irc_set_state MUTATED $params');
+      return MCPCallResult(
+        message: 'IRC local state updated',
+        parameters: {
+          'ok': true,
+          ...params,
+          'ircLocalAddOverride': _ircLocalAddOverrideEnabled,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_irc_set_state failed', e, st);
+      return MCPCallResult(
+        message: 'l3_irc_set_state: failed: $e',
+        parameters: {'ok': false, 'error': 'set_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_irc_set_state',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING): set deterministic local IRC '
+        'Prefs without loading libirc_client or contacting an IRC server. '
+        'Optional fields: installed=true|false, server, port, useSasl=true|false, '
+        'channels as JSON array/List/comma-separated string, '
+        'localAddOverride=true|false for real-control no-network add.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'reset': StringSchema(
+          description: 'true | false; reset local IRC prefs to .invalid/empty.',
+        ),
+        'installed': StringSchema(description: 'true | false'),
+        'server': StringSchema(description: 'IRC server string to persist.'),
+        'port': StringSchema(description: 'Positive integer port.'),
+        'useSasl': StringSchema(description: 'true | false'),
+        'channels': StringSchema(
+          description: 'JSON array, List, or comma-separated IRC channels.',
+        ),
+        'localAddOverride': StringSchema(
+          description:
+              'true | false; route Applications add-channel through local prefs.',
+        ),
+      },
+    ),
+  ),
+);
+
+MCPCallEntry _l3IrcAddChannelLocalEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_irc_add_channel_local: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final channel = _normalizeIrcChannelName(
+      (request['channel'] as Object?)?.toString() ?? '',
+    );
+    if (channel.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_irc_add_channel_local: need "channel"',
+        parameters: {'ok': false, 'error': 'missing_channel'},
+      );
+    }
+    final groupId =
+        ((request['groupId'] as Object?)?.toString().trim().isNotEmpty ?? false)
+        ? (request['groupId'] as Object).toString().trim()
+        : _defaultL3IrcGroupId(channel);
+    try {
+      await Prefs.addIrcChannel(channel);
+      await Prefs.setGroupName(groupId, 'IRC: $channel');
+      final groups = await Prefs.getGroups();
+      if (groups.add(groupId)) await Prefs.setGroups(groups);
+      await Prefs.removeQuitGroup(groupId);
+      final ffi = FakeUIKit.instance.im?.ffi;
+      var liveStateUpdated = false;
+      if (ffi != null) {
+        await ffi.registerJoinedGroupState(groupId);
+        liveStateUpdated = true;
+      }
+      final channelGroups = await _readIrcChannelGroups();
+      AppLogger.info(
+        '[L3] l3_irc_add_channel_local MUTATED channel=$channel group=$groupId',
+      );
+      return MCPCallResult(
+        message: 'IRC channel mapped locally',
+        parameters: {
+          'ok': true,
+          'channel': channel,
+          'groupId': groupId,
+          'liveStateUpdated': liveStateUpdated,
+          'ircChannels': await Prefs.getIrcChannels(),
+          'ircChannelGroups': channelGroups,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_irc_add_channel_local failed', e, st);
+      return MCPCallResult(
+        message: 'l3_irc_add_channel_local: failed: $e',
+        parameters: {'ok': false, 'error': 'add_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_irc_add_channel_local',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING): create a deterministic local '
+        'IRC channel-to-group mapping without IrcAppManager.addChannel, '
+        'libirc_client, or connectIrcChannel. Persists irc_channels, group name '
+        '"IRC: <channel>", and live joined-group state when a session exists.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'channel': StringSchema(description: 'IRC channel, e.g. #toxee-l3.'),
+        'groupId': StringSchema(
+          description:
+              'Optional deterministic local group id. Defaults from channel.',
+        ),
+      },
+      required: ['channel'],
+    ),
+  ),
+);
+
+MCPCallEntry _l3IrcRemoveChannelLocalEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_irc_remove_channel_local: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final channel = _normalizeIrcChannelName(
+      (request['channel'] as Object?)?.toString() ?? '',
+    );
+    if (channel.isEmpty) {
+      return MCPCallResult(
+        message: 'l3_irc_remove_channel_local: need "channel"',
+        parameters: {'ok': false, 'error': 'missing_channel'},
+      );
+    }
+    try {
+      final beforeGroups = await _readIrcChannelGroups();
+      final groupId =
+          (request['groupId'] as Object?)?.toString().trim().isNotEmpty == true
+          ? (request['groupId'] as Object).toString().trim()
+          : beforeGroups[channel];
+      await Prefs.removeIrcChannel(channel);
+      if (groupId != null && groupId.isNotEmpty) {
+        await _removeLocalIrcGroupMapping(groupId);
+        await FakeUIKit.instance.im?.ffi.cleanupGroupState(groupId);
+      }
+      final channelGroups = await _readIrcChannelGroups();
+      AppLogger.info(
+        '[L3] l3_irc_remove_channel_local MUTATED channel=$channel group=$groupId',
+      );
+      return MCPCallResult(
+        message: 'IRC channel removed locally',
+        parameters: {
+          'ok': true,
+          'channel': channel,
+          'groupId': groupId,
+          'ircChannels': await Prefs.getIrcChannels(),
+          'ircChannelGroups': channelGroups,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.logError('[L3] l3_irc_remove_channel_local failed', e, st);
+      return MCPCallResult(
+        message: 'l3_irc_remove_channel_local: failed: $e',
+        parameters: {'ok': false, 'error': 'remove_failed', 'detail': '$e'},
+      );
+    }
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_irc_remove_channel_local',
+    description:
+        'L3 TEST ONLY (test/seed account, MUTATING): remove deterministic local '
+        'IRC channel state from prefs/group mapping without disconnecting IRC or '
+        'quitting a live group. Optional groupId clears a specific local mapping.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'channel': StringSchema(description: 'IRC channel, e.g. #toxee-l3.'),
+        'groupId': StringSchema(
+          description:
+              'Optional local group id whose IRC display mapping is cleared.',
+        ),
+      },
+      required: ['channel'],
+    ),
+  ),
+);
+
 /// Inject one INBOUND group text through the REAL ingestion seam
 /// (`FfiChatService.ingestInboundGroupText` — the same dedup → history →
 /// unread → stream pipeline the native type==10 event drives), so a
@@ -5994,6 +6406,14 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       'bootstrapNodeMode': await Prefs.getBootstrapNodeMode(),
       'downloadsDirectory': await Prefs.getDownloadsDirectory(),
       'autoDownloadSizeLimit': await Prefs.getAutoDownloadSizeLimit(),
+      ...projectIrcState(
+        installed: await Prefs.getIrcAppInstalled(),
+        channels: await Prefs.getIrcChannels(),
+        server: await Prefs.getIrcServer(),
+        port: await Prefs.getIrcPort(),
+        useSasl: await Prefs.getIrcUseSasl(),
+        channelGroups: await _readIrcChannelGroups(),
+      ),
       // F2 pin: the authoritative pinned-conversation set, read from
       // Prefs.getPinned() (what FakeConversationManager.setPinned writes BEFORE
       // it returns) — race-free vs the async conversation-list re-emit. In the
@@ -6342,7 +6762,9 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         'L3 TEST ONLY: JSON snapshot of session state '
         '(selfId, activePeerId, isConnected, nickname), current-account '
         'settings (languageCode, themeMode, autoLogin, autoAcceptFriends, '
-        'autoAcceptGroupInvites) and the sidebar conversation list '
+        'autoAcceptGroupInvites), local IRC debug state (ircInstalled, '
+        'ircChannels, ircServer, ircPort, ircUseSasl, ircChannelGroups), and '
+        'the sidebar conversation list '
         '(conversations: conversationID/type/showName/unreadCount/'
         'lastMessageText/isPinned — UI-live, poll before asserting; '
         'conversationIds is the flat id list for exact membership checks) PLUS, '

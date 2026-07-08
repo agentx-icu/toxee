@@ -83,6 +83,13 @@ tool/mcp_test/_scratch/
 /sc_*.png
 tool/mcp_test/artifacts/
 tool/mcp_test/.multi_instance_runtime/
+# Per-platform real-UI A/B pair runtime state (pair.json + per-instance copies /
+# stdio logs / forwarded VM URIs), written by launch_{ios,android,windows}_
+# fixture_c_pair.* and the mixed macOS+iOS launcher. Regenerated every launch.
+tool/mcp_test/.ios_runtime/
+tool/mcp_test/.android_runtime/
+tool/mcp_test/.windows_runtime/
+tool/mcp_test/.mixed_runtime/
 tool/mcp_test/echo_peer_state/
 tool/mcp_test/echo_peer*.log
 tool/mcp_test/echo_peer_src/build/

@@ -681,6 +681,102 @@ else
     fail "invalid tier exits 64" "got $BAD_TIER_CODE"
 fi
 
+# The four A/B pair launch/stop scripts the plans reference must exist on disk.
+for script in \
+    launch_android_fixture_c_pair.sh stop_android_fixture_c_pair.sh \
+    launch_windows_fixture_c_pair.ps1 stop_windows_fixture_c_pair.ps1; do
+    if [[ -s "$MCP_DIR/$script" ]]; then
+        pass "$script exists for the real-UI pair plan"
+    else
+        fail "$script exists for the real-UI pair plan" "missing or empty: $MCP_DIR/$script"
+    fi
+done
+
+# Android real-UI now GENERATES + EXECUTES a real two-instance plan (no longer a
+# 64-exit blocker). The named IRC loopback scenario must plan launch -> driver
+# (with the android pair.json + platform + the fixed IRC loopback port that the
+# launcher adb-reverses) -> stop.
+ANDROID_IRC_PLAN="$TMP_ROOT/android_irc_plan.json"
+if run_runner --plan-json --class=2proc-ui --real-ui-platform=android \
+    --real-ui-scenario=irc_join_channel_loopback_live \
+    >"$ANDROID_IRC_PLAN" 2>"$TMP_ROOT/android_irc.err"; then
+    ANDROID_CMDS="$TMP_ROOT/android_irc_cmds.txt"
+    jq -r '.groups[0].commands[]' "$ANDROID_IRC_PLAN" >"$ANDROID_CMDS" 2>/dev/null || true
+    # The IRC loopback port must be on the LAUNCH command itself (the launcher
+    # adb-reverses it), matching the live launch env — not only on the driver line.
+    if grep -q '^TOXEE_IRC_LOOPBACK_PORT=16667 tool/mcp_test/launch_android_fixture_c_pair.sh$' "$ANDROID_CMDS" \
+        && grep -q '^tool/mcp_test/stop_android_fixture_c_pair.sh$' "$ANDROID_CMDS" \
+        && grep -q 'TOXEE_REAL_UI_PAIR_JSON=tool/mcp_test/.android_runtime/pair.json' "$ANDROID_CMDS" \
+        && grep -q 'TOXEE_REAL_UI_PLATFORM=android' "$ANDROID_CMDS" \
+        && grep -q 'drive_real_ui_pair.dart irc_join_channel_loopback_live ' "$ANDROID_CMDS"; then
+        pass "android real-UI plan launches the A/B pair + drives the IRC loopback scenario"
+    else
+        fail "android real-UI plan launches the A/B pair + drives the IRC loopback scenario" \
+            "$(cat "$ANDROID_CMDS")"
+    fi
+else
+    fail "android real-UI plan-json exits 0" \
+        "$(cat "$TMP_ROOT/android_irc.err" "$ANDROID_IRC_PLAN" 2>/dev/null)"
+fi
+
+# Windows real-UI now GENERATES + EXECUTES a real two-instance plan too, invoked
+# via PowerShell. The runner, driver, both apps, and the loopback IRC server all
+# live on the Windows host, so NO adb-reverse / IRC loopback port is injected.
+WINDOWS_IRC_PLAN="$TMP_ROOT/windows_irc_plan.json"
+if run_runner --plan-json --class=2proc-ui --real-ui-platform=windows \
+    --real-ui-scenario=irc_join_channel_loopback_live \
+    >"$WINDOWS_IRC_PLAN" 2>"$TMP_ROOT/windows_irc.err"; then
+    WINDOWS_CMDS="$TMP_ROOT/windows_irc_cmds.txt"
+    jq -r '.groups[0].commands[]' "$WINDOWS_IRC_PLAN" >"$WINDOWS_CMDS" 2>/dev/null || true
+    if grep -q '^powershell -ExecutionPolicy Bypass -File tool/mcp_test/launch_windows_fixture_c_pair.ps1$' "$WINDOWS_CMDS" \
+        && grep -q '^powershell -ExecutionPolicy Bypass -File tool/mcp_test/stop_windows_fixture_c_pair.ps1$' "$WINDOWS_CMDS" \
+        && grep -q 'TOXEE_REAL_UI_PAIR_JSON=tool/mcp_test/.windows_runtime/pair.json' "$WINDOWS_CMDS" \
+        && grep -q 'TOXEE_REAL_UI_PLATFORM=windows' "$WINDOWS_CMDS" \
+        && ! grep -q 'TOXEE_IRC_LOOPBACK_PORT' "$WINDOWS_CMDS"; then
+        pass "windows real-UI plan launches the A/B pair via PowerShell (host-local IRC, no reverse)"
+    else
+        fail "windows real-UI plan launches the A/B pair via PowerShell (host-local IRC, no reverse)" \
+            "$(cat "$WINDOWS_CMDS")"
+    fi
+else
+    fail "windows real-UI plan-json exits 0" \
+        "$(cat "$TMP_ROOT/windows_irc.err" "$WINDOWS_IRC_PLAN" 2>/dev/null)"
+fi
+
+# Android/Windows only support no-friend scenarios today (their launchers reject
+# paired_for_e2e restore). A friendship-dependent scenario must fail FAST at
+# planning (so --plan-json/--dry-run also fail), not plan a restore the launcher
+# would hard-reject mid-run.
+for plat in android windows; do
+    set +e
+    run_runner --plan-json --class=2proc-ui --real-ui-platform="$plat" \
+        --real-ui-scenario=message >"$TMP_ROOT/${plat}_restore_gap.out" 2>&1
+    RESTORE_GAP_CODE=$?
+    set -e
+    if [[ "$RESTORE_GAP_CODE" -eq 64 ]] \
+        && grep -q "supports only no-friend scenarios" "$TMP_ROOT/${plat}_restore_gap.out" \
+        && grep -q "message" "$TMP_ROOT/${plat}_restore_gap.out"; then
+        pass "$plat real-UI rejects a friendship-dependent scenario (no restore) with exit 64"
+    else
+        fail "$plat real-UI rejects a friendship-dependent scenario (no restore) with exit 64" \
+            "got $RESTORE_GAP_CODE: $(cat "$TMP_ROOT/${plat}_restore_gap.out")"
+    fi
+done
+
+# A genuinely unknown platform still fails fast (the validation seam is intact).
+set +e
+run_runner --plan-json --class=2proc-ui --real-ui-platform=plan9 \
+    >"$TMP_ROOT/unknown_platform.out" 2>&1
+UNKNOWN_PLATFORM_CODE=$?
+set -e
+if [[ "$UNKNOWN_PLATFORM_CODE" -eq 64 ]] \
+    && grep -q 'unknown real-UI platform: plan9' "$TMP_ROOT/unknown_platform.out"; then
+    pass "unknown real-UI platform still exits 64"
+else
+    fail "unknown real-UI platform still exits 64" \
+        "got $UNKNOWN_PLATFORM_CODE: $(cat "$TMP_ROOT/unknown_platform.out")"
+fi
+
 if run_runner --validate-only >"$TMP_ROOT/validate.out" 2>&1; then
     pass "--validate-only exits 0"
 else

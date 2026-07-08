@@ -1,0 +1,22 @@
+{
+  "id": "L3-irc-channel-local-group",
+  "suite": "group",
+  "description": "IRC local channel-to-group mapping gate (hermetic, single-instance): set IRC installed state, add a deterministic local IRC channel mapping without connecting to IRC, and prove the channel appears in ircChannels while the mapped group appears in knownGroups. Self-cleans by removing the mapping and resetting IRC prefs.",
+  "requiresEchoPeer": false,
+  "target": "3116CBE0974181B6EC4B32555413655B42C7456A93C6AF98A23E95127B587244",
+  "steps": [
+    { "action": "irc_set_state", "reset": true },
+    { "action": "irc_set_state", "installed": true, "server": "irc.invalid.local", "port": 6667, "useSasl": false },
+    { "action": "irc_add_channel_local", "channel": "#l3-irc-{{nonce}}", "saveAs": "gid" },
+    { "action": "wait_for", "predicate": "state_contains_item", "field": "ircChannels", "containsItem": "#l3-irc-{{nonce}}", "timeoutSecs": 5 },
+    { "action": "wait_for", "predicate": "state_contains_item", "field": "knownGroups", "containsItem": "{{gid}}", "timeoutSecs": 10 }
+  ],
+  "assertions": [
+    { "type": "state", "field": "ircChannels", "containsItem": "#l3-irc-{{nonce}}" },
+    { "type": "state", "field": "knownGroups", "containsItem": "{{gid}}" }
+  ],
+  "teardown": [
+    { "action": "irc_remove_channel_local", "channel": "#l3-irc-{{nonce}}", "groupId": "{{gid}}" },
+    { "action": "irc_set_state", "reset": true }
+  ]
+}

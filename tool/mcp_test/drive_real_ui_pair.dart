@@ -74,6 +74,7 @@ import 'dart:io';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 import 'fixture_c_bootstrap.dart';
+import 'local_irc_server.dart';
 
 // This driver is split into `part` files by concern (one library, shared scope —
 // moving a scenario between parts is purely organizational). main() and the
@@ -192,6 +193,11 @@ Future<void> main(List<String> args) async {
     () => _main(args),
     _LocalVmServiceHttpOverrides(),
   );
+  // The scenario result (exitCode + printed PASS/FAIL) is fully determined here.
+  // Force a clean process exit so a lingering half-open VM-service socket (e.g.
+  // from an idle peer that exited mid-run) can't keep the isolate alive and
+  // wedge the runner that awaits this process.
+  exit(exitCode);
 }
 
 Future<int> _main(List<String> args) async {
@@ -1146,8 +1152,23 @@ Future<int> _main(List<String> args) async {
     return 1;
   } finally {
     stopSimulatorKeepAlive();
-    await a.dispose();
-    await b.dispose();
+    // Bound each peer dispose. In a single-instance scenario the idle peer (B)
+    // can have exited mid-run; awaiting its dead VM-service close then hangs the
+    // finally FOREVER — wedging the runner AFTER a scenario already passed
+    // (observed live on the IRC loopback case). Best-effort + a short timeout so
+    // teardown always completes regardless of a gone peer.
+    await _safeDispose(a);
+    await _safeDispose(b);
+  }
+}
+
+/// Dispose an [Inst] without letting a dead/unreachable peer's VM-service close
+/// hang teardown. Best-effort: swallows errors and times out.
+Future<void> _safeDispose(Inst inst) async {
+  try {
+    await inst.dispose().timeout(const Duration(seconds: 5));
+  } on Object {
+    // Peer already gone / connection broken — nothing left to clean up.
   }
 }
 

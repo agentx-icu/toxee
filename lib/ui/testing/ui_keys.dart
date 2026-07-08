@@ -146,6 +146,26 @@ class UiKeys {
   static Key applicationsIrcRemoveChannelButton(String channel) =>
       Key('applications_irc_remove_channel_button:$channel');
 
+  // IRC channel dialog (lib/ui/applications/irc_channel_dialog.dart).
+  static const Key ircChannelDialogChannelField = Key(
+    'irc_channel_dialog_channel_field',
+  );
+  static const Key ircChannelDialogPasswordField = Key(
+    'irc_channel_dialog_password_field',
+  );
+  static const Key ircChannelDialogPasswordVisibilityToggle = Key(
+    'irc_channel_dialog_password_visibility_toggle',
+  );
+  static const Key ircChannelDialogNicknameField = Key(
+    'irc_channel_dialog_nickname_field',
+  );
+  static const Key ircChannelDialogCancelButton = Key(
+    'irc_channel_dialog_cancel_button',
+  );
+  static const Key ircChannelDialogJoinButton = Key(
+    'irc_channel_dialog_join_button',
+  );
+
   // Profile page edit form (lib/ui/profile/profile_header.dart,
   // lib/ui/profile/profile_edit_fields.dart).
   static const Key profileEditToggle = Key('profile_edit_toggle');

@@ -213,6 +213,41 @@ void main() {
     expect(find.text('IRC configuration saved'), findsOneWidget);
   });
 
+  testWidgets('IRC add-channel dialog submits through the page controller', (
+    tester,
+  ) async {
+    final controller = _FakeApplicationsIrcController(installed: true);
+    await _pumpPage(tester, controller);
+
+    await tester.tap(find.byKey(UiKeys.applicationsIrcAddChannelButton));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(UiKeys.ircChannelDialogChannelField),
+      '#mcp_irc',
+    );
+    await tester.enterText(
+      find.byKey(UiKeys.ircChannelDialogPasswordField),
+      'secret',
+    );
+    await tester.enterText(
+      find.byKey(UiKeys.ircChannelDialogNicknameField),
+      'mcpnick',
+    );
+    await tester.tap(find.byKey(UiKeys.ircChannelDialogJoinButton));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(controller.addedChannels, [
+      (channel: '#mcp_irc', password: 'secret', customNickname: 'mcpnick'),
+    ]);
+    expect(
+      find.byKey(UiKeys.applicationsIrcChannelTile('#mcp_irc')),
+      findsOneWidget,
+    );
+    expect(find.text('IRC channel added: #mcp_irc'), findsOneWidget);
+  });
+
   testWidgets(
     'installed IRC page lists channels, reflects status/users, and removes via confirm',
     (tester) async {

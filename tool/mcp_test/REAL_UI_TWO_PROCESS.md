@@ -130,6 +130,63 @@ Behavior to know:
 - Use `--list-real-ui-campaigns` to print the full current catalog. Treat that
   list as the source of truth for exact campaign names; this document only
   calls out the representative buckets above.
+- `--real-ui-platform=macos|ios|android|windows` are all wired. Each has an A/B
+  pair launch/stop pair that produces the same `pair.json` contract (per-instance
+  `ws_uri` + `pid`, plus a `fixture_restore` block), and the runner plans +
+  executes against it. The launchers (and how the runner invokes them) differ by
+  topology:
+  - **macos** — `launch_fixture_c_pair.sh`; run the runner on the Mac. Two
+    `Toxee.app` processes on one host (per-instance `TOXEE_APP_SUPPORT_DIR` +
+    `HOME` override). The runner pre-builds via `run_toxee.sh`.
+  - **ios** — `launch_ios_fixture_c_pair.sh`; two iOS Simulators on the Mac
+    (same host network → loopback reachable; A is the single TCP relay).
+  - **android** — `launch_android_fixture_c_pair.sh`; run the runner on a host
+    with `adb` + **two** devices/emulators. Each instance is `flutter run
+    --machine` (auto-forwards the device VM service to the host; the driver
+    attaches over `127.0.0.1`). The loopback IRC server is reached from the
+    device via `adb reverse tcp:<port> tcp:<port>` — the launcher reverses the
+    fixed `TOXEE_IRC_LOOPBACK_PORT` (default 16667) the runner injects, and
+    `LocalIrcServer.startFromEnv` binds it. The driver resolves each `Inst`'s
+    platform from `TOXEE_REAL_UI_PLATFORM=android` and drives purely via
+    synthetic flutter_skill / L3 RPC (`_isHeadlessRealUi`, shared with Windows —
+    no host osascript, since the app lives on a device).
+  - **windows** — `launch_windows_fixture_c_pair.ps1`; run the runner **on the
+    Windows host** (PowerShell). It builds once, copies the Debug runner dir to a
+    per-instance dir for A and B, and direct-launches each with a fixed Dart
+    VM-service port + `disable-service-auth-codes` (deterministic ws URI) and
+    per-instance `TOXEE_APP_SUPPORT_DIR` / `TOXEE_SHARED_PREFS_PREFIX`. Runner,
+    driver, both apps, and the loopback IRC server share the host loopback, so no
+    reverse-forwarding is needed. The runner invokes the `.ps1` via
+    `powershell -ExecutionPolicy Bypass -File`.
+  - **Restore (`paired_for_e2e`)** is wired for macOS/iOS only. The Android and
+    Windows launchers fail fast on a restore request (friendship-dependent
+    scenarios are out of scope there today); the no-friend IRC cases need no
+    restore.
+- **Native libirc_client gap (honest live-coverage note).** The two IRC cases
+  differ in what they need:
+  - `irc_join_channel_real_controls` sets the L3 `localAddOverride`, so adding a
+    channel is **pure Dart/Prefs** (no socket). It is portable and is the live
+    proof that the IRC UI + the new pair launcher + driver work on any platform.
+  - `irc_join_channel_loopback_live` drives the REAL connect path
+    (`IrcAppManager.addChannel → service.connectIrcChannel`), which dlopens the
+    native `libirc_client` library to open the TCP socket and send `JOIN`. That
+    library is built + bundled **on macOS only** (`run_toxee.sh`). The app loader
+    `IrcAppManager._ircLibraryPath()` is platform-aware (`.dll` Windows / `.so`
+    Android+Linux / `.dylib` macOS+iOS), and the C++
+    (`third_party/tim2tox/source/IrcClientManager.cpp`) is cross-platform
+    (winsock + POSIX + OpenSSL), so the ONLY remaining gap is BUILDING + bundling
+    the `.dll` for Windows (the launcher copies it next to `toxee.exe` if found
+    under `build/native-artifacts/windows/`) and the `.so` for Android
+    (`jniLibs/<abi>/`). Until those are built, the loopback `JOIN` cannot complete
+    live on Windows/Android — do **not** report it as passing there; use
+    `real_controls` for the portable live proof and treat `loopback_live` as
+    native-lib-gated on those platforms.
+- **Mobile parity.** The IRC client manager, the Applications page, the IRC
+  channel dialog, and the `ircChannels` dump_state projection are all shared Dart
+  with no platform stripping (the L1 widget gates in `test/ui/applications/`
+  cover mobile rendering), so the IRC UI behaves identically on Android. The
+  remaining mobile-specific work is purely the native `libirc_client.so` build
+  (above), not any Dart/UI divergence.
 - Treat the exact number of launches as an optimization detail, not an API.
   What is stable is the state contract: the runner may insert friendship-reset
   maintenance steps when that is cheaper than relaunching the pair.

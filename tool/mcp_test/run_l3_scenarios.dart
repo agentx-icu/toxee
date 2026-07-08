@@ -91,6 +91,9 @@
 //               enter_text{key,text} |
 //               warmup{text?,timeoutSecs?} | mark_read{userId?} |
 //               set_setting{key,value} (autoAcceptFriends|autoAcceptGroupInvites) |
+//               irc_set_state{reset?,installed?,server?,port?,useSasl?,channels?,localAddOverride?} |
+//               irc_add_channel_local{channel,groupId?,saveAs?} |
+//               irc_remove_channel_local{channel,groupId?} |
 //               invoke_action{messageAction:"delete"|"copy", msgId? | text+isSelf?} |
 //               create_group{name?,type?(public|private),saveAs?} |
 //               send_group_text{groupId,text} | leave_group{groupId}
@@ -565,8 +568,8 @@ Future<void> _runStep(
 ) async {
   // Resolve runtime `{{key}}` captures (from a prior create_group/saveAs) at
   // dispatch time — the load-time {{nonce}} pass already ran.
-  final step =
-      (_substituteCaptured(rawStep, captured) as Map).cast<String, dynamic>();
+  final step = (_substituteCaptured(rawStep, captured) as Map)
+      .cast<String, dynamic>();
   final action = step['action'] as String?;
   switch (action) {
     case 'send_text':
@@ -659,7 +662,9 @@ Future<void> _runStep(
       // through l3_dump_state.pinnedConversations. `conversationId` defaults to
       // the scenario target; `pinned` is a JSON bool (callExt stringifies it).
       await d.setPinned(
-        step['conversationId'] as String? ?? step['userId'] as String? ?? target,
+        step['conversationId'] as String? ??
+            step['userId'] as String? ??
+            target,
         step['pinned'],
       );
       break;
@@ -690,6 +695,30 @@ Future<void> _runStep(
       // so a scenario proves the recvOpt round-trips through
       // l3_dump_state.conversations[].recvOpt. `opt` is 0|1|2.
       await d.setRecvOpt(step['userId'] as String? ?? target, step['opt']);
+      break;
+    case 'irc_set_state':
+      await d.ircSetState(
+        reset: step['reset'],
+        installed: step['installed'],
+        server: step['server'] as String?,
+        port: step['port'],
+        useSasl: step['useSasl'],
+        channels: step['channels'],
+        localAddOverride: step['localAddOverride'],
+      );
+      break;
+    case 'irc_add_channel_local':
+      final groupId = await d.ircAddChannelLocal(
+        channel: step['channel'] as String? ?? '',
+        groupId: step['groupId'] as String?,
+      );
+      if (step['saveAs'] != null) captured[step['saveAs'] as String] = groupId;
+      break;
+    case 'irc_remove_channel_local':
+      await d.ircRemoveChannelLocal(
+        channel: step['channel'] as String? ?? '',
+        groupId: step['groupId'] as String?,
+      );
       break;
     case 'reply_text':
       // S18: send a reply quoting an existing message (by replyToText, with an
@@ -917,8 +946,8 @@ Future<String?> _checkAssertion(
   Map<String, String> captured,
 ) async {
   // Resolve runtime `{{key}}` captures (e.g. {{groupId}} from create_group).
-  final a =
-      (_substituteCaptured(rawA, captured) as Map).cast<String, dynamic>();
+  final a = (_substituteCaptured(rawA, captured) as Map)
+      .cast<String, dynamic>();
   final type = a['type'] as String?;
   // Optional per-assertion conversation override. Group-history assertions
   // (message_*) must read the GROUP conversation (group_<gid>, where gid is a
@@ -1488,6 +1517,58 @@ class _L3Driver {
       'opt': opt ?? 0,
     });
     if (r['ok'] != true) throw 'l3_set_c2c_recv_opt failed: ${r['message']}';
+  }
+
+  Future<void> ircSetState({
+    Object? reset,
+    Object? installed,
+    String? server,
+    Object? port,
+    Object? useSasl,
+    Object? channels,
+    Object? localAddOverride,
+  }) async {
+    final r = await callExt('ext.mcp.toolkit.l3_irc_set_state', {
+      if (reset != null) 'reset': reset,
+      if (installed != null) 'installed': installed,
+      if (server != null) 'server': server,
+      if (port != null) 'port': port,
+      if (useSasl != null) 'useSasl': useSasl,
+      if (channels != null) 'channels': jsonEncode(channels),
+      if (localAddOverride != null) 'localAddOverride': localAddOverride,
+    });
+    if (r['ok'] != true) throw 'l3_irc_set_state failed: ${r['message']}';
+  }
+
+  Future<String> ircAddChannelLocal({
+    required String channel,
+    String? groupId,
+  }) async {
+    final r = await callExt('ext.mcp.toolkit.l3_irc_add_channel_local', {
+      'channel': channel,
+      if (groupId != null) 'groupId': groupId,
+    });
+    if (r['ok'] != true) {
+      throw 'l3_irc_add_channel_local failed: ${r['message']}';
+    }
+    final mappedGroupId = r['groupId'] as String?;
+    if (mappedGroupId == null || mappedGroupId.isEmpty) {
+      throw 'l3_irc_add_channel_local returned no groupId';
+    }
+    return mappedGroupId;
+  }
+
+  Future<void> ircRemoveChannelLocal({
+    required String channel,
+    String? groupId,
+  }) async {
+    final r = await callExt('ext.mcp.toolkit.l3_irc_remove_channel_local', {
+      'channel': channel,
+      if (groupId != null) 'groupId': groupId,
+    });
+    if (r['ok'] != true) {
+      throw 'l3_irc_remove_channel_local failed: ${r['message']}';
+    }
   }
 
   Future<void> replyText(

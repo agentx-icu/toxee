@@ -15,6 +15,7 @@ import '../../sdk_fake/fake_models.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/platform_utils.dart';
 import '../../util/responsive_layout.dart';
+import '../testing/l3_debug_tools.dart';
 import '../testing/ui_keys.dart';
 import 'irc_channel_dialog.dart';
 import '../widgets/empty_state_widget.dart';
@@ -121,6 +122,12 @@ class LiveApplicationsIrcController implements ApplicationsIrcController {
     String? password,
     String? customNickname,
   }) async {
+    if (debugL3IrcLocalAddOverrideEnabled) {
+      await Prefs.addIrcChannel(channel);
+      await FakeUIKit.instance.im?.refreshConversations();
+      return true;
+    }
+
     final groupId = await _manager.addChannel(
       channel,
       _service,
@@ -206,6 +213,14 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         widget.ircController ?? LiveApplicationsIrcController(widget.service!);
     _loadAppState();
     _setupIrcListeners();
+    // This page lives in the home shell's IndexedStack (built up-front, not
+    // rebuilt on tab switch), so an external l3_irc_set_state mutation would not
+    // surface without an explicit reload. Re-load when the test seam signals.
+    debugApplicationsIrcReloadSignal.addListener(_onIrcReloadSignal);
+  }
+
+  void _onIrcReloadSignal() {
+    if (mounted) _loadAppState();
   }
 
   void _setupIrcListeners() {
@@ -279,6 +294,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
 
   @override
   void dispose() {
+    debugApplicationsIrcReloadSignal.removeListener(_onIrcReloadSignal);
     _connectionStatusSub?.cancel();
     _userListSub?.cancel();
     _userJoinPartSub?.cancel();
