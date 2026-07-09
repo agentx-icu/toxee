@@ -695,15 +695,40 @@ build_desktop_target() {
     ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "pthreadVC3.dll" "$OUTPUT_DIR" >/dev/null || \
       ci_warn "pthreadVC3.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
     if [[ "$ENABLE_TOXAV" -eq 1 ]]; then
-      # ToxAV runtime deps from vcpkg (dynamic triplets). Port outputs:
-      # opus -> opus.dll, libvpx -> vpx.dll (older ports: libvpx.dll).
-      # Missing codec DLLs mean the shipped FFI lib cannot load (error 126) —
-      # hard-fail instead of warning.
-      ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "opus.dll" "$OUTPUT_DIR" >/dev/null || \
-        ci_die "opus.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet (ToxAV runtime dep)"
-      ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "vpx.dll" "$OUTPUT_DIR" >/dev/null || \
-        ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "libvpx.dll" "$OUTPUT_DIR" >/dev/null || \
-        ci_die "vpx.dll/libvpx.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet (ToxAV runtime dep)"
+      # ToxAV runtime deps from vcpkg. A dep may be linked statically into
+      # tim2tox_ffi.dll (the vcpkg libvpx port builds static even on dynamic
+      # triplets) — then there is no runtime DLL and none is needed. Decide
+      # from the built dll's IMPORT table (names are ASCII in the PE import
+      # directory): import present + DLL missing = broken artifact (would
+      # fail to load with error 126) → hard-fail; no import = statically
+      # linked → nothing to capture.
+      local built_dll="$OUTPUT_DIR/$(basename "$built_lib")"
+      local dep_dll
+      for dep_dll in "opus.dll" "vpx.dll libvpx.dll"; do
+        local found_dep=""
+        local candidate
+        for candidate in $dep_dll; do
+          if ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "$candidate" "$OUTPUT_DIR" >/dev/null; then
+            found_dep="$candidate"
+            break
+          fi
+        done
+        if [[ -n "$found_dep" ]]; then
+          ci_log "Captured Windows ToxAV dependency: $found_dep"
+          continue
+        fi
+        local imports_it=""
+        for candidate in $dep_dll; do
+          if grep -aqi "$candidate" "$built_dll"; then
+            imports_it="$candidate"
+            break
+          fi
+        done
+        if [[ -n "$imports_it" ]]; then
+          ci_die "tim2tox_ffi.dll imports $imports_it but it was not found under $VCPKG_ROOT/installed/$vcpkg_triplet — the artifact would fail to load (error 126)"
+        fi
+        ci_log "ToxAV dependency ${dep_dll%% *} is statically linked — no runtime DLL to capture"
+      done
     fi
   fi
 
