@@ -225,7 +225,17 @@ class SessionRuntimeCoordinator {
     }
 
     await FakeUIKit.instance.callServiceManager?.initialize();
-    UikitDataFacade.setUseCallKit(true);
+    // Only surface call buttons when the native library actually contains a
+    // ToxAV backend — a stub build (BUILD_TOXAV off) no-ops every call API,
+    // so offering the UI would be a silent failure.
+    final callingAvailable =
+        FakeUIKit.instance.callServiceManager?.isCallingAvailable ?? false;
+    UikitDataFacade.setUseCallKit(callingAvailable);
+    if (!callingAvailable) {
+      AppLogger.warn(
+          '[SessionRuntimeCoordinator] calling disabled: native library has '
+          'no ToxAV backend');
+    }
 
     // Install the binary-replacement history hook in the same atomic init
     // block as the platform, so the "platform installed but hook not yet

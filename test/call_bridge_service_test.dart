@@ -429,6 +429,9 @@ class _FakeAvBackend implements CallAvBackend {
   bool startResult = true;
 
   @override
+  bool get isAvailable => true;
+
+  @override
   bool get isInitialized => true;
 
   @override

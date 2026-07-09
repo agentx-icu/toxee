@@ -348,11 +348,25 @@ class CallServiceManager implements CallOverlayManager {
   // Initialization
   // ---------------------------------------------------------------------------
 
+  /// Whether the loaded native library has a real ToxAV backend. False for
+  /// stub builds (BUILD_TOXAV off) and for libraries predating the
+  /// availability probe — conservative "calls off" in both cases, so the UI
+  /// never offers a call button that would silently no-op.
+  bool get isCallingAvailable => _avService?.isAvailable ?? false;
+
   Future<void> initialize() async {
     if (_initialized) return;
 
     final logger = AppLoggerAdapter();
     _avService = ToxAVService(_chatService.tim2toxFfi, logger: logger);
+    if (!_avService!.isAvailable) {
+      AppLogger.warn(
+        '[CallServiceManager] native library has no ToxAV backend '
+        '(stub build) — calling disabled, skipping call-system init',
+      );
+      _initialized = true;
+      return;
+    }
     await _avService!.initialize();
 
     _callBridge = CallBridgeService(

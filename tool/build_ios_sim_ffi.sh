@@ -11,9 +11,9 @@
 # It mirrors the cross settings from
 # third_party/tim2tox/third_party/c-toxcore/other/deploy/ios.sh, but:
 #   * builds the *tim2tox FFI shim* (not just toxcore),
-#   * builds libsodium from source for each target arch (toxcore's only hard dep
-#     once TOXAV is disabled — matching the host build.sh feature set),
-#   * disables TOXAV / bootstrap daemon (no opus/vpx needed),
+#   * builds libsodium + libopus + libvpx from source for each target arch
+#     (via tool/ci/build_av_deps.sh) with ToxAV ON so calling works on the
+#     simulator (TOXAV=0 opts back into the stub variant),
 #   * builds a UNIVERSAL (arm64 + x86_64) simulator binary by default. This is
 #     required because several plugin pods (mobile_scanner / GoogleMLKit /
 #     better_player_plus) ship no arm64-simulator slice, which forces the whole
@@ -27,13 +27,15 @@
 #   third_party/tim2tox/build/ios/tim2tox_ffi.framework      (picked up automatically)
 #
 # Env overrides: ARCHS (default "arm64 x86_64"), SDK (iphonesimulator|iphoneos),
-#                IOS_MIN (default 13.0), SODIUM_VERSION (default 1.0.20).
+#                IOS_MIN (default 13.0), SODIUM_VERSION (default 1.0.20),
+#                TOXAV (default 1; TOXAV=0 builds the calling-stub variant).
 set -euo pipefail
 
 ARCHS="${ARCHS:-arm64 x86_64}"
 SDK="${SDK:-iphonesimulator}"
 IOS_MIN="${IOS_MIN:-13.0}"
 SODIUM_VERSION="${SODIUM_VERSION:-1.0.20}"
+TOXAV="${TOXAV:-1}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 # All logging goes to stderr so function stdout (captured via $(...)) stays clean.
@@ -107,8 +109,20 @@ build_arch() {
     )
   fi
 
+  # --- ToxAV media deps (opus + vpx, shared pinned-source builder) ---
+  local toxav_on="ON"
+  if [[ "$TOXAV" == "1" ]]; then
+    bash "$SCRIPT_DIR/ci/build_av_deps.sh" \
+      --platform ios --sdk "$SDK" --arch "$arch" --min-version "$IOS_MIN" \
+      --prefix "$dep_prefix" \
+      --downloads "$TIM2TOX_DIR/build/mobile-deps/downloads" || { err "[$arch] AV deps build failed"; exit 1; }
+  else
+    toxav_on="OFF"
+    warn "[$arch] TOXAV=0 — building calling-stub variant"
+  fi
+
   # --- tim2tox FFI ---
-  info "[$arch] configuring + building tim2tox_ffi ..."
+  info "[$arch] configuring + building tim2tox_ffi (TOXAV=$toxav_on) ..."
   PKG_CONFIG_PATH="$dep_prefix/lib/pkgconfig" PKG_CONFIG_LIBDIR="$dep_prefix/lib/pkgconfig" \
   cmake -S "$TIM2TOX_DIR" -B "$ffi_build" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -118,7 +132,7 @@ build_arch() {
     -DCMAKE_CXX_FLAGS="-target $triple" \
     -DCMAKE_EXE_LINKER_FLAGS="-target $triple" \
     -DCMAKE_SHARED_LINKER_FLAGS="-target $triple" \
-    -DSTRICT_ABI=OFF -DBOOTSTRAP_DAEMON=OFF -DBUILD_TOXAV=OFF -DMUST_BUILD_TOXAV=OFF \
+    -DSTRICT_ABI=OFF -DBOOTSTRAP_DAEMON=OFF -DBUILD_TOXAV="$toxav_on" -DMUST_BUILD_TOXAV="$toxav_on" \
     -DDHT_BOOTSTRAP=OFF -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
     -DUNITTEST=OFF -DAUTOTEST=OFF -DBUILD_MISC_TESTS=OFF -DBUILD_FUN_UTILS=OFF \
     -DBUILD_FUZZ_TESTS=OFF -DUSE_IPV6=ON -DEXPERIMENTAL_API=OFF -DBUILD_FFI=ON \
@@ -161,10 +175,22 @@ echo -e "${CYAN}--- verification ---${NC}"
 file "$UNIVERSAL"
 lipo -info "$UNIVERSAL" || true
 echo "build-version:"; vtool -show-build "$UNIVERSAL" 2>/dev/null | grep -iE "platform|minos" | head
-if nm -g "$UNIVERSAL" 2>/dev/null | grep -q "_Dart_PostCObject_DL"; then
+# Captured symbol table (no `nm | grep -q` pipeline — grep -q's early exit
+# SIGPIPEs nm and pipefail turns that into a false negative).
+univ_syms="$(nm -g "$UNIVERSAL" 2>/dev/null || true)"
+if [[ "$univ_syms" == *_Dart_PostCObject_DL* ]]; then
   info "Dart_PostCObject_DL symbol present"
 else
   warn "Dart_PostCObject_DL symbol NOT found"
+fi
+# ToxAV must be REAL when requested — the marker symbol only exists under
+# BUILD_TOXAV (stub builds silently no-op every call API otherwise).
+if [[ "$TOXAV" == "1" ]]; then
+  if [[ "$univ_syms" == *tim2tox_ffi_av_backend_toxav* ]]; then
+    info "ToxAV backend confirmed (marker symbol present)"
+  else
+    err "ToxAV requested but marker symbol missing — calling would be a stub"; exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------

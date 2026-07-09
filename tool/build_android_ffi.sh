@@ -7,20 +7,22 @@
 # and the Android FFI loader (DynamicLibrary.open('libtim2tox_ffi.so')) expect
 # one per-ABI under jniLibs/. This is that missing piece.
 #
-# For each ABI it builds libsodium (static, NDK clang) + cross-builds
-# toxcore + the FFI shim (TOXAV off, matching the host build.sh feature set),
-# then drops the resulting libtim2tox_ffi.so into
+# For each ABI it builds libsodium + libopus + libvpx (static, NDK clang) +
+# cross-builds toxcore + the FFI shim with ToxAV ON (calling works), then
+# drops the resulting libtim2tox_ffi.so into
 # android/app/src/main/jniLibs/<abi>/ so the Flutter Gradle build packages it
 # into the APK.
 #
 # Env overrides: ABIS (default "arm64-v8a"; e.g. "arm64-v8a x86_64 armeabi-v7a"),
 #                ANDROID_API (default 21), NDK (auto-detected),
-#                SODIUM_VERSION (default 1.0.20).
+#                SODIUM_VERSION (default 1.0.20),
+#                TOXAV (default 1; TOXAV=0 builds the calling-stub variant).
 set -euo pipefail
 
 ABIS="${ABIS:-arm64-v8a}"
 ANDROID_API="${ANDROID_API:-21}"
 SODIUM_VERSION="${SODIUM_VERSION:-1.0.20}"
+TOXAV="${TOXAV:-1}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 # All logging to stderr so function stdout (captured via $(...)) stays clean.
@@ -101,8 +103,20 @@ build_abi() {
     )
   fi
 
+  # --- ToxAV media deps (opus + vpx, shared pinned-source builder) ---
+  local toxav_on="ON"
+  if [[ "$TOXAV" == "1" ]]; then
+    bash "$SCRIPT_DIR/ci/build_av_deps.sh" \
+      --platform android --abi "$abi" --ndk "$NDK" --api "$ANDROID_API" \
+      --prefix "$dep_prefix" \
+      --downloads "$TIM2TOX_DIR/build/mobile-deps/downloads" || { err "[$abi] AV deps build failed"; exit 1; }
+  else
+    toxav_on="OFF"
+    warn "[$abi] TOXAV=0 — building calling-stub variant"
+  fi
+
   # --- toxcore + FFI shim ---
-  info "[$abi] configuring + building tim2tox_ffi ..."
+  info "[$abi] configuring + building tim2tox_ffi (TOXAV=$toxav_on) ..."
   PKG_CONFIG_PATH="$dep_prefix/lib/pkgconfig" PKG_CONFIG_LIBDIR="$dep_prefix/lib/pkgconfig" \
   PKG_CONFIG_SYSROOT_DIR="" \
   cmake -S "$TIM2TOX_DIR" -B "$ffi_build" \
@@ -110,7 +124,7 @@ build_abi() {
     -DANDROID_ABI="$abi" \
     -DANDROID_PLATFORM="android-${ANDROID_API}" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DSTRICT_ABI=OFF -DBOOTSTRAP_DAEMON=OFF -DBUILD_TOXAV=OFF -DMUST_BUILD_TOXAV=OFF \
+    -DSTRICT_ABI=OFF -DBOOTSTRAP_DAEMON=OFF -DBUILD_TOXAV="$toxav_on" -DMUST_BUILD_TOXAV="$toxav_on" \
     -DDHT_BOOTSTRAP=OFF -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
     -DUNITTEST=OFF -DAUTOTEST=OFF -DBUILD_MISC_TESTS=OFF -DBUILD_FUN_UTILS=OFF \
     -DBUILD_FUZZ_TESTS=OFF -DUSE_IPV6=ON -DEXPERIMENTAL_API=OFF -DBUILD_FFI=ON \
@@ -137,16 +151,29 @@ for abi in $ABIS; do
   # Dart_PostCObject_DL is an *internal* symbol (used within the .so, populated
   # by Dart_InitializeApiDL), so it is stripped from the jniLibs copy and never
   # in .dynsym — check the unstripped build artifact ($so) with full nm instead.
-  if "$TOOLBIN/llvm-nm" "$so" 2>/dev/null | grep -q "Dart_PostCObject_DL"; then
+  # Captured symbol tables (no `nm | grep -q` pipeline — grep -q's early exit
+  # SIGPIPEs nm and pipefail turns that into a false negative).
+  full_syms="$("$TOOLBIN/llvm-nm" "$so" 2>/dev/null || true)"
+  dyn_syms="$("$TOOLBIN/llvm-nm" -D "$JNI_LIBS/$abi/libtim2tox_ffi.so" 2>/dev/null || true)"
+  if [[ "$full_syms" == *Dart_PostCObject_DL* ]]; then
     info "[$abi] Dart_PostCObject_DL present (dart_api_dl compiled in)"
   else
     warn "[$abi] Dart_PostCObject_DL NOT found"
   fi
   # The exported Dart* entrypoints (binary-replacement ABI) must survive strip.
-  if "$TOOLBIN/llvm-nm" -D "$JNI_LIBS/$abi/libtim2tox_ffi.so" 2>/dev/null | grep -q " T DartInitSDK"; then
+  if [[ "$dyn_syms" == *" T DartInitSDK"* ]]; then
     info "[$abi] exported Dart* entrypoints present"
   else
     warn "[$abi] exported Dart* entrypoints MISSING after strip"
+  fi
+  # ToxAV must be REAL when requested — the marker symbol only exists under
+  # BUILD_TOXAV (stub builds silently no-op every call API otherwise).
+  if [[ "$TOXAV" == "1" ]]; then
+    if [[ "$dyn_syms" == *tim2tox_ffi_av_backend_toxav* ]]; then
+      info "[$abi] ToxAV backend confirmed (marker symbol present)"
+    else
+      err "[$abi] ToxAV requested but marker symbol missing — calling would be a stub"; exit 1
+    fi
   fi
 done
 
