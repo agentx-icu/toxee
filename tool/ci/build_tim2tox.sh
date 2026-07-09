@@ -84,7 +84,13 @@ done
 
 REPO_ROOT="$(ci_repo_root)"
 TIM2TOX_DIR="$REPO_ROOT/third_party/tim2tox"
-OUTPUT_DIR="$REPO_ROOT/build/native-artifacts/$TARGET"
+# Out-of-tree build support: when the checkout lives on a read-only or slow
+# network mount (e.g. a Parallels/VM shared folder), the source tree cannot
+# hold build dirs. Override these to keep sources in place and write all
+# build state + artifacts to a local disk. Defaults preserve the historical
+# in-tree layout.
+TIM2TOX_BUILD_ROOT="${TIM2TOX_NATIVE_BUILD_ROOT:-$TIM2TOX_DIR/build}"
+OUTPUT_DIR="${TOXEE_NATIVE_ARTIFACTS_DIR:-$REPO_ROOT/build/native-artifacts}/$TARGET"
 
 [[ -d "$TIM2TOX_DIR" ]] || ci_die "tim2tox submodule not found: $TIM2TOX_DIR"
 
@@ -93,7 +99,17 @@ ci_reset_dir "$OUTPUT_DIR"
 bootstrap_tim2tox_submodules() {
   if [[ -f "$TIM2TOX_DIR/.gitmodules" ]] && { [[ -d "$TIM2TOX_DIR/.git" ]] || [[ -f "$TIM2TOX_DIR/.git" ]]; }; then
     ci_log "Ensuring tim2tox nested submodules are initialized"
-    (cd "$TIM2TOX_DIR" && git submodule update --init --recursive)
+    if ! (cd "$TIM2TOX_DIR" && git submodule update --init --recursive); then
+      # Non-fatal when the sources are already checked out: a worktree
+      # accessed over a VM shared-folder mount has a .git file whose gitdir
+      # points at a host-only absolute path, so git commands fail even
+      # though the tree is complete.
+      if [[ -f "$TIM2TOX_DIR/third_party/c-toxcore/CMakeLists.txt" ]]; then
+        ci_warn "git submodule update failed but c-toxcore sources are present — continuing (read-only/mounted checkout)"
+      else
+        ci_die "git submodule update failed and c-toxcore sources are missing"
+      fi
+    fi
   fi
 }
 
@@ -244,9 +260,9 @@ verify_sha256() {
 prepare_android_libsodium_prefix() {
   local abi="$1"
   local ndk_path="$2"
-  local prefix="$TIM2TOX_DIR/build/mobile-deps/android-$abi"
-  local download_dir="$TIM2TOX_DIR/build/mobile-deps/downloads"
-  local src_root="$TIM2TOX_DIR/build/mobile-deps/src-android-$abi"
+  local prefix="$TIM2TOX_BUILD_ROOT/mobile-deps/android-$abi"
+  local download_dir="$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  local src_root="$TIM2TOX_BUILD_ROOT/mobile-deps/src-android-$abi"
   local archive="$download_dir/libsodium-1.0.20.tar.gz"
   local host target api toolchain sysroot
 
@@ -303,7 +319,7 @@ prepare_android_libsodium_prefix() {
 }
 
 android_libsodium_prefix_path() {
-  printf '%s\n' "$TIM2TOX_DIR/build/mobile-deps/android-$1"
+  printf '%s\n' "$TIM2TOX_BUILD_ROOT/mobile-deps/android-$1"
 }
 
 build_android_ffi_for_abi() {
@@ -317,9 +333,9 @@ build_android_ffi_for_abi() {
     bash "$SCRIPT_DIR/build_av_deps.sh" \
       --platform android --abi "$abi" --ndk "$ndk_path" --api 21 \
       --prefix "$prefix" \
-      --downloads "$TIM2TOX_DIR/build/mobile-deps/downloads"
+      --downloads "$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
   fi
-  build_dir="$TIM2TOX_DIR/build/ci-android-$abi"
+  build_dir="$TIM2TOX_BUILD_ROOT/ci-android-$abi"
   repo_jni_libs="$REPO_ROOT/android/app/src/main/jniLibs"
   toolchain="$(android_ndk_toolchain_dir "$ndk_path")"
   sysroot="$toolchain/sysroot"
@@ -401,13 +417,13 @@ build_android_ffi_libs() {
 }
 
 ios_dependency_prefix_path() {
-  printf '%s\n' "$TIM2TOX_DIR/build/mobile-deps/ios-arm64"
+  printf '%s\n' "$TIM2TOX_BUILD_ROOT/mobile-deps/ios-arm64"
 }
 
 prepare_ios_libsodium_prefix() {
   local prefix
-  local download_dir="$TIM2TOX_DIR/build/mobile-deps/downloads"
-  local src_root="$TIM2TOX_DIR/build/mobile-deps/src-ios-arm64"
+  local download_dir="$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  local src_root="$TIM2TOX_BUILD_ROOT/mobile-deps/src-ios-arm64"
   local archive="$download_dir/libsodium-1.0.20.tar.gz"
   local sdk_path host
 
@@ -457,9 +473,9 @@ build_ios_ffi_dylib() {
     bash "$SCRIPT_DIR/build_av_deps.sh" \
       --platform ios --sdk iphoneos --arch arm64 --min-version 13.0 \
       --prefix "$prefix" \
-      --downloads "$TIM2TOX_DIR/build/mobile-deps/downloads"
+      --downloads "$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
   fi
-  build_dir="$TIM2TOX_DIR/build/ci-ios-arm64"
+  build_dir="$TIM2TOX_BUILD_ROOT/ci-ios-arm64"
   sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
   export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
 
@@ -553,7 +569,7 @@ assert_toxav_artifact() {
 
 build_desktop_target() {
   local target="$1"
-  local build_dir="$TIM2TOX_DIR/build/ci-$target"
+  local build_dir="$TIM2TOX_BUILD_ROOT/ci-$target"
   local lib_pattern=""
   local built_lib=""
 
