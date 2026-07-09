@@ -719,7 +719,7 @@ build_desktop_target() {
         fi
         local imports_it=""
         for candidate in $dep_dll; do
-          if grep -aqi "$candidate" "$built_dll"; then
+          if grep -aFqi "$candidate" "$built_dll"; then
             imports_it="$candidate"
             break
           fi
