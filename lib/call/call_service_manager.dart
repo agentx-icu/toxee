@@ -927,8 +927,13 @@ class CallServiceManager implements CallOverlayManager {
   }
 
   Future<bool> _ensurePermissionsForCurrentMode() async {
+    // Camera-less platforms accept video calls receive-only: local capture
+    // never starts (see _startMediaCapture / acceptCall's videoBitRate 0),
+    // so requesting camera permission would only block or reject an accept
+    // that needs nothing but the microphone.
     final result = await CallPermissionHelper.requestPermissionsForCallDetailed(
-      isVideo: _callState.mode == CallMode.video,
+      isVideo: _callState.mode == CallMode.video &&
+          CallMediaCapabilities.supportsVideoCapture(),
     );
     if (!result.granted) {
       _emitPermissionNotice(result);
