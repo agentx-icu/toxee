@@ -83,7 +83,34 @@ This part is not a necessary ability for basic chat, but it is important for des
 
 The client UI is only responsible for installation status, channel entry and interaction. The real IRC network sending and receiving is still implemented in the tim2tox side dynamic library.
 
-## 7. Related documents
+## 7. ToxAV build matrix & runtime availability
+
+Calling only works when `libtim2tox_ffi` is compiled with `BUILD_TOXAV`
+(opus + libvpx). Since 2026-07, **ToxAV is ON by default and fail-loud** in
+every build path — historically it was opt-in (`--toxav`) and every shipped
+artifact silently contained a no-op calling stub.
+
+| Build path | ToxAV | Codec source |
+|---|---|---|
+| `run_toxee.sh` / `build_ffi.sh` (macOS dev) | ON | Homebrew opus/libvpx, bundled via `bundle_dylib` |
+| `tool/ci/build_tim2tox.sh` (all five targets, incl. `build-packages.yml` releases) | ON by default; `--no-toxav` opts out | linux: apt `libopus-dev libvpx-dev`; macos: brew; windows: vcpkg `opus`/`libvpx`; android/ios: pinned-source cross-compile via `tool/ci/build_av_deps.sh` |
+| `tool/build_android_ffi.sh`, `tool/build_ios_sim_ffi.sh` (dev loops) | ON by default (`TOXAV=0` opts out) | `tool/ci/build_av_deps.sh` |
+
+Guard rails:
+
+- Runtime probe `tim2tox_ffi_av_is_available()` → `CallAvBackend.isAvailable`
+  → `CallServiceManager.isCallingAvailable`. The UI only surfaces call
+  buttons when the loaded library has a real backend (`setUseCallKit`), so a
+  stub or pre-probe library hides calling instead of silently failing.
+- Marker symbol `tim2tox_ffi_av_backend_toxav` is exported only by real
+  builds; `tool/ci/package_artifacts.sh` refuses to package artifacts
+  without it (escape hatch: `TOXEE_ALLOW_STUB_AV=1`, never for releases).
+- Video-call entry points additionally gate on
+  `CallMediaCapabilities.supportsVideoCapture()` (`useVideoCall` in the
+  UIKit fork): Windows/Linux have no camera capture backend, so they are
+  voice-only until one is implemented.
+
+## 8. Related documents
 
 - [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.en.md)
 - [IMPLEMENTATION_DETAILS.md](IMPLEMENTATION_DETAILS.en.md)

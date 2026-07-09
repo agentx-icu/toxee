@@ -13,6 +13,7 @@ import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface
 import '../adapters/logger_adapter.dart';
 import '../util/logger.dart';
 import 'call_codec_profile.dart';
+import 'call_media_capabilities.dart';
 import 'call_quality_estimator.dart';
 import 'call_state_notifier.dart';
 import 'call_overlay_manager.dart';
@@ -292,10 +293,13 @@ class CallServiceManager implements CallOverlayManager {
   ///
   /// Public so callers (e.g. ToxAV quality/disconnect event listeners) can
   /// drive the state from outside.
-  // TODO: wire to SDK reconnect events when c-toxcore exposes a discrete
-  // "transport down / re-establishing" callback. The ToxAV friend_call_state
-  // bitfield (toxav.h) does not currently distinguish "reconnecting" from
-  // "ended", so we expose this API for higher-level callers to drive.
+  ///
+  /// Production wiring: [_checkPeerTransport] (a 1s watchdog active while
+  /// inCall/reconnecting) samples the friend's Tox transport state via
+  /// ToxAVService.getFriendConnectionStatus and drives this on the
+  /// offline edge; the L3 harness (`l3_call_action('network_drop')`) drives
+  /// it synthetically. The ToxAV friend_call_state bitfield itself cannot
+  /// distinguish "reconnecting" from "ended", hence the sampling approach.
   void markReconnecting() {
     if (_callState.state != CallUIState.inCall &&
         _callState.state != CallUIState.reconnecting) {
@@ -387,6 +391,7 @@ class CallServiceManager implements CallOverlayManager {
     _callBridge!.onCallStateChanged = _onCallStateChanged;
     _adapter!.onOutgoingCallInitiated = _onOutgoingCallInitiated;
     _adapter!.onBeforeOutgoingCall = _preflightOutgoingCall;
+    _adapter!.onCallSetupFailed = _onCallSetupFailed;
     _avService!.setCallCallback(_onIncomingCall);
     _avService!.setCallStateCallback(_onCallState);
     _avService!.setAudioBitrateChangedCallback(_onAudioBitrateChanged);
@@ -399,6 +404,19 @@ class CallServiceManager implements CallOverlayManager {
 
     _callKitSub?.cancel();
     _callKitSub = _callKit.userActions.listen(_onCallKitAction);
+
+    // AV poll boost: toxav_iterate rides FfiChatService's adaptive poll loop,
+    // which relaxes to 1000ms when the text side is idle — starving RTP
+    // receive/call-state progress mid-call. Track the UI call state (the
+    // single source of truth every path funnels into: signaling, native
+    // ToxAV, CallKit actions) and pin the fast cadence for the whole call
+    // lifecycle.
+    _callState.addListener(_syncAvPollBoost);
+    // Reconnect watchdog: ToxAV has no discrete "transport down" callback
+    // (the friend_call_state bitfield can't distinguish reconnecting from
+    // ended), so sample the friend's Tox transport state during active calls
+    // and drive markReconnecting/clearReconnecting from the edges.
+    _callState.addListener(_syncReconnectWatchdog);
 
     _initialized = true;
   }
@@ -510,6 +528,18 @@ class CallServiceManager implements CallOverlayManager {
       '[CallServiceManager] _onOutgoingCallInitiated: inviteID=$inviteID, userID=$userID, type=$type, currentState=${_callState.state}',
     );
     final nickname = await _resolveNickname(userID);
+    // The adapter continues past this callback into startCall(); if that
+    // fails it tears the invite down via CallBridgeService.endCall → our
+    // ended handler. The nickname await above can resume AFTER that cleanup
+    // — re-opening a ringing overlay for a dead invite. Only start ringing
+    // if the bridge still tracks the invite.
+    if (_callBridge?.getCallInfo(inviteID) == null) {
+      AppLogger.info(
+        '[CallServiceManager] outgoing invite $inviteID ended during '
+        'nickname resolution — not showing ringing UI',
+      );
+      return;
+    }
     _callRecordEmitted = false;
     _callState.startRinging(
       mode: type == TYPE_VIDEO ? CallMode.video : CallMode.audio,
@@ -579,6 +609,11 @@ class CallServiceManager implements CallOverlayManager {
             remoteUserID: callInfo.inviter,
             remoteNickname: nickname,
           );
+          if (isVideo && !CallMediaCapabilities.supportsVideoCapture()) {
+            // Receive-only video on camera-less platforms: remote renders,
+            // local camera is never advertised as on.
+            _callState.disableLocalVideo();
+          }
           unawaited(
             _callKitReportRinging(
               callId: inviteID,
@@ -680,6 +715,11 @@ class CallServiceManager implements CallOverlayManager {
       remoteUserID: remoteUserID,
       remoteNickname: nickname,
     );
+    if (videoEnabled && !CallMediaCapabilities.supportsVideoCapture()) {
+      // Receive-only video on camera-less platforms: remote renders, local
+      // camera is never advertised as on.
+      _callState.disableLocalVideo();
+    }
     unawaited(
       _callKitReportRinging(
         callId: inviteID,
@@ -715,8 +755,17 @@ class CallServiceManager implements CallOverlayManager {
       // Emit call record before clearing state
       if (_callState.state == CallUIState.inCall ||
           _callState.state == CallUIState.reconnecting) {
-        nativeEndReason = 'remote_hangup';
-        _emitCallRecord('hangup');
+        // ERROR is the transport telling us the link died (toxcore fires it
+        // in the same iterate tick that declares the friend offline —
+        // verified live by the S69 real-kill gate). Label the record
+        // honestly: the peer did NOT hang up.
+        if (state == stateError) {
+          nativeEndReason = 'network_error';
+          _emitCallRecord('network_error');
+        } else {
+          nativeEndReason = 'remote_hangup';
+          _emitCallRecord('hangup');
+        }
       } else if (_callState.state == CallUIState.ringing) {
         final wasIncoming = _callState.direction == CallDirection.incoming;
         nativeEndReason = wasIncoming ? 'cancel' : 'timeout';
@@ -846,7 +895,8 @@ class CallServiceManager implements CallOverlayManager {
         await _audioHandler.stop();
         return;
       }
-      if (_callState.mode == CallMode.video) {
+      if (_callState.mode == CallMode.video &&
+          CallMediaCapabilities.supportsVideoCapture()) {
         await _videoHandler.startCapture(friendNumber, avService);
         if (gen != _captureGeneration) {
           await _videoHandler.stop();
@@ -890,6 +940,15 @@ class CallServiceManager implements CallOverlayManager {
   }
 
   Future<bool> _preflightOutgoingCall(String userID, String type) async {
+    // Central video-capture gate: hidden buttons (useVideoCall) cover the
+    // main surfaces, but the fork has other startVideoCall entry points
+    // (call-record bubble tap, message row). Deny at setup so EVERY outgoing
+    // video path on a camera-less platform (Windows/Linux) gets the notice
+    // instead of a frame-less call.
+    if (type == TYPE_VIDEO && !CallMediaCapabilities.supportsVideoCapture()) {
+      _emitLocalizedUiNotice((l10n) => l10n.callVideoUnsupportedPlatform);
+      return false;
+    }
     final activeRemoteUserID = _callState.remoteUserID;
     final duplicateOutgoingRing =
         _callState.state == CallUIState.ringing &&
@@ -911,6 +970,29 @@ class CallServiceManager implements CallOverlayManager {
       _emitPermissionNotice(result);
     }
     return result.granted;
+  }
+
+  /// Outgoing-call setup failed inside the adapter. Historically these
+  /// failures were swallowed (TUICore ignores handleCall's return value), so
+  /// tapping a call button could simply do nothing. Surface everything except
+  /// [CallSetupFailureReason.preflightDenied] — that one is our own decision
+  /// (_preflightOutgoingCall already emitted the permission notice, and
+  /// duplicate-ring suppression is intentionally silent).
+  void _onCallSetupFailed(CallSetupFailureReason reason, List<String> userids) {
+    AppLogger.warn(
+        '[CallServiceManager] call setup failed: $reason userids=${userids.length}');
+    switch (reason) {
+      case CallSetupFailureReason.preflightDenied:
+        return;
+      case CallSetupFailureReason.groupCallsUnsupported:
+        _emitLocalizedUiNotice((l10n) => l10n.callFailedGroupUnsupported);
+      case CallSetupFailureReason.avStartFailed:
+        _emitLocalizedUiNotice((l10n) => l10n.callFailedMediaChannel);
+      case CallSetupFailureReason.noUsers:
+      case CallSetupFailureReason.inviteFailed:
+      case CallSetupFailureReason.internalError:
+        _emitLocalizedUiNotice((l10n) => l10n.callFailedSignaling);
+    }
   }
 
   void _emitPermissionNotice(CallPermissionResult result) {
@@ -1052,10 +1134,17 @@ class CallServiceManager implements CallOverlayManager {
         final profile = isVideo
             ? CallCodecProfile.defaultProfile
             : CallCodecProfile.defaultProfile.audioOnly();
+        // Camera-less platforms answer video calls receive-only: bitRate 0
+        // tells the peer we won't send video (we still decode theirs).
+        // Audio-only profiles already carry videoBitRate 0.
+        final sendVideoBitRate =
+            isVideo && CallMediaCapabilities.supportsVideoCapture()
+                ? profile.videoBitRate
+                : 0;
         await _avService!.answerCall(
           fn,
           audioBitRate: profile.audioBitRate,
-          videoBitRate: profile.videoBitRate,
+          videoBitRate: sendVideoBitRate,
         );
         // Immediately enter call state and start media
         _ringtone.stop();
@@ -1191,6 +1280,13 @@ class CallServiceManager implements CallOverlayManager {
   Future<void> toggleVideo() async {
     final enableVideo = !_callState.isVideoEnabled;
     if (enableVideo) {
+      if (!CallMediaCapabilities.supportsVideoCapture()) {
+        // Windows/Linux have no camera capture backend — enabling the camera
+        // would silently send no frames (see VideoHandler's
+        // MissingPluginException fallback). Tell the user instead.
+        _emitLocalizedUiNotice((l10n) => l10n.callVideoUnsupportedPlatform);
+        return;
+      }
       final result =
           await CallPermissionHelper.requestPermissionsForCallDetailed(
             isVideo: true,
@@ -1231,7 +1327,75 @@ class CallServiceManager implements CallOverlayManager {
     }
   }
 
+  bool _avPollBoosted = false;
+
+  void _syncAvPollBoost() {
+    final boost = _callState.state == CallUIState.ringing ||
+        _callState.state == CallUIState.inCall ||
+        _callState.state == CallUIState.reconnecting;
+    if (boost == _avPollBoosted) return;
+    _avPollBoosted = boost;
+    _chatService.setAvSessionActive(boost);
+  }
+
+  Timer? _peerTransportWatchdog;
+
+  /// True when the *watchdog* moved the call into reconnecting. The watchdog
+  /// may only auto-clear a reconnecting state it set itself: external
+  /// callers (the L3 harness's synthetic network_drop) mark reconnecting
+  /// while the peer transport is genuinely up, and auto-clearing their state
+  /// within a second would break the driven state machine.
+  bool _watchdogMarkedReconnecting = false;
+
+  void _syncReconnectWatchdog() {
+    final active = _callState.state == CallUIState.inCall ||
+        _callState.state == CallUIState.reconnecting;
+    if (active && _peerTransportWatchdog == null) {
+      _peerTransportWatchdog = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _checkPeerTransport(),
+      );
+    } else if (!active && _peerTransportWatchdog != null) {
+      _peerTransportWatchdog!.cancel();
+      _peerTransportWatchdog = null;
+      _watchdogMarkedReconnecting = false;
+    }
+  }
+
+  void _checkPeerTransport() {
+    final friendNumber = _getActiveFriendNumber();
+    if (friendNumber == null) return;
+    final status = _avService?.getFriendConnectionStatus(friendNumber) ?? -1;
+    if (status == 0 && _callState.state == CallUIState.inCall) {
+      // Offline EDGE only: markReconnecting re-arms its grace timer on every
+      // call, so invoking it each tick while the peer stays offline would
+      // push the deadline out forever and the call would never time out.
+      AppLogger.warn(
+        '[CallServiceManager] peer transport lost (friend=$friendNumber) — reconnecting',
+      );
+      _watchdogMarkedReconnecting = true;
+      markReconnecting();
+    } else if (status > 0 &&
+        _callState.state == CallUIState.reconnecting &&
+        _watchdogMarkedReconnecting) {
+      AppLogger.info(
+        '[CallServiceManager] peer transport restored (friend=$friendNumber)',
+      );
+      _watchdogMarkedReconnecting = false;
+      clearReconnecting();
+    }
+    // status < 0 (unknown/old lib): stay quiet — no evidence either way.
+  }
+
   void dispose() {
+    _callState.removeListener(_syncAvPollBoost);
+    _callState.removeListener(_syncReconnectWatchdog);
+    _peerTransportWatchdog?.cancel();
+    _peerTransportWatchdog = null;
+    if (_avPollBoosted) {
+      _avPollBoosted = false;
+      _chatService.setAvSessionActive(false);
+    }
     _ringtone.stop();
     _ringtone.dispose();
     _audioHandler.stop();

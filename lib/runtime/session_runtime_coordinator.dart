@@ -11,6 +11,7 @@ import '../adapters/conversation_manager_adapter.dart';
 import '../adapters/event_bus_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../call/bg_refresh_bridge.dart';
+import '../call/call_media_capabilities.dart';
 import '../notifications/badge_service.dart';
 import '../notifications/notification_message_listener.dart';
 import '../notifications/notification_service.dart';
@@ -231,6 +232,10 @@ class SessionRuntimeCoordinator {
     final callingAvailable =
         FakeUIKit.instance.callServiceManager?.isCallingAvailable ?? false;
     UikitDataFacade.setUseCallKit(callingAvailable);
+    // Video entry points additionally require a camera capture backend
+    // (absent on Windows/Linux) — voice-only there, not a dead video button.
+    UikitDataFacade.setUseVideoCall(
+        callingAvailable && CallMediaCapabilities.supportsVideoCapture());
     if (!callingAvailable) {
       AppLogger.warn(
           '[SessionRuntimeCoordinator] calling disabled: native library has '

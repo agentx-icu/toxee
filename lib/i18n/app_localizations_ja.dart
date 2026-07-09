@@ -1313,6 +1313,19 @@ class AppLocalizationsJa extends AppLocalizations {
       '通話を続けるにはマイクとカメラへのアクセス許可が必要です。';
 
   @override
+  String get callFailedGroupUnsupported => 'グループ通話はまだサポートされていません。';
+
+  @override
+  String get callFailedSignaling => '通話を開始できませんでした。もう一度お試しください。';
+
+  @override
+  String get callFailedMediaChannel => '通話のメディアチャネルを確立できませんでした。';
+
+  @override
+  String get callVideoUnsupportedPlatform =>
+      'このプラットフォームではビデオ通話はまだ利用できません（カメラ非対応）。';
+
+  @override
   String get callAudioInterrupted => '通話中に音声出力が変更されたか、中断されました。';
 
   @override

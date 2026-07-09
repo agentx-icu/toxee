@@ -19,4 +19,18 @@ class CallMediaCapabilities {
     return effectivePlatform == TargetPlatform.android ||
         effectivePlatform == TargetPlatform.iOS;
   }
+
+  /// Whether camera CAPTURE has a working backend on this platform.
+  /// Android/iOS use `package:camera`, macOS uses `camera_macos`; Windows and
+  /// Linux have NO camera plugin implementation, so a "video call" there
+  /// silently sends no frames (VideoHandler catches MissingPluginException).
+  /// Video-call entry points and the in-call camera toggle must gate on this
+  /// so users aren't offered a control that can't work. Receiving/rendering
+  /// remote video works everywhere and is deliberately NOT gated by this.
+  static bool supportsVideoCapture({TargetPlatform? platform}) {
+    final effectivePlatform = platform ?? defaultTargetPlatform;
+    return effectivePlatform == TargetPlatform.android ||
+        effectivePlatform == TargetPlatform.iOS ||
+        effectivePlatform == TargetPlatform.macOS;
+  }
 }

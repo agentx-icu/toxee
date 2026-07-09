@@ -71,6 +71,24 @@ void main() {
     expect(frame.v, Uint8List.fromList(const <int>[30, 40]));
   });
 
+  test('video capture is supported exactly where a camera backend exists', () {
+    // package:camera covers Android/iOS, camera_macos covers macOS.
+    for (final p in [
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+    ]) {
+      expect(CallMediaCapabilities.supportsVideoCapture(platform: p), isTrue,
+          reason: '$p has a camera plugin backend');
+    }
+    // Windows/Linux have no camera plugin implementation — video entry
+    // points must be hidden there (voice stays available).
+    for (final p in [TargetPlatform.windows, TargetPlatform.linux]) {
+      expect(CallMediaCapabilities.supportsVideoCapture(platform: p), isFalse,
+          reason: '$p has no camera capture backend');
+    }
+  });
+
   test('hides speaker toggle until audio route switching is implemented', () {
     expect(
       CallMediaCapabilities.supportsSpeakerToggle(

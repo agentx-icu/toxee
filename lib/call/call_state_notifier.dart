@@ -146,6 +146,16 @@ class CallStateNotifier extends ChangeNotifier {
     _safeNotifyListeners();
   }
 
+  /// Force local video OFF without toggling — used when a video call is
+  /// received on a platform with no camera capture backend (Windows/Linux):
+  /// the call stays [CallMode.video] so the REMOTE stream still renders, but
+  /// the local camera is never advertised as on.
+  void disableLocalVideo() {
+    if (!_isVideoEnabled) return;
+    _isVideoEnabled = false;
+    _safeNotifyListeners();
+  }
+
   void toggleSpeaker() {
     _isSpeakerOn = !_isSpeakerOn;
     _safeNotifyListeners();

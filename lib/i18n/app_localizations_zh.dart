@@ -1303,6 +1303,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get callPermissionMicrophoneCameraRequired => '继续通话需要麦克风和相机权限。';
 
   @override
+  String get callFailedGroupUnsupported => '暂不支持群组通话。';
+
+  @override
+  String get callFailedSignaling => '呼叫失败，请重试。';
+
+  @override
+  String get callFailedMediaChannel => '无法建立通话媒体通道。';
+
+  @override
+  String get callVideoUnsupportedPlatform => '当前平台暂不支持视频通话（无摄像头支持）。';
+
+  @override
   String get callAudioInterrupted => '通话过程中音频输出发生变化或被中断。';
 
   @override
@@ -2788,6 +2800,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get callPermissionMicrophoneCameraRequired => '继续通话需要麦克风和相机权限。';
 
   @override
+  String get callFailedGroupUnsupported => '暂不支持群组通话。';
+
+  @override
+  String get callFailedSignaling => '呼叫失败，请重试。';
+
+  @override
+  String get callFailedMediaChannel => '无法建立通话媒体通道。';
+
+  @override
+  String get callVideoUnsupportedPlatform => '当前平台暂不支持视频通话（无摄像头支持）。';
+
+  @override
   String get callAudioInterrupted => '通话过程中音频输出发生变化或被中断。';
 
   @override
@@ -4120,6 +4144,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get callPermissionMicrophoneCameraRequired => '繼續通話需要麥克風和相機權限。';
+
+  @override
+  String get callFailedGroupUnsupported => '暫不支援群組通話。';
+
+  @override
+  String get callFailedSignaling => '呼叫失敗，請重試。';
+
+  @override
+  String get callFailedMediaChannel => '無法建立通話媒體通道。';
+
+  @override
+  String get callVideoUnsupportedPlatform => '目前平台暫不支援視訊通話（無攝影機支援）。';
 
   @override
   String get callAudioInterrupted => '通話過程中音訊輸出發生變化或被中斷。';

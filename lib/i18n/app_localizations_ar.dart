@@ -1345,6 +1345,20 @@ class AppLocalizationsAr extends AppLocalizations {
       'يلزم إذن الميكروفون والكاميرا لمتابعة المكالمة.';
 
   @override
+  String get callFailedGroupUnsupported => 'المكالمات الجماعية غير مدعومة بعد.';
+
+  @override
+  String get callFailedSignaling =>
+      'تعذّر بدء المكالمة. يُرجى المحاولة مرة أخرى.';
+
+  @override
+  String get callFailedMediaChannel => 'تعذّر إنشاء قناة الوسائط للمكالمة.';
+
+  @override
+  String get callVideoUnsupportedPlatform =>
+      'مكالمات الفيديو غير متاحة على هذه المنصة بعد (لا يوجد دعم للكاميرا).';
+
+  @override
   String get callAudioInterrupted =>
       'تم تغيير إخراج الصوت أو انقطاعه أثناء المكالمة.';
 
