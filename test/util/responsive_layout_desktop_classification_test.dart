@@ -75,8 +75,8 @@ void main() {
       final p = _probe(tester);
       expect(p.shouldShowBottomNav, isFalse);
       expect(p.shouldShowSidebar, isTrue);
-      // host is desktop, so sidebar width = 180 (desktop path); on a real
-      // phone this would be 80 (tablet path). Either way it's > 0.
+      // host is desktop, so sidebar width = 200 (desktop path); on a real
+      // phone this would be 72 (tablet path). Either way it's > 0.
       expect(p.sidebarWidth, greaterThan(0));
       expect(p.shouldShowMasterDetail, isTrue);
     });
@@ -101,23 +101,23 @@ void main() {
       expect(p.shouldShowMasterDetail, isTrue);
     });
 
-    testWidgets('desktop window 1280×800 → sidebar=180 + master-detail',
+    testWidgets('desktop window 1280×800 → sidebar=200 + master-detail',
         (tester) async {
       await _pumpAt(tester, const Size(1280, 800));
       final p = _probe(tester);
       expect(p.isDesktop, isTrue);
       expect(p.shouldShowBottomNav, isFalse);
       expect(p.shouldShowSidebar, isTrue);
-      expect(p.sidebarWidth, 180.0);
+      expect(p.sidebarWidth, 200.0);
       expect(p.shouldShowMasterDetail, isTrue);
     });
 
-    testWidgets('desktop window 1440×900 → sidebar=180 + master-detail',
+    testWidgets('desktop window 1440×900 → sidebar=200 + master-detail',
         (tester) async {
       await _pumpAt(tester, const Size(1440, 900));
       final p = _probe(tester);
       expect(p.isDesktop, isTrue);
-      expect(p.sidebarWidth, 180.0);
+      expect(p.sidebarWidth, 200.0);
       expect(p.shouldShowMasterDetail, isTrue);
       expect(p.bottomNavHeight, 0.0);
     });

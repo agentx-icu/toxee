@@ -1,41 +1,47 @@
 part of 'package:toxee/util/prefs.dart';
 
-// IRC Server Configuration (implementation helpers used by Prefs)
+// IRC config/state implementation helpers used by Prefs. Every IRC value is
+// account-scoped (the Tox groups backing IRC channels are per-account, so the
+// channel list / install flag / config / credentials must be too). The caller
+// resolves the account-scoped [key]; these helpers only touch storage.
 
-Future<String> _getIrcServerImpl(SharedPreferences p) async {
-  return p.getString(Prefs._kIrcServer) ?? 'irc.libera.chat';
+Future<String> _getIrcServerImpl(SharedPreferences p, String key) async {
+  return p.getString(key) ?? 'irc.libera.chat';
 }
 
-Future<void> _setIrcServerImpl(SharedPreferences p, String server) async {
-  await p.setString(Prefs._kIrcServer, server);
+Future<void> _setIrcServerImpl(
+    SharedPreferences p, String key, String server) async {
+  await p.setString(key, server);
 }
 
-Future<int> _getIrcPortImpl(SharedPreferences p) async {
-  return p.getInt(Prefs._kIrcPort) ?? 6667;
+Future<int> _getIrcPortImpl(SharedPreferences p, String key) async {
+  return p.getInt(key) ?? 6667;
 }
 
-Future<void> _setIrcPortImpl(SharedPreferences p, int port) async {
-  await p.setInt(Prefs._kIrcPort, port);
+Future<void> _setIrcPortImpl(SharedPreferences p, String key, int port) async {
+  await p.setInt(key, port);
 }
 
-Future<bool> _getIrcUseSaslImpl(SharedPreferences p) async {
-  return p.getBool(Prefs._kIrcUseSasl) ?? false;
+Future<bool> _getIrcUseSaslImpl(SharedPreferences p, String key) async {
+  return p.getBool(key) ?? false;
 }
 
-Future<void> _setIrcUseSaslImpl(SharedPreferences p, bool useSasl) async {
-  await p.setBool(Prefs._kIrcUseSasl, useSasl);
+Future<void> _setIrcUseSaslImpl(
+    SharedPreferences p, String key, bool useSasl) async {
+  await p.setBool(key, useSasl);
 }
 
-Future<bool> _getIrcAppInstalledImpl(SharedPreferences p) async {
-  return p.getBool(Prefs._kIrcAppInstalled) ?? false;
+Future<bool> _getIrcAppInstalledImpl(SharedPreferences p, String key) async {
+  return p.getBool(key) ?? false;
 }
 
-Future<void> _setIrcAppInstalledImpl(SharedPreferences p, bool installed) async {
-  await p.setBool(Prefs._kIrcAppInstalled, installed);
+Future<void> _setIrcAppInstalledImpl(
+    SharedPreferences p, String key, bool installed) async {
+  await p.setBool(key, installed);
 }
 
-Future<List<String>> _getIrcChannelsImpl(SharedPreferences p) async {
-  final channelsJson = p.getString(Prefs._kIrcChannels);
+Future<List<String>> _getIrcChannelsImpl(SharedPreferences p, String key) async {
+  final channelsJson = p.getString(key);
   if (channelsJson == null || channelsJson.isEmpty) return [];
   try {
     final List<dynamic> decoded = jsonDecode(channelsJson);
@@ -45,6 +51,7 @@ Future<List<String>> _getIrcChannelsImpl(SharedPreferences p) async {
   }
 }
 
-Future<void> _setIrcChannelsImpl(SharedPreferences p, List<String> channels) async {
-  await p.setString(Prefs._kIrcChannels, jsonEncode(channels));
+Future<void> _setIrcChannelsImpl(
+    SharedPreferences p, String key, List<String> channels) async {
+  await p.setString(key, jsonEncode(channels));
 }
