@@ -200,7 +200,7 @@ Fixture C two-process scripts (via `tool/mcp_test/fixture_c_manifest.json`), and
 
 ## Execution-class rosters (derived from scenario JSON flags)
 
-### `l3-gate` (35)
+### `l3-gate` (37)
 
 | id | suite | order | feature | nonBlocking |
 |----|-------|-------|---------|-------------|
@@ -210,6 +210,7 @@ Fixture C two-process scripts (via `tool/mcp_test/fixture_c_manifest.json`), and
 | `L3-autoaccept-group-toggle` | settings | 50 | S47 | no |
 | `L3-bootstrap-mode-toggle` | settings | 50 | — | no |
 | `L3-download-limit-toggle` | settings | 50 | — | no |
+| `L3-irc-install-state` | settings | 50 | — | no |
 | `L3-notification-sound-toggle` | settings | 50 | — | no |
 | `L3-recvopt-mute-toggle` | settings | 50 | S83 | no |
 | `L3-clear-history` | c2c | 50 | — | no |
@@ -237,6 +238,7 @@ Fixture C two-process scripts (via `tool/mcp_test/fixture_c_manifest.json`), and
 | `L3-group-send-persist` | group | 50 | S34 | no |
 | `L3-group-two-groups-known` | group | 50 | — | no |
 | `L3-group-two-pins` | group | 50 | — | no |
+| `L3-irc-channel-local-group` | group | 50 | — | no |
 | `L3-pin-group-toggle` | group | 50 | — | no |
 | `L3-leave-group` | group | 90 | S35 | no |
 
