@@ -6,6 +6,7 @@ import 'ffi_chat_service_account_key.dart';
 
 import 'app_paths.dart';
 import 'bootstrap_node_ensurer.dart';
+import 'irc_app_manager.dart';
 import 'logger.dart';
 import 'locale_controller.dart';
 import '../call/bg_refresh_bridge.dart';
@@ -38,6 +39,16 @@ class AppBootstrapCoordinator {
     // (in auto mode) refreshes from the live list in the background.
     await BootstrapNodeEnsurer.ensureForSession(service);
 
+    // Restore the account's IRC channels + reconnect as part of session boot.
+    // Every login/switch/registration path funnels through here, and by this
+    // point the current-account toxId is set and the service's knownGroups are
+    // loaded (from init()), so account-scoped IRC prefs resolve correctly. This
+    // decouples IRC restore from the Applications page being built — the page
+    // previously owned the only restore call, so IRC silently didn't reconnect
+    // on login until the user opened that tab. Non-fatal: an IRC failure must
+    // never block login.
+    await _restoreIrcSession(service);
+
     // Android: launch the persistent foreground service so the tox polling
     // loop survives the app going into the background. No-op on other
     // platforms (the wrapper short-circuits on !Platform.isAndroid). Failures
@@ -69,6 +80,22 @@ class AppBootstrapCoordinator {
         unawaited(_markIosPostLoginExclusions(toxId));
       }
       _wireIosBgRefresh(service);
+    }
+  }
+
+  /// Restores IRC install state + channel→group mappings for the just-booted
+  /// account and reconnects live channels (when the native library is
+  /// available). Idempotent w.r.t. the Applications page's own restore call.
+  static Future<void> _restoreIrcSession(FfiChatService service) async {
+    try {
+      final manager = IrcAppManager();
+      await manager.init();
+      await manager.restoreChannelMappings(service);
+    } catch (e, st) {
+      AppLogger.logError(
+          '[AppBootstrapCoordinator] IRC session restore failed (non-fatal)',
+          e,
+          st);
     }
   }
 

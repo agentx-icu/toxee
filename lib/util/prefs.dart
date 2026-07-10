@@ -69,6 +69,7 @@ class Prefs {
   static const _kIrcPort = 'irc_port'; // int - IRC server port (default: 6667)
   static const _kIrcUseSasl = 'irc_use_sasl'; // bool - Whether to use SASL authentication
   static String _ircChannelPasswordKey(String channel) => 'irc_channel_password_$channel';
+  static String _ircChannelNicknameKey(String channel) => 'irc_channel_nickname_$channel';
   // Window/layout state (desktop)
   static const _kWindowBounds = 'window_bounds'; // "left,top,width,height"
   static const _kWindowMaximized = 'window_maximized';
@@ -1407,25 +1408,43 @@ class Prefs {
     }
   }
 
-  // IRC App management
+  // IRC App management.
+  //
+  // All IRC state is account-scoped: the Tox groups that IRC channels map to
+  // are per-account, so the channel list, install flag, server config and
+  // per-channel credentials must be scoped the same way — otherwise switching
+  // accounts would surface another account's channels as phantom, unconnectable
+  // entries and leak passwords/nicknames across accounts. With no current
+  // account (very early boot / logged out) getters return defaults and setters
+  // no-op, mirroring the group-name accessors.
   static Future<bool> getIrcAppInstalled() async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return false;
     final p = await _getPrefs();
-    return _getIrcAppInstalledImpl(p);
+    return _getIrcAppInstalledImpl(p, _scopedKey(_kIrcAppInstalled, current));
   }
 
   static Future<void> setIrcAppInstalled(bool installed) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcAppInstalledImpl(p, installed);
+    return _setIrcAppInstalledImpl(
+        p, _scopedKey(_kIrcAppInstalled, current), installed);
   }
 
   static Future<List<String>> getIrcChannels() async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return [];
     final p = await _getPrefs();
-    return _getIrcChannelsImpl(p);
+    return _getIrcChannelsImpl(p, _scopedKey(_kIrcChannels, current));
   }
 
   static Future<void> setIrcChannels(List<String> channels) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcChannelsImpl(p, channels);
+    return _setIrcChannelsImpl(
+        p, _scopedKey(_kIrcChannels, current), channels);
   }
 
   static Future<void> addIrcChannel(String channel) async {
@@ -1440,79 +1459,109 @@ class Prefs {
     final channels = await getIrcChannels();
     channels.remove(channel);
     await setIrcChannels(channels);
-    // Remove password when channel is removed
+    // Remove password + custom nickname when channel is removed
     await removeIrcChannelPassword(channel);
+    await removeIrcChannelNickname(channel);
   }
 
-  static Future<String?> getIrcChannelPassword(String channel) async {
-    final key = _ircChannelPasswordKey(channel);
-    // Prefer secure storage
-    final fromSecure = await _secureRead(key);
-    if (fromSecure != null && fromSecure.isNotEmpty) return fromSecure;
-    // Migrate from legacy SharedPreferences. Only drop the legacy entry once
-    // the secure write actually succeeded — otherwise a swallowed keychain
-    // failure would erase the only copy of the password.
+  /// Custom IRC nickname for a channel (account-scoped). Not a secret, so it
+  /// lives in SharedPreferences (unlike the channel password). Persisted so a
+  /// custom nickname survives app restart and is reused on reconnect.
+  static Future<String?> getIrcChannelNickname(String channel) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return null;
     final p = await _getPrefs();
-    final legacy = p.getString(key);
-    if (legacy != null) {
-      final wrote = await _secureWrite(key, legacy);
-      if (wrote) {
-        await p.remove(key);
-      }
-      return legacy;
+    final value =
+        p.getString(_scopedKey(_ircChannelNicknameKey(channel), current));
+    return (value != null && value.isNotEmpty) ? value : null;
+  }
+
+  static Future<void> setIrcChannelNickname(String channel, String? nickname) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
+    final p = await _getPrefs();
+    final key = _scopedKey(_ircChannelNicknameKey(channel), current);
+    if (nickname == null || nickname.isEmpty) {
+      await p.remove(key);
+    } else {
+      await p.setString(key, nickname);
     }
-    return null;
+  }
+
+  static Future<void> removeIrcChannelNickname(String channel) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
+    final p = await _getPrefs();
+    await p.remove(_scopedKey(_ircChannelNicknameKey(channel), current));
+  }
+
+  /// Channel password (account-scoped, secure storage).
+  static Future<String?> getIrcChannelPassword(String channel) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return null;
+    final key = _scopedKey(_ircChannelPasswordKey(channel), current);
+    final fromSecure = await _secureRead(key);
+    return (fromSecure != null && fromSecure.isNotEmpty) ? fromSecure : null;
   }
 
   static Future<void> setIrcChannelPassword(String channel, String? password) async {
-    final key = _ircChannelPasswordKey(channel);
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
+    final key = _scopedKey(_ircChannelPasswordKey(channel), current);
     if (password == null || password.isEmpty) {
       await _secureDelete(key);
-      final p = await _getPrefs();
-      await p.remove(key);
     } else {
       await _secureWrite(key, password);
-      final p = await _getPrefs();
-      await p.remove(key);
     }
   }
 
   static Future<void> removeIrcChannelPassword(String channel) async {
-    final key = _ircChannelPasswordKey(channel);
-    await _secureDelete(key);
-    final p = await _getPrefs();
-    await p.remove(key);
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
+    await _secureDelete(_scopedKey(_ircChannelPasswordKey(channel), current));
   }
 
-  // IRC Server Configuration
+  // IRC Server Configuration (account-scoped)
   static Future<String> getIrcServer() async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return 'irc.libera.chat';
     final p = await _getPrefs();
-    return _getIrcServerImpl(p);
+    return _getIrcServerImpl(p, _scopedKey(_kIrcServer, current));
   }
 
   static Future<void> setIrcServer(String server) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcServerImpl(p, server);
+    return _setIrcServerImpl(p, _scopedKey(_kIrcServer, current), server);
   }
 
   static Future<int> getIrcPort() async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return 6667;
     final p = await _getPrefs();
-    return _getIrcPortImpl(p);
+    return _getIrcPortImpl(p, _scopedKey(_kIrcPort, current));
   }
 
   static Future<void> setIrcPort(int port) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcPortImpl(p, port);
+    return _setIrcPortImpl(p, _scopedKey(_kIrcPort, current), port);
   }
 
   static Future<bool> getIrcUseSasl() async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return false;
     final p = await _getPrefs();
-    return _getIrcUseSaslImpl(p);
+    return _getIrcUseSaslImpl(p, _scopedKey(_kIrcUseSasl, current));
   }
 
   static Future<void> setIrcUseSasl(bool useSasl) async {
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcUseSaslImpl(p, useSasl);
+    return _setIrcUseSaslImpl(p, _scopedKey(_kIrcUseSasl, current), useSasl);
   }
 
   // Account list management for multiple accounts
