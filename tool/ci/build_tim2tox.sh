@@ -662,9 +662,16 @@ build_desktop_target() {
         # this the dll links the DEBUG CRT (MSVCP140D.dll / ucrtbased.dll) +
         # pthreadVC3d.dll and fails to load at runtime with error 126. It is
         # harmless for the multi-config VS generator (which honors --config).
+        # VCPKG_TARGET_TRIPLET must be EXPLICIT: with Ninja the vcpkg
+        # toolchain guesses the target triplet from the host environment,
+        # which on the windows-11-arm runners resolved to x64-windows while
+        # the installed ports (and the pkg-config paths above) are
+        # arm64-windows — the link step then got an x64 LIBPATH and failed
+        # with LNK1181: cannot open input file 'opus.lib'.
         VCPKG_ROOT="$vcpkg_root_win" cmake -S "$source_dir_win" -B "$build_dir_win" \
           "${generator_args[@]}" \
           -DCMAKE_TOOLCHAIN_FILE="$toolchain_file" \
+          -DVCPKG_TARGET_TRIPLET="$vcpkg_triplet" \
           -DCMAKE_BUILD_TYPE=Release \
           "${configure_args[@]}"
       else
