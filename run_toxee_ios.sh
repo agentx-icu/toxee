@@ -323,6 +323,28 @@ resolve_ffi_dylib_path() {
   done
 }
 
+warn_if_ffi_artifact_stale() {
+  # A prebuilt iOS FFI artifact silently goes stale: this script injects it
+  # as-is (nothing here rebuilds it), so a weeks-old binary can pair with a
+  # current Dart side. Warn when any tim2tox native source is newer than the
+  # artifact so the drift is visible at launch time instead of at crash time.
+  local artifact="$1"
+  [[ -f "$artifact" ]] || return 0
+  local newer=""
+  local f
+  while IFS= read -r f; do
+    if [[ "$f" -nt "$artifact" ]]; then newer="$f"; break; fi
+  done < <(find "$FLUTTER_APP_DIR/third_party/tim2tox/ffi" \
+                "$FLUTTER_APP_DIR/third_party/tim2tox/source" \
+                "$FLUTTER_APP_DIR/third_party/tim2tox/include" \
+                \( -name '*.cpp' -o -name '*.h' \) 2>/dev/null)
+  if [[ -n "$newer" ]]; then
+    warn "iOS FFI artifact is OLDER than tim2tox sources (e.g. $newer)."
+    warn "  artifact: $artifact"
+    warn "  Rebuild with: tool/build_ios_sim_ffi.sh"
+  fi
+}
+
 inject_ios_ffi_artifacts() {
   local app_bundle frameworks_dir framework_src dylib_src
   app_bundle="$(ios_app_bundle_path)"
@@ -331,6 +353,11 @@ inject_ios_ffi_artifacts() {
 
   framework_src="$(resolve_ffi_framework_path || true)"
   dylib_src="$(resolve_ffi_dylib_path || true)"
+  if [[ -n "$framework_src" ]]; then
+    warn_if_ffi_artifact_stale "$framework_src/tim2tox_ffi"
+  elif [[ -n "$dylib_src" ]]; then
+    warn_if_ffi_artifact_stale "$dylib_src"
+  fi
 
   if [[ -n "$framework_src" ]]; then
     info "Injecting framework: $framework_src"

@@ -6445,6 +6445,8 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
           homeShell['currentConversationId'];
       params['homeShellInContactProfileContext'] =
           homeShell['inContactProfileContext'];
+      params['homeShellShouldShowMasterDetail'] =
+          homeShell['shouldShowMasterDetail'];
     }
     if (ffi != null) {
       try {

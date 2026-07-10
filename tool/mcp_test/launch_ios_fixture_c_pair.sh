@@ -147,13 +147,23 @@ with open(b_file) as fb:
 
 restore_mode = os.environ.get("TOXEE_FIXTURE_C_RESTORE") or None
 
+# Contract (matches launch_fixture_c_pair.sh / launch_android_fixture_c_pair.sh):
+# fixture_restore.restored is a restore-report MAP or null — never a bool. The
+# unified runner reads restored["instances"][name]["nickname"]; the manifest
+# carries the same instances.{A,B}.nickname shape, so reuse it as the report.
+restored = None
+manifest_path = os.environ.get("TOXEE_FIXTURE_C_MANIFEST_RESOLVED")
+if restore_mode is not None and manifest_path and os.path.exists(manifest_path):
+    with open(manifest_path) as fm:
+        restored = json.load(fm)
+
 doc = {
     "format_version": 1,
     "instances": {"A": a, "B": b},
     "fixture_restore": {
         "mode": restore_mode,
-        "report": None,
-        "restored": restore_mode is not None,
+        "report": manifest_path if restored is not None else None,
+        "restored": restored,
     },
     "checks": {
         "distinct_pids": a["pid"] != b["pid"],
@@ -169,6 +179,8 @@ with open(out_file, "w") as f:
     f.write("\n")
 PY
 }
+# Resolved manifest path for the pair-json writer (report source when restoring).
+export TOXEE_FIXTURE_C_MANIFEST_RESOLVED="$FIXTURE_MANIFEST"
 
 mkdir -p "$RUNTIME_ROOT"
 rm -rf "$RUNTIME_ROOT/A" "$RUNTIME_ROOT/B" "$PAIR_JSON"

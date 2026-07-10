@@ -119,11 +119,15 @@ Future<String> _logoutToLoginPage(Inst inst) async {
 /// Quick-login the saved-account card for [toxId] on a NO-PASSWORD account and
 /// wait for the session to be ready (HomePage). Returns whether it logged in.
 Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
-  // On the Windows VM a no-password quick-login can race the FFI re-init churn
-  // left by a just-registered/switched account: the login starts but sessionReady
-  // lags past the poll window. Retry the real card tap, and treat
-  // currentAccountToxId == toxId as success even if the ready poll lagged.
-  final attempts = _isWindowsRealUi ? 3 : 1;
+  // On the Windows VM AND the iOS simulator a no-password quick-login can race
+  // the FFI re-init churn left by a just-registered/switched account: the login
+  // starts but sessionReady lags past the poll window (observed on iPad: the
+  // switch-back to the primary account after registering account #2 flaked once
+  // with ready=false, then passed on the fresh retry). The churn is
+  // platform-independent — a slower target just needs more attempts — so retry
+  // the real card tap, and treat currentAccountToxId == toxId as success even if
+  // the ready poll lagged.
+  final attempts = (_isWindowsRealUi || inst.isIos) ? 3 : 1;
   for (var attempt = 0; attempt < attempts; attempt++) {
     final ok = await _quickLoginNoPasswordOnce(inst, toxId);
     if (ok) return true;
@@ -198,13 +202,20 @@ Future<bool> _loginRegisterOpenBack(Inst inst) async {
     print('[pair] register_open_back: RegisterPage did not mount');
     return false;
   }
-  // Back out via the keyed AppBar back button (single-fire: it pops the route,
-  // and a double-fire would pop the LoginPage underneath -> blank).
+  // Back out via the keyed AppBar back button. Single-fire matters (a double-fire
+  // would pop the LoginPage underneath -> blank), so use tapKeyCenter (one pointer
+  // tap), NOT flutter_skill's callback-invoking `tap`. But a single pointer tap
+  // does not always fire the IconButton onPressed on the wide iPad layout — so
+  // CONFIRM the pop each time and re-tap ONLY while still on the RegisterPage
+  // (guarding the double-pop: once the nickname field is gone we stop tapping).
   var backed = false;
-  if (await inst.tapKeyCenter('register_back_button', timeoutSecs: 6)) {
+  for (var attempt = 0; attempt < 3 && !backed; attempt++) {
+    if (!await inst.tapKeyCenter('register_back_button', timeoutSecs: 6)) {
+      break;
+    }
     backed = await inst.waitKeyGone(
       'register_page_nickname_field',
-      timeoutSecs: 6,
+      timeoutSecs: 4,
     );
   }
   // Back on the LoginPage: the Register CTA text is visible again (proves we

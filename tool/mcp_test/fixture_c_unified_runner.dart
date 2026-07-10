@@ -829,8 +829,8 @@ Future<int> _run(List<String> args) async {
 
   try {
     return await _executePlan(plan);
-  } catch (e) {
-    stderr.writeln('[unified] execution failed: $e');
+  } catch (e, st) {
+    stderr.writeln('[unified] execution failed: $e\n$st');
     return 1;
   }
 }

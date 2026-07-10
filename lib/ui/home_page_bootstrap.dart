@@ -1088,6 +1088,13 @@ extension _HomePageBootstrap on _HomePageState {
         'index': _index,
         'currentConversationId': _currentConversationID,
         'inContactProfileContext': _inContactProfileContext,
+        // Layout class: true when the home shell is in the wide master-detail
+        // layout (desktop AND iPad/large-tablet), false on a compact phone.
+        // The settings surface differs by class — compact pushes per-section
+        // sub-routes, wide renders every section inline on one page — so
+        // layout-aware real-UI drivers need this to pick the right assertions.
+        // Null until the first build computes it.
+        'shouldShowMasterDetail': _lastShouldShowMasterDetail,
       };
     };
     registerL3HomeShellSnapshotReader(homeShellSnapshotReader);

@@ -89,9 +89,25 @@ Future<void> _openSettings(Inst inst) async {
   throw DriveError('[${inst.name}] settings did not become the active tab');
 }
 
+/// True when the home shell is in the WIDE master-detail layout (desktop AND
+/// iPad/large-tablet). On wide iOS the SettingsPage renders every section
+/// INLINE on one scrolling page (settings_page.dart `build` takes the
+/// non-`isMobile` branch → `_buildSettingsChildren`), so there is NO per-section
+/// push navigation: the mobile index tiles ("Account Management", "Appearance",
+/// "General") don't exist and there is no `settings_mobile_section_back_button`.
+/// Every content key is instead mounted inline (findable by whole-tree waitKey).
+/// A compact iPhone returns false and keeps the push-navigation path.
+Future<bool> _settingsIsWide(Inst inst) async {
+  final v = (await inst.dumpState())['homeShellShouldShowMasterDetail'];
+  return v == true;
+}
+
 Future<bool> _openMobileAccountManagement(Inst inst) async {
   if (!inst.isIos) return true;
   await _openSettings(inst);
+  // Wide iOS (iPad): account-management buttons are inline in the Account card
+  // (settings_page_build.dart `_buildAccountActionButtons`) — no drill-in.
+  if (await _settingsIsWide(inst)) return true;
   if (await inst.waitKey('settings_logout_button', timeoutSecs: 1) ||
       await inst.waitKey('settings_set_password_button', timeoutSecs: 1)) {
     return true;
@@ -106,6 +122,13 @@ Future<bool> _openMobileAccountManagement(Inst inst) async {
 
 Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
   if (!inst.isIos) return false;
+  // Wide iOS (iPad): all sections render inline on the single settings page —
+  // just make Settings the active tab; the caller's content-key waitKeys then
+  // match the inline widgets. No sub-route push, no back button.
+  if (await _settingsIsWide(inst)) {
+    await _openSettings(inst);
+    return true;
+  }
   // Drilling into a mobile settings sub-section pushes a new route whose AppBar
   // leading carries `settings_mobile_section_back_button` (see
   // SettingsPage._pushMobileSettingsSection). The previous implementation tapped
@@ -139,6 +162,8 @@ Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
 
 Future<void> _backFromMobileSettingsSection(Inst inst) async {
   if (!inst.isIos) return;
+  // Wide iOS (iPad): sections are inline — there is no pushed route to pop.
+  if (await _settingsIsWide(inst)) return;
   if (!await inst.tapKeyCenter(
     'settings_mobile_section_back_button',
     timeoutSecs: 3,
@@ -165,14 +190,49 @@ Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
 
   await run('ios_settings_index_sections', () async {
     await _openSettings(inst);
+    // Wide iOS (iPad): the mobile section-index tiles don't exist — every
+    // section is inline. Assert one anchor per section is mounted on the page
+    // (whole-tree waitKey finds mounted-offstage widgets), which proves the
+    // same section coverage the compact tile-titles stand in for.
+    if (await _settingsIsWide(inst)) {
+      final accountInfo = await inst.waitKey(
+        'settings_copy_tox_id_button',
+        timeoutSecs: 4,
+      );
+      final accountMgmt = await inst.waitKey(
+        'settings_logout_button',
+        timeoutSecs: 4,
+      );
+      final appearance = await inst.waitKey(
+        'settings_theme_segment',
+        timeoutSecs: 4,
+      );
+      final general = await inst.waitKey(
+        'settings_notification_sound_switch',
+        timeoutSecs: 4,
+      );
+      // BootstrapSettingsSection is the LAST child of the inline settings
+      // ListView; on a wide page it starts below the fold and the lazy ListView
+      // has not built it yet, so a whole-tree waitKey misses it until it scrolls
+      // into the cacheExtent. Scroll to the bottom first, then assert.
+      await inst.scrollAt(_settingsScrollKey, dy: 6000);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final bootstrap = await inst.waitKey(
+        'settings_bootstrap_mode_auto',
+        timeoutSecs: 4,
+      );
+      await inst.scrollAt(_settingsScrollKey, dy: -6000);
+      return accountInfo && accountMgmt && appearance && general && bootstrap;
+    }
     final accountInfo = await inst.waitText('Account Info', timeoutSecs: 4);
     final accountMgmt = await inst.waitText(
       'Account Management',
       timeoutSecs: 4,
     );
     final appearance = await inst.waitText('Appearance', timeoutSecs: 4);
+    final general = await inst.waitText('General', timeoutSecs: 4);
     final bootstrap = await inst.waitText('Bootstrap Nodes', timeoutSecs: 4);
-    return accountInfo && accountMgmt && appearance && bootstrap;
+    return accountInfo && accountMgmt && appearance && general && bootstrap;
   });
 
   await run('ios_settings_account_info', () async {
@@ -211,6 +271,10 @@ Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
     return hasExport && hasPassword && hasLogout && hasDelete;
   });
 
+  // Settings split (2026-07-08): the mobile "Appearance" page now carries
+  // ONLY theme + language; notification sound / downloads dir / auto-download
+  // limit moved to the new "General" page (settings_page.dart
+  // _buildMobileSettingsIndex). Assert each page's actual contents.
   await run('ios_settings_appearance', () async {
     if (!await _openMobileSettingsSection(inst, 'Appearance')) return false;
     final hasTheme = await inst.waitKey(
@@ -221,17 +285,35 @@ Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
       'settings_language_selector',
       timeoutSecs: 4,
     );
+    await _backFromMobileSettingsSection(inst);
+    return hasTheme && hasLanguage;
+  });
+
+  await run('ios_settings_general', () async {
+    if (!await _openMobileSettingsSection(inst, 'General')) return false;
+    final hasNotificationSound = await inst.waitKey(
+      'settings_notification_sound_switch',
+      timeoutSecs: 4,
+    );
     final hasDownload = await inst.waitKey(
       'settings_download_limit_field',
       timeoutSecs: 4,
     );
     await _backFromMobileSettingsSection(inst);
-    return hasTheme && hasLanguage && hasDownload;
+    return hasNotificationSound && hasDownload;
   });
 
   await run('ios_settings_bootstrap', () async {
     if (!await _openMobileSettingsSection(inst, 'Bootstrap Nodes'))
       return false;
+    // Wide iOS (iPad): BootstrapSettingsSection is the last child of the inline
+    // settings ListView and starts below the fold, so the lazy list has not
+    // built its keys yet — scroll to the bottom to mount them before asserting.
+    final wide = await _settingsIsWide(inst);
+    if (wide) {
+      await inst.scrollAt(_settingsScrollKey, dy: 6000);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
     final hasAuto = await inst.waitKey(
       'settings_bootstrap_mode_auto',
       timeoutSecs: 4,
@@ -240,6 +322,7 @@ Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
       'settings_bootstrap_mode_manual',
       timeoutSecs: 4,
     );
+    if (wide) await inst.scrollAt(_settingsScrollKey, dy: -6000);
     await _backFromMobileSettingsSection(inst);
     return hasAuto && hasManual;
   });
