@@ -104,7 +104,17 @@ class AccountService {
 
     // 3.5 Clear static singleton caches to prevent cross-account data leaks
     GroupMemberListDebouncer().clear();
-    IrcAppManager().resetCache();
+    // IRC: tear down the LIVE native connections (threads/sockets) for the
+    // account being logged out, not just the Dart cache — otherwise the old
+    // account's IRC sockets keep running and can forward inbound IRC into the
+    // NEXT account's Tox instance (cross-account bleed). Runs while `service` is
+    // still alive (before dispose below). Falls back to a plain cache reset when
+    // there is no live service to drive the native teardown.
+    if (service != null) {
+      await IrcAppManager().shutdownSession(service);
+    } else {
+      IrcAppManager().resetCache();
+    }
 
     // 4. Dispose service
     if (service != null) {

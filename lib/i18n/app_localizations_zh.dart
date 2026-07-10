@@ -694,6 +694,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ircChannelAddFailed => '添加IRC频道失败';
 
   @override
+  String ircChannelAddedNotConnected(String channel) {
+    return '频道 $channel 已添加，但无法建立 IRC 连接';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary => 'IRC 应用已安装，但本设备不支持实时 IRC 连接';
+
+  @override
   String ircChannelRemoved(String channel) {
     return 'IRC频道已移除: $channel';
   }
@@ -2288,6 +2296,14 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ircChannelAddFailed => '添加IRC频道失败';
 
   @override
+  String ircChannelAddedNotConnected(String channel) {
+    return '频道 $channel 已添加，但无法建立 IRC 连接';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary => 'IRC 应用已安装，但本设备不支持实时 IRC 连接';
+
+  @override
   String ircChannelRemoved(String channel) {
     return 'IRC频道已移除: $channel';
   }
@@ -3633,6 +3649,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get ircChannelAddFailed => '添加IRC頻道失敗';
+
+  @override
+  String ircChannelAddedNotConnected(String channel) {
+    return '頻道 $channel 已添加，但無法建立 IRC 連線';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary => 'IRC 應用已安裝，但本裝置不支援即時 IRC 連線';
 
   @override
   String ircChannelRemoved(String channel) {

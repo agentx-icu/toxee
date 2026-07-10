@@ -290,6 +290,8 @@
   },
   "ircChannelAdded": "IRC频道已添加: {channel}",
   "ircChannelAddFailed": "添加IRC频道失败",
+  "ircChannelAddedNotConnected": "频道 {channel} 已添加，但无法建立 IRC 连接",
+  "ircAppInstalledNoLibrary": "IRC 应用已安装，但本设备不支持实时 IRC 连接",
   "ircChannelRemoved": "IRC频道已移除: {channel}",
   "removeIrcChannel": "移除IRC频道",
   "removeIrcChannelConfirm": "确定要移除 {channel} 吗？您将退出对应的群组。",

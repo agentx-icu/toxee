@@ -434,6 +434,19 @@
   "@ircChannelAddFailed": {
     "description": "Error message when adding IRC channel fails"
   },
+  "ircChannelAddedNotConnected": "頻道 {channel} 已添加，但無法建立 IRC 連線",
+  "@ircChannelAddedNotConnected": {
+    "description": "Shown when the channel/group was created but the live IRC connection could not be started",
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "ircAppInstalledNoLibrary": "IRC 應用已安裝，但本裝置不支援即時 IRC 連線",
+  "@ircAppInstalledNoLibrary": {
+    "description": "Shown after install when the native IRC client library could not be loaded"
+  },
   "ircChannelAdded": "IRC頻道已添加: {channel}",
   "@ircChannelAdded": {
     "description": "Message shown when IRC channel is added",

@@ -12,6 +12,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/applications/applications_page.dart';
+import 'package:toxee/util/irc_app_manager.dart' show IrcAddChannelResult;
 import 'package:toxee/ui/testing/ui_keys.dart';
 
 class _FakeApplicationsIrcController implements ApplicationsIrcController {
@@ -21,7 +22,11 @@ class _FakeApplicationsIrcController implements ApplicationsIrcController {
     this.server = 'irc.example.net',
     this.port = 6667,
     this.useSasl = false,
-  }) : channels = List<String>.of(channels);
+    this.libraryLoadsOnInstall = true,
+    this.addChannelConnects = true,
+    Set<String> connectedChannels = const {},
+  })  : channels = List<String>.of(channels),
+        connectedChannels = Set<String>.of(connectedChannels);
 
   bool installed;
   List<String> channels;
@@ -30,6 +35,10 @@ class _FakeApplicationsIrcController implements ApplicationsIrcController {
   bool useSasl;
   int installCalls = 0;
   int uninstallCalls = 0;
+  // Controls the honest-outcome paths added to the controller contract.
+  bool libraryLoadsOnInstall = true;
+  bool addChannelConnects = true;
+  Set<String> connectedChannels = {};
   final List<String> removedChannels = [];
   final List<({String channel, String? password, String? customNickname})>
   addedChannels = [];
@@ -80,9 +89,10 @@ class _FakeApplicationsIrcController implements ApplicationsIrcController {
   }
 
   @override
-  Future<void> install() async {
+  Future<bool> install() async {
     installCalls++;
     installed = true;
+    return libraryLoadsOnInstall;
   }
 
   @override
@@ -90,10 +100,11 @@ class _FakeApplicationsIrcController implements ApplicationsIrcController {
     uninstallCalls++;
     installed = false;
     channels.clear();
+    connectedChannels.clear();
   }
 
   @override
-  Future<bool> addChannel(
+  Future<IrcAddChannelResult> addChannel(
     String channel, {
     String? password,
     String? customNickname,
@@ -104,14 +115,24 @@ class _FakeApplicationsIrcController implements ApplicationsIrcController {
       customNickname: customNickname,
     ));
     channels.add(channel);
-    return true;
+    if (addChannelConnects) connectedChannels.add(channel);
+    return IrcAddChannelResult(
+      added: true,
+      connected: addChannelConnects,
+      groupId: 'group_$channel',
+    );
   }
 
   @override
   Future<void> removeChannel(String channel) async {
     removedChannels.add(channel);
     channels.remove(channel);
+    connectedChannels.remove(channel);
   }
+
+  @override
+  Future<bool> isChannelConnected(String channel) async =>
+      connectedChannels.contains(channel);
 
   void emitStatus(String channel, int status, {String? message}) {
     _statusController.add((channel: channel, status: status, message: message));
@@ -321,4 +342,84 @@ void main() {
     expect(find.byKey(UiKeys.applicationsIrcInstallButton), findsOneWidget);
     expect(find.text('IRC Server Configuration'), findsNothing);
   });
+
+  testWidgets(
+    'install warns honestly when the native IRC library fails to load',
+    (tester) async {
+      final controller = _FakeApplicationsIrcController(
+        libraryLoadsOnInstall: false,
+      );
+      await _pumpPage(tester, controller);
+
+      await tester.tap(find.byKey(UiKeys.applicationsIrcInstallButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(controller.installCalls, 1);
+      // The install still succeeds (config surface appears) but the message is
+      // the honest "live IRC unavailable" warning, not a plain success.
+      expect(find.text('IRC Server Configuration'), findsOneWidget);
+      expect(
+        find.text('IRC app installed, but live IRC is unavailable on this device'),
+        findsOneWidget,
+      );
+      expect(find.text('IRC Channel app installed'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'add-channel reports the honest not-connected outcome',
+    (tester) async {
+      final controller = _FakeApplicationsIrcController(
+        installed: true,
+        addChannelConnects: false,
+      );
+      await _pumpPage(tester, controller);
+
+      await tester.tap(find.byKey(UiKeys.applicationsIrcAddChannelButton));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(UiKeys.ircChannelDialogChannelField),
+        '#offline',
+      );
+      await tester.tap(find.byKey(UiKeys.ircChannelDialogJoinButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Channel tile still appears (the group was created), but the message
+      // reflects that the IRC connection could not be established.
+      expect(
+        find.byKey(UiKeys.applicationsIrcChannelTile('#offline')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Channel #offline added, but the IRC connection could not be established',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('IRC channel added: #offline'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'per-channel status is rehydrated from live connection state on load',
+    (tester) async {
+      // Simulates a remount (e.g. locale change) where the status map is empty
+      // but the underlying connection is live: the tile should show Connected
+      // without waiting for a fresh status event.
+      final controller = _FakeApplicationsIrcController(
+        installed: true,
+        channels: ['#persist'],
+        connectedChannels: {'#persist'},
+      );
+      await _pumpPage(tester, controller);
+
+      expect(
+        find.byKey(UiKeys.applicationsIrcChannelTile('#persist')),
+        findsOneWidget,
+      );
+      expect(find.text('Connected'), findsOneWidget);
+    },
+  );
 }

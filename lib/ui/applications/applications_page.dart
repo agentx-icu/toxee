@@ -49,14 +49,22 @@ abstract class ApplicationsIrcController {
     required int port,
     required bool useSasl,
   });
-  Future<void> install();
+
+  /// Installs the IRC app. Returns whether the native IRC client library
+  /// loaded (false => live IRC unavailable on this platform, install still ok).
+  Future<bool> install();
   Future<void> uninstall();
-  Future<bool> addChannel(
+  Future<IrcAddChannelResult> addChannel(
     String channel, {
     String? password,
     String? customNickname,
   });
   Future<void> removeChannel(String channel);
+
+  /// Whether the given channel currently has a live native IRC connection.
+  /// Used to rehydrate per-channel status after a page remount (e.g. locale
+  /// change) where the transient status map is rebuilt from scratch.
+  Future<bool> isChannelConnected(String channel);
 }
 
 class LiveApplicationsIrcController implements ApplicationsIrcController {
@@ -97,7 +105,7 @@ class LiveApplicationsIrcController implements ApplicationsIrcController {
   }
 
   @override
-  Future<void> install() => _manager.install(_service);
+  Future<bool> install() => _manager.install(_service);
 
   @override
   Future<void> uninstall() async {
@@ -116,7 +124,7 @@ class LiveApplicationsIrcController implements ApplicationsIrcController {
   }
 
   @override
-  Future<bool> addChannel(
+  Future<IrcAddChannelResult> addChannel(
     String channel, {
     String? password,
     String? customNickname,
@@ -124,21 +132,24 @@ class LiveApplicationsIrcController implements ApplicationsIrcController {
     if (debugL3IrcLocalAddOverrideEnabled) {
       await Prefs.addIrcChannel(channel);
       await FakeUIKit.instance.im?.refreshConversations();
-      return true;
+      return const IrcAddChannelResult(added: true, connected: true);
     }
 
-    final groupId = await _manager.addChannel(
+    final result = await _manager.addChannel(
       channel,
       _service,
       password: password,
       customNickname: customNickname,
     );
-    if (groupId != null) {
+    if (result.added) {
       await FakeUIKit.instance.im?.refreshConversations();
-      return true;
     }
-    return false;
+    return result;
   }
+
+  @override
+  Future<bool> isChannelConnected(String channel) =>
+      _service.isIrcChannelConnected(channel);
 
   @override
   Future<void> removeChannel(String channel) async {
@@ -244,11 +255,15 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       }
     });
 
-    // Listen to user join/part events
+    // Listen to user join/part events. Update the live user list only — this
+    // page lives in the home IndexedStack (always mounted), so surfacing a
+    // SnackBar per join/part would spray membership churn over whatever screen
+    // the user is actually on. The per-channel user chips already reflect
+    // membership when the Applications page is open.
     _userJoinPartSub = _ircController.ircUserJoinPartStream.listen((event) {
       if (!mounted) return;
       setState(() {
-        final users = _channelUsers[event.channel] ?? [];
+        final users = List<String>.of(_channelUsers[event.channel] ?? const []);
         if (event.joined) {
           if (!users.contains(event.nickname)) {
             users.add(event.nickname);
@@ -258,26 +273,37 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         }
         _channelUsers[event.channel] = users;
       });
-
-      // Re-check after setState — the widget may have been deactivated.
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            event.joined
-                ? '${event.nickname} joined ${event.channel}'
-                : '${event.nickname} left ${event.channel}',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
     });
   }
 
   Future<void> _loadAppState() async {
     final snapshot = await _ircController.loadState();
-    if (mounted) {
-      _applySnapshot(snapshot);
+    if (!mounted) return;
+    _applySnapshot(snapshot);
+    // Rehydrate transient per-channel status from the live native connection
+    // state. The status/user maps live only in this State and are empty after a
+    // remount (e.g. locale change rebuilds this page); without this a connected
+    // channel would show no status until the next native event. Only seed
+    // channels the status stream hasn't already reported, so we never clobber a
+    // fresher value (e.g. a mid-connect "connecting").
+    await _seedChannelStatuses(snapshot.channels);
+  }
+
+  Future<void> _seedChannelStatuses(List<String> channels) async {
+    for (final channel in channels) {
+      if (_channelStatus.containsKey(channel)) continue;
+      bool connected;
+      try {
+        connected = await _ircController.isChannelConnected(channel);
+      } catch (_) {
+        continue; // Best-effort seeding; the stream remains the source of truth.
+      }
+      if (!mounted) return;
+      if (_channelStatus.containsKey(channel)) continue;
+      setState(() {
+        // 2 = connected, 0 = disconnected (matches _getStatusText/_getStatusColor).
+        _channelStatus[channel] = connected ? 2 : 0;
+      });
     }
   }
 
@@ -370,14 +396,23 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   Future<void> _handleInstall() async {
     setState(() => _isLoading = true);
     try {
-      await _ircController.install();
+      final libraryLoaded = await _ircController.install();
       final snapshot = await _ircController.loadState();
       if (mounted) {
         _applySnapshot(snapshot);
         final appL10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(appL10n.ircAppInstalled)));
+        // Honest message: install always succeeds, but warn when live IRC is
+        // unavailable (native library couldn't load on this platform) instead
+        // of implying a working connection.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              libraryLoaded
+                  ? appL10n.ircAppInstalled
+                  : appL10n.ircAppInstalledNoLibrary,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -451,26 +486,31 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
 
     setState(() => _isLoading = true);
     try {
-      final added = await _ircController.addChannel(
+      final outcome = await _ircController.addChannel(
         result.channel,
         password: result.password,
         customNickname: result.nickname,
       );
       final snapshot = await _ircController.loadState();
-      if (added) {
-        if (mounted) {
-          _applySnapshot(snapshot);
-          final appL10n = AppLocalizations.of(context)!;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(appL10n.ircChannelAdded(result.channel))),
-          );
-        }
-      } else {
-        if (mounted) {
-          final appL10n = AppLocalizations.of(context)!;
+      if (mounted) {
+        final appL10n = AppLocalizations.of(context)!;
+        if (!outcome.added) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text(appL10n.ircChannelAddFailed)));
+        } else {
+          _applySnapshot(snapshot);
+          // Honest per-outcome message: the channel/group was created either
+          // way, but only claim it when the IRC connect actually started.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                outcome.connected
+                    ? appL10n.ircChannelAdded(result.channel)
+                    : appL10n.ircChannelAddedNotConnected(result.channel),
+              ),
+            ),
+          );
         }
       }
     } catch (e) {

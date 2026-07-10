@@ -2242,22 +2242,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (result == null || result.channel.isEmpty) return;
 
     try {
-      final groupId = await ircAppManager.addChannel(
+      final addResult = await ircAppManager.addChannel(
         result.channel,
         widget.service,
         password: result.password,
         customNickname: result.nickname,
       );
-      if (groupId != null) {
-        await _handleGroupChanged(
-          groupId,
-          displayName: 'IRC: ${result.channel}',
-        );
-        final appL10n = AppLocalizations.of(context)!;
-        _showSnackBar(appL10n.ircChannelAdded(result.channel));
-      } else {
-        final appL10n = AppLocalizations.of(context)!;
-        _showErrorSnackBar(appL10n.ircChannelAddFailed);
+      // Honest outcome: mirror the Applications-page mapping so the two
+      // add-channel entry points report identically. Only claim full success
+      // when the live IRC connection actually came up; otherwise say
+      // added-but-not-connected (e.g. IRC unavailable on this platform).
+      switch (classifyIrcAddChannelResult(addResult)) {
+        case IrcAddChannelUiOutcome.addedConnected:
+        case IrcAddChannelUiOutcome.addedNotConnected:
+          await _handleGroupChanged(
+            addResult.groupId!,
+            displayName: 'IRC: ${result.channel}',
+          );
+          final appL10n = AppLocalizations.of(context)!;
+          _showSnackBar(
+            classifyIrcAddChannelResult(addResult) ==
+                    IrcAddChannelUiOutcome.addedConnected
+                ? appL10n.ircChannelAdded(result.channel)
+                : appL10n.ircChannelAddedNotConnected(result.channel),
+          );
+        case IrcAddChannelUiOutcome.failed:
+          final appL10n = AppLocalizations.of(context)!;
+          _showErrorSnackBar(appL10n.ircChannelAddFailed);
       }
     } catch (e) {
       final appL10n = AppLocalizations.of(context);

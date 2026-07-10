@@ -471,6 +471,8 @@
   "@ircChannelPasswordHint": {
     "description": "Placeholder text for IRC channel password input"
   },
+  "ircChannelAddedNotConnected": "تمت إضافة القناة {channel}، لكن تعذّر إنشاء اتصال IRC",
+  "ircAppInstalledNoLibrary": "تم تثبيت تطبيق IRC، لكن اتصال IRC المباشر غير متاح على هذا الجهاز",
   "ircChannelRemoved": "تمت إزالة قناة IRC: {channel}",
   "@ircChannelRemoved": {
     "description": "Message shown when IRC channel is removed",
