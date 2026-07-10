@@ -129,6 +129,72 @@ void main() {
     expect(bridge.getCallInfo('invite-1'), isNull);
   });
 
+  group('onCallSetupFailed surfacing (failures must not be silent)', () {
+    Future<(bool, List<CallSetupFailureReason>)> runCall({
+      required _FakeSdkPlatform sdk,
+      required _FakeAvBackend av,
+      List<String> userids = const ['friend-1'],
+      OutgoingCallPreflight? preflight,
+    }) async {
+      final bridge = CallBridgeService(sdk, av);
+      final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+      final reasons = <CallSetupFailureReason>[];
+      adapter.onCallSetupFailed = (reason, _) => reasons.add(reason);
+      if (preflight != null) adapter.onBeforeOutgoingCall = preflight;
+      final handled =
+          await adapter.handleCall(type: TYPE_AUDIO, userids: userids);
+      return (handled, reasons);
+    }
+
+    test('multiple invitees reports groupCallsUnsupported', () async {
+      final (handled, reasons) = await runCall(
+        sdk: _FakeSdkPlatform(),
+        av: _FakeAvBackend(),
+        userids: const ['friend-1', 'friend-2'],
+      );
+      expect(handled, isFalse);
+      expect(reasons, const [CallSetupFailureReason.groupCallsUnsupported]);
+    });
+
+    test('preflight denial reports preflightDenied (embedder-owned, so the '
+        'embedder can skip double-notifying)', () async {
+      final (handled, reasons) = await runCall(
+        sdk: _FakeSdkPlatform(),
+        av: _FakeAvBackend(),
+        preflight: (_, __) async => false,
+      );
+      expect(handled, isFalse);
+      expect(reasons, const [CallSetupFailureReason.preflightDenied]);
+    });
+
+    test('signaling invite failure reports inviteFailed', () async {
+      final (handled, reasons) = await runCall(
+        sdk: _FakeSdkPlatform()..inviteCode = 6014,
+        av: _FakeAvBackend(),
+      );
+      expect(handled, isFalse);
+      expect(reasons, const [CallSetupFailureReason.inviteFailed]);
+    });
+
+    test('ToxAV start failure reports avStartFailed', () async {
+      final (handled, reasons) = await runCall(
+        sdk: _FakeSdkPlatform(),
+        av: _FakeAvBackend()..startResult = false,
+      );
+      expect(handled, isFalse);
+      expect(reasons, const [CallSetupFailureReason.avStartFailed]);
+    });
+
+    test('successful call fires no failure callback', () async {
+      final (handled, reasons) = await runCall(
+        sdk: _FakeSdkPlatform(),
+        av: _FakeAvBackend(),
+      );
+      expect(handled, isTrue);
+      expect(reasons, isEmpty);
+    });
+  });
+
   test('acceptInvitation returns false when SDK accept returns non-zero code',
       () async {
     final sdk = _FakeSdkPlatform()..acceptCode = 7000;
@@ -364,6 +430,7 @@ class _FakeSdkPlatform extends TencentCloudChatSdkPlatform {
   V2TimSignalingListener? listener;
   final List<String> cancelledInviteIds = <String>[];
   int inviteCallCount = 0;
+  int inviteCode = 0;
   int acceptCode = 0;
   int rejectCode = 0;
 
@@ -392,6 +459,10 @@ class _FakeSdkPlatform extends TencentCloudChatSdkPlatform {
     offlinePushInfo,
   }) async {
     inviteCallCount++;
+    if (inviteCode != 0) {
+      return V2TimValueCallback<String>(
+          code: inviteCode, desc: 'fail', data: null);
+    }
     return V2TimValueCallback<String>(code: 0, desc: 'ok', data: 'invite-1');
   }
 
@@ -427,6 +498,9 @@ class _FakeAvBackend implements CallAvBackend {
   final List<int> startedFriendNumbers = <int>[];
   bool answerResult = true;
   bool startResult = true;
+
+  @override
+  bool get isAvailable => true;
 
   @override
   bool get isInitialized => true;

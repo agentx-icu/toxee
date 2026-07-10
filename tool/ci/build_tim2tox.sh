@@ -15,7 +15,14 @@ LIBSODIUM_1_0_20_SHA256="ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc
 TARGET=""
 MODE="release"
 WINDOWS_ARCH="${TIM2TOX_WINDOWS_ARCH:-x64}" # x64|arm64
-ENABLE_TOXAV=0
+# ToxAV (calling) is ON by default with MUST_BUILD_TOXAV mirroring it, so a
+# missing opus/vpx is a HARD configure error instead of a silent feature drop.
+# History: ToxAV used to be opt-in via --toxav and every production entry
+# point (build-packages.yml, all five targets) forgot to pass it — every
+# shipped artifact had calling stubbed out. Default-on + fail-loud makes that
+# regression impossible. Use --no-toxav ONLY for builds that intentionally
+# stub calling (lean test tiers).
+ENABLE_TOXAV=1
 ENABLE_DHT_BOOTSTRAP=0
 
 while [[ $# -gt 0 ]]; do
@@ -29,7 +36,13 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --toxav)
+      # Back-compat: ToxAV is already the default; kept so existing CI
+      # invocations remain valid.
       ENABLE_TOXAV=1
+      shift
+      ;;
+    --no-toxav)
+      ENABLE_TOXAV=0
       shift
       ;;
     --dht-bootstrap)
@@ -40,16 +53,24 @@ while [[ $# -gt 0 ]]; do
       cat <<'EOF'
 Usage: build_tim2tox.sh --target <linux|windows|macos|android|ios>
                         [--mode <debug|profile|release>]
-                        [--toxav]
+                        [--no-toxav]
                         [--dht-bootstrap]
 
 Options:
   --target          Build target (required).
   --mode            Build mode (default: release).
-  --toxav           Enable BUILD_TOXAV/MUST_BUILD_TOXAV (default: off).
-                    Required by auto_tests calling scenarios.
+  --no-toxav        Disable BUILD_TOXAV/MUST_BUILD_TOXAV (default: ON).
+                    Calling becomes a no-op stub — never use for artifacts
+                    that ship to users. (--toxav is accepted as a no-op for
+                    back-compat.)
   --dht-bootstrap   Enable DHT_BOOTSTRAP/BOOTSTRAP_DAEMON (default: off).
                     Required by auto_tests using local bootstrap nodes.
+
+Dependencies when ToxAV is on:
+  linux:   apt install libopus-dev libvpx-dev
+  macos:   brew install opus libvpx
+  windows: vcpkg install opus:<triplet> libvpx:<triplet>
+  android/ios: built from pinned sources automatically (tool/ci/build_av_deps.sh)
 EOF
       exit 0
       ;;
@@ -63,7 +84,13 @@ done
 
 REPO_ROOT="$(ci_repo_root)"
 TIM2TOX_DIR="$REPO_ROOT/third_party/tim2tox"
-OUTPUT_DIR="$REPO_ROOT/build/native-artifacts/$TARGET"
+# Out-of-tree build support: when the checkout lives on a read-only or slow
+# network mount (e.g. a Parallels/VM shared folder), the source tree cannot
+# hold build dirs. Override these to keep sources in place and write all
+# build state + artifacts to a local disk. Defaults preserve the historical
+# in-tree layout.
+TIM2TOX_BUILD_ROOT="${TIM2TOX_NATIVE_BUILD_ROOT:-$TIM2TOX_DIR/build}"
+OUTPUT_DIR="${TOXEE_NATIVE_ARTIFACTS_DIR:-$REPO_ROOT/build/native-artifacts}/$TARGET"
 
 [[ -d "$TIM2TOX_DIR" ]] || ci_die "tim2tox submodule not found: $TIM2TOX_DIR"
 
@@ -72,7 +99,17 @@ ci_reset_dir "$OUTPUT_DIR"
 bootstrap_tim2tox_submodules() {
   if [[ -f "$TIM2TOX_DIR/.gitmodules" ]] && { [[ -d "$TIM2TOX_DIR/.git" ]] || [[ -f "$TIM2TOX_DIR/.git" ]]; }; then
     ci_log "Ensuring tim2tox nested submodules are initialized"
-    (cd "$TIM2TOX_DIR" && git submodule update --init --recursive)
+    if ! (cd "$TIM2TOX_DIR" && git submodule update --init --recursive); then
+      # Non-fatal when the sources are already checked out: a worktree
+      # accessed over a VM shared-folder mount has a .git file whose gitdir
+      # points at a host-only absolute path, so git commands fail even
+      # though the tree is complete.
+      if [[ -f "$TIM2TOX_DIR/third_party/c-toxcore/CMakeLists.txt" ]]; then
+        ci_warn "git submodule update failed but c-toxcore sources are present — continuing (read-only/mounted checkout)"
+      else
+        ci_die "git submodule update failed and c-toxcore sources are missing"
+      fi
+    fi
   fi
 }
 
@@ -140,6 +177,17 @@ if [[ "$ENABLE_DHT_BOOTSTRAP" -eq 1 ]]; then
   set_configure_arg "DHT_BOOTSTRAP" "ON"
   set_configure_arg "BOOTSTRAP_DAEMON" "ON"
 fi
+
+# NDK llvm prebuilt directory, host-agnostic (linux-x86_64 on CI runners,
+# darwin-* on developer Macs). The previous hardcoded linux-x86_64 made the
+# android target unbuildable on macOS hosts.
+android_ndk_toolchain_dir() {
+  local ndk_path="$1"
+  local dir
+  dir="$(ls -d "$ndk_path/toolchains/llvm/prebuilt/"* 2>/dev/null | head -n 1)"
+  [[ -n "$dir" ]] || ci_die "NDK llvm prebuilt toolchain not found under $ndk_path"
+  printf '%s\n' "$dir"
+}
 
 find_android_ndk() {
   local candidate sdk_root latest
@@ -212,9 +260,9 @@ verify_sha256() {
 prepare_android_libsodium_prefix() {
   local abi="$1"
   local ndk_path="$2"
-  local prefix="$TIM2TOX_DIR/build/mobile-deps/android-$abi"
-  local download_dir="$TIM2TOX_DIR/build/mobile-deps/downloads"
-  local src_root="$TIM2TOX_DIR/build/mobile-deps/src-android-$abi"
+  local prefix="$TIM2TOX_BUILD_ROOT/mobile-deps/android-$abi"
+  local download_dir="$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  local src_root="$TIM2TOX_BUILD_ROOT/mobile-deps/src-android-$abi"
   local archive="$download_dir/libsodium-1.0.20.tar.gz"
   local host target api toolchain sysroot
 
@@ -240,7 +288,7 @@ prepare_android_libsodium_prefix() {
       ;;
   esac
 
-  toolchain="$ndk_path/toolchains/llvm/prebuilt/linux-x86_64"
+  toolchain="$(android_ndk_toolchain_dir "$ndk_path")"
   sysroot="$toolchain/sysroot"
 
   mkdir -p "$download_dir"
@@ -271,7 +319,7 @@ prepare_android_libsodium_prefix() {
 }
 
 android_libsodium_prefix_path() {
-  printf '%s\n' "$TIM2TOX_DIR/build/mobile-deps/android-$1"
+  printf '%s\n' "$TIM2TOX_BUILD_ROOT/mobile-deps/android-$1"
 }
 
 build_android_ffi_for_abi() {
@@ -281,9 +329,15 @@ build_android_ffi_for_abi() {
 
   prefix="$(android_libsodium_prefix_path "$abi")"
   prepare_android_libsodium_prefix "$abi" "$ndk_path"
-  build_dir="$TIM2TOX_DIR/build/ci-android-$abi"
+  if [[ "$ENABLE_TOXAV" -eq 1 ]]; then
+    bash "$SCRIPT_DIR/build_av_deps.sh" \
+      --platform android --abi "$abi" --ndk "$ndk_path" --api 21 \
+      --prefix "$prefix" \
+      --downloads "$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  fi
+  build_dir="$TIM2TOX_BUILD_ROOT/ci-android-$abi"
   repo_jni_libs="$REPO_ROOT/android/app/src/main/jniLibs"
-  toolchain="$ndk_path/toolchains/llvm/prebuilt/linux-x86_64"
+  toolchain="$(android_ndk_toolchain_dir "$ndk_path")"
   sysroot="$toolchain/sysroot"
 
   mkdir -p "$OUTPUT_DIR/jniLibs/$abi"
@@ -309,6 +363,7 @@ build_android_ffi_for_abi() {
   [[ -n "$built_lib" ]] || ci_die "Failed to locate Android libtim2tox_ffi.so for ABI $abi"
   cp "$built_lib" "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so"
   ci_log "Captured Android native library for $abi: $built_lib"
+  assert_toxav_artifact "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" "$toolchain/bin/llvm-nm" "android-$abi"
 
   rm -rf "$repo_jni_libs"
   mkdir -p "$repo_jni_libs"
@@ -322,7 +377,9 @@ build_android_ffi_libs() {
   local -a android_abis=()
 
   if [[ -z "$source_dir" ]]; then
-    if [[ -d "$repo_jni_libs" ]] && find "$repo_jni_libs" -type f -name "libtim2tox_ffi.so" | grep -q .; then
+    # No `find | grep -q` (pipefail + grep -q early-exit = SIGPIPE false
+    # negative); -print -quit stops find after the first hit instead.
+    if [[ -d "$repo_jni_libs" && -n "$(find "$repo_jni_libs" -type f -name "libtim2tox_ffi.so" -print -quit)" ]]; then
       source_dir="$repo_jni_libs"
     fi
   fi
@@ -338,6 +395,9 @@ build_android_ffi_libs() {
       ci_log "Staged Android JNI libraries into $repo_jni_libs"
     fi
     ci_log "Synced Android JNI libraries from $source_dir"
+    while IFS= read -r synced_lib; do
+      assert_toxav_artifact "$synced_lib" nm "android-synced"
+    done < <(find "$OUTPUT_DIR/jniLibs" -type f -name 'libtim2tox_ffi.so')
     return
   fi
 
@@ -357,13 +417,13 @@ build_android_ffi_libs() {
 }
 
 ios_dependency_prefix_path() {
-  printf '%s\n' "$TIM2TOX_DIR/build/mobile-deps/ios-arm64"
+  printf '%s\n' "$TIM2TOX_BUILD_ROOT/mobile-deps/ios-arm64"
 }
 
 prepare_ios_libsodium_prefix() {
   local prefix
-  local download_dir="$TIM2TOX_DIR/build/mobile-deps/downloads"
-  local src_root="$TIM2TOX_DIR/build/mobile-deps/src-ios-arm64"
+  local download_dir="$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  local src_root="$TIM2TOX_BUILD_ROOT/mobile-deps/src-ios-arm64"
   local archive="$download_dir/libsodium-1.0.20.tar.gz"
   local sdk_path host
 
@@ -409,7 +469,13 @@ build_ios_ffi_dylib() {
 
   prefix="$(ios_dependency_prefix_path)"
   prepare_ios_libsodium_prefix
-  build_dir="$TIM2TOX_DIR/build/ci-ios-arm64"
+  if [[ "$ENABLE_TOXAV" -eq 1 ]]; then
+    bash "$SCRIPT_DIR/build_av_deps.sh" \
+      --platform ios --sdk iphoneos --arch arm64 --min-version 13.0 \
+      --prefix "$prefix" \
+      --downloads "$TIM2TOX_BUILD_ROOT/mobile-deps/downloads"
+  fi
+  build_dir="$TIM2TOX_BUILD_ROOT/ci-ios-arm64"
   sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
   export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
 
@@ -439,6 +505,7 @@ build_ios_ffi_dylib() {
   rm -rf "$framework_dir"
   mkdir -p "$framework_dir"
   cp "$built_lib" "$framework_dir/tim2tox_ffi"
+  assert_toxav_artifact "$framework_dir/tim2tox_ffi" nm "ios-arm64"
   cat > "$framework_dir/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -464,9 +531,45 @@ EOF
   ci_log "Captured iOS framework from $built_lib"
 }
 
+# Assert a built artifact really contains the ToxAV backend (not the stub).
+# The marker symbol tim2tox_ffi_av_backend_toxav is only compiled+exported
+# under BUILD_TOXAV — see ffi/tim2tox_ffi.cpp. Cross-compiled artifacts can't
+# be executed on the build host, so this is a symbol-table check.
+#   $1 = library path, $2 = optional nm tool (defaults to `nm`), $3 = label
+assert_toxav_artifact() {
+  local lib="$1"
+  local nm_tool="${2:-nm}"
+  local label="${3:-$(basename "$lib")}"
+  [[ "$ENABLE_TOXAV" -eq 1 ]] || return 0
+  [[ -f "$lib" ]] || ci_die "$label: artifact missing for ToxAV assertion: $lib"
+
+  # No `nm | grep -q` pipeline here: grep -q exits on first match, nm gets
+  # SIGPIPE, and under `set -o pipefail` the whole pipeline turns non-zero —
+  # a false "symbol missing". Capture the symbol table instead.
+  local syms=""
+  if command -v "$nm_tool" >/dev/null 2>&1; then
+    syms="$({ "$nm_tool" -D "$lib" 2>/dev/null; "$nm_tool" -g "$lib" 2>/dev/null; } || true)"
+  fi
+  if [[ -n "$syms" ]]; then
+    if [[ "$syms" == *tim2tox_ffi_av_backend_toxav* ]]; then
+      ci_log "$label: ToxAV backend confirmed (marker symbol present)"
+      return 0
+    fi
+    ci_die "$label: built with ToxAV requested but marker symbol tim2tox_ffi_av_backend_toxav is MISSING — calling would be a stub. Aborting."
+  fi
+  # nm unavailable (Windows Git Bash) or unable to parse this file format:
+  # export/symbol names are stored as ASCII in ELF/PE/Mach-O tables, so a
+  # binary grep is a serviceable fallback.
+  if grep -aq "tim2tox_ffi_av_backend_toxav" "$lib"; then
+    ci_log "$label: ToxAV backend confirmed (export-name grep)"
+    return 0
+  fi
+  ci_die "$label: built with ToxAV requested but marker export tim2tox_ffi_av_backend_toxav is MISSING — calling would be a stub. Aborting."
+}
+
 build_desktop_target() {
   local target="$1"
-  local build_dir="$TIM2TOX_DIR/build/ci-$target"
+  local build_dir="$TIM2TOX_BUILD_ROOT/ci-$target"
   local lib_pattern=""
   local built_lib=""
 
@@ -518,6 +621,14 @@ build_desktop_target() {
       # instance of Visual Studio." Preference order: env override > Ninja
       # (cross-version, no -A needed since arch comes from vcvars) > VS 18 >
       # VS 17.
+      if [[ "$ENABLE_TOXAV" -eq 1 && -n "${VCPKG_ROOT:-}" ]]; then
+        local pc_dir="$VCPKG_ROOT/installed/$vcpkg_triplet/lib/pkgconfig"
+        [[ -f "$pc_dir/opus.pc" ]] || \
+          ci_die "ToxAV needs the vcpkg opus port. Run: vcpkg install opus:$vcpkg_triplet libvpx:$vcpkg_triplet (or pass --no-toxav for a stub build)"
+        [[ -f "$pc_dir/vpx.pc" ]] || \
+          ci_die "ToxAV needs the vcpkg libvpx port. Run: vcpkg install libvpx:$vcpkg_triplet (or pass --no-toxav for a stub build)"
+      fi
+
       local -a generator_args=()
       if [[ -n "${TIM2TOX_CMAKE_GENERATOR:-}" ]]; then
         generator_args=(-G "$TIM2TOX_CMAKE_GENERATOR")
@@ -536,6 +647,13 @@ build_desktop_target() {
         # Ensure tools invoked by CMake/MSBuild are discoverable.
         # 1) pkg-config: used by FindPkgConfig during configure.
         export PATH="$VCPKG_ROOT/installed/$vcpkg_triplet/tools/pkgconf:$PATH"
+        # 1b) .pc search path: pkgconf.exe is a native tool, so hand it a
+        # Windows-style path. Without this, c-toxcore's pkg_search_module
+        # cannot resolve opus.pc/vpx.pc (ToxAV deps) from vcpkg.
+        local vcpkg_pc_dir_win
+        vcpkg_pc_dir_win="$(ci_windows_path "$VCPKG_ROOT/installed/$vcpkg_triplet/lib/pkgconfig")"
+        export PKG_CONFIG_PATH="$vcpkg_pc_dir_win"
+        export PKG_CONFIG_LIBDIR="$vcpkg_pc_dir_win"
         # 2) powershell.exe: used by vcpkg's applocal.ps1 post-build step.
         # Git Bash (MSYS) typically exposes it under /c/WINDOWS/...
         export PATH="/c/WINDOWS/System32/WindowsPowerShell/v1.0:$PATH"
@@ -544,9 +662,16 @@ build_desktop_target() {
         # this the dll links the DEBUG CRT (MSVCP140D.dll / ucrtbased.dll) +
         # pthreadVC3d.dll and fails to load at runtime with error 126. It is
         # harmless for the multi-config VS generator (which honors --config).
+        # VCPKG_TARGET_TRIPLET must be EXPLICIT: with Ninja the vcpkg
+        # toolchain guesses the target triplet from the host environment,
+        # which on the windows-11-arm runners resolved to x64-windows while
+        # the installed ports (and the pkg-config paths above) are
+        # arm64-windows — the link step then got an x64 LIBPATH and failed
+        # with LNK1181: cannot open input file 'opus.lib'.
         VCPKG_ROOT="$vcpkg_root_win" cmake -S "$source_dir_win" -B "$build_dir_win" \
           "${generator_args[@]}" \
           -DCMAKE_TOOLCHAIN_FILE="$toolchain_file" \
+          -DVCPKG_TARGET_TRIPLET="$vcpkg_triplet" \
           -DCMAKE_BUILD_TYPE=Release \
           "${configure_args[@]}"
       else
@@ -576,27 +701,85 @@ build_desktop_target() {
     # The pattern excludes the debug pthreadVC3d.dll by name.
     ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "pthreadVC3.dll" "$OUTPUT_DIR" >/dev/null || \
       ci_warn "pthreadVC3.dll not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
+    if [[ "$ENABLE_TOXAV" -eq 1 ]]; then
+      # ToxAV runtime deps from vcpkg. A dep may be linked statically into
+      # tim2tox_ffi.dll (the vcpkg libvpx port builds static even on dynamic
+      # triplets) — then there is no runtime DLL and none is needed. Decide
+      # from the built dll's IMPORT table (names are ASCII in the PE import
+      # directory): import present + DLL missing = broken artifact (would
+      # fail to load with error 126) → hard-fail; no import = statically
+      # linked → nothing to capture.
+      local built_dll="$OUTPUT_DIR/$(basename "$built_lib")"
+      local dep_dll
+      for dep_dll in "opus.dll" "vpx.dll libvpx.dll"; do
+        local found_dep=""
+        local candidate
+        for candidate in $dep_dll; do
+          if ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "$candidate" "$OUTPUT_DIR" >/dev/null; then
+            found_dep="$candidate"
+            break
+          fi
+        done
+        if [[ -n "$found_dep" ]]; then
+          ci_log "Captured Windows ToxAV dependency: $found_dep"
+          continue
+        fi
+        local imports_it=""
+        for candidate in $dep_dll; do
+          if grep -aFqi "$candidate" "$built_dll"; then
+            imports_it="$candidate"
+            break
+          fi
+        done
+        if [[ -n "$imports_it" ]]; then
+          ci_die "tim2tox_ffi.dll imports $imports_it but it was not found under $VCPKG_ROOT/installed/$vcpkg_triplet — the artifact would fail to load (error 126)"
+        fi
+        ci_log "ToxAV dependency ${dep_dll%% *} is statically linked — no runtime DLL to capture"
+      done
+    fi
   fi
 
   if [[ "$target" == "linux" ]]; then
-    local sodium_dep
-    sodium_dep="$(ldd "$built_lib" | awk '/libsodium/ {print $3; exit}' || true)"
-    if [[ -n "$sodium_dep" && -e "$sodium_dep" ]]; then
-      capture_linux_shared_library "$sodium_dep"
-      ci_log "Captured Linux dependency: $sodium_dep"
-    else
-      ci_warn "Could not resolve libsodium dependency from $built_lib"
-    fi
+    local dep_name dep_path
+    for dep_name in libsodium libopus libvpx; do
+      if [[ "$dep_name" != "libsodium" && "$ENABLE_TOXAV" -ne 1 ]]; then
+        continue
+      fi
+      dep_path="$(ldd "$built_lib" | awk -v n="$dep_name" '$0 ~ n {print $3; exit}' || true)"
+      if [[ -n "$dep_path" && -e "$dep_path" ]]; then
+        capture_linux_shared_library "$dep_path"
+        ci_log "Captured Linux dependency: $dep_path"
+      elif [[ "$dep_name" != "libsodium" ]]; then
+        # Uncaptured codec .so means calling breaks at load time on user
+        # machines without the -dev packages — hard-fail.
+        ci_die "Could not resolve ToxAV runtime dep $dep_name from $built_lib"
+      else
+        ci_warn "Could not resolve $dep_name dependency from $built_lib"
+      fi
+    done
   fi
 
   if [[ "$target" == "macos" ]]; then
-    local sodium_dep
-    sodium_dep="$(otool -L "$built_lib" | awk '/libsodium.*dylib/ {print $1; exit}' || true)"
-    if [[ -n "$sodium_dep" && -f "$sodium_dep" ]]; then
-      cp "$sodium_dep" "$OUTPUT_DIR/"
-      ci_log "Captured macOS dependency: $sodium_dep"
-    fi
+    local dep_pattern dep_path
+    for dep_pattern in 'libsodium.*dylib' 'libopus.*dylib' 'libvpx.*dylib'; do
+      if [[ "$dep_pattern" != 'libsodium.*dylib' && "$ENABLE_TOXAV" -ne 1 ]]; then
+        continue
+      fi
+      dep_path="$(otool -L "$built_lib" | awk -v p="$dep_pattern" '$1 ~ p {print $1; exit}' || true)"
+      if [[ -n "$dep_path" && -f "$dep_path" ]]; then
+        cp "$dep_path" "$OUTPUT_DIR/"
+        ci_log "Captured macOS dependency: $dep_path"
+      elif [[ "$dep_pattern" != 'libsodium.*dylib' ]]; then
+        # Uncaptured codec dylib means calling breaks at load time on user
+        # machines without Homebrew opus/libvpx — hard-fail.
+        ci_die "Could not resolve ToxAV runtime dep $dep_pattern from $built_lib"
+      else
+        ci_warn "Could not resolve $dep_pattern dependency from $built_lib"
+      fi
+    done
   fi
+
+  assert_toxav_artifact "$OUTPUT_DIR/$(basename "$built_lib")" nm "$target"
 }
 
 sync_ios_ffi_artifacts() {
@@ -618,6 +801,10 @@ sync_ios_ffi_artifacts() {
 
   if [[ "$copied" != "true" ]]; then
     build_ios_ffi_dylib
+  else
+    while IFS= read -r synced_lib; do
+      assert_toxav_artifact "$synced_lib" nm "ios-synced"
+    done < <(find "$OUTPUT_DIR" -type f \( -name 'tim2tox_ffi' -o -name 'libtim2tox_ffi.dylib' \))
   fi
 }
 

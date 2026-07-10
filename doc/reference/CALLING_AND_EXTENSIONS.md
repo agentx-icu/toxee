@@ -83,7 +83,32 @@
 
 客户端 UI 只负责安装状态、频道入口和交互，真正的 IRC 网络收发仍在 tim2tox 侧动态库实现。
 
-## 7. 相关文档
+## 7. ToxAV 构建矩阵与运行时可用性
+
+通话功能只有在 `libtim2tox_ffi` 以 `BUILD_TOXAV`（opus + libvpx）编译时才真实
+存在。自 2026-07 起，**所有构建路径默认开启 ToxAV 且缺依赖即报错**——此前
+它是 opt-in（`--toxav`），所有发布产物都静默携带 no-op 通话 stub。
+
+| 构建路径 | ToxAV | 编解码依赖来源 |
+|---|---|---|
+| `run_toxee.sh` / `build_ffi.sh`（macOS 开发） | 开 | Homebrew opus/libvpx，`bundle_dylib` 装订 |
+| `tool/ci/build_tim2tox.sh`（五平台，含 `build-packages.yml` 发布） | 默认开；`--no-toxav` 显式关闭 | linux: apt `libopus-dev libvpx-dev`；macos: brew；windows: vcpkg `opus`/`libvpx`；android/ios: `tool/ci/build_av_deps.sh` 固定源码交叉编译 |
+| `tool/build_android_ffi.sh`、`tool/build_ios_sim_ffi.sh`（开发环） | 默认开（`TOXAV=0` 关闭） | `tool/ci/build_av_deps.sh` |
+
+防护措施：
+
+- 运行时探针 `tim2tox_ffi_av_is_available()` → `CallAvBackend.isAvailable`
+  → `CallServiceManager.isCallingAvailable`。只有加载的原生库带真实后端时
+  UI 才展示通话按钮（`setUseCallKit`）——stub 或旧库会隐藏通话入口而不是
+  静默失败。
+- Marker 符号 `tim2tox_ffi_av_backend_toxav` 仅真实构建导出；
+  `tool/ci/package_artifacts.sh` 打包前断言其存在，拒绝打包 stub 产物
+  （逃生口 `TOXEE_ALLOW_STUB_AV=1`，发布产物禁用）。
+- 视频通话入口另受 `CallMediaCapabilities.supportsVideoCapture()`（fork 中
+  的 `useVideoCall` 数据位）门控：Windows/Linux 无摄像头采集后端，在补全
+  之前仅提供语音通话。
+
+## 8. 相关文档
 
 - [architecture/HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)
 - [IMPLEMENTATION_DETAILS.md](IMPLEMENTATION_DETAILS.md)

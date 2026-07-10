@@ -1348,6 +1348,21 @@ class AppLocalizationsEn extends AppLocalizations {
       'Microphone and camera permissions are required to continue the call.';
 
   @override
+  String get callFailedGroupUnsupported => 'Group calls are not supported yet.';
+
+  @override
+  String get callFailedSignaling =>
+      'Couldn\'t start the call. Please try again.';
+
+  @override
+  String get callFailedMediaChannel =>
+      'Couldn\'t establish the call\'s media channel.';
+
+  @override
+  String get callVideoUnsupportedPlatform =>
+      'Video calls aren\'t available on this platform yet (no camera support).';
+
+  @override
   String get callAudioInterrupted =>
       'Audio output changed or was interrupted during the call.';
 

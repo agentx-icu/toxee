@@ -118,6 +118,8 @@ jobs:
             cmake
             libgtk-3-dev
             libsodium-dev
+            libopus-dev
+            libvpx-dev
             libsqlite3-dev
             libgstreamer1.0-dev
             libgstreamer-plugins-base1.0-dev
@@ -276,10 +278,14 @@ jobs:
           & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
           # pkgconf gives us pkg-config.exe under tools/pkgconf/, which
           # c-toxcore's cmake/Dependencies.cmake requires via find_package(PkgConfig).
+          # opus + libvpx are the ToxAV (calling) codecs — build_tim2tox.sh
+          # fails loud if they are missing now that ToxAV defaults ON.
           & "$vcpkgRoot\vcpkg.exe" install `
             libsodium:${{ matrix.target.vcpkg_triplet }} `
             pthreads:${{ matrix.target.vcpkg_triplet }} `
-            pkgconf:${{ matrix.target.vcpkg_triplet }}
+            pkgconf:${{ matrix.target.vcpkg_triplet }} `
+            opus:${{ matrix.target.vcpkg_triplet }} `
+            libvpx:${{ matrix.target.vcpkg_triplet }}
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Add WiX to PATH
@@ -405,7 +411,9 @@ jobs:
           cache: true
 
       - name: Install macOS dependencies
-        run: brew install libsodium
+        # opus + libvpx are the ToxAV (calling) codecs — build_tim2tox.sh
+        # fails loud if they are missing now that ToxAV defaults ON.
+        run: brew install libsodium opus libvpx
 
       - name: Enable macOS desktop
         run: flutter config --enable-macos-desktop

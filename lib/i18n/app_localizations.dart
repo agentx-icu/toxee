@@ -2512,6 +2512,30 @@ abstract class AppLocalizations {
   /// **'Microphone and camera permissions are required to continue the call.'**
   String get callPermissionMicrophoneCameraRequired;
 
+  /// No description provided for @callFailedGroupUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Group calls are not supported yet.'**
+  String get callFailedGroupUnsupported;
+
+  /// No description provided for @callFailedSignaling.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t start the call. Please try again.'**
+  String get callFailedSignaling;
+
+  /// No description provided for @callFailedMediaChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t establish the call\'s media channel.'**
+  String get callFailedMediaChannel;
+
+  /// No description provided for @callVideoUnsupportedPlatform.
+  ///
+  /// In en, this message translates to:
+  /// **'Video calls aren\'t available on this platform yet (no camera support).'**
+  String get callVideoUnsupportedPlatform;
+
   /// No description provided for @callAudioInterrupted.
   ///
   /// In en, this message translates to:

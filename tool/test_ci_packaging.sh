@@ -33,7 +33,10 @@ test_android_syncs_jni_libs_into_app_tree() {
   echo "[test] android syncs JNI libs into app tree"
   local src_dir="$TMP_ROOT/android-libs"
   mkdir -p "$src_dir/arm64-v8a"
-  printf 'fake-so' > "$src_dir/arm64-v8a/libtim2tox_ffi.so"
+  # The fake must carry the ToxAV marker export name — the sync path asserts
+  # (via nm, falling back to binary grep) that synced artifacts are not
+  # calling-stub builds.
+  printf 'fake-so tim2tox_ffi_av_backend_toxav' > "$src_dir/arm64-v8a/libtim2tox_ffi.so"
 
   TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
     bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release
@@ -42,9 +45,26 @@ test_android_syncs_jni_libs_into_app_tree() {
   assert_file_exists "$ANDROID_JNI_DIR/arm64-v8a/libtim2tox_ffi.so"
 }
 
+test_android_sync_rejects_stub_libraries() {
+  echo "[test] android sync rejects calling-stub libraries"
+  local src_dir="$TMP_ROOT/android-libs-stub"
+  mkdir -p "$src_dir/arm64-v8a"
+  printf 'fake-so-without-marker' > "$src_dir/arm64-v8a/libtim2tox_ffi.so"
+
+  if TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
+    bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release >/dev/null 2>&1; then
+    fail "Expected ToxAV assertion to reject a marker-less (stub) library"
+  fi
+
+  # And the explicit stub opt-out must accept the same library.
+  TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
+    bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release --no-toxav
+  assert_file_exists "$ANDROID_JNI_DIR/arm64-v8a/libtim2tox_ffi.so"
+}
+
 test_linux_packaging_supports_deb_and_rpm_installers() {
   echo "[test] linux packaging supports deb and rpm installers"
-  rg -n 'toxee-\\$release_version-Linux-\\$PACKAGE_ARCH\\.deb|toxee-\\$release_version-Linux-\\$PACKAGE_ARCH\\.rpm|Bundled Linux libsodium runtime dependency\\.|Normalized Linux FFI rpath' \
+  rg -n 'toxee-\\$release_version-Linux-\\$PACKAGE_ARCH\\.deb|toxee-\\$release_version-Linux-\\$PACKAGE_ARCH\\.rpm|Bundled Linux runtime dependency|Normalized Linux FFI rpath' \
     "$ROOT/tool/ci/package_artifacts.sh" >/dev/null || \
     fail "Linux packaging script does not appear to produce DEB/RPM installers with bundled runtime notes"
   rg -n 'CPACK_GENERATOR \"DEB;RPM\"|TOXEE_DEB_ARCH|TOXEE_RPM_ARCH|usr/share/applications|usr/share/icons' \
@@ -77,7 +97,8 @@ EOF
   mkdir -p "$ROOT/build/ios/iphoneos/Runner.app/Frameworks"
   printf 'signed' > "$ROOT/build/ios/iphoneos/Runner.app/embedded.mobileprovision"
   mkdir -p "$ROOT/build/native-artifacts/ios/tim2tox_ffi.framework"
-  printf 'ffi-framework' > "$ROOT/build/native-artifacts/ios/tim2tox_ffi.framework/tim2tox_ffi"
+  # Must carry the ToxAV marker export name — packaging refuses stub builds.
+  printf 'ffi-framework tim2tox_ffi_av_backend_toxav' > "$ROOT/build/native-artifacts/ios/tim2tox_ffi.framework/tim2tox_ffi"
 
   PATH="$fake_bin:$PATH" IOS_SIGNING_IDENTITY="Test Identity" \
     bash "$ROOT/tool/ci/package_artifacts.sh" --target ios --mode release
@@ -252,6 +273,7 @@ test_signed_ios_packaging_resigns_injected_native_binary() {
 }
 
 test_android_syncs_jni_libs_into_app_tree
+test_android_sync_rejects_stub_libraries
 test_linux_packaging_supports_deb_and_rpm_installers
 test_ios_unsigned_build_is_packaged_as_validation_ipa
 test_ios_signed_build_is_packaged_as_ipa

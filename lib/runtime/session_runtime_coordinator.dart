@@ -11,6 +11,7 @@ import '../adapters/conversation_manager_adapter.dart';
 import '../adapters/event_bus_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../call/bg_refresh_bridge.dart';
+import '../call/call_media_capabilities.dart';
 import '../notifications/badge_service.dart';
 import '../notifications/notification_message_listener.dart';
 import '../notifications/notification_service.dart';
@@ -225,7 +226,21 @@ class SessionRuntimeCoordinator {
     }
 
     await FakeUIKit.instance.callServiceManager?.initialize();
-    UikitDataFacade.setUseCallKit(true);
+    // Only surface call buttons when the native library actually contains a
+    // ToxAV backend — a stub build (BUILD_TOXAV off) no-ops every call API,
+    // so offering the UI would be a silent failure.
+    final callingAvailable =
+        FakeUIKit.instance.callServiceManager?.isCallingAvailable ?? false;
+    UikitDataFacade.setUseCallKit(callingAvailable);
+    // Video entry points additionally require a camera capture backend
+    // (absent on Windows/Linux) — voice-only there, not a dead video button.
+    UikitDataFacade.setUseVideoCall(
+        callingAvailable && CallMediaCapabilities.supportsVideoCapture());
+    if (!callingAvailable) {
+      AppLogger.warn(
+          '[SessionRuntimeCoordinator] calling disabled: native library has '
+          'no ToxAV backend');
+    }
 
     // Install the binary-replacement history hook in the same atomic init
     // block as the platform, so the "platform installed but hook not yet

@@ -47,6 +47,7 @@ Future<void> main(List<String> args) async {
 Future<int> _main(List<String> args) async {
   final positional = <String>[];
   String? fixtureManifestPath;
+  int? realKillPid;
   for (var i = 0; i < args.length; i++) {
     final arg = args[i];
     if (arg == '--fixture-manifest') {
@@ -55,6 +56,16 @@ Future<int> _main(List<String> args) async {
         return 64;
       }
       fixtureManifestPath = args[++i];
+    } else if (arg == '--real-kill-pid') {
+      if (i + 1 >= args.length) {
+        print('usage: --real-kill-pid requires B\'s process id');
+        return 64;
+      }
+      realKillPid = int.tryParse(args[++i]);
+      if (realKillPid == null || realKillPid <= 1) {
+        print('usage: --real-kill-pid requires a valid pid');
+        return 64;
+      }
     } else {
       positional.add(arg);
     }
@@ -62,7 +73,8 @@ Future<int> _main(List<String> args) async {
   if (positional.length < 2) {
     print(
       'usage: drive_fixture_c_network_drop.dart <ws_uri_A> <ws_uri_B> '
-      '--fixture-manifest path/to/paired_for_e2e_manifest.json',
+      '--fixture-manifest path/to/paired_for_e2e_manifest.json '
+      '[--real-kill-pid <B pid>]',
     );
     return 64;
   }
@@ -103,29 +115,62 @@ Future<int> _main(List<String> args) async {
     await b.waitForCallState('inCall', timeoutSecs: 30);
     print('[fixture-c-network-drop] PASS A1 established');
 
-    // 3. TRIGGER DROP: drive A's reconnect path via markReconnecting().
-    await a.callAction('network_drop');
-    print('[fixture-c-network-drop] A triggered network_drop');
+    if (realKillPid == null) {
+      // 3. TRIGGER DROP (synthetic): drive A's reconnect path via
+      //    markReconnecting().
+      await a.callAction('network_drop');
+      print('[fixture-c-network-drop] A triggered network_drop');
 
-    // 4. ASSERT reconnecting (LENIENT). The transient flag can flip back before
-    //    a 1s poll catches it; if so we fall through and rely on step 5.
-    final sawReconnecting = await a.waitForReconnecting(timeoutSecs: 10);
-    if (sawReconnecting) {
-      print('[fixture-c-network-drop] PASS A2 reconnecting');
+      // 4. ASSERT reconnecting (LENIENT). The transient flag can flip back
+      //    before a 1s poll catches it; if so we fall through and rely on
+      //    step 5.
+      final sawReconnecting = await a.waitForReconnecting(timeoutSecs: 10);
+      if (sawReconnecting) {
+        print('[fixture-c-network-drop] PASS A2 reconnecting');
+      } else {
+        print(
+          '[fixture-c-network-drop] NOTE A2 reconnecting transient not observed '
+          '(1s polling can miss it); deferring to A3 ended (hard gate)',
+        );
+      }
+
+      // 5. ASSERT ended (HARD gate): the 8s grace expires → call ends with
+      //    endReason network_error. Give the 8s grace + slack.
+      await a.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
+      if (!sawReconnecting) {
+        print(
+            '[fixture-c-network-drop] PASS A2 reconnecting (soft-pass via ended)');
+      }
+      print('[fixture-c-network-drop] PASS A3 ended');
     } else {
-      print(
-        '[fixture-c-network-drop] NOTE A2 reconnecting transient not observed '
-        '(1s polling can miss it); deferring to A3 ended (hard gate)',
-      );
-    }
+      // 3. TRIGGER DROP (real): kill B's process. Live-verified behavior
+      //    (2026-07-09): c-toxcore declares the friend offline after ~30s of
+      //    silence, and ToxAV fires call_state=ERROR in the SAME iterate
+      //    tick — CallServiceManager ends the call with endReason
+      //    network_error via _onCallState. The peer-transport watchdog
+      //    (1s sampling) rarely observes an inCall+offline window, so
+      //    `reconnecting` is an OPTIONAL observation here, not a gate; the
+      //    HARD gate is that A's call terminates on its own within the
+      //    detection budget.
+      final killResult = await Process.run('kill', ['-9', '$realKillPid']);
+      if (killResult.exitCode != 0) {
+        throw _DriveError(
+            'kill -9 $realKillPid failed: ${killResult.stderr}');
+      }
+      print('[fixture-c-network-drop] killed B (pid=$realKillPid)');
 
-    // 5. ASSERT ended (HARD gate): the 8s grace expires → call ends with
-    //    endReason network_error. Give the 8s grace + slack.
-    await a.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
-    if (!sawReconnecting) {
-      print('[fixture-c-network-drop] PASS A2 reconnecting (soft-pass via ended)');
+      // 4/5. ASSERT the call self-terminates (HARD): ~30s toxcore offline
+      //    detection + 8s reconnect grace (if the watchdog won the race) +
+      //    slack.
+      final sawReconnecting = await a.waitForReconnecting(timeoutSecs: 45,
+          orStates: const {'ended', 'idle'});
+      if (sawReconnecting) {
+        print('[fixture-c-network-drop] NOTE A2 reconnecting observed '
+            '(watchdog won the race against native ToxAV ERROR)');
+      }
+      await a.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 60);
+      print('[fixture-c-network-drop] PASS A3 ended (peer-death detected)');
     }
-    print('[fixture-c-network-drop] PASS A3 ended');
 
     print('[fixture-c-network-drop] PASS');
     return 0;
@@ -144,8 +189,13 @@ Future<int> _main(List<String> args) async {
     } catch (_) {
       // ignore — call may already be ended/idle.
     }
-    await a.dispose();
-    await b.dispose();
+    try {
+      await a.dispose();
+    } catch (_) {}
+    try {
+      // In --real-kill-pid mode B's VM connection is already dead.
+      await b.dispose();
+    } catch (_) {}
   }
 }
 
@@ -320,11 +370,26 @@ class _PairDriver {
 
   /// Polls for call.isReconnecting==true. Returns true if observed within the
   /// timeout, false otherwise (the caller decides whether that is fatal).
-  Future<bool> waitForReconnecting({required int timeoutSecs}) async {
+  /// Polls until the call reports `isReconnecting`. When [orStates] is
+  /// given, also stops (returning false) as soon as the call state lands in
+  /// one of those — used by the real-kill mode where the native ToxAV ERROR
+  /// path may end the call without a visible reconnecting window.
+  Future<bool> waitForReconnecting({
+    required int timeoutSecs,
+    Set<String>? orStates,
+  }) async {
     final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
     while (DateTime.now().isBefore(deadline)) {
       if (await callIsReconnecting()) {
         return true;
+      }
+      if (orStates != null) {
+        final s = await dumpState();
+        final call = (s['call'] as Map?)?.cast<String, dynamic>();
+        final current = call?['state']?.toString();
+        if (current != null && orStates.contains(current)) {
+          return false;
+        }
       }
       await Future<void>.delayed(const Duration(seconds: 1));
     }

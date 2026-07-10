@@ -69,6 +69,29 @@ write_note() {
   printf '%s\n' "$1" >> "$note_file"
 }
 
+# Release gate: the staged Tim2Tox native library must contain a REAL ToxAV
+# backend. The marker symbol tim2tox_ffi_av_backend_toxav is only compiled in
+# under BUILD_TOXAV (see tim2tox ffi/tim2tox_ffi.cpp); a stub build silently
+# no-ops every calling API, which is exactly the regression that shipped
+# call-less binaries on all five platforms before ToxAV became default-on.
+# Symbol names are ASCII in ELF/PE/Mach-O symbol/export tables, so a binary
+# grep works host-tool-independently. Override (never for user-facing
+# releases) with TOXEE_ALLOW_STUB_AV=1.
+assert_staged_toxav() {
+  local lib="$1"
+  local label="${2:-$(basename "$lib")}"
+  if [[ "${TOXEE_ALLOW_STUB_AV:-0}" == "1" ]]; then
+    ci_warn "$label: TOXEE_ALLOW_STUB_AV=1 — skipping ToxAV packaging assertion"
+    return 0
+  fi
+  [[ -f "$lib" ]] || ci_die "$label: missing native library for ToxAV assertion: $lib"
+  if grep -aq "tim2tox_ffi_av_backend_toxav" "$lib"; then
+    write_note "$label: ToxAV backend verified (calling enabled)."
+    return 0
+  fi
+  ci_die "$label: ToxAV backend MISSING (stub build) — refusing to package a call-less artifact. Build with tool/ci/build_tim2tox.sh (ToxAV defaults ON), or set TOXEE_ALLOW_STUB_AV=1 to override for non-release builds."
+}
+
 resign_ios_bundle_if_needed() {
   local app_bundle="$1"
   local frameworks_dir="$2"
@@ -125,23 +148,30 @@ package_linux() {
   mkdir -p "$staged_dir/lib"
 
   if [[ -f "$NATIVE_DIR/libtim2tox_ffi.so" ]]; then
+    assert_staged_toxav "$NATIVE_DIR/libtim2tox_ffi.so" "linux"
     cp "$NATIVE_DIR/libtim2tox_ffi.so" "$staged_dir/lib/"
     write_note "Bundled libtim2tox_ffi.so into Linux bundle."
   else
     write_note "libtim2tox_ffi.so was not found. The Linux bundle was packaged without the Tim2Tox native library."
   fi
 
-  while IFS= read -r sodium_file; do
-    [[ -n "$sodium_file" ]] || continue
-    cp -a "$sodium_file" "$staged_dir/lib/"
-    bundled_sodium="true"
-  done < <(find "$NATIVE_DIR" -maxdepth 1 \( -type f -o -type l \) -name 'libsodium*.so*' | sort)
-
-  if [[ "$bundled_sodium" == "true" ]]; then
-    write_note "Bundled Linux libsodium runtime dependency."
-  else
-    write_note "Linux libsodium runtime dependency was not captured; target host may need libsodium preinstalled."
-  fi
+  # Runtime deps captured by build_tim2tox.sh: libsodium (crypto) plus the
+  # ToxAV codecs libopus/libvpx.
+  local dep_glob
+  for dep_glob in 'libsodium*.so*' 'libopus*.so*' 'libvpx*.so*'; do
+    local bundled_dep="false"
+    while IFS= read -r dep_file; do
+      [[ -n "$dep_file" ]] || continue
+      cp -a "$dep_file" "$staged_dir/lib/"
+      bundled_dep="true"
+    done < <(find "$NATIVE_DIR" -maxdepth 1 \( -type f -o -type l \) -name "$dep_glob" | sort)
+    if [[ "$bundled_dep" == "true" ]]; then
+      write_note "Bundled Linux runtime dependency: $dep_glob"
+      [[ "$dep_glob" == 'libsodium*.so*' ]] && bundled_sodium="true"
+    else
+      write_note "Linux runtime dependency $dep_glob was not captured; target host may need it preinstalled."
+    fi
+  done
 
   if command -v patchelf >/dev/null 2>&1 && command -v file >/dev/null 2>&1; then
     if [[ -f "$staged_dir/lib/libtim2tox_ffi.so" ]] && file "$staged_dir/lib/libtim2tox_ffi.so" | grep -qi 'ELF'; then
@@ -200,16 +230,22 @@ package_windows() {
   cp -R "$runner_dir"/. "$staged_dir/"
 
   if [[ -f "$NATIVE_DIR/tim2tox_ffi.dll" ]]; then
+    assert_staged_toxav "$NATIVE_DIR/tim2tox_ffi.dll" "windows"
     cp "$NATIVE_DIR/tim2tox_ffi.dll" "$staged_dir/"
     write_note "Bundled tim2tox_ffi.dll into Windows package."
   else
     write_note "tim2tox_ffi.dll was not found. The Windows package was created without the Tim2Tox native library."
   fi
 
-  if [[ -f "$NATIVE_DIR/libsodium.dll" ]]; then
-    cp "$NATIVE_DIR/libsodium.dll" "$staged_dir/"
-    write_note "Bundled libsodium.dll into Windows package."
-  fi
+  # Stage every runtime DLL captured next to the FFI library by
+  # build_tim2tox.sh (libsodium, pthreadVC3, and the ToxAV codecs opus/vpx).
+  local dep_dll
+  while IFS= read -r dep_dll; do
+    [[ -n "$dep_dll" ]] || continue
+    [[ "$(basename "$dep_dll")" == "tim2tox_ffi.dll" ]] && continue
+    cp "$dep_dll" "$staged_dir/"
+    write_note "Bundled $(basename "$dep_dll") into Windows package."
+  done < <(find "$NATIVE_DIR" -maxdepth 1 -type f -name '*.dll' | sort)
 
   # --- MSI installer via CPack/WiX ---
   local msi_path release_version
@@ -260,20 +296,28 @@ package_macos() {
   mkdir -p "$macos_dir"
 
   if [[ -f "$ffi_lib" ]]; then
+    assert_staged_toxav "$ffi_lib" "macos"
     cp "$ffi_lib" "$macos_dir/"
     write_note "Bundled libtim2tox_ffi.dylib into macOS app."
 
-    sodium_lib="$(find "$NATIVE_DIR" -maxdepth 1 -type f -name 'libsodium*.dylib' | head -n 1 || true)"
-    if [[ -n "$sodium_lib" ]]; then
-      cp "$sodium_lib" "$macos_dir/"
-      local old_path new_name
-      old_path="$(otool -L "$ffi_lib" | awk '/libsodium.*dylib/ {print $1; exit}' || true)"
-      new_name="$(basename "$sodium_lib")"
-      if [[ -n "$old_path" ]]; then
-        install_name_tool -change "$old_path" "@loader_path/$new_name" "$macos_dir/$(basename "$ffi_lib")"
+    # Bundle runtime deps (libsodium + ToxAV codecs opus/vpx) next to the FFI
+    # dylib and rewrite the FFI lib's references from their absolute
+    # (Homebrew) install names to @loader_path.
+    local dep_pattern dep_lib old_path new_name
+    for dep_pattern in 'libsodium*.dylib' 'libopus*.dylib' 'libvpx*.dylib'; do
+      dep_lib="$(find "$NATIVE_DIR" -maxdepth 1 -type f -name "$dep_pattern" | head -n 1 || true)"
+      if [[ -n "$dep_lib" ]]; then
+        cp "$dep_lib" "$macos_dir/"
+        new_name="$(basename "$dep_lib")"
+        old_path="$(otool -L "$ffi_lib" | awk -v p="${dep_pattern%%\**}" '$1 ~ p {print $1; exit}' || true)"
+        if [[ -n "$old_path" ]]; then
+          install_name_tool -change "$old_path" "@loader_path/$new_name" "$macos_dir/$(basename "$ffi_lib")"
+        fi
+        write_note "Bundled $new_name into macOS app."
+      else
+        write_note "macOS runtime dependency $dep_pattern was not captured."
       fi
-      write_note "Bundled $(basename "$sodium_lib") into macOS app."
-    fi
+    done
   else
     write_note "libtim2tox_ffi.dylib was not found. The macOS app was packaged without the Tim2Tox native library."
   fi
@@ -332,7 +376,12 @@ package_android() {
     write_note "Android App Bundle was not produced."
   fi
 
-  if [[ -d "$NATIVE_DIR/jniLibs" ]] && find "$NATIVE_DIR/jniLibs" -type f -name "libtim2tox_ffi.so" | grep -q .; then
+  # No `find | grep -q` (pipefail + grep -q early-exit = SIGPIPE false
+  # negative that would silently SKIP the ToxAV assertions below).
+  if [[ -d "$NATIVE_DIR/jniLibs" && -n "$(find "$NATIVE_DIR/jniLibs" -type f -name "libtim2tox_ffi.so" -print -quit)" ]]; then
+    while IFS= read -r jni_lib; do
+      assert_staged_toxav "$jni_lib" "android-$(basename "$(dirname "$jni_lib")")"
+    done < <(find "$NATIVE_DIR/jniLibs" -type f -name "libtim2tox_ffi.so")
     write_note "Android build used repository-provided Tim2Tox JNI libraries."
   else
     write_note "No Android Tim2Tox JNI libraries were staged. APK/AAB were built, but runtime native loading still needs libtim2tox_ffi.so packaging."
@@ -353,10 +402,12 @@ package_ios() {
 
   mkdir -p "$frameworks_dir"
   if [[ -d "$framework_src" ]]; then
+    assert_staged_toxav "$framework_src/tim2tox_ffi" "ios-framework"
     rm -rf "$frameworks_dir/tim2tox_ffi.framework"
     cp -R "$framework_src" "$frameworks_dir/"
     injected="true"
   elif [[ -f "$dylib_src" ]]; then
+    assert_staged_toxav "$dylib_src" "ios-dylib"
     cp "$dylib_src" "$frameworks_dir/"
     injected="true"
   fi

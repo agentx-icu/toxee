@@ -1314,6 +1314,19 @@ class AppLocalizationsKo extends AppLocalizations {
       '통화를 계속하려면 마이크 및 카메라 권한이 필요합니다.';
 
   @override
+  String get callFailedGroupUnsupported => '그룹 통화는 아직 지원되지 않습니다.';
+
+  @override
+  String get callFailedSignaling => '통화를 시작할 수 없습니다. 다시 시도해 주세요.';
+
+  @override
+  String get callFailedMediaChannel => '통화 미디어 채널을 설정할 수 없습니다.';
+
+  @override
+  String get callVideoUnsupportedPlatform =>
+      '이 플랫폼에서는 아직 영상 통화를 사용할 수 없습니다(카메라 미지원).';
+
+  @override
   String get callAudioInterrupted => '통화 중 오디오 출력이 변경되었거나 중단되었습니다.';
 
   @override

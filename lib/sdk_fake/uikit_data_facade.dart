@@ -394,6 +394,15 @@ class UikitDataFacade {
     TencentCloudChat.instance.dataInstance.basic.useCallKit = value;
   }
 
+  /// Wraps `TencentCloudChat.instance.dataInstance.basic.useVideoCall = ...`.
+  /// Video-specific gate on top of useCallKit — false on platforms without a
+  /// camera capture backend (Windows/Linux) so video-call entry points are
+  /// hidden while voice calling stays available.
+  /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
+  static void setUseVideoCall(bool value) {
+    TencentCloudChat.instance.dataInstance.basic.useVideoCall = value;
+  }
+
   // ===========================================================================
   // search submodule
   // Wraps `TencentCloudChat.instance.dataInstance.search.*`.
