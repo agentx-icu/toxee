@@ -722,6 +722,15 @@ class AppLocalizationsAr extends AppLocalizations {
   String get ircChannelAddFailed => 'فشل إضافة قناة IRC';
 
   @override
+  String ircChannelAddedNotConnected(String channel) {
+    return 'تمت إضافة القناة $channel، لكن تعذّر إنشاء اتصال IRC';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary =>
+      'تم تثبيت تطبيق IRC، لكن اتصال IRC المباشر غير متاح على هذا الجهاز';
+
+  @override
   String ircChannelRemoved(String channel) {
     return 'تمت إزالة قناة IRC: $channel';
   }

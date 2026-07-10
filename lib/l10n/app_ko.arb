@@ -471,6 +471,8 @@
   "@ircChannelPasswordHint": {
     "description": "Placeholder text for IRC channel password input"
   },
+  "ircChannelAddedNotConnected": "채널 {channel}이(가) 추가되었지만 IRC 연결을 설정할 수 없습니다",
+  "ircAppInstalledNoLibrary": "IRC 앱이 설치되었지만 이 기기에서는 실시간 IRC를 사용할 수 없습니다",
   "ircChannelRemoved": "IRC 채널이 제거되었습니다: {channel}",
   "@ircChannelRemoved": {
     "description": "Message shown when IRC channel is removed",

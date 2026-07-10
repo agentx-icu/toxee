@@ -1414,6 +1414,18 @@ abstract class AppLocalizations {
   /// **'Failed to add IRC channel'**
   String get ircChannelAddFailed;
 
+  /// Shown when the channel/group was created but the live IRC connection could not be started (e.g. IRC not available on this platform)
+  ///
+  /// In en, this message translates to:
+  /// **'Channel {channel} added, but the IRC connection could not be established'**
+  String ircChannelAddedNotConnected(String channel);
+
+  /// Shown after install when the native IRC client library could not be loaded on this platform
+  ///
+  /// In en, this message translates to:
+  /// **'IRC app installed, but live IRC is unavailable on this device'**
+  String get ircAppInstalledNoLibrary;
+
   /// Message shown when IRC channel is removed
   ///
   /// In en, this message translates to:

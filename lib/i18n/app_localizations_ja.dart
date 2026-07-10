@@ -701,6 +701,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get ircChannelAddFailed => 'IRCチャンネルの追加に失敗しました';
 
   @override
+  String ircChannelAddedNotConnected(String channel) {
+    return 'チャンネル $channel を追加しましたが、IRC 接続を確立できませんでした';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary =>
+      'IRC アプリはインストールされましたが、このデバイスではライブ IRC を利用できません';
+
+  @override
   String ircChannelRemoved(String channel) {
     return 'IRCチャンネルが削除されました: $channel';
   }

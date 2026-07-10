@@ -471,6 +471,8 @@
   "@ircChannelPasswordHint": {
     "description": "Placeholder text for IRC channel password input"
   },
+  "ircChannelAddedNotConnected": "チャンネル {channel} を追加しましたが、IRC 接続を確立できませんでした",
+  "ircAppInstalledNoLibrary": "IRC アプリはインストールされましたが、このデバイスではライブ IRC を利用できません",
   "ircChannelRemoved": "IRCチャンネルが削除されました: {channel}",
   "@ircChannelRemoved": {
     "description": "Message shown when IRC channel is removed",

@@ -703,6 +703,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get ircChannelAddFailed => 'IRC 채널 추가 실패';
 
   @override
+  String ircChannelAddedNotConnected(String channel) {
+    return '채널 $channel이(가) 추가되었지만 IRC 연결을 설정할 수 없습니다';
+  }
+
+  @override
+  String get ircAppInstalledNoLibrary =>
+      'IRC 앱이 설치되었지만 이 기기에서는 실시간 IRC를 사용할 수 없습니다';
+
+  @override
   String ircChannelRemoved(String channel) {
     return 'IRC 채널이 제거되었습니다: $channel';
   }
