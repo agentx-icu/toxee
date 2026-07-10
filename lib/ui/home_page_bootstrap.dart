@@ -70,6 +70,9 @@ extension _HomePageBootstrap on _HomePageState {
           onAddFriend: _showAddFriendDialog,
           onCreateGroup: _showAddGroupDialog,
           onJoinIrcChannel: _showJoinIrcChannelDialog,
+          // Live singleton read at menu-open time: hides "Join IRC Channel"
+          // as soon as the IRC app is uninstalled on the Applications page.
+          canJoinIrc: () => IrcAppManager().isInstalled,
         ),
       ),
     );
@@ -237,9 +240,19 @@ extension _HomePageBootstrap on _HomePageState {
           onAddFriend: _showAddFriendDialog,
           onCreateGroup: _showAddGroupDialog,
           onJoinIrcChannel: _showJoinIrcChannelDialog,
+          // Live singleton read at menu-open time: hides "Join IRC Channel"
+          // as soon as the IRC app is uninstalled on the Applications page.
+          canJoinIrc: () => IrcAppManager().isInstalled,
         ),
       ),
     );
+
+    // NOTE: the Chats-tab "+" hook (TencentCloudChatConversationAppBarName.
+    // trailingBuilder = NewEntryButton) is installed in HomePage.initState with
+    // an ownership-guarded teardown. It is intentionally NOT (re)assigned here:
+    // a second closure instance would defeat that guard (dispose could no
+    // longer recognise its own hook), and initState already covers every mount
+    // and restored-account re-init.
 
     final searchRegisterResult = search_pkg.CustomSearchManager.register();
     UikitDataFacade.addUsedComponent((
@@ -1166,9 +1179,9 @@ extension _HomePageBootstrap on _HomePageState {
       // it reaches first from the top, so dialogs/sub-routes above HomePage are
       // dismissed but HomePage survives.
       final homeRoute = ModalRoute.of(context);
-      Navigator.of(context).popUntil(
-        (route) => route.isFirst || identical(route, homeRoute),
-      );
+      Navigator.of(
+        context,
+      ).popUntil((route) => route.isFirst || identical(route, homeRoute));
       return true;
     });
     _bag.add(() => registerL3PopToRootInvoker(null));

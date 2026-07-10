@@ -192,8 +192,11 @@ prepare_flutter_deps() {
 # ============================================================
 
 simulator_rows() {
+  # Name capture is greedy up to the UDID (not `[^()]+`), so device names that
+  # themselves contain parentheses — e.g. "iPad Pro 11-inch (M4)" or
+  # "iPad mini (A17 Pro)" — are parsed correctly instead of being skipped.
   xcrun simctl list devices available \
-    | sed -nE 's/^[[:space:]]*([^()]+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p'
+    | sed -nE 's/^[[:space:]]*(.+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p'
 }
 
 simulator_type_from_name() {

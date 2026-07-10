@@ -96,6 +96,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get appearance => '모양';
 
   @override
+  String get general => '일반';
+
+  @override
   String get light => '라이트';
 
   @override

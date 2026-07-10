@@ -14,6 +14,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/responsive_layout.dart';
 import '../../util/tox_utils.dart';
+import 'widgets/app_dialog.dart';
 import 'testing/ui_keys.dart';
 
 // TOX_MAX_FRIEND_REQUEST_LENGTH — used for both inline counter and validation.
@@ -103,8 +104,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_messageController.text.isEmpty) {
-      _messageController.text =
-          AppLocalizations.of(context)!.defaultFriendRequestMessage;
+      _messageController.text = AppLocalizations.of(
+        context,
+      )!.defaultFriendRequestMessage;
     }
   }
 
@@ -126,22 +128,36 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final message = _messageController.text.trim();
 
     if (message.isEmpty) {
-      _notify(_localeText(context, 'enterMessage',
-          fallback: 'Please enter a message'));
+      _notify(
+        _localeText(
+          context,
+          'enterMessage',
+          fallback: 'Please enter a message',
+        ),
+      );
       return;
     }
 
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
-    final defaultMessage =
-        AppLocalizations.of(context)!.defaultFriendRequestMessage;
-    final successText =
-        _localeText(context, 'requestSent', fallback: 'Friend request sent');
-    final queuedText = _localeText(context, 'requestQueued',
-        fallback:
-            'Offline — request queued and will be sent when you reconnect');
-    final failurePrefix =
-        _localeText(context, 'requestFailed', fallback: 'Failed');
+    final defaultMessage = AppLocalizations.of(
+      context,
+    )!.defaultFriendRequestMessage;
+    final successText = _localeText(
+      context,
+      'requestSent',
+      fallback: 'Friend request sent',
+    );
+    final queuedText = _localeText(
+      context,
+      'requestQueued',
+      fallback: 'Offline — request queued and will be sent when you reconnect',
+    );
+    final failurePrefix = _localeText(
+      context,
+      'requestFailed',
+      fallback: 'Failed',
+    );
 
     // A1: client-side self-add check. C++ also rejects (TOX_ERR_FRIEND_ADD_OWN_KEY)
     // but surfaces a generic error; reject earlier with a clear message.
@@ -151,9 +167,13 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final selfId = widget.service.accountKey;
     if (selfId.isNotEmpty && compareToxIds(rawId, selfId)) {
       _notifyVia(
-          messenger,
-          _localeText(context, 'cannotAddSelf',
-              fallback: 'You cannot add yourself as a friend'));
+        messenger,
+        _localeText(
+          context,
+          'cannotAddSelf',
+          fallback: 'You cannot add yourself as a friend',
+        ),
+      );
       return;
     }
 
@@ -164,10 +184,16 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final normalizedRaw = normalizeToxId(rawId);
     // Capture localized strings before any await so we can use them past
     // the async gap without re-touching BuildContext.
-    final alreadySentText = _localeText(context, 'requestAlreadySent',
-        fallback: 'A friend request was already sent in this session');
-    final alreadyFriendText = _localeText(context, 'alreadyFriend',
-        fallback: 'This user is already in your friend list');
+    final alreadySentText = _localeText(
+      context,
+      'requestAlreadySent',
+      fallback: 'A friend request was already sent in this session',
+    );
+    final alreadyFriendText = _localeText(
+      context,
+      'alreadyFriend',
+      fallback: 'This user is already in your friend list',
+    );
     if (_attemptedThisSession.contains(normalizedRaw)) {
       _notifyVia(messenger, alreadySentText);
       return;
@@ -186,8 +212,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     try {
       try {
         final friends = await widget.service.getFriendList();
-        final alreadyFriend =
-            friends.any((f) => normalizeToxId(f.userId) == normalizedRaw);
+        final alreadyFriend = friends.any(
+          (f) => normalizeToxId(f.userId) == normalizedRaw,
+        );
         if (alreadyFriend) {
           _notifyVia(messenger, alreadyFriendText);
           return;
@@ -197,15 +224,16 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
         // FFI layer handle dedup. Don't block the user on a transient read.
       }
 
-
       // `addFriend()` resolves with an [AddFriendResult] that carries the
       // V2TIMFriendOperationResult.resultCode the C++ layer surfaces via the
       // `friendAddResult` callback. Non-zero codes (e.g. 6770 "Friend add
       // requires full Tox address") are real failures even though dispatch
       // succeeded — only `result.isSuccess` should pop the dialog. On
       // failure, keep the dialog mounted so the user can edit and retry.
-      final result =
-          await widget.service.addFriend(rawId, requestMessage: message);
+      final result = await widget.service.addFriend(
+        rawId,
+        requestMessage: message,
+      );
       if (!result.isSuccess) {
         await HapticFeedback.lightImpact();
         final detail = result.resultInfo.isNotEmpty
@@ -258,8 +286,11 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   String? _validateMessage(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return _localeText(context, 'enterMessage',
-          fallback: 'Please enter a message');
+      return _localeText(
+        context,
+        'enterMessage',
+        fallback: 'Please enter a message',
+      );
     }
     if (trimmed.length > _kMaxFriendRequestLength) {
       return AppLocalizations.of(context)!.friendRequestMessageTooLong;
@@ -325,141 +356,136 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
           },
           child: Focus(
             autofocus: true,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: _dialogMaxWidth(context)),
-              child: Material(
-                color: Colors.transparent,
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    side: BorderSide(color: scheme.outlineVariant),
-                    borderRadius: BorderRadius.circular(AppRadii.dialog),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  // SingleChildScrollView lets the form scroll when the keyboard
-                  // pushes content up on small screens — without it, the bottom
-                  // (counter, action row) would be clipped on iPhone SE-class
-                  // viewports. Adding viewInsets.bottom to the bottom padding
-                  // keeps Submit + counter reachable when the keyboard is up.
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      AppSpacing.xl,
-                      AppSpacing.xl,
-                      AppSpacing.xl,
-                      AppSpacing.xl + MediaQuery.viewInsetsOf(context).bottom,
-                    ),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _localeText(context, 'addContact',
-                                fallback: 'Add Contact'),
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 18,
-                            ),
-                          ),
-                          AppSpacing.verticalSm,
-                          Text(
-                            _localeText(
-                              context,
-                              'addContactHint',
-                              fallback:
-                                  'Enter the friend\'s 76-character hex Tox address.',
-                            ),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          if (!_isConnected) ...[
-                            AppSpacing.verticalMd,
-                            _OfflineBanner(
-                              message: _localeText(
-                                context,
-                                'offlineBanner',
-                                fallback:
-                                    'Offline — your friend request will be queued and sent automatically when you reconnect.',
-                              ),
-                            ),
-                          ],
-                          AppSpacing.verticalLg,
-                          TextFormField(
-                            key: UiKeys.addFriendIdInput,
-                            controller: _idController,
-                            textAlignVertical: TextAlignVertical.center,
-                            autofocus: true,
-                            // Tox addresses are 76-char hex strings — iOS would
-                            // otherwise try to autocorrect/capitalize them.
-                            keyboardType: TextInputType.visiblePassword,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            textCapitalization: TextCapitalization.none,
-                            decoration: InputDecoration(
-                              labelText: _localeText(context, 'friendUserID',
-                                  fallback: 'Friend Tox ID'),
-                              border: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(AppRadii.input),
-                              ),
-                              suffixIcon: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (_supportsCameraScan)
-                                    IconButton(
-                                      icon: const Icon(
-                                          Icons.qr_code_scanner_rounded),
-                                      tooltip: _localeText(context, 'scanQr',
-                                          fallback: 'Scan QR'),
-                                      onPressed: _scanQr,
-                                    ),
-                                  IconButton(
-                                    key: UiKeys.addFriendPasteButton,
-                                    icon: const Icon(Icons.paste),
-                                    tooltip: _localeText(context, 'paste',
-                                        fallback: 'Paste'),
-                                    onPressed: _pasteFromClipboard,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            validator: _validateToxId,
-                            minLines: 1,
-                            maxLines: 3,
-                          ),
-                          AppSpacing.verticalLg,
-                          TextFormField(
-                            key: UiKeys.addFriendMessageInput,
-                            controller: _messageController,
-                            textAlignVertical: TextAlignVertical.center,
-                            // Free-form prose: keep autocorrect on, but
-                            // sentence-case for normal English-style writing.
-                            textCapitalization: TextCapitalization.sentences,
-                            decoration: InputDecoration(
-                              labelText: _localeText(context, 'requestMessage',
-                                  fallback: 'Request Message'),
-                              border: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(AppRadii.input),
-                              ),
-                              helperText:
-                                  '${_messageController.text.length}/$_kMaxFriendRequestLength',
-                            ),
-                            validator: _validateMessage,
-                            minLines: 1,
-                            maxLines: 4,
-                            onChanged: (value) {
-                              setState(() {}); // refresh inline counter
-                            },
-                          ),
-                          AppSpacing.verticalXl,
-                          _buildActions(context, scheme),
-                        ],
+            child: AppDialog(
+              title: _localeText(
+                context,
+                'addContact',
+                fallback: 'Add Contact',
+              ),
+              maxWidth: _dialogMaxWidth(context),
+              // SingleChildScrollView lets the form scroll when the keyboard
+              // pushes content up on small screens — without it, the bottom
+              // (counter, action row) would be clipped on iPhone SE-class
+              // viewports. Adding viewInsets.bottom to the bottom padding keeps
+              // Submit + counter reachable when the keyboard is up.
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                  AppSpacing.xl + MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _localeText(
+                          context,
+                          'addContactHint',
+                          fallback:
+                              'Enter the friend\'s 76-character hex Tox address.',
+                        ),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
+                      if (!_isConnected) ...[
+                        AppSpacing.verticalMd,
+                        _OfflineBanner(
+                          message: _localeText(
+                            context,
+                            'offlineBanner',
+                            fallback:
+                                'Offline — your friend request will be queued and sent automatically when you reconnect.',
+                          ),
+                        ),
+                      ],
+                      AppSpacing.verticalLg,
+                      TextFormField(
+                        key: UiKeys.addFriendIdInput,
+                        controller: _idController,
+                        textAlignVertical: TextAlignVertical.center,
+                        autofocus: true,
+                        // Tox addresses are 76-char hex strings — iOS would
+                        // otherwise try to autocorrect/capitalize them.
+                        keyboardType: TextInputType.visiblePassword,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textCapitalization: TextCapitalization.none,
+                        decoration: InputDecoration(
+                          labelText: _localeText(
+                            context,
+                            'friendUserID',
+                            fallback: 'Friend Tox ID',
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadii.input),
+                          ),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_supportsCameraScan)
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.qr_code_scanner_rounded,
+                                  ),
+                                  tooltip: _localeText(
+                                    context,
+                                    'scanQr',
+                                    fallback: 'Scan QR',
+                                  ),
+                                  onPressed: _scanQr,
+                                ),
+                              IconButton(
+                                key: UiKeys.addFriendPasteButton,
+                                icon: const Icon(Icons.paste),
+                                tooltip: _localeText(
+                                  context,
+                                  'paste',
+                                  fallback: 'Paste',
+                                ),
+                                onPressed: _pasteFromClipboard,
+                              ),
+                            ],
+                          ),
+                        ),
+                        validator: _validateToxId,
+                        minLines: 1,
+                        maxLines: 3,
+                      ),
+                      AppSpacing.verticalLg,
+                      TextFormField(
+                        key: UiKeys.addFriendMessageInput,
+                        controller: _messageController,
+                        textAlignVertical: TextAlignVertical.center,
+                        // Free-form prose: keep autocorrect on, but
+                        // sentence-case for normal English-style writing.
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          labelText: _localeText(
+                            context,
+                            'requestMessage',
+                            fallback: 'Request Message',
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadii.input),
+                          ),
+                          helperText:
+                              '${_messageController.text.length}/$_kMaxFriendRequestLength',
+                        ),
+                        validator: _validateMessage,
+                        minLines: 1,
+                        maxLines: 4,
+                        onChanged: (value) {
+                          setState(() {}); // refresh inline counter
+                        },
+                      ),
+                      AppSpacing.verticalXl,
+                      _buildActions(context, scheme),
+                    ],
                   ),
                 ),
               ),
@@ -472,15 +498,19 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
 
   Widget _buildActions(BuildContext context, ColorScheme scheme) {
     final cancelLabel = MaterialLocalizations.of(context).cancelButtonLabel;
-    final submitLabel =
-        _localeText(context, 'addContact', fallback: 'Add Contact');
+    final submitLabel = _localeText(
+      context,
+      'addContact',
+      fallback: 'Add Contact',
+    );
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         TextButton(
           key: UiKeys.addFriendCancelButton,
-          onPressed:
-              _isSubmitting ? null : () => Navigator.of(context).maybePop(),
+          onPressed: _isSubmitting
+              ? null
+              : () => Navigator.of(context).maybePop(),
           child: Text(cancelLabel),
         ),
         AppSpacing.horizontalSm,
@@ -502,8 +532,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        scheme.onPrimary,
+                      ),
                     ),
                   )
                 : const Icon(Icons.person_add_alt_1),
@@ -515,8 +546,11 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     );
   }
 
-  String _localeText(BuildContext context, String key,
-      {required String fallback}) {
+  String _localeText(
+    BuildContext context,
+    String key, {
+    required String fallback,
+  }) {
     final t = TencentCloudChatLocalizations.of(context);
     final appL10n = AppLocalizations.of(context)!;
     switch (key) {
@@ -613,10 +647,7 @@ class _ScanToxIdPageState extends State<_ScanToxIdPage> {
       appBar: AppBar(title: const Text(title)),
       body: Stack(
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-          ),
+          MobileScanner(controller: _controller, onDetect: _onDetect),
           Positioned.fill(
             child: IgnorePointer(
               child: Container(

@@ -85,12 +85,18 @@ class ResponsiveLayout {
     return shortest >= mobileBreakpoint && shortest < tabletBreakpoint;
   }
 
-  /// Desktop classification: true when the OS is a desktop OS, or (on web)
-  /// when the window is at least `tabletBreakpoint` wide. Uses width (not
-  /// shortestSide) for the web fallback so a wide-but-short browser window
+  /// Desktop classification: true when the OS is a desktop OS, on a tablet
+  /// (iPad — product direction: tablets use the DESKTOP layout in every
+  /// orientation: wide labelled sidebar, full-width cards, master-detail), or
+  /// (on web) when the window is at least `tabletBreakpoint` wide. Uses width
+  /// (not shortestSide) for the web fallback so a wide-but-short browser window
   /// still gets desktop layout.
   static bool isDesktop(BuildContext context) {
     if (_isDesktopPlatform()) return true;
+    // iPad in portrait (shortestSide < 1024) would otherwise fall into the
+    // compact tablet tier; force desktop so it never shows the icon-only rail
+    // or mobile grids.
+    if (isTablet(context)) return true;
     return MediaQuery.of(context).size.width >= tabletBreakpoint;
   }
 
@@ -196,13 +202,25 @@ class ResponsiveLayout {
 
   /// Get responsive sidebar width
   /// Mobile / large-phone (bottom-nav tier): 0 (uses bottom nav). Tablet: 72
-  /// (compact icon sidebar). Desktop: 180 — enough for icon + short label.
+  /// (compact icon-only rail — labels are hidden below this width). Desktop:
+  /// 200 — enough for the icon plus the longest label ("Applications") in the
+  /// default `titleMedium` size without ellipsis. Was 180, which clipped
+  /// "Applications" by ~17px (RenderFlex overflow).
   // Sidebar visibility and bottom-nav visibility are controlled by the same
   // check (`shouldShowBottomNav`) so the two never disagree (e.g. landscape
   // large-phones used to get a sidebar AND a bottom nav).
   static double responsiveSidebarWidth(BuildContext context) {
     if (shouldShowBottomNav(context)) return 0.0;
-    return isDesktop(context) ? 180.0 : 72.0;
+    return isDesktop(context) ? 200.0 : 72.0;
+  }
+
+  /// True when the rail is the compact icon-only tier (tablet width). Below
+  /// this the sidebar shows icons only (with tooltips) rather than icon+label,
+  /// because the 72px rail cannot fit a text label. Single source of truth so
+  /// the sidebar items and avatar stay in sync.
+  static bool isCompactRail(BuildContext context) {
+    final width = responsiveSidebarWidth(context);
+    return width > 0 && width <= 72.0;
   }
 
   /// Get responsive bottom navigation bar height.

@@ -10,6 +10,7 @@ import '../util/app_theme_config.dart';
 import '../util/default_avatar_installer.dart';
 import '../util/responsive_layout.dart';
 import '../i18n/app_localizations.dart';
+import 'widgets/app_dialog.dart';
 import 'testing/ui_keys.dart';
 
 typedef InstallDefaultGroupAvatarFn =
@@ -246,61 +247,49 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
         },
         child: Focus(
           autofocus: true,
-          child: ConstrainedBox(
-            // Width cap as before. The height cap prevents the two-card stack
-            // from overflowing on iPhone SE-class viewports while leaving
-            // tablet/desktop sizes unaffected (their content is shorter than
-            // 85% of the available height).
-            constraints: BoxConstraints(
-              maxWidth: _dialogMaxWidth(context),
-              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+          // The height cap prevents the two-card stack from overflowing on
+          // iPhone SE-class viewports while leaving tablet/desktop sizes
+          // unaffected (their content is shorter than 85% of the height).
+          child: AppDialog(
+            title: _localeText(
+              context,
+              'addGroup',
+              fallback: 'Add or Create Group',
             ),
-            child: Material(
-              color: Colors.transparent,
-              child: SingleChildScrollView(
-                // Push bottom padding above the soft keyboard so Submit and
-                // create-card actions stay reachable on small phones.
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.viewInsetsOf(context).bottom,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.xl),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _localeText(
+            maxWidth: _dialogMaxWidth(context),
+            maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            child: SingleChildScrollView(
+              // Push bottom padding above the soft keyboard so Submit and
+              // create-card actions stay reachable on small phones.
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_isConnected) ...[
+                      AppSpacing.verticalMd,
+                      _OfflineBanner(
+                        message: _localeText(
                           context,
-                          'addGroup',
-                          fallback: 'Add or Create Group',
-                        ),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 18,
+                          'offlineBanner',
+                          fallback:
+                              'Offline — group operations will be queued and processed when you reconnect.',
                         ),
                       ),
-                      if (!_isConnected) ...[
-                        AppSpacing.verticalMd,
-                        _OfflineBanner(
-                          message: _localeText(
-                            context,
-                            'offlineBanner',
-                            fallback:
-                                'Offline — group operations will be queued and processed when you reconnect.',
-                          ),
-                        ),
-                      ],
-                      AppSpacing.verticalLg,
-                      _buildJoinCard(),
-                      AppSpacing.verticalLg,
-                      _buildCreateCard(),
-                      if (_createdGroupId != null) ...[
-                        AppSpacing.verticalLg,
-                        _buildCreatedInfo(),
-                      ],
                     ],
-                  ),
+                    AppSpacing.verticalLg,
+                    _buildJoinCard(),
+                    AppSpacing.verticalLg,
+                    _buildCreateCard(),
+                    if (_createdGroupId != null) ...[
+                      AppSpacing.verticalLg,
+                      _buildCreatedInfo(),
+                    ],
+                  ],
                 ),
               ),
             ),

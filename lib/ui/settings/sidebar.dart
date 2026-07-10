@@ -2,6 +2,7 @@ import 'dart:async';
 
 // ignore: directives_ordering
 import '../widgets/safe_dialog_pop.dart';
+import '../widgets/app_dialog.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../util/app_spacing.dart';
@@ -23,6 +24,18 @@ import '../testing/ui_keys.dart';
 
 /// Controls whether the sidebar exposes the Applications entry.
 const bool _showApplicationsEntry = true;
+
+/// Wraps [child] in a [Tooltip] only when [enabled]. Used by the compact
+/// icon-only rail (tablet width) where the text label is hidden, so the label
+/// stays discoverable on hover / assistive tech without adding a redundant
+/// tooltip to the wide labelled rail.
+Widget _compactTooltip({
+  required bool enabled,
+  required String message,
+  required Widget child,
+}) {
+  return enabled ? Tooltip(message: message, child: child) : child;
+}
 
 /// Opens the current user's profile.
 ///
@@ -150,47 +163,35 @@ Future<void> showSelfProfile(
         // layout (form + QR card side-by-side); narrow screens keep the
         // single-column dialog at ~480.
         final maxW = (size.width - 32).clamp(280.0, isWide ? 880.0 : 500.0);
-        final maxH = (size.height - 100).clamp(400.0, 800.0);
-        return Dialog(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(
-              AppThemeConfig.cardBorderRadius,
-            ),
-            // `ConstrainedBox` (vs `SizedBox`) so the dialog hugs the profile
-            // content when it's shorter than `maxH` — the previous fixed-height
-            // `SizedBox` left ~300px of empty space below the form on normal
-            // desktop windows. The `Stack` sizes to its largest non-Positioned
-            // child (the profile content), and the close-button `Positioned`
-            // still overlays correctly. Content taller than `maxH` scrolls via
-            // `ProfileLayout`'s internal `SingleChildScrollView`.
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxH),
-              child: Stack(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    // Inner width caps the profile column at the dialog's
-                    // ceiling minus padding; no fixed `height:` so the column
-                    // collapses to its intrinsic size when content is shorter
-                    // than the dialog ceiling.
-                    child: SizedBox(
-                      width: (maxW - 48).clamp(256.0, 840.0),
-                      child: buildProfile(),
-                    ),
-                  ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: IconButton(
-                      key: UiKeys.profileCloseButton,
-                      icon: const Icon(Icons.close),
-                      tooltip:
-                          AppLocalizations.of(dialogContext)?.close ?? 'Close',
-                      onPressed: () => popDialogIfCurrent(dialogContext),
-                    ),
-                  ),
-                ],
-              ),
+        // Cap the dialog height at ~90% of the viewport rather than a hard
+        // 800pt: on a tall tablet (iPad Pro 11" portrait ≈ 1194pt) the
+        // single-column profile is ~900pt tall, so an 800pt ceiling clipped
+        // the QR "Save Image"/"Copy" row below the fold. The two-step clamp
+        // keeps the ceiling valid on short landscape windows too.
+        final maxHCap = (size.height * 0.9).clamp(400.0, 1200.0);
+        final maxH = (size.height - 100).clamp(400.0, maxHCap);
+        final title =
+            TencentCloudChatLocalizations.of(dialogContext)?.profile ??
+            'Profile';
+        // System-style titled dialog (close button follows the OS: top-left on
+        // macOS, top-right on Windows/Linux) — replaces the old floating ✕.
+        // `AppDialog` already frames + constrains the surface; the profile
+        // content keeps its own internal scroll via `ProfileLayout`, so no
+        // extra scroll view is added here.
+        return AppDialog(
+          title: title,
+          maxWidth: maxW,
+          maxHeight: maxH,
+          closeButtonKey: UiKeys.profileCloseButton,
+          onClose: () => popDialogIfCurrent(dialogContext),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            // Inner width caps the profile column at the dialog's ceiling minus
+            // padding; no fixed `height:` so the column collapses to its
+            // intrinsic size when content is shorter than the dialog ceiling.
+            child: SizedBox(
+              width: (maxW - 48).clamp(256.0, 840.0),
+              child: buildProfile(),
             ),
           ),
         );
@@ -399,6 +400,10 @@ class _UserAvatarState extends State<_UserAvatar> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Compact (tablet, 72px) rail: show the avatar only, centered; the
+    // nickname/status column is hidden (there is no room for it) and the
+    // existing Tooltip already surfaces the nickname on hover.
+    final compact = ResponsiveLayout.isCompactRail(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
         return MouseRegion(
@@ -410,7 +415,9 @@ class _UserAvatarState extends State<_UserAvatar> {
               onTap: () => _openProfile(context),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+                padding: compact
+                    ? const EdgeInsets.fromLTRB(12, 18, 12, 12)
+                    : const EdgeInsets.fromLTRB(24, 18, 24, 12),
                 child: StreamBuilder<bool>(
                   stream: widget.connectionStatusStream,
                   initialData: widget
@@ -420,6 +427,9 @@ class _UserAvatarState extends State<_UserAvatar> {
                     final isConnected =
                         snapshot.data ?? widget.service.isConnected;
                     return Row(
+                      mainAxisAlignment: compact
+                          ? MainAxisAlignment.center
+                          : MainAxisAlignment.start,
                       children: [
                         Stack(
                           alignment: Alignment.center,
@@ -484,8 +494,10 @@ class _UserAvatarState extends State<_UserAvatar> {
                             ),
                           ],
                         ),
-                        const SizedBox(width: 14),
-                        if (_nickname != null && _nickname!.isNotEmpty)
+                        if (!compact) const SizedBox(width: 14),
+                        if (!compact &&
+                            _nickname != null &&
+                            _nickname!.isNotEmpty)
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,6 +579,9 @@ class _SidebarItemState extends State<_SidebarItem> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final disableAnims = MediaQuery.disableAnimationsOf(context);
+    // Compact (tablet, 72px) rail: icon-only, label hidden + surfaced as a
+    // tooltip. Wide rail: icon + ellipsised label.
+    final compact = ResponsiveLayout.isCompactRail(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
         // Reference-design rail item: idle icon/label use the secondary text
@@ -599,23 +614,30 @@ class _SidebarItemState extends State<_SidebarItem> {
                 duration: disableAnims ? Duration.zero : AppDurations.fast,
                 width: double.infinity,
                 constraints: const BoxConstraints(minHeight: 52),
-                padding: const EdgeInsets.symmetric(
+                padding: EdgeInsets.symmetric(
                   vertical: 10,
-                  horizontal: 18,
+                  horizontal: compact ? 8 : 18,
                 ),
                 decoration: BoxDecoration(
                   color: bg,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
+                  mainAxisAlignment: compact
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.start,
                   children: [
                     Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        Icon(
-                          widget.icon,
-                          size: 23,
-                          color: widget.selected ? selColor : baseColor,
+                        _compactTooltip(
+                          enabled: compact,
+                          message: widget.label,
+                          child: Icon(
+                            widget.icon,
+                            size: 23,
+                            color: widget.selected ? selColor : baseColor,
+                          ),
                         ),
                         if (widget.showUnreadCount)
                           Positioned(
@@ -693,17 +715,27 @@ class _SidebarItemState extends State<_SidebarItem> {
                           ),
                       ],
                     ),
-                    const SizedBox(width: 14),
-                    Text(
-                      widget.label,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: widget.selected ? selColor : baseColor,
-                        fontWeight: widget.selected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        letterSpacing: -0.2,
+                    if (!compact) ...[
+                      const SizedBox(width: 14),
+                      // Flexible + ellipsis so a long label ("Applications")
+                      // or a longer localized string can never overflow the
+                      // rail (was the "RIGHT OVERFLOWED BY 17 PIXELS" bug).
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: widget.selected ? selColor : baseColor,
+                            fontWeight: widget.selected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -775,6 +807,9 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    // Compact (tablet, 72px) rail: icon-only, label hidden + surfaced as a
+    // tooltip. Wide rail: icon + ellipsised label.
+    final compact = ResponsiveLayout.isCompactRail(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
         final baseColor = isDark
@@ -801,23 +836,30 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
                 duration: _disableAnims ? Duration.zero : AppDurations.fast,
                 width: double.infinity,
                 constraints: const BoxConstraints(minHeight: 52),
-                padding: const EdgeInsets.symmetric(
+                padding: EdgeInsets.symmetric(
                   vertical: 10,
-                  horizontal: 18,
+                  horizontal: compact ? 8 : 18,
                 ),
                 decoration: BoxDecoration(
                   color: bg,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
+                  mainAxisAlignment: compact
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.start,
                   children: [
                     Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        Icon(
-                          widget.icon,
-                          size: 23,
-                          color: widget.selected ? selColor : baseColor,
+                        _compactTooltip(
+                          enabled: compact,
+                          message: widget.label,
+                          child: Icon(
+                            widget.icon,
+                            size: 23,
+                            color: widget.selected ? selColor : baseColor,
+                          ),
                         ),
                         if (_applicationUnreadCount > 0)
                           Positioned(
@@ -879,17 +921,27 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
                           ),
                       ],
                     ),
-                    const SizedBox(width: 14),
-                    Text(
-                      widget.label,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: widget.selected ? selColor : baseColor,
-                        fontWeight: widget.selected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        letterSpacing: -0.2,
+                    if (!compact) ...[
+                      const SizedBox(width: 14),
+                      // Flexible + ellipsis so a long label ("Applications")
+                      // or a longer localized string can never overflow the
+                      // rail (was the "RIGHT OVERFLOWED BY 17 PIXELS" bug).
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: widget.selected ? selColor : baseColor,
+                            fontWeight: widget.selected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),

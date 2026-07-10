@@ -19,6 +19,12 @@ import '../testing/ui_keys.dart';
 import '../widgets/section_header.dart';
 import '_hoverable_settings_row.dart';
 
+/// Which subset of the global settings to render. Desktop shows everything on
+/// one page ([all]); the mobile settings list splits it into an "Appearance"
+/// entry (theme + language) and a "General" entry (notification sound,
+/// downloads directory, auto-download size limit).
+enum GlobalSettingsView { all, appearance, general }
+
 /// Global app settings (appearance, language, notification sound, downloads, auto-download).
 /// Shown on both login settings and main settings. When [toxId] is null (login page),
 /// notification sound is hidden.
@@ -28,9 +34,13 @@ class GlobalSettingsSection extends StatefulWidget {
     required this.colorTheme,
     this.toxId,
     this.onDownloadsConfigChanged,
+    this.view = GlobalSettingsView.all,
   });
 
   final dynamic colorTheme;
+
+  /// Which subset of settings to render (see [GlobalSettingsView]).
+  final GlobalSettingsView view;
 
   /// When non-null, show notification sound setting (per-account).
   final String? toxId;
@@ -192,10 +202,13 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
     if (tL10n == null) return const SizedBox.shrink();
 
     final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
+    final showAppearance = widget.view != GlobalSettingsView.general;
+    final showGeneral = widget.view != GlobalSettingsView.appearance;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (showAppearance) ...[
         // Appearance
         Card(
           elevation: 0,
@@ -467,8 +480,14 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
             ),
           ),
         ),
+        ], // end Appearance view group (theme + language)
+        // Single separator between the two groups — only when BOTH render
+        // (view == all, i.e. desktop). Keeping it here (rather than as the
+        // leading child of the general group) avoids a doubled top gap on the
+        // mobile "General" sub-page, where showAppearance is false.
+        if (showAppearance && showGeneral) AppSpacing.verticalMd,
+        if (showGeneral) ...[
         if (widget.toxId != null && widget.toxId!.isNotEmpty) ...[
-          AppSpacing.verticalMd,
           Card(
             elevation: 0,
             clipBehavior: Clip.antiAlias,
@@ -516,8 +535,8 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
               ),
             ),
           ),
+          AppSpacing.verticalMd,
         ],
-        AppSpacing.verticalMd,
         // Downloads Directory
         Card(
           elevation: 0,
@@ -680,6 +699,7 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
             ),
           ),
         ),
+        ], // end General view group (notification / downloads / auto-download)
       ],
     );
   }

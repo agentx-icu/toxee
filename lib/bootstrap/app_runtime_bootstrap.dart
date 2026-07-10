@@ -15,11 +15,20 @@ class AppRuntimeBootstrap {
     AppLogger.log('Initializing theme and locale...');
     await AppTheme.initFromPrefs();
     await AppLocale.initFromPrefs();
+    // Resolve ThemeMode.system against the actual OS brightness so the UIKit
+    // colorTheme matches the Material app from the very first frame. The old
+    // `== dark ? dark : light` collapsed system→light, so a system-dark device
+    // started with a light UIKit app bar on a dark Material scaffold (desync).
+    // `_syncUIKitThemeBrightness` later re-applies the same resolution, but
+    // getting it right at startup avoids an initial mismatched flash.
+    final mode = AppTheme.mode.value;
+    final isDark = mode == ThemeMode.dark ||
+        (mode == ThemeMode.system &&
+            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.dark);
     TencentCloudChatTheme.init(
       themeModel: AppThemeConfig.createYouthfulThemeModel(),
-      brightness: AppTheme.mode.value == ThemeMode.dark
-          ? Brightness.dark
-          : Brightness.light,
+      brightness: isDark ? Brightness.dark : Brightness.light,
     );
     AppLogger.log('Theme and locale initialized');
   }

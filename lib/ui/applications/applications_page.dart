@@ -13,7 +13,6 @@ import '../../sdk_fake/fake_uikit_core.dart';
 import '../../sdk_fake/fake_im.dart';
 import '../../sdk_fake/fake_models.dart';
 import '../../util/app_theme_config.dart';
-import '../../util/platform_utils.dart';
 import '../../util/responsive_layout.dart';
 import '../testing/l3_debug_tools.dart';
 import '../testing/ui_keys.dart';
@@ -563,9 +562,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
           color: colorTheme.primaryTextColor,
           fontWeight: FontWeight.w600,
         );
-        // On desktop, pull-to-refresh has no affordance; expose a refresh
-        // IconButton in the AppBar instead and skip the RefreshIndicator wrap.
-        final isDesktop = PlatformUtils.isDesktop;
+        // Desktop layout (incl. iPad, per ResponsiveLayout.isDesktop): expose a
+        // refresh IconButton in the AppBar and skip the pull-to-refresh wrap.
+        final isDesktop = ResponsiveLayout.isDesktop(context);
         return Scaffold(
           backgroundColor: colorTheme.surface,
           appBar: AppBar(
@@ -575,10 +574,15 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             elevation: 0,
             actions: [
               if (isDesktop)
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: _loadAppState,
-                  tooltip: AppLocalizations.of(context)!.refresh,
+                // Trailing inset so the refresh button doesn't hug the window
+                // edge on the frameless desktop window.
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loadAppState,
+                    tooltip: AppLocalizations.of(context)!.refresh,
+                  ),
                 ),
             ],
           ),
@@ -626,47 +630,82 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       ),
     ];
 
+    final isDesktop = ResponsiveLayout.isDesktop(context);
     final columnCount = ResponsiveLayout.responsiveColumnCount(context);
-    // Single-item edge case: a lone tile in a 3-column grid looks lonely.
-    // Center it with a sensible max-width instead of spanning full width.
+    // Single-item edge case (mobile/tablet): a lone tile in a multi-column
+    // grid looks lonely — center it with a sensible max-width instead.
     final useCompactSingleItem = apps.length == 1;
 
-    Widget appsSection;
-    if (useCompactSingleItem) {
-      appsSection = SliverToBoxAdapter(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 340),
-            child: _buildAppCard(
+    // Desktop: each app is a full-width horizontal row (icon + text + actions)
+    // spanning the whole content width — the previous narrow centered tile
+    // left most of the page empty. Mobile/tablet keep the vertical card grid
+    // (or a centered compact single tile).
+    final Widget appsSliver;
+    if (isDesktop) {
+      appsSliver = SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => Padding(
+              padding: EdgeInsets.only(
+                bottom: index == apps.length - 1 ? 0 : AppSpacing.md,
+              ),
+              child: _buildAppCard(
+                context: context,
+                theme: theme,
+                scheme: scheme,
+                colorTheme: colorTheme,
+                appL10n: appL10n,
+                data: apps[index],
+                horizontal: true,
+              ),
+            ),
+            childCount: apps.length,
+          ),
+        ),
+      );
+    } else {
+      final Widget appsSection;
+      if (useCompactSingleItem) {
+        appsSection = SliverToBoxAdapter(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: _buildAppCard(
+                context: context,
+                theme: theme,
+                scheme: scheme,
+                colorTheme: colorTheme,
+                appL10n: appL10n,
+                data: apps.first,
+              ),
+            ),
+          ),
+        );
+      } else {
+        appsSection = SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columnCount,
+            mainAxisSpacing: AppSpacing.md,
+            crossAxisSpacing: AppSpacing.md,
+            childAspectRatio: 1.4,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => _buildAppCard(
               context: context,
               theme: theme,
               scheme: scheme,
               colorTheme: colorTheme,
               appL10n: appL10n,
-              data: apps.first,
+              data: apps[index],
             ),
+            childCount: apps.length,
           ),
-        ),
-      );
-    } else {
-      appsSection = SliverGrid(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columnCount,
-          mainAxisSpacing: AppSpacing.md,
-          crossAxisSpacing: AppSpacing.md,
-          childAspectRatio: 1.4,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          (context, index) => _buildAppCard(
-            context: context,
-            theme: theme,
-            scheme: scheme,
-            colorTheme: colorTheme,
-            appL10n: appL10n,
-            data: apps[index],
-          ),
-          childCount: apps.length,
-        ),
+        );
+      }
+      appsSliver = SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        sliver: _ConstrainedSliver(maxWidth: 1100, sliver: appsSection),
       );
     }
 
@@ -678,12 +717,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         // Top breathing room above the grid (matches the original
         // `ListView(padding: all(AppSpacing.lg))` top inset).
         const SliverPadding(padding: EdgeInsets.only(top: AppSpacing.lg)),
-        // Apps grid, constrained to maxWidth=1100 and centered so the
-        // grid doesn't stretch on ultrawide desktops.
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-          sliver: _ConstrainedSliver(maxWidth: 1100, sliver: appsSection),
-        ),
+        // Apps: full-width rows on desktop; constrained/centered grid on
+        // mobile/tablet (see `appsSliver` above).
+        appsSliver,
         // Configuration + channels section — only when installed.
         if (_isInstalled)
           SliverPadding(
@@ -723,11 +759,12 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     required TencentCloudChatThemeColors colorTheme,
     required AppLocalizations appL10n,
     required _AppCardData data,
+    bool horizontal = false,
   }) {
     final secondaryText = colorTheme.secondaryTextColor;
     final installedColor = colorTheme.primaryColor;
 
-    // Top-right status indicator: "Installed" dot vs hollow circle.
+    // Status indicator: "Installed" dot vs hollow circle.
     final statusBadge = Container(
       width: 10,
       height: 10,
@@ -741,6 +778,132 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       ),
     );
 
+    final iconBox = Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: AppThemeConfig.tintedPrimaryCardColor(colorTheme.primaryColor),
+        borderRadius: BorderRadius.circular(AppRadii.button),
+        border: Border.all(
+          color: AppThemeConfig.tintedPrimaryCardBorderColor(
+            colorTheme.primaryColor,
+          ),
+        ),
+      ),
+      child: Icon(data.icon, color: colorTheme.primaryColor, size: 24),
+    );
+
+    final titleText = Text(
+      data.title,
+      textAlign: horizontal ? TextAlign.start : TextAlign.center,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleSmall?.copyWith(
+        color: colorTheme.primaryTextColor,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    final descText = Text(
+      data.description,
+      textAlign: horizontal ? TextAlign.start : TextAlign.center,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.bodySmall?.copyWith(color: secondaryText),
+    );
+
+    // Action button(s) — identical callbacks/keys in either layout; only one
+    // subset is mounted per card (keys are ValueKeys, safe to pre-build).
+    final installButton = FilledButton.icon(
+      key: data.id == 'irc' ? UiKeys.applicationsIrcInstallButton : null,
+      onPressed: _handleInstall,
+      icon: const Icon(Icons.install_mobile, size: 18),
+      label: Text(appL10n.install),
+      style: FilledButton.styleFrom(
+        backgroundColor: colorTheme.primaryColor,
+        foregroundColor: colorTheme.onPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.button),
+        ),
+      ),
+    );
+    final uninstallButton = OutlinedButton.icon(
+      key: data.id == 'irc' ? UiKeys.applicationsIrcUninstallButton : null,
+      onPressed: _handleUninstall,
+      icon: const Icon(Icons.delete_outline, size: 18),
+      label: Text(appL10n.uninstall),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colorTheme.primaryColor,
+        side: BorderSide(color: scheme.outlineVariant),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.button),
+        ),
+      ),
+    );
+    final addChannelButton = FilledButton.icon(
+      key: data.id == 'irc' ? UiKeys.applicationsIrcAddChannelButton : null,
+      onPressed: _handleAddChannel,
+      icon: const Icon(Icons.add, size: 18),
+      label: Text(appL10n.addIrcChannel),
+      style: FilledButton.styleFrom(
+        backgroundColor: colorTheme.primaryColor,
+        foregroundColor: colorTheme.onPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.button),
+        ),
+      ),
+    );
+
+    if (horizontal) {
+      // Full-width app-store style row: icon | title+desc (expanded) | actions.
+      final Widget actions = !data.isInstalled
+          ? installButton
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                uninstallButton,
+                AppSpacing.horizontalSm,
+                addChannelButton,
+              ],
+            );
+      return _HoverableAppCard(
+        key: data.id == 'irc' ? UiKeys.applicationsIrcCard : null,
+        borderColor: scheme.outlineVariant,
+        // Card itself is not tappable — install only via the explicit "Install"
+        // button below, so a stray tap on the row never auto-installs.
+        onTap: null,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(
+            children: [
+              iconBox,
+              AppSpacing.horizontalLg,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(child: titleText),
+                        AppSpacing.horizontalSm,
+                        statusBadge,
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    descText,
+                  ],
+                ),
+              ),
+              AppSpacing.horizontalLg,
+              actions,
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Vertical card (mobile/tablet grid): icon top → title → desc → actions.
     return _HoverableAppCard(
       key: data.id == 'irc' ? UiKeys.applicationsIrcCard : null,
       borderColor: scheme.outlineVariant,
@@ -757,113 +920,20 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
               crossAxisAlignment: CrossAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Icon (48) centered at top.
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: AppThemeConfig.tintedPrimaryCardColor(
-                      colorTheme.primaryColor,
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadii.button),
-                    border: Border.all(
-                      color: AppThemeConfig.tintedPrimaryCardBorderColor(
-                        colorTheme.primaryColor,
-                      ),
-                    ),
-                  ),
-                  child: Icon(
-                    data.icon,
-                    color: colorTheme.primaryColor,
-                    size: 24,
-                  ),
-                ),
+                iconBox,
                 AppSpacing.verticalMd,
-                Text(
-                  data.title,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colorTheme.primaryTextColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                titleText,
                 const SizedBox(height: 4),
-                Flexible(
-                  child: Text(
-                    data.description,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: secondaryText,
-                    ),
-                  ),
-                ),
+                Flexible(child: descText),
                 AppSpacing.verticalSm,
-                // Action buttons — same callbacks as before.
                 if (!data.isInstalled)
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      key: data.id == 'irc'
-                          ? UiKeys.applicationsIrcInstallButton
-                          : null,
-                      onPressed: _handleInstall,
-                      icon: const Icon(Icons.install_mobile, size: 18),
-                      label: Text(appL10n.install),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colorTheme.primaryColor,
-                        foregroundColor: colorTheme.onPrimary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadii.button),
-                        ),
-                      ),
-                    ),
-                  )
+                  SizedBox(width: double.infinity, child: installButton)
                 else
                   Row(
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          key: data.id == 'irc'
-                              ? UiKeys.applicationsIrcUninstallButton
-                              : null,
-                          onPressed: _handleUninstall,
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: Text(appL10n.uninstall),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: colorTheme.primaryColor,
-                            side: BorderSide(color: scheme.outlineVariant),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadii.button,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                      Expanded(child: uninstallButton),
                       AppSpacing.horizontalSm,
-                      Expanded(
-                        child: FilledButton.icon(
-                          key: data.id == 'irc'
-                              ? UiKeys.applicationsIrcAddChannelButton
-                              : null,
-                          onPressed: _handleAddChannel,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: Text(appL10n.addIrcChannel),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: colorTheme.primaryColor,
-                            foregroundColor: colorTheme.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadii.button,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                      Expanded(child: addChannelButton),
                     ],
                   ),
               ],
@@ -1130,15 +1200,24 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 ),
               ),
             ] else ...[
+              // Mirror the populated-state framing (divider + "IRC Channels"
+              // header) so the empty placeholder reads as an intentional
+              // section instead of a small box floating in the full-width card.
               AppSpacing.verticalLg,
-              EmptyStateWidget(
-                icon: Icons.forum_outlined,
-                title: appL10n.noIrcChannels,
-                subtitle: appL10n.joinChannelToGetStarted,
-                action: FilledButton.icon(
-                  onPressed: _handleAddChannel,
-                  icon: const Icon(Icons.add),
-                  label: Text(appL10n.addIrcChannel),
+              Divider(color: scheme.outlineVariant, height: 1),
+              AppSpacing.verticalMd,
+              Text(appL10n.ircChannels, style: sectionLabelStyle),
+              SizedBox(
+                width: double.infinity,
+                child: EmptyStateWidget(
+                  icon: Icons.forum_outlined,
+                  title: appL10n.noIrcChannels,
+                  subtitle: appL10n.joinChannelToGetStarted,
+                  action: FilledButton.icon(
+                    onPressed: _handleAddChannel,
+                    icon: const Icon(Icons.add),
+                    label: Text(appL10n.addIrcChannel),
+                  ),
                 ),
               ),
             ],
@@ -1208,7 +1287,9 @@ class _HoverableAppCardState extends State<_HoverableAppCard> {
         duration: AppDurations.fast,
         curve: AppCurves.standard,
         decoration: BoxDecoration(
-          color: _hovered ? hoverSurface : null,
+          // Only tint on hover when the card is actually tappable, so a
+          // non-interactive card doesn't falsely read as clickable.
+          color: (_hovered && widget.onTap != null) ? hoverSurface : null,
           borderRadius: BorderRadius.circular(AppRadii.card),
         ),
         child: Card(

@@ -534,6 +534,15 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     return Theme.of(context).colorScheme.onSurface;
   }
 
+  /// Desktop/tablet: let [child] expand to fill the row so the current-node
+  /// card spans the full width (buttons pushed to the trailing edge), matching
+  /// the other full-width settings rows. Phone: full-width block in the stack.
+  Widget _fillOnDesktop(BuildContext context, Widget child) {
+    return ResponsiveLayout.isMobile(context)
+        ? SizedBox(width: double.infinity, child: child)
+        : Expanded(child: child);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -594,14 +603,18 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                 direction: ResponsiveLayout.isMobile(context)
                     ? Axis.vertical
                     : Axis.horizontal,
-                crossAxisAlignment: CrossAxisAlignment.start,
+                // Desktop/tablet (horizontal): vertically centre the action
+                // buttons against the taller current-node card so they don't
+                // float at the top with a gap below. Phone (vertical stack):
+                // keep left alignment.
+                crossAxisAlignment: ResponsiveLayout.isMobile(context)
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
                 children: [
                   if (_currentBootstrapNode != null) ...[
-                    SizedBox(
-                      width: ResponsiveLayout.isMobile(context)
-                          ? double.infinity
-                          : null,
-                      child: Container(
+                    _fillOnDesktop(
+                      context,
+                      Container(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         decoration: BoxDecoration(
                           color: secondaryColor.withValues(alpha: 0.08),
@@ -640,9 +653,15 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                     fontFamily: 'monospace',
                                   ),
                             ),
-                            if (_currentBootstrapNode!.pubkey.length > 20)
+                            if (_currentBootstrapNode!.pubkey.isNotEmpty)
+                              // Show the full node public key — the card now
+                              // spans the row, so the whole key fits on desktop;
+                              // ellipsis only kicks in on a genuinely narrow
+                              // (phone) width instead of always clipping to 20.
                               Text(
-                                '${_currentBootstrapNode!.pubkey.substring(0, 20)}...',
+                                _currentBootstrapNode!.pubkey,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(
                                       color: secondaryTextColor,
@@ -692,75 +711,95 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                         ? AppSpacing.verticalSm
                         : AppSpacing.horizontalSm,
                   ],
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: [
-                      if (_currentBootstrapNode != null)
-                        OutlinedButton.icon(
-                          icon: _testingCurrentNode
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.speed, size: 18),
-                          label: Text(l10n.testNode),
-                          onPressed: !_testingCurrentNode
-                              ? _testCurrentNode
-                              : null,
-                        ),
-                      if (_bootstrapNodeMode == 'auto') ...[
+                  Builder(
+                    builder: (context) {
+                      final actions = <Widget>[
                         if (_currentBootstrapNode != null)
-                          AppSpacing.verticalSm,
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.network_check, size: 18),
-                          label: Text(l10n.routeSelection),
-                          onPressed: () async {
-                            await Navigator.of(context).push(
-                              AppPageRoute<void>(
-                                page: BootstrapNodesPage(
-                                  service: widget.service,
-                                  onNodeSelected: () async {
-                                    if (mounted) {
-                                      await _loadCurrentBootstrapNode();
-                                    }
-                                  },
+                          OutlinedButton.icon(
+                            icon: _testingCurrentNode
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.speed, size: 18),
+                            label: Text(l10n.testNode),
+                            onPressed: !_testingCurrentNode
+                                ? _testCurrentNode
+                                : null,
+                          ),
+                        if (_bootstrapNodeMode == 'auto') ...[
+                          if (_currentBootstrapNode != null)
+                            AppSpacing.verticalSm,
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.network_check, size: 18),
+                            label: Text(l10n.routeSelection),
+                            onPressed: () async {
+                              await Navigator.of(context).push(
+                                AppPageRoute<void>(
+                                  page: BootstrapNodesPage(
+                                    service: widget.service,
+                                    onNodeSelected: () async {
+                                      if (mounted) {
+                                        await _loadCurrentBootstrapNode();
+                                      }
+                                    },
+                                  ),
                                 ),
+                              );
+                              await Future.delayed(
+                                const Duration(milliseconds: 200),
+                              );
+                              if (mounted) {
+                                await _loadCurrentBootstrapNode();
+                                setState(() {});
+                              }
+                            },
+                          ),
+                        ],
+                        if (_bootstrapNodeMode == 'manual') ...[
+                          AppSpacing.verticalSm,
+                          OutlinedButton.icon(
+                            key: UiKeys.manualNodeInputButton,
+                            icon: Icon(
+                              _manualInputExpanded
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              size: 18,
+                            ),
+                            label: Text(l10n.manualNodeInput),
+                            onPressed: () {
+                              setState(
+                                () => _manualInputExpanded =
+                                    !_manualInputExpanded,
+                              );
+                            },
+                          ),
+                        ],
+                      ];
+                      // Desktop/tablet: stack the node action buttons
+                      // vertically (equal width) on the trailing edge of the
+                      // row. Phone: wrap horizontally under the node card.
+                      return ResponsiveLayout.isMobile(context)
+                          ? Wrap(
+                              spacing: AppSpacing.sm,
+                              runSpacing: AppSpacing.sm,
+                              children: actions,
+                            )
+                          // IntrinsicWidth gives the Column a bounded width (the
+                          // widest button) so `stretch` yields equal-width
+                          // buttons instead of forcing an infinite width in the
+                          // unbounded horizontal Flex.
+                          : IntrinsicWidth(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: actions,
                               ),
                             );
-                            await Future.delayed(
-                              const Duration(milliseconds: 200),
-                            );
-                            if (mounted) {
-                              await _loadCurrentBootstrapNode();
-                              setState(() {});
-                            }
-                          },
-                        ),
-                      ],
-                      if (_bootstrapNodeMode == 'manual') ...[
-                        AppSpacing.verticalSm,
-                        OutlinedButton.icon(
-                          key: UiKeys.manualNodeInputButton,
-                          icon: Icon(
-                            _manualInputExpanded
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            size: 18,
-                          ),
-                          label: Text(l10n.manualNodeInput),
-                          onPressed: () {
-                            setState(
-                              () =>
-                                  _manualInputExpanded = !_manualInputExpanded,
-                            );
-                          },
-                        ),
-                      ],
-                    ],
+                    },
                   ),
                 ],
               ),

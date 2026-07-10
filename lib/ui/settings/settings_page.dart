@@ -1274,6 +1274,25 @@ class _SettingsPageState extends State<SettingsPage> {
             GlobalSettingsSection(
               colorTheme: colorTheme,
               toxId: widget.service.accountKey,
+              view: GlobalSettingsView.appearance,
+              onDownloadsConfigChanged: () {
+                AppLogger.debug('[Settings] downloads config changed');
+              },
+            ),
+          ),
+        ),
+        // "General" holds notification sound, downloads directory, and
+        // auto-download size limit — moved off the Appearance page (which now
+        // only carries theme + language) so each page stays focused on mobile.
+        sectionTile(
+          icon: Icons.tune,
+          title: appL10n.general,
+          onTap: () => _pushMobileSettingsSection(
+            appL10n.general,
+            GlobalSettingsSection(
+              colorTheme: colorTheme,
+              toxId: widget.service.accountKey,
+              view: GlobalSettingsView.general,
               onDownloadsConfigChanged: () {
                 AppLogger.debug('[Settings] downloads config changed');
               },

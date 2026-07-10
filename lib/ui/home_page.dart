@@ -39,6 +39,8 @@ import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
     as conv_pkg;
 import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conversation_item.dart';
+import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conversation_app_bar.dart'
+    show TencentCloudChatConversationAppBarName;
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message.dart'
     as msg_pkg;
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/tencent_cloud_chat_message_input.dart';
@@ -48,6 +50,8 @@ import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart'
     as contact_pkg;
 import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_item.dart';
+import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_app_bar.dart'
+    show TencentCloudChatContactAppBarName;
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_group_list.dart';
 import 'contact/contact_builder_override.dart';
 import 'contact/contact_application_item_content_override.dart';
@@ -338,6 +342,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // - History queries to use Platform interface (Tim2ToxSdkPlatform -> FfiChatService -> MessageHistoryPersistence)
     // This ensures history messages are loaded from persistence service instead of returning empty list from C++ layer
 
+    // Chats-tab "+" affordance: install the Tox-aware NewEntryButton hook
+    // synchronously here (before the first build) so the conversation app bar
+    // never renders UIKit's built-in "New Chat / Create Group Chat" menu (which
+    // routes to blank Tox pickers). _initAfterSessionReady re-applies it for the
+    // restored-account path, but that runs after the app bar has already built
+    // with no rebuild to pick up a late static-hook assignment.
+    // Capture this HomePage's hook in a stable instance so dispose can clear
+    // it ONLY if it's still ours (ownership guard). On account-switch/re-login
+    // the app swaps HomePages via pushReplacement/pushAndRemoveUntil: the NEXT
+    // page installs its hook in initState BEFORE this one disposes, so an
+    // unconditional clear would null the new page's builder and revert the
+    // chats-tab "+" to UIKit's default "New Chat / Create Group Chat" menu.
+    // Bound to a variable (not a local function declaration) so both the
+    // install and the dispose-time `identical` guard reference the exact same
+    // closure instance.
+    // ignore: prefer_function_declarations_over_variables
+    final Widget Function(BuildContext) newEntryHook = (context) =>
+        NewEntryButton(
+          onAddFriend: _showAddFriendDialog,
+          onCreateGroup: _showAddGroupDialog,
+          onJoinIrcChannel: _showJoinIrcChannelDialog,
+          canJoinIrc: () => IrcAppManager().isInstalled,
+        );
+    // Install the SAME Tox-aware NewEntryButton on both the Chats-tab
+    // conversation app bar and the Contacts-tab app bar so the two "+" menus are
+    // identical (Add Contact / Create Group Chat / Join IRC) and neither falls
+    // back to a UIKit native menu/panel. The Contacts hook is the robust
+    // fallback for whenever the `contactAppBarNameBuilder` override is unset.
+    TencentCloudChatConversationAppBarName.trailingBuilder = newEntryHook;
+    TencentCloudChatContactAppBarName.trailingBuilder = newEntryHook;
+    _bag.add(() {
+      if (identical(
+          TencentCloudChatConversationAppBarName.trailingBuilder, newEntryHook)) {
+        TencentCloudChatConversationAppBarName.trailingBuilder = null;
+      }
+      if (identical(
+          TencentCloudChatContactAppBarName.trailingBuilder, newEntryHook)) {
+        TencentCloudChatContactAppBarName.trailingBuilder = null;
+      }
+    });
     // Session runtime (FakeUIKit, platform, CallServiceManager) via coordinator.
     unawaited(_initAfterSessionReady());
     // React to locale changes once, instead of scheduling a post-frame
@@ -850,12 +894,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }) {
     final appL10n = AppLocalizations.of(context)!;
     final fileLabel = appL10n.file;
-    final photoLabel = appL10n.photo;
-    final videoLabel = appL10n.video;
     final personalCardLabel = appL10n.personalCard;
     final personalCardGroupLabel = appL10n.sendPersonalCardToGroup;
     final sentSnack = appL10n.personalCardSent;
     final sentGroupSnack = appL10n.sentPersonalCardToGroup;
+    // toxee: desktop composer merges File / Photo / Video into a single "file"
+    // button. `_sendMedia(type: file)` opens the OS picker with FileType.any, so
+    // it already sends images, videos and every other file type — the separate
+    // photo/video buttons were removed to declutter the desktop toolbar. Mobile
+    // keeps its own photo/video attachment options (see home_page_bootstrap).
     final options = <TencentCloudChatMessageGeneralOptionItem>[
       TencentCloudChatMessageGeneralOptionItem(
         icon: Icons.attach_file,
@@ -866,30 +913,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             userId: userID,
             groupId: groupID,
             type: _MediaPickType.file,
-          );
-        },
-      ),
-      TencentCloudChatMessageGeneralOptionItem(
-        icon: Icons.photo_outlined,
-        label: photoLabel,
-        onTap: ({Offset? offset}) async {
-          await _sendMedia(
-            context,
-            userId: userID,
-            groupId: groupID,
-            type: _MediaPickType.image,
-          );
-        },
-      ),
-      TencentCloudChatMessageGeneralOptionItem(
-        icon: Icons.videocam_outlined,
-        label: videoLabel,
-        onTap: ({Offset? offset}) async {
-          await _sendMedia(
-            context,
-            userId: userID,
-            groupId: groupID,
-            type: _MediaPickType.video,
           );
         },
       ),
@@ -2006,43 +2029,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _handleGroupChanged(String groupId, {String? displayName}) =>
       _groupController.handleGroupChanged(groupId, displayName: displayName);
 
-  /// Dialog inset on narrow phones — Flutter's default symmetric(40, 24)
-  /// leaves only ~240pt of usable width on a 320pt iPhone SE, which
-  /// crowds the form. We tighten the horizontal inset on viewports below
-  /// 400pt so the dialog can use the full responsive cap defined inside
-  /// the dialog body (clamp 280-480/560).
-  EdgeInsets _dialogInset(BuildContext ctx) {
-    final w = MediaQuery.sizeOf(ctx).width;
-    return w < 400
-        ? const EdgeInsets.symmetric(horizontal: 16, vertical: 24)
-        : const EdgeInsets.symmetric(horizontal: 40, vertical: 24);
-  }
-
   Future<void> _showAddFriendDialog() async {
+    // AddFriendDialog builds its own AppDialog (a Dialog with title bar +
+    // responsive inset/maxWidth). Do NOT wrap it in another Dialog — that
+    // nests two Dialogs and the outer surface shows as an empty background
+    // frame around the inner card (seen on iPad).
     await showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: _dialogInset(ctx),
-        child: AddFriendDialog(
-          service: widget.service,
-          onShowSnackBar: _showSnackBar,
-        ),
+      builder: (ctx) => AddFriendDialog(
+        service: widget.service,
+        onShowSnackBar: _showSnackBar,
       ),
     );
   }
 
   Future<void> _showAddGroupDialog() async {
+    // See _showAddFriendDialog: AddGroupDialog is itself an AppDialog, so it
+    // is presented directly (no outer Dialog wrapper).
     await showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: _dialogInset(ctx),
-        child: AddGroupDialog(
-          service: widget.service,
-          onGroupChanged: (gid, {String? displayName}) async {
-            await _handleGroupChanged(gid, displayName: displayName);
-          },
-          onShowSnackBar: _showSnackBar,
-        ),
+      builder: (ctx) => AddGroupDialog(
+        service: widget.service,
+        onGroupChanged: (gid, {String? displayName}) async {
+          await _handleGroupChanged(gid, displayName: displayName);
+        },
+        onShowSnackBar: _showSnackBar,
       ),
     );
   }

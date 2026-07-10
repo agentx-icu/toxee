@@ -96,6 +96,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get appearance => '外観';
 
   @override
+  String get general => '一般';
+
+  @override
   String get light => 'ライト';
 
   @override

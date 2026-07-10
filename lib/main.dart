@@ -277,10 +277,29 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
 
   void _syncUIKitThemeBrightness() {
     final mode = AppTheme.mode.value;
-    final brightness = mode == ThemeMode.dark
-        ? Brightness.dark
-        : Brightness.light;
-    TencentCloudChatTheme.init(brightness: brightness);
+    // For ThemeMode.system, resolve against the actual OS brightness — the old
+    // code always fell back to light, so a system-dark device showed the Material
+    // dark theme but a light UIKit colorTheme (mismatched app-bar / list rows).
+    final isDark =
+        mode == ThemeMode.dark ||
+        (mode == ThemeMode.system &&
+            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.dark);
+    TencentCloudChatTheme.init(
+      brightness: isDark ? Brightness.dark : Brightness.light,
+    );
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    super.didChangePlatformBrightness();
+    // ThemeMode.system follows the OS setting: when the OS flips light/dark the
+    // Material app rebuilds automatically, but the UIKit colorTheme singleton
+    // must be re-synced (and its change event fired) or half the surfaces keep
+    // the old brightness.
+    if (AppTheme.mode.value == ThemeMode.system) {
+      _syncUIKitThemeBrightness();
+    }
   }
 
   /// Flips whatever brightness is currently *visible* to its opposite, picking

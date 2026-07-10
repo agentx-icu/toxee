@@ -96,6 +96,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appearance => '外观';
 
   @override
+  String get general => '通用';
+
+  @override
   String get light => '浅色';
 
   @override
@@ -1675,6 +1678,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get appearance => '外观';
 
   @override
+  String get general => '通用';
+
+  @override
   String get light => '浅色';
 
   @override
@@ -3005,6 +3011,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get appearance => '外觀';
+
+  @override
+  String get general => '通用';
 
   @override
   String get light => '淺色';

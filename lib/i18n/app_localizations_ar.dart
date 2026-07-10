@@ -97,6 +97,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get appearance => 'المظهر';
 
   @override
+  String get general => 'عام';
+
+  @override
   String get light => 'فاتح';
 
   @override

@@ -11,10 +11,17 @@ class NewEntryButton extends StatefulWidget {
     required this.onAddFriend,
     required this.onCreateGroup,
     this.onJoinIrcChannel,
+    this.canJoinIrc,
   });
   final Future<void> Function() onAddFriend;
   final Future<void> Function() onCreateGroup;
   final Future<void> Function()? onJoinIrcChannel;
+
+  /// Evaluated at menu-open time to decide whether the "Join IRC Channel" entry
+  /// is shown — lets the item disappear the moment the IRC app is uninstalled,
+  /// without needing this widget (inside the UIKit app bar) to rebuild. When
+  /// null the entry follows [onJoinIrcChannel] alone.
+  final bool Function()? canJoinIrc;
 
   @override
   State<NewEntryButton> createState() => _NewEntryButtonState();
@@ -59,13 +66,20 @@ class _NewEntryButtonState extends State<NewEntryButton> {
       // pill visually disappear behind the menu the moment it opened, and
       // looked like the button "ate itself" (see sc_01.png).
       position: PopupMenuPosition.under,
-      // Hover/long-press tooltip — surfaced on desktop hover and assistive
-      // tech. AppLocalizations key is authoritative; falls back to UIKit's
-      // newChat string when AppLocalizations isn't ready yet.
+      // Zero padding: PopupMenuButton defaults to EdgeInsets.all(8), which
+      // inflates our 40×40 circular child to a 56×56 footprint. On the mobile
+      // contacts app bar (a fixed 120pt toolbar hosting title-row + gap +
+      // search) that extra 16pt pushed the column past its budget and produced
+      // a RenderFlex overflow ("garbled" header). The circle already has its
+      // own hit area via the InkWell.
+      padding: EdgeInsets.zero,
+      // Hover/long-press tooltip (also the mobile long-press label) — the
+      // short localized "New" from UIKit intl (zh 新建 / etc.) rather than the
+      // longer "New conversation", per the requested shorter label.
       tooltip:
-          AppLocalizations.of(context)?.newConversationTooltip ??
           tL10n?.newChat ??
-          'New conversation',
+          AppLocalizations.of(context)?.newConversationTooltip ??
+          'New',
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         side: BorderSide(color: theme.colorScheme.outlineVariant),
@@ -86,7 +100,8 @@ class _NewEntryButtonState extends State<NewEntryButton> {
           label: tL10n?.createGroupChat ?? 'Create Group',
           key: UiKeys.newEntryCreateGroupItem,
         ),
-        if (widget.onJoinIrcChannel != null)
+        if (widget.onJoinIrcChannel != null &&
+            (widget.canJoinIrc?.call() ?? true))
           _menuItem(
             context: context,
             value: 'irc',
@@ -109,85 +124,41 @@ class _NewEntryButtonState extends State<NewEntryButton> {
       // raced with PopupMenuButton's own tap detector — two gesture owners
       // on the same surface. Visual treatment (outlined pill, primary
       // border, icon+label) is preserved.
+      // Subtle circular "+" icon button (reference: Feishu compose entry).
+      // The old prominent gradient "New Chat ▾" pill read as too heavy for a
+      // secondary header action; a quiet outlined icon keeps the affordance
+      // without dominating the toolbar. The dropdown menu is unchanged.
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: Material(
           color: Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
+          shape: const CircleBorder(),
           child: InkWell(
             key: UiKeys.newEntryMenuButton,
-            borderRadius: BorderRadius.circular(14),
+            customBorder: const CircleBorder(),
             onTap: () => _menuKey.currentState?.showButtonMenu(),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
-              constraints: const BoxConstraints(minHeight: 48),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary.withValues(
-                      alpha: _hovered ? 0.2 : 0.14,
-                    ),
-                    theme.colorScheme.primary.withValues(
-                      alpha: _hovered ? 0.11 : 0.07,
-                    ),
-                  ],
-                ),
+                shape: BoxShape.circle,
+                color: _hovered
+                    ? theme.colorScheme.onSurface.withValues(alpha: 0.06)
+                    : Colors.transparent,
                 border: Border.all(
-                  color: theme.colorScheme.primary.withValues(
-                    alpha: _hovered ? 0.5 : 0.32,
-                  ),
+                  color: _hovered
+                      ? theme.colorScheme.outline
+                      : theme.colorScheme.outlineVariant,
                 ),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: _hovered ? 0.14 : 0.08,
-                    ),
-                    blurRadius: _hovered ? 20 : 14,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      borderRadius: BorderRadius.circular(
-                        AppThemeConfig.buttonBorderRadius,
-                      ),
-                    ),
-                    child: Icon(
-                      Icons.add_rounded,
-                      size: 18,
-                      color: theme.colorScheme.onPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    tL10n?.newChat ?? 'New',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.expand_more_rounded,
-                    size: 18,
-                    color: theme.colorScheme.primary.withValues(alpha: 0.82),
-                  ),
-                  const SizedBox(width: 6),
-                ],
+              child: Icon(
+                Icons.add,
+                size: 22,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
