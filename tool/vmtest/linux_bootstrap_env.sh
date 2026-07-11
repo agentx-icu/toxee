@@ -17,7 +17,10 @@ log() { echo "[linux-bootstrap] $*"; }
 
 log "apt deps..."
 sudo apt-get update -qq || log "WARN: apt update failed (continuing)"
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+# NEEDRESTART_MODE=a: Ubuntu desktop's needrestart post-install hook is
+# INTERACTIVE by default and silently hangs a non-TTY apt run waiting for a
+# service-restart choice (DEBIAN_FRONTEND only covers debconf, not needrestart).
+sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 apt-get install -y -qq \
   curl ca-certificates xz-utils jq git unzip zip cmake ninja-build pkg-config \
   build-essential clang libgtk-3-dev libsecret-1-dev libsodium-dev libopus-dev \
   libvpx-dev patchelf xvfb liblzma-dev mesa-utils >/dev/null
