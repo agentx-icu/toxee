@@ -1746,6 +1746,43 @@ MCPCallEntry _l3RegisterAccountEntry() => MCPCallEntry.tool(
           },
         );
       }
+      // IDEMPOTENT BY NICKNAME: a previous (possibly interrupted) register of
+      // the same test persona leaves the account on disk WITHOUT an armed
+      // auto-login, and a rerun then threw "already exists" — dead-ending the
+      // fresh-VM L3 preflight. This seam's contract is "ensure a ready test
+      // session named <nickname>", so an existing same-nickname account is
+      // BOOTED (the l3_boot_existing_account flow) instead of re-registered.
+      final accounts = await Prefs.getAccountList();
+      final existingAccount = accounts.firstWhere(
+        (a) => (a['nickname'] ?? '') == nickname,
+        orElse: () => const <String, String>{},
+      );
+      final existingToxId = existingAccount['toxId'] ?? '';
+      if (existingToxId.isNotEmpty) {
+        await Prefs.addL3SeedToxId(existingToxId);
+        final service = await AccountService.initializeServiceForAccount(
+          toxId: existingToxId,
+          nickname: nickname,
+          statusMessage: statusMessage,
+          password: password.isEmpty ? null : password,
+          startPolling: false,
+        );
+        await AppBootstrapCoordinator.boot(service);
+        await navigateToHomeIfPossible(service);
+        AppLogger.info(
+          '[L3] l3_register_account: booted EXISTING $nickname '
+          'toxId=$existingToxId (idempotent reuse, seed-marker recorded)',
+        );
+        return MCPCallResult(
+          message: 'existing account booted (idempotent reuse)',
+          parameters: {
+            'ok': true,
+            'nickname': nickname,
+            'toxId': existingToxId,
+            'reused': true,
+          },
+        );
+      }
       final result = await AccountService.registerNewAccount(
         nickname: nickname,
         statusMessage: statusMessage,
