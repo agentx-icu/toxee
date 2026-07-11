@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'app_theme_config.dart';
+import 'logger.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -23,21 +24,43 @@ class AppTray with TrayListener {
 
   bool get isSupported => !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
 
+  bool _trayCallWarned = false;
+
+  /// Run one optional tray call, tolerating per-platform gaps: tray_manager's
+  /// Linux backend implements no setToolTip (MissingPluginException), and an
+  /// uncaught throw here previously aborted AppBootstrap.initialize BEFORE
+  /// runApp — leaving a running Tox session behind a permanently blank,
+  /// element-less window. The tray is cosmetic; it must never take the app
+  /// down. Warn once (update() runs on every unread-count change).
+  Future<void> _safeTrayCall(String label, Future<void> Function() op) async {
+    try {
+      await op();
+    } catch (e) {
+      if (!_trayCallWarned) {
+        _trayCallWarned = true;
+        AppLogger.info('[Tray] $label unavailable on this platform '
+            '(continuing without it): $e');
+      }
+    }
+  }
+
   Future<void> init() async {
     if (_initialized || !isSupported) return;
     _initialized = true;
+    // A tray-less desktop session — headless Linux (no X StatusNotifier / SNI
+    // host) or any WM without a system-tray host — throws
+    // MissingPluginException on the first tray_manager call. The tray is a
+    // non-essential nicety; NEVER let its absence abort app startup (an
+    // uncaught throw otherwise halts the desktop-shell bootstrap before the
+    // first frame). This whole-init guard fully DISABLES the tray on a hard
+    // failure (rolls back the flag + listener so later update() calls no-op);
+    // the finer-grained _safeTrayCall in update() additionally tolerates a
+    // per-call gap on a tray that otherwise works.
     try {
       trayManager.addListener(this);
-      await trayManager.setToolTip('Toxee');
+      await _safeTrayCall('setToolTip', () => trayManager.setToolTip('Toxee'));
       await update(count: 0, online: false);
     } catch (e, st) {
-      // A tray-less desktop session — a headless Linux (no X StatusNotifier /
-      // SNI host), or any Linux WM without a system-tray host — throws
-      // MissingPluginException on the first tray_manager call. The tray is a
-      // non-essential nicety; NEVER let its absence abort app startup (its
-      // uncaught exception otherwise halts the desktop-shell bootstrap before the
-      // first frame). Roll back the listener + init flag so later update() calls
-      // no-op cleanly, and carry on without a tray.
       _initialized = false;
       try {
         trayManager.removeListener(this);
@@ -63,17 +86,17 @@ class AppTray with TrayListener {
     if (Platform.isMacOS) {
       // macOS: Use native title for number display (normal size)
       final bytes = await _buildIconOnlyBytes(online);
-      await _setTrayIcon(bytes);
+      await _safeTrayCall('setIcon', () => _setTrayIcon(bytes));
       final title = normalized > 0 ? (normalized > 99 ? '99+' : '$normalized') : '';
-      await trayManager.setTitle(title);
+      await _safeTrayCall('setTitle', () => trayManager.setTitle(title));
     } else {
       // Windows/Linux: Draw number in icon image
       final bytes = await _buildTrayIconBytes(normalized, online);
-      await _setTrayIcon(bytes);
+      await _safeTrayCall('setIcon', () => _setTrayIcon(bytes));
     }
-    
+
     final tooltip = normalized > 0 ? 'Unread: $normalized' : 'Toxee';
-    await trayManager.setToolTip(tooltip);
+    await _safeTrayCall('setToolTip', () => trayManager.setToolTip(tooltip));
     _lastCount = normalized;
     _lastOnline = online;
   }
