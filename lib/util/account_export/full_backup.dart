@@ -38,6 +38,15 @@ const int _kBackupFormatVersion = 1;
 /// - `avatars/` (per-account avatars)
 /// - `metadata.json` (scoped prefs: pinned, muted, groups, friend metadata, etc.)
 ///
+/// Archive-internal relative path (entry names and `@account_data/` metadata
+/// values): ALWAYS '/'-separated regardless of host OS. `p.relative` returns
+/// '\'-separated paths on Windows, and the import side
+/// (safeBackupRestorePath) rightly REJECTS backslashes as unsafe — so a
+/// Windows-exported backup would silently drop its nested chat history /
+/// avatar entries on restore. Portability is the whole point of the format.
+String _archiveRelative(String absPath, {required String from}) =>
+    p.url.joinAll(p.split(p.relative(absPath, from: from)));
+
 /// Returns the path to the exported .zip file.
 Future<String> exportFullBackup({
   required String toxId,
@@ -70,7 +79,8 @@ Future<String> exportFullBackup({
     if (await historyDirectory.exists()) {
       await for (final entity in historyDirectory.list(recursive: true)) {
         if (entity is File) {
-          final relativePath = p.relative(entity.path, from: historyDir);
+          final relativePath =
+              _archiveRelative(entity.path, from: historyDir);
           final data = await entity.readAsBytes();
           archive.addFile(
               ArchiveFile('chat_history/$relativePath', data.length, data));
@@ -102,7 +112,8 @@ Future<String> exportFullBackup({
     if (await avatarsDirectory.exists()) {
       await for (final entity in avatarsDirectory.list(recursive: true)) {
         if (entity is File) {
-          final relativePath = p.relative(entity.path, from: avatarsDir);
+          final relativePath =
+              _archiveRelative(entity.path, from: avatarsDir);
           final data = await entity.readAsBytes();
           archive
               .addFile(ArchiveFile('avatars/$relativePath', data.length, data));
@@ -156,7 +167,7 @@ Future<String> exportFullBackup({
         if (absPath.startsWith(accountDataRoot)) {
           // Path is under per-account data root — convert directly
           scopedPrefs[key] =
-              '@account_data/${p.relative(absPath, from: accountDataRoot)}';
+              '@account_data/${_archiveRelative(absPath, from: accountDataRoot)}';
         } else {
           // Path may be in the global avatars dir or elsewhere.
           // If the same filename exists in per-account avatars dir, normalize it.
