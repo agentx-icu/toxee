@@ -187,7 +187,9 @@ try {
     & dart run tool/mcp_test/drive_l3_register.dart $wsUri echo_live_test --seed-echo
     if ($LASTEXITCODE -ne 0) { Warn "L3 register/seed step failed - the session preflight will likely fail." }
     Info "Running hermetic L3 partition (--class=l3-gate)..."
-    $l3Args = @("run", "tool/mcp_test/run_l3_scenarios.dart", $wsUri, "--class=l3-gate")
+    # --skip=L3-self-id: bound to the on-disk echo_seeded fixture account's
+    # exact toxId; a register-seeded fresh host can never satisfy it.
+    $l3Args = @("run", "tool/mcp_test/run_l3_scenarios.dart", $wsUri, "--class=l3-gate", "--skip=L3-self-id")
     if ($L3Extra) { $l3Args += $L3Extra }
     & dart @l3Args
     $rc = $LASTEXITCODE

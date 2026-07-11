@@ -223,8 +223,12 @@ if [[ "$RUN_L3" == "true" ]]; then
   fi
   info "Running hermetic L3 partition (--class=l3-gate)..."
   set +e
+  # --skip=L3-self-id: bound to the on-disk echo_seeded fixture account's
+  # exact toxId; a register-seeded fresh host can never satisfy it (see
+  # drive_l3_register.dart header). Explicit SKIP keeps the report honest.
   (cd "$FLUTTER_APP_DIR" && dart run tool/mcp_test/run_l3_scenarios.dart \
-      "$ws_uri" --class=l3-gate "${L3_EXTRA_ARGS[@]+"${L3_EXTRA_ARGS[@]}"}")
+      "$ws_uri" --class=l3-gate --skip=L3-self-id \
+      "${L3_EXTRA_ARGS[@]+"${L3_EXTRA_ARGS[@]}"}")
   l3_rc=$?
   set -e
   info "Tearing down Linux app (pid $FLUTTER_PID)..."

@@ -167,7 +167,7 @@ Future<int> _run(List<String> args) async {
     '--list',
     '--validate-only',
   };
-  const knownValueFlagPrefixes = ['--class=', '--suite=', '--id='];
+  const knownValueFlagPrefixes = ['--class=', '--suite=', '--id=', '--skip='];
   final unknownFlags = args
       .where((a) => a.startsWith('--'))
       .where(
@@ -190,6 +190,13 @@ Future<int> _run(List<String> args) async {
   final classFilter = _multiFlag(args, 'class');
   final suiteFilter = _multiFlag(args, 'suite');
   final idGlob = _singleFlag(args, 'id');
+  // --skip=<id,id>: report the named scenarios as SKIP instead of running
+  // them. For env-class gaps a caller KNOWS about — e.g. L3-self-id asserts
+  // the on-disk echo_seeded fixture account's exact toxId, which a
+  // register-seeded fresh host (drive_l3_register --seed-echo) can never
+  // satisfy — so the run stays honest (explicit SKIP) instead of tallying a
+  // known-impossible FAIL.
+  final skipIds = _multiFlag(args, 'skip');
 
   // Validate the --class values up front (a typo'd class must not silently
   // select nothing). Allowed values are the three derived class names.
@@ -295,6 +302,12 @@ Future<int> _run(List<String> args) async {
   var aborted = false;
   for (final sc in selected) {
     final s = sc.map;
+    final scenarioId = s['id'] as String? ?? '?';
+    if (skipIds.contains(scenarioId)) {
+      results.add(_Result(scenarioId, 'SKIP', 'skipped via --skip'));
+      stdout.writeln('[runner] SKIP $scenarioId (--skip)');
+      continue;
+    }
     if ((s['requiresEchoPeer'] == true) && !echoUp) {
       results.add(
         _Result(
@@ -390,9 +403,16 @@ Future<int> _run(List<String> args) async {
   // skips without --allow-skip → 2 (so CI can't false-green by dropping
   // echo-dependent scenarios); otherwise 0.
   if (fail > 0 || loaded.errors.isNotEmpty) return 1;
-  if (skip > 0 && !allowSkip) {
+  // Caller-REQUESTED skips (--skip=<id>) are already an explicit, visible
+  // decision — only implicit skips (echo-dependent scenarios dropped without
+  // --echo) need the --allow-skip acknowledgement to prevent silent
+  // false-greens.
+  final implicitSkips = results
+      .where((r) => r.status == 'SKIP' && r.detail != 'skipped via --skip')
+      .length;
+  if (implicitSkips > 0 && !allowSkip) {
     stderr.writeln(
-      '[runner] $skip scenario(s) skipped and --allow-skip not '
+      '[runner] $implicitSkips scenario(s) skipped and --allow-skip not '
       'set → exit 2. Pass --echo (and any needed harness) or --allow-skip.',
     );
     return 2;
