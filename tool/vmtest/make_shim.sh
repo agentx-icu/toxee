@@ -28,10 +28,29 @@ link_or_copy() { # $1 = src entry, $2 = dst entry
 }
 
 shopt -s dotglob nullglob
+# Migration: earlier shim versions symlinked lib/ wholesale; it must now be a
+# real dir (flutter gen-l10n rewrites lib/i18n on pub get/build, and the share
+# is read-only for guests).
+[ -L "$DST/lib" ] && rm "$DST/lib"
 for e in "$SRC"/*; do
   n="$(basename "$e")"
   case "$n" in .git|build|.dart_tool|Thumbs.db|.|..) continue ;; esac
-  if [ "$n" = "$PLAT" ] && [ -d "$e" ]; then
+  if [ "$n" = "lib" ] && [ -d "$e" ]; then
+    # lib/: real dir; children symlinked, EXCEPT lib/i18n which gen-l10n
+    # rewrites at pub-get/build time — that subtree is a real local copy (its
+    # content is generated-from-arb and committed, so a copy is safe and the
+    # regen is idempotent).
+    mkdir -p "$DST/lib"
+    for e2 in "$e"/*; do
+      n2="$(basename "$e2")"
+      if [ "$n2" = "i18n" ] && [ -d "$e2" ]; then
+        rm -rf "$DST/lib/i18n"
+        cp -r "$e2" "$DST/lib/i18n"
+      else
+        link_or_copy "$e2" "$DST/lib/$n2"
+      fi
+    done
+  elif [ "$n" = "$PLAT" ] && [ -d "$e" ]; then
     # Platform runner dir: real dir; inner entries linked/copied, except
     # flutter/ (real dir whose generated_* files must be locally writable)
     # and flutter/ephemeral (left absent — the flutter tool creates it and

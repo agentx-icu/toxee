@@ -32,9 +32,33 @@ function Link-OrCopy([string]$srcEntry, [string]$dstEntry) {
   }
 }
 
+# Migration: earlier shim versions symlinked lib\ wholesale; it must now be a
+# real dir (flutter gen-l10n rewrites lib\i18n on pub get/build, and symlinked
+# targets on the share cannot take those writes).
+$libPath = Join-Path $Dst "lib"
+if ((Test-Path -LiteralPath $libPath) -and ((Get-Item -LiteralPath $libPath -Force).LinkType)) {
+  (Get-Item -LiteralPath $libPath -Force).Delete()
+}
+
 foreach ($e in (Get-ChildItem -LiteralPath $Src -Force)) {
   $n = $e.Name
   if ($SkipTop -contains $n) { continue }
+  if ($n -eq "lib" -and $e.PSIsContainer) {
+    # lib\: real dir; children symlinked, EXCEPT lib\i18n which gen-l10n
+    # rewrites at pub-get/build time — real local copy (generated-from-arb and
+    # committed, so a copy is safe and the regen is idempotent).
+    New-Item -ItemType Directory -Force -Path $libPath | Out-Null
+    foreach ($e2 in (Get-ChildItem -LiteralPath $e.FullName -Force)) {
+      if ($e2.Name -eq "i18n" -and $e2.PSIsContainer) {
+        $i18nDst = Join-Path $libPath "i18n"
+        Remove-Item -Recurse -Force $i18nDst -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $e2.FullName -Destination $i18nDst -Recurse -Force
+      } else {
+        Link-OrCopy $e2.FullName (Join-Path $libPath $e2.Name)
+      }
+    }
+    continue
+  }
   if ($n -eq $Platform -and $e.PSIsContainer) {
     # Platform runner dir: real dir; flutter\ real (generated_* written locally),
     # flutter\ephemeral left absent for the flutter tool to create locally.
