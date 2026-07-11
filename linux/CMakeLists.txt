@@ -84,6 +84,12 @@ include(flutter/generated_plugins.cmake)
 # right after the include is sufficient.
 if(TARGET desktop_drop_plugin AND NOT TARGET desktop_drop_for_t_plugin)
   add_library(desktop_drop_for_t_plugin ALIAS desktop_drop_plugin)
+  # Same republish sloppiness for headers: they still live under
+  # include/desktop_drop/, while generated_plugin_registrant.cc includes
+  # <desktop_drop_for_t/desktop_drop_plugin.h>. compat_include/ carries a
+  # forwarding header with the expected path.
+  target_include_directories(${BINARY_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/compat_include")
 endif()
 
 
