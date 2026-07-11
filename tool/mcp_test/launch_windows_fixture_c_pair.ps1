@@ -200,6 +200,19 @@ try {
     Warn "libirc_client.dll not found at $IrcDllSrc - irc_join_channel_loopback_live cannot complete its live JOIN until it is built/bundled (irc_join_channel_real_controls is unaffected)."
   }
 
+  # Same-host TCP-only mode (mirrors launch_fixture_c_pair.sh / the Linux
+  # launcher): two same-host toxee instances cannot reliably exchange live
+  # C2C/NGC traffic over UDP loopback (outbound loopback is black-holed; on
+  # Windows the firewall also blocks inbound), so live message DELIVERY between
+  # the paired instances flakes even though friendship seeds fine. Force both
+  # peers TCP-only and make A a localhost TCP relay (port 3389, which B's
+  # bootstrap already probes) so delivery is deterministic. Opt-in via
+  # TOXEE_PAIR_TCP_ONLY=1 (the unified runner sets it for the desktop VM
+  # platforms). Empty when not opted in → identical to the previous default.
+  $TcpOnly = ($env:TOXEE_PAIR_TCP_ONLY -eq "1") -or ($env:TOXEE_PAIR_TCP_ONLY -eq "true")
+  $TcpRelayPort = if ($env:TOXEE_PAIR_TCP_RELAY_PORT) { $env:TOXEE_PAIR_TCP_RELAY_PORT } else { "3389" }
+  if ($TcpOnly) { Info "TCP-only same-host mode ON (A relay port $TcpRelayPort)" }
+
   function Start-ToxeeInstance([string]$name, [int]$vmPort) {
     $instDir   = Join-Path $RuntimeRoot $name
     # A restored launch points the instance at the restored fixture tree so
@@ -229,6 +242,14 @@ try {
     $env:TOXEE_SHARED_PREFS_PREFIX = "toxee_$($name.ToLower())."
     $env:TOXEE_LOG_DIR             = $instDir
     $env:TOXEE_TCCF_GLOBAL_SUBDIR  = "multi_instance/$name/tccfglobal"
+    # A becomes the localhost TCP relay; both peers forced TCP-only. Clear the
+    # relay var on B (PowerShell env vars persist across the two calls).
+    if ($TcpOnly) {
+      $env:TOX_FORCE_TCP_ONLY = "1"
+      if ($name -eq "A") { $env:TOX_TCP_RELAY_PORT = $TcpRelayPort } else { Remove-Item Env:\TOX_TCP_RELAY_PORT -ErrorAction SilentlyContinue }
+    } else {
+      Remove-Item Env:\TOX_FORCE_TCP_ONLY, Env:\TOX_TCP_RELAY_PORT -ErrorAction SilentlyContinue
+    }
 
     $proc = Start-Process -FilePath (Join-Path $debugDir "toxee.exe") `
               -RedirectStandardOutput $stdio -RedirectStandardError $stdioErr `

@@ -2554,6 +2554,17 @@ Future<int> _launchRealUiPair({String? restore}) async {
     // `adb reverse` it on both devices before the driver binds the server.
     if (cfg.ircLoopbackPort != null)
       'TOXEE_IRC_LOOPBACK_PORT': cfg.ircLoopbackPort!,
+    // Desktop VM platforms (Windows/Linux): two same-host instances cannot
+    // reliably deliver live C2C/NGC traffic over UDP loopback (outbound
+    // loopback black-holed; Windows firewall blocks inbound), so live message
+    // delivery flakes even after friendship seeds. TCP-only (A as localhost
+    // relay, both forced TCP) makes delivery deterministic — the same lever
+    // the macOS NGC reuse group uses, applied to ALL cross-process delivery
+    // here because these hosts' loopback is more constrained than macOS's.
+    // Respect an explicit caller override if already set.
+    if ((_realUiPlatform == 'windows' || _realUiPlatform == 'linux') &&
+        !Platform.environment.containsKey('TOXEE_PAIR_TCP_ONLY'))
+      'TOXEE_PAIR_TCP_ONLY': '1',
   };
   final rc = await _runProcess(
     _realUiScriptExecCommand(cfg.launchScript),
