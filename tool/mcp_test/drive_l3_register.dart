@@ -116,7 +116,17 @@ Future<int> main(List<String> args) async {
     );
 
     // Already on a usable account? (idempotent — don't stack registrations.)
-    final pre = await call('ext.mcp.toolkit.l3_dump_state', const {});
+    // A fresh launch on a previously-seeded state dir AUTO-LOGS-IN: an eager
+    // single probe reported sessionReady=false mid-boot, we then registered
+    // and collided with the existing nickname. Give auto-login a settle
+    // window before deciding the state really has no account.
+    Map<String, dynamic> pre = const {};
+    final preDeadline = DateTime.now().add(const Duration(seconds: 45));
+    while (DateTime.now().isBefore(preDeadline)) {
+      pre = await call('ext.mcp.toolkit.l3_dump_state', const {});
+      if (pre['sessionReady'] == true) break;
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
     if (pre['sessionReady'] == true &&
         (pre['currentAccountToxId']?.toString().isNotEmpty ?? false)) {
       print(
@@ -131,10 +141,29 @@ Future<int> main(List<String> args) async {
       'nickname': nickname,
     });
     if (reg['ok'] != true) {
+      final detail = '${reg['detail'] ?? ''}';
       print(
         '[l3-register] l3_register_account failed: ${reg['error'] ?? reg}'
-        '${reg['detail'] != null ? ' — ${reg['detail']}' : ''}',
+        '${detail.isNotEmpty ? ' — $detail' : ''}',
       );
+      if (detail.contains('already exists')) {
+        // Racing an in-flight auto-login of the account we would have
+        // created: fall through to the sessionReady wait instead of failing.
+        print('[l3-register] account exists — waiting for auto-login instead');
+        final d2 = DateTime.now().add(const Duration(seconds: 90));
+        while (DateTime.now().isBefore(d2)) {
+          final s = await call('ext.mcp.toolkit.l3_dump_state', const {});
+          if (s['sessionReady'] == true) {
+            print(
+              '[l3-register] OK sessionReady (existing account '
+              '${s['currentAccountToxId']})',
+            );
+            return await finishSetup();
+          }
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+        print('[l3-register] timed out waiting for existing-account login');
+      }
       return 1;
     }
 
