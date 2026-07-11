@@ -195,6 +195,16 @@ info "App pid (flutter run): $FLUTTER_PID  ->  $PID_FILE"
 # ----- Optionally run the hermetic L3 partition + tear down ----------
 if [[ "$RUN_L3" == "true" ]]; then
   echo ""
+  # Fresh-state hosts (new VM / CI box) have no seeded account at all, so the
+  # session preflight (L3-session-settings asserts the seeded echo
+  # conversation) fails before any gate runs. The register driver is
+  # idempotent — it skips registration when the session is already ready and
+  # only tops up the echo seed when missing.
+  info "Ensuring L3 seed account + echo conversation (idempotent)..."
+  if ! (cd "$FLUTTER_APP_DIR" && dart run tool/mcp_test/drive_l3_register.dart \
+      "$ws_uri" echo_live_test --seed-echo); then
+    warn "L3 register/seed step failed — the session preflight will likely fail."
+  fi
   info "Running hermetic L3 partition (--class=l3-gate)..."
   set +e
   (cd "$FLUTTER_APP_DIR" && dart run tool/mcp_test/run_l3_scenarios.dart \

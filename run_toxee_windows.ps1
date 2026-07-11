@@ -180,6 +180,12 @@ try {
 
   if ($RunL3) {
     Write-Host ""
+    # Fresh-state hosts have no seeded account, so the session preflight
+    # (seeded echo conversation) fails before any gate runs. The register
+    # driver is idempotent (skips when the session is already ready).
+    Info "Ensuring L3 seed account + echo conversation (idempotent)..."
+    & dart run tool/mcp_test/drive_l3_register.dart $wsUri echo_live_test --seed-echo
+    if ($LASTEXITCODE -ne 0) { Warn "L3 register/seed step failed - the session preflight will likely fail." }
     Info "Running hermetic L3 partition (--class=l3-gate)..."
     $l3Args = @("run", "tool/mcp_test/run_l3_scenarios.dart", $wsUri, "--class=l3-gate")
     if ($L3Extra) { $l3Args += $L3Extra }
