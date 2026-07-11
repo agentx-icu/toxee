@@ -619,13 +619,17 @@ Future<bool> sendComposerMessage(
   String text, {
   bool clearFirst = true,
 }) async {
-  // Headless synthetic-input peers (the Windows VM, and a Linux cross-host peer)
-  // have no host osascript, so the macOS osaClear/osaPaste/osaReturn path below is
-  // unreachable — use the deterministic set-text send seam (l3_composer_send with
-  // a `text` param → the fork's real _submitDesktopSend). `inst.isLinux` covers
-  // the cross-host B; no existing run has a Linux real-UI instance.
+  // Windows AND Linux desktop are headless synthetic-input peers (no host
+  // osascript, no coordinate focus): both use the deterministic set-text
+  // composer seam (l3_composer_send with a `text` param → the fork's real
+  // _submitDesktopSend). The macOS osaClear/osaPaste/osaReturn path below is
+  // unreachable for them — and on a Linux Xvfb window the macOS path's
+  // hardcoded composer COORDINATES miss the composer entirely, so the text
+  // never lands and send returns false. `inst.isLinux` is per-instance so it
+  // also covers a cross-host macOS-host + Linux-peer-B pair. Android is
+  // excluded here (it keeps the mobile real-send-button path below).
   if (_isWindowsRealUi || inst.isLinux) {
-    return _sendComposerMessageWindows(inst, text, clearFirst: clearFirst);
+    return _sendComposerMessageHeadlessDesktop(inst, text, clearFirst: clearFirst);
   }
   // iOS Simulator: System Events keystrokes (osaClear/osaPaste/osaReturn) cannot
   // reach the sim, and the mobile composer has a real tappable send button. Type
@@ -684,14 +688,14 @@ Future<bool> sendComposerMessage(
 /// flutter_skill `enterText`, then invoke the REAL composer Enter-send via
 /// `l3_composer_send` (the fork's `_submitDesktopSend` seam — same code path as
 /// pressing Enter). Verifies delivery the same way the macOS path does.
-Future<bool> _sendComposerMessageWindows(
+Future<bool> _sendComposerMessageHeadlessDesktop(
   Inst inst,
   String text, {
   bool clearFirst = true,
 }) async {
   // Set the composer text DIRECTLY via l3_composer_send's `text` param and send
   // in one deterministic step. flutter_skill enterText does not reliably reach
-  // this composer's controller headless on Windows (no coordinate-tap focus is
+  // this composer's controller headless on Windows/Linux (no coordinate-tap focus is
   // available), so the old enterText-then-Enter flow sent EMPTY messages for
   // multi-line / long / emoji text. The set-text path runs the real
   // inputMethods.sendTextMessage send. `clearFirst` is implicit (set-text
