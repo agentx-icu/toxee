@@ -23,7 +23,7 @@ sudo apt-get update -qq || log "WARN: apt update failed (continuing)"
 sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 apt-get install -y -qq \
   curl ca-certificates xz-utils jq git unzip zip cmake ninja-build pkg-config \
   build-essential clang libgtk-3-dev libsecret-1-dev libsodium-dev libopus-dev \
-  libvpx-dev patchelf xvfb liblzma-dev mesa-utils >/dev/null
+  libvpx-dev libssl-dev patchelf xvfb liblzma-dev mesa-utils >/dev/null
 log "apt done (rc=$?)"
 
 if [ -x "$FLUTTER_HOME/bin/flutter" ]; then
