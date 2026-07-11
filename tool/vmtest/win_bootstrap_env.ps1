@@ -39,8 +39,8 @@ if (-not (Test-Path "$VcpkgRoot\vcpkg.exe")) {
 }
 
 if (Test-Path "$VcpkgRoot\vcpkg.exe") {
-  Log "installing libsodium/pthreads/opus/libvpx ($Triplet) - this can take 20-60 min..."
-  & "$VcpkgRoot\vcpkg.exe" install "libsodium:$Triplet" "pthreads:$Triplet" "opus:$Triplet" "libvpx:$Triplet" 2>&1 |
+  Log "installing libsodium/pthreads/opus/libvpx/openssl ($Triplet) - this can take 20-60 min..."
+  & "$VcpkgRoot\vcpkg.exe" install "libsodium:$Triplet" "pthreads:$Triplet" "opus:$Triplet" "libvpx:$Triplet" "openssl:$Triplet" 2>&1 |
     Select-Object -Last 20
   Log "vcpkg install rc=$LASTEXITCODE"
   & "$VcpkgRoot\vcpkg.exe" list 2>&1 | Select-String "sodium|pthread|opus|vpx"

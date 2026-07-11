@@ -120,6 +120,19 @@ EXE="$(find "$REPO_ROOT/build/linux" -type f -path '*/debug/bundle/toxee' 2>/dev
 [[ -n "$EXE" && -x "$EXE" ]] || die "built bundle toxee not found under build/linux (see $RUNTIME_ROOT/build.log)"
 info "Built bundle runner: $EXE"
 
+# Optional native IRC library: the Dart loader resolves libirc_client.so next
+# to the executable (lib/util/irc_app_manager.dart). Built via
+# `tool/ci/build_tim2tox.sh --target linux --with-irc`; without it the
+# irc_join_channel_loopback_live JOIN cannot complete (the pure-Dart
+# irc_join_channel_real_controls scenario is unaffected).
+IRC_SO="$REPO_ROOT/build/native-artifacts/linux/libirc_client.so"
+if [[ -f "$IRC_SO" ]]; then
+    cp -f "$IRC_SO" "$(dirname "$EXE")/"
+    info "Bundled libirc_client.so next to the runner"
+else
+    warn "libirc_client.so not found at $IRC_SO - live IRC JOIN unavailable"
+fi
+
 # ----- Same-host TCP-only mode (mirrors the macOS launcher) -----------------
 A_TCP_ENV=(); B_TCP_ENV=()
 if [[ "${TOXEE_PAIR_TCP_ONLY:-}" == "1" || "${TOXEE_PAIR_TCP_ONLY:-}" == "true" ]]; then

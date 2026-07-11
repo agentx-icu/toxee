@@ -24,6 +24,7 @@ WINDOWS_ARCH="${TIM2TOX_WINDOWS_ARCH:-x64}" # x64|arm64
 # stub calling (lean test tiers).
 ENABLE_TOXAV=1
 ENABLE_DHT_BOOTSTRAP=0
+ENABLE_IRC=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,6 +50,12 @@ while [[ $# -gt 0 ]]; do
       ENABLE_DHT_BOOTSTRAP=1
       shift
       ;;
+    --with-irc)
+      # Desktop targets only: also build + capture libirc_client (the
+      # on-demand IRC application library; see ffi/CMakeLists.txt).
+      ENABLE_IRC=1
+      shift
+      ;;
     --help|-h)
       cat <<'EOF'
 Usage: build_tim2tox.sh --target <linux|windows|macos|android|ios>
@@ -65,6 +72,9 @@ Options:
                     back-compat.)
   --dht-bootstrap   Enable DHT_BOOTSTRAP/BOOTSTRAP_DAEMON (default: off).
                     Required by auto_tests using local bootstrap nodes.
+  --with-irc        Also build + capture libirc_client (desktop targets).
+                    Needs OpenSSL: linux `apt install libssl-dev`,
+                    windows `vcpkg install openssl:<triplet>`, macos brew.
 
 Dependencies when ToxAV is on:
   linux:   apt install libopus-dev libvpx-dev
@@ -573,6 +583,10 @@ build_desktop_target() {
   local lib_pattern=""
   local built_lib=""
 
+  if [[ "$ENABLE_IRC" -eq 1 ]]; then
+    configure_args+=(-DTIM2TOX_BUILD_IRC=ON)
+  fi
+
   bootstrap_tim2tox_submodules
   mkdir -p "$build_dir"
 
@@ -691,6 +705,42 @@ build_desktop_target() {
   [[ -n "$built_lib" ]] || ci_die "Failed to locate $lib_pattern under $build_dir"
   cp "$built_lib" "$OUTPUT_DIR/"
   ci_log "Captured native library: $built_lib"
+
+  if [[ "$ENABLE_IRC" -eq 1 ]]; then
+    ci_log "Building irc_client for $target"
+    cmake --build "$build_dir" --config Release --target irc_client --parallel "$(ci_cpu_count)"
+    local irc_pattern="libirc_client.so"
+    case "$target" in
+      windows) irc_pattern="libirc_client.dll" ;;
+      macos)   irc_pattern="libirc_client.dylib" ;;
+    esac
+    local irc_lib
+    irc_lib="$(find "$build_dir" -type f -name "$irc_pattern" | head -n 1 || true)"
+    [[ -n "$irc_lib" ]] || ci_die "--with-irc requested but $irc_pattern was not produced under $build_dir"
+    cp "$irc_lib" "$OUTPUT_DIR/"
+    ci_log "Captured IRC client library: $irc_lib"
+    if [[ "$target" == "windows" && -n "${VCPKG_ROOT:-}" ]]; then
+      # libirc_client.dll links vcpkg OpenSSL dynamically; capture its DLLs so
+      # launchers can stage them next to the app (missing dep = load error 126).
+      local ssl_pattern
+      for ssl_pattern in "libssl-3*.dll" "libcrypto-3*.dll"; do
+        ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "$ssl_pattern" "$OUTPUT_DIR" >/dev/null || \
+          ci_warn "$ssl_pattern not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
+      done
+    fi
+    if [[ "$target" == "linux" ]]; then
+      # Capture the system OpenSSL runtime next to the .so (same treatment as
+      # libsodium) so the artifact set is self-contained on user machines.
+      local dep_name dep_path
+      for dep_name in libssl libcrypto; do
+        dep_path="$(ldd "$irc_lib" | awk -v n="$dep_name" '$0 ~ n {print $3; exit}' || true)"
+        if [[ -n "$dep_path" && -e "$dep_path" ]]; then
+          capture_linux_shared_library "$dep_path"
+          ci_log "Captured IRC dependency: $dep_path"
+        fi
+      done
+    fi
+  fi
 
   if [[ "$target" == "windows" && -n "${VCPKG_ROOT:-}" ]]; then
     ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "libsodium.dll" "$OUTPUT_DIR" >/dev/null || \
