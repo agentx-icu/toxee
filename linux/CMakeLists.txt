@@ -74,6 +74,18 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# desktop_drop_for_t (the pub republish of desktop_drop the UIKit fork depends
+# on) renamed the PACKAGE but its linux/CMakeLists.txt still defines the target
+# as `desktop_drop_plugin` (the Windows one was fixed upstream, Linux was not);
+# flutter's generated_plugins.cmake links + bundles `<package>_plugin`
+# (`desktop_drop_for_t_plugin`), which fails at the CMake generate step with
+# "No target". Bridge with an ALIAS — target_link_libraries and the
+# $<TARGET_FILE:> bundling genex both resolve aliases late, so defining it
+# right after the include is sufficient.
+if(TARGET desktop_drop_plugin AND NOT TARGET desktop_drop_for_t_plugin)
+  add_library(desktop_drop_for_t_plugin ALIAS desktop_drop_plugin)
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
