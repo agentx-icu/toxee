@@ -103,6 +103,16 @@ if [[ -z "${DISPLAY:-}" ]]; then
     else
         warn "No \$DISPLAY and no Xvfb - the GTK app will fail to open a surface"
     fi
+    # Headless keyring: flutter_secure_storage (libsecret) retries forever on a
+    # locked session keyring, wedging the first widget build (blank window,
+    # zero elements). Empty-password unlocked keyring = standard headless-CI
+    # recipe; gated to the no-DISPLAY branch to keep real desktops untouched.
+    if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+        rm -f "$HOME/.local/share/keyrings/"*.keyring 2>/dev/null || true
+        keyring_env="$(printf '' | gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null || true)"
+        [[ -n "$keyring_env" ]] && eval "$keyring_env" && export GNOME_KEYRING_CONTROL 2>/dev/null || true
+        info "Headless keyring unlocked for libsecret"
+    fi
 fi
 
 # ----- Bootstrap + build ONCE ----------------------------------------------

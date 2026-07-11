@@ -139,6 +139,18 @@ if [[ -z "${DISPLAY:-}" ]]; then
   else
     warn "No \$DISPLAY and no Xvfb - flutter run -d linux will fail to open a surface."
   fi
+  # Headless keyring: flutter_secure_storage (libsecret) RETRIES FOREVER when
+  # the session keyring is locked (no GUI login), wedging the whole first
+  # widget build — the app runs its Tox session with a blank, element-less
+  # window. Start an EMPTY-PASSWORD unlocked keyring for this session
+  # (standard headless-CI recipe). Gated to the no-DISPLAY branch so a real
+  # desktop user's keyring is never touched.
+  if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+    rm -f "$HOME/.local/share/keyrings/"*.keyring 2>/dev/null || true
+    keyring_env="$(printf '' | gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null || true)"
+    [[ -n "$keyring_env" ]] && eval "$keyring_env" && export GNOME_KEYRING_CONTROL 2>/dev/null || true
+    info "Headless keyring unlocked for libsecret"
+  fi
 fi
 
 # ----- Launch via `flutter run -d linux` -----------------------------
