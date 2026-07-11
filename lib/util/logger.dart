@@ -154,7 +154,18 @@ class AppLogger {
       final currentPath = current.path;
       var kept = 0;
       for (final f in logFiles) {
-        if (f.path == currentPath) {
+        // "Never delete the file we just opened" must hold even when the two
+        // paths differ textually (Windows mixed / and \ separators, symlinked
+        // dirs): a raw string compare silently drops the guard there. Use the
+        // OS-level same-file check, with the string compare as fallback for
+        // paths that cannot be stat'd.
+        bool isCurrent;
+        try {
+          isCurrent = FileSystemEntity.identicalSync(f.path, currentPath);
+        } catch (_) {
+          isCurrent = f.path == currentPath;
+        }
+        if (isCurrent) {
           kept++;
           continue;
         }

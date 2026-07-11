@@ -53,8 +53,11 @@ void main() {
       // Point the logger at a NEW file inside the same directory. Using a
       // custom path bypasses the timestamped session filename but still
       // exercises the prune helper, which scans the parent directory for
-      // anything matching `app_*.log`.
-      final activePath = '${tempDir.path}/app_active.log';
+      // anything matching `app_*.log`. Join with the PLATFORM separator: on
+      // Windows a hardcoded '/' produced a mixed-separator activePath that
+      // never string-matched the '\'-separated listSync() paths below.
+      final activePath =
+          '${tempDir.path}${Platform.pathSeparator}app_active.log';
       AppLogger.setLogPath(activePath);
 
       await AppLogger.initialize();
