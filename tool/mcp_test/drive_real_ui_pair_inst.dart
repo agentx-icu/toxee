@@ -6,17 +6,20 @@ const _mcpNs = 'ext.mcp.toolkit';
 final _realUiPlatform =
     (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
 
-/// Headless real-UI platforms — **Windows desktop** and **Android device/
-/// emulator**. Neither can be reached by host osascript / OS-level key/paste
-/// injection (Windows has no host osascript and its app runs in a separate
-/// window-station; the Android app runs on a device whose VM service is merely
-/// adb-forwarded to this host), so EVERY input goes through synthetic
+/// Headless real-UI platforms — **Windows desktop**, **Linux desktop** and
+/// **Android device/emulator**. None can be reached by host osascript /
+/// OS-level key/paste injection (Windows/Linux have no host osascript and run
+/// in their own window-station / X display, typically behind SSH or Xvfb; the
+/// Android app runs on a device whose VM service is merely adb-forwarded to
+/// this host), so EVERY input goes through synthetic
 /// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam, and the
 /// osa* primitive surface below is overridden wholesale. This is distinct from
 /// iOS, which also drives via VM-service synthetic input but runs on the SAME
 /// macOS host (its launcher topology, not this flag, governs sim survival).
 bool get _isHeadlessRealUi =>
-    _realUiPlatform == 'windows' || _realUiPlatform == 'android';
+    _realUiPlatform == 'windows' ||
+    _realUiPlatform == 'android' ||
+    _realUiPlatform == 'linux';
 
 /// Windows-DESKTOP-only flag, kept distinct from [_isHeadlessRealUi] for the
 /// scenario drivers that carry empirical *Windows-specific* tuning (slower

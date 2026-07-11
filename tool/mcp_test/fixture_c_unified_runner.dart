@@ -15,7 +15,7 @@ usage: fixture_c_unified_runner.dart [--tier=non-media|media|all]
        [--class=2proc-l3|2proc-ui] [--id=<script>[,<script>]]
        [--real-ui-scenario=<name>[,<name>]]
        [--real-ui-campaign=<name>[,<name>]] [--include-destructive]
-       [--real-ui-platform=macos|ios|android|windows]
+       [--real-ui-platform=macos|ios|android|windows|linux]
        [--list|--plan-json|--dry-run|--validate-only]
        [--list-real-ui-campaigns]
 
@@ -38,7 +38,7 @@ Real-UI helpers:
   --list-real-ui-campaigns
                         print the built-in reusable real-UI campaign catalog
 
-Platform support (all four have A/B real-UI pair launchers wired in):
+Platform support (all five have A/B real-UI pair launchers wired in):
   macos                 launch_fixture_c_pair.sh (run on the Mac)
   ios                   launch_ios_fixture_c_pair.sh (two Simulators on the Mac)
   android               launch_android_fixture_c_pair.sh (run on a host with adb
@@ -46,6 +46,9 @@ Platform support (all four have A/B real-UI pair launchers wired in):
                         reachable via `adb reverse`)
   windows               launch_windows_fixture_c_pair.ps1 (run the runner ON the
                         Windows host; two flutter-run instances share its loopback)
+  linux                 launch_linux_fixture_c_pair.sh (run the runner ON the
+                        Linux host; implements paired_for_e2e restore, so
+                        friendship-dependent scenarios are launchable)
   Note: the irc_join_channel_loopback_live JOIN needs the native libirc_client
   library (bundled on macOS); irc_join_channel_real_controls is pure-Dart and
   portable. See tool/mcp_test/REAL_UI_TWO_PROCESS.md.
@@ -57,6 +60,9 @@ const _macosPairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
 const _iosPairJson = 'tool/mcp_test/.ios_runtime/pair.json';
 const _androidPairJson = 'tool/mcp_test/.android_runtime/pair.json';
 const _windowsPairJson = 'tool/mcp_test/.windows_runtime/pair.json';
+// Linux keeps its runtime under build/ (always locally writable, including on
+// a share-shim checkout where tool/ is a read-only symlink into the Mac share).
+const _linuxPairJson = 'build/linux_runtime/pair.json';
 const _defaultRealUiNickA = 'RealUiAlice';
 const _defaultRealUiNickB = 'RealUiBob';
 
@@ -136,6 +142,13 @@ const _realUiPlatformConfigs = <String, _RealUiPlatformConfig>{
     usesPowershell: true,
     prebuildOnHost: false,
   ),
+  'linux': _RealUiPlatformConfig(
+    pairJson: _linuxPairJson,
+    launchScript: 'tool/mcp_test/launch_linux_fixture_c_pair.sh',
+    stopScript: 'tool/mcp_test/stop_linux_fixture_c_pair.sh',
+    usesPowershell: false,
+    prebuildOnHost: false,
+  ),
 };
 
 _RealUiPlatformConfig get _realUiConfig =>
@@ -144,7 +157,7 @@ _RealUiPlatformConfig get _realUiConfig =>
 const _validTiers = {'non-media', 'media', 'all'};
 const _validClasses = {'2proc-l3', '2proc-ui'};
 const _validBases = {'paired_for_e2e', 'fresh', 'real-ui'};
-const _validRealUiPlatforms = {'macos', 'ios', 'android', 'windows'};
+const _validRealUiPlatforms = {'macos', 'ios', 'android', 'windows', 'linux'};
 // All four platforms now have A/B pair launchers wired into this runner, so this
 // blocker map is empty. It is kept as the seam for declaring a future platform
 // "known but not yet wired" (a non-empty entry makes `--real-ui-platform=<name>`
