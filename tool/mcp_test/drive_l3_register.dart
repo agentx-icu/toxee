@@ -131,7 +131,10 @@ Future<int> main(List<String> args) async {
       'nickname': nickname,
     });
     if (reg['ok'] != true) {
-      print('[l3-register] l3_register_account failed: ${reg['error'] ?? reg}');
+      print(
+        '[l3-register] l3_register_account failed: ${reg['error'] ?? reg}'
+        '${reg['detail'] != null ? ' — ${reg['detail']}' : ''}',
+      );
       return 1;
     }
 
