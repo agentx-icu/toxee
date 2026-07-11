@@ -98,7 +98,16 @@ try {
   # ----- Bootstrap + native FFI --------------------------------------
   # (PS 5.1 cannot redirect to a parenthesized expression, so log paths are
   #  precomputed variables and merged streams are piped to Out-File.)
-  & dart run tool/bootstrap_deps.dart 2>&1 | Out-File -FilePath $BootstrapLog -Encoding ascii
+  $tpLink = (Get-Item (Join-Path $AppDir "third_party") -ErrorAction SilentlyContinue).LinkType
+  if ($tpLink) {
+    # Share-shim checkout: third_party symlinks into the host share — the full
+    # bootstrap could re-vendor/patch the shared worktree. Validate only, loudly.
+    Info "Shim checkout detected - bootstrap offline check only"
+    & dart tool/bootstrap_deps.dart --offline-check-only 2>&1 | Out-File -FilePath $BootstrapLog -Encoding ascii
+    if ($LASTEXITCODE -ne 0) { throw "bootstrap offline check failed; see $BootstrapLog" }
+  } else {
+    & dart run tool/bootstrap_deps.dart 2>&1 | Out-File -FilePath $BootstrapLog -Encoding ascii
+  }
 
   if (-not $SkipNative) {
     $bash = Get-Command bash -ErrorAction SilentlyContinue

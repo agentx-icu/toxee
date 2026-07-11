@@ -28,8 +28,8 @@
       app's stdout for the actual URI if the no-auth assumption ever changes).
 
   Honest limits:
-    * paired_for_e2e RESTORE is not wired here yet (the IRC cases this targets are
-      no-friend); a restore request fails fast.
+    * paired_for_e2e RESTORE is wired via restore_fixture_c_pair.ps1 (the
+      PowerShell twin of the macOS .sh restore); unknown restore modes fail fast.
     * the irc_join_channel_loopback_live JOIN needs the native libirc_client.dll
       (the C++ in third_party/tim2tox is cross-platform but not yet built/bundled
       for Windows). If a libirc_client.dll is found under build\native-artifacts\
@@ -130,7 +130,16 @@ try {
   $BuildLog = Join-Path $RuntimeRoot "build.log"
 
   # ----- Bootstrap + native FFI (tim2tox_ffi.dll) --------------------------
-  & dart run tool/bootstrap_deps.dart 2>&1 | Out-File -FilePath (Join-Path $RuntimeRoot "bootstrap.log") -Encoding ascii
+  $tpLink = (Get-Item (Join-Path $RepoRoot "third_party") -ErrorAction SilentlyContinue).LinkType
+  if ($tpLink) {
+    # Share-shim checkout: third_party symlinks into the host share — the full
+    # bootstrap could re-vendor/patch the shared worktree. Validate only, loudly.
+    Info "Shim checkout detected - bootstrap offline check only"
+    & dart tool/bootstrap_deps.dart --offline-check-only 2>&1 | Out-File -FilePath (Join-Path $RuntimeRoot "bootstrap.log") -Encoding ascii
+    if ($LASTEXITCODE -ne 0) { throw "bootstrap offline check failed; see $(Join-Path $RuntimeRoot 'bootstrap.log')" }
+  } else {
+    & dart run tool/bootstrap_deps.dart 2>&1 | Out-File -FilePath (Join-Path $RuntimeRoot "bootstrap.log") -Encoding ascii
+  }
   if (-not $SkipNative) {
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if ($bash) {

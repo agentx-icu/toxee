@@ -17,7 +17,9 @@
     }
   },
   "supported_platforms": [
-    "macos"
+    "macos",
+    "linux",
+    "windows"
   ],
   "layout": {
     "account_data/": "Per-account history, offline queue, received files, and avatars copied into the instance TOXEE_APP_SUPPORT_DIR.",

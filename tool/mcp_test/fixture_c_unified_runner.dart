@@ -815,12 +815,12 @@ Future<int> _run(List<String> args) async {
   final plan = _Plan.fromEntries(selected, opts: opts);
   _realUiPlatform = opts.realUiPlatform;
 
-  // Android/Windows real-UI support only NO-FRIEND scenarios today: their A/B
-  // launchers reject TOXEE_FIXTURE_C_RESTORE (paired_for_e2e restore into a
-  // sandboxed device / per-instance Windows store is not implemented). Reject a
-  // friendship-dependent scenario HERE — at planning time, so --plan-json and
-  // --dry-run also fail — instead of planning a restore the launcher would
-  // hard-reject mid-run.
+  // Android real-UI supports only NO-FRIEND scenarios today: its A/B launcher
+  // rejects TOXEE_FIXTURE_C_RESTORE (restore into a sandboxed device store is
+  // not implemented). Windows/Linux restore via restore_fixture_c_pair.ps1/.sh.
+  // Reject a friendship-dependent scenario HERE — at planning time, so
+  // --plan-json and --dry-run also fail — instead of planning a restore the
+  // launcher would hard-reject mid-run.
   final restoreGapError = _realUiRestoreGap(plan);
   if (restoreGapError != null) {
     stderr.writeln(restoreGapError);

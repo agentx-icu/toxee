@@ -107,7 +107,16 @@ fi
 
 # ----- Bootstrap + build ONCE ----------------------------------------------
 cd "$REPO_ROOT"
-(dart run tool/bootstrap_deps.dart || true) > "$RUNTIME_ROOT/bootstrap.log" 2>&1
+if [[ -L "$REPO_ROOT/third_party" || ! -w "$REPO_ROOT/third_party" ]]; then
+    # Share-shim checkout: third_party symlinks into the (read-only) host
+    # share — the full bootstrap may try to re-vendor/patch it. Validate only,
+    # and FAIL LOUDLY so stale deps can't hide until build time.
+    info "Shim checkout detected - bootstrap offline check only"
+    dart tool/bootstrap_deps.dart --offline-check-only > "$RUNTIME_ROOT/bootstrap.log" 2>&1 \
+        || die "bootstrap offline check failed; see $RUNTIME_ROOT/bootstrap.log"
+else
+    (dart run tool/bootstrap_deps.dart || true) > "$RUNTIME_ROOT/bootstrap.log" 2>&1
+fi
 if [[ "$SKIP_BUILD" != "1" ]]; then
     info "flutter build linux --debug (MCP_BINDING=$MCP_BINDING, TOXEE_L3_TEST=$L3_TEST)..."
     flutter build linux --debug \

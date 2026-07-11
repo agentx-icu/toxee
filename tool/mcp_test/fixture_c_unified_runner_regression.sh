@@ -743,11 +743,12 @@ else
         "$(cat "$TMP_ROOT/windows_irc.err" "$WINDOWS_IRC_PLAN" 2>/dev/null)"
 fi
 
-# Android/Windows only support no-friend scenarios today (their launchers reject
+# Android only supports no-friend scenarios today (its launcher rejects
 # paired_for_e2e restore). A friendship-dependent scenario must fail FAST at
 # planning (so --plan-json/--dry-run also fail), not plan a restore the launcher
-# would hard-reject mid-run.
-for plat in android windows; do
+# would hard-reject mid-run. (Windows/Linux implement restore — positive checks
+# below.)
+for plat in android; do
     set +e
     run_runner --plan-json --class=2proc-ui --real-ui-platform="$plat" \
         --real-ui-scenario=message >"$TMP_ROOT/${plat}_restore_gap.out" 2>&1
@@ -760,6 +761,23 @@ for plat in android windows; do
     else
         fail "$plat real-UI rejects a friendship-dependent scenario (no restore) with exit 64" \
             "got $RESTORE_GAP_CODE: $(cat "$TMP_ROOT/${plat}_restore_gap.out")"
+    fi
+done
+
+# Windows/Linux implement paired_for_e2e restore (restore_fixture_c_pair.ps1 /
+# .sh), so the same friendship-dependent scenario must PLAN successfully there.
+for plat in windows linux; do
+    set +e
+    run_runner --plan-json --class=2proc-ui --real-ui-platform="$plat" \
+        --real-ui-scenario=message >"$TMP_ROOT/${plat}_restore_plan.out" 2>&1
+    RESTORE_PLAN_CODE=$?
+    set -e
+    if [[ "$RESTORE_PLAN_CODE" -eq 0 ]] \
+        && grep -q 'paired_for_e2e' "$TMP_ROOT/${plat}_restore_plan.out"; then
+        pass "$plat real-UI plans a friendship-dependent scenario (restore implemented)"
+    else
+        fail "$plat real-UI plans a friendship-dependent scenario (restore implemented)" \
+            "got $RESTORE_PLAN_CODE: $(tail -5 "$TMP_ROOT/${plat}_restore_plan.out" 2>/dev/null)"
     fi
 done
 

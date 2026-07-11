@@ -88,7 +88,16 @@ require_cmd dart
 [[ -f "$FLUTTER_APP_DIR/pubspec.yaml" ]] || { error "Flutter app not found: $FLUTTER_APP_DIR"; exit 1; }
 
 # ----- Bootstrap + native FFI ---------------------------------------
-(cd "$FLUTTER_APP_DIR" && dart run tool/bootstrap_deps.dart) >> "$BUILD_DIR/bootstrap.log" 2>&1 || true
+if [[ -L "$FLUTTER_APP_DIR/third_party" || ! -w "$FLUTTER_APP_DIR/third_party" ]]; then
+  # Share-shim checkout (third_party symlinks into a read-only host share):
+  # the full bootstrap may try to re-vendor/patch it. Validate only, loudly.
+  info "Shim checkout detected - bootstrap offline check only"
+  (cd "$FLUTTER_APP_DIR" && dart tool/bootstrap_deps.dart --offline-check-only) \
+    >> "$BUILD_DIR/bootstrap.log" 2>&1 \
+    || { error "bootstrap offline check failed; see $BUILD_DIR/bootstrap.log"; exit 1; }
+else
+  (cd "$FLUTTER_APP_DIR" && dart run tool/bootstrap_deps.dart) >> "$BUILD_DIR/bootstrap.log" 2>&1 || true
+fi
 
 if [[ "$SKIP_NATIVE" != "true" ]]; then
   info "Building tim2tox Linux FFI (tool/ci/build_tim2tox.sh --target linux)..."

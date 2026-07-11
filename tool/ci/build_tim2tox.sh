@@ -104,7 +104,23 @@ OUTPUT_DIR="${TOXEE_NATIVE_ARTIFACTS_DIR:-$REPO_ROOT/build/native-artifacts}/$TA
 
 [[ -d "$TIM2TOX_DIR" ]] || ci_die "tim2tox submodule not found: $TIM2TOX_DIR"
 
+# Preserve previously built OPTIONAL IRC artifacts across a non-IRC rebuild:
+# launchers rebuild the FFI on demand WITHOUT --with-irc, and a plain reset
+# would silently delete libirc_client + its OpenSSL runtime (staged earlier by
+# a --with-irc build), breaking the live IRC JOIN scenarios.
+_irc_stash=""
+if [[ "$ENABLE_IRC" -ne 1 ]] && compgen -G "$OUTPUT_DIR/libirc_client.*" > /dev/null 2>&1; then
+  _irc_stash="$(mktemp -d)"
+  cp -a "$OUTPUT_DIR"/libirc_client.* "$_irc_stash/" 2>/dev/null || true
+  cp -a "$OUTPUT_DIR"/libssl* "$_irc_stash/" 2>/dev/null || true
+  cp -a "$OUTPUT_DIR"/libcrypto* "$_irc_stash/" 2>/dev/null || true
+fi
 ci_reset_dir "$OUTPUT_DIR"
+if [[ -n "$_irc_stash" ]]; then
+  cp -a "$_irc_stash"/. "$OUTPUT_DIR/" 2>/dev/null || true
+  rm -rf "$_irc_stash"
+  ci_log "Preserved previously built IRC artifacts across a non-IRC rebuild"
+fi
 
 bootstrap_tim2tox_submodules() {
   if [[ -f "$TIM2TOX_DIR/.gitmodules" ]] && { [[ -d "$TIM2TOX_DIR/.git" ]] || [[ -f "$TIM2TOX_DIR/.git" ]]; }; then
@@ -722,9 +738,12 @@ build_desktop_target() {
     if [[ "$target" == "windows" && -n "${VCPKG_ROOT:-}" ]]; then
       # libirc_client.dll links vcpkg OpenSSL dynamically; capture its DLLs so
       # launchers can stage them next to the app (missing dep = load error 126).
+      # Search the RELEASE bin dir first — a whole-tree search would also match
+      # debug/bin's DLLs, and staging a debug CRT-linked OpenSSL breaks loading.
       local ssl_pattern
       for ssl_pattern in "libssl-3*.dll" "libcrypto-3*.dll"; do
-        ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "$ssl_pattern" "$OUTPUT_DIR" >/dev/null || \
+        ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet/bin" "$ssl_pattern" "$OUTPUT_DIR" >/dev/null || \
+          ci_copy_matching_file "$VCPKG_ROOT/installed/$vcpkg_triplet" "$ssl_pattern" "$OUTPUT_DIR" >/dev/null || \
           ci_warn "$ssl_pattern not found under $VCPKG_ROOT/installed/$vcpkg_triplet"
       done
     fi
