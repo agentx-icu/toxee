@@ -2050,11 +2050,13 @@ String? _restoreForRealUiState(String state) {
 }
 
 /// Returns an error string when the selected real-UI platform cannot run one of
-/// the planned scenarios because it would require a `paired_for_e2e` restore that
-/// the platform's launcher does not implement (Android/Windows). Null when every
-/// planned scenario is launchable on the platform.
+/// the planned scenarios because it would require a `paired_for_e2e` restore
+/// that the platform's launcher does not implement. Only Android today: the
+/// Windows launcher restores via restore_fixture_c_pair.ps1 and the Linux
+/// launcher via restore_fixture_c_pair.sh. Null when every planned scenario is
+/// launchable on the platform.
 String? _realUiRestoreGap(_Plan plan) {
-  if (_realUiPlatform != 'android' && _realUiPlatform != 'windows') return null;
+  if (_realUiPlatform != 'android') return null;
   final unsupported = <String>{};
   for (final group in plan.groups) {
     if (group.mode != 'real-ui') continue;

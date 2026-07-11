@@ -67,8 +67,14 @@ function Write-NoBom([string]$Path, [string]$Text) {
   [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-if ($env:TOXEE_FIXTURE_C_RESTORE) {
-  throw "TOXEE_FIXTURE_C_RESTORE=$($env:TOXEE_FIXTURE_C_RESTORE) is not supported by the Windows pair launcher yet (only no-friend real-UI scenarios are wired)."
+# paired_for_e2e restore is implemented via restore_fixture_c_pair.ps1 (the
+# PowerShell twin of the macOS .sh restore); the fixture trees are portable
+# plain files and the drivers boot them via l3_boot_existing_account.
+$RestoreMode   = $env:TOXEE_FIXTURE_C_RESTORE
+$RestoreRoot   = Join-Path $RuntimeRoot "support"
+$RestoreReport = Join-Path $RestoreRoot "fixture_c_pair_restore.json"
+if ($RestoreMode -and $RestoreMode -notin @("paired", "paired_for_e2e")) {
+  throw "unsupported TOXEE_FIXTURE_C_RESTORE=$RestoreMode (paired|paired_for_e2e)"
 }
 if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) { throw "flutter not found on PATH." }
 if (-not (Get-Command dart -ErrorAction SilentlyContinue))    { throw "dart not found on PATH." }
@@ -95,6 +101,13 @@ Remove-Item -Recurse -Force (Join-Path $RuntimeRoot "A"), (Join-Path $RuntimeRoo
 # instances re-register fresh, so removing the shared file is safe here.
 Get-Item -Path (Join-Path $env:APPDATA '*\toxee\shared_preferences.json') -ErrorAction SilentlyContinue |
   ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+
+# ----- Optional paired fixture restore (before launch) ----------------------
+if ($RestoreMode) {
+  Info "Restoring '$RestoreMode' fixture into $RestoreRoot"
+  & (Join-Path $ScriptDir "restore_fixture_c_pair.ps1") -RestoreRoot $RestoreRoot -ReportPath $RestoreReport
+  if (-not (Test-Path $RestoreReport)) { throw "fixture restore did not produce $RestoreReport" }
+}
 
 # Preflight: the fixed VM-service ports MUST be free, otherwise the deterministic
 # ws://127.0.0.1:<port>/ws probe could attach to a FOREIGN Dart VM that happens to
@@ -156,6 +169,7 @@ try {
   # launch does not, so DynamicLibrary.open fails with "module not found" (126).
   # Copy any missing ones next to the exe so the FFI loads under direct launch.
   $ffiDepDirs = @(
+    (Join-Path $RepoRoot "build\native-artifacts\windows"),
     (Join-Path $RepoRoot "third_party\tim2tox\build\ci-windows\ffi\Release"),
     (Join-Path $RepoRoot "third_party\tim2tox\build\ffi")
   )
@@ -166,6 +180,12 @@ try {
       if (Test-Path $src) { Copy-Item -Force $src (Join-Path $debugDir $dep); Info "bundled FFI dep $dep"; break }
     }
   }
+  # OpenSSL runtime for libirc_client.dll (captured next to it by
+  # `build_tim2tox.sh --target windows --with-irc`; a missing import DLL makes
+  # the IRC library fail to load with error 126).
+  Get-ChildItem -Path (Join-Path $RepoRoot "build\native-artifacts\windows") `
+      -Filter "lib*-3*.dll" -ErrorAction SilentlyContinue |
+    ForEach-Object { Copy-Item -Force $_.FullName (Join-Path $debugDir $_.Name); Info "bundled IRC dep $($_.Name)" }
 
   if (-not (Test-Path $IrcDllSrc)) {
     Warn "libirc_client.dll not found at $IrcDllSrc - irc_join_channel_loopback_live cannot complete its live JOIN until it is built/bundled (irc_join_channel_real_controls is unaffected)."
@@ -173,7 +193,9 @@ try {
 
   function Start-ToxeeInstance([string]$name, [int]$vmPort) {
     $instDir   = Join-Path $RuntimeRoot $name
-    $supportDir = Join-Path $instDir "app_support"
+    # A restored launch points the instance at the restored fixture tree so
+    # l3_boot_existing_account finds the profile + history on first boot.
+    $supportDir = if ($RestoreMode) { Join-Path $RestoreRoot $name } else { Join-Path $instDir "app_support" }
     $stdio     = Join-Path $instDir "toxee_stdio.log"
     $stdioErr  = Join-Path $instDir "toxee_stdio.err"
     New-Item -ItemType Directory -Force -Path $supportDir | Out-Null
@@ -265,7 +287,11 @@ try {
       A = (Get-Content (Join-Path $a.instDir "instance.json") -Raw | ConvertFrom-Json)
       B = (Get-Content (Join-Path $b.instDir "instance.json") -Raw | ConvertFrom-Json)
     }
-    fixture_restore = [ordered]@{ mode = $null; report = $null; restored = $null }
+    fixture_restore = [ordered]@{
+      mode     = $(if ($RestoreMode) { $RestoreMode } else { $null })
+      report   = $(if ($RestoreMode -and (Test-Path $RestoreReport)) { $RestoreReport } else { $null })
+      restored = $(if ($RestoreMode -and (Test-Path $RestoreReport)) { Get-Content $RestoreReport -Raw | ConvertFrom-Json } else { $null })
+    }
     checks          = [ordered]@{
       distinct_pids    = ($a.pid -ne $b.pid)
       distinct_ws_uris = ($aWs -ne $bWs)
