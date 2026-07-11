@@ -154,6 +154,10 @@ cleanup_on_fail() {
 trap cleanup_on_fail EXIT
 
 info "Launching Linux app (flutter run -d linux, $MODE, MCP_BINDING=$MCP_BINDING, TOXEE_L3_TEST=$TOXEE_L3_TEST)..."
+# flutter run resolves the project from CWD; don't depend on the caller having
+# started us from the repo root (an absolute-path invocation ran flutter in
+# $HOME and died with "No pubspec.yaml file found").
+cd "$FLUTTER_APP_DIR"
 # nohup keeps the app alive after this script returns (no --run-l3), mirroring
 # the iOS launcher. Output is teed to STDIO_LOG for URI extraction.
 nohup flutter run -d linux --"$MODE" \
