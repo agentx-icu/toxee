@@ -488,3 +488,37 @@ PASS; Mute crash is fixed; Remark + the recvOpt cache-sync are open native-path
 follow-ups. The rest of the filtered slice is gated on fork
 UI-wiring work (attach keys, wire typing) + one native bug (name propagation),
 each rebuild-gated. Those are the concrete next "problems to solve".
+
+## Platform launchers (all five wired into the unified runner)
+
+`--real-ui-platform=` selects the A/B pair launcher; the drivers are shared.
+
+| platform | launcher | restore (`paired_for_e2e`) | input path |
+| --- | --- | --- | --- |
+| macos   | `launch_fixture_c_pair.sh`          | `restore_fixture_c_pair.sh`  | osascript + VM-service |
+| ios     | `launch_ios_fixture_c_pair.sh`      | via macOS container restore  | synthetic VM-service |
+| android | `launch_android_fixture_c_pair.sh`  | NOT implemented (no-friend only) | synthetic VM-service |
+| windows | `launch_windows_fixture_c_pair.ps1` | `restore_fixture_c_pair.ps1` (PowerShell-native, no bash/jq) | synthetic VM-service (headless) |
+| linux   | `launch_linux_fixture_c_pair.sh`    | `restore_fixture_c_pair.sh` (portable: tox_profile + JSON history) | synthetic VM-service (headless) |
+
+Linux specifics (added with the 2026-07-11 VM campaign):
+
+- Runtime root defaults to `build/linux_runtime/` — always locally writable,
+  including on a share-shim checkout (`tool/vmtest/make_shim.sh`) where `tool/`
+  is a read-only symlink into the Mac share. Override: `TOXEE_LINUX_RUNTIME_ROOT`.
+- Headless hosts (SSH, no `$DISPLAY`): the launcher (and `run_toxee_linux.sh`)
+  auto-start a private Xvfb `:99` — synthetic flutter_skill input needs a live
+  GTK surface, not a physical screen. `DISPLAY` is honored when already set.
+- `TOXEE_PAIR_TCP_ONLY=1` mirrors the macOS same-host TCP-only mode.
+- Fixed VM-service ports 8201/8202 (`TOXEE_LINUX_VM_PORT_A/B`),
+  `disable-service-auth-codes` → deterministic `ws://127.0.0.1:<port>/ws`.
+- `libirc_client.so` (built via `tool/ci/build_tim2tox.sh --target linux
+  --with-irc`) is bundled next to the runner when present; without it only the
+  `irc_join_channel_loopback_live` live JOIN is affected.
+
+Windows restore (same campaign): the launcher no longer refuses
+`TOXEE_FIXTURE_C_RESTORE` — `restore_fixture_c_pair.ps1` restores the fixture
+trees into `<runtime>\support\A|B` and the instances boot them via
+`l3_boot_existing_account`. The unified runner's restore gap-guard is now
+Android-only. OpenSSL runtime DLLs for `libirc_client.dll` are staged from
+`build\native-artifacts\windows\` (produced by `--with-irc`).

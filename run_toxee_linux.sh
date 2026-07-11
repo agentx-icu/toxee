@@ -114,6 +114,24 @@ if [[ "$SKIP_PUB_GET" != "true" ]]; then
   fi
 fi
 
+# ----- Headless fallback: private Xvfb display ------------------------
+# Mirrors launch_linux_fixture_c_pair.sh: on an SSH/CI host with no $DISPLAY
+# the GTK app cannot open a surface; L3 driving is synthetic VM-service input,
+# which needs a live surface but not a physical screen.
+if [[ -z "${DISPLAY:-}" ]]; then
+  if command -v Xvfb >/dev/null 2>&1; then
+    export DISPLAY=":99"
+    if ! ls /tmp/.X11-unix/X99 >/dev/null 2>&1; then
+      info "No \$DISPLAY - starting Xvfb $DISPLAY (1920x1080)"
+      Xvfb "$DISPLAY" -screen 0 1920x1080x24 >/dev/null 2>&1 &
+      echo $! > "$BUILD_DIR/xvfb.pid"
+      sleep 1
+    fi
+  else
+    warn "No \$DISPLAY and no Xvfb - flutter run -d linux will fail to open a surface."
+  fi
+fi
+
 # ----- Launch via `flutter run -d linux` -----------------------------
 : > "$STDIO_LOG"
 rm -f "$VM_URI_FILE" "$PID_FILE"
