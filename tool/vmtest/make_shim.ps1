@@ -27,6 +27,12 @@ function Link-OrCopy([string]$srcEntry, [string]$dstEntry) {
     if (-not (Test-Path -LiteralPath $dstEntry)) {
       New-Item -ItemType SymbolicLink -Path $dstEntry -Target $srcEntry | Out-Null
     }
+  } elseif ($srcEntry -match '\.(sh|ps1)$') {
+    # Executable entrypoints are never rewritten by tools — symlink them so
+    # launcher fixes on the Mac apply immediately (a stale copied
+    # run_toxee_windows.ps1 silently ran without the L3 seed pre-step).
+    if (Test-Path -LiteralPath $dstEntry) { Remove-Item -LiteralPath $dstEntry -Force }
+    New-Item -ItemType SymbolicLink -Path $dstEntry -Target $srcEntry | Out-Null
   } else {
     Copy-Item -LiteralPath $srcEntry -Destination $dstEntry -Force
   }

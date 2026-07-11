@@ -23,7 +23,18 @@ link_or_copy() { # $1 = src entry, $2 = dst entry
   if [ -d "$1" ]; then
     [ -e "$2" ] || [ -L "$2" ] || ln -s "$1" "$2"
   else
-    cp -f "$1" "$2"
+    case "$1" in
+      # Executable entrypoints are never rewritten by tools — symlink them so
+      # launcher fixes on the Mac apply immediately (a stale copied
+      # run_toxee_linux.sh silently ran without the L3 seed pre-step).
+      *.sh|*.ps1)
+        rm -f "$2" 2>/dev/null || true
+        ln -s "$1" "$2"
+        ;;
+      *)
+        cp -f "$1" "$2"
+        ;;
+    esac
   fi
 }
 
