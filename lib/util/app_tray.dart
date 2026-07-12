@@ -26,9 +26,24 @@ class AppTray with TrayListener {
   Future<void> init() async {
     if (_initialized || !isSupported) return;
     _initialized = true;
-    trayManager.addListener(this);
-    await trayManager.setToolTip('Toxee');
-    await update(count: 0, online: false);
+    try {
+      trayManager.addListener(this);
+      await trayManager.setToolTip('Toxee');
+      await update(count: 0, online: false);
+    } catch (e, st) {
+      // A tray-less desktop session — a headless Linux (no X StatusNotifier /
+      // SNI host), or any Linux WM without a system-tray host — throws
+      // MissingPluginException on the first tray_manager call. The tray is a
+      // non-essential nicety; NEVER let its absence abort app startup (its
+      // uncaught exception otherwise halts the desktop-shell bootstrap before the
+      // first frame). Roll back the listener + init flag so later update() calls
+      // no-op cleanly, and carry on without a tray.
+      _initialized = false;
+      try {
+        trayManager.removeListener(this);
+      } catch (_) {/* best-effort */}
+      debugPrint('[AppTray] tray unavailable, disabling: $e\n$st');
+    }
   }
 
   Future<void> dispose() async {

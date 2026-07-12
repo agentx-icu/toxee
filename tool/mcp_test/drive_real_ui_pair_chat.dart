@@ -883,28 +883,111 @@ Future<void> _pbcopy(String text) async {
 /// S18 drives the real Reply item → real quote banner → send carrying
 /// `messageReply` cloudCustomData). Returns null (SKIP) — never a fake pass.
 Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
+  // The Reply menu item only appears on a QUOTABLE (custom-elem) bubble (the
+  // fork strips reply from plain TEXT bubbles). Both pieces the old SKIP said
+  // were missing now EXIST: `l3_inject_c2c_custom` materializes a real inbound
+  // custom bubble via the FfiChatService C2C pipeline ("suitable for Reply-menu
+  // automation"), and the composer reply banner already carries the key
+  // `message_input_reply_container`. So drive the FULLY REAL reply flow: inject a
+  // quotable inbound → real Reply menu item → real quote banner → real send
+  // carrying the messageReply cloudCustomData referencing the injected message.
+  var marked = false;
   try {
-    if (await _ensureChatOpen(a, toxB)) {
-      // Surface breadcrumb: on a fresh TEXT bubble the reply item is ABSENT
-      // (the fork-strip), confirming why this case has no driveable surface.
-      final nonce = DateTime.now().microsecondsSinceEpoch;
-      final text = 'RUIB6REPLYPROBE-$nonce';
-      final msgId = await _sendAndIdentify(a, toxB, text);
-      var replyAbsentOnText = true;
-      if (msgId != null && await _openMessageMenuReal(a, msgId)) {
-        replyAbsentOnText =
-            !await a.waitKeyCenter('message_menu_item:reply', timeoutSecs: 2);
-        await _dismissMessageMenu(a);
-      }
-      print('[pair] chat_reply_quote_roundtrip: SKIP — reply only on quotable '
-          '(custom-elem) bubbles; no C2C custom-inbound seed seam + unkeyed '
-          'reply container (fork rebuild flagged). replyAbsentOnText='
-          '$replyAbsentOnText (surface only — NOT the asserted reply flow)');
+    if (!await _ensureChatOpen(a, toxB)) {
+      print('[pair] chat_reply_quote_roundtrip: chat did not open');
+      return false;
     }
+    marked = await a.markAccountTest();
+    if (!marked) {
+      print('[pair] chat_reply_quote_roundtrip: SKIP — could not test-mark for '
+          'the inbound-custom seam');
+      return null;
+    }
+    final nonce = DateTime.now().microsecondsSinceEpoch;
+    final data = 'RUI-REPLY-CUSTOM-$nonce';
+    final inj = await a.l3('l3_inject_c2c_custom', {
+      'fromUserId': _pubkey(toxB),
+      'data': data,
+    });
+    if (inj['ok'] != true) {
+      print('[pair] chat_reply_quote_roundtrip: inject failed $inj');
+      return false;
+    }
+    // Find the injected inbound custom bubble's msgID (isSelf false, carries the
+    // nonce data). elemType 2 == custom in V2TIM.
+    String? customMsgId;
+    for (var i = 0; i < 20 && customMsgId == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      for (final m in await _c2cMessages(a, toxB)) {
+        final blob = '${m['customData'] ?? ''}${m['cloudCustomData'] ?? ''}'
+            '${m['text'] ?? ''}';
+        if (m['isSelf'] != true && blob.contains(data)) {
+          customMsgId = (m['msgID'] ?? m['id'])?.toString();
+          break;
+        }
+      }
+    }
+    if (customMsgId == null || customMsgId.isEmpty) {
+      print('[pair] chat_reply_quote_roundtrip: injected custom bubble not found');
+      return false;
+    }
+    // Open the REAL message menu on the custom bubble → the Reply item IS present
+    // here (quotable), unlike a text bubble.
+    if (!await _openMessageMenuReal(a, customMsgId)) {
+      print('[pair] chat_reply_quote_roundtrip: message menu did not open');
+      return false;
+    }
+    final replyPresent =
+        await a.waitKeyCenter('message_menu_item:reply', timeoutSecs: 4);
+    if (!replyPresent) {
+      await _dismissMessageMenu(a);
+      print('[pair] chat_reply_quote_roundtrip: reply item absent on custom bubble');
+      return false;
+    }
+    if (!await a.tapKeyCenter('message_menu_item:reply', timeoutSecs: 4)) {
+      await a.tryTapKey('message_menu_item:reply');
+    }
+    // The real composer quote banner mounts (keyed).
+    final bannerShown =
+        await a.waitKey('message_input_reply_container', timeoutSecs: 6);
+    // Send the reply through the real composer. clearFirst:false is REQUIRED —
+    // the composer clears the reply quote banner on a Backspace-when-empty
+    // (`clearRepliedMessage`), and osaClear sends exactly that Backspace, which
+    // would drop the reply metadata before the send.
+    final replyText = 'RUI-REPLY-BODY-$nonce';
+    final sent = await sendComposerMessage(a, replyText, clearFirst: false);
+    // Round-trip: the sent OWN message carries messageReply cloudCustomData
+    // referencing the injected message (or at least the reply body landed with
+    // a non-empty cloudCustomData — the reply metadata path).
+    var replyRoundTrip = false;
+    for (var i = 0; i < 20 && !replyRoundTrip; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      for (final m in await _c2cMessages(a, toxB)) {
+        if (m['isSelf'] == true &&
+            (m['text']?.toString() ?? '').contains(replyText)) {
+          final ccd = m['cloudCustomData']?.toString() ?? '';
+          if (ccd.contains('messageReply') || ccd.contains(customMsgId)) {
+            replyRoundTrip = true;
+          }
+          break;
+        }
+      }
+    }
+    await a.shot('/tmp/ui_chat_reply_${a.name}.png');
+    print('[pair] chat_reply_quote_roundtrip: customMsgId=$customMsgId '
+        'replyPresent=$replyPresent bannerShown=$bannerShown sent=$sent '
+        'replyRoundTrip=$replyRoundTrip');
+    return replyPresent && bannerShown && sent && replyRoundTrip;
   } on DriveError catch (e) {
-    print('[pair] chat_reply_quote_roundtrip: SKIP — ${e.message}');
+    print('[pair] chat_reply_quote_roundtrip: FAIL — ${e.message}');
+    return false;
+  } finally {
+    if (marked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError {/* best-effort */}
+    }
   }
-  return null;
 }
 
 // ===========================================================================
@@ -1253,10 +1336,12 @@ Future<bool?> _chatOfflinePendingThenDeliver(Inst a, String toxB) async {
     if (await _ensureChatOpen(a, toxB)) {
       final msgs = await _c2cMessages(a, toxB);
       final anyPending = msgs.any((m) => m['isPending'] == true);
-      print('[pair] chat_offline_pending_then_deliver: SKIP — offline-pending '
-          'un-seedable on a reused launch (no ungated offline seam; stopping B '
-          'is forbidden). anyPendingNow=$anyPending (surface only — NOT the '
-          'asserted pending→deliver flip)');
+      print('[pair] chat_offline_pending_then_deliver: SKIP — the pending→deliver '
+          'flip requires stopping/relaunching peer B (forbidden under this reused '
+          'sweep launch). The real-UI pending→deliver lifecycle IS now driven+'
+          'asserted by offline_pending_relaunch in rui-p1-relaunch, which owns the '
+          'peer process control. anyPendingNow=$anyPending (surface only — the '
+          'asserted flip lives in that dedicated launch)');
     }
   } on DriveError catch (e) {
     print('[pair] chat_offline_pending_then_deliver: SKIP — ${e.message}');

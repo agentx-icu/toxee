@@ -179,6 +179,27 @@ class Inst {
   final String platform;
   bool get isIos => platform == 'ios';
   bool get isAndroid => platform == 'android';
+  bool get isLinux => platform == 'linux';
+
+  /// The address at which THIS instance's Tox DHT endpoint is reachable by the
+  /// PEER, for [wireFullMeshBootstrap]. Same-host pairs leave it loopback; a
+  /// cross-host run sets `TOXEE_REAL_UI_HOST_<name>` to each side's routable IP on
+  /// the shared virtual network (A=Parallels host IP, B=the Linux VM's IP).
+  String get bootstrapHost =>
+      (Platform.environment['TOXEE_REAL_UI_HOST_$name'] ?? '127.0.0.1').trim();
+
+  /// Instance-scoped headless flag — SHADOWS the top-level [_isHeadlessRealUi]
+  /// within [Inst] so every osa*/window/foreground site below becomes
+  /// per-instance-aware. A HETEROGENEOUS macOS-A ↔ Linux-B cross-host pair keeps
+  /// the GLOBAL platform 'macos' (so peer A stays on the osascript path) while the
+  /// Linux peer B — reachable only over its (tunneled) VM service, never by host
+  /// osascript — must drive purely via synthetic flutter_skill RPC + L3 seams,
+  /// exactly like the headless Windows/Android peers. Adds ONLY `|| isLinux`, so
+  /// every existing run is byte-identical (no current run has a `platform=='linux'`
+  /// instance); top-level scenario checks still see the global value. Computed from
+  /// `_realUiPlatform` (not the top-level getter) to avoid self-recursion.
+  bool get _isHeadlessRealUi =>
+      _realUiPlatform == 'windows' || _realUiPlatform == 'android' || isLinux;
 
   late VmService vm;
   late String iso;

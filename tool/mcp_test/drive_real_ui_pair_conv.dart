@@ -790,9 +790,12 @@ Future<bool?> _convPresenceDotFlips(Inst a, String toxFriend) async {
     await returnToChatsHome(a, rounds: 2);
     final dotPresent = await a.waitKey(
         'conversation_item_online_dot:$convId', timeoutSecs: 3);
-    print('[pair] conv_presence_dot_flips: SKIP — presence flip un-seedable on '
-        'a reused launch (no ungated online setter; stopping B is forbidden). '
-        'dotKeyPresent=$dotPresent (surface only — NOT the asserted flip)');
+    print('[pair] conv_presence_dot_flips: SKIP — the presence-dot FLIP requires '
+        'stopping/relaunching peer B (forbidden under this reused sweep launch). '
+        'The real-UI flip IS now driven+asserted by presence_dot_relaunch in '
+        'rui-p1-relaunch, which owns the peer process control. dotKeyPresent='
+        '$dotPresent (surface only — the asserted flip lives in that dedicated '
+        'launch)');
   } on DriveError catch (e) {
     print('[pair] conv_presence_dot_flips: SKIP — ${e.message}');
   }

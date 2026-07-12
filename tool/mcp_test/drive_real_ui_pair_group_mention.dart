@@ -297,7 +297,14 @@ Future<String> _gmTypeMentionAndSend(
   await a.foreground();
   await a.tapAt(_composerX, _composerY);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await a.osaType(nonce);
+  // PASTE the nonce (atomic), never keystroke it: when the host Mac's input
+  // source is a CJK IME (this is a zh user's daily driver), `System Events
+  // keystroke` letters enter the IME's composition and commit as hanzi —
+  // observed live: " atmem<micros>" became " 他么么<micros>", failing the
+  // nonce match on BOTH broad passes. The '@' above stays a real keystroke
+  // (IME-transparent punctuation) because the mention panel only opens from
+  // char-typed onChanged.
+  await a.osaPaste(nonce);
   await Future<void>.delayed(const Duration(milliseconds: 600));
   // Send (retry until the TARGET GROUP's last message carries the nonce —
   // conversation-scoped so an unrelated conversation can't false-pass/fail).

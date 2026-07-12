@@ -182,6 +182,9 @@ Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
     if (await _dismissProfileQrOverlay(inst)) {
       continue;
     }
+    if (await _popCoveringRouteViaBackChevron(inst)) {
+      continue;
+    }
     if (await inst.waitText('Back', timeoutSecs: 1)) {
       await inst.tapText('Back');
     } else if (!await _selectChatsTab(inst)) {
@@ -274,6 +277,9 @@ Future<void> ensureContactsShell(Inst inst, {int rounds = 4}) async {
       continue;
     }
     if (await _dismissProfileQrOverlay(inst)) {
+      continue;
+    }
+    if (await _popCoveringRouteViaBackChevron(inst)) {
       continue;
     }
     if (await _selectContactsTab(inst)) {
@@ -558,6 +564,30 @@ Future<bool> _recoverFriendProfileToContacts(Inst inst) async {
 /// `_recoverFriendProfileToContacts` (which lands on the Contacts tab), this
 /// pops BACK to the chat it was pushed from. Returns whether it ended OFF the
 /// profile. No-op when no profile is showing.
+/// True when at least one HOME-SHELL landmark is actually ONSTAGE (resolvable
+/// to a painted RenderBox). Distinguishes "the home shell is visible" from
+/// "the home shell exists but sits offstage behind an opaque pushed route" —
+/// the dump homeShellTab can't tell those apart.
+Future<bool> _homeShellLandmarkOnstage(Inst inst) async {
+  if (await inst.keyCenter('sidebar_chats_tab') != null) return true;
+  if (await inst.keyCenter('new_entry_menu_button') != null) return true;
+  return await inst.keyCenter('bottom_nav_chats_tab') != null;
+}
+
+/// Last-resort pop for an OPAQUE pushed route covering the whole home shell
+/// (e.g. a stranded group member-list page): the shell landmarks are offstage
+/// behind it and l3_force_home_root may be refused (non-test account). Taps
+/// the top-left "<" back affordance (the same spot the friend-profile pop
+/// uses; harmless when nothing is there) and reports whether a shell landmark
+/// became onstage. No-op (false) when the shell is already visible.
+Future<bool> _popCoveringRouteViaBackChevron(Inst inst) async {
+  if (await _homeShellLandmarkOnstage(inst)) return false;
+  await inst.foreground();
+  await inst.tapAt(28, 72);
+  await Future<void>.delayed(const Duration(milliseconds: 700));
+  return _homeShellLandmarkOnstage(inst);
+}
+
 Future<bool> _dismissFriendProfileToUnderlying(Inst inst) async {
   for (var i = 0; i < 4; i++) {
     if (!await _isFriendProfileShell(inst)) return true;
@@ -702,6 +732,13 @@ Future<bool> _contactsHomeReady(Inst inst, {int timeoutSecs = 1}) async {
   }
   if (st['sessionReady'] != true ||
       st['homeShellInContactProfileContext'] == true) {
+    return false;
+  }
+  // Covered-shell guard (same rationale as _chatsHomeReady): an OPAQUE pushed
+  // route over the home shell leaves homeShellTab=='contacts' in the dump while
+  // every shell widget sits offstage — the waitKey landmarks below match those
+  // offstage copies and would accept a shell the user cannot see or tap.
+  if (!await _homeShellLandmarkOnstage(inst)) {
     return false;
   }
   // macOS: a "Back" affordance means a pushed sub-route, which disqualifies the
@@ -1025,12 +1062,38 @@ Future<bool> _chatsHomeReady(Inst inst, {int timeoutSecs = 1}) async {
   // Robust early-accept: after a switch-back / account-delete boot (which mounts
   // a fresh HomePage), `new_entry_menu_button` and the other landmark keys can
   // lag the dump even though the home shell is fully up — the persistent SIDEBAR
-  // AVATAR (and the dump homeShellTab) survive that boot. If the session is ready
-  // AND the home shell is observable by either, the chats home IS usable. Without
-  // this, the inter-sweep recovery throws "did not recover to HomePage" after a
+  // AVATAR (and the dump homeShellTab) survive that boot. Without this, the
+  // inter-sweep recovery throws "did not recover to HomePage" after a
   // destructive account flow and cascades every later sweep.
-  if (st['homeShellTab'] != null ||
-      await inst.waitKey('sidebar_user_avatar', timeoutSecs: timeoutSecs)) {
+  //
+  // The accept must be TAB-AWARE: a dump that reports a KNOWN non-chats tab
+  // (contacts/settings/applications) is NOT the chats home — the conversation
+  // list sits offstage in the home IndexedStack there, keyed secondary-taps
+  // refuse it (key_offstage_only), and coordinate taps land on the wrong tab.
+  // Early-accepting `homeShellTab != null` left returnToChatsHome stranded on
+  // the Contacts tab after a real-UI handshake accept (conv_menu_surface_c2c /
+  // conv_pin_unpin_reorders / conv_mark_read_two_proc all failed on the row
+  // menu). Only 'chats' early-accepts; a known other tab returns false so the
+  // caller's recovery actually switches tabs; an unknown/lagging dump falls
+  // back to the boot-lag avatar accept and the landmark checks.
+  final earlyShellTab = st['homeShellTab']?.toString();
+  if (earlyShellTab == 'chats') {
+    // The dump's homeShellTab reflects the home IndexedStack index, which
+    // stays 'chats' even when an OPAQUE pushed route (a stranded group
+    // member-list page, a sub-settings page) covers the whole shell — the
+    // covered shell widgets are genuinely offstage (the Overlay hides routes
+    // below an opaque entry), so row taps resolve key_offstage_only and
+    // coordinate taps land on the covering route. Accept only when a shell
+    // landmark is actually ONSTAGE; otherwise fall through to the caller's
+    // recovery legs so the covering route gets popped. (Root-caused live: the
+    // conf-member sweep stranded its member-list page, returnToChatsHome
+    // early-accepted, and every later conversation-row case died offstage.)
+    return _homeShellLandmarkOnstage(inst);
+  }
+  if (earlyShellTab != null) {
+    return false;
+  }
+  if (await inst.waitKey('sidebar_user_avatar', timeoutSecs: timeoutSecs)) {
     return true;
   }
   final hasBack = await inst.waitText('Back', timeoutSecs: timeoutSecs);

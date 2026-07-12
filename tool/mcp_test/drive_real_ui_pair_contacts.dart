@@ -74,6 +74,21 @@ Future<bool> _onFriendProfile(Inst inst, {int timeoutSecs = 6}) async {
       await inst.waitKey('friend_profile_send_message_tile', timeoutSecs: 2);
 }
 
+/// True when a friend-profile control is actually ONSTAGE (resolves to a painted
+/// RenderBox via l3 keyCenter — NOT flutter_skill's offstage-blind waitKey). Used
+/// to reject a stale, offstage profile route lingering behind the current shell.
+Future<bool> _friendProfileControlOnstage(Inst inst) async {
+  for (final key in const [
+    'user_profile_block_switch',
+    'user_profile_pin_switch',
+    'user_profile_delete_friend_button',
+    'friend_profile_send_message_tile',
+  ]) {
+    if (await inst.keyCenter(key) != null) return true;
+  }
+  return false;
+}
+
 /// Open the friend profile for [tox] from the Contacts tab by tapping the
 /// contact row (toxee's `onTapContactItem` -> `_showUserProfileOnRight`). Unlike
 /// `openFriendProfile` (friends.dart), this is tolerant: returns whether the
@@ -81,10 +96,23 @@ Future<bool> _onFriendProfile(Inst inst, {int timeoutSecs = 6}) async {
 /// of aborting the whole chain.
 Future<bool> _ensureFriendProfileOpen(Inst inst, String tox) async {
   await inst.foreground();
-  if (await _onFriendProfile(inst, timeoutSecs: 1)) return true;
+  // Reuse an existing profile ONLY when it is actually ONSTAGE (a painted
+  // control resolves via l3 keyCenter). A prior case (clear_history) can leave a
+  // profile route LINGERING offstage after forceHomeRoot rebuilt the shell over
+  // it; `_onFriendProfile` (flutter_skill waitKey) matches that offstage route
+  // and would early-return it, after which the switch cases tap/resolve a
+  // covered control that never flips (root cause of blocked_list "could not
+  // block" surviving even the onstage-tap fix — the profile it reused was the
+  // stale offstage one). Requiring an onstage control forces a fresh open.
+  if (await _friendProfileControlOnstage(inst)) return true;
   await ensureContactsShell(inst);
   final fullKey = _contactItemFullKey(tox);
   final shortKey = _contactItemShortKey(tox);
+  // The contact-row tap is subject to flutter_skill's double-fire (a synthetic
+  // pointer + a direct _tryInvokeCallback). The production onTapContactItem now
+  // TIME-DEBOUNCES a near-instant second invocation (home_page.dart), so the
+  // second fire can no longer flip `_inContactProfileContext` and mis-navigate
+  // to the chat — a single tryTapKey reliably opens the profile.
   for (var attempt = 0; attempt < 4; attempt++) {
     final tapped = await inst.tryTapKey(fullKey, retries: 2) ||
         await inst.tryTapKey(shortKey, retries: 2);
@@ -813,12 +841,55 @@ Future<bool> _friendprofClearHistory(Inst inst, String toxFriend) async {
     print('[pair] friendprof_clear_history: confirm not tappable');
     return false;
   }
+  // The confirm's onPressed clears the history but does not ALWAYS pop the
+  // dialog (the fork's `handled` one-shot guard can absorb the Navigator.pop
+  // that would ride the second, synthetic fire). A lingering confirm dialog is
+  // a MODAL BARRIER: every subsequent case's tap lands on the barrier, not the
+  // control (root cause — proven by screenshot — of blocked_list "could not
+  // block" AND contact_search "filter not applied": the block switch / search
+  // field sat behind this dialog). Ensure it is gone: re-tap confirm, then
+  // Escape, until the confirm button is no longer in the tree.
+  for (var i = 0;
+      i < 4 &&
+          await inst.waitKey('user_profile_clear_history_confirm_button',
+              timeoutSecs: 1);
+      i++) {
+    await inst.tryTapKey('user_profile_clear_history_confirm_button');
+    if (!await inst.waitKeyGone('user_profile_clear_history_confirm_button',
+        timeoutSecs: 2)) {
+      try {
+        await inst.osaEscape();
+      } on DriveError {
+        // best-effort
+      }
+    }
+  }
   // 3) Assert the history is empty.
   final emptied = await _waitConvMessageCount(inst, convId, 0, timeoutSecs: 15);
   final afterCount =
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
               ?.toInt() ??
           -1;
+  // Settle the state for the following contact cases: this case opened a real
+  // CHAT (currentConversation bound) before opening the profile. Left bound, the
+  // lingering active conversation + its async churn shift the timing of the next
+  // case's double-firing contact-row tap so it Send-Messages out instead of
+  // opening the profile (root cause of blocked_list / contact_search failing
+  // ONLY after this case). The sweep test-marks the account, so clearing is
+  // available; best-effort.
+  try {
+    await inst.clearActiveConversation();
+  } on DriveError {
+    // best-effort — the profile-open retry in the next case also recovers.
+  }
+  // Pop THIS case's profile route (it was opened to click Clear-History). Left
+  // pushed, forceHomeRoot rebuilds the shell OVER it and it lingers offstage;
+  // the next case's _ensureFriendProfileOpen would then reuse that stale route
+  // and its switch taps would hit a covered control (blocked_list "could not
+  // block"). Dismiss it down to the underlying shell first.
+  for (var i = 0; i < 4 && await _isFriendProfileShell(inst); i++) {
+    await _dismissFriendProfileToUnderlying(inst);
+  }
   await ensureContactsShell(inst);
   print(
     '[pair] friendprof_clear_history: seeded=$seeded beforeCount=$beforeCount '
@@ -840,6 +911,35 @@ Future<bool> _waitConvMessageCount(Inst inst, String convId, int want,
   return false;
 }
 
+/// Toggle the friend-profile block switch until `blockedUsers` reflects [want].
+/// Resolves the switch center via the l3 ONSTAGE resolver (ui_key_center → a
+/// painted RenderBox) and single-fire `tapAt`s it, NOT flutter_skill's
+/// `tapKeyCenter` (whose interactiveStructured bounds include OFFSTAGE/covered
+/// duplicate switches with positive bounds — after clear_history left a lingering
+/// profile route, that tapped a stale switch and the live one never flipped,
+/// root cause of blocked_list "could not block"). Idempotent: no-ops when already
+/// in the wanted state; retries the onstage tap a few times.
+Future<bool> _toggleBlockUntil(
+  Inst inst,
+  String toxFriend, {
+  required bool want,
+}) async {
+  for (var attempt = 0; attempt < 4; attempt++) {
+    if (await _isBlocked(inst, toxFriend) == want) return true;
+    await inst.foreground();
+    final c = await inst.keyCenter('user_profile_block_switch');
+    if (c == null) {
+      // Switch not onstage — re-open a fresh profile and retry.
+      await _ensureFriendProfileOpen(inst, toxFriend);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      continue;
+    }
+    await inst.tapAt(c.x, c.y);
+    if (await _waitBlocked(inst, toxFriend, want, timeoutSecs: 6)) return true;
+  }
+  return await _isBlocked(inst, toxFriend) == want;
+}
+
 // ===========================================================================
 // case 42 — blocked_list_unblock_row (S107)  [needs friendship]
 // ===========================================================================
@@ -854,13 +954,7 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
     print('[pair] blocked_list_unblock_row: profile did not open');
     return false;
   }
-  if (!await _isBlocked(inst, toxFriend)) {
-    if (!await inst.tapKeyCenter('user_profile_block_switch', timeoutSecs: 6)) {
-      print('[pair] blocked_list_unblock_row: block switch not tappable');
-      return false;
-    }
-  }
-  final blocked = await _waitBlocked(inst, toxFriend, true);
+  final blocked = await _toggleBlockUntil(inst, toxFriend, want: true);
   if (!blocked) {
     print('[pair] blocked_list_unblock_row: could not block the friend');
     return false;
@@ -895,13 +989,7 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
   if (!await _onFriendProfile(inst, timeoutSecs: 4)) {
     await _ensureFriendProfileOpen(inst, toxFriend);
   }
-  if (await _isBlocked(inst, toxFriend)) {
-    if (!await inst.tapKeyCenter('user_profile_block_switch', timeoutSecs: 6)) {
-      print('[pair] blocked_list_unblock_row: unblock switch not tappable');
-      return false;
-    }
-  }
-  final unblocked = await _waitBlocked(inst, toxFriend, false);
+  final unblocked = await _toggleBlockUntil(inst, toxFriend, want: false);
   // 4) Re-check the Blocked Users list: the row is gone. The block-list panel
   // does not always live-refresh when the unblock happens off-panel, so FORCE a
   // fresh load by navigating New Contacts -> Blocked Users (keyed sub-tabs) the
@@ -1130,8 +1218,8 @@ Future<void> _wireSweepLoopbackBootstrap(Inst a, Inst b) async {
       await b.waitExt(ext);
     }
     await wireFullMeshBootstrap([
-      BootstrapTarget('A', a.vm, a.iso),
-      BootstrapTarget('B', b.vm, b.iso),
+      BootstrapTarget('A', a.vm, a.iso, host: a.bootstrapHost),
+      BootstrapTarget('B', b.vm, b.iso, host: b.bootstrapHost),
     ],
         log: (m) => print('[sweep] $m'),
         // Same-host DHTs need more than the default 6s to actually CONNECT

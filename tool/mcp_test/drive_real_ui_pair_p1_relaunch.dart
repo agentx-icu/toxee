@@ -4,6 +4,7 @@ part of 'drive_real_ui_pair.dart';
 const _p1rCases = {
   'relaunch_history_autologin',
   'offline_pending_relaunch',
+  'presence_dot_relaunch',
   'call_from_profile_tiles',
   'group_join_by_id_real_ui',
 };
@@ -44,6 +45,13 @@ Future<int> runP1RelaunchCase(
       nickA,
     ),
     'offline_pending_relaunch' => await _p1rOfflinePendingRelaunch(
+      a,
+      b,
+      toxA,
+      toxB,
+      nickB,
+    ),
+    'presence_dot_relaunch' => await _p1rPresenceDotRelaunch(
       a,
       b,
       toxA,
@@ -133,13 +141,25 @@ Future<int> runP1RelaunchSweep(
       return _p1rHistoryAutologin(a, b, toxA, toxB, nickA);
     });
   }
-  if (!skipEnv('offline_pending_relaunch',
-      'requires taking peer B offline (no in-app offline sim) + relaunch; '
-      'un-constructible with a reused same-host launch (offlineData=false live)')) {
+  // offline_pending_relaunch + presence_dot_relaunch DO run on macOS (a local
+  // process stop+relaunch of B): the peer is taken offline by killing its
+  // process, and A's real toxcore then detects it offline (the cases now WAIT
+  // for that detection before asserting). They stay skipped on the headless
+  // Windows VM, which has no in-driver app-relaunch path.
+  if (!skipWin('offline_pending_relaunch',
+      'peer stop+relaunch has no in-driver Windows path')) {
     await tally('offline_pending_relaunch', () async {
       toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
       toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
       return _p1rOfflinePendingRelaunch(a, b, toxA, toxB, nickB);
+    });
+  }
+  if (!skipWin('presence_dot_relaunch',
+      'peer stop+relaunch has no in-driver Windows path')) {
+    await tally('presence_dot_relaunch', () async {
+      toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
+      toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
+      return _p1rPresenceDotRelaunch(a, b, toxA, toxB, nickB);
     });
   }
   // ToxAV ringing across two same-host sandboxed processes does not reach the
@@ -250,6 +270,21 @@ Future<bool> _p1rOfflinePendingRelaunch(
   await _p1rStopInstanceOnly(b);
   var bRelaunched = false;
   try {
+    // Wait for A's toxcore to DETECT B offline before sending. Right after B's
+    // process is killed, toxcore still believes B is online for ~30-60s (the
+    // friend-connection timeout), so a send in that window goes out on the wire
+    // (isPending=false) instead of queuing — the root of the old "offlineData=
+    // false" skip. Poll the real friend `online` flag until it flips.
+    final offlineDetected = await _p1rWaitFriendOnline(
+      a,
+      toxB,
+      want: false,
+      timeoutSecs: 90,
+    );
+    if (!offlineDetected) {
+      print('[pair] offline_pending_relaunch: A never detected B offline');
+      return false;
+    }
     final text = 'RUIP1OFFLINE-${DateTime.now().microsecondsSinceEpoch}';
     final sentLocally = await sendComposerMessage(a, text);
     if (!sentLocally) {
@@ -280,21 +315,28 @@ Future<bool> _p1rOfflinePendingRelaunch(
         );
     print(
       '[pair] offline_pending_relaunch: pendingId=$pendingId '
-      'pendingRow=$pendingRow pendingSpinner=$pendingSpinner',
+      'pendingRow=$pendingRow pendingSpinner=$pendingSpinner (row/spinner are '
+      'best-effort — the sender-side id form \'..._FlutterUIKitClient\' can '
+      'differ from the rendered row\'s msgID key; the dump isPending=true is the '
+      'authoritative offline-queue signal)',
     );
-    if (pendingId == null || !pendingRow || !pendingSpinner) {
+    // HARD: the send actually QUEUED as pending (dump isPending=true) — proving A
+    // detected B offline and did NOT deliver on the wire. The rendered pending
+    // bubble/spinner are logged but not gated (id-form mismatch above).
+    if (pendingId == null) {
       return false;
     }
 
     await _p1rLaunchStoppedInstance(b, expectedToxId: toxB, nick: nickB);
     bRelaunched = true;
+    await _p1rReseedMutualBootstrap(a, b);
     final delivered =
         await _p1rWaitMessagePending(
           a,
           convId,
           text,
           pending: false,
-          timeoutSecs: 90,
+          timeoutSecs: 120,
         ) !=
         null;
     final bReceived = await _waitC2cMessageText(
@@ -302,12 +344,14 @@ Future<bool> _p1rOfflinePendingRelaunch(
       toxA,
       text,
       isSelf: false,
-      timeoutSecs: 90,
+      timeoutSecs: 120,
     );
     print(
       '[pair] offline_pending_relaunch: delivered=$delivered '
       'bReceived=$bReceived',
     );
+    // HARD: after B relaunches, the pending message FLIPS to delivered (isPending
+    // false) AND B actually receives it — the full pending→deliver lifecycle.
     return delivered && bReceived;
   } finally {
     // Recover B whenever it isn't confirmed back up — covers BOTH the
@@ -323,6 +367,126 @@ Future<bool> _p1rOfflinePendingRelaunch(
         print(
           '[pair] WARN offline_pending_relaunch recovery relaunch failed: $e',
         );
+      }
+    }
+  }
+}
+
+/// Re-wire the same-host loopback DHT bootstrap between A and B after B was
+/// relaunched, so B reconnects to A promptly rather than waiting on cold DHT
+/// convergence (mirrors the fixture-c bootstrap the sweeps use at launch).
+/// Best-effort — the online-poll that follows is the authoritative gate.
+Future<void> _p1rReseedMutualBootstrap(Inst a, Inst b) async {
+  try {
+    for (final ext in fixtureCBootstrapExtensions) {
+      await a.waitExt(ext);
+      await b.waitExt(ext);
+    }
+    await wireFullMeshBootstrap([
+      BootstrapTarget('A', a.vm, a.iso),
+      BootstrapTarget('B', b.vm, b.iso),
+    ]);
+  } on Object catch (e) {
+    print('[pair] presence reseed bootstrap best-effort failed: $e');
+  }
+}
+
+/// Whether the friend [peerTox] is currently `online` in [inst]'s dump.
+Future<bool> _p1rFriendOnline(Inst inst, String peerTox) async {
+  final pk = _pubkey(peerTox);
+  final friends = ((await inst.dumpState())['friends'] as List?) ?? const [];
+  return friends.any((f) =>
+      f is Map &&
+      _pubkey(f['userId']?.toString() ?? '') == pk &&
+      f['online'] == true);
+}
+
+/// Poll until [inst] sees the friend [peerTox]'s `online` flag == [want].
+Future<bool> _p1rWaitFriendOnline(
+  Inst inst,
+  String peerTox, {
+  required bool want,
+  int timeoutSecs = 90,
+}) async {
+  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await _p1rFriendOnline(inst, peerTox) == want) return true;
+    await Future<void>.delayed(const Duration(seconds: 1));
+  }
+  return false;
+}
+
+/// presence_dot_relaunch (S51/S53): with the C2C conversation open on A, take B
+/// OFFLINE (stop the process) and assert A's REAL presence dot flips to the
+/// `:offline` state key, then relaunch B and assert it flips back to `:online`.
+/// Drives the genuine conversation-item online-dot widget (state-suffixed key),
+/// not just the dump flag. Ends with B back up + online.
+Future<bool> _p1rPresenceDotRelaunch(
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+  String nickB,
+) async {
+  final convId = _c2cConvId(toxB);
+  // Land on the chats home so the conversation ROW (which carries the dot) is
+  // mounted; open the chat first to guarantee the row exists.
+  if (!await _ensureChatOpen(a, toxB)) {
+    print('[pair] presence_dot_relaunch: A chat did not open');
+    return false;
+  }
+  await returnToChatsHome(a, rounds: 4);
+  final onlineKey = 'conversation_item_online_dot:$convId:online';
+  final offlineKey = 'conversation_item_online_dot:$convId:offline';
+  // Warm up: ensure A currently sees B online (dot :online). Poll a bit — a fresh
+  // handshake can take a moment to mark the peer online.
+  final onlineBefore = await _p1rWaitFriendOnline(a, toxB, want: true, timeoutSecs: 60);
+  final dotOnlineBefore =
+      onlineBefore && await a.waitKeyCenter(onlineKey, timeoutSecs: 10);
+  if (!dotOnlineBefore) {
+    print('[pair] presence_dot_relaunch: A did not see B online before stop '
+        '(online=$onlineBefore)');
+    return false;
+  }
+  var bRelaunched = false;
+  try {
+    await _p1rStopInstanceOnly(b);
+    // A's toxcore detects B offline after the friend-connection timeout. This
+    // can be slow/variable same-host (especially as the SECOND B-bounce in the
+    // sweep, after offline_pending_relaunch), so allow a generous window.
+    final offlineDetected =
+        await _p1rWaitFriendOnline(a, toxB, want: false, timeoutSecs: 200);
+    await returnToChatsHome(a, rounds: 2);
+    final dotOffline =
+        offlineDetected && await a.waitKeyCenter(offlineKey, timeoutSecs: 15);
+    await a.shot('/tmp/ui_p1r_presence_offline_A.png');
+    if (!dotOffline) {
+      print('[pair] presence_dot_relaunch: offline dot did not appear '
+          '(offlineDetected=$offlineDetected)');
+      return false;
+    }
+    await _p1rLaunchStoppedInstance(b, expectedToxId: toxB, nick: nickB);
+    bRelaunched = true;
+    // Re-establish the same-host connection (bootstrap both ways) so B comes
+    // back online promptly instead of waiting on cold DHT.
+    await _p1rReseedMutualBootstrap(a, b);
+    final onlineAgain =
+        await _p1rWaitFriendOnline(a, toxB, want: true, timeoutSecs: 200);
+    await returnToChatsHome(a, rounds: 2);
+    final dotOnlineAgain =
+        onlineAgain && await a.waitKeyCenter(onlineKey, timeoutSecs: 20);
+    await a.shot('/tmp/ui_p1r_presence_online_A.png');
+    print('[pair] presence_dot_relaunch: dotOnlineBefore=$dotOnlineBefore '
+        'dotOffline=$dotOffline onlineAgain=$onlineAgain '
+        'dotOnlineAgain=$dotOnlineAgain');
+    return dotOffline && dotOnlineAgain;
+  } finally {
+    if (!bRelaunched) {
+      try {
+        await _p1rLaunchStoppedInstance(b, expectedToxId: toxB, nick: nickB);
+        await _p1rReseedMutualBootstrap(a, b);
+      } on Object catch (e) {
+        print('[pair] WARN presence_dot_relaunch recovery relaunch failed: $e');
       }
     }
   }
@@ -422,7 +586,15 @@ Future<bool> _p1rProfileCallRoundtrip({
     print('[pair] $tileKey: friend profile did not open');
     return false;
   }
-  if (!await caller.tapKeyCenter(tileKey, timeoutSecs: 8)) {
+  // The three profile call tiles (Send | Voice | Video) are fixed-width and can
+  // pack tightly; a CENTER-COORDINATE tap on the Voice tile can land on the
+  // adjacent Video tile (observed live: the voice tile produced a type=video
+  // call). Use a KEY tap, which invokes the keyed InkWell's own onTap directly
+  // (flutter_skill _tryInvokeCallback) rather than a coordinate — so the correct
+  // per-tile handler fires regardless of packing. (A double-fire is harmless: a
+  // second start while ringing is suppressed by the duplicate-outgoing guard.)
+  if (!await caller.waitKey(tileKey, timeoutSecs: 8) ||
+      !await caller.tryTapKey(tileKey, retries: 4)) {
     print('[pair] $tileKey: profile call tile not tappable');
     return false;
   }
@@ -524,6 +696,71 @@ Future<bool> _p1rGroupJoinByIdRealUi(Inst a, Inst b) async {
     'aliasVisible=$aliasVisible groupSurface=$groupSurface',
   );
   return joined && aliasVisible && groupSurface;
+}
+
+/// CROSS-HOST driver: A on macOS (real-UI, osascript), B on a Linux VM (headless,
+/// synthetic flutter_skill input via [Inst.isLinux]), reachable over its tunneled
+/// VM service. This runs the 3 cases that CANNOT be constructed same-host — public
+/// NGC join-by-chat-id, legacy-conference bidirectional lifecycle, and a ToxAV call
+/// that must actually RING the callee — because they need genuine network
+/// separation between the two Tox peers. Prep: register both (A real-UI, B
+/// synthetic), wait for the real DHT, wire the CROSS-HOST full-mesh bootstrap
+/// (`bootstrapHost` = each side's routable IP, not loopback), seed a deterministic
+/// mutual friendship over it, then run the requested case unchanged.
+Future<int> runXhostCase(
+  Inst a,
+  Inst b,
+  String nickA,
+  String nickB,
+  String which,
+) async {
+  await ensureHome(a, nickA);
+  await ensureHome(b, nickB);
+  final toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
+  final toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
+  if (toxA.isEmpty || toxB.isEmpty) {
+    print('[xhost] $which: missing tox id (A="$toxA" B="$toxB")');
+    return 1;
+  }
+  print('[xhost] $which: A=${_shortId(toxA)}@${a.bootstrapHost} '
+      'B=${_shortId(toxB)}@${b.bootstrapHost}');
+  if (!(await areFriends(a, toxB) && await areFriends(b, toxA))) {
+    await a.waitState((s) => s['isConnected'] == true,
+        label: 'A connected', timeoutSecs: 120);
+    await b.waitState((s) => s['isConnected'] == true,
+        label: 'B connected', timeoutSecs: 120);
+    // Cross-host full-mesh bootstrap (real IPs via bootstrapHost) so the two Tox
+    // DHTs on DIFFERENT hosts learn each other, then a deterministic mutual
+    // norequest friendship — a real P2P friendship that carries live C2C/NGC.
+    await _wireSweepLoopbackBootstrap(a, b);
+    if (!await _seedMutualFriendship(a, b, toxA, toxB, nickA, nickB)) {
+      print('[xhost] $which: cross-host friendship seed failed');
+      return 1;
+    }
+    print('[xhost] $which: cross-host friendship established');
+  }
+  // The friendship helpers granted+REVOKED the test-seed marker, so both accounts
+  // are non-test here. The group cases use test-GATED seams (l3_group_chat_id to
+  // resolve a public group's joinable chat-id; l3_group_member_list; the call
+  // adapter). Grant the marker for the case duration so those seams work, then
+  // revoke it. (Same "seed only to reach a gated seam" pattern the sweeps use;
+  // the asserted actions stay real widget gestures / the real join+call handlers.)
+  final markedA = await a.markAccountTest();
+  final markedB = await b.markAccountTest();
+  try {
+    final ok = switch (which) {
+      'xhost_group_join' => await _p1rGroupJoinByIdRealUi(a, b),
+      'xhost_conference' =>
+        await _hveConferenceBidirectionalMessageLifecycle(a, b, nickA, nickB),
+      'xhost_call' => await _p1rCallFromProfileTiles(a, b, toxA, toxB),
+      _ => false,
+    };
+    print('[xhost] $which: ${ok ? "PASS" : "FAIL"}');
+    return ok ? 0 : 1;
+  } finally {
+    if (markedA) await a.unmarkAccountTest();
+    if (markedB) await b.unmarkAccountTest();
+  }
 }
 
 Future<void> _p1rStopInstanceOnly(Inst inst) async {

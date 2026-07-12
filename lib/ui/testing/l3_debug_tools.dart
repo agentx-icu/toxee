@@ -66,6 +66,7 @@ import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desk
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../call/permission_helper.dart';
 import '../../navigation/app_navigation.dart';
 import '../../notifications/notification_service.dart';
 import '../profile/profile_avatar_picker.dart';
@@ -475,6 +476,8 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3PickAvatarEntry());
   addMcpTool(_l3SetTypingEntry());
   addMcpTool(_l3WindowStateEntry());
+  addMcpTool(_l3SetCallPermissionEntry());
+  addMcpTool(_l3SetConnectionEntry());
   addMcpTool(_l3InviteToGroupEntry());
   addMcpTool(_l3KickGroupMemberEntry());
   addMcpTool(_l3GroupMemberListEntry());
@@ -3569,6 +3572,37 @@ MCPCallEntry _l3SetAvatarPickPathEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'non_test_account'},
       );
     }
+    // PREFER contentB64 (mirrors l3_set_attachment_pick_path): a sandboxed macOS
+    // app can only READ files it wrote under its own container, so an external
+    // /tmp path the driver wrote is unreadable and the real avatar-copy would
+    // fail. When content is supplied, the APP materializes it inside the
+    // container and points the override at THAT app-readable path.
+    final contentB64 = request['contentB64']?.toString();
+    if (contentB64 != null && contentB64.isNotEmpty) {
+      final name = (request['fileName']?.toString().trim().isNotEmpty ?? false)
+          ? request['fileName']!.toString().trim()
+          : 'l3_avatar.png';
+      final List<int> bytes;
+      try {
+        bytes = base64Decode(contentB64);
+      } on FormatException catch (e) {
+        return MCPCallResult(
+          message: 'l3_set_avatar_pick_path: contentB64 not valid base64: $e',
+          parameters: {'ok': false, 'error': 'bad_base64'},
+        );
+      }
+      final dir = await Directory.systemTemp.createTemp('l3avatar');
+      final f = File('${dir.path}/$name');
+      await f.writeAsBytes(bytes);
+      _avatarPickPathOverride = f.path;
+      AppLogger.info(
+        '[L3] l3_set_avatar_pick_path: materialized $name -> ${f.path}',
+      );
+      return MCPCallResult(
+        message: 'avatar pick override materialized',
+        parameters: {'ok': true, 'path': f.path},
+      );
+    }
     final path = _normalizeExportSaveOverridePath(request['path']?.toString());
     _avatarPickPathOverride = path;
     AppLogger.info(
@@ -3587,12 +3621,23 @@ MCPCallEntry _l3SetAvatarPickPathEntry() => MCPCallEntry.tool(
     description:
         'L3 TEST ONLY (test/seed account): set or clear the avatar image-picker '
         'override. When set, the native image picker is bypassed and this fixed '
-        'path is returned by the avatar-set flow. Pass an empty path to clear.',
+        'path is returned by the avatar-set flow. PREFER "contentB64" + '
+        '"fileName" (the app writes a sandbox-readable file); a host "path" under '
+        '/tmp is NOT readable by the sandboxed app. Pass an empty path to clear.',
     inputSchema: ObjectSchema(
       properties: {
         'path': StringSchema(
           description:
-              'Absolute image path to use as the picked avatar. Empty clears.',
+              'Absolute image path to use as the picked avatar. Empty clears. '
+              'Use only for already-app-accessible files.',
+        ),
+        'contentB64': StringSchema(
+          description:
+              'Base64 image bytes; the app writes them to a sandbox-readable '
+              'temp file and returns THAT path. Preferred over "path".',
+        ),
+        'fileName': StringSchema(
+          description: 'File name for the materialized contentB64 image.',
         ),
       },
     ),
@@ -6164,6 +6209,29 @@ MCPCallEntry _l3WindowStateEntry() => MCPCallEntry.tool(
           await windowManager.setSize(Size(width, height));
           await windowManager.center();
           break;
+        case 'set_min':
+          // Override the desktop minimum window size (desktop_shell_bootstrap
+          // sets 960x600 for ALL desktop OSes). The 960 min sits ABOVE the 720
+          // responsive breakpoint, so window_manager clamps any narrow-below-720
+          // resize on macOS AND Windows — making the responsive-layout swap
+          // unreachable. A test can lower the min, drive the narrow layout, then
+          // restore the min (there is no getMinimumSize; restore the known
+          // default 960x600). Test-account-gated + restored → no product impact.
+          final minW = double.tryParse(
+            (request['width'] as Object?)?.toString() ?? '',
+          );
+          final minH = double.tryParse(
+            (request['height'] as Object?)?.toString() ?? '',
+          );
+          if (minW == null || minH == null || minW <= 0 || minH <= 0) {
+            return MCPCallResult(
+              message:
+                  'l3_window_state: set_min needs positive "width" and "height"',
+              parameters: {'ok': false, 'error': 'bad_min'},
+            );
+          }
+          await windowManager.setMinimumSize(Size(minW, minH));
+          break;
         case 'query_bounds':
           // Read-only: return the current logical window size so a real-UI
           // responsive-layout test can read the original size, resize, and
@@ -6183,7 +6251,7 @@ MCPCallEntry _l3WindowStateEntry() => MCPCallEntry.tool(
           return MCPCallResult(
             message:
                 'l3_window_state: unsupported state "$state" '
-                '(minimize|restore|hide|show|focus|bounds)',
+                '(minimize|restore|hide|show|focus|bounds|set_min|query_bounds)',
             parameters: {'ok': false, 'error': 'unsupported_state'},
           );
       }
@@ -6221,6 +6289,111 @@ MCPCallEntry _l3WindowStateEntry() => MCPCallEntry.tool(
         'height': StringSchema(description: 'Logical height for state=bounds.'),
       },
       required: ['state'],
+    ),
+  ),
+);
+
+/// Force the NEXT call permission-request result so a real-UI test can drive the
+/// genuine permission-DENIED UI (the call SnackBar + Settings action) without the
+/// un-resettable OS TCC dialog — and because on macOS the denial branch is
+/// otherwise UNREACHABLE (shouldRequestRuntimePermission==false). `granted=false`
+/// arms a mic+camera denial with requiresSettings; `granted=true` (or clear=true)
+/// disarms. Test-account-gated + kDebugMode-gated in the helper.
+MCPCallEntry _l3SetCallPermissionEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_set_call_permission: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final clear = request['clear']?.toString().toLowerCase() == 'true';
+    final granted = request['granted']?.toString().toLowerCase() == 'true';
+    if (clear || granted) {
+      CallPermissionHelper.debugForcedResult = null;
+      AppLogger.info('[L3] l3_set_call_permission: CLEARED (real OS path)');
+      return MCPCallResult(
+        message: 'call permission override cleared',
+        parameters: {'ok': true, 'cleared': true},
+      );
+    }
+    final requiresSettings =
+        request['requiresSettings']?.toString().toLowerCase() != 'false';
+    CallPermissionHelper.debugForcedResult = CallPermissionResult(
+      granted: false,
+      requiresSettings: requiresSettings,
+      missingPermissions: const [
+        CallPermission.microphone,
+        CallPermission.camera,
+      ],
+    );
+    AppLogger.info('[L3] l3_set_call_permission: DENIED forced '
+        '(requiresSettings=$requiresSettings)');
+    return MCPCallResult(
+      message: 'call permission forced denied',
+      parameters: {'ok': true, 'granted': false, 'requiresSettings': requiresSettings},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_call_permission',
+    description:
+        'L3 TEST ONLY (test/seed account, kDebugMode): force the next call '
+        'permission-request result. granted=false arms a mic+camera denial so a '
+        'real-UI test can assert the genuine permission-denied call UI; '
+        'granted=true or clear=true restores the real OS path.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'granted': StringSchema(description: '"false" arms denial; "true" clears.'),
+        'requiresSettings': StringSchema(
+          description: 'Denial offers a Settings action (default true).',
+        ),
+        'clear': StringSchema(description: '"true" restores the real OS path.'),
+      },
+    ),
+  ),
+);
+
+/// Inject a connection-status transition (isConnected true/false) via the REAL
+/// FfiChatService stream every offline-UI widget subscribes to — the byte-
+/// identical transition a real toxcore link-loss / restore produces — so a
+/// real-UI test can drive the genuine offline UI (Add-Friend/Add-Group offline
+/// banner, self online-dot) WITHOUT toggling the OS network link. Test-gated.
+MCPCallEntry _l3SetConnectionEntry() => MCPCallEntry.tool(
+  handler: (request) async {
+    if (!await _activeAccountIsTest()) {
+      return MCPCallResult(
+        message: 'l3_set_connection: refused — non-test account',
+        parameters: {'ok': false, 'error': 'non_test_account'},
+      );
+    }
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) {
+      return MCPCallResult(
+        message: 'l3_set_connection: session not ready',
+        parameters: {'ok': false, 'error': 'session_not_ready'},
+      );
+    }
+    final connected = request['connected']?.toString().toLowerCase() != 'false';
+    ffi.debugSetConnected(connected);
+    AppLogger.info('[L3] l3_set_connection: connected=$connected');
+    return MCPCallResult(
+      message: 'connection status set',
+      parameters: {'ok': true, 'connected': connected},
+    );
+  },
+  definition: MCPToolDefinition(
+    name: 'l3_set_connection',
+    description:
+        'L3 TEST ONLY (test/seed account): inject an isConnected transition on '
+        'the real FfiChatService connection stream to drive the offline UI '
+        '(Add-Friend offline banner, self online-dot) without an OS network '
+        'toggle. connected=false goes offline; connected=true (default) online.',
+    inputSchema: ObjectSchema(
+      properties: {
+        'connected': StringSchema(
+          description: '"false" = offline; "true"/absent = online.',
+        ),
+      },
     ),
   ),
 );
@@ -6376,6 +6549,10 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       // '' (not null) — lets a gate assert an empty-status START invariant via
       // state_equals and round-trip via state{contains|notContains}.
       'statusMessage': (await Prefs.getStatusMessage()) ?? '',
+      // The current account's persisted self-avatar path (Prefs). '' when unset.
+      // Lets a real-UI test assert the avatar-change flow actually persisted a
+      // new path after driving the profile avatar's real "change" affordance.
+      'selfAvatarPath': (await Prefs.getAvatarPath()) ?? '',
       'currentAccountToxId': await Prefs.getCurrentAccountToxId(),
       // DIAGNOSTIC: the UIKit basic.currentUser.userID (drives the member-list
       // isSelf() / myRole computation that gates the desktop kick item).
@@ -6509,6 +6686,15 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         'callDurationSeconds': callState.callDuration.inSeconds,
         'isReconnecting': callState.isReconnecting,
         'callQuality': callState.callQuality.name,
+        // Monotonic count of permission-DENIED call notices (grows only) — lets a
+        // real-UI test assert a call attempt raised the denial UI without racing
+        // the transient SnackBar. + the last notice's offerSettings flag.
+        'permissionDeniedNoticeCount':
+            FakeUIKit.instance.callServiceManager?.debugPermissionDeniedNoticeCount ??
+                0,
+        'lastPermissionNoticeOffersSettings': FakeUIKit
+                .instance.callServiceManager?.debugLastPermissionNoticeOffersSettings ??
+            false,
       };
     }
     // #4: the conversation list the sidebar renders (C2C + group) for

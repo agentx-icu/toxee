@@ -184,24 +184,36 @@ void main() {
     // pumpAndSettle.
     await tester.pumpWidget(const EchoUIKitApp());
 
-    // Settle through:
+    // Pump through the cold-start async chain until the LoginPage render lands:
     //   * TencentCloudChatMaterialApp's FutureBuilder for _getLocale (which
     //     calls Hive.initFlutter under the mocked path_provider)
     //   * _StartupGate.initState() → _runStartup() → StartupShowLogin
     //   * setState that flips _checking = false
     //   * the next build that returns `const LoginPage()`.
     //
-    // pumpAndSettle's positional args are (step, phase, timeout). Default
-    // step is 100ms; passing Duration(seconds: 30) as the first arg would
-    // fast-forward virtual time by 30s per pump and silently fire any
-    // startup Timer that's due — masking real cold-start regressions. Use
-    // default 100ms step + explicit 30s timeout for the cold-Hive worst case
-    // observed on CI.
-    await tester.pumpAndSettle(
-      const Duration(milliseconds: 100),
-      EnginePhase.sendSemanticsUpdate,
-      const Duration(seconds: 30),
-    );
+    // We CANNOT use a single pumpAndSettle here: on the iOS simulator the startup
+    // Futures (session use case / FFI init) resolve via microtasks WITHOUT
+    // scheduling a frame, and `_StartupGate`'s `_checking` status view is static —
+    // so pumpAndSettle can "settle" (no frames scheduled) while startup is still
+    // in flight, before `_checking` flips. Pump in a bounded loop that yields to
+    // the event loop each step so those real Futures can progress, until LoginPage
+    // mounts (StartupShowLogin) or the 30s cold-Hive worst case elapses. Still
+    // non-masking: a genuine startup hang or a wrong-outcome branch never mounts
+    // LoginPage and fails the assertion below (we don't touch takeException here,
+    // so an escaped startup exception is still surfaced by the check that follows).
+    var landedLogin = false;
+    for (var i = 0; i < 300 && !landedLogin; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      landedLogin = find.byType(LoginPage).evaluate().isNotEmpty;
+    }
+    if (landedLogin) {
+      // Let the LoginPage finish its own initState async loads before asserting.
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 5),
+      );
+    }
 
     // No exception escaped the framework's error handler during the startup
     // chain — this is the headline assertion (CLAUDE.md flags the startup

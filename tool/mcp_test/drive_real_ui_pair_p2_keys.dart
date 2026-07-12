@@ -90,27 +90,31 @@ Future<int> runP2KeysSweep(Inst a, Inst b, String nickA, String nickB) async {
     () => _p2kStickerFaceCellSend(a, b, toxA, toxB),
   );
   {
-    // Env-limited on ANY single-host real-UI run (macOS AND Windows): the
-    // new-messages chip latches off the reversed ScrollablePositionedList's
-    // itemPositions when an inbound arrives while scrolled up. The synthetic
-    // `ui_scroll_at` reaches the older row (scroll works) but does NOT reproduce
-    // the real-touch scroll-retention state the chip's new-count logic
-    // (_determineShowNewMsgCount) needs headless, so the chip never latches
-    // (verified live on macOS: chipShown=false while inboundRowRendered=true).
-    // Deterministic validation needs a message-list scroll-state l3 seam —
-    // scoped follow-up. SKIP-with-reason rather than a false FAIL.
-    print('[sweep] sweep_p2_keys SKIP: new_messages_chip_tap — synthetic scroll '
-        'does not latch the chip new-count state headless (needs scroll-state seam)');
-    skipped++;
+    // The new-messages chip latches off the reversed list's itemPositions when
+    // an inbound arrives while scrolled up. The old fork force-jumped to the
+    // bottom on any inbound, which reset the chip count to 0; with the
+    // scrollToBottomIfNearBottom fix (inbound keeps position when scrolled up),
+    // the count survives, so this now drives green via the real scroll +
+    // inbound + chip tap.
+    final ok = await _p2kNewMessagesChipTap(a, b, toxA, toxB);
+    if (ok) {
+      passed++;
+      print('[sweep] sweep_p2_keys PASS: new_messages_chip_tap');
+    } else {
+      failed++;
+      print('[sweep] sweep_p2_keys FAIL: new_messages_chip_tap');
+    }
   }
   {
-    // Env-limited on ANY single-host real-UI run: presence-offline cannot be
-    // seeded on a reused launch — the friend `online` flag has no ungated setter
-    // and flipping it requires stopping peer B's process (forbidden by the
-    // launch-reuse contract; verified live on macOS: offlineData=false even after
-    // a recovery relaunch). A second host/device is required. SKIP-with-reason.
-    print('[sweep] sweep_p2_keys SKIP: presence_dot_relaunch — presence-offline '
-        'un-seedable on a reused same-host launch (needs peer process control)');
+    // The presence FLIP requires stopping/relaunching peer B, which THIS reused
+    // launch may not do. The real-UI presence-dot flip IS now driven+asserted by
+    // presence_dot_relaunch in rui-p1-relaunch, which owns the peer process
+    // control (online → stop B → :offline dot → relaunch → :online dot). Kept
+    // SKIP here so the reused chat/keys launch stays intact; the assertion lives
+    // in that dedicated launch.
+    print('[sweep] sweep_p2_keys SKIP: presence_dot_relaunch — behavior asserted '
+        'by presence_dot_relaunch in rui-p1-relaunch (owns peer process control); '
+        'not stoppable under this reused launch');
     skipped++;
   }
 
@@ -199,19 +203,25 @@ Future<bool> _p2kNewMessagesChipTap(
 
   await returnToChatsHome(a, rounds: 4);
   await _ensureChatOpen(a, toxB);
-  final earliestRowKey = 'message_list_item:$earliestId';
-  var scrolledUp = await a.waitKey(earliestRowKey, timeoutSecs: 1);
-  for (var i = 0; i < 24 && !scrolledUp; i++) {
+  // Scroll up a MODERATE amount (not to the absolute earliest): far enough to be
+  // "not near the bottom" (so an inbound must NOT force-jump and the chip must
+  // surface), but NOT so far that the newest inbound is pushed beyond the built
+  // render window — the chip's new-count machinery reads the rendered list, so a
+  // scroll-to-earliest would page the inbound out and never latch it. A couple
+  // viewport scrolls up is a genuine "reading history" position; the chip
+  // appearing is itself the proof we were scrolled up (it only shows off-bottom).
+  var scrolledUp = false;
+  for (var i = 0; i < 3; i++) {
     try {
       await a.scrollAtCoords(640, 330, dy: -600);
     } on DriveError {
       break;
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    scrolledUp = await a.waitKey(earliestRowKey, timeoutSecs: 1);
+    scrolledUp = true;
   }
   if (!scrolledUp) {
-    print('[pair] new_messages_chip_tap: could not hold an older row onscreen');
+    print('[pair] new_messages_chip_tap: could not scroll up');
     return false;
   }
 

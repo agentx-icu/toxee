@@ -118,7 +118,13 @@ Future<void> openGroupChat(
   // leaving currentConversation on the prior c2c. Route through the production
   // `_openChat` handler there by default — same seam the chat sweeps use for
   // first-chat-open. Other platforms keep the real row-tap unless viaL3Seam.
-  if ((viaL3Seam || _isWindowsRealUi) &&
+  // Headless peers (Windows VM, and a Linux cross-host peer) can't drive the
+  // conversation-row coordinate tap — no host osascript reaches them — so a
+  // freshly-created group's bottom-sorted row never opens. Route them through the
+  // production `_openChat` handler (the ungated l3_open_chat seam) like the chat
+  // sweeps do. `inst.isLinux` covers the cross-host B; no existing run has a Linux
+  // real-UI instance, so this only adds the new path.
+  if ((viaL3Seam || _isWindowsRealUi || inst.isLinux) &&
       await inst.openChatViaL3(groupId: groupId) &&
       await _chatSurfaceReadyForAnyGroup(
         inst,

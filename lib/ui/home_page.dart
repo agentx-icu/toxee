@@ -324,6 +324,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // happened to be on the stack.
   bool _inContactProfileContext = false;
 
+  // Set true when the contact profile opens, cleared shortly after.
+  // `_showUserProfileOnRight` sets `_inContactProfileContext` true, so a
+  // near-instant second `onTapContactItem` (a synthetic double-tap, or an
+  // automation harness firing onTap twice — the two fires land within
+  // milliseconds) would be misread as the profile's "Send Message" action and
+  // pop straight back out to the chat. The genuine Send Message tap happens far
+  // later (after the profile has rendered and the user acts), well outside this
+  // guard, so it is unaffected. The two double-fire invocations can straddle a
+  // frame boundary (synthetic pointer vs direct callback), so a short timer is
+  // used rather than a single post-frame flag.
+  bool _profileJustOpened = false;
+  Timer? _profileJustOpenedTimer;
+
   @override
   void initState() {
     super.initState();
@@ -670,6 +683,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _refreshTimer?.cancel();
     _refreshTimer = null;
+
+    _profileJustOpenedTimer?.cancel();
+    _profileJustOpenedTimer = null;
 
     _bootstrapServiceStatusTimer?.cancel();
     _bootstrapServiceStatusTimer = null;
@@ -1067,6 +1083,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 // (search, settings push, etc.) happened to be on the stack
                 // and would pop the wrong page on a contact-list tap.
                 if (_inContactProfileContext) {
+                  // Swallow a near-instant re-entry: a synthetic double-tap (or
+                  // a harness firing onTap twice) would otherwise pop the profile
+                  // we JUST opened straight back to the chat. A genuine "Send
+                  // Message" tap from inside the profile lands far later.
+                  if (_profileJustOpened) {
+                    return true; // swallow the immediate second fire
+                  }
                   // We're inside a profile page — this is "Send Message".
                   // Close the profile, switch to chats tab, open 1:1 chat.
                   Navigator.of(context).pop();
@@ -1890,6 +1913,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// clears it on the Send-Message path (it pops the profile itself).
   void _showUserProfileOnRight(BuildContext context, String userID) {
     _inContactProfileContext = true;
+    // Guard briefly against the double-fire's second onTapContactItem; clear
+    // well before any genuine "Send Message" tap could plausibly arrive.
+    _profileJustOpened = true;
+    _profileJustOpenedTimer?.cancel();
+    _profileJustOpenedTimer = Timer(const Duration(milliseconds: 250), () {
+      _profileJustOpened = false;
+    });
     final future = TencentCloudChatRouter().navigateTo(
       context: context,
       routeName: TencentCloudChatRouteNames.userProfile,

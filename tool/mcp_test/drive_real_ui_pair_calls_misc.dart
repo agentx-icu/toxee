@@ -761,15 +761,43 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
 ///   - null  : the window refused scripted resize (SKIP(resize-refused) — the
 ///             raw-launched window can't be sized; never a fake pass)
 Future<bool?> _windowResizeResponsive(Inst inst) async {
-  // The window resize + size query go through l3_window_state, which is
-  // test-account-gated. This single-instance case isn't otherwise test-marked
-  // (unlike the message/call sweeps), so grant the seed marker for its duration
-  // on Windows (no-op on macOS, which resizes via osascript).
-  final markedForResize = _isWindowsRealUi && await inst.markAccountTest();
+  // The window resize + size query + the min-size override all go through
+  // l3_window_state, which is test-account-gated. Grant the seed marker for the
+  // case's duration on BOTH platforms (the min-size override is needed on macOS
+  // too — desktop_shell_bootstrap sets a 960x600 minimum for ALL desktop OSes,
+  // which is ABOVE the 720 responsive breakpoint, so it clamps the narrow resize
+  // on macOS AND Windows; the old "macOS osascript bypasses the min" claim was
+  // wrong — the live run skipped on macOS too).
+  final marked = await inst.markAccountTest();
+  var loweredMin = false;
   try {
+    if (marked) {
+      // Lower the desktop min so a below-breakpoint width is reachable.
+      final r = await inst.l3('l3_window_state', {
+        'state': 'set_min',
+        'width': '400',
+        'height': '400',
+      });
+      loweredMin = r['ok'] == true;
+    }
+    if (!loweredMin) {
+      print('[pair] window_resize_responsive: could not lower window min-size '
+          '(marked=$marked) — SKIP(min-not-lowered)');
+      return null;
+    }
     return await _windowResizeResponsiveBody(inst);
   } finally {
-    if (markedForResize) await inst.unmarkAccountTest();
+    if (loweredMin) {
+      // Restore the product default min (there is no getMinimumSize).
+      try {
+        await inst.l3('l3_window_state', {
+          'state': 'set_min',
+          'width': '960',
+          'height': '600',
+        });
+      } on DriveError {/* best-effort */}
+    }
+    if (marked) await inst.unmarkAccountTest();
   }
 }
 
@@ -798,12 +826,12 @@ Future<bool?> _windowResizeResponsiveBody(Inst inst) async {
   // The OS may clamp the minimum width (window_manager min-size). If it didn't
   // actually narrow past the breakpoint, treat as SKIP (can't prove the swap).
   if (applied == null || applied.w >= 720) {
+    // With the min-size already lowered to 400 by the caller, a still-clamped
+    // width means the scripted resize itself flaked (osascript / window_manager
+    // did not take), not the product min — SKIP rather than a false FAIL.
     print(
       '[pair] window_resize_responsive: width not applied past breakpoint '
-      '(applied=$applied) — SKIP(resize-refused). On Windows the app enforces a '
-      '960px minimum window width (setMinimumSize) which window_manager.setSize '
-      'clamps to — below the 720 responsive breakpoint is unreachable (macOS '
-      'narrows via osascript, which bypasses the min; no reliable Windows equiv).',
+      '(applied=$applied) even after lowering the min — SKIP(resize-flaked)',
     );
     // Restore best-effort before bailing.
     await inst.resizeWindow(original.w, original.h);
@@ -813,18 +841,22 @@ Future<bool?> _windowResizeResponsiveBody(Inst inst) async {
   final swapped = await inst.waitKey('home_bottom_nav', timeoutSecs: 8);
   await inst.shot('/tmp/ui_b8_resize_narrow_${inst.name}.png');
   // Drive the mobile bottom-nav ROUTING while narrow: tap Contacts → tab moves;
-  // tap Chats → back. The items are label-text widgets inside the bottom nav
-  // (now the only place those labels render, since the sidebar is gone in narrow
-  // mode), so tap by label and assert homeShellTab actually changed.
+  // tap Chats → back. The items are Material `BottomNavigationBarItem`s (data, not
+  // keyed widgets), so a label-TEXT tap does not reliably fire the bar's
+  // index-based `onTap` (the tap target is the internal per-item InkResponse, not
+  // the nested Text). Tap the item's KEYED ICON via `tapKeyCenter` — a real
+  // coordinate pointer at the icon center lands inside that InkResponse and fires
+  // `onTap(index)` (single fire; a double-tap would hit the already-active tab and
+  // no-op). Assert homeShellTab actually changed.
   var navRouted = false;
   if (swapped) {
-    await _tryTapText(inst, 'Contacts');
+    await inst.tapKeyCenter('bottom_nav_contacts_tab', timeoutSecs: 6);
     final onContacts = await _waitHomeShellTab(
       inst,
       'contacts',
       timeoutSecs: 6,
     );
-    await _tryTapText(inst, 'Chats');
+    await inst.tapKeyCenter('bottom_nav_chats_tab', timeoutSecs: 6);
     final backToChats = await _waitHomeShellTab(inst, 'chats', timeoutSecs: 6);
     navRouted = onContacts && backToChats;
     print(

@@ -195,17 +195,33 @@ Future<void> driveRespondViaDetail(Inst a, String toxB) async {
     '[${a.name}] application present (userId=${userId.substring(0, 16)}...)',
   );
   await _refreshApplicationList(a, userId, detail: true);
-  // OPEN the detail screen by tapping the application ROW (the left text area —
-  // the inline Accept/Decline buttons sit at the far right ~x:1148). The row's
-  // `contact_application_item:<userId>` KeyedSubtree wraps a GestureDetector that
-  // key/text-tap can't land, so tap by coordinates: first row at y~208 in the
-  // 1280x768 window. The row.onTap → gotoApplicationInfoPage pushes the detail.
-  await a.tapAt(700, 208);
+  // OPEN the detail screen by tapping the application ROW. Prefer the KEYED tap
+  // (`contact_application_item:<userId>` — its InkWell onTap fires via
+  // flutter_skill's _tryInvokeCallback → gotoApplicationInfoPage pushes the
+  // detail), falling back to a coordinate tap only if the key can't be driven.
+  // The old coordinate-only tap (700,208) drifted after the restyle shifted the
+  // row geometry and stopped landing the row (detail never opened → "accept
+  // button not found"); this matches the proven `_tapApplicationAcceptViaDetail`
+  // recipe.
+  if (!await a.tryTapKey('contact_application_item:$userId', retries: 2)) {
+    await a.tapAt(700, 208);
+  }
   await Future<void>.delayed(const Duration(milliseconds: 1200));
-  final onDetail = await a.waitKey(
+  var onDetail = await a.waitKey(
     'contact_application_detail_accept_button:$userId',
     timeoutSecs: 10,
   );
+  // Retry the open a couple times: the detail push can race the list refresh.
+  for (var attempt = 0; attempt < 2 && !onDetail; attempt++) {
+    if (await areFriends(a, toxB)) break;
+    if (!await a.tryTapKey('contact_application_item:$userId', retries: 2)) {
+      await a.tapAt(700, 208);
+    }
+    onDetail = await a.waitKey(
+      'contact_application_detail_accept_button:$userId',
+      timeoutSecs: 8,
+    );
+  }
   if (!onDetail) {
     if (await areFriends(a, toxB)) {
       print(

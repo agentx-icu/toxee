@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../util/app_theme_config.dart';
+import '../testing/ui_keys.dart';
 
 /// Circular avatar with optional online dot + camera-edit affordance.
 ///
@@ -116,6 +117,7 @@ class ProfileAvatar extends StatelessWidget {
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
+            key: UiKeys.profileAvatarEditButton,
             onTap: onTap,
             child: Container(
               width: 28,

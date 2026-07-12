@@ -675,6 +675,7 @@ class _OfflineBanner extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Container(
+      key: const ValueKey('add_friend_offline_banner'),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm,

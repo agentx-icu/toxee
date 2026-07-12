@@ -242,6 +242,11 @@ Future<int> _main(List<String> args) async {
       await _ensureRestoredHome(a, restored.a);
       await _ensureRestoredHome(b, restored.b);
     }
+    if (scenario == 'xhost_group_join' ||
+        scenario == 'xhost_conference' ||
+        scenario == 'xhost_call') {
+      return await runXhostCase(a, b, nickA, nickB, scenario);
+    }
     if (scenario == 'probe_restyle_diag') {
       return await runProbeRestyleDiag(a);
     }
@@ -427,10 +432,11 @@ Future<int> _main(List<String> args) async {
     }
     if (scenario == 'login_restore_entry_opens') {
       await ensureHome(a, nickA);
-      // SKIP — native picker only (exit 75; false -> 1; true -> 0, neither
-      // happens since this always returns null). Logging out is unnecessary for
-      // a SKIP but keep the page state simple by staying on HomePage.
-      return await _loginRestoreEntryOpens(a) == false ? 1 : 75;
+      // Drives the REAL restore card via the account-import seam (invalid .tox
+      // → error banner). Needs the primary toxId to relogin/set the seam.
+      final tox = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
+      final r = await _loginRestoreEntryOpens(a, tox);
+      return r == null ? 75 : (r ? 0 : 1);
     }
     if (scenario == 'register_empty_nickname_error') {
       await ensureHome(a, nickA);

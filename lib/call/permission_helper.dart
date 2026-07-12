@@ -20,6 +20,15 @@ class CallPermissionResult {
 }
 
 class CallPermissionHelper {
+  /// TEST-ONLY (kDebugMode): when set, [requestPermissionsForCallDetailed]
+  /// returns this result instead of asking the OS. Lets a real-UI test drive the
+  /// genuine call permission-denied UI (the `_emitPermissionNotice` SnackBar +
+  /// Settings action in call_service_manager) deterministically — the ONLY way to
+  /// reach the denial branch on macOS, where `shouldRequestRuntimePermission` is
+  /// false so the OS is never asked (and no `tccutil` reset would help). No-op in
+  /// release (never set). Gated further behind the test-account l3 tool.
+  static CallPermissionResult? debugForcedResult;
+
   /// Whether runtime permission requests should be attempted on the platform.
   static bool shouldRequestRuntimePermission({TargetPlatform? platform}) {
     final effectivePlatform = platform ?? defaultTargetPlatform;
@@ -130,6 +139,10 @@ class CallPermissionHelper {
   static Future<CallPermissionResult> requestPermissionsForCallDetailed({
     required bool isVideo,
   }) async {
+    // TEST-ONLY forced result (kDebugMode): drives the real denial UI downstream.
+    if (kDebugMode && debugForcedResult != null) {
+      return debugForcedResult!;
+    }
     if (!shouldRequestRuntimePermission()) {
       return const CallPermissionResult(
         granted: true,

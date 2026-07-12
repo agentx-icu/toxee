@@ -391,35 +391,108 @@ Future<bool> _profileQrCopy(Inst inst) async {
   return qrShown && tapped && snackbar && closed;
 }
 
-/// case 19 — profile_avatar_picker_opens (S79): SKIP. The self-profile avatar
-/// tap (ProfilePage.onAvatarTap → _pickAvatar → pickAndPersistAvatar) opens the
-/// NATIVE NSOpenPanel directly via FilePicker — there is NO in-app
-/// default-avatar grid/picker surface to assert mounting (the "default avatars"
-/// of commit 5867fdc are a registration-time fallback INSTALLER, not a chooser
-/// UI; the only avatar grid in the codebase is upstream UIKit's GROUP-avatar
-/// `ChooseGroupAvatar`, not the self profile). The native panel cannot be driven
-/// headless, and the l3 override that bypasses it (l3_set_avatar_pick_path /
-/// l3_pick_avatar) is TEST-ACCOUNT-gated → refused on the fresh non-test
-/// real-UI account, and would be a forbidden l3 bypass of the asserted action
-/// anyway. Returns null (SKIP) so the sweep counts it as skipped, not failed.
-Future<bool?> _profileAvatarPickerOpens(Inst inst) async {
-  print(
-    '[pair] profile_avatar_picker_opens: SKIP — no in-app avatar picker '
-    'surface (native NSOpenPanel only; l3 override is test-account-gated)',
-  );
-  return null;
+// Smallest valid 1x1 PNGs (distinct bytes so the two cases pick DIFFERENT
+// images and each apply is observably a change). Base64 of a 1x1 red / blue PNG.
+const _avatarPngRedB64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const _avatarPngBlueB64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+/// Read the persisted self-avatar path from the dump (added to l3_dump_state).
+Future<String> _selfAvatarPath(Inst inst) async =>
+    (await inst.dumpState())['selfAvatarPath']?.toString() ?? '';
+
+/// Drive the REAL self-profile "change avatar" affordance (the camera InkWell,
+/// `profile_avatar_edit_button`) with the native picker replaced by a
+/// deterministic in-sandbox image via the test-account `l3_set_avatar_pick_path`
+/// seam (the SAME real-control-plus-deterministic-input recipe the attachment
+/// case uses). Asserts the dump's `selfAvatarPath` changed to a fresh path.
+/// Returns true/false (HARD), or null (SKIP) only if the account can't be
+/// test-marked. Caller must have the self-profile overlay OPEN.
+Future<bool?> _driveAvatarChange(
+  Inst inst, {
+  required String pngB64,
+  required String fileName,
+  required String label,
+}) async {
+  final marked = await inst.markAccountTest();
+  if (!marked) {
+    print('[pair] $label: SKIP — could not test-mark account for avatar seam');
+    return null;
+  }
+  try {
+    final before = await _selfAvatarPath(inst);
+    final set = await inst.l3('l3_set_avatar_pick_path', {
+      'contentB64': pngB64,
+      'fileName': fileName,
+    });
+    if (set['ok'] != true) {
+      print('[pair] $label: FAIL — avatar seam set failed $set');
+      return false;
+    }
+    await inst.foreground();
+    // Tap the REAL camera "change avatar" affordance on the editable self
+    // profile → _pickAvatar → pickAndPersistAvatar → the L3-aware picker returns
+    // the materialized image and persists it.
+    if (!await inst.tapKeyCenter('profile_avatar_edit_button', timeoutSecs: 6) &&
+        !await inst.tryTapKey('profile_avatar_edit_button')) {
+      print('[pair] $label: FAIL — avatar edit affordance not tappable');
+      return false;
+    }
+    // Poll until the persisted path changes to a fresh value.
+    var after = before;
+    for (var i = 0; i < 20 && (after.isEmpty || after == before); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      after = await _selfAvatarPath(inst);
+    }
+    final changed = after.isNotEmpty && after != before;
+    print('[pair] $label: before="$before" after="$after" changed=$changed');
+    return changed;
+  } finally {
+    try {
+      await inst.l3('l3_set_avatar_pick_path', {'path': ''});
+    } on DriveError {
+      // best-effort clear
+    }
+    await inst.unmarkAccountTest();
+  }
 }
 
-/// case 20 — profile_avatar_select_default_applies (S79): SKIP, same root cause
-/// as case 19 — there is no in-app default-avatar selection surface to drive,
-/// and the avatar-apply path can only be reached through the native picker or
-/// the test-account-gated l3 bypass (forbidden as the asserted action).
-Future<bool?> _profileAvatarSelectDefaultApplies(Inst inst) async {
-  print(
-    '[pair] profile_avatar_select_default_applies: SKIP — no in-app default '
-    'avatar selection surface (see profile_avatar_picker_opens)',
+/// case 19 — profile_avatar_picker_opens (S79): drive the REAL avatar-change
+/// camera affordance; the picker returns a deterministic in-sandbox image (test
+/// seam) so the self avatar actually changes. HARD: `selfAvatarPath` flips.
+Future<bool?> _profileAvatarPickerOpens(Inst inst) async {
+  if (!await _openSelfProfile(inst)) {
+    print('[pair] profile_avatar_picker_opens: FAIL — self profile did not open');
+    return false;
+  }
+  return _driveAvatarChange(
+    inst,
+    pngB64: _avatarPngRedB64,
+    fileName: 'rui_avatar_1.png',
+    label: 'profile_avatar_picker_opens',
   );
-  return null;
+}
+
+/// case 20 — profile_avatar_select_default_applies (S79): re-drive the real
+/// avatar-change affordance with a DIFFERENT image → the apply persists a new
+/// (distinct) path, proving re-selection applies. (There is no default-avatar
+/// GRID in the app; the faithful runnable assertion is that selecting a new
+/// avatar image applies + persists.) HARD: `selfAvatarPath` flips to a new path.
+Future<bool?> _profileAvatarSelectDefaultApplies(Inst inst) async {
+  if (!await _openSelfProfile(inst)) {
+    print(
+      '[pair] profile_avatar_select_default_applies: FAIL — self profile did '
+      'not open',
+    );
+    return false;
+  }
+  return _driveAvatarChange(
+    inst,
+    pngB64: _avatarPngBlueB64,
+    fileName: 'rui_avatar_2.png',
+    label: 'profile_avatar_select_default_applies',
+  );
 }
 
 /// Best-effort between-cases normalizer: dismiss any lingering self-profile

@@ -94,6 +94,15 @@ class CallServiceManager implements CallOverlayManager {
   final ValueNotifier<CallUiNotice?> uiNotice = ValueNotifier(null);
   int _nextNoticeId = 0;
 
+  /// TEST OBSERVABILITY: a monotonic count of permission-DENIED notices emitted
+  /// (`_emitPermissionNotice`). Unlike `uiNotice` (which the effects listener
+  /// clears after showing the transient SnackBar) this only grows, so a real-UI
+  /// test can deterministically assert a call attempt raised the denial UI
+  /// without racing the SnackBar's auto-dismiss. Also records the last notice's
+  /// offerSettings for the assertion.
+  int debugPermissionDeniedNoticeCount = 0;
+  bool debugLastPermissionNoticeOffersSettings = false;
+
   /// Monotonic generation token bumped on every call-end path. Used by
   /// [_startMediaCapture] to detect that a hang-up landed mid-init and tear
   /// down any partial capture state instead of leaving the audio/video
@@ -1001,6 +1010,8 @@ class CallServiceManager implements CallOverlayManager {
   }
 
   void _emitPermissionNotice(CallPermissionResult result) {
+    debugPermissionDeniedNoticeCount++;
+    debugLastPermissionNoticeOffersSettings = result.requiresSettings;
     _emitLocalizedUiNotice(
       (l10n) =>
           CallPermissionHelper.describeDeniedPermissionResult(result, l10n),

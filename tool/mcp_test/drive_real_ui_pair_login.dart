@@ -262,22 +262,104 @@ Future<bool> _loginAccountCardRenders(
   return cardShown && nickShown && idLabelShown;
 }
 
-/// case 26 — login_restore_entry_opens (S9/S71): SKIP. The "Restore from .tox
-/// file" card (UiKeys.loginPageRestoreFromToxFile) opens the NATIVE
-/// FilePicker.platform.pickFiles directly (LoginPageController.restoreFromToxFile)
-/// — there is NO in-app pre-picker / options surface to assert mounting, and the
-/// login "settings" entry opens LoginSettingsPage (bootstrap/global settings,
-/// NOT a restore surface). The native panel cannot be driven headless and there
-/// is no test-account l3 override here, so this returns null (SKIP) rather than
-/// a fake pass. See the header comment for the full rationale + the hermetic
-/// controller-seam coverage in login_restore_import_settings_real_ui_test.dart.
-Future<bool?> _loginRestoreEntryOpens(Inst inst) async {
-  print(
-    '[pair] login_restore_entry_opens: SKIP — restore card opens the native '
-    'NSOpenPanel directly (no in-app pre-picker surface; login settings entry '
-    'is bootstrap/global settings only)',
+/// case 26 — login_restore_entry_opens (S9/S71): drive the REAL "Restore from
+/// .tox file" card with the native NSOpenPanel replaced by a fixed INVALID .tox
+/// path via the test-account `l3_set_account_import_pick_path` seam (the same
+/// real-control-plus-deterministic-input recipe `restore_import_entry_guard`
+/// uses). The real `LoginPageController.restoreFromToxFile` runs and surfaces the
+/// login error banner — proving the restore entry is wired end-to-end without a
+/// fake pass. Self-contained: relogins first to set the seam (the seam needs an
+/// active test account), logs out, taps the card, then restores the primary
+/// login for the following cases. HARD: card present + tapped + error banner.
+Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
+  final invalidTox = File(
+    _portableTmp(
+      '/tmp/rui_login_restore_invalid_'
+      '${DateTime.now().microsecondsSinceEpoch}.tox',
+    ),
   );
-  return null;
+  var ok = false;
+  var marked = false;
+  try {
+    await invalidTox.writeAsString('not a tox profile');
+    // The seam requires an active test account. The login sweep is on the
+    // LoginPage by now, so relogin the primary, set the override, then unmark.
+    if ((await inst.dumpState())['sessionReady'] != true) {
+      if (!await _quickLoginNoPassword(inst, primaryToxId)) {
+        print('[pair] login_restore_entry_opens: could not relogin to set seam');
+        return false;
+      }
+    }
+    marked = await inst.markAccountTest();
+    if (!marked) {
+      print('[pair] login_restore_entry_opens: markAccountTest failed');
+      return false;
+    }
+    final override = await inst.l3('l3_set_account_import_pick_path', {
+      'path': invalidTox.path,
+    });
+    if (override['ok'] != true) {
+      print('[pair] login_restore_entry_opens: override failed $override');
+      return false;
+    }
+    await inst.unmarkAccountTest();
+    marked = false;
+
+    if ((await _logoutToLoginPage(inst)) != primaryToxId) {
+      print('[pair] login_restore_entry_opens: logout mismatch');
+      return false;
+    }
+    final restoreCard = await inst.waitKey(
+      'login_page_restore_from_tox_file',
+      timeoutSecs: 8,
+    );
+    final restoreTapped = restoreCard &&
+        (_isWindowsRealUi
+            ? await inst.tryTapKey('login_page_restore_from_tox_file')
+            : await inst.tapKeyAt('login_page_restore_from_tox_file'));
+    final errorShown = restoreTapped &&
+        await inst.waitKey('login_page_error_banner', timeoutSecs: 10);
+    await inst.shot('/tmp/ui_login_restore_entry_${inst.name}.png');
+    ok = restoreCard && restoreTapped && errorShown;
+    print(
+      '[pair] login_restore_entry_opens: restoreCard=$restoreCard '
+      'restoreTapped=$restoreTapped errorShown=$errorShown',
+    );
+  } finally {
+    if (marked) {
+      try {
+        await inst.unmarkAccountTest();
+      } on DriveError {/* best-effort */}
+    }
+    // Clear the account-import override so no test state leaks, then END ON THE
+    // LOGINPAGE (logged out) — the FOLLOWING sweep cases (register validation +
+    // saved-card password) all operate on the LoginPage, so relogging in here
+    // would strand them on HomePage ("RegisterPage did not open"). Relogin only
+    // transiently to clear the override, then log back out.
+    try {
+      if ((await inst.dumpState())['sessionReady'] != true) {
+        await _quickLoginNoPassword(inst, primaryToxId);
+      }
+      if (await inst.markAccountTest()) {
+        await inst.l3('l3_set_account_import_pick_path', {'path': ''});
+        await inst.unmarkAccountTest();
+      }
+    } on Object catch (e) {
+      print('[pair] login_restore_entry_opens: clear override failed: $e');
+    }
+    // Land back on the LoginPage for the next cases.
+    try {
+      if ((await inst.dumpState())['sessionReady'] == true) {
+        await _logoutToLoginPage(inst);
+      }
+    } on Object catch (e) {
+      print('[pair] login_restore_entry_opens: final logout failed: $e');
+    }
+    try {
+      if (await invalidTox.exists()) await invalidTox.delete();
+    } on Object {/* best-effort */}
+  }
+  return ok;
 }
 
 /// Open the RegisterPage from the LoginPage (idempotent: returns true if already
@@ -1066,9 +1148,9 @@ Future<int> runLoginSweep(Inst inst, String nick) async {
         'login_account_card_renders',
         () => _loginAccountCardRenders(inst, primaryToxId, primaryNick),
       );
-      // 26 — restore entry (SKIP — native picker only).
+      // 26 — restore entry: drive the REAL restore card via the import seam.
       {
-        final skip = await _loginRestoreEntryOpens(inst);
+        final skip = await _loginRestoreEntryOpens(inst, primaryToxId);
         if (skip == null) {
           skipped++;
           results['login_restore_entry_opens'] = 'SKIP';

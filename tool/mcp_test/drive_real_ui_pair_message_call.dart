@@ -353,10 +353,17 @@ Future<void> openChat(
       // non-test account → forceHomeRoot refused; fall through to the taps.
     }
   }
+  // The conversation-row taps are BEST-EFFORT legs of the strategy chain: a
+  // row tap that cannot land (e.g. a lingering overlay right after a call
+  // teardown covers the list, or the tap misses under foreground contention)
+  // must fall through to the contacts-profile / l3 legs below — a throwing
+  // `tapKey` here aborted the WHOLE case before the fallbacks could run
+  // (root cause of the calls-misc "tapKey conversation_list_item failed after
+  // 6 tries" cluster).
   if (preferConversationList &&
       await _homeShellTab(inst) == 'chats' &&
       await _waitConversationListed(inst, targetConversation)) {
-    await inst.tapKey('conversation_list_item:$targetConversation');
+    await inst.tryTapKey('conversation_list_item:$targetConversation');
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (await ready()) {
       return;
@@ -365,7 +372,7 @@ Future<void> openChat(
   if (preferConversationList && await _homeShellTab(inst) != 'chats') {
     await returnToChatsHome(inst, rounds: 4);
     if (await _waitConversationListed(inst, targetConversation)) {
-      await inst.tapKey('conversation_list_item:$targetConversation');
+      await inst.tryTapKey('conversation_list_item:$targetConversation');
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (await ready()) {
         return;
@@ -612,7 +619,12 @@ Future<bool> sendComposerMessage(
   String text, {
   bool clearFirst = true,
 }) async {
-  if (_isWindowsRealUi) {
+  // Headless synthetic-input peers (the Windows VM, and a Linux cross-host peer)
+  // have no host osascript, so the macOS osaClear/osaPaste/osaReturn path below is
+  // unreachable — use the deterministic set-text send seam (l3_composer_send with
+  // a `text` param → the fork's real _submitDesktopSend). `inst.isLinux` covers
+  // the cross-host B; no existing run has a Linux real-UI instance.
+  if (_isWindowsRealUi || inst.isLinux) {
     return _sendComposerMessageWindows(inst, text, clearFirst: clearFirst);
   }
   // iOS Simulator: System Events keystrokes (osaClear/osaPaste/osaReturn) cannot

@@ -40,6 +40,13 @@ class UiKeys {
   static const Key sidebarSettings = Key('sidebar_settings_tab');
   static const Key sidebarUserAvatar = Key('sidebar_user_avatar');
 
+  /// The self-profile avatar's "change avatar" camera affordance
+  /// (lib/ui/profile/profile_avatar.dart, editable profile only). Tapping it
+  /// runs `_pickAvatar` → `pickAndPersistAvatar` → the L3-aware picker, so a
+  /// real-UI test can drive the genuine avatar-change control (the native
+  /// NSOpenPanel is bypassed by the test-account `l3_set_avatar_pick_path` seam).
+  static const Key profileAvatarEditButton = Key('profile_avatar_edit_button');
+
   /// The mobile-layout bottom navigation bar (lib/ui/home_page.dart). Rendered
   /// only when `ResponsiveLayout.shouldShowBottomNav` is true (viewport width
   /// < 720pt) — which is a pure WIDTH check (no platform branch), so narrowing

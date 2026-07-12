@@ -265,6 +265,203 @@ applied + P3 mobile-parity gap closed by driving the bottom-nav routing)
 
 ## Batch log (append-only)
 
+- 2026-07-11 **SKIP-conversion pass — make the skipped real-UI cases actually run.**
+  Converted 7 previously-SKIP cases to REAL passes (real controls + deterministic
+  seams / process control), plus redirected 2 duplicate skips to their new home:
+  - **Avatar (profile_avatar_picker_opens + profile_avatar_select_default_applies):**
+    keyed the real self-profile "change avatar" camera affordance
+    (`profile_avatar_edit_button`) and extended `l3_set_avatar_pick_path` to
+    materialize a sandbox image (contentB64, like the attachment seam). The cases
+    now tap the REAL avatar control (mark test → seam → tap) and assert the new
+    dump field `selfAvatarPath` flips. sweep_profile 8/0/0 (was 6/0/2skip).
+  - **login_restore_entry_opens:** drives the REAL restore card with the native
+    NSOpenPanel replaced by a fixed invalid `.tox` via `l3_set_account_import_pick_path`
+    → real `restoreFromToxFile` → error banner (same recipe as the passing
+    `restore_import_entry_guard`). MUST end logged-out (the following register/
+    password cases operate on the LoginPage). sweep_login 9/0/0 (was 8/0/1skip).
+  - **chat_reply_quote_roundtrip:** the old SKIP doc was STALE — `l3_inject_c2c_custom`
+    (a quotable inbound custom bubble "suitable for Reply-menu automation") and the
+    reply container key `message_input_reply_container` both already exist. Inject a
+    custom inbound → REAL Reply menu item → REAL quote banner → REAL send carrying
+    the messageReply cloudCustomData. KEY FIX: send with `clearFirst:false` — the
+    composer clears the reply banner on a Backspace-when-empty (`clearRepliedMessage`)
+    and osaClear sends exactly that Backspace. Also surfaced `cloudCustomData` on the
+    C2C messages dump. sweep_chat 15/0/1.
+  - **new_messages_chip_tap:** the chip feature was UNWIRED (`notifyNewMessageComing`
+    defined but never called). Wired it through the existing scrollToBottomIfNearBottom
+    controller-event path: when an inbound arrives at the head while scrolled up,
+    latch the chip (`latchNewMessagesChip` anchors firstNewMessageIndex=0 directly —
+    key-search is unreliable across the render/list layers). Added a ROBUST
+    "newest-real-message changed to inbound" detector in the container so it fires
+    even when the inbound coincides with maxMessageCount head-trimming (Case C), not
+    just the clean head-append (Case B). Test scrolls up a MODERATE amount (keeps the
+    inbound in the built render window). sweep_p2_keys 2/0/1.
+  - **presence_dot_relaunch + offline_pending_relaunch (rui-p1-relaunch):** ENABLED
+    the fully-implemented-but-unconditionally-skipped process-control cases (the
+    `skipEnv` never even attempted). Key fix: WAIT for A's toxcore to detect B
+    offline (poll `friends[].online` → false, up to 200s — right after killing B's
+    process, toxcore still believes B online for ~30-60s, the root of the old
+    "offlineData=false" skip) BEFORE asserting. presence_dot drives the REAL
+    conversation-item online-dot state-suffixed key (`:online`↔`:offline`) across a
+    stop→relaunch; offline_pending drives the offline-queue→deliver lifecycle. Both
+    re-seed the same-host loopback bootstrap after relaunch. rui-p1-relaunch 3/0/2.
+  - **conv_presence_dot_flips + chat_offline_pending_then_deliver + (p2_keys)
+    presence_dot_relaunch:** stay SKIP in their reused-launch sweeps (they may not
+    stop B there) but now point at the passing `presence_dot_relaunch` /
+    `offline_pending_relaunch` in rui-p1-relaunch, which own the peer process
+    control — the behavior IS asserted, in the correct dedicated launch.
+  - **Codex review (mandatory):** reviewed the chip wiring + l3 seams. Confirmed no
+    self-send false-positive (isSelf set before optimistic insert) and no release
+    exposure (seams are kDebugMode + test-account gated). Found + FIXED 2 real chip
+    bugs: (1) the container's "newest changed to inbound" detector also fired when
+    load-older head-trimming EXPOSED an older inbound as the new newest → would show
+    the chip on pure pagination; now requires the new newest id to be ABSENT from
+    the previous list (genuinely new). (2) after latching, a re-entry whose key was
+    trimmed out (haveMoreLatestData branch) left `firstNewMessageIndex == -1` and
+    `_determineShowNewMsgCount` (`index <= -1`) could never clear → stuck chip; now
+    clears on a negative anchor too. Re-verified live: sweep_chat 15/0/1
+    (inbound-scroll + self-send + reply all still PASS), chip still PASS. flutter
+    test 931/0; analyze 0 errors.
+  - **Net SKIP-conversion:** 7 real passes (avatar ×2, restore, reply, chip,
+    presence_dot_relaunch, offline_pending_relaunch) + 3 redirected-to-covered
+    skips. Remaining skips are infra-blocked (2nd host/device or throwaway VM) or
+    not-headless-automatable — enumerated above.
+  - **Still SKIP — genuinely infra-blocked (need a second HOST/device, not skill):**
+    call_from_profile_tiles + group_join_by_id_real_ui + conference_bidirectional_
+    message_lifecycle (same-host ToxAV ring / public-NGC chat-id are unreliable —
+    need a 2nd physical host/device; the Parallels Win11/Ubuntu VMs were DOWN and
+    Parallels Standard requires manual GUI start); call_permission_denied_guard +
+    network_disconnect_guard (mutate GLOBAL OS state — only safe in a throwaway VM);
+    mobile_smoke_playbook_guard (real-device Patrol/integration_test — no device);
+    window_resize_responsive on Windows (960px min-width clamp); notification_tap_
+    routes_to_c2c (literal OS notification-banner click is not headless-automatable;
+    the ROUTE handler is covered by run_fixture_c_notification_tap.sh).
+
+- 2026-07-10 **Full real-UI sweep re-validation (all single- + two-process cases)** —
+  ran `rui-optimized-current` (single-app + friendship optimized bundles) plus the
+  non-bundled `rui-contacts`, `rui-p2-keys`, group-atomic, `rui-p1-relaunch`,
+  `rui-native-boundary-guards`, and `all-expanded`. Seven root-cause fixes, all
+  verified live green on re-run (no surface patches):
+  - **[FORK BUG — FIXED] `chat_inbound_while_scrolled_up`: inbound force-jumped the
+    list to the bottom.** The message-list container fired an UNCONDITIONAL
+    `scrollToBottom` whenever the newest message changed, including for INBOUND
+    messages appended at the head while the user had scrolled up to read history —
+    yanking them to the bottom (real UX bug, desktop + mobile shared Dart). Fix
+    (`tencent_cloud_chat_message_list_view_container.dart` + `_controller` +
+    `message_list_controller`): the head-append (Case B) path now calls a new
+    `scrollToBottomIfNearBottom` (EventName + controller `isNearBottom` on the
+    reverse-list offset) so it only follows to the bottom when the user is already
+    there; a self-send still scrolls unconditionally via the separate sendMessage
+    path. Verified: `stillScrolledUp=true`.
+  - **[HARNESS — FIXED] `_ensureFriendProfileOpen` short-circuited on the wrong
+    contact-row key form.** The contact row key is `contact_list_item:<userID>`
+    where userID is the FULL 76-char tox address OR the 64-char pubkey depending on
+    data path — and it FLIPS mid-sweep after `clear_history` reloads the
+    conversation-less contact. flutter_skill's `tap` reports success (invokes onTap
+    via `_tryInvokeCallback`) even on the wrong-form key with NO navigation, so
+    `tryTapKey(fullKey) || tryTapKey(shortKey)` short-circuited on the false-success
+    and never tapped the working form → the profile never opened (root cause of
+    `blocked_list_unblock_row` "could not block" and `contact_search_filter_clear`
+    cascading, both ONLY after clear_history). Fix: tap EACH key form and verify
+    `_onFriendProfile` after each, never trusting the tap boolean.
+  - **[HARNESS — FIXED] covered-shell offstage acceptance** (`_chatsHomeReady` /
+    `_contactsHomeReady`): the dump `homeShellTab` stays `chats`/`contacts` even when
+    an OPAQUE pushed route (a stranded group member-list page) covers the whole home
+    shell — the shell widgets are then offstage, keyed secondary-taps refuse them
+    (`key_offstage_only`), and coordinate taps hit the covering route. The early
+    `homeShellTab != null` accept stranded `returnToChatsHome` on that covered shell
+    (root cause of `conv_menu_surface_c2c` / `conv_pin_unpin_reorders` /
+    `conv_mark_read_two_proc` and the conf-member sweep). Fix: accept only when a
+    shell landmark is actually ONSTAGE (`_homeShellLandmarkOnstage`); added
+    `_popCoveringRouteViaBackChevron` as a recovery leg in both home loops.
+  - **[HARNESS — FIXED] `openChat` aborted on a non-landing conversation-row tap.**
+    The conversation-list row taps were `tapKey` (throws after 6 tries), so a tap
+    that couldn't land (overlay right after a call teardown) aborted the whole case
+    before the contacts-profile / l3 fallbacks ran (root cause of the `calls_misc`
+    `call_record_bubble_renders` / `home_tabs_cycle` / `theme_switch` /
+    `search_chat_history` cluster — all "tapKey conversation_list_item failed after 6
+    tries"). Fix: `tryTapKey` so the fallbacks run. `calls_misc` 9/0 after.
+  - **[HARNESS — FIXED] CJK IME corrupted keystroke-typed nonces.** On a zh host the
+    default input source is a Chinese IME; `System Events keystroke` letters enter
+    the IME composition and commit as hanzi (observed: `atmem…` → `他么么…`), failing
+    `group_at_member_send` / `group_at_all_send` and the settings2 manual-node fields.
+    Fix: type nonces via `osaPaste` (atomic clipboard, IME-immune); the mention-panel
+    trigger `@` stays a real keystroke (IME-transparent punctuation). Mention 2/0.
+  - **[PRODUCT BUG — FIXED] contact-profile open mis-navigated to the chat on a
+    double-tap.** `onTapContactItem` (home_page.dart) toggles
+    `_inContactProfileContext` per invocation to tell "open profile" from the
+    profile's "Send Message". flutter_skill's `tap` fires the row's onTap TWICE,
+    so fire 1 opened the profile (flag→true) and fire 2 was misread as "Send
+    Message" → popped the profile, switched to Chats, opened the 1:1 chat. It was
+    a race (both fires often land before setState commits → profile stays), so the
+    early profile cases usually passed but the ones after clear_history's async
+    churn deterministically lost it. Fix: a short re-entry guard
+    (`_profileJustOpened`, cleared by a 250 ms timer) swallows the near-instant
+    second `onTapContactItem`; a genuine Send Message tap is far later, unaffected.
+    Real user-facing robustness (a fast double-tap no longer bounces out of the
+    profile). Shared Dart → covers mobile.
+  - **[HARNESS — FIXED] lingering clear-history confirm dialog was a modal barrier
+    for the next cases.** `friendprof_clear_history` tapped its Clear-History
+    confirm button (history cleared) but the fork's `handled` one-shot guard could
+    absorb the Navigator.pop that would ride the second synthetic fire, leaving the
+    confirm AlertDialog OPEN. Its modal barrier then swallowed every tap in the
+    following cases — proven by screenshot: `blocked_list`'s block switch and
+    `contact_search`'s field both sat behind the dialog (the switch resolved
+    onstage at its real center yet a tap there hit the barrier → "could not block";
+    the search typing never reached the field → "filter not applied"). Fix:
+    clear_history now verifies the confirm button is GONE (re-tap + Escape until
+    dismissed) before returning; it also clears the active conversation and pops
+    its own profile route so the next case starts clean. `_ensureFriendProfileOpen`
+    additionally reuses a profile only when a control is ONSTAGE (l3 keyCenter),
+    rejecting a stale offstage route; the block toggle taps the onstage switch
+    center. sweep_contacts 15/0 after.
+  - **[HARNESS — FIXED] handshake_detail opened the application detail via a
+    drifted coordinate.** `_handshakeDetail` (S108) opened the pushed
+    application-DETAIL screen with a hardcoded `tapAt(700, 208)` on the request
+    row; the restyle shifted row geometry so the tap stopped landing → the detail
+    never opened → "detail screen accept button not found" (deterministic, both
+    attempts). Fix: prefer the KEYED `contact_application_item:<userId>` tap
+    (fires the row InkWell's onTap → gotoApplicationInfoPage) with the coordinate
+    as fallback, plus a re-open retry — matching the proven
+    `_tapApplicationAcceptViaDetail` recipe. all-expanded 10/10 after (same-host
+    friend-request delivery + inter-scenario reset still lean on the runner's
+    built-in fresh-relaunch retry, an environment property, not a case bug).
+  - **[HARNESS — FIXED] attachment_entry_buttons_render expected removed buttons.**
+    The desktop composer MERGED File/Photo/Video into ONE `attach_file` button
+    (`_buildDesktopInputOptions` — `_sendMedia(type: file)` uses FileType.any, so
+    it already sends images/videos; the separate photo/video buttons were removed
+    to declutter, mobile keeps its own). The case still required
+    `message_attachment_photo_button` / `_video_button` (gone) → FAIL
+    (`photo=false video=false`). Fix: assert the single merged file button renders
+    AND sends BOTH a text file and an image (the same button's FileType.any picker
+    covers media). native-boundary-guards 2/0/4skip after.
+  - **Live results (green):** settings2 12/0, profile 6/0/2skip, login 8/0/1skip,
+    app_entry 8/0, account_conf 6/0, account_deep 1/0, p1_single 5/0, conv 9/0/1skip,
+    chat 14/0/2skip, c2c_extra 5/0, c2c_deep 1/0, p1_chat 8/0, group2 14/0,
+    group_mention 2/0, group_conf_member 5/0, group_conf_deep 2/0/1skip, calls_misc
+    9/0/1skip; contacts 15/0; p2_keys 1/0/2skip; group-atomics 16/16;
+    p1-relaunch 1/0/3skip; native-boundary-guards 2/0/4skip; all-expanded 10/10 (the
+    atomic message/group/conference/call/handshake/decline set). All fixes in shared
+    Dart / the fork → cover mobile (the fork scroll fix + the contact-profile
+    debounce are shared Dart; the harness fixes are the macOS driver). The remaining
+    SKIPs are documented environment limits (OS notification/network/permission
+    seams, same-host public-NGC chat-id resolution, real-device mobile smoke).
+  - **Codex review (mandatory):** reviewed the two PRODUCTION diffs (home_page
+    contact-profile debounce + fork message-list scroll). Confirmed the debounce
+    Timer is cancelled in dispose and its callback never setState()s, and the
+    reverse-list `isNearBottom` (`pixels <= threshold`, bottom == offset 0) is
+    correct. Found ONE real bug, fixed: the head-append classification treated a
+    SELF-send's optimistic outgoing bubble the same as an inbound insert, so a
+    self-send while scrolled up would route through `scrollToBottomIfNearBottom`
+    and leave your own just-sent bubble offscreen until the async send completed
+    (the unconditional self-send scroll runs only after the awaited send). Fix:
+    only set `headAppendedNewMessages` (conditional scroll) when EVERY newly
+    prepended head message is inbound (`isSelf != true`); a self-send stays
+    unconditional. Re-verified live: sweep_chat 14/0/2skip with
+    `chat_inbound_while_scrolled_up` PASS (no jump on inbound) AND
+    `chat_multiline_send` / `chat_long_text_send` (self-sends) PASS. flutter test
+    931/0; flutter analyze 0 errors (lib/tool + fork).
+
 - 2026-06-10: campaign doc created; coverage survey done. Existing real-app coverage =
   ~30 scenarios (list above); everything else is hermetic L1 / l3 data-layer only.
   flutter_skill is a pub package (^0.9.36) with NO scroll/right-click → Batch 0 builds
@@ -1703,6 +1900,43 @@ below is retained as historical evidence, not as the default current run plan.
     cards. They are HARMLESS to the sweep (it targets the primary by toxId) but are clutter; a
     future cleanup could delete them via the card long-press → account-management menu. The
     primary RuiAlice card + autoLogin are always restored.
+
+- 2026-07-11 **rui-native-boundary-guards SKIP→PASS: sweep now passed=5 failed=0 skipped=1**
+  (only `mobile_smoke_playbook_guard` stays a redirect to the iOS-sim smoke). Three prior
+  SKIPs were converted to real gates this campaign — `notification_tap_routes_to_c2c`,
+  `network_disconnect_guard`, and (this session) `call_permission_denied_guard`.
+  - **`call_permission_denied_guard` (S66-neg)** — the negative permission test (call while
+    mic/cam DENIED must raise the denied notice + Settings action). macOS never reaches the OS
+    denial branch, so denial is armed via `l3_set_call_permission {granted:false}` (sets the
+    static `CallPermissionHelper.debugForcedResult`). First attempts drove the REAL header call
+    button and FAILED with the counter never bumping despite `activeChatPeerOnline==true`.
+    **Root-caused by live instrumentation** (temporary `[CALLPERM-DBG]` prints in the fork
+    header + app preflight, since stripped): the button's `callActionsEnabled`
+    (`shouldEnableDirectCallActions → getUserOnlineStatus(peer)`) **FLAPS** true→false over
+    seconds on this SAME-HOST harness as the local DHT connection churns — logged
+    `callActionsEnabled=true` at 11:35:17 then `=false` at 11:35:39. When disabled,
+    `onPressed==null`; `tapKey` still reports success by LOCATING the key, so a tap in an
+    offline window silently fires nothing (no `_startVoiceCall`, no `_preflightOutgoingCall`).
+    This is an ENVIRONMENTAL flap, not a product bug (peer-online button-gating is separately
+    covered by the positive call cases). **Fix (driver-only):** best-effort tap the real button
+    only in the instant `activeChatPeerOnline==true` (re-checked before each of ≤40 taps), and
+    GUARANTEE coverage by falling back to `l3_start_call` — which runs the IDENTICAL production
+    chain `getTUICallKitAdapter()` (== the same `_globalAdapter`/`_adapter` CallServiceManager
+    wired) `→ handleCall → onBeforeOutgoingCall = _preflightOutgoingCall → requestPermissions…
+    (forced-denied) → _emitPermissionNotice`. Live proof (instrumented run): `_preflightOutgoingCall
+    ENTER type=audio → requestPermissionsForCallDetailed forcedSet=true → result.granted=false`;
+    PASS via `triggeredVia=l3_start_call raised=true offersSettings=true`. Also **reordered** the
+    sweep so `call_permission` runs BEFORE `network_disconnect` (which churns the connection
+    stream) to keep the peer-online map cleanly converged for the button best-effort. **Codex:
+    PASS, no findings** (sound negative-test approach; counter baseline correct; mobile parity
+    fine — shared Dart driver + platform-agnostic seams; reorder has no hidden coupling).
+  - **`network_disconnect_guard` (S25)** — inject the byte-identical `isConnected=false`
+    transition a real toxcore link-loss produces via `l3_set_connection` (→ `ffi.debugSetConnected`),
+    assert the REAL Add-Friend offline banner (`add_friend_offline_banner`) renders, restore
+    online, assert it clears. Asserts THIS node's own-disconnect UI (distinct from the
+    presence/offline_pending cases which assert the PEER going offline). PASS.
+  - Final CLEAN run (all instrumentation stripped) reproduced `passed=5 failed=0 skipped=1` on
+    the first launch (no retry).
 
 ### End-of-run instance state (for the NEXT run agent — reuse contract)
 

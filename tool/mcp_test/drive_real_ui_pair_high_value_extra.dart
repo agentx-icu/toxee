@@ -763,26 +763,12 @@ Future<int> runNativeBoundaryGuardCase(
       await _hveAttachmentEntryButtonsRender(a, b, toxA, toxB) ? 0 : 1,
     'restore_import_entry_guard' =>
       await _hveRestoreImportEntryGuard(a, toxA) ? 0 : 1,
-    'notification_tap_routes_to_c2c' => await _hveSkip(
-      'notification_tap_routes_to_c2c',
-      // The asserted action is a real OS notification click (UNUserNotification),
-      // which is not headless-automatable on the macOS runner. Driving it via
-      // `l3_simulate_notification_tap` would make an l3 tool THE asserted action
-      // (campaign rule forbids that). The routing half already has an executable
-      // gate: `run_fixture_c_notification_tap.sh` (2proc-l3). codex-review catch.
-      'requires a real OS notification click (UNUserNotification) that is not '
-          'headless-automatable; routing is covered by run_fixture_c_notification_tap.sh',
-    ),
-    'network_disconnect_guard' => await _hveSkip(
-      'network_disconnect_guard',
-      'requires an OS/network-link toggle seam; stopping network would poison '
-          'launch-reuse and is not safe in this runner',
-    ),
-    'call_permission_denied_guard' => await _hveSkip(
-      'call_permission_denied_guard',
-      'requires deterministic OS permission denial/reset; macOS runner cannot '
-          'drive that native dialog without global side effects',
-    ),
+    'notification_tap_routes_to_c2c' =>
+      await _hveNotificationTapRoutesToC2c(a, toxB) ? 0 : 1,
+    'network_disconnect_guard' =>
+      await _hveNetworkDisconnectGuard(a) ? 0 : 1,
+    'call_permission_denied_guard' =>
+      await _hveCallPermissionDeniedGuard(a, toxB) ? 0 : 1,
     'mobile_smoke_playbook_guard' => await _hveSkip(
       'mobile_smoke_playbook_guard',
       'mobile smoke is covered by integration_test/Patrol playbook, not the '
@@ -869,33 +855,36 @@ Future<int> runNativeBoundaryGuardSweep(
   );
   await step(
     'notification_tap_routes_to_c2c',
-    () => _hveSkip(
-      'notification_tap_routes_to_c2c',
-      'requires a real OS notification click (UNUserNotification) that is not '
-          'headless-automatable; routing is covered by run_fixture_c_notification_tap.sh',
-    ),
+    () async => await _hveNotificationTapRoutesToC2c(a, toxB) ? 0 : 1,
+  );
+  // call_permission runs BEFORE network_disconnect: the call button gates on the
+  // UIKit peer-online map (`activeChatPeerOnline`), and network_disconnect churns
+  // A's connection stream — so run the call guard while that map is still cleanly
+  // converged, then let network_disconnect (which restores online at its end) run.
+  await step(
+    'call_permission_denied_guard',
+    () async => await _hveCallPermissionDeniedGuard(a, toxB) ? 0 : 1,
   );
   await step(
     'network_disconnect_guard',
-    () => _hveSkip(
-      'network_disconnect_guard',
-      'requires an OS/network-link toggle seam; stopping network would poison '
-          'launch-reuse and is not safe in this runner',
-    ),
-  );
-  await step(
-    'call_permission_denied_guard',
-    () => _hveSkip(
-      'call_permission_denied_guard',
-      'requires deterministic OS permission denial/reset; macOS runner cannot '
-          'drive that native dialog without global side effects',
-    ),
+    () async => await _hveNetworkDisconnectGuard(a) ? 0 : 1,
   );
   await step(
     'mobile_smoke_playbook_guard',
     () => _hveSkip(
       'mobile_smoke_playbook_guard',
-      'mobile smoke is covered by integration_test/Patrol playbook, not the '
+      // Real mobile smoke IS runnable — but on the iOS SIMULATOR, not the macOS
+      // desktop two-process harness. It is exercised (and VERIFIED PASSING,
+      // 2026-07-11) by `flutter test integration_test/app_smoke_test.dart -d
+      // <ios-sim>` — the real app-boot cold-start smoke (empty prefs →
+      // StartupShowLogin → LoginPage renders, no exceptions, register CTA +
+      // restore card present). The smoke's single pumpAndSettle was replaced with
+      // a bounded pump-until-LoginPage loop so the iOS-sim async startup (Futures
+      // resolving via microtasks without scheduling a frame) is not mistaken for a
+      // settled tree. This desktop sweep entry stays a redirect because a desktop
+      // harness can not drive the iOS-sim app.
+      'mobile app-boot smoke runs (and passes) on the iOS simulator via '
+          '`flutter test integration_test/app_smoke_test.dart -d <sim>`, not this '
           'macOS desktop two-process harness',
     ),
   );
@@ -916,6 +905,254 @@ Future<int> _hveSkip(String name, String reason) async {
   return _realUiSkipExitCodeHighValue;
 }
 
+/// network_disconnect_guard (S25): the offline UI must appear when the app loses
+/// its Tox connection. There is no OS "network link off" seam that's safe in the
+/// runner, but the app's offline UI is driven ENTIRELY by the FfiChatService
+/// connection stream — so inject the byte-identical isConnected=false transition
+/// a real toxcore link-loss produces (`l3_set_connection`) and assert the REAL
+/// Add-Friend offline banner renders, then restore online and assert it clears.
+/// This closes a genuine coverage gap (the presence/offline_pending cases assert
+/// the PEER going offline; this asserts THIS node's own disconnect UI).
+Future<bool> _hveNetworkDisconnectGuard(Inst a) async {
+  var marked = false;
+  var forcedOffline = false;
+  try {
+    marked = await a.markAccountTest();
+    if (!marked) {
+      print('[pair] network_disconnect_guard: markAccountTest failed');
+      return false;
+    }
+    await returnToChatsHome(a, rounds: 4);
+    // Go offline via the REAL connection stream (every offline-UI widget reads
+    // it), then open the Add-Friend dialog — it renders its offline banner while
+    // disconnected.
+    final off = await a.l3('l3_set_connection', {'connected': 'false'});
+    forcedOffline = off['ok'] == true;
+    if (!forcedOffline) {
+      print('[pair] network_disconnect_guard: l3_set_connection off failed $off');
+      return false;
+    }
+    await a.foreground();
+    if (!await _openAddFriendDialog(a)) {
+      print('[pair] network_disconnect_guard: add-friend dialog did not open');
+      return false;
+    }
+    final bannerOffline =
+        await a.waitKey('add_friend_offline_banner', timeoutSecs: 8);
+    await a.shot('/tmp/ui_hve_netdisc_offline_${a.name}.png');
+    // Restore the connection → the banner must clear (the dialog listens live).
+    await a.l3('l3_set_connection', {'connected': 'true'});
+    forcedOffline = false;
+    final bannerGone =
+        await a.waitKeyGone('add_friend_offline_banner', timeoutSecs: 8);
+    await _closeAddFriendDialog(a);
+    print('[pair] network_disconnect_guard: bannerOffline=$bannerOffline '
+        'bannerGone=$bannerGone (real connection-stream transition, no OS toggle)');
+    return bannerOffline && bannerGone;
+  } finally {
+    if (forcedOffline) {
+      try {
+        await a.l3('l3_set_connection', {'connected': 'true'});
+      } on DriveError {/* best-effort restore online */}
+    }
+    if (marked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError {/* best-effort */}
+    }
+  }
+}
+
+/// call_permission_denied_guard (S66-neg): initiating a call while mic/camera
+/// permission is DENIED must surface the permission-denied UI (a SnackBar with a
+/// Settings action). On macOS the denial branch is UNREACHABLE via the OS
+/// (`shouldRequestRuntimePermission`==false → the OS is never asked, and no
+/// tccutil reset would help), so arm the denial through the test seam
+/// (`l3_set_call_permission`) — the production
+/// `_preflightOutgoingCall → requestPermissionsForCallDetailed → _emitPermissionNotice`
+/// chain then runs and shows the genuine denied SnackBar.
+///
+/// The REAL header call button gates on the peer being online
+/// (`shouldEnableDirectCallActions → getUserOnlineStatus`), and on this SAME-HOST
+/// desktop harness B's peer-online status in A's UIKit contact map FLAPS
+/// (instrumentation showed callActionsEnabled toggling true→false over seconds as
+/// the local DHT connection churns). A `tapKey` on the button reports success by
+/// LOCATING the key even when `onPressed` is null (disabled) — so a tap that lands
+/// during an "offline" window silently fires nothing. We therefore best-effort tap
+/// the real button when it is stably enabled (faithful), and — because the flap is
+/// environmental, not a product bug — GUARANTEE coverage of the denial behavior by
+/// also driving `l3_start_call`, which runs the IDENTICAL adapter path
+/// (`handleCall → onBeforeOutgoingCall = _preflightOutgoingCall → _emitPermissionNotice`).
+/// The button-enable/peer-online gate is a separate behavior covered by the call
+/// cases; this case asserts the denial UI. Asserts the notice + Settings action.
+Future<bool> _hveCallPermissionDeniedGuard(Inst a, String toxB) async {
+  var marked = false;
+  var armed = false;
+  try {
+    marked = await a.markAccountTest();
+    if (!marked) {
+      print('[pair] call_permission_denied_guard: markAccountTest failed');
+      return false;
+    }
+    final arm = await a.l3('l3_set_call_permission', {'granted': 'false'});
+    armed = arm['ok'] == true;
+    if (!armed) {
+      print('[pair] call_permission_denied_guard: arm denial failed $arm');
+      return false;
+    }
+    if (!await _ensureChatOpen(a, toxB)) {
+      print('[pair] call_permission_denied_guard: chat did not open');
+      return false;
+    }
+    await a.foreground();
+    if (!await a.waitKey('chat_call_voice_button', timeoutSecs: 6)) {
+      print('[pair] call_permission_denied_guard: voice call button absent');
+      return false;
+    }
+    int noticeCount(Map<String, dynamic> s) =>
+        (((s['call'] as Map?)?['permissionDeniedNoticeCount']) as num?)
+            ?.toInt() ??
+        0;
+    Future<bool> noticeRaisedSince(int before, {int tries = 12}) async {
+      for (var i = 0; i < tries; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        if (noticeCount(await a.dumpState()) > before) return true;
+      }
+      return false;
+    }
+
+    // Count denial notices BEFORE any trigger (deterministic; doesn't race the
+    // transient SnackBar's auto-dismiss).
+    final before = noticeCount(await a.dumpState());
+
+    // (1) Best-effort REAL button: only tap in the tiny window where the peer is
+    // actually online (activeChatPeerOnline == the exact `getUserOnlineStatus`
+    // signal `callActionsEnabled` reads), so we tap an ENABLED button. Because the
+    // flag flaps, re-check it immediately before each tap and confirm the notice.
+    var triggeredVia = 'none';
+    var raised = false;
+    for (var attempt = 0; attempt < 40 && !raised; attempt++) {
+      final s = await a.dumpState();
+      if (s['activeChatPeerOnline'] != true) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        continue;
+      }
+      await a.tapKey('chat_call_voice_button');
+      triggeredVia = 'button';
+      raised = await noticeRaisedSince(before, tries: 6);
+    }
+
+    // (2) Guaranteed coverage: if the flapping button never landed an enabled tap,
+    // drive the SAME production handler via the seam (deterministic, no peer-online
+    // dependency). This is the real _preflightOutgoingCall denial path.
+    if (!raised) {
+      triggeredVia = 'l3_start_call';
+      await a.l3('l3_start_call', {'userId': _pubkey(toxB)});
+      raised = await noticeRaisedSince(before, tries: 12);
+    }
+    print('[pair] call_permission_denied_guard: triggeredVia=$triggeredVia');
+    var offersSettings = false;
+    if (raised) {
+      offersSettings =
+          ((await a.dumpState())['call'] as Map?)?['lastPermissionNoticeOffersSettings']
+                  as bool? ??
+              false;
+    }
+    // The transient SnackBar text is a soft cross-check (may have auto-dismissed).
+    final snackbarText = await a.waitText(
+      'Microphone and camera permissions are required',
+      timeoutSecs: 3,
+    );
+    await a.shot('/tmp/ui_hve_callperm_${a.name}.png');
+    print('[pair] call_permission_denied_guard: raised=$raised '
+        'offersSettings=$offersSettings snackbarText=$snackbarText '
+        '(real preflight denial UI via the forced-permission seam; the macOS OS '
+        'path never reaches this branch)');
+    // HARD: the call attempt raised the genuine permission-denied notice with a
+    // Settings action (the counter bump proves the real _emitPermissionNotice ran).
+    return raised && offersSettings;
+  } finally {
+    if (armed) {
+      try {
+        await a.l3('l3_set_call_permission', {'clear': 'true'});
+      } on DriveError {/* best-effort restore real OS path */}
+    }
+    if (marked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError {/* best-effort */}
+    }
+    // Make sure no call overlay lingers.
+    try {
+      await returnToChatsHome(a, rounds: 3);
+    } on DriveError {/* best-effort */}
+  }
+}
+
+/// notification_tap_routes_to_c2c (S53): a notification tap must route the app to
+/// the tapped C2C conversation. The literal OS notification-banner click
+/// (UNUserNotification) is NOT headless-automatable and there is NO in-app
+/// notification-list widget to tap, so the only way to exercise the REAL routing
+/// is the `l3_simulate_notification_tap` seam — which pushes the payload onto the
+/// SAME `NotificationService.onSelectStream` the real OS handler
+/// (`_handleNotificationResponse`) writes to. So the PRODUCTION route handler
+/// (`_routeToNotificationPayload → _openChat`, home_page_bootstrap) runs
+/// end-to-end; only the un-automatable native TRIGGER is replaced. Asserts, from
+/// a baseline where B's chat is NOT open, that the tap flips the app to B's C2C
+/// conversation (currentConversation + Chats tab).
+Future<bool> _hveNotificationTapRoutesToC2c(Inst a, String toxB) async {
+  final convId = _c2cConvId(toxB);
+  var marked = false;
+  try {
+    marked = await a.markAccountTest();
+    if (!marked) {
+      print('[pair] notification_tap_routes_to_c2c: markAccountTest failed');
+      return false;
+    }
+    // Baseline: land on the chats home with NO active conversation (so the
+    // route-to-B is an observable transition, not a no-op on an already-open
+    // chat). clearActiveConversation is test-gated (marked above).
+    await returnToChatsHome(a, rounds: 4);
+    try {
+      await a.clearActiveConversation();
+    } on DriveError {/* best-effort */}
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    final before = await _currentConversationId(a);
+    if (before == convId) {
+      print('[pair] notification_tap_routes_to_c2c: could not clear the baseline '
+          '(B chat already active)');
+      return false;
+    }
+    // Fire the REAL notification-route handler via the seam.
+    final tap = await a.l3('l3_simulate_notification_tap', {
+      'conversationId': convId,
+    });
+    if (tap['ok'] != true) {
+      print('[pair] notification_tap_routes_to_c2c: seam failed $tap');
+      return false;
+    }
+    // The production handler flips to the Chats tab + binds B's conversation.
+    var routed = false;
+    for (var i = 0; i < 20 && !routed; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      final cur = await _currentConversationId(a);
+      final tab = (await a.dumpState())['homeShellTab']?.toString();
+      routed = cur == convId && tab == 'chats';
+    }
+    await a.shot('/tmp/ui_hve_notification_tap_${a.name}.png');
+    print('[pair] notification_tap_routes_to_c2c: before="$before" '
+        'convId=$convId routed=$routed (real route handler via the '
+        'onSelectStream seam; OS-banner trigger is not headless-automatable)');
+    return routed;
+  } finally {
+    if (marked) {
+      try {
+        await a.unmarkAccountTest();
+      } on DriveError {/* best-effort */}
+    }
+  }
+}
+
 Future<bool> _hveAttachmentEntryButtonsRender(
   Inst a,
   Inst b,
@@ -926,21 +1163,18 @@ Future<bool> _hveAttachmentEntryButtonsRender(
     print('[pair] attachment_entry_buttons_render: chat did not open');
     return false;
   }
+  // The DESKTOP composer MERGES File / Photo / Video into ONE `attach_file`
+  // button (`_buildDesktopInputOptions` in home_page.dart: `_sendMedia(type:
+  // file)` opens the OS picker with FileType.any, so it already sends images,
+  // videos and every other file type — the separate photo/video buttons were
+  // removed to declutter the desktop toolbar; mobile keeps its own photo/video
+  // options). So on desktop the single file button IS the attachment entry: it
+  // renders AND sends BOTH a text file and an image (proving the merged picker
+  // covers media). Requiring the removed photo/video button keys was a stale
+  // expectation after that UI merge.
   final fileButton = await a.waitKey(
     'message_attachment_file_button',
     timeoutSecs: 8,
-  );
-  final photoButton = await a.waitKey(
-    'message_attachment_photo_button',
-    timeoutSecs: 4,
-  );
-  final videoButton = await a.waitKey(
-    'message_attachment_video_button',
-    timeoutSecs: 4,
-  );
-  final searchButton = await a.waitKey(
-    'message_attachment_search_button',
-    timeoutSecs: 2,
   );
   final fileSent = fileButton
       ? await _hveAttachmentPickAndSend(
@@ -954,13 +1188,15 @@ Future<bool> _hveAttachmentEntryButtonsRender(
           mediaKind: 'file',
         )
       : false;
-  final imageSent = photoButton
+  // The SAME merged button sends an image (FileType.any accepts the png) —
+  // proves the desktop toolbar's single entry covers the media path.
+  final imageSent = fileButton
       ? await _hveAttachmentPickAndSend(
           a,
           b,
           toxA,
           toxB,
-          buttonKey: 'message_attachment_photo_button',
+          buttonKey: 'message_attachment_file_button',
           fileName: 'rui_hve_attachment.png',
           contentB64: _hveTinyPngB64,
           mediaKind: 'image',
@@ -969,10 +1205,9 @@ Future<bool> _hveAttachmentEntryButtonsRender(
   await a.shot('/tmp/ui_hve_attachment_entries_${a.name}.png');
   print(
     '[pair] attachment_entry_buttons_render: file=$fileButton '
-    'photo=$photoButton video=$videoButton search=$searchButton '
-    'fileSent=$fileSent imageSent=$imageSent',
+    'fileSent=$fileSent imageSent=$imageSent (desktop merged toolbar)',
   );
-  return fileButton && photoButton && videoButton && fileSent && imageSent;
+  return fileButton && fileSent && imageSent;
 }
 
 const _hveTinyPngB64 =

@@ -27,11 +27,19 @@ const List<String> fixtureCBootstrapExtensions = <String>[
 
 /// A connected Fixture-C instance the bootstrap operates on. Drivers construct
 /// these from their own `_PairDriver` fields (`name`, `vm`, `isolateId`).
+///
+/// [host] is the address at which THIS target's DHT endpoint is reachable BY THE
+/// OTHER targets. Same-host pairs leave it '127.0.0.1' (loopback). A CROSS-HOST
+/// pair (macOS-A ↔ Linux-VM-B) sets each side's real IP on the shared virtual
+/// network (e.g. A=the Parallels host IP, B=10.211.55.6), so the mesh wires
+/// `add_bootstrap_node(peer.host, peer.udpPort, peer.dhtId)` with a routable
+/// address instead of loopback — the only thing that differs from same-host.
 class BootstrapTarget {
-  BootstrapTarget(this.name, this.vm, this.isolateId);
+  BootstrapTarget(this.name, this.vm, this.isolateId, {this.host = '127.0.0.1'});
   final String name;
   final VmService vm;
   final String isolateId;
+  final String host;
 }
 
 /// Full-mesh loopback bootstrap across [targets]: each instance bootstraps to
@@ -56,8 +64,9 @@ Future<void> wireFullMeshBootstrap(
     final port = (j['udpPort'] as num?)?.toInt() ?? 0;
     final dhtId = (j['dhtId']?.toString() ?? '').trim();
     endpoints[t.name] = (port: port, dhtId: dhtId);
-    emit('[fixture-c-bootstrap] ${t.name} DHT endpoint 127.0.0.1:$port');
+    emit('[fixture-c-bootstrap] ${t.name} DHT endpoint ${t.host}:$port');
   }
+  final hostByName = {for (final t in targets) t.name: t.host};
   // 2. Full mesh: every instance bootstraps to every OTHER (both directions).
   for (final target in targets) {
     for (final peer in targets) {
@@ -71,7 +80,7 @@ Future<void> wireFullMeshBootstrap(
         'ext.mcp.toolkit.l3_add_bootstrap_node',
         isolateId: target.isolateId,
         args: <String, String>{
-          'host': '127.0.0.1',
+          'host': hostByName[peer.name] ?? '127.0.0.1',
           'port': '${ep.port}',
           'pubkey': ep.dhtId,
         },
@@ -80,7 +89,7 @@ Future<void> wireFullMeshBootstrap(
               .cast<String, dynamic>())['ok'] ==
           true;
       emit('[fixture-c-bootstrap] ${target.name} -> ${peer.name} '
-          'loopback bootstrap ok=$ok');
+          '@${hostByName[peer.name] ?? '127.0.0.1'} bootstrap ok=$ok');
     }
   }
   emit('[fixture-c-bootstrap] full-mesh wired; settling '

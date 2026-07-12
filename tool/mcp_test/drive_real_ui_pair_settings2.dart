@@ -166,7 +166,10 @@ Future<void> _fillFieldViaKeystrokes(Inst inst, String key, String text) async {
   }
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.osaClear();
-  await inst.osaType(text);
+  // PASTE, don't keystroke: under a CJK host input source (this Mac's daily
+  // state) keystroke letters enter the IME composition and commit as hanzi.
+  // Paste is atomic, IME-immune, and rides the same crash-free AppKit path.
+  await inst.osaPaste(text);
   await Future<void>.delayed(const Duration(milliseconds: 150));
 }
 
