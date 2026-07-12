@@ -49,6 +49,12 @@
 //       session unless "session" is named).
 //   --id=<glob>   keep only scenarios whose id matches the glob (`*` wildcard);
 //                 also EXPLICIT, so it can exclude session scenarios.
+//   --skip=<id>[,...]  report the named scenario(s) as SKIP instead of running
+//                 them (case-insensitive). For a known env-class gap the caller
+//                 owns — e.g. L3-self-id asserts the on-disk echo_seeded fixture
+//                 account's exact toxId, unsatisfiable on a register-seeded host.
+//                 An EXPLICIT --skip does NOT trip the exit-2 gate (only implicit
+//                 echo-dependent skips do).
 //
 // Inspection modes (NO VM connection, no ws_uri needed):
 //   --list           print the resolved execution table (position, id, filename,
@@ -117,7 +123,7 @@ import 'package:vm_service/vm_service_io.dart';
 
 const _usage =
     'usage: run_l3_scenarios.dart <ws_uri> [fileOrDir] [--echo] [--allow-skip]\n'
-    '         [--no-fail-fast] [--class=...] [--suite=...] [--id=<glob>]\n'
+    '         [--no-fail-fast] [--class=...] [--suite=...] [--id=<glob>] [--skip=<id,...>]\n'
     '       run_l3_scenarios.dart [fileOrDir] --list        (no VM connection)\n'
     '       run_l3_scenarios.dart [fileOrDir] --validate-only (no VM connection)';
 
@@ -303,7 +309,10 @@ Future<int> _run(List<String> args) async {
   for (final sc in selected) {
     final s = sc.map;
     final scenarioId = s['id'] as String? ?? '?';
-    if (skipIds.contains(scenarioId)) {
+    // _multiFlag lowercases its values, so compare case-insensitively — the
+    // scenario ids are mixed-case (e.g. "L3-self-id"), and a raw compare
+    // silently never matched (the scenario ran + failed instead of skipping).
+    if (skipIds.contains(scenarioId.toLowerCase())) {
       results.add(_Result(scenarioId, 'SKIP', 'skipped via --skip'));
       stdout.writeln('[runner] SKIP $scenarioId (--skip)');
       continue;

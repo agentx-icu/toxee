@@ -641,8 +641,8 @@ Future<bool> sendComposerMessage(
   // a device — no host osascript at all), AND the macOS peer of a mixed
   // macOS+iOS pair (osascript paste/return would steal focus + background the
   // Simulator, killing the sim peer). l3_composer_send auto-selects the desktop
-  // or mobile composer hook. (Windows is handled by the _isWindowsRealUi branch
-  // above; this mobile path covers the OTHER headless platform, Android.)
+  // or mobile composer hook. (The Windows AND Linux desktops are handled by the
+  // _isHeadlessRealUi branch above; this mobile path covers the Android peer.)
   if (inst.isIos || inst.isAndroid || _mixedMacosIos) {
     return _sendComposerMessageIos(inst, text);
   }
