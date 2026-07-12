@@ -43,6 +43,13 @@ Future<int> main(List<String> args) async {
           orElse: () => isolates.first,
         )
         .id!;
+    if (args[1] == '__list') {
+      final isolate = await vm.getIsolate(iso);
+      for (final rpc in (isolate.extensionRPCs ?? const <String>[])..sort()) {
+        print(rpc);
+      }
+      return 0;
+    }
     final resp = await vm
         .callServiceExtension(method, isolateId: iso, args: params)
         .timeout(const Duration(seconds: 60));
