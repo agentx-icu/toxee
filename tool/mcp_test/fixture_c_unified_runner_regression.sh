@@ -743,30 +743,12 @@ else
         "$(cat "$TMP_ROOT/windows_irc.err" "$WINDOWS_IRC_PLAN" 2>/dev/null)"
 fi
 
-# Android only supports no-friend scenarios today (its launcher rejects
-# paired_for_e2e restore). A friendship-dependent scenario must fail FAST at
-# planning (so --plan-json/--dry-run also fail), not plan a restore the launcher
-# would hard-reject mid-run. (Windows/Linux implement restore — positive checks
-# below.)
-for plat in android; do
-    set +e
-    run_runner --plan-json --class=2proc-ui --real-ui-platform="$plat" \
-        --real-ui-scenario=message >"$TMP_ROOT/${plat}_restore_gap.out" 2>&1
-    RESTORE_GAP_CODE=$?
-    set -e
-    if [[ "$RESTORE_GAP_CODE" -eq 64 ]] \
-        && grep -q "supports only no-friend scenarios" "$TMP_ROOT/${plat}_restore_gap.out" \
-        && grep -q "message" "$TMP_ROOT/${plat}_restore_gap.out"; then
-        pass "$plat real-UI rejects a friendship-dependent scenario (no restore) with exit 64"
-    else
-        fail "$plat real-UI rejects a friendship-dependent scenario (no restore) with exit 64" \
-            "got $RESTORE_GAP_CODE: $(cat "$TMP_ROOT/${plat}_restore_gap.out")"
-    fi
-done
-
-# Windows/Linux implement paired_for_e2e restore (restore_fixture_c_pair.ps1 /
-# .sh), so the same friendship-dependent scenario must PLAN successfully there.
-for plat in windows linux; do
+# All five platforms now implement paired_for_e2e restore. Android streams the
+# portable snapshot into the debug app sandbox via `adb exec-in run-as ... tar`
+# (launch_android_fixture_c_pair.sh), so the old planning-time reject is gone
+# and a friendship-dependent scenario must PLAN successfully — same as
+# Windows/Linux (restore_fixture_c_pair.ps1 / .sh).
+for plat in android windows linux; do
     set +e
     run_runner --plan-json --class=2proc-ui --real-ui-platform="$plat" \
         --real-ui-scenario=message >"$TMP_ROOT/${plat}_restore_plan.out" 2>&1
