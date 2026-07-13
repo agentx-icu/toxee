@@ -251,6 +251,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           // iPhone SE-class viewports while leaving tablet/desktop sizes
           // unaffected (their content is shorter than 85% of the height).
           child: AppDialog(
+            closeButtonKey: UiKeys.addGroupCloseButton,
             title: _localeText(
               context,
               'addGroup',

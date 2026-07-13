@@ -120,6 +120,10 @@ class UiKeys {
   static const Key addGroupCreateSubmitButton = Key(
     'add_group_create_submit_button',
   );
+  // The AppDialog header close (X) button. On mobile there is no host-keyboard
+  // Escape reaching the app, so automation dismisses the dialog by tapping this
+  // keyed button instead of the desktop Esc chord.
+  static const Key addGroupCloseButton = Key('add_group_close_button');
   static const Key addGroupCopyIdButton = Key('add_group_copy_id_button');
 
   // New-entry popup menu (lib/ui/home/home_widgets.dart).

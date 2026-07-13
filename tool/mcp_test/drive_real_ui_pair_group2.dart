@@ -243,11 +243,37 @@ Future<bool> _waitChatHeaderTitle(
 }
 
 // ===========================================================================
+/// Scroll the AddGroupDialog's SingleChildScrollView until [key]'s render-box
+/// center sits inside a comfortable on-screen band (mobile only). The dialog
+/// fills most of a phone screen, so scroll gestures issued at its vertical
+/// middle land on the scroll view. No-op / harmless on desktop (the whole
+/// dialog fits, so keyCenter is already in band on the first read).
+Future<void> _revealDialogKey(Inst inst, String key) async {
+  // On a 430x932-class phone the composer/keyboard occupies the lower third;
+  // aim to land the target in the 220..560 band (above the keyboard, below the
+  // dialog header). Scroll at the dialog's mid-x, mid-height.
+  const topBand = 220.0;
+  const bottomBand = 560.0;
+  for (var step = 0; step < 12; step++) {
+    final c = await inst.keyCenter(key);
+    if (c == null) return; // not resolvable — let the caller's tap surface it
+    if (c.y >= topBand && c.y <= bottomBand) return;
+    // Below the band → drag content UP (dy negative); above → drag DOWN.
+    final dy = c.y > bottomBand ? -260.0 : 260.0;
+    try {
+      await inst.scrollAtCoords(c.x, 400, dy: dy);
+    } on DriveError {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+  }
+}
+
 // case 71 — group_create_cancel (S32)
 // ===========================================================================
-/// Open the REAL AddGroupDialog → ESC (the dialog's only dismiss — it has NO
-/// Cancel button; CallbackShortcuts(escape) → maybePop) → the name input is gone
-/// AND no new group conversation appeared. Drives the real dialog open + dismiss.
+/// Open the REAL AddGroupDialog → dismiss (desktop: Esc → maybePop; mobile: tap
+/// the keyed AppDialog close (X) button) → the name input is gone AND no new
+/// group conversation appeared. Drives the real dialog open + dismiss.
 Future<bool> _groupCreateCancel(Inst inst) async {
   await inst.foreground();
   final before = await _groupConversationCandidates(inst);
@@ -262,12 +288,20 @@ Future<bool> _groupCreateCancel(Inst inst) async {
     print('[pair] group_create_cancel: dialog did not open');
     return false;
   }
-  // ESC closes (the dialog binds Escape → Navigator.maybePop).
-  try {
-    await inst.osaEscape();
-  } on DriveError catch (e) {
-    print('[pair] group_create_cancel: ESC unavailable: ${e.message}');
-    return false;
+  // Dismiss the dialog. Desktop binds Escape → Navigator.maybePop, but a host
+  // osascript Escape never reaches the iOS Simulator / Android device, so on the
+  // mobile shells tap the keyed AppDialog close (X) button instead — the same
+  // real dismiss affordance a user taps. (Both close the dialog via _handleClose
+  // → maybePop, so the asserted "dialog gone + no new group" signal is identical.)
+  if (inst.isMobileShell) {
+    await inst.tapKeyCenter('add_group_close_button', timeoutSecs: 8);
+  } else {
+    try {
+      await inst.osaEscape();
+    } on DriveError catch (e) {
+      print('[pair] group_create_cancel: ESC unavailable: ${e.message}');
+      return false;
+    }
   }
   final closed =
       await inst.waitKeyGone('add_group_create_name_input', timeoutSecs: 8);
@@ -324,11 +358,25 @@ Future<String> _groupCreateTypeSelectorSurface(Inst inst, String name) async {
     }
     return '';
   }
+  // MOBILE: the dialog is a SingleChildScrollView with the Create card BELOW
+  // the Join card; on a narrow phone the create name input + Private segment +
+  // submit button sit below the fold, so their render-box centers are off the
+  // visible viewport and coordinate taps (focusType/tapKeyCenter) miss. Scroll
+  // the create name input up into a comfortable band first (desktop fits the
+  // whole dialog, so this is a no-op there).
+  if (inst.isMobileShell) {
+    await _revealDialogKey(inst, 'add_group_create_name_input');
+  }
   // Pick Private (single-fire — SegmentedButton selection; idempotent).
   await inst.tapKey('add_group_type_private_segment');
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (inst.isMobileShell) {
+    // Focusing the field raised the soft keyboard; re-reveal the submit button
+    // above it before tapping.
+    await _revealDialogKey(inst, 'add_group_create_submit_button');
+  }
   await inst.tapKey('add_group_create_submit_button');
   // Resolve A's own new private group by its unique name.
   final gid = await _waitForJoinedGroup(inst, name, before: before,
@@ -991,10 +1039,16 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
     }
     return '';
   }
+  if (inst.isMobileShell) {
+    await _revealDialogKey(inst, 'add_group_create_name_input');
+  }
   await inst.tapKey('add_group_type_conference_segment');
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (inst.isMobileShell) {
+    await _revealDialogKey(inst, 'add_group_create_submit_button');
+  }
   await inst.tapKey('add_group_create_submit_button');
   final gid =
       await _waitForJoinedGroup(inst, name, before: before, timeoutSecs: 30);

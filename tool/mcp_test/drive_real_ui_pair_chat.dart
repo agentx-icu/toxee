@@ -551,13 +551,17 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
   final line1 = 'RUIB6ML1-$nonce';
   final line2 = 'RUIB6ML2-$nonce';
   final expected = '$line1\n$line2';
-  // Windows: the incremental build below (paste line1 → Shift+Enter → paste
-  // line2) cannot work headless — osaPaste maps to flutter_skill enterText which
-  // REPLACES the field (line1 is lost) and there is no OS Shift+Enter chord to
-  // insert the newline into the composer controller. Send the full two-line text
-  // atomically via the deterministic set-text path (the newline is carried in
-  // the message body, exactly what this case asserts cross-delivers).
-  if (_isWindowsRealUi) {
+  // Headless (Windows/Linux/Android) AND iOS/iPad: the incremental build below
+  // (paste line1 → Shift+Enter → paste line2) cannot work — osaPaste maps to
+  // flutter_skill enterText which REPLACES the field (line1 is lost) and there
+  // is no OS Shift+Enter chord reaching the app (headless: no window; sim: host
+  // osascript keystrokes never reach the Simulator's Flutter view — the same
+  // fall-through that broke the Linux composer send before 79b8bdb). Send the
+  // full two-line text atomically via the deterministic set-text path (the
+  // newline is carried in the message body, exactly what this case asserts
+  // cross-delivers). Mobile has no Shift+Enter concept anyway — a multiline
+  // body from the soft keyboard takes this same send path.
+  if (_isHeadlessRealUi || a.isIos) {
     // Direct single set-text+send per attempt, then assert via the REAL message
     // text (not the conversation preview, which may collapse the newline). Retry
     // only when the message did not deliver, so a slow verify can't trigger a
@@ -681,24 +685,36 @@ Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) asyn
   }
   await a.foreground();
   // 1) The emoji/sticker panel trigger mounts AND opens the panel (the real
-  // `desktop_sticker_panel` overlay key proves the panel actually appeared —
-  // not just that the trigger button exists; codex P1).
-  if (!await a.waitKey('sticker_panel_button', timeoutSecs: 6)) {
-    print('[pair] chat_emoji_insert_send: sticker panel button absent');
+  // panel key proves the panel actually appeared — not just that the trigger
+  // button exists; codex P1). MOBILE (iOS/Android) has its own composer: the
+  // trigger is `emoji_panel_button` (input_mobile.dart) and the panel mounts
+  // INLINE below the composer as `mobile_sticker_panel` (fork key) — not the
+  // desktop `desktop_sticker_panel` overlay.
+  final trigger = a.isMobileShell ? 'emoji_panel_button' : 'sticker_panel_button';
+  final panelKey =
+      a.isMobileShell ? 'mobile_sticker_panel' : 'desktop_sticker_panel';
+  if (!await a.waitKey(trigger, timeoutSecs: 6)) {
+    print('[pair] chat_emoji_insert_send: sticker panel button absent '
+        '(trigger=$trigger)');
     return false;
   }
-  await a.tapKeyCenter('sticker_panel_button', timeoutSecs: 6);
-  // The panel renders in an Overlay.insert entry that flutter_skill's waitKey
-  // (whole-tree, onstage) does NOT traverse — only the element-tree resolver
-  // (waitKeyCenter → resolveKeyCenter) walks overlays. waitKey here always
-  // missed the open panel ("panel did not open after the tap").
-  final panelOpened =
-      await a.waitKeyCenter('desktop_sticker_panel', timeoutSecs: 6);
-  // Close the panel before typing (a tap on the composer closes it via onTap).
-  await a.tapAt(_composerX, _composerY);
+  await a.tapKeyCenter(trigger, timeoutSecs: 6);
+  // The desktop panel renders in an Overlay.insert entry that flutter_skill's
+  // waitKey (whole-tree, onstage) does NOT traverse — only the element-tree
+  // resolver (waitKeyCenter → resolveKeyCenter) walks overlays. waitKey here
+  // always missed the open panel ("panel did not open after the tap").
+  final panelOpened = await a.waitKeyCenter(panelKey, timeoutSecs: 6);
+  // Close the panel before typing. Desktop: a tap on the composer closes it via
+  // onTap. Mobile: the trigger TOGGLES (emoji ↔ keyboard icon) — tap it again.
+  if (a.isMobileShell) {
+    await a.tapKeyCenter(trigger, timeoutSecs: 6);
+  } else {
+    await a.tapAt(_composerX, _composerY);
+  }
   await Future<void>.delayed(const Duration(milliseconds: 400));
   if (!panelOpened) {
-    print('[pair] chat_emoji_insert_send: panel did not open after the tap');
+    print('[pair] chat_emoji_insert_send: panel did not open after the tap '
+        '(panelKey=$panelKey)');
     return false;
   }
   // 2) Send a message carrying an emoji token (the same `[xxx]` form the panel
@@ -741,22 +757,41 @@ Future<bool> _chatStickerPanelSend(Inst a, String toxB) async {
     return false;
   }
   await a.foreground();
-  if (!await a.waitKey('sticker_panel_button', timeoutSecs: 6)) {
-    print('[pair] chat_sticker_panel_send: sticker panel button absent');
+  // MOBILE (iOS/Android): the trigger is `emoji_panel_button` and the panel
+  // mounts inline as `mobile_sticker_panel` (fork key) — see the emoji case.
+  final trigger = a.isMobileShell ? 'emoji_panel_button' : 'sticker_panel_button';
+  final panelKey =
+      a.isMobileShell ? 'mobile_sticker_panel' : 'desktop_sticker_panel';
+  if (!await a.waitKey(trigger, timeoutSecs: 6)) {
+    print('[pair] chat_sticker_panel_send: sticker panel button absent '
+        '(trigger=$trigger)');
     return false;
   }
-  await a.tapKeyCenter('sticker_panel_button', timeoutSecs: 6);
-  // The panel overlay (`desktop_sticker_panel` key) must actually APPEAR after
-  // the tap — a no-op tap that leaves the trigger mounted must NOT pass
-  // (codex P1). It renders in an Overlay.insert entry that flutter_skill's
-  // waitKey (whole-tree, onstage) does NOT traverse — use the element-tree
-  // resolver (waitKeyCenter → resolveKeyCenter) which walks overlays (the
-  // bare waitKey always missed it, so this asserted false).
-  final panelOpened =
-      await a.waitKeyCenter('desktop_sticker_panel', timeoutSecs: 6);
+  await a.tapKeyCenter(trigger, timeoutSecs: 6);
+  // The panel key must actually APPEAR after the tap — a no-op tap that leaves
+  // the trigger mounted must NOT pass (codex P1). The desktop panel renders in
+  // an Overlay.insert entry that flutter_skill's waitKey (whole-tree, onstage)
+  // does NOT traverse — use the element-tree resolver (waitKeyCenter →
+  // resolveKeyCenter) which walks overlays (the bare waitKey always missed it,
+  // so this asserted false).
+  var panelOpened = await a.waitKeyCenter(panelKey, timeoutSecs: 6);
+  if (!panelOpened) {
+    // Toggle recovery: when this case runs right after the emoji case, the
+    // mobile trigger TOGGLES — if the previous close was still animating, the
+    // tap above can land as a CLOSE and leave the panel hidden. One more tap
+    // re-opens; still a real-control proof (the assert stays the panel key).
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    await a.tapKeyCenter(trigger, timeoutSecs: 6);
+    panelOpened = await a.waitKeyCenter(panelKey, timeoutSecs: 6);
+  }
   await a.shot('/tmp/ui_chat_sticker_A.png');
-  // Close the panel (tap composer) so the next case starts clean.
-  await a.tapAt(_composerX, _composerY);
+  // Close the panel so the next case starts clean. Desktop: tap the composer.
+  // Mobile: the trigger toggles the panel back to the keyboard.
+  if (a.isMobileShell) {
+    await a.tapKeyCenter(trigger, timeoutSecs: 6);
+  } else {
+    await a.tapAt(_composerX, _composerY);
+  }
   await Future<void>.delayed(const Duration(milliseconds: 400));
   print('[pair] chat_sticker_panel_send: panelOpened=$panelOpened '
       '(face SEND needs a keyed face cell — fork rebuild flagged; hermetic L1 '
@@ -1158,9 +1193,26 @@ Future<bool> _chatDeleteMessageGone(Inst a, String toxB) async {
 /// message becomes present in the dump after a fresh history page is requested).
 /// The production list auto-loads older history with a `lastMsgID` cursor when
 /// scrolled toward the top (message_history_load_more_real_ui_test.dart).
-Future<bool> _chatHistoryScrollLoadMore(
+///
+/// Returns null (SKIP) on MOBILE shells: their message list keeps every seeded
+/// row MOUNTED in the element tree after the in-chat seeding (keepAlive /
+/// full-mount — verified live on the iOS 2-sim sweep 2026-07-12: the earliest
+/// of 44 seeded rows satisfied waitKey on a fresh reopen while the screenshot
+/// showed a bottom-anchored lazy viewport), so the desktop proof shape — "the
+/// earliest ROW is not mounted until scroll-up pages it in" — cannot establish
+/// its non-vacuous baseline there. The paging logic itself has hermetic L1
+/// coverage (message_history_load_more_real_ui_test.dart); the real-UI seam is
+/// proven on the desktop platforms.
+Future<bool?> _chatHistoryScrollLoadMore(
     Inst a, Inst b, String toxA, String toxB,
     {required String earliestText, required String earliestId}) async {
+  if (a.isMobileShell) {
+    print('[pair] chat_history_scroll_load_more: SKIP — mobile message list '
+        'keeps seeded rows mounted (keepAlive), so the row-mount baseline '
+        'cannot prove scroll-paging here; L1 covers the paging logic and the '
+        'desktop 2-proc case covers the real-UI seam');
+    return null;
+  }
   final convId = _c2cConvId(toxB);
   if (earliestId.isEmpty) {
     print('[pair] chat_history_scroll_load_more: earliest message id unknown '
@@ -1187,16 +1239,22 @@ Future<bool> _chatHistoryScrollLoadMore(
   }
   // Scroll the RENDERED message list up via a VIEWPORT COORDINATE (codex P1.4:
   // a key-center scroll on the OFFSCREEN oldest row has no RenderBox to resolve
-  // and `ui_scroll_at` fails without moving the list). The message list occupies
-  // the area above the composer (composer ~y702); (640,330) sits inside the list
-  // viewport on the 1280x768 window. The asserted signal is the earliest ROW
-  // becoming mounted (waitKey), which only happens once the older page is
-  // scroll-LOADED + rendered — NOT the dump messages[] (which holds the full
-  // persisted history regardless of scroll).
+  // and `ui_scroll_at` fails without moving the list). The list occupies the
+  // area ABOVE the composer, so derive the scroll point from the composer's
+  // REAL center instead of hardcoding desktop-window coordinates — (640,330)
+  // sat outside a 430-wide iPhone viewport entirely, so the mobile list never
+  // moved. The asserted signal is the earliest ROW becoming mounted (waitKey),
+  // which only happens once the older page is scroll-LOADED + rendered — NOT
+  // the dump messages[] (which holds the full persisted history regardless of
+  // scroll).
+  final composer = await a.keyCenter('chat_input_text_field');
+  final scrollX = composer?.x ?? 640;
+  final scrollY =
+      composer != null ? (composer.y - 300).clamp(80.0, composer.y) : 330.0;
   var earliestRowRendered = false;
   for (var step = 0; step < 24 && !earliestRowRendered; step++) {
     try {
-      await a.scrollAtCoords(640, 330, dy: -600);
+      await a.scrollAtCoords(scrollX, scrollY, dy: -600);
     } on DriveError catch (e) {
       print('[pair] chat_history_scroll_load_more: scroll warn: ${e.message}');
     }
@@ -1240,10 +1298,19 @@ Future<bool> _chatInboundWhileScrolledUp(
   // yet; codex P1.5) until an OLDER ROW (the earliest seeded message) is
   // rendered/hit-testable — this is the "scrolled up" anchor we watch for a
   // forced jump.
+  // Derive the scroll point from the composer's REAL center (same fix as case
+  // 65): the hardcoded desktop (640,330) sits entirely outside a 430-wide
+  // iPhone viewport, so the mobile list never moved and the case false-failed
+  // with "could not scroll the older row into view".
+  final composer66 = await a.keyCenter('chat_input_text_field');
+  final scrollX66 = composer66?.x ?? 640;
+  final scrollY66 = composer66 != null
+      ? (composer66.y - 300).clamp(80.0, composer66.y)
+      : 330.0;
   var scrolledUp = await a.waitKey(earliestRowKey, timeoutSecs: 1);
   for (var i = 0; i < 20 && !scrolledUp; i++) {
     try {
-      await a.scrollAtCoords(640, 330, dy: -600);
+      await a.scrollAtCoords(scrollX66, scrollY66, dy: -600);
     } on DriveError {
       break;
     }
@@ -1511,7 +1578,13 @@ Future<_SeededHistory?> _seedChatHistory(
   final nonce = DateTime.now().microsecondsSinceEpoch % 1000000;
   String? earliest;
   await _ensureChatOpen(a, toxB);
-  for (var i = 0; i < 24; i++) {
+  // Mobile shells render/cache more rows on a fresh open (taller portrait list
+  // + ListView cacheExtent), so the desktop-tuned 24-message seed can leave the
+  // EARLIEST row already rendered on open — tripping case 65's non-vacuous
+  // baseline as a false seed failure (seen live on the iOS 2-sim sweep
+  // 2026-07-12). Seed deeper there so the history genuinely exceeds one page.
+  final seedCount = a.isMobileShell ? 44 : 24;
+  for (var i = 0; i < seedCount; i++) {
     final text = 'RUIB6HIST-$i-$nonce';
     if (i == 0) earliest = text;
     final sender = (i % 2 == 0) ? a : b;
@@ -1671,6 +1744,18 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       print('[sweep] sweep_chat: marked test accounts aMarked=$aMarked '
           'bMarked=$bMarked (unblocks l3 SEEDING for 69/70)');
 
+      // GATE: the FRIEND LINK must be LIVE before the first delivery-asserting
+      // case. A seeded friendship only proves the friend LIST entry; the actual
+      // Tox connection can take 60-120s to come up — especially on the TCP-only
+      // + relay path the iOS/Android pairs use (live 2026-07-12: both sides
+      // logged HandleFriendConnectionStatus → connected 90s after boot, so the
+      // sweep's early sends timed out with aHas=true bReceived=false and the
+      // whole run false-failed). Waiting here is honest (no case asserts on an
+      // offline peer) and cheap on the platforms where the link is already up.
+      final aSeesB = await _waitFriendOnline(a, toxB, timeoutSecs: 180);
+      final bSeesA = await _waitFriendOnline(b, toxA, timeoutSecs: 60);
+      print('[sweep] sweep_chat: friend link aSeesB=$aSeesB bSeesA=$bSeesA');
+
       // 55 open-from-row.
       await hard('chat_open_from_row', () => _chatOpenFromRow(a, toxB));
       // 57 long-text (before 56 so the multiline newline doesn't poison it).
@@ -1700,8 +1785,8 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       final seeded = await _seedChatHistory(a, b, toxA, toxB);
       final earliestText = seeded?.earliestText ?? '';
       final earliestId = seeded?.earliestId ?? '';
-      // 65 history scroll load-more.
-      await hard(
+      // 65 history scroll load-more (SKIP on mobile shells — see the case doc).
+      await skip(
           'chat_history_scroll_load_more',
           () => _chatHistoryScrollLoadMore(a, b, toxA, toxB,
               earliestText: earliestText, earliestId: earliestId));

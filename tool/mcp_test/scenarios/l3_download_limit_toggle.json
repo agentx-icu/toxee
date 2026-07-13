@@ -1,11 +1,11 @@
 {
   "id": "L3-download-limit-toggle",
   "suite": "settings",
-  "description": "L8 auto-download size limit (coverage-widening, hermetic): drive l3_set_setting autoDownloadSizeLimit and prove it round-trips through l3_dump_state.autoDownloadSizeLimit (30->13->30). autoDownloadSizeLimit is a GLOBAL int (MB) read by the file auto-accept/auto-download path (Prefs.getAutoDownloadSizeLimit; the desktop default is 30 MB, mobile 5 MB). This gate runs on the macOS L3 host, so the seeded default is 30. Uses EXACT-value polling (state_equals) for the scalar field so a substring match can't false-green (codex P2). Soft precondition (starts 30) catches a dirty fixture; ends restored to 30 so the fixture self-cleans even if interrupted. The download-DIRECTORY half (downloadsDirectory) is also surfaced in l3_dump_state for read assertions but is not toggled here (it is a native folder picker). Hermetic — no echo peer. Maps to feature L8.",
+  "description": "L8 auto-download size limit (coverage-widening, hermetic): drive l3_set_setting autoDownloadSizeLimit and prove it round-trips through l3_dump_state.autoDownloadSizeLimit (default->13->30). autoDownloadSizeLimit is a GLOBAL int (MB) read by the file auto-accept/auto-download path (Prefs.getAutoDownloadSizeLimit; the desktop default is 30 MB, mobile 5 MB — _defaultAutoDownloadSizeLimitMb). This gate runs on ALL FIVE platforms, so the precondition accepts EITHER platform default (equalsAnyOf [30, 5]) plus the 30 a previous completed run restored — a genuinely dirty fixture (e.g. stuck 13) still fails it. Uses EXACT-value polling (state_equals) for the scalar field so a substring match can't false-green (codex P2). Ends restored to 30 (in the accepted set on every platform) so the fixture self-cleans even if interrupted. The download-DIRECTORY half (downloadsDirectory) is also surfaced in l3_dump_state for read assertions but is not toggled here (it is a native folder picker). Hermetic — no echo peer. Maps to feature L8.",
   "requiresEchoPeer": false,
   "target": "3116CBE0974181B6EC4B32555413655B42C7456A93C6AF98A23E95127B587244",
   "steps": [
-    { "action": "wait_for", "predicate": "state_equals", "field": "autoDownloadSizeLimit", "equals": 30, "timeoutSecs": 5 },
+    { "action": "wait_for", "predicate": "state_equals", "field": "autoDownloadSizeLimit", "equalsAnyOf": [30, 5], "timeoutSecs": 5 },
     { "action": "set_setting", "key": "autoDownloadSizeLimit", "value": 13 },
     { "action": "wait_for", "predicate": "state_equals", "field": "autoDownloadSizeLimit", "equals": 13, "timeoutSecs": 5 },
     { "action": "set_setting", "key": "autoDownloadSizeLimit", "value": 30 }

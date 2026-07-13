@@ -128,7 +128,12 @@ select_simulators() {
             fi
         fi
     done < <(xcrun simctl list devices available \
-        | sed -nE 's/^[[:space:]]*([^()]+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p')
+        | sed -nE 's/^[[:space:]]*(.+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p')
+        # Name capture is greedy up to the UDID (not `[^()]+`), so device names
+        # that themselves contain parentheses — e.g. "iPad Pro 11-inch (M4)" or
+        # "iPad mini (A17 Pro)" — are parsed correctly instead of being skipped
+        # (same fix as run_toxee_ios.sh simulator_rows; the old pattern left the
+        # tablet pool with <2 matches and failed the A/B pair launch).
     [[ "${#selected[@]}" -ge 2 ]] || return 1
     printf '%s\n%s\n' "${selected[0]}" "${selected[1]}"
 }
@@ -203,9 +208,22 @@ fi
 # TOXEE_IOS_TCP_RELAY_PORT (default 3389); B connects to it as a client below.
 # Both sims share the host network stack, so enabling a relay on BOTH makes the
 # second tox_new fail with TOX_ERR_NEW_PORT_ALLOC — hence A only.
+# LAUNCH METHOD (2026-07-12): default simctl, NOT flutter. The relay/TCP-only
+# env vars only reach the app through SIMCTL_CHILD_* in the simctl branch — the
+# flutter-run branch delivers NO env to the app, so under it the "A is the
+# relay" design silently never ran and A<->B delivery depended on same-host UDP
+# loopback, which flakes (live: aHas=true bReceived=false across a whole
+# sweep). simctl also keeps the VM service up without a fragile flutter-run
+# daemon. Both instances additionally default to TCP-only (the deterministic
+# lever the Windows/Linux pairs use); override either knob via the env.
+PAIR_LAUNCH_METHOD="${TOXEE_IOS_LAUNCH_METHOD:-simctl}"
+PAIR_FORCE_TCP_ONLY="${TOXEE_IOS_FORCE_TCP_ONLY:-1}"
+
 if [[ "$RESTORE_ENABLED" == "1" ]]; then restore_ios_instance A; fi
 TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_SIMULATOR_ID="${SIMULATORS[0]}" \
+    TOXEE_IOS_LAUNCH_METHOD="$PAIR_LAUNCH_METHOD" \
+    TOXEE_IOS_FORCE_TCP_ONLY="$PAIR_FORCE_TCP_ONLY" \
     TOXEE_IOS_TCP_RELAY_PORT="${TOXEE_IOS_TCP_RELAY_PORT:-3389}" \
     "$MCP_DIR/launch_toxee_ios_instance.sh" A
 wait_for_instance_json "$RUNTIME_ROOT/A/instance.json"
@@ -222,6 +240,8 @@ fi
 if [[ "$RESTORE_ENABLED" == "1" ]]; then restore_ios_instance B; fi
 TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_SIMULATOR_ID="${SIMULATORS[1]}" \
+    TOXEE_IOS_LAUNCH_METHOD="$PAIR_LAUNCH_METHOD" \
+    TOXEE_IOS_FORCE_TCP_ONLY="$PAIR_FORCE_TCP_ONLY" \
     TOXEE_IOS_TCP_RELAY_PORT="$(( ${TOXEE_IOS_TCP_RELAY_PORT:-3389} + 1 ))" \
     "$MCP_DIR/launch_toxee_ios_instance.sh" B
 wait_for_instance_json "$RUNTIME_ROOT/B/instance.json"

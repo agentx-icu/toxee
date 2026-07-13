@@ -445,10 +445,24 @@ run_android_l3() {
 
   if [[ "$RUN_L3" == "true" ]]; then
     echo ""
+    # Fresh-state devices/emulators have no seeded account at all, so the
+    # session preflight (L3-session-settings asserts the seeded echo
+    # conversation) fails before any gate runs. The register driver is
+    # idempotent — it skips registration when the session is already ready and
+    # only tops up the echo seed when missing. (Same block as run_toxee_linux.sh.)
+    info "Ensuring L3 seed account + echo conversation (idempotent)..."
+    if ! (cd "$FLUTTER_APP_DIR" && dart run tool/mcp_test/drive_l3_register.dart \
+        "$ws_uri" echo_live_test --seed-echo); then
+      warn "L3 register/seed step failed — the session preflight will likely fail."
+    fi
     info "Running hermetic L3 partition (--class=l3-gate)..."
     set +e
+    # --skip=L3-self-id: bound to the on-disk echo_seeded fixture account's
+    # exact toxId; a register-seeded fresh device can never satisfy it (see
+    # drive_l3_register.dart header). Explicit SKIP keeps the report honest.
     (cd "$FLUTTER_APP_DIR" && dart run tool/mcp_test/run_l3_scenarios.dart \
-        "$ws_uri" --class=l3-gate "${L3_EXTRA_ARGS[@]+"${L3_EXTRA_ARGS[@]}"}")
+        "$ws_uri" --class=l3-gate --skip=L3-self-id \
+        "${L3_EXTRA_ARGS[@]+"${L3_EXTRA_ARGS[@]}"}")
     local l3_rc=$?
     set -e
     info "Tearing down Android app (pid $flutter_pid)..."

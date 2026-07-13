@@ -716,17 +716,25 @@ Future<int> _main(List<String> args) async {
             return await _chatDeleteMessageGone(a, chTox2B) ? 0 : 1;
           case 'chat_history_scroll_load_more':
             {
+              // SKIP (null → 75) on mobile shells — decided BEFORE seeding so
+              // the skipped case leaves no 40+-message history contaminating
+              // later scenarios on the same pair launch (codex P2). The case
+              // function re-checks and prints the canonical SKIP reason.
+              if (a.isMobileShell) {
+                return skipMap(await _chatHistoryScrollLoadMore(
+                  a, b, chTox2A, chTox2B,
+                  earliestText: '', earliestId: '',
+                ));
+              }
               final seeded = await _seedChatHistory(a, b, chTox2A, chTox2B);
-              return await _chatHistoryScrollLoadMore(
-                    a,
-                    b,
-                    chTox2A,
-                    chTox2B,
-                    earliestText: seeded?.earliestText ?? '',
-                    earliestId: seeded?.earliestId ?? '',
-                  )
-                  ? 0
-                  : 1;
+              return skipMap(await _chatHistoryScrollLoadMore(
+                a,
+                b,
+                chTox2A,
+                chTox2B,
+                earliestText: seeded?.earliestText ?? '',
+                earliestId: seeded?.earliestId ?? '',
+              ));
             }
           case 'chat_inbound_while_scrolled_up':
             {

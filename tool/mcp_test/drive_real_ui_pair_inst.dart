@@ -184,6 +184,12 @@ class Inst {
   bool get isAndroid => platform == 'android';
   bool get isLinux => platform == 'linux';
 
+  /// True when this instance renders the MOBILE app shell (bottom-nav, mobile
+  /// composer `emoji_panel_button` / inline `mobile_sticker_panel`, narrow
+  /// layout) rather than the desktop shell — the UIKit screen classifier is
+  /// process-global and phone-sized iOS/Android always classify mobile.
+  bool get isMobileShell => isIos || isAndroid;
+
   /// The address at which THIS instance's Tox DHT endpoint is reachable by the
   /// PEER, for [wireFullMeshBootstrap]. Same-host pairs leave it loopback; a
   /// cross-host run sets `TOXEE_REAL_UI_HOST_<name>` to each side's routable IP on

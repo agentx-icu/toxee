@@ -209,6 +209,7 @@
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				3AAFE84CC2BF222A87A1807C /* [CP] Embed Pods Frameworks */,
 				3D9EB5B6754197EAD7E7C5BC /* [CP] Copy Pods Resources */,
+				FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi (simulator) */,
 			);
 			buildRules = (
 			);
@@ -387,6 +388,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi (simulator) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed tim2tox_ffi (simulator)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Embed the tim2tox FFI simulator framework so EVERY simulator build path\n# (flutter run / flutter build ios --simulator / flutter test integration_test)\n# carries the native backend without the post-build inject step in\n# run_toxee_ios.sh. Device builds are untouched: the artifact under\n# third_party/tim2tox/build/ios is SIMULATOR-only (tool/build_ios_sim_ffi.sh);\n# embedding it into an iphoneos build would break signing, so this phase is a\n# no-op for non-simulator platforms (the device flow keeps its signing-aware\n# inject in run_toxee_ios_device.sh).\ncase \"${PLATFORM_NAME}\" in iphonesimulator*) ;; *) exit 0 ;; esac\nSRC=\"${SRCROOT}/../third_party/tim2tox/build/ios/tim2tox_ffi.framework\"\nif [ ! -d \"$SRC\" ]; then\n  echo \"warning: tim2tox_ffi.framework not built (run tool/build_ios_sim_ffi.sh); simulator app will have no FFI backend\"\n  exit 0\nfi\nDEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nrm -rf \"$DEST/tim2tox_ffi.framework\"\ncp -R \"$SRC\" \"$DEST/\"\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$DEST/tim2tox_ffi.framework\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */

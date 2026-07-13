@@ -63,6 +63,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/main.dart';
+import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/util/locale_controller.dart';
 import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/theme_controller.dart';
@@ -172,15 +173,33 @@ Future<void> seedPrefsAndControllers(Map<String, Object> seed) async {
 /// _loadSettings) → the StaggeredListItem entrance cascade (kicked off by a
 /// `Future.delayed`, capped at 150ms on desktop).
 ///
-/// Default 100ms step + explicit 30s timeout — NOT a multi-second first arg,
-/// which would fast-forward virtual time and silently fire any due startup
-/// Timer, masking real cold-start regressions. (Same rationale as
-/// app_smoke_test.dart.)
+/// A single `pumpAndSettle` is NOT enough here (found live on the iOS
+/// Simulator 2026-07-12, same failure app_smoke_test.dart documents): the
+/// startup futures — Hive `cache.init` inside the _getLocale FutureBuilder,
+/// then the _StartupGate chain — resolve via real async/microtasks WITHOUT
+/// scheduling a frame, so pumpAndSettle "settles" (no frames scheduled) while
+/// startup is still in flight and LoginPage never mounts. Pump in a bounded
+/// loop that yields to the event loop each step until LoginPage mounts (or the
+/// 30s cold-Hive worst case elapses), then settle the page's own entrance
+/// animations. Still non-masking: a genuine startup hang never mounts
+/// LoginPage and the caller's `find.byType(LoginPage)` assertion fails.
+///
+/// 100ms steps — NOT a multi-second first arg, which would fast-forward
+/// virtual time and silently fire any due startup Timer, masking real
+/// cold-start regressions. (Same rationale as app_smoke_test.dart.)
 Future<void> pumpToLogin(WidgetTester tester) async {
   await tester.pumpWidget(const EchoUIKitApp());
-  await tester.pumpAndSettle(
-    const Duration(milliseconds: 100),
-    EnginePhase.sendSemanticsUpdate,
-    const Duration(seconds: 30),
-  );
+  var landedLogin = false;
+  for (var i = 0; i < 300 && !landedLogin; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    landedLogin = find.byType(LoginPage).evaluate().isNotEmpty;
+  }
+  if (landedLogin) {
+    // Let LoginPage finish its initState async loads + entrance cascade.
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 30),
+    );
+  }
 }

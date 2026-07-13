@@ -150,6 +150,28 @@ Behavior to know:
     platform from `TOXEE_REAL_UI_PLATFORM=android` and drives purely via
     synthetic flutter_skill / L3 RPC (`_isHeadlessRealUi`, shared with Windows —
     no host osascript, since the app lives on a device).
+    Tox A↔B connectivity (2026-07-12): two emulators sit behind separate NATs
+    (UDP never routes between them), so the launcher applies the same lever as
+    the Windows/Linux pairs — TCP-only + A as the TCP relay — via the
+    `debug.toxee.force_tcp_only` / `debug.toxee.tcp_relay_port` system
+    properties (`adb shell setprop`; ToxManager.cpp `read_harness_knob` falls
+    back to them on Android because a device app cannot be handed env vars).
+    The relay is plumbed B-guest → (`adb reverse`) → host → (`adb forward`) →
+    A-guest on `TOXEE_ANDROID_TCP_RELAY_PORT` (default 3389, the port
+    `add_bootstrap_node`'s `tox_add_tcp_relay` probe already tries).
+    `stop_android_fixture_c_pair.sh` clears the props (they persist to reboot)
+    and removes the tunnels.
+  - **ipad** — same `ios` platform + launchers: selecting a `rui-ipad-*`
+    campaign makes the runner force `TOXEE_IOS_DEVICE_TYPE=tablet` into the
+    pair-launch env, so both instances boot on iPad simulators and the shared
+    sweeps exercise the wide/tablet layout branches. `rui-ipad-account-settings`
+    went live-green first try on 2026-07-12 (sweep_login 9/9 +
+    sweep_ios_settings_main 6/6 on two iPad Pro 11-inch sims). NOTE: the sim
+    list parser in both iOS launch scripts must keep the GREEDY name capture —
+    the old `[^()]+` pattern silently dropped every device whose NAME contains
+    parentheses ("iPad Pro 11-inch (M4)", "iPad mini (A17 Pro)"), leaving the
+    tablet pool with <2 matches (iPhone names have no parens, which is why the
+    phone pairs never exposed it).
   - **windows** — `launch_windows_fixture_c_pair.ps1`; run the runner **on the
     Windows host** (PowerShell). It builds once, copies the Debug runner dir to a
     per-instance dir for A and B, and direct-launches each with a fixed Dart
@@ -158,10 +180,17 @@ Behavior to know:
     driver, both apps, and the loopback IRC server share the host loopback, so no
     reverse-forwarding is needed. The runner invokes the `.ps1` via
     `powershell -ExecutionPolicy Bypass -File`.
-  - **Restore (`paired_for_e2e`)** is wired for macOS/iOS only. The Android and
-    Windows launchers fail fast on a restore request (friendship-dependent
-    scenarios are out of scope there today); the no-friend IRC cases need no
-    restore.
+  - **Restore (`paired_for_e2e`)** is wired on ALL five platforms (the runner's
+    old planning-time Android reject is gone, 2026-07-12). macOS/iOS/Windows/
+    Linux copy the portable snapshot into the per-instance support dir on the
+    host; Android streams it into the DEBUG app's sandboxed `files/` dir via
+    `adb exec-in run-as com.toxee.app tar -x` after the app is installed+running
+    (a fresh boot idles on the login shell and only reads `profiles/` when the
+    driver calls `l3_boot_existing_account`, so the post-launch copy is
+    race-free), with `pm clear` pre-launch for determinism and the same
+    profile/history integrity checks as the other launchers. Android restore is
+    IMPLEMENTED but pending its first live two-emulator validation — do not
+    report friendship scenarios as android-green until that run lands.
 - **Native libirc_client gap (honest live-coverage note).** The two IRC cases
   differ in what they need:
   - `irc_join_channel_real_controls` sets the L3 `localAddOverride`, so adding a
@@ -497,7 +526,7 @@ each rebuild-gated. Those are the concrete next "problems to solve".
 | --- | --- | --- | --- |
 | macos   | `launch_fixture_c_pair.sh`          | `restore_fixture_c_pair.sh`  | osascript + VM-service |
 | ios     | `launch_ios_fixture_c_pair.sh`      | via macOS container restore  | synthetic VM-service |
-| android | `launch_android_fixture_c_pair.sh`  | NOT implemented (no-friend only) | synthetic VM-service |
+| android | `launch_android_fixture_c_pair.sh`  | `adb exec-in run-as ... tar -x` into the debug app sandbox (2026-07-12; first live 2-emulator validation pending) | synthetic VM-service |
 | windows | `launch_windows_fixture_c_pair.ps1` | `restore_fixture_c_pair.ps1` (PowerShell-native, no bash/jq) | synthetic VM-service (headless) |
 | linux   | `launch_linux_fixture_c_pair.sh`    | `restore_fixture_c_pair.sh` (portable: tox_profile + JSON history) | synthetic VM-service (headless) |
 

@@ -165,6 +165,11 @@ const _validRealUiPlatforms = {'macos', 'ios', 'android', 'windows', 'linux'};
 const _unsupportedRealUiPlatforms = <String, String>{};
 String _realUiPlatform = 'macos';
 
+/// Set to 'tablet' when a `rui-ipad-*` campaign is selected: forced into the
+/// iOS pair-launch env as TOXEE_IOS_DEVICE_TYPE so launch_ios_fixture_c_pair.sh
+/// picks iPad simulators. Null = leave the caller's environment untouched.
+String? _forcedIosDeviceType;
+
 /// Exit code a real-UI driver returns when a scenario is a SKIP (its surface
 /// genuinely does not exist on this platform — e.g. the Batch-2 avatar cases,
 /// whose self-profile avatar tap opens a native NSOpenPanel with no in-app
@@ -560,6 +565,20 @@ const _realUiCampaigns = <String, List<String>>{
     'sweep_chat',
     'sweep_group2',
   ],
+  // iPad true-App coverage: the SAME sweeps as the iPhone campaigns — the
+  // sweeps already branch on the wide/tablet layout at runtime
+  // (_settingsIsWide, inst.isIos scroll bands) — but the pair is launched on
+  // iPad simulators: selecting a rui-ipad-* campaign makes the runner force
+  // TOXEE_IOS_DEVICE_TYPE=tablet into the launch env (launch_ios_fixture_c_
+  // pair.sh then matches *iPad* simulators). Requires --real-ui-platform=ios.
+  'rui-ipad-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
+  'rui-ipad-chat-main': ['sweep_chat', 'sweep_group2'],
+  'rui-ipad-main': [
+    'sweep_login',
+    'sweep_ios_settings_main',
+    'sweep_chat',
+    'sweep_group2',
+  ],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -815,17 +834,38 @@ Future<int> _run(List<String> args) async {
   final plan = _Plan.fromEntries(selected, opts: opts);
   _realUiPlatform = opts.realUiPlatform;
 
-  // Android real-UI supports only NO-FRIEND scenarios today: its A/B launcher
-  // rejects TOXEE_FIXTURE_C_RESTORE (restore into a sandboxed device store is
-  // not implemented). Windows/Linux restore via restore_fixture_c_pair.ps1/.sh.
-  // Reject a friendship-dependent scenario HERE — at planning time, so
-  // --plan-json and --dry-run also fail — instead of planning a restore the
-  // launcher would hard-reject mid-run.
-  final restoreGapError = _realUiRestoreGap(plan);
-  if (restoreGapError != null) {
-    stderr.writeln(restoreGapError);
-    return 64;
+  // rui-ipad-* campaigns run the shared sweeps on iPad simulators. The device
+  // type is a PAIR-LAUNCH property (both instances boot on iPads), so an
+  // invocation must not mix ipad and non-ipad campaigns — the second campaign
+  // would silently inherit the first's simulators and the report would lie
+  // about what was exercised.
+  final ipadCampaigns = opts.realUiCampaigns
+      .where((c) => c.startsWith('rui-ipad-'))
+      .toList();
+  if (ipadCampaigns.isNotEmpty) {
+    if (_realUiPlatform != 'ios') {
+      stderr.writeln(
+        '[unified] ${ipadCampaigns.join(', ')} require(s) '
+        '--real-ui-platform=ios (got "$_realUiPlatform")',
+      );
+      return 64;
+    }
+    if (ipadCampaigns.length != opts.realUiCampaigns.length) {
+      stderr.writeln(
+        '[unified] rui-ipad-* campaigns cannot be mixed with non-iPad '
+        'campaigns in one invocation (the pair launch is device-type-wide): '
+        '${opts.realUiCampaigns.join(', ')}',
+      );
+      return 64;
+    }
+    _forcedIosDeviceType = 'tablet';
   }
+
+  // All five platform launchers now implement paired_for_e2e restore (Android
+  // streams the portable snapshot into the debug app sandbox via
+  // `adb exec-in run-as ... tar -x` — see launch_android_fixture_c_pair.sh), so
+  // friendship-dependent scenarios are launchable everywhere and the old
+  // planning-time Android reject is gone.
 
   if (opts.list) {
     _printList(selected);
@@ -2055,26 +2095,6 @@ String? _restoreForRealUiState(String state) {
 /// Windows launcher restores via restore_fixture_c_pair.ps1 and the Linux
 /// launcher via restore_fixture_c_pair.sh. Null when every planned scenario is
 /// launchable on the platform.
-String? _realUiRestoreGap(_Plan plan) {
-  if (_realUiPlatform != 'android') return null;
-  final unsupported = <String>{};
-  for (final group in plan.groups) {
-    if (group.mode != 'real-ui') continue;
-    for (final entry in group.entries) {
-      for (final scenario in entry.realUiScenarios) {
-        if (_requiredRealUiState(scenario) == _realUiStateFriends) {
-          unsupported.add(scenario);
-        }
-      }
-    }
-  }
-  if (unsupported.isEmpty) return null;
-  return '[unified] real-UI platform "$_realUiPlatform" supports only no-friend '
-      'scenarios today (its A/B launcher does not implement paired_for_e2e '
-      'restore); friendship-dependent scenario(s) not allowed: '
-      '${unsupported.toList()..sort()}';
-}
-
 String _symbolicRealUiResetCommand() {
   return '${_realUiSymbolicDriverEnvPrefix()}'
       'dart run tool/mcp_test/drive_real_ui_pair.dart '
@@ -2156,10 +2176,13 @@ String _launchRealUiPairCommand({String? restore}) {
   // copy-paste syntax. The Android launch ALSO receives TOXEE_IRC_LOOPBACK_PORT
   // live (for adb reverse), so include it here too.
   final ircPort = _realUiConfig.ircLoopbackPort;
-  final ircPrefix = ircPort != null ? 'TOXEE_IRC_LOOPBACK_PORT=$ircPort ' : '';
+  var prefix = ircPort != null ? 'TOXEE_IRC_LOOPBACK_PORT=$ircPort ' : '';
+  if (_forcedIosDeviceType != null) {
+    prefix = '${prefix}TOXEE_IOS_DEVICE_TYPE=$_forcedIosDeviceType ';
+  }
   final invocation = _realUiLaunchInvocation();
-  if (restore == null || restore.isEmpty) return '$ircPrefix$invocation';
-  return '${ircPrefix}TOXEE_FIXTURE_C_RESTORE=$restore $invocation';
+  if (restore == null || restore.isEmpty) return '$prefix$invocation';
+  return '${prefix}TOXEE_FIXTURE_C_RESTORE=$restore $invocation';
 }
 
 String _stopPairCommand() => 'tool/mcp_test/stop_fixture_c_pair.sh';
@@ -2565,6 +2588,9 @@ Future<int> _launchRealUiPair({String? restore}) async {
     if ((_realUiPlatform == 'windows' || _realUiPlatform == 'linux') &&
         !Platform.environment.containsKey('TOXEE_PAIR_TCP_ONLY'))
       'TOXEE_PAIR_TCP_ONLY': '1',
+    // rui-ipad-* campaigns: boot the pair on iPad simulators.
+    if (_forcedIosDeviceType != null)
+      'TOXEE_IOS_DEVICE_TYPE': _forcedIosDeviceType!,
   };
   final rc = await _runProcess(
     _realUiScriptExecCommand(cfg.launchScript),

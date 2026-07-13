@@ -922,7 +922,25 @@ Future<void> _waitForPredicate(
       // `state{equals}` assertion's equality, so JSON 13/"manual"/true compare
       // against the dump's int/String/bool directly.
       final state = await d.dumpState(conv: conv);
-      if (state[step['field']] == step['equals']) return;
+      // Only satisfy on a PRESENT field (codex P2): a scenario that provides
+      // only `equalsAnyOf` leaves step['equals'] null, and a MISSING field also
+      // reads null — the old unconditional `==` would then vacuously pass on
+      // null == null. A missing/errored field must keep polling (and time out
+      // loudly) instead.
+      if (state.containsKey(step['field'])) {
+        if (step.containsKey('equals') &&
+            state[step['field']] == step['equals']) {
+          return;
+        }
+        // `equalsAnyOf` (JSON list) — for fields whose LEGITIMATE value differs
+        // by platform (e.g. autoDownloadSizeLimit defaults to 30 on desktop but
+        // 5 on Android/iOS, lib/util/prefs.dart _defaultAutoDownloadSizeLimitMb).
+        // A single hardcoded `equals` precondition would fail every mobile run;
+        // enumerating the allowed set keeps the dirty-fixture guard honest on
+        // all five platforms without weakening it to a substring match.
+        final anyOf = step['equalsAnyOf'];
+        if (anyOf is List && anyOf.contains(state[step['field']])) return;
+      }
     } else if (predicate == 'state_not_contains') {
       // Poll until a substring is ABSENT from a field's stringified value —
       // the settle half of an absence assertion (cleared remark, declined
@@ -963,7 +981,8 @@ Future<void> _waitForPredicate(
   }
   throw 'wait_for($predicate field=${step['field']} text=${step['text']} '
       'count=${step['count']} contains=${step['contains']} '
-      'equals=${step['equals']} notContains=${step['notContains']} '
+      'equals=${step['equals']} equalsAnyOf=${step['equalsAnyOf']} '
+      'notContains=${step['notContains']} '
       'containsItem=${step['containsItem']} '
       'notContainsItem=${step['notContainsItem']}) timed out after ${timeoutSecs}s';
 }

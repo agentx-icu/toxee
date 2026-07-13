@@ -35,7 +35,10 @@ if [[ -z "$SIMULATOR_ID" ]]; then
       break
     fi
   done < <(xcrun simctl list devices available \
-    | sed -nE 's/^[[:space:]]*([^()]+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p')
+    | sed -nE 's/^[[:space:]]*(.+)[[:space:]]+\(([0-9A-F-]{36})\)[[:space:]]+\((Booted|Shutdown)\).*/\1|\2|\3/p')
+  # Name capture is greedy up to the UDID (not `[^()]+`), so device names that
+  # themselves contain parentheses — e.g. "iPad Pro 11-inch (M4)" — are parsed
+  # correctly instead of being skipped (same fix as run_toxee_ios.sh).
 fi
 
 if [[ -z "$SIMULATOR_ID" ]]; then
@@ -119,6 +122,13 @@ if [[ "$LAUNCH_METHOD" == "simctl" ]]; then
   # without a macOS peer.
   if [[ -n "${TOXEE_IOS_TCP_RELAY_PORT:-}" ]]; then
     export SIMCTL_CHILD_TOX_TCP_RELAY_PORT="$TOXEE_IOS_TCP_RELAY_PORT"
+  fi
+  # Optional TCP-only mode (TOX_FORCE_TCP_ONLY) — same deterministic-delivery
+  # lever the Windows/Linux pairs default to: same-host UDP loopback between
+  # two sim apps flakes (aHas=true bReceived=false), while relay-carried TCP
+  # delivery is deterministic once the peer relay is reachable.
+  if [[ -n "${TOXEE_IOS_FORCE_TCP_ONLY:-}" ]]; then
+    export SIMCTL_CHILD_TOX_FORCE_TCP_ONLY="$TOXEE_IOS_FORCE_TCP_ONLY"
   fi
   launch_out="$(xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" 2>>"$STDIO_LOG")"
   echo "$launch_out" >>"$STDIO_LOG"
