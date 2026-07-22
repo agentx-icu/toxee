@@ -30,17 +30,19 @@ import '../util/logger.dart';
 /// tests that don't register a mock handler don't have to special-case the
 /// service.
 class RuntimeForegroundService {
-  RuntimeForegroundService({MethodChannel? channel})
-      : _channel = channel ??
-            const MethodChannel('toxee/runtime_foreground');
+  RuntimeForegroundService({MethodChannel? channel, bool? isAndroidOverride})
+    : _isAndroidOverride = isAndroidOverride,
+      _channel = channel ?? const MethodChannel('toxee/runtime_foreground');
 
   final MethodChannel _channel;
+  final bool? _isAndroidOverride;
 
   /// Singleton accessor for the production channel. Tests can construct their
   /// own [RuntimeForegroundService] with a mocked [MethodChannel] instead.
   static final RuntimeForegroundService instance = RuntimeForegroundService();
 
   bool get _isApplicable {
+    if (_isAndroidOverride != null) return _isAndroidOverride;
     // Guard `Platform.isAndroid` so tests running on the VM (where the host
     // platform is desktop) short-circuit cleanly without touching the
     // platform channel.
@@ -70,7 +72,10 @@ class RuntimeForegroundService {
       // Native bridge not registered (e.g. unit-test JVM): silently no-op.
     } catch (e, st) {
       AppLogger.logError(
-          '[RuntimeForegroundService] start failed (non-fatal)', e, st);
+        '[RuntimeForegroundService] start failed (non-fatal)',
+        e,
+        st,
+      );
     }
   }
 
@@ -84,7 +89,10 @@ class RuntimeForegroundService {
       // No-op outside Android runtime.
     } catch (e, st) {
       AppLogger.logError(
-          '[RuntimeForegroundService] stop failed (non-fatal)', e, st);
+        '[RuntimeForegroundService] stop failed (non-fatal)',
+        e,
+        st,
+      );
     }
   }
 
@@ -94,6 +102,7 @@ class RuntimeForegroundService {
     required String title,
     required String body,
     required String settingsLabel,
+    bool usesCamera = false,
   }) async {
     if (!_isApplicable) return;
     try {
@@ -101,14 +110,16 @@ class RuntimeForegroundService {
         'title': title,
         'body': body,
         'settingsLabel': settingsLabel,
+        'usesCamera': usesCamera,
       });
     } on MissingPluginException {
       // No-op outside Android runtime.
     } catch (e, st) {
       AppLogger.logError(
-          '[RuntimeForegroundService] elevateToCall failed (non-fatal)',
-          e,
-          st);
+        '[RuntimeForegroundService] elevateToCall failed (non-fatal)',
+        e,
+        st,
+      );
     }
   }
 
@@ -129,9 +140,10 @@ class RuntimeForegroundService {
       // No-op outside Android runtime.
     } catch (e, st) {
       AppLogger.logError(
-          '[RuntimeForegroundService] restoreFromCall failed (non-fatal)',
-          e,
-          st);
+        '[RuntimeForegroundService] restoreFromCall failed (non-fatal)',
+        e,
+        st,
+      );
     }
   }
 }

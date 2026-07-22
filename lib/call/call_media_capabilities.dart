@@ -33,4 +33,15 @@ class CallMediaCapabilities {
         effectivePlatform == TargetPlatform.iOS ||
         effectivePlatform == TargetPlatform.macOS;
   }
+
+  /// Whether the active capture backend supports changing cameras in-call.
+  ///
+  /// Android and iOS use `package:camera`, whose device descriptions can be
+  /// selected when capture restarts. macOS uses the separate `camera_macos`
+  /// backend and does not currently expose that switch path here.
+  static bool supportsCameraSwitch({TargetPlatform? platform}) {
+    final effectivePlatform = platform ?? defaultTargetPlatform;
+    return effectivePlatform == TargetPlatform.android ||
+        effectivePlatform == TargetPlatform.iOS;
+  }
 }

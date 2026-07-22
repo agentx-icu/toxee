@@ -24,11 +24,7 @@ class CallKitAction {
   /// `null` for other actions.
   final bool? muted;
 
-  const CallKitAction({
-    required this.kind,
-    required this.callId,
-    this.muted,
-  });
+  const CallKitAction({required this.kind, required this.callId, this.muted});
 
   @override
   String toString() =>
@@ -53,7 +49,7 @@ class CallKitEndReason {
 /// `instance` singleton.
 class CallKitBridge {
   CallKitBridge({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel('toxee/callkit') {
+    : _channel = channel ?? const MethodChannel('toxee/callkit') {
     _actions = StreamController<CallKitAction>.broadcast(
       onListen: _drainPendingActions,
     );
@@ -115,25 +111,28 @@ class CallKitBridge {
         '${h.sublist(10, 16).join()}';
   }
 
-  Future<void> reportIncomingCall({
+  Future<bool> reportIncomingCall({
     required String callId,
     required String displayName,
     required bool hasVideo,
   }) async {
-    if (!isSupported) return;
+    if (!isSupported) return false;
     try {
       await _channel.invokeMethod<void>('reportIncomingCall', <String, Object?>{
         'callId': callId,
         'displayName': displayName,
         'hasVideo': hasVideo,
       });
+      return true;
     } on MissingPluginException {
       // Native side not registered (shouldn't happen on iOS once AppDelegate
       // is wired, but harmless during early-init races).
+      return false;
     } on PlatformException catch (e) {
       // E.g. CallKit refused to show the UI because of "Silence Unknown
       // Callers". Logged so the call-service can fall back to in-app ring.
       debugPrint('[CallKitBridge] reportIncomingCall failed: $e');
+      return false;
     }
   }
 
@@ -159,9 +158,10 @@ class CallKitBridge {
   Future<void> reportCallConnected({required String callId}) async {
     if (!isSupported) return;
     try {
-      await _channel.invokeMethod<void>('reportCallConnected', <String, Object?>{
-        'callId': callId,
-      });
+      await _channel.invokeMethod<void>(
+        'reportCallConnected',
+        <String, Object?>{'callId': callId},
+      );
     } on MissingPluginException {
       // No-op.
     } on PlatformException catch (e) {
@@ -209,20 +209,21 @@ class CallKitBridge {
           if (callId.isEmpty) return null;
           final kind = _parseAction(actionStr);
           if (kind == CallKitActionKind.unknown) return null;
-          _emitAction(CallKitAction(
-            kind: kind,
-            callId: callId,
-            muted: args['muted'] as bool?,
-          ));
+          _emitAction(
+            CallKitAction(
+              kind: kind,
+              callId: callId,
+              muted: args['muted'] as bool?,
+            ),
+          );
           return null;
         case 'onCallKitReset':
           // OS-level reset (e.g. CallKit daemon crash). Surface as a synthetic
           // "end all" by emitting an `end` action with empty callId so listeners
           // can decide to tear everything down.
-          _emitAction(const CallKitAction(
-            kind: CallKitActionKind.end,
-            callId: '',
-          ));
+          _emitAction(
+            const CallKitAction(kind: CallKitActionKind.end, callId: ''),
+          );
           return null;
         case 'onAudioSessionActivated':
         case 'onAudioSessionDeactivated':

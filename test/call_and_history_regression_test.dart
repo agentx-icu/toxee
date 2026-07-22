@@ -17,8 +17,9 @@ import 'package:toxee/sdk_fake/fake_managers.dart';
 /// Fake [CallOverlayManager] for overlay tests (no real SDK).
 class FakeCallOverlayManager implements CallOverlayManager {
   @override
-  final ValueNotifier<CallAudioState> audioState =
-      ValueNotifier(const CallAudioState());
+  final ValueNotifier<CallAudioState> audioState = ValueNotifier(
+    const CallAudioState(),
+  );
 
   @override
   final ValueNotifier<ui.Image?> remoteVideo = ValueNotifier<ui.Image?>(null);
@@ -37,6 +38,8 @@ class FakeCallOverlayManager implements CallOverlayManager {
   Future<void> toggleMute() async {}
   @override
   Future<void> toggleVideo() async {}
+  @override
+  Future<void> switchCamera() async {}
   @override
   Future<void> toggleSpeaker() async {}
   @override
@@ -64,29 +67,33 @@ Widget buildCallOverlayTestApp(CallStateNotifier callState) {
 void main() {
   group('Call overlay redesigned surfaces', () {
     testWidgets(
-        'overlay shows full-screen dock then floating card after minimize',
-        (tester) async {
-      final callState = CallStateNotifier()
-        ..startRinging(
-          mode: CallMode.video,
-          direction: CallDirection.outgoing,
-          inviteID: 'ov-1',
-          remoteUserID: 'bob',
-          remoteNickname: 'Bob',
-        )
-        ..enterCall();
-      await tester.pumpWidget(buildCallOverlayTestApp(callState));
+      'overlay shows full-screen dock then floating card after minimize',
+      (tester) async {
+        final callState = CallStateNotifier()
+          ..startRinging(
+            mode: CallMode.video,
+            direction: CallDirection.outgoing,
+            inviteID: 'ov-1',
+            remoteUserID: 'bob',
+            remoteNickname: 'Bob',
+          )
+          ..enterCall();
+        await tester.pumpWidget(buildCallOverlayTestApp(callState));
 
-      expect(find.byKey(const ValueKey('call-action-dock')), findsOneWidget);
+        expect(find.byKey(const ValueKey('call-action-dock')), findsOneWidget);
 
-      callState.minimize();
-      await tester.pumpAndSettle();
+        callState.minimize();
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('floating-call-card')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('floating-call-card')),
+          findsOneWidget,
+        );
 
-      callState.endCall();
-      await tester.pump(const Duration(seconds: 3));
-    });
+        callState.endCall();
+        await tester.pump(const Duration(seconds: 3));
+      },
+    );
   });
 
   group('FakeMessageManager latest-window slicing', () {
@@ -94,14 +101,34 @@ void main() {
       final input = <int>[1, 2, 3, 4, 5];
 
       expect(FakeMessageManager.takeLatestWindow(input, 2), <int>[4, 5]);
-      expect(
-          FakeMessageManager.takeLatestWindow(input, 5), <int>[1, 2, 3, 4, 5]);
-      expect(
-          FakeMessageManager.takeLatestWindow(input, 10), <int>[1, 2, 3, 4, 5]);
-      expect(
-          FakeMessageManager.takeLatestWindow(input, 0), <int>[1, 2, 3, 4, 5]);
-      expect(
-          FakeMessageManager.takeLatestWindow(input, -1), <int>[1, 2, 3, 4, 5]);
+      expect(FakeMessageManager.takeLatestWindow(input, 5), <int>[
+        1,
+        2,
+        3,
+        4,
+        5,
+      ]);
+      expect(FakeMessageManager.takeLatestWindow(input, 10), <int>[
+        1,
+        2,
+        3,
+        4,
+        5,
+      ]);
+      expect(FakeMessageManager.takeLatestWindow(input, 0), <int>[
+        1,
+        2,
+        3,
+        4,
+        5,
+      ]);
+      expect(FakeMessageManager.takeLatestWindow(input, -1), <int>[
+        1,
+        2,
+        3,
+        4,
+        5,
+      ]);
     });
   });
 

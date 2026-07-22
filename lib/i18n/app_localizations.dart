@@ -2482,6 +2482,12 @@ abstract class AppLocalizations {
   /// **'Video on'**
   String get callVideoOn;
 
+  /// No description provided for @callSwitchCamera.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch camera'**
+  String get callSwitchCamera;
+
   /// No description provided for @callSpeakerOff.
   ///
   /// In en, this message translates to:
@@ -2523,6 +2529,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Microphone and camera permissions are required to continue the call.'**
   String get callPermissionMicrophoneCameraRequired;
+
+  /// No description provided for @callIncomingNotificationPermissionRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming calls can only ring inside Toxee until notification permission is enabled.'**
+  String get callIncomingNotificationPermissionRequired;
 
   /// No description provided for @callFailedGroupUnsupported.
   ///

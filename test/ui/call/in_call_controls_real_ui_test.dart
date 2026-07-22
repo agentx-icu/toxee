@@ -52,6 +52,7 @@ class _RecordingCallManager implements CallOverlayManager {
 
   var muteCount = 0;
   var videoCount = 0;
+  var cameraSwitchCount = 0;
   var speakerCount = 0;
   var hangUpCount = 0;
   var acceptCount = 0;
@@ -105,6 +106,11 @@ class _RecordingCallManager implements CallOverlayManager {
   }
 
   @override
+  Future<void> switchCamera() async {
+    cameraSwitchCount += 1;
+  }
+
+  @override
   Future<void> toggleSpeaker() async {
     speakerCount += 1;
     callState.toggleSpeaker();
@@ -141,7 +147,10 @@ class _RecordingCallManager implements CallOverlayManager {
 /// and renders the real [InCallView]. We give it a placeholder [child] (shown
 /// only once the call returns to idle) and the real localization delegates the
 /// call views read via `AppLocalizations.of(context)`.
-Widget _wrapOverlay(CallStateNotifier callState, _RecordingCallManager manager) {
+Widget _wrapOverlay(
+  CallStateNotifier callState,
+  _RecordingCallManager manager,
+) {
   return MaterialApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
@@ -172,10 +181,9 @@ IconData _renderedIcon(WidgetTester tester, Key key) {
 String _renderedLabel(WidgetTester tester, Key key) {
   final text = tester.widget<Text>(
     find.descendant(
-      of: find.ancestor(
-        of: find.byKey(key),
-        matching: find.byType(Column),
-      ).first,
+      of: find
+          .ancestor(of: find.byKey(key), matching: find.byType(Column))
+          .first,
       matching: find.byType(Text),
     ),
   );
@@ -185,7 +193,10 @@ String _renderedLabel(WidgetTester tester, Key key) {
 /// Ends the call and pumps past the in-call duration timer and the 2s
 /// `CallStateNotifier` ended→idle reset so no timer is left pending when the
 /// widget tree is torn down (otherwise the binding asserts on disposal).
-Future<void> _drainCall(WidgetTester tester, CallStateNotifier callState) async {
+Future<void> _drainCall(
+  WidgetTester tester,
+  CallStateNotifier callState,
+) async {
   if (callState.state != CallUIState.ended &&
       callState.state != CallUIState.idle) {
     callState.endCall();
@@ -259,11 +270,17 @@ void main() {
 
       expect(manager.muteCount, 1);
       expect(callState.isMuted, isTrue);
-      expect(_renderedIcon(tester, UiKeys.callMicMuteButton), Icons.mic_off,
-          reason: 'S74 A1: muted shows mic_off');
+      expect(
+        _renderedIcon(tester, UiKeys.callMicMuteButton),
+        Icons.mic_off,
+        reason: 'S74 A1: muted shows mic_off',
+      );
       final unmuteLabel = _renderedLabel(tester, UiKeys.callMicMuteButton);
-      expect(unmuteLabel, isNot(muteLabel),
-          reason: 'S74 A1: label switches Mute → Unmute');
+      expect(
+        unmuteLabel,
+        isNot(muteLabel),
+        reason: 'S74 A1: label switches Mute → Unmute',
+      );
 
       // Tap again → unmute; state + icon + label revert (S74 A3).
       await tester.tap(find.byKey(UiKeys.callMicMuteButton));
@@ -271,10 +288,16 @@ void main() {
 
       expect(manager.muteCount, 2);
       expect(callState.isMuted, isFalse);
-      expect(_renderedIcon(tester, UiKeys.callMicMuteButton), Icons.mic,
-          reason: 'S74 A3: unmuted shows mic');
-      expect(_renderedLabel(tester, UiKeys.callMicMuteButton), muteLabel,
-          reason: 'S74 A3: label back to Mute');
+      expect(
+        _renderedIcon(tester, UiKeys.callMicMuteButton),
+        Icons.mic,
+        reason: 'S74 A3: unmuted shows mic',
+      );
+      expect(
+        _renderedLabel(tester, UiKeys.callMicMuteButton),
+        muteLabel,
+        reason: 'S74 A3: label back to Mute',
+      );
 
       // S74 A4: the call did not end — still inCall throughout.
       expect(find.byKey(const ValueKey('inCall')), findsOneWidget);
@@ -297,10 +320,15 @@ void main() {
 
       // Video call → camera action is present, video on by default.
       expect(find.byKey(UiKeys.callCameraToggleButton), findsOneWidget);
-      expect(_renderedIcon(tester, UiKeys.callCameraToggleButton),
-          Icons.videocam);
+      expect(
+        _renderedIcon(tester, UiKeys.callCameraToggleButton),
+        Icons.videocam,
+      );
       expect(callState.isVideoEnabled, isTrue);
-      final videoOffLabel = _renderedLabel(tester, UiKeys.callCameraToggleButton);
+      final videoOffLabel = _renderedLabel(
+        tester,
+        UiKeys.callCameraToggleButton,
+      );
 
       // Tap → turn video OFF.
       await tester.tap(find.byKey(UiKeys.callCameraToggleButton));
@@ -308,11 +336,20 @@ void main() {
 
       expect(manager.videoCount, 1);
       expect(callState.isVideoEnabled, isFalse);
-      expect(_renderedIcon(tester, UiKeys.callCameraToggleButton),
-          Icons.videocam_off, reason: 'S75 A1: video off shows videocam_off');
-      final videoOnLabel = _renderedLabel(tester, UiKeys.callCameraToggleButton);
-      expect(videoOnLabel, isNot(videoOffLabel),
-          reason: 'S75 A1: label switches Video off → Video on');
+      expect(
+        _renderedIcon(tester, UiKeys.callCameraToggleButton),
+        Icons.videocam_off,
+        reason: 'S75 A1: video off shows videocam_off',
+      );
+      final videoOnLabel = _renderedLabel(
+        tester,
+        UiKeys.callCameraToggleButton,
+      );
+      expect(
+        videoOnLabel,
+        isNot(videoOffLabel),
+        reason: 'S75 A1: label switches Video off → Video on',
+      );
 
       // Tap again (permission granted) → video back ON, state + icon revert.
       await tester.tap(find.byKey(UiKeys.callCameraToggleButton));
@@ -320,14 +357,102 @@ void main() {
 
       expect(manager.videoCount, 2);
       expect(callState.isVideoEnabled, isTrue);
-      expect(_renderedIcon(tester, UiKeys.callCameraToggleButton),
-          Icons.videocam, reason: 'S75 A3: re-enabled shows videocam');
-      expect(_renderedLabel(tester, UiKeys.callCameraToggleButton),
-          videoOffLabel);
+      expect(
+        _renderedIcon(tester, UiKeys.callCameraToggleButton),
+        Icons.videocam,
+        reason: 'S75 A3: re-enabled shows videocam',
+      );
+      expect(
+        _renderedLabel(tester, UiKeys.callCameraToggleButton),
+        videoOffLabel,
+      );
 
       await _drainCall(tester, callState);
     },
   );
+
+  testWidgets(
+    'video call exposes a camera-switch control that drives the manager',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final callState = videoCall();
+      final manager = _RecordingCallManager(callState);
+      addTearDown(callState.dispose);
+
+      await tester.pumpWidget(_wrapOverlay(callState, manager));
+      await tester.pumpAndSettle();
+
+      final switchButton = find.byIcon(Icons.cameraswitch);
+      expect(switchButton, findsOneWidget);
+
+      await tester.tap(switchButton);
+      await tester.pumpAndSettle();
+
+      expect(manager.cameraSwitchCount, 1);
+      expect(find.byKey(const ValueKey('inCall')), findsOneWidget);
+
+      await _drainCall(tester, callState);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets('macOS hides the unsupported camera-switch control', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    final callState = videoCall();
+    final manager = _RecordingCallManager(callState);
+    addTearDown(callState.dispose);
+
+    await tester.pumpWidget(_wrapOverlay(callState, manager));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.cameraswitch), findsNothing);
+
+    await _drainCall(tester, callState);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('audio call does not expose a camera-switch control', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      final callState = audioCall();
+      final manager = _RecordingCallManager(callState);
+      addTearDown(callState.dispose);
+
+      await tester.pumpWidget(_wrapOverlay(callState, manager));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.cameraswitch), findsNothing);
+
+      await _drainCall(tester, callState);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('video-off state hides the camera-switch control', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      final callState = videoCall()..toggleVideo();
+      final manager = _RecordingCallManager(callState);
+      addTearDown(callState.dispose);
+
+      await tester.pumpWidget(_wrapOverlay(callState, manager));
+      await tester.pumpAndSettle();
+
+      expect(callState.isVideoEnabled, isFalse);
+      expect(find.byIcon(Icons.cameraswitch), findsNothing);
+
+      await _drainCall(tester, callState);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
 
   // ---- S75 A5 negative: camera permission denied → state stays OFF ----
   testWidgets(
@@ -354,10 +479,15 @@ void main() {
       // Production toggleVideo() was invoked, but the permission gate refused —
       // state stays OFF and the dock keeps the videocam_off / selected look.
       expect(manager.videoCount, 2);
-      expect(callState.isVideoEnabled, isFalse,
-          reason: 'S75 A5: denied permission keeps video disabled');
-      expect(_renderedIcon(tester, UiKeys.callCameraToggleButton),
-          Icons.videocam_off);
+      expect(
+        callState.isVideoEnabled,
+        isFalse,
+        reason: 'S75 A5: denied permission keeps video disabled',
+      );
+      expect(
+        _renderedIcon(tester, UiKeys.callCameraToggleButton),
+        Icons.videocam_off,
+      );
 
       await _drainCall(tester, callState);
     },
@@ -395,9 +525,11 @@ void main() {
       expect(find.byKey(const ValueKey('inCall')), findsNothing);
       expect(find.byKey(const ValueKey('ended')), findsOneWidget);
       expect(
-        find.text(AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey('ended'))),
-        )!.callEnded),
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byKey(const ValueKey('ended'))),
+          )!.callEnded,
+        ),
         findsOneWidget,
       );
 
@@ -405,8 +537,11 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('ended')), findsNothing);
-      expect(find.byKey(const ValueKey('idle-home')), findsOneWidget,
-          reason: 'S76: overlay returns to the underlying app after ended');
+      expect(
+        find.byKey(const ValueKey('idle-home')),
+        findsOneWidget,
+        reason: 'S76: overlay returns to the underlying app after ended',
+      );
     },
   );
 
@@ -437,8 +572,11 @@ void main() {
       await tester.pumpAndSettle();
 
       final routeButton = find.byIcon(Icons.route);
-      expect(routeButton, findsOneWidget,
-          reason: 'desktop shows the route affordance');
+      expect(
+        routeButton,
+        findsOneWidget,
+        reason: 'desktop shows the route affordance',
+      );
 
       // The route affordance's tappable InkWell is wired with onTap: null — it
       // renders disabled (the OS owns the audio route on desktop) and carries
@@ -446,8 +584,11 @@ void main() {
       final routeInkWell = tester.widget<InkWell>(
         find.ancestor(of: routeButton, matching: find.byType(InkWell)).first,
       );
-      expect(routeInkWell.onTap, isNull,
-          reason: 'S74-d: route action is disabled on desktop');
+      expect(
+        routeInkWell.onTap,
+        isNull,
+        reason: 'S74-d: route action is disabled on desktop',
+      );
       expect(
         find.ancestor(of: routeButton, matching: find.byType(Tooltip)),
         findsOneWidget,
@@ -504,20 +645,29 @@ void main() {
       await tester.pumpAndSettle();
 
       final routeButton = find.byIcon(Icons.route);
-      expect(routeButton, findsOneWidget,
-          reason: 'mobile shows the route affordance');
+      expect(
+        routeButton,
+        findsOneWidget,
+        reason: 'mobile shows the route affordance',
+      );
       final routeInkWell = tester.widget<InkWell>(
         find.ancestor(of: routeButton, matching: find.byType(InkWell)).first,
       );
-      expect(routeInkWell.onTap, isNotNull,
-          reason: 'S74-d: route action is enabled on mobile');
+      expect(
+        routeInkWell.onTap,
+        isNotNull,
+        reason: 'S74-d: route action is enabled on mobile',
+      );
 
       // Tap → production opens the real audio-route sheet (a modal bottom
       // sheet) listing the routes; confirm it surfaces, then dismiss it.
       await tester.tap(routeButton);
       await tester.pumpAndSettle();
-      expect(find.text('Speaker'), findsOneWidget,
-          reason: 'S74-d: enabled route button opens the route sheet');
+      expect(
+        find.text('Speaker'),
+        findsOneWidget,
+        reason: 'S74-d: enabled route button opens the route sheet',
+      );
 
       // Close the sheet so the call surface is restored for teardown.
       Navigator.of(tester.element(find.text('Speaker'))).pop();

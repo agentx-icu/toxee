@@ -86,6 +86,10 @@ class RuntimeForegroundChannel(
                         call.argument<String>("settingsLabel"),
                     )
                     putExtra(ToxPollingService.EXTRA_FOR_CALL, true)
+                    putExtra(
+                        ToxPollingService.EXTRA_USE_CAMERA,
+                        call.argument<Boolean>("usesCamera") ?: false,
+                    )
                 }
                 startServiceCompat(intent)
                 replyOnMain(result, null)

@@ -42,11 +42,11 @@
 		<string>_tox._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>This app needs camera access for video calls and to scan pairing QR codes from your other device.</string>
+	<string>Toxee uses the camera to take photos and record videos in chats, make video calls, and scan pairing QR codes.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app needs network access to connect to other users via P2P protocol.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>This app needs microphone access for voice calls.</string>
+	<string>Toxee uses the microphone to record voice messages and make voice or video calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Toxee saves received photos and videos to your library when you choose to.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -57,7 +57,6 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>voip</string>
 		<string>audio</string>
 		<string>fetch</string>
 	</array>

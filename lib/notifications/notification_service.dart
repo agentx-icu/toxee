@@ -1,11 +1,75 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../util/harness_environment.dart';
 import '../util/logger.dart';
+import '../util/serialized_async_tail.dart';
+
+const String _androidIncomingCallChannelId = 'toxee_incoming_calls';
+const String _androidIncomingCallChannelName = 'Incoming calls';
+const String _androidIncomingCallChannelDescription =
+    'Full-screen alerts for incoming Toxee calls.';
+const int _androidIncomingCallNotificationId = 0x746f7865;
+const MethodChannel _androidIncomingCallWindowChannel = MethodChannel(
+  'toxee/incoming_call_window',
+);
+const String _incomingCallWindowTokenPrefsKey =
+    'toxee_incoming_call_window_token';
+
+/// Android policy for the live incoming-call surface.
+///
+/// Sound and vibration stay disabled here because [RingtonePlayer] owns those
+/// effects and respects the device ringer mode. The notification exists to
+/// make the Flutter accept/decline surface visible over background/lock state.
+AndroidNotificationDetails buildAndroidIncomingCallNotificationDetails() {
+  return const AndroidNotificationDetails(
+    _androidIncomingCallChannelId,
+    _androidIncomingCallChannelName,
+    channelDescription: _androidIncomingCallChannelDescription,
+    importance: Importance.max,
+    priority: Priority.max,
+    category: AndroidNotificationCategory.call,
+    fullScreenIntent: true,
+    ongoing: true,
+    autoCancel: false,
+    playSound: false,
+    enableVibration: false,
+    visibility: NotificationVisibility.public,
+  );
+}
+
+class IncomingCallNotificationLease {
+  int _generation = 0;
+  String? _callId;
+
+  int begin(String callId) {
+    _callId = callId;
+    return ++_generation;
+  }
+
+  void cancel() {
+    _callId = null;
+    _generation++;
+  }
+
+  bool isCurrent(int generation, String callId) {
+    return generation == _generation && callId == _callId;
+  }
+}
+
+enum IncomingCallNotificationOutcome {
+  unsupported,
+  cancelled,
+  shown,
+  inAppOnlyFallback,
+  failedFallback,
+}
 
 /// OS-level notifications for incoming messages.
 ///
@@ -67,9 +131,15 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   final StreamController<String> _onSelectController =
       StreamController<String>.broadcast();
+  final IncomingCallNotificationLease _incomingCallLease =
+      IncomingCallNotificationLease();
+  final SerializedAsyncTail _incomingNotificationTail = SerializedAsyncTail(
+    logError: _logIncomingNotificationTailError,
+  );
+  IncomingCallNotificationOutcome? _lastIncomingCallNotificationOutcome;
 
   bool _initialized = false;
-  bool _initializing = false;
+  Future<void>? _initializingFuture;
 
   /// Cached Android POST_NOTIFICATIONS decision for the session. `null` =
   /// not yet asked; `true` = granted (either already enabled or the user
@@ -94,6 +164,11 @@ class NotificationService {
   /// `granted=true`). Pair with [debugForceIsAndroid].
   @visibleForTesting
   set debugAndroidPermissionGranted(bool? v) => _androidPermissionGranted = v;
+
+  @visibleForTesting
+  IncomingCallNotificationOutcome?
+  get debugLastIncomingCallNotificationOutcome =>
+      _lastIncomingCallNotificationOutcome;
 
   // Per-conversation message accumulator for inbox-style grouping. Cleared
   // when the user opens the conversation (callers tell us via
@@ -138,8 +213,22 @@ class NotificationService {
   /// the first call to [showMessageNotification] via
   /// [_ensureAndroidPermission] — that matches Material Design guidance
   /// (don't ask on cold start, ask in context).
-  Future<void> init() async {
-    if (_initialized || _initializing) return;
+  Future<void> init() {
+    if (_initialized) return Future<void>.value();
+    final inFlight = _initializingFuture;
+    if (inFlight != null) return inFlight;
+
+    late final Future<void> future;
+    future = _runInit().whenComplete(() {
+      if (identical(_initializingFuture, future)) {
+        _initializingFuture = null;
+      }
+    });
+    _initializingFuture = future;
+    return future;
+  }
+
+  Future<void> _runInit() async {
     if (!_platformSupported) {
       AppLogger.debug(
         '[NotificationService] Platform not supported (${Platform.operatingSystem}); skipping',
@@ -147,7 +236,6 @@ class NotificationService {
       _initialized = true;
       return;
     }
-    _initializing = true;
     try {
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
       // requestPermissions defaults to false — we drive permission requests
@@ -179,7 +267,10 @@ class NotificationService {
       try {
         final details = await _plugin.getNotificationAppLaunchDetails();
         if (details?.didNotificationLaunchApp ?? false) {
-          _launchPayload = details?.notificationResponse?.payload;
+          final payload = details?.notificationResponse?.payload;
+          _launchPayload = payload == null
+              ? null
+              : _stripIncomingCallWindowToken(payload);
           if (_launchPayload != null) {
             AppLogger.info(
               '[NotificationService] Cold-start notification payload captured: $_launchPayload',
@@ -235,6 +326,17 @@ class NotificationService {
               importance: Importance.high,
               playSound: true,
               enableVibration: true,
+            ),
+          );
+          await androidImpl.createNotificationChannel(
+            const AndroidNotificationChannel(
+              _androidIncomingCallChannelId,
+              _androidIncomingCallChannelName,
+              description: _androidIncomingCallChannelDescription,
+              importance: Importance.max,
+              playSound: false,
+              enableVibration: false,
+              showBadge: false,
             ),
           );
         }
@@ -319,8 +421,6 @@ class NotificationService {
         e,
         st,
       );
-    } finally {
-      _initializing = false;
     }
   }
 
@@ -364,7 +464,7 @@ class NotificationService {
     String? avatarPath,
   }) async {
     if (!_initialized) {
-      // Lazy init — _initializing guards against re-entry.
+      // Lazy init — concurrent callers join the same in-flight future.
       await init();
     }
     if (!_initialized || !_platformSupported) return;
@@ -508,7 +608,7 @@ class NotificationService {
 
       final id = _idFor('friend_req:$senderId');
 
-      final androidDetails = AndroidNotificationDetails(
+      const androidDetails = AndroidNotificationDetails(
         _androidFriendReqChannelId,
         _androidFriendReqChannelName,
         channelDescription: _androidFriendReqChannelDescription,
@@ -533,7 +633,7 @@ class NotificationService {
             ? 'New friend request'
             : 'Friend request: $senderName',
         clampedBody,
-        NotificationDetails(
+        const NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
           macOS: darwinDetails,
@@ -582,6 +682,7 @@ class NotificationService {
   /// notification-id mapping. Safe to call before [init] (the maps are empty);
   /// platform-channel `cancelAll` is a no-op when uninitialized.
   Future<void> resetSessionState() async {
+    await cancelIncomingCallNotification();
     _grouped.clear();
     _conversationIdHashCache.clear();
     _conversationCounter = 0;
@@ -666,6 +767,193 @@ class NotificationService {
     }
   }
 
+  /// Make an active Android call answerable while the app is backgrounded or
+  /// the device is locked. The full-screen intent reuses [MainActivity], where
+  /// the existing Flutter [IncomingCallView] owns accept/decline behavior.
+  Future<IncomingCallNotificationOutcome> showIncomingCallNotification({
+    required String callId,
+    required String displayName,
+    required bool isVideo,
+  }) {
+    if (!_isAndroidPlatform) {
+      return Future<IncomingCallNotificationOutcome>.value(
+        _recordIncomingCallNotificationOutcome(
+          IncomingCallNotificationOutcome.unsupported,
+        ),
+      );
+    }
+    final lease = _incomingCallLease.begin(callId);
+    final completer = Completer<IncomingCallNotificationOutcome>();
+
+    void complete(IncomingCallNotificationOutcome outcome) {
+      if (completer.isCompleted) return;
+      completer.complete(_recordIncomingCallNotificationOutcome(outcome));
+    }
+
+    _enqueueIncomingNotification(() async {
+      if (!_incomingCallLease.isCurrent(lease, callId)) {
+        complete(IncomingCallNotificationOutcome.cancelled);
+        return;
+      }
+      if (!_initialized) await init();
+      if (!_initialized || !_platformSupported) {
+        complete(IncomingCallNotificationOutcome.unsupported);
+        return;
+      }
+      if (!_incomingCallLease.isCurrent(lease, callId)) {
+        complete(IncomingCallNotificationOutcome.cancelled);
+        return;
+      }
+
+      await _ensureAndroidPermission();
+      if (_androidPermissionGranted == false) {
+        AppLogger.debug(
+          '[NotificationService] Android notifications denied; incoming call '
+          'will remain in-app only for call=$callId',
+        );
+        complete(IncomingCallNotificationOutcome.inAppOnlyFallback);
+        return;
+      }
+      if (!_incomingCallLease.isCurrent(lease, callId)) {
+        complete(IncomingCallNotificationOutcome.cancelled);
+        return;
+      }
+
+      try {
+        final token = _newIncomingCallWindowToken();
+        await _armAndroidIncomingCallWindow(token);
+        if (!_incomingCallLease.isCurrent(lease, callId)) {
+          await _clearAndroidIncomingCallWindow();
+          complete(IncomingCallNotificationOutcome.cancelled);
+          return;
+        }
+        final title = isVideo ? 'Incoming video call' : 'Incoming call';
+        final body = displayName.isEmpty ? 'Toxee contact' : displayName;
+        await _plugin.show(
+          _androidIncomingCallNotificationId,
+          title,
+          body,
+          NotificationDetails(
+            android: buildAndroidIncomingCallNotificationDetails(),
+          ),
+          payload: _incomingCallPayload(callId, token),
+        );
+        complete(IncomingCallNotificationOutcome.shown);
+      } catch (e, st) {
+        AppLogger.warn(
+          '[NotificationService] showIncomingCallNotification failed for '
+          'call=$callId: $e',
+        );
+        AppLogger.debug('[NotificationService] stack: $st');
+        complete(IncomingCallNotificationOutcome.failedFallback);
+      }
+    }).catchError((Object error, StackTrace stackTrace) {
+      _logIncomingNotificationTailError(error, stackTrace);
+      complete(IncomingCallNotificationOutcome.failedFallback);
+    });
+    return completer.future;
+  }
+
+  IncomingCallNotificationOutcome _recordIncomingCallNotificationOutcome(
+    IncomingCallNotificationOutcome outcome,
+  ) {
+    _lastIncomingCallNotificationOutcome = outcome;
+    return outcome;
+  }
+
+  Future<void> cancelIncomingCallNotification() {
+    _incomingCallLease.cancel();
+    return _enqueueIncomingNotification(() async {
+      await _clearAndroidIncomingCallWindow();
+      if (!_isAndroidPlatform || !_initialized || !_platformSupported) return;
+      try {
+        await _plugin.cancel(_androidIncomingCallNotificationId);
+      } catch (e) {
+        AppLogger.debug(
+          '[NotificationService] cancel incoming-call notification failed: $e',
+        );
+      }
+    });
+  }
+
+  Future<void> _clearAndroidIncomingCallWindow() async {
+    if (!_isAndroidPlatform) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_incomingCallWindowTokenPrefsKey);
+    } catch (e) {
+      AppLogger.debug(
+        '[NotificationService] clear incoming-call token pref failed: $e',
+      );
+    }
+    try {
+      await _androidIncomingCallWindowChannel.invokeMethod<void>(
+        'clearIncomingCallWindow',
+      );
+    } catch (e) {
+      AppLogger.debug(
+        '[NotificationService] clear incoming-call lock-screen window failed: $e',
+      );
+    }
+  }
+
+  Future<void> _armAndroidIncomingCallWindow(String token) async {
+    if (!_isAndroidPlatform) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_incomingCallWindowTokenPrefsKey, token);
+    } catch (e) {
+      AppLogger.debug(
+        '[NotificationService] store incoming-call token pref failed: $e',
+      );
+    }
+    try {
+      await _androidIncomingCallWindowChannel.invokeMethod<void>(
+        'armIncomingCallWindow',
+        <String, Object?>{'token': token},
+      );
+    } catch (e) {
+      AppLogger.debug(
+        '[NotificationService] arm incoming-call lock-screen window failed: $e',
+      );
+    }
+  }
+
+  String _newIncomingCallWindowToken() {
+    final random = Random.secure();
+    return List<String>.generate(
+      8,
+      (_) => random.nextInt(0x10000).toRadixString(16).padLeft(4, '0'),
+      growable: false,
+    ).join();
+  }
+
+  String _incomingCallPayload(String callId, String token) {
+    return 'incoming_call:$callId:$token';
+  }
+
+  static String _stripIncomingCallWindowToken(String payload) {
+    if (!payload.startsWith('incoming_call:')) return payload;
+    final separator = payload.lastIndexOf(':');
+    if (separator <= 'incoming_call:'.length) return payload;
+    return payload.substring(0, separator);
+  }
+
+  Future<void> _enqueueIncomingNotification(Future<void> Function() action) {
+    return _incomingNotificationTail.enqueue(action);
+  }
+
+  static void _logIncomingNotificationTailError(
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    AppLogger.logError(
+      '[NotificationService] queued incoming-call notification action failed',
+      error,
+      stackTrace,
+    );
+  }
+
   String _clampBody(String preview) {
     final trimmed = preview.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (trimmed.length <= _maxBodyChars) return trimmed;
@@ -689,7 +977,7 @@ class NotificationService {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
     if (_onSelectController.isClosed) return;
-    _onSelectController.add(payload);
+    _onSelectController.add(_stripIncomingCallWindowToken(payload));
   }
 
   /// Lazily asks the user for Android POST_NOTIFICATIONS permission, caching
@@ -703,7 +991,7 @@ class NotificationService {
   Future<void>? _androidPermissionInFlight;
 
   Future<void> _ensureAndroidPermission() {
-    if (!Platform.isAndroid || _androidPermissionGranted != null) {
+    if (!_isAndroidPlatform || _androidPermissionGranted != null) {
       return Future<void>.value();
     }
     // De-duplicate concurrent callers: init() fires this unawaited (so app
@@ -806,5 +1094,6 @@ class NotificationService {
     _conversationIdHashCache.clear();
     _initialized = false;
     _androidPermissionGranted = null;
+    _lastIncomingCallNotificationOutcome = null;
   }
 }

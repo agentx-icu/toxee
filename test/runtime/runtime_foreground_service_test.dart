@@ -14,40 +14,34 @@ void main() {
       messenger.setMockMethodCallHandler(channel, null);
     });
 
-    test('non-Android platforms short-circuit without invoking the channel',
-        () async {
-      // The host platform when running `flutter test` is desktop (macOS /
-      // linux / windows). Platform.isAndroid is false, so every method must
-      // be a no-op regardless of what the mock handler would return.
-      final calls = <MethodCall>[];
-      messenger.setMockMethodCallHandler(channel, (call) async {
-        calls.add(call);
-        return null;
-      });
+    test(
+      'non-Android platforms short-circuit without invoking the channel',
+      () async {
+        // The host platform when running `flutter test` is desktop (macOS /
+        // linux / windows). Platform.isAndroid is false, so every method must
+        // be a no-op regardless of what the mock handler would return.
+        final calls = <MethodCall>[];
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return null;
+        });
 
-      final service = RuntimeForegroundService();
-      await service.start(
-        title: 't',
-        body: 'b',
-        settingsLabel: 's',
-      );
-      await service.stop();
-      await service.elevateToCall(
-        title: 't',
-        body: 'b',
-        settingsLabel: 's',
-      );
-      await service.restoreFromCall(
-        title: 't',
-        body: 'b',
-        settingsLabel: 's',
-      );
+        final service = RuntimeForegroundService();
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        await service.stop();
+        await service.elevateToCall(title: 't', body: 'b', settingsLabel: 's');
+        await service.restoreFromCall(
+          title: 't',
+          body: 'b',
+          settingsLabel: 's',
+        );
 
-      // The wrapper guards on Platform.isAndroid, so on the host VM (which is
-      // not Android) the channel is never touched. This is the contract that
-      // unit tests, desktop dev, and iOS rely on.
-      expect(calls, isEmpty);
-    });
+        // The wrapper guards on Platform.isAndroid, so on the host VM (which is
+        // not Android) the channel is never touched. This is the contract that
+        // unit tests, desktop dev, and iOS rely on.
+        expect(calls, isEmpty);
+      },
+    );
 
     test('swallows MissingPluginException defensively', () async {
       // Force the test messenger to act as if no handler is registered.
@@ -79,6 +73,29 @@ void main() {
       // must not drift; the matching Kotlin constant lives in
       // android/app/src/main/kotlin/com/toxee/app/RuntimeForegroundChannel.kt.
       expect(channel.name, 'toxee/runtime_foreground');
+    });
+
+    test('call elevation forwards whether camera capture is active', () async {
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+      final service = RuntimeForegroundService(
+        channel: channel,
+        isAndroidOverride: true,
+      );
+
+      await service.elevateToCall(
+        title: 'Calling',
+        body: 'Connected',
+        settingsLabel: 'Settings',
+        usesCamera: true,
+      );
+
+      expect(calls, hasLength(1));
+      expect(calls.single.method, 'elevateToCall');
+      expect(calls.single.arguments, containsPair('usesCamera', true));
     });
   });
 }

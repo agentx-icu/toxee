@@ -1301,6 +1301,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get callVideoOn => '영상 켜기';
 
   @override
+  String get callSwitchCamera => '카메라 전환';
+
+  @override
   String get callSpeakerOff => '스피커 끄기';
 
   @override
@@ -1321,6 +1324,10 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get callPermissionMicrophoneCameraRequired =>
       '통화를 계속하려면 마이크 및 카메라 권한이 필요합니다.';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      '알림 권한을 켤 때까지 수신 전화는 Toxee 안에서만 울립니다.';
 
   @override
   String get callFailedGroupUnsupported => '그룹 통화는 아직 지원되지 않습니다.';

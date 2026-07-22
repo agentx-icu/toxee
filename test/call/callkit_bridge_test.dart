@@ -21,15 +21,16 @@ void main() {
     late TargetPlatform originalPlatform;
 
     setUp(() {
-      originalPlatform = debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
+      originalPlatform =
+          debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       channel = const MethodChannel('toxee/callkit_test');
       calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
-        calls.add(call);
-        return null;
-      });
+            calls.add(call);
+            return null;
+          });
       bridge = CallKitBridge(channel: channel);
     });
 
@@ -40,11 +41,12 @@ void main() {
     });
 
     test('reportIncomingCall encodes callId, displayName, hasVideo', () async {
-      await bridge.reportIncomingCall(
+      final handled = await bridge.reportIncomingCall(
         callId: 'native_av_42',
         displayName: 'Alice',
         hasVideo: true,
       );
+      expect(handled, isTrue);
       expect(calls, hasLength(1));
       expect(calls.single.method, 'reportIncomingCall');
       final args = calls.single.arguments as Map<dynamic, dynamic>;
@@ -93,19 +95,17 @@ void main() {
     test('PlatformException from native does not throw to caller', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
-        throw PlatformException(code: 'REPORT_FAILED', message: 'denied');
-      });
+            throw PlatformException(code: 'REPORT_FAILED', message: 'denied');
+          });
       // Should swallow PlatformException — the call layer needs to keep going
       // (e.g. fall back to in-app ringtone) when CallKit refuses to surface
       // the UI.
-      await expectLater(
-        bridge.reportIncomingCall(
-          callId: 'x',
-          displayName: 'y',
-          hasVideo: false,
-        ),
-        completes,
+      final handled = await bridge.reportIncomingCall(
+        callId: 'x',
+        displayName: 'y',
+        hasVideo: false,
       );
+      expect(handled, isFalse);
     });
   });
 
@@ -114,9 +114,12 @@ void main() {
     late CallKitBridge bridge;
 
     setUp(() {
-      originalPlatform = debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
+      originalPlatform =
+          debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      bridge = CallKitBridge(channel: const MethodChannel('toxee/callkit_test_in'));
+      bridge = CallKitBridge(
+        channel: const MethodChannel('toxee/callkit_test_in'),
+      );
     });
 
     tearDown(() {
@@ -127,10 +130,12 @@ void main() {
       final actions = <CallKitAction>[];
       final sub = bridge.userActions.listen(actions.add);
 
-      bridge.handleNativeMethodForTest(const MethodCall(
-        'onCallKitAction',
-        <String, Object?>{'action': 'answer', 'callId': 'native_av_3'},
-      ));
+      bridge.handleNativeMethodForTest(
+        const MethodCall('onCallKitAction', <String, Object?>{
+          'action': 'answer',
+          'callId': 'native_av_3',
+        }),
+      );
       // Stream is broadcast/async; allow event-loop turn.
       await Future<void>.delayed(Duration.zero);
 
@@ -145,14 +150,13 @@ void main() {
       final actions = <CallKitAction>[];
       final sub = bridge.userActions.listen(actions.add);
 
-      bridge.handleNativeMethodForTest(const MethodCall(
-        'onCallKitAction',
-        <String, Object?>{
+      bridge.handleNativeMethodForTest(
+        const MethodCall('onCallKitAction', <String, Object?>{
           'action': 'mute',
           'callId': 'native_av_5',
           'muted': true,
-        },
-      ));
+        }),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(actions.single.kind, CallKitActionKind.mute);
@@ -164,10 +168,12 @@ void main() {
       final actions = <CallKitAction>[];
       final sub = bridge.userActions.listen(actions.add);
 
-      bridge.handleNativeMethodForTest(const MethodCall(
-        'onCallKitAction',
-        <String, Object?>{'action': 'wat', 'callId': 'native_av_1'},
-      ));
+      bridge.handleNativeMethodForTest(
+        const MethodCall('onCallKitAction', <String, Object?>{
+          'action': 'wat',
+          'callId': 'native_av_1',
+        }),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(actions, isEmpty);
@@ -178,7 +184,9 @@ void main() {
       final actions = <CallKitAction>[];
       final sub = bridge.userActions.listen(actions.add);
 
-      bridge.handleNativeMethodForTest(const MethodCall('onCallKitReset', null));
+      bridge.handleNativeMethodForTest(
+        const MethodCall('onCallKitReset', null),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(actions, hasLength(1));
@@ -191,10 +199,11 @@ void main() {
       final actions = <CallKitAction>[];
       final sub = bridge.userActions.listen(actions.add);
 
-      bridge.handleNativeMethodForTest(const MethodCall(
-        'onCallKitAction',
-        <String, Object?>{'action': 'answer'},
-      ));
+      bridge.handleNativeMethodForTest(
+        const MethodCall('onCallKitAction', <String, Object?>{
+          'action': 'answer',
+        }),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(actions, isEmpty);
@@ -206,7 +215,8 @@ void main() {
     late TargetPlatform originalPlatform;
 
     setUp(() {
-      originalPlatform = debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
+      originalPlatform =
+          debugDefaultTargetPlatformOverride ?? TargetPlatform.android;
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
     });
 
@@ -215,38 +225,44 @@ void main() {
     });
 
     test('isSupported is false on Android', () {
-      final bridge = CallKitBridge(channel: const MethodChannel('toxee/callkit_noplatform'));
+      final bridge = CallKitBridge(
+        channel: const MethodChannel('toxee/callkit_noplatform'),
+      );
       expect(bridge.isSupported, isFalse);
     });
 
-    test('methods short-circuit without hitting the channel on Android', () async {
-      const channel = MethodChannel('toxee/callkit_noplatform_2');
-      final calls = <MethodCall>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-        calls.add(call);
-        return null;
-      });
-      final bridge = CallKitBridge(channel: channel);
+    test(
+      'methods short-circuit without hitting the channel on Android',
+      () async {
+        const channel = MethodChannel('toxee/callkit_noplatform_2');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls.add(call);
+              return null;
+            });
+        final bridge = CallKitBridge(channel: channel);
 
-      await bridge.reportIncomingCall(
-        callId: 'x',
-        displayName: 'y',
-        hasVideo: false,
-      );
-      await bridge.reportOutgoingCall(
-        callId: 'x',
-        displayName: 'y',
-        hasVideo: false,
-      );
-      await bridge.reportCallConnected(callId: 'x');
-      await bridge.reportCallEnded(callId: 'x');
+        final handled = await bridge.reportIncomingCall(
+          callId: 'x',
+          displayName: 'y',
+          hasVideo: false,
+        );
+        expect(handled, isFalse);
+        await bridge.reportOutgoingCall(
+          callId: 'x',
+          displayName: 'y',
+          hasVideo: false,
+        );
+        await bridge.reportCallConnected(callId: 'x');
+        await bridge.reportCallEnded(callId: 'x');
 
-      expect(calls, isEmpty);
+        expect(calls, isEmpty);
 
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null);
-    });
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      },
+    );
   });
 
   group('CallKitBridge.generateCallId', () {
