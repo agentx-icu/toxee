@@ -60,30 +60,43 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.buildApplicationList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void buildApplicationList(
-      List<V2TimFriendApplication> applicationList, String action) {
-    TencentCloudChat.instance.dataInstance.contact
-        .buildApplicationList(applicationList, action);
+    List<V2TimFriendApplication> applicationList,
+    String action,
+  ) {
+    TencentCloudChat.instance.dataInstance.contact.buildApplicationList(
+      applicationList,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.buildFriendList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
-  static void buildFriendList(List<V2TimFriendInfo> contactList, String action) {
-    TencentCloudChat.instance.dataInstance.contact
-        .buildFriendList(contactList, action);
+  static void buildFriendList(
+    List<V2TimFriendInfo> contactList,
+    String action,
+  ) {
+    TencentCloudChat.instance.dataInstance.contact.buildFriendList(
+      contactList,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.buildGroupList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void buildGroupList(List<V2TimGroupInfo> groupList, String action) {
-    TencentCloudChat.instance.dataInstance.contact
-        .buildGroupList(groupList, action);
+    TencentCloudChat.instance.dataInstance.contact.buildGroupList(
+      groupList,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.buildUserStatusList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void buildUserStatusList(List<V2TimUserStatus> list, String action) {
-    TencentCloudChat.instance.dataInstance.contact
-        .buildUserStatusList(list, action);
+    TencentCloudChat.instance.dataInstance.contact.buildUserStatusList(
+      list,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.contactEventHandlers = ...`.
@@ -100,8 +113,10 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.deleteFromFriendList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void deleteFromFriendList(List<String> contactList, String action) {
-    TencentCloudChat.instance.dataInstance.contact
-        .deleteFromFriendList(contactList, action);
+    TencentCloudChat.instance.dataInstance.contact.deleteFromFriendList(
+      contactList,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.deleteGroupInfoFromJoinedGroupList(...)`.
@@ -109,10 +124,15 @@ class UikitDataFacade {
   /// [fireQuitEvent] false performs a SILENT delete (no quitGroup event) — used
   /// by the group-list reconcile, which deletes-then-rebuilds and must not
   /// signal a real quit. Defaults true so real quit/dismiss paths are unchanged.
-  static void deleteGroupInfoFromJoinedGroupList(String groupID,
-      {bool fireQuitEvent = true}) {
+  static void deleteGroupInfoFromJoinedGroupList(
+    String groupID, {
+    bool fireQuitEvent = true,
+  }) {
     TencentCloudChat.instance.dataInstance.contact
-        .deleteGroupInfoFromJoinedGroupList(groupID, fireQuitEvent: fireQuitEvent);
+        .deleteGroupInfoFromJoinedGroupList(
+          groupID,
+          fireQuitEvent: fireQuitEvent,
+        );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.getGroupInfo(...)` (read).
@@ -129,9 +149,11 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.contact.setApplicationUnreadCount(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void setApplicationUnreadCount(
-      List<V2TimFriendApplication>? applicationList) {
-    TencentCloudChat.instance.dataInstance.contact
-        .setApplicationUnreadCount(applicationList);
+    List<V2TimFriendApplication>? applicationList,
+  ) {
+    TencentCloudChat.instance.dataInstance.contact.setApplicationUnreadCount(
+      applicationList,
+    );
   }
 
   // ===========================================================================
@@ -142,16 +164,26 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.buildConversationList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void buildConversationList(
-      List<V2TimConversation> convList, String action) {
-    TencentCloudChat.instance.dataInstance.conversation
-        .buildConversationList(convList, action);
+    List<V2TimConversation> convList,
+    String action,
+  ) {
+    TencentCloudChat.instance.dataInstance.conversation.buildConversationList(
+      convList,
+      action,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.conversationConfig.setConfigs(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
-  static void setConversationConfig({bool? forceDesktopLayout}) {
+  static void setConversationConfig({
+    bool? useDesktopMode,
+    bool? forceDesktopLayout,
+  }) {
     TencentCloudChat.instance.dataInstance.conversation.conversationConfig
-        .setConfigs(forceDesktopLayout: forceDesktopLayout);
+        .setConfigs(
+          useDesktopMode: useDesktopMode,
+          forceDesktopLayout: forceDesktopLayout,
+        );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.conversationList` (read).
@@ -181,22 +213,25 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.notifyListener(TencentCloudChatConversationDataKeys.currentConversation)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void notifyCurrentConversation() {
-    TencentCloudChat.instance.dataInstance.conversation
-        .notifyListener(TencentCloudChatConversationDataKeys.currentConversation as dynamic);
+    TencentCloudChat.instance.dataInstance.conversation.notifyListener(
+      TencentCloudChatConversationDataKeys.currentConversation as dynamic,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.removeConversation(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void removeConversation(List<String> convIds) {
-    TencentCloudChat.instance.dataInstance.conversation
-        .removeConversation(convIds);
+    TencentCloudChat.instance.dataInstance.conversation.removeConversation(
+      convIds,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.setTotalUnreadCount(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void setTotalUnreadCount(int count) {
-    TencentCloudChat.instance.dataInstance.conversation
-        .setTotalUnreadCount(count);
+    TencentCloudChat.instance.dataInstance.conversation.setTotalUnreadCount(
+      count,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.conversation.totalUnreadCount` (read).
@@ -212,15 +247,18 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.clearMessageList(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void clearMessageList({String? userID, String? groupID}) {
-    TencentCloudChat.instance.dataInstance.messageData
-        .clearMessageList(userID: userID, groupID: groupID);
+    TencentCloudChat.instance.dataInstance.messageData.clearMessageList(
+      userID: userID,
+      groupID: groupID,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.getMessageList(key: ...)` (read).
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static List<V2TimMessage> getMessageList({required String key}) {
-    return TencentCloudChat.instance.dataInstance.messageData
-        .getMessageList(key: key);
+    return TencentCloudChat.instance.dataInstance.messageData.getMessageList(
+      key: key,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.messageListMap.keys` (read).
@@ -230,7 +268,12 @@ class UikitDataFacade {
   /// the map is exact-string keyed and toxee populates it under several id forms
   /// (64-char pubkey, 76-char full id, with/without `c2c_` prefix, mixed case).
   static Iterable<String> messageListKeys() {
-    return TencentCloudChat.instance.dataInstance.messageData.messageListMap.keys;
+    return TencentCloudChat
+        .instance
+        .dataInstance
+        .messageData
+        .messageListMap
+        .keys;
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.notifyListener(TencentCloudChatMessageDataKeys.messageNeedUpdate, userID, groupID)`.
@@ -246,8 +289,9 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.onReceiveNewMessage(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void onReceiveNewMessage(V2TimMessage message) {
-    TencentCloudChat.instance.dataInstance.messageData
-        .onReceiveNewMessage(message);
+    TencentCloudChat.instance.dataInstance.messageData.onReceiveNewMessage(
+      message,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.messageData.messageNeedUpdate = ...`.
@@ -278,10 +322,10 @@ class UikitDataFacade {
   }) {
     return TencentCloudChat.instance.dataInstance.groupProfile
         .loadGroupMemberList(
-      groupID: groupID,
-      loadGroupAdminAndOwnerOnly: loadGroupAdminAndOwnerOnly,
-      nextSeq: nextSeq,
-    );
+          groupID: groupID,
+          loadGroupAdminAndOwnerOnly: loadGroupAdminAndOwnerOnly,
+          nextSeq: nextSeq,
+        );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.groupProfile.updateGroupID` (read).
@@ -325,10 +369,12 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.addUsedComponent(...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void addUsedComponent(
-      ({
-        TencentCloudChatComponentsEnum componentEnum,
-        TencentCloudChatWidgetBuilder widgetBuilder
-      }) component) {
+    ({
+      TencentCloudChatComponentsEnum componentEnum,
+      TencentCloudChatWidgetBuilder widgetBuilder,
+    })
+    component,
+  ) {
     TencentCloudChat.instance.dataInstance.basic.addUsedComponent(component);
   }
 
@@ -354,7 +400,8 @@ class UikitDataFacade {
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void notifyAddUsedComponent() {
     TencentCloudChat.instance.dataInstance.basic.notifyListener(
-        TencentCloudChatBasicDataKeys.addUsedComponent as dynamic);
+      TencentCloudChatBasicDataKeys.addUsedComponent as dynamic,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.plugins` (read).
@@ -365,22 +412,25 @@ class UikitDataFacade {
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.updateCurrentUserInfo(userFullInfo: ...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void updateCurrentUserInfo(V2TimUserFullInfo userFullInfo) {
-    TencentCloudChat.instance.dataInstance.basic
-        .updateCurrentUserInfo(userFullInfo: userFullInfo);
+    TencentCloudChat.instance.dataInstance.basic.updateCurrentUserInfo(
+      userFullInfo: userFullInfo,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.updateInitializedStatus(status: ...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void updateInitializedStatus(bool status) {
-    TencentCloudChat.instance.dataInstance.basic
-        .updateInitializedStatus(status: status);
+    TencentCloudChat.instance.dataInstance.basic.updateInitializedStatus(
+      status: status,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.updateLoginStatus(status: ...)`.
   /// UIKit internal: private API; verify on every chat-uikit-flutter rebase.
   static void updateLoginStatus(bool status) {
-    TencentCloudChat.instance.dataInstance.basic
-        .updateLoginStatus(status: status);
+    TencentCloudChat.instance.dataInstance.basic.updateLoginStatus(
+      status: status,
+    );
   }
 
   /// Wraps `TencentCloudChat.instance.dataInstance.basic.usedComponents` (read).
@@ -441,7 +491,10 @@ class UikitDataFacade {
       data.conversation.buildConversationList([], reason);
     } catch (e, st) {
       AppLogger.logError(
-          '[UikitDataFacade] clearAll failed (reason=$reason)', e, st);
+        '[UikitDataFacade] clearAll failed (reason=$reason)',
+        e,
+        st,
+      );
     }
   }
 }

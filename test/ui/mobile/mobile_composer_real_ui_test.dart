@@ -22,6 +22,7 @@
 // ignore_for_file: depend_on_referenced_packages, directives_ordering
 import 'package:extended_text_field/extended_text_field.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
@@ -70,9 +71,11 @@ class _RecordingMethods {
       sendTextMessage: ({required String text, List<String>? mentionedUsers}) {
         sentText.add(text);
       },
-      sendImageMessage: ({String? imagePath, String? imageName, dynamic inputElement}) {},
+      sendImageMessage:
+          ({String? imagePath, String? imageName, dynamic inputElement}) {},
       sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
-      sendFileMessage: ({String? filePath, String? fileName, dynamic inputElement}) {},
+      sendFileMessage:
+          ({String? filePath, String? fileName, dynamic inputElement}) {},
       sendVoiceMessage: ({required String voicePath, required int duration}) {},
       onChooseGroupMembers: () async => <V2TimGroupMemberFullInfo>[],
       clearRepliedMessage: () {},
@@ -92,13 +95,13 @@ class _RecordingMethods {
       // getAttachmentOptionsBuilder). It renders whatever options it is given
       // and invokes their `onTap` on tap — exactly the seam the mobile input
       // consumes.
-      messageAttachmentOptionsBuilder: ({
-        Key? key,
-        MessageAttachmentOptionsBuilderWidgets? widgets,
-        required MessageAttachmentOptionsBuilderData data,
-        required MessageAttachmentOptionsBuilderMethods methods,
-      }) =>
-          TencentCloudChatMessageAttachmentOptionsWidget(
+      messageAttachmentOptionsBuilder:
+          ({
+            Key? key,
+            MessageAttachmentOptionsBuilderWidgets? widgets,
+            required MessageAttachmentOptionsBuilderData data,
+            required MessageAttachmentOptionsBuilderMethods methods,
+          }) => TencentCloudChatMessageAttachmentOptionsWidget(
             key: key,
             data: data,
             methods: methods,
@@ -136,6 +139,33 @@ MessageInputBuilderData _data({
   );
 }
 
+Future<TextEditingController> _focusComposerAndEnterText(
+  WidgetTester tester,
+  String text,
+) async {
+  final field = find.byType(ExtendedTextField);
+  expect(field, findsOneWidget);
+  await tester.tap(field);
+  await tester.pump();
+  tester.testTextInput.enterText(text);
+  await tester.pump();
+  return tester.widget<ExtendedTextField>(field).controller!;
+}
+
+Future<void> _pressModifiedEnter(
+  WidgetTester tester,
+  LogicalKeyboardKey modifier,
+) async {
+  await tester.sendKeyDownEvent(modifier);
+  try {
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+  } finally {
+    await tester.sendKeyUpEvent(modifier);
+  }
+  await tester.pump();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   // Match production: the fork SDK model loads the tim2tox FFI lib by name.
@@ -170,10 +200,16 @@ void main() {
 
       // Empty field: the trailing affordance is the press-to-record mic, NOT
       // the send arrow (the send button is gated on non-empty text).
-      expect(find.byIcon(Icons.mic), findsOneWidget,
-          reason: 'empty composer should show the record affordance');
-      expect(find.byIcon(Icons.arrow_upward_rounded), findsNothing,
-          reason: 'send button must not render for an empty field');
+      expect(
+        find.byIcon(Icons.mic),
+        findsOneWidget,
+        reason: 'empty composer should show the record affordance',
+      );
+      expect(
+        find.byIcon(Icons.arrow_upward_rounded),
+        findsNothing,
+        reason: 'send button must not render for an empty field',
+      );
 
       // Type into the REAL composer field. The fork uses ExtendedTextField
       // whose editable is ExtendedEditableText (not stock EditableText), so
@@ -190,8 +226,11 @@ void main() {
       // The send button is now revealed by the real _onTextChanged ->
       // _showSendButton animation, and the mic is hidden.
       final sendBtn = find.byIcon(Icons.arrow_upward_rounded);
-      expect(sendBtn, findsOneWidget,
-          reason: 'non-empty text should reveal the send button');
+      expect(
+        sendBtn,
+        findsOneWidget,
+        reason: 'non-empty text should reveal the send button',
+      );
       expect(find.byIcon(Icons.mic), findsNothing);
 
       // Typing alone must NOT have sent — proves the assertion below is driven
@@ -201,8 +240,11 @@ void main() {
       await tester.tap(sendBtn);
       await tester.pumpAndSettle();
 
-      expect(methods.sentText, contains('mobile-hello'),
-          reason: 'tapping the send button drives the production send path');
+      expect(
+        methods.sentText,
+        contains('mobile-hello'),
+        reason: 'tapping the send button drives the production send path',
+      );
     },
   );
 
@@ -251,8 +293,10 @@ void main() {
 
       // The REAL TencentCloudChatMessageAttachmentOptionsWidget renders the
       // photo + file options.
-      expect(find.byType(TencentCloudChatMessageAttachmentOptionsWidget),
-          findsOneWidget);
+      expect(
+        find.byType(TencentCloudChatMessageAttachmentOptionsWidget),
+        findsOneWidget,
+      );
       expect(find.text('Photo'), findsOneWidget);
       expect(find.text('File'), findsOneWidget);
       expect(pickedLabel, isNull, reason: 'opening the menu must not pick');
@@ -261,8 +305,168 @@ void main() {
       await tester.tap(find.text('Photo'));
       await tester.pumpAndSettle();
 
-      expect(pickedLabel, 'Photo',
-          reason: 'tapping an attachment option drives its production picker seam');
+      expect(
+        pickedLabel,
+        'Photo',
+        reason:
+            'tapping an attachment option drives its production picker seam',
+      );
+    },
+  );
+
+  testWidgets(
+    'mobile composer: hardware Enter sends through the production text path',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(
+        tester,
+        'hardware-enter',
+      );
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(methods.sentText, ['hardware-enter']);
+      expect(
+        controller.text,
+        isEmpty,
+        reason: 'keyboard send must clear the composer like the send button',
+      );
+    },
+  );
+
+  testWidgets(
+    'mobile composer: modifier plus Enter inserts a newline without sending',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(tester, 'line');
+      for (final modifier in <LogicalKeyboardKey>[
+        LogicalKeyboardKey.shiftLeft,
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.altLeft,
+        LogicalKeyboardKey.metaLeft,
+      ]) {
+        controller.value = const TextEditingValue(
+          text: 'line',
+          selection: TextSelection.collapsed(offset: 4),
+        );
+        await _pressModifiedEnter(tester, modifier);
+        expect(
+          controller.text,
+          'line\n',
+          reason: '$modifier + Enter must insert exactly one newline',
+        );
+        expect(
+          methods.sentText,
+          isEmpty,
+          reason: '$modifier + Enter must never send',
+        );
+      }
+    },
+  );
+
+  testWidgets(
+    'mobile composer: Enter is ignored while an IME composition is active',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(tester, 'ni');
+      controller.value = const TextEditingValue(
+        text: 'ni',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      );
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(methods.sentText, isEmpty);
+      expect(
+        controller.text,
+        'ni',
+        reason: 'composer must leave the active IME composition untouched',
+      );
+      expect(controller.value.composing, const TextRange(start: 0, end: 2));
+    },
+  );
+
+  testWidgets(
+    'mobile composer: hardware Enter respects empty and byte-limit send gates',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(tester, '');
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(methods.sentText, isEmpty, reason: 'empty Enter must not send');
+
+      final overLimit = 'x' * 1373;
+      controller.value = TextEditingValue(
+        text: overLimit,
+        selection: TextSelection.collapsed(offset: overLimit.length),
+      );
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(
+        methods.sentText,
+        isEmpty,
+        reason: 'hardware Enter must not bypass the Tox byte limit',
+      );
+      expect(
+        controller.text,
+        overLimit,
+        reason: 'rejected keyboard send must preserve the draft',
+      );
     },
   );
 }

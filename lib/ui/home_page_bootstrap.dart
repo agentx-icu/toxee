@@ -28,9 +28,9 @@ extension _HomePageBootstrap on _HomePageState {
       // Wrap the upstream chat-button row (Send Message + Voice + Video
       // tiles) with [UiKeys.friendProfileSendMessageButton] so UI
       // automation can tap "Send Message" from the friend profile without
-      // patching the UIKit fork. The tile's own onTap (which calls
-      // `onNavigateToChat` and routes via toxee's `onTapContactItem`
-      // handler) is preserved by delegating to the upstream widget.
+      // patching the UIKit fork. The tile's own onTap (which fires toxee's
+      // dedicated `onNavigateToChat` handler — pop profile + open chat) is
+      // preserved by delegating to the upstream widget.
       userProfileChatButtonBuilder:
           ({
             required V2TimUserFullInfo userFullInfo,
@@ -583,10 +583,7 @@ extension _HomePageBootstrap on _HomePageState {
 
     // Initial useDesktopMode is derived from the current breakpoint so phones
     // don't briefly render the two-column layout before the post-frame
-    // `forceDesktopLayout` reconciliation in `build()` flips it back.
-    // TODO(responsive): sync with breakpoint changes — `build()` already calls
-    // `setConfigs(forceDesktopLayout: ...)` on threshold crossings; this only
-    // sets the boot-time default.
+    // reconciliation in `build()` keeps both responsive config flags synced.
     final bootUseDesktopMode = ResponsiveLayout.shouldShowMasterDetail(context);
     conv_pkg.TencentCloudChatConversationManager.config.setConfigs(
       useDesktopMode: bootUseDesktopMode,
@@ -603,14 +600,7 @@ extension _HomePageBootstrap on _HomePageState {
         GroupType.Meeting,
         GroupType.Community,
       ]),
-      attachmentConfig: createDefaultValue(
-        TencentCloudChatMessageAttachmentConfig(
-          enableSendImage: false,
-          enableSendVideo: false,
-          enableSendFile: false,
-          enableSearch: false,
-        ),
-      ),
+      attachmentConfig: createDefaultValue(buildToxeeMessageAttachmentConfig()),
       defaultMessageMenuConfig: createDefaultValue(
         TencentCloudChatMessageDefaultMessageMenuConfig(
           enableMessageSelect: true,
@@ -633,46 +623,23 @@ extension _HomePageBootstrap on _HomePageState {
           ({String? userID, String? groupID, String? topicID}) {
             final appL10n = AppLocalizations.of(context)!;
             final fileLabel = appL10n.file;
-            final photoLabel = appL10n.photo;
-            final videoLabel = appL10n.video;
-            return [
-              TencentCloudChatMessageGeneralOptionItem(
-                icon: Icons.attach_file,
-                label: fileLabel,
-                onTap: ({Offset? offset}) async {
-                  await _sendMedia(
-                    context,
-                    userId: userID,
-                    groupId: groupID,
-                    type: _MediaPickType.file,
-                  );
-                },
+            final cameraLabel =
+                TencentCloudChatLocalizations.of(context)?.camera ?? 'Camera';
+            return buildToxeeMobileAttachmentOptions(
+              fileLabel: fileLabel,
+              cameraLabel: cameraLabel,
+              onFile: () => _sendMedia(
+                context,
+                userId: userID,
+                groupId: groupID,
+                type: _MediaPickType.file,
               ),
-              TencentCloudChatMessageGeneralOptionItem(
-                icon: Icons.photo_outlined,
-                label: photoLabel,
-                onTap: ({Offset? offset}) async {
-                  await _sendMedia(
-                    context,
-                    userId: userID,
-                    groupId: groupID,
-                    type: _MediaPickType.image,
-                  );
-                },
+              onCamera: () => _showCameraMediaOptions(
+                context,
+                userId: userID,
+                groupId: groupID,
               ),
-              TencentCloudChatMessageGeneralOptionItem(
-                icon: Icons.videocam_outlined,
-                label: videoLabel,
-                onTap: ({Offset? offset}) async {
-                  await _sendMedia(
-                    context,
-                    userId: userID,
-                    groupId: groupID,
-                    type: _MediaPickType.video,
-                  );
-                },
-              ),
-            ];
+            );
           },
       additionalInputControlBarOptionsForDesktop:
           ({String? userID, String? groupID, String? topicID}) {
@@ -1468,41 +1435,42 @@ extension _HomePageBootstrap on _HomePageState {
     _groupBuilderOverride!.installOverrides();
   }
 
-  /// Routes a notification payload (`c2c_<toxId>` or `group_<groupId>`) to the
-  /// matching conversation using the same plumbing the conversation-list tap
-  /// uses (`_selectConversation` → `UikitDataFacade.currentConversation`).
+  /// Routes a notification payload to the matching in-app surface using the
+  /// same plumbing as the user-facing tap that would normally open it.
   ///
-  /// Cold-start safety: when the tap fires before the conversation list has
-  /// loaded (replayed launch payload), `_selectConversation` constructs a stub
-  /// V2TimConversation so the chat view can open immediately. We additionally
-  /// schedule a single retry once the list populates so the conversation gets
-  /// rebound to the real entry (proper showName, lastMessage, unreadCount).
+  /// Cold-start safety: when a chat tap fires before the conversation list has
+  /// loaded (replayed launch payload), `_openChat` can still open immediately.
+  /// We additionally schedule a single retry once the list populates so the
+  /// conversation gets rebound to the real entry (proper showName, lastMessage,
+  /// unreadCount).
   void _routeToNotificationPayload(String payload) {
     if (!mounted) return;
-    String? peerId;
-    String? groupId;
-    if (payload.startsWith('group_')) {
-      groupId = payload.substring('group_'.length);
-    } else if (payload.startsWith('c2c_')) {
-      peerId = payload.substring('c2c_'.length);
-    } else if (payload.startsWith('missed_call:')) {
-      // Tox calls are 1:1 only, so a missed_call payload always maps to a c2c
-      // conversation with the caller. There's no dedicated call-records view —
-      // call records are persisted as messages in that c2c chat, so opening
-      // the conversation lands the user on the missed-call entry.
-      peerId = payload.substring('missed_call:'.length);
-    } else {
+    final target = parseNotificationTapPayload(payload);
+    if (target == null) {
       AppLogger.warn(
         '[HomePage] Notification payload has unknown prefix: $payload',
       );
       return;
     }
-    if ((peerId == null || peerId.isEmpty) &&
-        (groupId == null || groupId.isEmpty)) {
-      AppLogger.warn(
-        '[HomePage] Notification payload empty after strip: $payload',
-      );
-      return;
+
+    switch (target.kind) {
+      case NotificationTapTargetKind.friendRequest:
+        _bootstrapSetState(() {
+          _index = 1;
+          _inContactProfileContext = false;
+        });
+        unawaited(_updateTray());
+        return;
+      case NotificationTapTargetKind.incomingCall:
+        _bootstrapSetState(() {
+          _index = 0;
+          _inContactProfileContext = false;
+        });
+        unawaited(_updateTray());
+        return;
+      case NotificationTapTargetKind.c2c:
+      case NotificationTapTargetKind.group:
+        break;
     }
 
     final listEmpty = UikitDataFacade.conversationList.isEmpty;
@@ -1510,7 +1478,7 @@ extension _HomePageBootstrap on _HomePageState {
     // to the Chats tab (_index = 0). Without this, tapping a notification
     // while on Settings/Contacts sets currentConversation but the user
     // still sees the previous tab and the tap looks dead.
-    _openChat(peerId: peerId, groupId: groupId);
+    _openChat(peerId: target.peerId, groupId: target.groupId);
 
     if (!listEmpty) return;
     // Cold-start path: list hadn't loaded yet, so the call above only set a
@@ -1537,7 +1505,7 @@ extension _HomePageBootstrap on _HomePageState {
           if (UikitDataFacade.conversationList.isEmpty) return;
           cleanup();
           if (!mounted) return;
-          _openChat(peerId: peerId, groupId: groupId);
+          _openChat(peerId: target.peerId, groupId: target.groupId);
         });
     timeout = Timer(const Duration(seconds: 2), () {
       if (sub == null) return;

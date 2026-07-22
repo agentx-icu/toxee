@@ -23,9 +23,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
+import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_conversation_event_handlers.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
 import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
+import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
+    as conv_pkg;
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_builders.dart';
+import 'package:tencent_cloud_chat_conversation/desktop/tencent_cloud_chat_conversation_desktop_mode.dart';
 import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conversation_item.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
@@ -57,7 +61,8 @@ Widget _appLocalized(Widget child) {
 /// Pump a minimal localized tree and capture the AppLocalizations +
 /// ColorScheme pair so production menu/dialog builders can be exercised.
 Future<(AppLocalizations, ColorScheme)> _captureL10nScheme(
-    WidgetTester tester) async {
+  WidgetTester tester,
+) async {
   late AppLocalizations l10n;
   late ColorScheme scheme;
   await tester.pumpWidget(
@@ -158,7 +163,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(
         conv.currentConversation?.conversationID,
@@ -170,6 +176,134 @@ void main() {
         conv.currentConversation?.conversationID,
         'c2c_117_user_abc',
         reason: 'tapping the C2C row should select the conversation',
+      );
+    },
+  );
+
+  testWidgets(
+    'mounted conversation row uses the latest responsive navigation mode',
+    (tester) async {
+      TencentCloudChatScreenAdapter.deviceScreenType = DeviceScreenType.desktop;
+      TencentCloudChatScreenAdapter.hasInitialized = true;
+      addTearDown(() {
+        TencentCloudChatScreenAdapter.deviceScreenType = null;
+        TencentCloudChatScreenAdapter.hasInitialized = false;
+      });
+
+      final data = TencentCloudChat.instance.dataInstance;
+      final conversationData = data.conversation;
+      data.basic.usedComponents = [TencentCloudChatComponentsEnum.message];
+      conversationData.conversationConfig.setConfigs(
+        useDesktopMode: true,
+        forceDesktopLayout: true,
+      );
+      final observedModes = <bool>[];
+      conversationData.conversationBuilder =
+          TencentCloudChatConversationBuilders();
+      conversationData.conversationEventHandlers =
+          TencentCloudChatConversationEventHandlers(
+            uiEventHandlers: TencentCloudChatConversationUIEventHandlers(
+              onTapConversationItem:
+                  ({
+                    required conversation,
+                    required messageOptions,
+                    required inDesktopMode,
+                  }) async {
+                    observedModes.add(inDesktopMode);
+                    return true;
+                  },
+            ),
+          );
+      addTearDown(() {
+        conversationData.conversationBuilder = null;
+        conversationData.conversationEventHandlers = null;
+        conversationData.conversationConfig.setConfigs(
+          useDesktopMode: true,
+          forceDesktopLayout: false,
+        );
+        data.basic.usedComponents = [];
+      });
+
+      const tileKey = ValueKey('responsive-conversation-row');
+      await tester.pumpWidget(
+        _appLocalized(
+          Builder(
+            builder: (context) {
+              TencentCloudChatIntl().init(context);
+              return KeyedSubtree(
+                key: tileKey,
+                child: TencentCloudChatConversationItem(
+                  conversation: V2TimConversation(
+                    conversationID: 'c2c_responsive_user',
+                    type: 1,
+                    userID: 'responsive_user',
+                    showName: 'Responsive User',
+                  ),
+                  isOnline: false,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      conversationData.conversationConfig.setConfigs(
+        useDesktopMode: false,
+        forceDesktopLayout: false,
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(tileKey));
+      await tester.pump();
+
+      expect(observedModes, [false]);
+    },
+  );
+
+  testWidgets(
+    'frozen mobile adapter still honors forced responsive master-detail mode',
+    (tester) async {
+      TencentCloudChatScreenAdapter.deviceScreenType = DeviceScreenType.mobile;
+      TencentCloudChatScreenAdapter.hasInitialized = true;
+      addTearDown(() {
+        TencentCloudChatScreenAdapter.deviceScreenType = null;
+        TencentCloudChatScreenAdapter.hasInitialized = false;
+      });
+
+      final data = TencentCloudChat.instance.dataInstance;
+      data.basic.usedComponents = [TencentCloudChatComponentsEnum.message];
+      data.conversation.conversationConfig.setConfigs(
+        useDesktopMode: true,
+        forceDesktopLayout: true,
+      );
+      data.conversation.conversationBuilder =
+          TencentCloudChatConversationBuilders();
+      addTearDown(() {
+        data.conversation.conversationBuilder = null;
+        data.conversation.conversationConfig.setConfigs(
+          useDesktopMode: true,
+          forceDesktopLayout: false,
+        );
+        data.basic.usedComponents = [];
+      });
+
+      await tester.pumpWidget(
+        _appLocalized(
+          Builder(
+            builder: (context) {
+              TencentCloudChatIntl().init(context);
+              return const conv_pkg.TencentCloudChatConversation();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        find.byType(TencentCloudChatConversationDesktopMode),
+        findsOneWidget,
       );
     },
   );
@@ -221,8 +355,12 @@ void main() {
       final (l10n, scheme) = await _captureL10nScheme(tester);
 
       // Unpinned → Pin key present, Unpin absent.
-      final unpinnedKeys =
-          _menuKeys(l10n, scheme, isPinned: false, hasUnread: false);
+      final unpinnedKeys = _menuKeys(
+        l10n,
+        scheme,
+        isPinned: false,
+        hasUnread: false,
+      );
       expect(unpinnedKeys, contains(UiKeys.conversationContextMenuPinItem));
       expect(
         unpinnedKeys,
@@ -230,8 +368,12 @@ void main() {
       );
 
       // Pinned → Unpin key present, Pin absent.
-      final pinnedKeys =
-          _menuKeys(l10n, scheme, isPinned: true, hasUnread: false);
+      final pinnedKeys = _menuKeys(
+        l10n,
+        scheme,
+        isPinned: true,
+        hasUnread: false,
+      );
       expect(pinnedKeys, contains(UiKeys.conversationContextMenuUnpinItem));
       expect(
         pinnedKeys,
@@ -247,24 +389,34 @@ void main() {
     (tester) async {
       final (l10n, scheme) = await _captureL10nScheme(tester);
 
-      final pinItem = buildConversationContextMenuItems(
-        l10n: l10n,
-        scheme: scheme,
-        isPinned: false,
-        hasUnread: false,
-      ).first as PopupMenuItem<String>;
+      final pinItem =
+          buildConversationContextMenuItems(
+                l10n: l10n,
+                scheme: scheme,
+                isPinned: false,
+                hasUnread: false,
+              ).first
+              as PopupMenuItem<String>;
 
-      final unpinItem = buildConversationContextMenuItems(
-        l10n: l10n,
-        scheme: scheme,
-        isPinned: true,
-        hasUnread: false,
-      ).first as PopupMenuItem<String>;
+      final unpinItem =
+          buildConversationContextMenuItems(
+                l10n: l10n,
+                scheme: scheme,
+                isPinned: true,
+                hasUnread: false,
+              ).first
+              as PopupMenuItem<String>;
 
-      expect(pinItem.value, 'pin',
-          reason: 'pin item value must be "pin" for dispatch');
-      expect(unpinItem.value, 'pin',
-          reason: 'unpin item value must be "pin" for the same toggle dispatch');
+      expect(
+        pinItem.value,
+        'pin',
+        reason: 'pin item value must be "pin" for dispatch',
+      );
+      expect(
+        unpinItem.value,
+        'pin',
+        reason: 'unpin item value must be "pin" for the same toggle dispatch',
+      );
     },
   );
 
@@ -276,18 +428,25 @@ void main() {
 
       PopupMenuItem<String> markReadItem(bool hasUnread) =>
           buildConversationContextMenuItems(
-            l10n: l10n,
-            scheme: scheme,
-            isPinned: false,
-            hasUnread: hasUnread,
-          ).firstWhere(
-            (e) => e.key == UiKeys.conversationContextMenuMarkReadItem,
-          ) as PopupMenuItem<String>;
+                l10n: l10n,
+                scheme: scheme,
+                isPinned: false,
+                hasUnread: hasUnread,
+              ).firstWhere(
+                (e) => e.key == UiKeys.conversationContextMenuMarkReadItem,
+              )
+              as PopupMenuItem<String>;
 
-      expect(markReadItem(true).enabled, isTrue,
-          reason: 'mark-read must be enabled when the C2C row has unread');
-      expect(markReadItem(false).enabled, isFalse,
-          reason: 'mark-read must be disabled when there is no unread');
+      expect(
+        markReadItem(true).enabled,
+        isTrue,
+        reason: 'mark-read must be enabled when the C2C row has unread',
+      );
+      expect(
+        markReadItem(false).enabled,
+        isFalse,
+        reason: 'mark-read must be disabled when there is no unread',
+      );
     },
   );
 
@@ -332,8 +491,7 @@ void main() {
       expect(
         find.byKey(UiKeys.deleteConversationConfirmButton),
         findsOneWidget,
-        reason:
-            'C2C delete-confirm dialog must mount its keyed confirm button',
+        reason: 'C2C delete-confirm dialog must mount its keyed confirm button',
       );
       expect(
         find.textContaining('Alice C2C 119'),
@@ -457,9 +615,13 @@ void main() {
             'delete, not friend removal)',
       );
       // Confirm button exists (conversation-delete surface, not friend-delete).
-      expect(find.byKey(UiKeys.deleteConversationConfirmButton), findsOneWidget,
-          reason: 'S20: confirm button is the conversation-delete key, '
-              'distinct from any friend-removal dialog key');
+      expect(
+        find.byKey(UiKeys.deleteConversationConfirmButton),
+        findsOneWidget,
+        reason:
+            'S20: confirm button is the conversation-delete key, '
+            'distinct from any friend-removal dialog key',
+      );
     },
   );
 }
