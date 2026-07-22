@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 // ignore: directives_ordering
 import 'safe_dialog_pop.dart';
@@ -13,6 +14,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/feature_flags.dart';
 import '../../util/logger.dart';
+import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
 
 /// Outcome of the first-run backup wizard. The caller (registration flow)
@@ -56,6 +58,9 @@ class FirstRunBackupWizard extends StatefulWidget {
     required this.toxId,
     required this.nickname,
     @visibleForTesting this.exportOverride,
+    @visibleForTesting this.isDesktopExportPlatformOverride,
+    @visibleForTesting this.mobileExportSaveFile,
+    @visibleForTesting this.createAndSaveMobileExportCopyOverride,
   });
 
   final String toxId;
@@ -68,6 +73,15 @@ class FirstRunBackupWizard extends StatefulWidget {
   @visibleForTesting
   final Future<String?> Function(String toxId, String nickname)? exportOverride;
 
+  @visibleForTesting
+  final bool? isDesktopExportPlatformOverride;
+
+  @visibleForTesting
+  final MobileExportSaveFile? mobileExportSaveFile;
+
+  @visibleForTesting
+  final CreateAndSaveMobileExportCopyFn? createAndSaveMobileExportCopyOverride;
+
   /// Show the wizard as a non-dismissable modal route. Returns when the user
   /// either successfully exports or explicitly acknowledges the dismiss
   /// consequence.
@@ -76,17 +90,16 @@ class FirstRunBackupWizard extends StatefulWidget {
     required String toxId,
     required String nickname,
   }) async {
-    final result = await Navigator.of(context, rootNavigator: true).push<FirstRunBackupWizardResult>(
-      PageRouteBuilder<FirstRunBackupWizardResult>(
-        opaque: true,
-        barrierDismissible: false,
-        fullscreenDialog: true,
-        pageBuilder: (ctx, _, __) => FirstRunBackupWizard(
-          toxId: toxId,
-          nickname: nickname,
-        ),
-      ),
-    );
+    final result = await Navigator.of(context, rootNavigator: true)
+        .push<FirstRunBackupWizardResult>(
+          PageRouteBuilder<FirstRunBackupWizardResult>(
+            opaque: true,
+            barrierDismissible: false,
+            fullscreenDialog: true,
+            pageBuilder: (ctx, _, __) =>
+                FirstRunBackupWizard(toxId: toxId, nickname: nickname),
+          ),
+        );
     // Defensive: a screen-orientation change or back-gesture dispatch could
     // theoretically pop the route without a value. Treat that as
     // acknowledgedDismiss (the user implicitly chose "later") rather than
@@ -124,16 +137,18 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
 
     try {
       String? outputPath;
+      final isDesktopPlatform = isDesktopExportPlatform(
+        override: widget.isDesktopExportPlatformOverride,
+      );
+      final defaultFileName = buildAccountExportFileName(
+        toxId: widget.toxId,
+        nickname: widget.nickname,
+        suffix: '.tox',
+      );
       // In production, prompt for save location on desktop platforms. When an
       // exportOverride is supplied (test path), skip the picker entirely —
       // the override owns the path semantics.
-      if (widget.exportOverride == null &&
-          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-        final toxIdPrefix =
-            widget.toxId.length >= 8 ? widget.toxId.substring(0, 8) : widget.toxId;
-        final safeNickname = (widget.nickname.isEmpty ? 'account' : widget.nickname)
-            .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-        final defaultFileName = '${safeNickname}_$toxIdPrefix.tox';
+      if (widget.exportOverride == null && isDesktopPlatform) {
         outputPath = await FilePicker.platform.saveFile(
           dialogTitle: l10n.firstRunBackupWizardTitle,
           fileName: defaultFileName,
@@ -151,8 +166,55 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       }
 
       String? filePath;
-      if (widget.exportOverride != null) {
+      MobileExportSaveResult? mobileSaveResult;
+      if (widget.exportOverride != null && isDesktopPlatform) {
         filePath = await widget.exportOverride!(widget.toxId, widget.nickname);
+      } else if (!isDesktopPlatform) {
+        final createAndSaveCopy =
+            widget.createAndSaveMobileExportCopyOverride ??
+            createAndSaveMobileExportCopy;
+        mobileSaveResult = await createAndSaveCopy(
+          createInternalExport: () async {
+            if (widget.exportOverride != null) {
+              final path = await widget.exportOverride!(
+                widget.toxId,
+                widget.nickname,
+              );
+              if (path == null || path.isEmpty) {
+                throw StateError('Export override did not create a file');
+              }
+              return path;
+            }
+            return AccountExportService.exportAccountData(toxId: widget.toxId);
+          },
+          dialogTitle: l10n.firstRunBackupWizardTitle,
+          fileName: defaultFileName,
+          saveFile:
+              widget.mobileExportSaveFile ??
+              ({
+                required String dialogTitle,
+                required String fileName,
+                required Uint8List bytes,
+              }) => FilePicker.platform.saveFile(
+                dialogTitle: dialogTitle,
+                fileName: fileName,
+                bytes: bytes,
+              ),
+        );
+        if (mobileSaveResult.disposition ==
+            MobileExportSaveDisposition.cancelled) {
+          if (mounted) {
+            setState(() {
+              _busy = false;
+              _statusMessage = mobileSaveResult!.cancellationNotice;
+              _statusIsError = false;
+            });
+          }
+          return;
+        }
+        filePath =
+            mobileSaveResult.userSelectedPath ??
+            mobileSaveResult.internalFilePath;
       } else {
         filePath = await AccountExportService.exportAccountData(
           toxId: widget.toxId,
@@ -172,8 +234,9 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _statusMessage = AppLocalizations.of(context)!
-              .firstRunBackupWizardExportFailed(e.toString());
+          _statusMessage = AppLocalizations.of(
+            context,
+          )!.firstRunBackupWizardExportFailed(e.toString());
           _statusIsError = true;
         });
       }
@@ -265,10 +328,8 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
                             : AppDurations.medium,
                         switchInCurve: AppCurves.enter,
                         switchOutCurve: AppCurves.exit,
-                        transitionBuilder: (child, animation) => FadeTransition(
-                          opacity: animation,
-                          child: child,
-                        ),
+                        transitionBuilder: (child, animation) =>
+                            FadeTransition(opacity: animation, child: child),
                         child: _buildBody(context, l10n, cs),
                       ),
                     ),
@@ -299,9 +360,15 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
 
   /// Body: icon + title + body text + (optional) status banner. Re-keyed on
   /// status presence so [AnimatedSwitcher] can fade the banner in/out cleanly.
-  Widget _buildBody(BuildContext context, AppLocalizations l10n, ColorScheme cs) {
+  Widget _buildBody(
+    BuildContext context,
+    AppLocalizations l10n,
+    ColorScheme cs,
+  ) {
     return Column(
-      key: ValueKey<String>('wizard-body-${_statusMessage != null}-$_statusIsError'),
+      key: ValueKey<String>(
+        'wizard-body-${_statusMessage != null}-$_statusIsError',
+      ),
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -319,28 +386,23 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
                 color: AppThemeConfig.tintedPrimaryCardBorderColor(cs.primary),
               ),
             ),
-            child: Icon(
-              Icons.shield_outlined,
-              size: 44,
-              color: cs.primary,
-            ),
+            child: Icon(Icons.shield_outlined, size: 44, color: cs.primary),
           ),
         ),
         AppSpacing.verticalLg,
         Text(
           l10n.firstRunBackupWizardTitle,
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           textAlign: TextAlign.center,
         ),
         AppSpacing.verticalMd,
         Text(
           l10n.firstRunBackupWizardBody,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
           textAlign: TextAlign.center,
         ),
         if (_statusMessage != null) ...[
