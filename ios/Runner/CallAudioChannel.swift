@@ -59,6 +59,10 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
       let routeId = args?["routeId"] as? String
       setRoute(routeId)
       result(makeState())
+    case "setProximityMonitoring":
+      let args = call.arguments as? [String: Any]
+      setProximityMonitoring(args?["enabled"] as? Bool ?? false)
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -100,6 +104,7 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
   }
 
   private func deactivateSession() {
+    setProximityMonitoring(false)
     // The route preference is local intent, not OS state, so clearing it is
     // always safe.
     preferredRouteId = nil
@@ -121,6 +126,11 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
     preferredRouteId = routeId
     applyPreferredRoute(defaultToSpeaker: false)
     emit(type: "routeChanged")
+  }
+
+  private func setProximityMonitoring(_ enabled: Bool) {
+    UIDevice.current.isProximityMonitoringEnabled =
+      enabled && UIDevice.current.userInterfaceIdiom == .phone
   }
 
   private func applyPreferredRoute(defaultToSpeaker: Bool) {
@@ -180,20 +190,29 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
     case .began:
       emit(type: "interruptionBegan")
     case .ended:
-      emit(type: "interruptionEnded")
+      var shouldResume = false
+      if let rawOptions = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+        let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+        shouldResume = options.contains(.shouldResume)
+      }
+      emit(type: "interruptionEnded", shouldResume: shouldResume)
     @unknown default:
       emit(type: "state")
     }
   }
 
-  private func emit(type: String) {
+  private func emit(type: String, shouldResume: Bool? = nil) {
     guard let eventSink else {
       return
     }
-    eventSink([
+    var event: [String: Any] = [
       "type": type,
       "state": makeState(),
-    ])
+    ]
+    if let shouldResume {
+      event["shouldResume"] = shouldResume
+    }
+    eventSink(event)
   }
 
   private func makeState() -> [String: Any] {

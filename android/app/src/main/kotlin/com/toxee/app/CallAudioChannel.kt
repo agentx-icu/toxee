@@ -15,6 +15,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import io.flutter.plugin.common.BinaryMessenger
@@ -27,12 +28,15 @@ class CallAudioChannel(
 ) : MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private val audioManager =
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val powerManager =
+        context.getSystemService(Context.POWER_SERVICE) as PowerManager
     private var eventSink: EventChannel.EventSink? = null
     private var preferredRouteId: String? = null
     private var receiverRegistered = false
     private var audioSessionActive = false
     private val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     private var incomingRingtone: Ringtone? = null
+    private var proximityWakeLock: PowerManager.WakeLock? = null
 
     // Pre-API-28 fallback for looping the incoming ringtone: Ringtone.isLooping
     // is only available on API 28+, so on older devices the ringtone would
@@ -45,9 +49,9 @@ class CallAudioChannel(
         val type =
             when (focusChange) {
                 AudioManager.AUDIOFOCUS_GAIN -> "focusGained"
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "focusDucked"
                 AudioManager.AUDIOFOCUS_LOSS,
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
                 -> "focusLost"
 
                 else -> "state"
@@ -113,6 +117,11 @@ class CallAudioChannel(
                 result.success(makeState())
             }
 
+            "setProximityMonitoring" -> {
+                setProximityMonitoring(call.argument<Boolean>("enabled") ?: false)
+                result.success(null)
+            }
+
             "playIncomingRingtone" -> result.success(playIncomingRingtone())
 
             "stopIncomingRingtone" -> {
@@ -145,6 +154,7 @@ class CallAudioChannel(
     }
 
     private fun deactivateSession() {
+        setProximityMonitoring(false)
         audioSessionActive = false
         preferredRouteId = null
         unregisterReceivers()
@@ -216,6 +226,34 @@ class CallAudioChannel(
         preferredRouteId = routeId
         applyPreferredRoute(defaultToSpeaker = false)
         emit("routeChanged")
+    }
+
+    private fun setProximityMonitoring(enabled: Boolean) {
+        if (!enabled) {
+            proximityWakeLock?.let { wakeLock ->
+                if (wakeLock.isHeld) {
+                    runCatching {
+                        wakeLock.release(PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY)
+                    }
+                }
+            }
+            proximityWakeLock = null
+            return
+        }
+
+        if (!powerManager.isWakeLockLevelSupported(
+                PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+            )
+        ) {
+            return
+        }
+        val wakeLock = proximityWakeLock ?: powerManager.newWakeLock(
+            PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+            "toxee:voice-call-proximity",
+        ).also { proximityWakeLock = it }
+        if (!wakeLock.isHeld) {
+            runCatching { wakeLock.acquire() }
+        }
     }
 
     private fun playIncomingRingtone(): Boolean {
@@ -375,6 +413,7 @@ class CallAudioChannel(
     }
 
     fun dispose() {
+        setProximityMonitoring(false)
         stopIncomingRingtone()
         unregisterReceivers()
         abandonAudioFocus()
