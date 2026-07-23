@@ -209,7 +209,7 @@
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				3AAFE84CC2BF222A87A1807C /* [CP] Embed Pods Frameworks */,
 				3D9EB5B6754197EAD7E7C5BC /* [CP] Copy Pods Resources */,
-				FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi (simulator) */,
+				FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi */,
 			);
 			buildRules = (
 			);
@@ -390,7 +390,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi (simulator) */ = {
+		FF1E2B3D4C5A697881726354 /* Embed tim2tox_ffi */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -398,12 +398,12 @@
 			);
 			inputPaths = (
 			);
-			name = "Embed tim2tox_ffi (simulator)";
+			name = "Embed tim2tox_ffi";
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Embed the tim2tox FFI simulator framework so EVERY simulator build path\n# (flutter run / flutter build ios --simulator / flutter test integration_test)\n# carries the native backend without the post-build inject step in\n# run_toxee_ios.sh. Device builds are untouched: the artifact under\n# third_party/tim2tox/build/ios is SIMULATOR-only (tool/build_ios_sim_ffi.sh);\n# embedding it into an iphoneos build would break signing, so this phase is a\n# no-op for non-simulator platforms (the device flow keeps its signing-aware\n# inject in run_toxee_ios_device.sh).\ncase \"${PLATFORM_NAME}\" in iphonesimulator*) ;; *) exit 0 ;; esac\nSRC=\"${SRCROOT}/../third_party/tim2tox/build/ios/tim2tox_ffi.framework\"\nif [ ! -d \"$SRC\" ]; then\n  echo \"warning: tim2tox_ffi.framework not built (run tool/build_ios_sim_ffi.sh); simulator app will have no FFI backend\"\n  exit 0\nfi\nDEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nrm -rf \"$DEST/tim2tox_ffi.framework\"\ncp -R \"$SRC\" \"$DEST/\"\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$DEST/tim2tox_ffi.framework\"\n";
+			shellScript = "# Embed the tim2tox FFI framework for BOTH simulator and device builds so\n# every build path (flutter run / flutter build ios / flutter build ipa\n# archive) carries the native backend. Artifacts come from\n# tool/build_ios_sim_ffi.sh:\n#   simulator:                  third_party/tim2tox/build/ios/tim2tox_ffi.framework\n#   device (SDK=iphoneos):      third_party/tim2tox/build/ios-device/tim2tox_ffi.framework\n# Simulator builds tolerate a missing artifact (warning only — pure-Dart test\n# runs don't need the backend). Device/archive builds FAIL LOUD: shipping an\n# app without the FFI backend is a broken app on the store, and the legacy\n# post-build inject in run_toxee_ios_device.sh cannot fix an App Store\n# archive after export.\ncase \"${PLATFORM_NAME}\" in\n  iphonesimulator*)\n    SRC=\"${SRCROOT}/../third_party/tim2tox/build/ios/tim2tox_ffi.framework\"\n    if [ ! -d \"$SRC\" ]; then\n      echo \"warning: tim2tox_ffi.framework (simulator) not built (run tool/build_ios_sim_ffi.sh); simulator app will have no FFI backend\"\n      exit 0\n    fi\n    ;;\n  iphoneos*)\n    SRC=\"${TIM2TOX_IOS_FRAMEWORK_PATH:-${SRCROOT}/../third_party/tim2tox/build/ios-device/tim2tox_ffi.framework}\"\n    if [ -d \"$SRC\" ] && vtool -show-build \"$SRC/tim2tox_ffi\" 2>/dev/null | grep -qi IOSSIMULATOR; then\n      echo \"error: $SRC is a SIMULATOR framework; a device (iphoneos) build cannot embed it\"\n      exit 1\n    fi\n    if [ ! -d \"$SRC\" ]; then\n      if [ \"${TOXEE_FFI_POSTBUILD_INJECT:-0}\" = \"1\" ]; then\n        echo \"warning: device FFI framework not embedded (TOXEE_FFI_POSTBUILD_INJECT=1); relying on the caller's post-build injection\"\n        exit 0\n      fi\n      echo \"error: tim2tox_ffi.framework (device) not built. Run: SDK=iphoneos tool/build_ios_sim_ffi.sh -- or export TIM2TOX_IOS_FRAMEWORK_PATH=<device framework>, or TOXEE_FFI_POSTBUILD_INJECT=1 for dylib-only post-build injection flows\"\n      exit 1\n    fi\n    ;;\n  *) exit 0 ;;\nesac\nDEST=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nrm -rf \"$DEST/tim2tox_ffi.framework\"\ncp -R \"$SRC\" \"$DEST/\"\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$DEST/tim2tox_ffi.framework\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */

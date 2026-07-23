@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -34,6 +36,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
     <!-- Android requires a phoneCall foreground service to either declare
          MANAGE_OWN_CALLS or run as the default dialer. Toxee is a VoIP app, not
          the device dialer, so declare the self-managed-call prerequisite. -->
@@ -47,6 +51,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
@@ -82,7 +87,7 @@
         <service
             android:name=".ToxPollingService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|phoneCall" />
+            android:foregroundServiceType="dataSync|phoneCall|microphone|camera" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

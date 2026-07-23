@@ -6,7 +6,6 @@ import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'dart:typed_data';
 import '../../util/app_paths.dart';
 import '../../util/ffi_chat_service_account_key.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -26,6 +25,7 @@ import '../testing/ui_keys.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
+import '../../util/mobile_export_policy.dart';
 import '../../util/account_switcher.dart';
 import '../../util/feature_flags.dart';
 
@@ -459,14 +459,37 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  void _showAccountExportOutcome({
+    required String exportedPath,
+    MobileExportSaveResult? mobileSaveResult,
+  }) {
+    if (!mounted) return;
+    final cancelled =
+        mobileSaveResult?.disposition == MobileExportSaveDisposition.cancelled;
+    final message = cancelled
+        ? mobileSaveResult!.cancellationNotice
+        : AppLocalizations.of(
+            context,
+          )!.accountExportedSuccessfully(exportedPath);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: cancelled
+            ? null
+            : Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+
   /// Export a full .zip backup including profile, chat history, and metadata.
   Future<void> _exportFullBackup() async {
+    final l10n = AppLocalizations.of(context)!;
     final toxId = widget.service.accountKey;
     if (toxId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppLocalizations.of(context)!.noAccountToExport),
+            content: Text(l10n.noAccountToExport),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -476,15 +499,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       String? outputPath;
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        final account = await Prefs.getAccountByToxId(toxId);
-        final nickname = account?['nickname'] ?? 'account';
-        final toxIdPrefix = toxId.length >= 8 ? toxId.substring(0, 8) : toxId;
-        final safeNickname = nickname.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-        final defaultFileName = '${safeNickname}_${toxIdPrefix}_backup.zip';
-
+      final isDesktopPlatform = isDesktopExportPlatform();
+      final account = await Prefs.getAccountByToxId(toxId);
+      final nickname = account?['nickname'] ?? 'account';
+      final defaultFileName = buildAccountExportFileName(
+        toxId: toxId,
+        nickname: nickname,
+        suffix: '_backup.zip',
+      );
+      if (isDesktopPlatform) {
         outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: AppLocalizations.of(context)!.exportAccount,
+          dialogTitle: l10n.exportAccount,
           fileName: defaultFileName,
           saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
             dialogTitle: dialogTitle,
@@ -493,25 +518,45 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
 
-      if (outputPath == null) return;
-
-      final filePath = await AccountExportService.exportFullBackup(
-        toxId: toxId,
-        filePath: outputPath,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(
-                context,
-              )!.accountExportedSuccessfully(filePath),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
+      if (!shouldContinueAccountExport(
+        isDesktopPlatform: isDesktopPlatform,
+        outputPath: outputPath,
+      )) {
+        return;
       }
+
+      late final String filePath;
+      MobileExportSaveResult? mobileSaveResult;
+      if (isDesktopPlatform) {
+        filePath = await AccountExportService.exportFullBackup(
+          toxId: toxId,
+          filePath: outputPath,
+        );
+      } else {
+        mobileSaveResult = await createAndSaveMobileExportCopy(
+          createInternalExport: () =>
+              AccountExportService.exportFullBackup(toxId: toxId),
+          dialogTitle: l10n.exportAccount,
+          fileName: defaultFileName,
+          saveFile:
+              ({
+                required String dialogTitle,
+                required String fileName,
+                required Uint8List bytes,
+              }) => FilePicker.platform.saveFile(
+                dialogTitle: dialogTitle,
+                fileName: fileName,
+                bytes: bytes,
+              ),
+        );
+        filePath =
+            mobileSaveResult.userSelectedPath ??
+            mobileSaveResult.internalFilePath;
+      }
+      _showAccountExportOutcome(
+        exportedPath: filePath,
+        mobileSaveResult: mobileSaveResult,
+      );
     } catch (e, stackTrace) {
       AppLogger.logError('Full backup export error', e, stackTrace);
       if (mounted) {
@@ -529,12 +574,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _exportAccount() async {
+    final l10n = AppLocalizations.of(context)!;
     final toxId = widget.service.accountKey;
     if (toxId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppLocalizations.of(context)!.noAccountToExport),
+            content: Text(l10n.noAccountToExport),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -547,9 +593,7 @@ class _SettingsPageState extends State<SettingsPage> {
     String? password;
 
     if (hasPassword) {
-      password = await _showConfirmPasswordDialog(
-        AppLocalizations.of(context)!.enterPasswordToExport,
-      );
+      password = await _showConfirmPasswordDialog(l10n.enterPasswordToExport);
       if (password == null) return;
 
       final isValid = await Prefs.verifyAccountPassword(toxId, password);
@@ -569,16 +613,17 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       // Show file picker to select save location
       String? outputPath;
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        // Generate default filename
-        final account = await Prefs.getAccountByToxId(toxId);
-        final nickname = account?['nickname'] ?? 'account';
-        final toxIdPrefix = toxId.length >= 8 ? toxId.substring(0, 8) : toxId;
-        final safeNickname = nickname.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-        final defaultFileName = '${safeNickname}_$toxIdPrefix.tox';
-
+      final isDesktopPlatform = isDesktopExportPlatform();
+      final account = await Prefs.getAccountByToxId(toxId);
+      final nickname = account?['nickname'] ?? 'account';
+      final defaultFileName = buildAccountExportFileName(
+        toxId: toxId,
+        nickname: nickname,
+        suffix: '.tox',
+      );
+      if (isDesktopPlatform) {
         outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: AppLocalizations.of(context)!.exportAccount,
+          dialogTitle: l10n.exportAccount,
           fileName: defaultFileName,
           saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
             dialogTitle: dialogTitle,
@@ -587,26 +632,48 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
 
-      if (outputPath == null) return;
-
-      final filePath = await AccountExportService.exportAccountData(
-        toxId: toxId,
-        password: password,
-        filePath: outputPath,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(
-                context,
-              )!.accountExportedSuccessfully(filePath),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
+      if (!shouldContinueAccountExport(
+        isDesktopPlatform: isDesktopPlatform,
+        outputPath: outputPath,
+      )) {
+        return;
       }
+
+      late final String filePath;
+      MobileExportSaveResult? mobileSaveResult;
+      if (isDesktopPlatform) {
+        filePath = await AccountExportService.exportAccountData(
+          toxId: toxId,
+          password: password,
+          filePath: outputPath,
+        );
+      } else {
+        mobileSaveResult = await createAndSaveMobileExportCopy(
+          createInternalExport: () => AccountExportService.exportAccountData(
+            toxId: toxId,
+            password: password,
+          ),
+          dialogTitle: l10n.exportAccount,
+          fileName: defaultFileName,
+          saveFile:
+              ({
+                required String dialogTitle,
+                required String fileName,
+                required Uint8List bytes,
+              }) => FilePicker.platform.saveFile(
+                dialogTitle: dialogTitle,
+                fileName: fileName,
+                bytes: bytes,
+              ),
+        );
+        filePath =
+            mobileSaveResult.userSelectedPath ??
+            mobileSaveResult.internalFilePath;
+      }
+      _showAccountExportOutcome(
+        exportedPath: filePath,
+        mobileSaveResult: mobileSaveResult,
+      );
     } catch (e, stackTrace) {
       // Log detailed error for debugging
       AppLogger.logError('Export account error', e, stackTrace);

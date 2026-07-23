@@ -455,6 +455,7 @@ class UiKeys {
   static const Key callHangupButton = Key('call_hangup_button');
   static const Key callMicMuteButton = Key('call_mic_mute_button');
   static const Key callCameraToggleButton = Key('call_camera_toggle_button');
+  static const Key callCameraSwitchButton = Key('call_camera_switch_button');
 
   // Manual bootstrap form.
   static const Key manualNodeInputButton = Key('manual_node_input_button');

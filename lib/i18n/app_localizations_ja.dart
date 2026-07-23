@@ -1300,6 +1300,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get callVideoOn => 'ビデオオン';
 
   @override
+  String get callSwitchCamera => 'カメラを切り替え';
+
+  @override
   String get callSpeakerOff => 'スピーカーオフ';
 
   @override
@@ -1320,6 +1323,10 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get callPermissionMicrophoneCameraRequired =>
       '通話を続けるにはマイクとカメラへのアクセス許可が必要です。';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      '通知の許可を有効にするまで、着信は Toxee 内でのみ鳴ります。';
 
   @override
   String get callFailedGroupUnsupported => 'グループ通話はまだサポートされていません。';

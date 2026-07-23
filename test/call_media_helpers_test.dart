@@ -8,6 +8,122 @@ import 'package:camera/camera.dart';
 import 'package:record/record.dart';
 
 void main() {
+  test('mobile capture prefers the front camera for the initial preview', () {
+    const cameras = <CameraDescription>[
+      CameraDescription(
+        name: 'rear',
+        lensDirection: CameraLensDirection.back,
+        sensorOrientation: 90,
+      ),
+      CameraDescription(
+        name: 'selfie',
+        lensDirection: CameraLensDirection.front,
+        sensorOrientation: 270,
+      ),
+    ];
+
+    expect(preferredInitialMobileCamera(cameras), cameras[1]);
+  });
+
+  test(
+    'mobile capture falls back to the first camera when no front lens exists',
+    () {
+      const cameras = <CameraDescription>[
+        CameraDescription(
+          name: 'external',
+          lensDirection: CameraLensDirection.external,
+          sensorOrientation: 0,
+        ),
+        CameraDescription(
+          name: 'rear',
+          lensDirection: CameraLensDirection.back,
+          sensorOrientation: 90,
+        ),
+      ];
+
+      expect(preferredInitialMobileCamera(cameras), cameras.first);
+    },
+  );
+
+  test('camera switch prefers the opposite lens direction', () {
+    const rearWide = CameraDescription(
+      name: 'rear-wide',
+      lensDirection: CameraLensDirection.back,
+      sensorOrientation: 90,
+    );
+    const rearTele = CameraDescription(
+      name: 'rear-tele',
+      lensDirection: CameraLensDirection.back,
+      sensorOrientation: 90,
+    );
+    const selfie = CameraDescription(
+      name: 'selfie',
+      lensDirection: CameraLensDirection.front,
+      sensorOrientation: 270,
+    );
+    const cameras = [rearWide, rearTele, selfie];
+
+    expect(nextMobileCamera(cameras, rearWide), selfie);
+    expect(nextMobileCamera(cameras, selfie), rearWide);
+  });
+
+  test('camera switch uses deterministic next-device fallback', () {
+    const first = CameraDescription(
+      name: 'external-a',
+      lensDirection: CameraLensDirection.external,
+      sensorOrientation: 0,
+    );
+    const second = CameraDescription(
+      name: 'external-b',
+      lensDirection: CameraLensDirection.external,
+      sensorOrientation: 0,
+    );
+
+    expect(nextMobileCamera(const [first, second], first), second);
+    expect(nextMobileCamera(const [first, second], second), first);
+  });
+
+  test('a new call session re-applies the front-camera preference', () {
+    const rear = CameraDescription(
+      name: 'rear',
+      lensDirection: CameraLensDirection.back,
+      sensorOrientation: 90,
+    );
+    const selfie = CameraDescription(
+      name: 'selfie',
+      lensDirection: CameraLensDirection.front,
+      sensorOrientation: 270,
+    );
+    const cameras = [rear, selfie];
+    final selection = MobileCameraSelectionController();
+
+    expect(selection.cameraForStart(cameras), selfie);
+    selection.select(rear);
+    expect(selection.cameraForStart(cameras), rear);
+
+    selection.resetForNextCall();
+    expect(selection.cameraForStart(cameras), selfie);
+  });
+
+  test('camera switch is exposed only by the mobile camera backend', () {
+    expect(
+      CallMediaCapabilities.supportsCameraSwitch(
+        platform: TargetPlatform.android,
+      ),
+      isTrue,
+    );
+    expect(
+      CallMediaCapabilities.supportsCameraSwitch(platform: TargetPlatform.iOS),
+      isTrue,
+    );
+    expect(
+      CallMediaCapabilities.supportsCameraSwitch(
+        platform: TargetPlatform.macOS,
+      ),
+      isFalse,
+    );
+  });
+
   test('uses explicit mono 48kHz PCM capture config for calls', () {
     final RecordConfig config = AudioHandler.buildCaptureConfig();
 
@@ -19,34 +135,36 @@ void main() {
     expect(config.noiseSuppress, isTrue);
   });
 
-  test('normalizes Android-style strided YUV420 planes into contiguous I420',
-      () {
-    final frame = VideoFrameNormalizer.normalizeYuv420(
-      width: 4,
-      height: 2,
-      planes: const <VideoPlaneData>[
-        VideoPlaneData(
-          bytes: <int>[1, 2, 3, 4, 99, 98, 5, 6, 7, 8, 97, 96],
-          bytesPerRow: 6,
-          bytesPerPixel: 1,
-        ),
-        VideoPlaneData(
-          bytes: <int>[10, 0, 20, 0],
-          bytesPerRow: 4,
-          bytesPerPixel: 2,
-        ),
-        VideoPlaneData(
-          bytes: <int>[30, 0, 40, 0],
-          bytesPerRow: 4,
-          bytesPerPixel: 2,
-        ),
-      ],
-    );
+  test(
+    'normalizes Android-style strided YUV420 planes into contiguous I420',
+    () {
+      final frame = VideoFrameNormalizer.normalizeYuv420(
+        width: 4,
+        height: 2,
+        planes: const <VideoPlaneData>[
+          VideoPlaneData(
+            bytes: <int>[1, 2, 3, 4, 99, 98, 5, 6, 7, 8, 97, 96],
+            bytesPerRow: 6,
+            bytesPerPixel: 1,
+          ),
+          VideoPlaneData(
+            bytes: <int>[10, 0, 20, 0],
+            bytesPerRow: 4,
+            bytesPerPixel: 2,
+          ),
+          VideoPlaneData(
+            bytes: <int>[30, 0, 40, 0],
+            bytesPerRow: 4,
+            bytesPerPixel: 2,
+          ),
+        ],
+      );
 
-    expect(frame.y, Uint8List.fromList(const <int>[1, 2, 3, 4, 5, 6, 7, 8]));
-    expect(frame.u, Uint8List.fromList(const <int>[10, 20]));
-    expect(frame.v, Uint8List.fromList(const <int>[30, 40]));
-  });
+      expect(frame.y, Uint8List.fromList(const <int>[1, 2, 3, 4, 5, 6, 7, 8]));
+      expect(frame.u, Uint8List.fromList(const <int>[10, 20]));
+      expect(frame.v, Uint8List.fromList(const <int>[30, 40]));
+    },
+  );
 
   test('normalizes iOS bi-planar YUV420 into contiguous I420', () {
     final frame = VideoFrameNormalizer.normalizeYuv420(
@@ -78,14 +196,20 @@ void main() {
       TargetPlatform.iOS,
       TargetPlatform.macOS,
     ]) {
-      expect(CallMediaCapabilities.supportsVideoCapture(platform: p), isTrue,
-          reason: '$p has a camera plugin backend');
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(platform: p),
+        isTrue,
+        reason: '$p has a camera plugin backend',
+      );
     }
     // Windows/Linux have no camera plugin implementation — video entry
     // points must be hidden there (voice stays available).
     for (final p in [TargetPlatform.windows, TargetPlatform.linux]) {
-      expect(CallMediaCapabilities.supportsVideoCapture(platform: p), isFalse,
-          reason: '$p has no camera capture backend');
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(platform: p),
+        isFalse,
+        reason: '$p has no camera capture backend',
+      );
     }
   });
 
@@ -97,9 +221,7 @@ void main() {
       isFalse,
     );
     expect(
-      CallMediaCapabilities.supportsSpeakerToggle(
-        platform: TargetPlatform.iOS,
-      ),
+      CallMediaCapabilities.supportsSpeakerToggle(platform: TargetPlatform.iOS),
       isFalse,
     );
   });

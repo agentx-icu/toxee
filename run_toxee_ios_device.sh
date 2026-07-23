@@ -273,6 +273,7 @@ resolve_ffi_framework_path() {
     candidates+=("$FFI_FRAMEWORK_PATH")
   fi
   candidates+=(
+    "$FLUTTER_APP_DIR/third_party/tim2tox/build/ios-device/tim2tox_ffi.framework"
     "$FLUTTER_APP_DIR/third_party/tim2tox/build/ios/tim2tox_ffi.framework"
     "$FLUTTER_APP_DIR/third_party/tim2tox/build/tim2tox_ffi.framework"
   )
@@ -428,6 +429,23 @@ resign_ios_app_bundle() {
 build_ios_device_app() {
   : >"$FLUTTER_BUILD_LOG"
   info "Building iOS real-device app ($MODE, codesign enabled)..."
+
+  # Pre-resolve FFI artifacts so the Xcode "Embed tim2tox_ffi" phase (fail-loud
+  # on device builds) cooperates with this script's documented custom-artifact
+  # injection (--ffi-framework / --ffi-dylib):
+  #   framework resolved  -> export TIM2TOX_IOS_FRAMEWORK_PATH (phase embeds it)
+  #   dylib-only          -> export TOXEE_FFI_POSTBUILD_INJECT=1 (phase warns;
+  #                          inject_ios_device_ffi_artifacts installs the dylib)
+  #   neither             -> phase fails loud: the app is broken without FFI.
+  local pre_framework pre_dylib
+  pre_framework="$(resolve_ffi_framework_path || true)"
+  pre_dylib="$(resolve_ffi_dylib_path || true)"
+  if [[ -n "$pre_framework" ]]; then
+    export TIM2TOX_IOS_FRAMEWORK_PATH="$pre_framework"
+  elif [[ -n "$pre_dylib" ]]; then
+    export TOXEE_FFI_POSTBUILD_INJECT=1
+  fi
+
   (cd "$FLUTTER_APP_DIR" && flutter build ios --"$MODE" --dart-define=FLUTTER_BUILD_MODE="$MODE") >>"$FLUTTER_BUILD_LOG" 2>&1
 
   local app_bundle

@@ -77,6 +77,9 @@ class _FakeInCallManager implements InCallManager {
   Future<void> toggleVideo() async {
     videoCount += 1;
   }
+
+  @override
+  Future<void> switchCamera() async {}
 }
 
 Widget _wrap(Widget child) {

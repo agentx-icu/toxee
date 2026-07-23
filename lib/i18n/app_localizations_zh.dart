@@ -1290,6 +1290,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get callVideoOn => '开启视频';
 
   @override
+  String get callSwitchCamera => '切换摄像头';
+
+  @override
   String get callSpeakerOff => '关闭扬声器';
 
   @override
@@ -1309,6 +1312,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get callPermissionMicrophoneCameraRequired => '继续通话需要麦克风和相机权限。';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      '启用通知权限前，来电只能在 Toxee 应用内响铃。';
 
   @override
   String get callFailedGroupUnsupported => '暂不支持群组通话。';
@@ -2795,6 +2802,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get callVideoOn => '开启视频';
 
   @override
+  String get callSwitchCamera => '切换摄像头';
+
+  @override
   String get callSpeakerOff => '关闭扬声器';
 
   @override
@@ -2814,6 +2824,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get callPermissionMicrophoneCameraRequired => '继续通话需要麦克风和相机权限。';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      '启用通知权限前，来电只能在 Toxee 应用内响铃。';
 
   @override
   String get callFailedGroupUnsupported => '暂不支持群组通话。';
@@ -4149,6 +4163,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get callVideoOn => '開啟視訊';
 
   @override
+  String get callSwitchCamera => '切換相機';
+
+  @override
   String get callSpeakerOff => '關閉揚聲器';
 
   @override
@@ -4168,6 +4185,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get callPermissionMicrophoneCameraRequired => '繼續通話需要麥克風和相機權限。';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      '啟用通知權限前，來電只能在 Toxee 應用內響鈴。';
 
   @override
   String get callFailedGroupUnsupported => '暫不支援群組通話。';

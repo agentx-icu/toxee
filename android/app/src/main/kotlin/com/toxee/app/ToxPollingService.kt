@@ -97,14 +97,30 @@ class ToxPollingService : Service() {
             ?: DEFAULT_SETTINGS_LABEL
 
         val notification = buildNotification(typeMode, title, body, settingsLabel)
-        // FOREGROUND_SERVICE_TYPE_DATA_SYNC and FOREGROUND_SERVICE_TYPE_PHONE_CALL
-        // are both available since API 29 (Android 10, Q). Android 14+
+        // phoneCall/dataSync are available since API 29. Camera/microphone
+        // types are available since API 30 and are required to preserve
+        // while-in-use media access after the app is backgrounded. Android 14+
         // (UPSIDE_DOWN_CAKE) additionally requires the type to match a
         // <service android:foregroundServiceType=...> declaration in the
         // manifest, but the type constants themselves are valid as of Q.
         val serviceType: Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             when (typeMode) {
-                TYPE_MODE_PHONE_CALL -> ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                TYPE_MODE_PHONE_CALL -> {
+                    var callTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        callTypes = callTypes or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                        val usesCamera = intent?.getBooleanExtra(
+                            EXTRA_USE_CAMERA,
+                            false,
+                        ) ?: false
+                        if (usesCamera) {
+                            callTypes = callTypes or
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                        }
+                    }
+                    callTypes
+                }
                 else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             }
         } else {
@@ -283,6 +299,7 @@ class ToxPollingService : Service() {
         const val EXTRA_BODY = "extra_body"
         const val EXTRA_SETTINGS_LABEL = "extra_settings_label"
         const val EXTRA_FOR_CALL = "extra_for_call"
+        const val EXTRA_USE_CAMERA = "extra_use_camera"
 
         private const val TYPE_MODE_DATA_SYNC = 0
         private const val TYPE_MODE_PHONE_CALL = 1

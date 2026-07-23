@@ -1330,6 +1330,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get callVideoOn => 'تشغيل الفيديو';
 
   @override
+  String get callSwitchCamera => 'تبديل الكاميرا';
+
+  @override
   String get callSpeakerOff => 'إيقاف السماعة';
 
   @override
@@ -1352,6 +1355,10 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get callPermissionMicrophoneCameraRequired =>
       'يلزم إذن الميكروفون والكاميرا لمتابعة المكالمة.';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      'لا يمكن أن ترن المكالمات الواردة إلا داخل Toxee حتى يتم تفعيل إذن الإشعارات.';
 
   @override
   String get callFailedGroupUnsupported => 'المكالمات الجماعية غير مدعومة بعد.';

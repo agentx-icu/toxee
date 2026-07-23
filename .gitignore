@@ -59,9 +59,14 @@ tool/vendor_state.json
 .slim/deepwork/
 dist/
 
-# Canonical docs live in `doc/` (singular). Block accidental writes to the
-# plural variant so scratch design notes (CEO plans, audits) don't sneak in.
-docs/
+# Canonical prose docs live in `doc/` (singular). Block accidental writes to the
+# plural variant so scratch design notes (CEO plans, audits) don't sneak in,
+# while allowing the machine-read skill config paths documented in CLAUDE.md.
+docs/*
+!docs/agents/
+!docs/agents/**
+!docs/adr/
+!docs/adr/**
 
 # Research / investigation notes (session handoffs, comparison runs, spike
 # results, improvement plans). Working material, not shipped documentation —

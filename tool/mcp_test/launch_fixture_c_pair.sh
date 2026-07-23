@@ -26,6 +26,9 @@ ALLOW_OPEN_FALLBACK="${TOXEE_MULTI_ALLOW_OPEN_FALLBACK:-1}"
 POST_PROBE_STABILITY_SECS="${TOXEE_MULTI_POST_PROBE_STABILITY_SECS:-8}"
 SKIP_VM_PROBE="${TOXEE_MULTI_SKIP_VM_PROBE:-0}"
 
+# shellcheck source=_multi_instance_lib.sh
+. "$MCP_DIR/_multi_instance_lib.sh"
+
 # Restored-fixture launches currently prioritize VM attach stability over the
 # direct-binary path: on this host, a restored direct launch can probe cleanly
 # and still die shortly afterward, while LaunchServices (`open`) remains alive
@@ -134,6 +137,10 @@ launch_pair_once() (
     set -euo pipefail
     mkdir -p "$RUNTIME_ROOT"
     mkdir -p "$COPIES_DIR"
+    # Drop app copies orphaned by earlier runs before dittoing another ~185M
+    # bundle below. Teardown reclaims the copy it made, but a crashed run (or one
+    # whose stop never ran) leaks one per launch, so re-check here too.
+    _mi_gc_app_copies "$COPIES_DIR"
     rm -rf "$RUNTIME_ROOT/A" "$RUNTIME_ROOT/B"
     rm -rf "$CONTAINER_MULTI_ROOT/A" "$CONTAINER_MULTI_ROOT/B"
     # Disposable spike harness: clear the shared macOS defaults domain so both

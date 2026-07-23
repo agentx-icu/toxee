@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:tim2tox_dart/service/toxav_service.dart';
 
 import '../util/logger.dart';
+import 'call_camera_switch_controller.dart';
 import 'call_codec_profile.dart';
 import 'call_video_transform.dart';
 
@@ -47,32 +48,16 @@ class VideoFrameNormalizer {
       final uvWidth = width ~/ 2;
       final uvHeight = height ~/ 2;
       return NormalizedVideoFrame(
-        y: _compactPlane(
-          plane: planes[0],
-          width: width,
-          height: height,
-        ),
-        u: _compactPlane(
-          plane: planes[1],
-          width: uvWidth,
-          height: uvHeight,
-        ),
-        v: _compactPlane(
-          plane: planes[2],
-          width: uvWidth,
-          height: uvHeight,
-        ),
+        y: _compactPlane(plane: planes[0], width: width, height: height),
+        u: _compactPlane(plane: planes[1], width: uvWidth, height: uvHeight),
+        v: _compactPlane(plane: planes[2], width: uvWidth, height: uvHeight),
       );
     }
 
     if (planes.length == 2) {
       final uvWidth = width ~/ 2;
       final uvHeight = height ~/ 2;
-      final y = _compactPlane(
-        plane: planes[0],
-        width: width,
-        height: height,
-      );
+      final y = _compactPlane(plane: planes[0], width: width, height: height);
       final uvPlane = planes[1];
       final u = Uint8List(uvWidth * uvHeight);
       final v = Uint8List(uvWidth * uvHeight);
@@ -170,6 +155,78 @@ Uint8List _convertYuv420ToRgba(_Yuv420Frame frame) {
   return rgba;
 }
 
+/// Chooses a selfie-friendly initial camera while preserving a deterministic
+/// fallback for devices that expose only rear or external lenses.
+CameraDescription preferredInitialMobileCamera(
+  List<CameraDescription> cameras,
+) {
+  if (cameras.isEmpty) {
+    throw ArgumentError.value(cameras, 'cameras', 'must not be empty');
+  }
+  return cameras.firstWhere(
+    (camera) => camera.lensDirection == CameraLensDirection.front,
+    orElse: () => cameras.first,
+  );
+}
+
+/// Chooses the next mobile camera, preferring a front/back lens transition
+/// over cycling between multiple lenses facing the same direction.
+CameraDescription nextMobileCamera(
+  List<CameraDescription> cameras,
+  CameraDescription current,
+) {
+  if (cameras.isEmpty) {
+    throw ArgumentError.value(cameras, 'cameras', 'must not be empty');
+  }
+
+  final oppositeDirection = switch (current.lensDirection) {
+    CameraLensDirection.front => CameraLensDirection.back,
+    CameraLensDirection.back => CameraLensDirection.front,
+    CameraLensDirection.external => null,
+  };
+  if (oppositeDirection != null) {
+    for (final camera in cameras) {
+      if (camera.lensDirection == oppositeDirection) return camera;
+    }
+  }
+
+  final currentIndex = cameras.indexOf(current);
+  if (currentIndex < 0) return cameras.first;
+  return cameras[(currentIndex + 1) % cameras.length];
+}
+
+/// Tracks the selected mobile camera within one call session.
+///
+/// Temporary capture stops keep the current selection. A completed call
+/// resets the controller so the next call prefers the front camera again.
+class MobileCameraSelectionController {
+  CameraDescription? _selected;
+
+  CameraDescription cameraForStart(List<CameraDescription> cameras) {
+    if (cameras.isEmpty) {
+      throw ArgumentError.value(cameras, 'cameras', 'must not be empty');
+    }
+
+    final selected = _selected;
+    if (selected != null) {
+      final selectedIndex = cameras.indexOf(selected);
+      if (selectedIndex >= 0) return cameras[selectedIndex];
+    }
+
+    final initial = preferredInitialMobileCamera(cameras);
+    _selected = initial;
+    return initial;
+  }
+
+  void select(CameraDescription camera) {
+    _selected = camera;
+  }
+
+  void resetForNextCall() {
+    _selected = null;
+  }
+}
+
 /// Video capture (camera → YUV420 → ToxAV) and receive (YUV420 → display).
 /// Extends ChangeNotifier so UI can react to camera initialization.
 ///
@@ -188,7 +245,10 @@ class VideoHandler extends ChangeNotifier {
   bool _capturing = false;
   CameraController? _controller;
   List<CameraDescription>? _cameras;
-  int _cameraIndex = 0;
+  final MobileCameraSelectionController _mobileCameraSelection =
+      MobileCameraSelectionController();
+  final CallCameraSwitchController _cameraSwitchController =
+      CallCameraSwitchController();
 
   /// macOS-only: when using camera_macos (official camera plugin has no macOS impl).
   bool _usingMacOSCamera = false;
@@ -229,6 +289,8 @@ class VideoHandler extends ChangeNotifier {
   @visibleForTesting
   bool get isDisposed => _disposed;
 
+  bool get isCapturing => _capturing;
+
   /// Latest remote frame as RGB for display. UI can listen and show via RawImage.
   final ValueNotifier<ui.Image?> remoteImage = ValueNotifier<ui.Image?>(null);
 
@@ -253,7 +315,9 @@ class VideoHandler extends ChangeNotifier {
       try {
         await pending;
       } catch (e) {
-        AppLogger.warn('[VideoHandler] awaiting in-flight stop before startCapture failed: $e');
+        AppLogger.warn(
+          '[VideoHandler] awaiting in-flight stop before startCapture failed: $e',
+        );
       }
     }
     if (_disposed || _capturing) return;
@@ -273,20 +337,22 @@ class VideoHandler extends ChangeNotifier {
 
     if (defaultTargetPlatform == TargetPlatform.macOS) {
       try {
-        final devices = await CameraMacOS.instance
-            .listDevices(deviceType: CameraMacOSDeviceType.video);
+        final devices = await CameraMacOS.instance.listDevices(
+          deviceType: CameraMacOSDeviceType.video,
+        );
         if (devices.isEmpty) {
           _capturing = false;
           notifyListeners();
           debugPrint(
-              '[VideoHandler] startCapture macOS: no video devices. '
-              'Allow Camera in System Settings → Privacy & Security.');
+            '[VideoHandler] startCapture macOS: no video devices. '
+            'Allow Camera in System Settings → Privacy & Security.',
+          );
           AppLogger.log(
-              '[VideoHandler] startCapture macOS: no video devices (check Camera permission)');
+            '[VideoHandler] startCapture macOS: no video devices (check Camera permission)',
+          );
           return;
         }
-        final deviceId =
-            devices[_cameraIndex % devices.length].deviceId;
+        final deviceId = devices.first.deviceId;
         final args = await CameraMacOS.instance.initialize(
           deviceId: deviceId,
           cameraMacOSMode: CameraMacOSMode.video,
@@ -311,7 +377,8 @@ class VideoHandler extends ChangeNotifier {
           },
         );
         AppLogger.log(
-            '[VideoHandler] macOS capture started (camera_macos stream active)');
+          '[VideoHandler] macOS capture started (camera_macos stream active)',
+        );
       } catch (e) {
         _capturing = false;
         _usingMacOSCamera = false;
@@ -320,22 +387,30 @@ class VideoHandler extends ChangeNotifier {
         try {
           await CameraMacOS.instance.stopImageStream();
         } catch (e) {
-          AppLogger.warn('[VideoHandler] stopImageStream during error recovery failed: $e');
+          AppLogger.warn(
+            '[VideoHandler] stopImageStream during error recovery failed: $e',
+          );
         }
         try {
           await CameraMacOS.instance.destroy();
         } catch (e) {
-          AppLogger.warn('[VideoHandler] camera destroy during error recovery failed: $e');
+          AppLogger.warn(
+            '[VideoHandler] camera destroy during error recovery failed: $e',
+          );
         }
         notifyListeners();
         debugPrint('[VideoHandler] startCapture macOS camera_macos error: $e');
-        AppLogger.log('[VideoHandler] startCapture macOS camera_macos error: $e');
-        debugPrint(
-            '[VideoHandler] On macOS: ensure Camera is allowed in '
-            'System Settings → Privacy & Security.');
         AppLogger.log(
-            '[VideoHandler] On macOS: ensure Camera is allowed in '
-            'System Settings → Privacy & Security.');
+          '[VideoHandler] startCapture macOS camera_macos error: $e',
+        );
+        debugPrint(
+          '[VideoHandler] On macOS: ensure Camera is allowed in '
+          'System Settings → Privacy & Security.',
+        );
+        AppLogger.log(
+          '[VideoHandler] On macOS: ensure Camera is allowed in '
+          'System Settings → Privacy & Security.',
+        );
       }
       return;
     }
@@ -346,12 +421,13 @@ class VideoHandler extends ChangeNotifier {
         _capturing = false;
         notifyListeners();
         debugPrint(
-            '[VideoHandler] startCapture: no cameras available. '
-            'On macOS: allow Camera in System Settings → Privacy & Security, '
-            'and close other apps using the camera.');
+          '[VideoHandler] startCapture: no cameras available. '
+          'On macOS: allow Camera in System Settings → Privacy & Security, '
+          'and close other apps using the camera.',
+        );
         return;
       }
-      final camera = _cameras![_cameraIndex % _cameras!.length];
+      final camera = _mobileCameraSelection.cameraForStart(_cameras!);
       _controller = CameraController(
         camera,
         ResolutionPreset.medium,
@@ -365,10 +441,12 @@ class VideoHandler extends ChangeNotifier {
       _capturing = false;
       notifyListeners();
       debugPrint(
-          '[VideoHandler] startCapture: camera plugin not implemented on this '
-          'platform, local preview disabled: $e');
+        '[VideoHandler] startCapture: camera plugin not implemented on this '
+        'platform, local preview disabled: $e',
+      );
       AppLogger.log(
-          '[VideoHandler] startCapture: camera plugin not implemented: $e');
+        '[VideoHandler] startCapture: camera plugin not implemented: $e',
+      );
     } catch (e) {
       _capturing = false;
       notifyListeners();
@@ -417,7 +495,8 @@ class VideoHandler extends ChangeNotifier {
   }
 
   void _onCameraImage(CameraImage image) {
-    if (!_capturing || _avService == null) return;
+    final controller = _controller;
+    if (!_capturing || _avService == null || controller == null) return;
 
     // Frame rate throttle
     final now = DateTime.now();
@@ -463,12 +542,11 @@ class VideoHandler extends ChangeNotifier {
         return;
       }
 
-      final deviceOrientation =
-          _controller?.value.deviceOrientation ?? DeviceOrientation.portraitUp;
+      final deviceOrientation = controller.value.deviceOrientation;
       final outgoingTransform = OutgoingVideoTransform.compute(
         platform: defaultTargetPlatform,
         deviceOrientation: deviceOrientation,
-        camera: _cameras![_cameraIndex % _cameras!.length],
+        camera: controller.description,
       );
       final transformedFrame = I420FrameTransformer.apply(
         y: normalized.y,
@@ -496,8 +574,14 @@ class VideoHandler extends ChangeNotifier {
 
   /// Called when ToxAV receives a video frame (YUV420).
   /// Converts to RGBA in an Isolate via compute(), then updates [remoteImage].
-  void onVideoReceived(int friendNumber, int width, int height, List<int> y,
-      List<int> u, List<int> v) {
+  void onVideoReceived(
+    int friendNumber,
+    int width,
+    int height,
+    List<int> y,
+    List<int> u,
+    List<int> v,
+  ) {
     if (width <= 0 || height <= 0 || y.length < width * height) return;
     final uvWidth = width ~/ 2;
     final uvHeight = height ~/ 2;
@@ -508,24 +592,26 @@ class VideoHandler extends ChangeNotifier {
     _converting = true;
 
     final frame = _Yuv420Frame(width, height, y, u, v);
-    compute(_convertYuv420ToRgba, frame).then((rgba) {
-      _converting = false;
-      ui.decodeImageFromPixels(
-        rgba,
-        width,
-        height,
-        ui.PixelFormat.rgba8888,
-        (ui.Image image) {
-          final previous = remoteImage.value;
-          remoteImage.value = image;
-          previous?.dispose();
-        },
-        rowBytes: width * 4,
-      );
-    }).catchError((e) {
-      _converting = false;
-      debugPrint('[VideoHandler] compute error: $e');
-    });
+    compute(_convertYuv420ToRgba, frame)
+        .then((rgba) {
+          _converting = false;
+          ui.decodeImageFromPixels(
+            rgba,
+            width,
+            height,
+            ui.PixelFormat.rgba8888,
+            (ui.Image image) {
+              final previous = remoteImage.value;
+              remoteImage.value = image;
+              previous?.dispose();
+            },
+            rowBytes: width * 4,
+          );
+        })
+        .catchError((e) {
+          _converting = false;
+          debugPrint('[VideoHandler] compute error: $e');
+        });
   }
 
   /// Local camera preview widget.
@@ -553,7 +639,9 @@ class VideoHandler extends ChangeNotifier {
       try {
         await pendingStart;
       } catch (e) {
-        AppLogger.warn('[VideoHandler] awaiting in-flight start before stop failed: $e');
+        AppLogger.warn(
+          '[VideoHandler] awaiting in-flight start before stop failed: $e',
+        );
       }
     }
     final future = _doStop();
@@ -590,28 +678,44 @@ class VideoHandler extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> switchCamera() async {
-    if (_disposed) return;
-    // Re-fetch the device list so a USB camera plugged in mid-call (or a
-    // built-in camera disappearing because another app grabbed it) is
-    // reflected in the next index step. Previously `_cameras` was cached
-    // for the lifetime of the handler and `switchCamera` only round-robined
-    // the original device list.
-    try {
-      final fresh = await availableCameras();
-      if (fresh.isNotEmpty) {
-        _cameras = fresh;
-      }
-    } catch (e) {
-      debugPrint('[VideoHandler] switchCamera availableCameras error: $e');
-    }
-    if (_cameras == null || _cameras!.length < 2) return;
-    final wasCapturing = _capturing;
-    await stop();
-    _cameraIndex++;
-    if (!_disposed && wasCapturing && _avService != null) {
-      await startCapture(_friendNumber, _avService!);
-    }
+  Future<void> switchCamera({required bool Function() canSwitch}) {
+    return _cameraSwitchController.switchCamera(
+      canSwitch: () => !_disposed && canSwitch(),
+      prepareSwitch: () async {
+        // Re-fetch devices so cameras attached during the call are included.
+        try {
+          final fresh = await availableCameras();
+          if (fresh.isNotEmpty) _cameras = fresh;
+        } catch (e) {
+          debugPrint('[VideoHandler] switchCamera availableCameras error: $e');
+        }
+      },
+      performSwitch: (canRestart) async {
+        if (!_capturing) return;
+
+        final cameras = _cameras;
+        if (cameras == null || cameras.length < 2) return;
+        final current =
+            _controller?.description ??
+            _mobileCameraSelection.cameraForStart(cameras);
+        final next = nextMobileCamera(cameras, current);
+        final avService = _avService;
+        if (avService == null) return;
+
+        await stop();
+        if (!canRestart()) return;
+
+        _mobileCameraSelection.select(next);
+        await startCapture(_friendNumber, avService);
+        if (!canRestart()) await stop();
+      },
+    );
+  }
+
+  /// Marks a hard call-session boundary without disturbing temporary capture
+  /// stops inside the current call.
+  void resetCameraSelectionForNextCall() {
+    _mobileCameraSelection.resetForNextCall();
   }
 
   /// Async-safe disposal: awaits any in-flight start/stop before disposing.
@@ -626,7 +730,9 @@ class VideoHandler extends ChangeNotifier {
       try {
         await pendingStart;
       } catch (e) {
-        AppLogger.warn('[VideoHandler] awaiting in-flight start before disposeAsync failed: $e');
+        AppLogger.warn(
+          '[VideoHandler] awaiting in-flight start before disposeAsync failed: $e',
+        );
       }
     }
     await stop();

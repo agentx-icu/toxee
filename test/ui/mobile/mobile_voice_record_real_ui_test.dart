@@ -27,6 +27,7 @@
 // repo's canonical pattern for real IO/crypto under testWidgets).
 //
 // ignore_for_file: depend_on_referenced_packages, directives_ordering
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -71,6 +72,7 @@ Widget _localized({required Widget child}) {
 class _FakeRecorderChannel {
   final List<String> methods = [];
   bool permission = true;
+  Completer<bool>? permissionCompleter;
   // When set, `stop` returns this exact path (a test asserting the path). When
   // null, `stop` creates a fresh REAL temp file and returns its path, so the
   // production cancel branch (which deletes the recorded file) never trips a
@@ -79,7 +81,10 @@ class _FakeRecorderChannel {
   final List<File> _createdFiles = [];
   final List<EventChannel> _eventChannels = [];
 
-  void _registerEventChannel(TestDefaultBinaryMessenger messenger, String name) {
+  void _registerEventChannel(
+    TestDefaultBinaryMessenger messenger,
+    String name,
+  ) {
     final channel = EventChannel(name);
     _eventChannels.add(channel);
     messenger.setMockStreamHandler(
@@ -90,7 +95,8 @@ class _FakeRecorderChannel {
 
   String _freshRealRecording() {
     final f = File(
-        '${Directory.systemTemp.path}/rec-${DateTime.now().microsecondsSinceEpoch}-${_createdFiles.length}.m4a');
+      '${Directory.systemTemp.path}/rec-${DateTime.now().microsecondsSinceEpoch}-${_createdFiles.length}.m4a',
+    );
     f.createSync();
     _createdFiles.add(f);
     return f.path;
@@ -115,9 +121,13 @@ class _FakeRecorderChannel {
             final id = (call.arguments as Map)['recorderId'] as String;
             _registerEventChannel(messenger, 'com.llfbandit.record/events/$id');
             _registerEventChannel(
-                messenger, 'com.llfbandit.record/eventsRecord/$id');
+              messenger,
+              'com.llfbandit.record/eventsRecord/$id',
+            );
             return null;
           case 'hasPermission':
+            final completer = permissionCompleter;
+            if (completer != null) return completer.future;
             return permission;
           case 'isEncoderSupported':
             return true;
@@ -154,9 +164,13 @@ class _FakeRecorderChannel {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(
-        const MethodChannel('com.llfbandit.record/messages'), null);
+      const MethodChannel('com.llfbandit.record/messages'),
+      null,
+    );
     messenger.setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/path_provider'), null);
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      null,
+    );
     for (final ch in _eventChannels) {
       messenger.setMockStreamHandler(ch, null);
     }
@@ -165,6 +179,25 @@ class _FakeRecorderChannel {
       if (f.existsSync()) f.deleteSync();
     }
     _createdFiles.clear();
+  }
+}
+
+class _FakeHapticChannel {
+  final List<String?> feedbackTypes = [];
+
+  void install() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            feedbackTypes.add(call.arguments as String?);
+          }
+          return null;
+        });
+  }
+
+  void remove() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
   }
 }
 
@@ -195,7 +228,9 @@ void _installGrantedMicPermission() {
 void _removeMicPermission() {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-          const MethodChannel('flutter.baseflow.com/permissions/methods'), null);
+        const MethodChannel('flutter.baseflow.com/permissions/methods'),
+        null,
+      );
 }
 
 MessageInputBuilderMethods _methods({
@@ -203,9 +238,11 @@ MessageInputBuilderMethods _methods({
 }) {
   return MessageInputBuilderMethods(
     sendTextMessage: ({required String text, List<String>? mentionedUsers}) {},
-    sendImageMessage: ({String? imagePath, String? imageName, dynamic inputElement}) {},
+    sendImageMessage:
+        ({String? imagePath, String? imageName, dynamic inputElement}) {},
     sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
-    sendFileMessage: ({String? filePath, String? fileName, dynamic inputElement}) {},
+    sendFileMessage:
+        ({String? filePath, String? fileName, dynamic inputElement}) {},
     sendVoiceMessage: ({required String voicePath, required int duration}) {
       onVoice(RecordInfo(path: voicePath, duration: duration));
     },
@@ -255,7 +292,8 @@ VoidCallback _suppressRecordEventChannelErrors() {
     final ex = details.exception;
     if (ex is MissingPluginException &&
         (details.toString().contains('com.llfbandit.record/events') ||
-            (details.context?.toString().contains('platform stream') ?? false))) {
+            (details.context?.toString().contains('platform stream') ??
+                false))) {
       return; // benign: unmockable per-recorder EventChannel
     }
     (previous ?? FlutterError.presentError)(details);
@@ -276,15 +314,19 @@ void main() {
 
   group('voice record UI (TencentCloudChatMessageInputRecording)', () {
     late _FakeRecorderChannel recorder;
+    late _FakeHapticChannel haptics;
     late VoidCallback restoreErrors;
 
     setUp(() {
       recorder = _FakeRecorderChannel();
       recorder.install();
+      haptics = _FakeHapticChannel();
+      haptics.install();
       restoreErrors = _suppressRecordEventChannelErrors();
     });
     tearDown(() {
       recorder.remove();
+      haptics.remove();
       restoreErrors();
     });
 
@@ -316,11 +358,22 @@ void main() {
 
         // Recorder was driven over the stubbed channel (real production calls).
         expect(recorder.methods, contains('hasPermission'));
-        expect(recorder.methods, contains('start'),
-            reason: 'startRecording must call the real recorder start');
+        expect(
+          recorder.methods,
+          contains('start'),
+          reason: 'startRecording must call the real recorder start',
+        );
+        expect(
+          haptics.feedbackTypes,
+          ['HapticFeedbackType.mediumImpact'],
+          reason: 'successful recording start needs tactile confirmation',
+        );
         // Production recording UI is live: the elapsed counter (mm:ss) renders.
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsOneWidget,
-            reason: 'recording state should render the elapsed counter');
+        expect(
+          find.textContaining(RegExp(r'^\d{2}:\d{2}$')),
+          findsOneWidget,
+          reason: 'recording state should render the elapsed counter',
+        );
         expect(finishCount, 0, reason: 'no send while still recording');
 
         // Stop so no timers/recorder leak past the test.
@@ -360,8 +413,16 @@ void main() {
         expect(recorder.methods, contains('start'));
         expect(recorder.methods, contains('stop'));
         // Cancel path: the voice-message callback must NOT fire.
-        expect(finished, isEmpty,
-            reason: 'slide-to-cancel must not emit a voice message');
+        expect(
+          finished,
+          isEmpty,
+          reason: 'slide-to-cancel must not emit a voice message',
+        );
+        expect(
+          haptics.feedbackTypes,
+          ['HapticFeedbackType.mediumImpact', 'HapticFeedbackType.heavyImpact'],
+          reason: 'cancel must feel distinct from normal completion',
+        );
       },
     );
 
@@ -392,88 +453,200 @@ void main() {
 
         // The production onRecordFinish fires with the recorded path; duration
         // is whole seconds (recorder ceils _recordingDuration/1000).
-        expect(finished, hasLength(1),
-            reason: 'normal release should emit exactly one voice message');
+        expect(
+          finished,
+          hasLength(1),
+          reason: 'normal release should emit exactly one voice message',
+        );
         expect(finished.single.path, '/tmp/voice-real-ui.m4a');
         expect(finished.single.duration, greaterThanOrEqualTo(0));
         expect(recorder.methods, contains('stop'));
+        expect(
+          haptics.feedbackTypes,
+          ['HapticFeedbackType.mediumImpact', 'HapticFeedbackType.lightImpact'],
+          reason: 'normal completion needs a light tactile confirmation',
+        );
       },
     );
+
+    testWidgets('dispose while recording removes the global pointer route', (
+      tester,
+    ) async {
+      useMobileSurface(tester);
+      final key = GlobalKey<TencentCloudChatMessageInputRecordingState>();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputRecording(
+            key: key,
+            isRecording: false,
+            onRecordFinish: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() async {
+        await key.currentState!.startRecording();
+      });
+      await tester.pump();
+
+      await tester.pumpWidget(_localized(child: const SizedBox.shrink()));
+      await tester.pump();
+
+      tester.binding.handlePointerEvent(
+        const PointerMoveEvent(position: Offset(1, 1)),
+      );
+      await tester.pump();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'disposed recording widgets must not leave a global route that reads a stale trashIconKey context',
+      );
+    });
+
+    testWidgets('startRecording abandons native continuation after dispose', (
+      tester,
+    ) async {
+      useMobileSurface(tester);
+      recorder.permissionCompleter = Completer<bool>();
+      final key = GlobalKey<TencentCloudChatMessageInputRecordingState>();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputRecording(
+            key: key,
+            isRecording: false,
+            onRecordFinish: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final startFuture = key.currentState!.startRecording();
+      await tester.pump();
+
+      await tester.pumpWidget(_localized(child: const SizedBox.shrink()));
+      await tester.pump();
+
+      Object? startError;
+      await tester.runAsync(() async {
+        recorder.permissionCompleter!.complete(true);
+        try {
+          await startFuture;
+        } catch (e) {
+          startError = e;
+        }
+      });
+      await tester.pump();
+
+      expect(
+        startError,
+        isNull,
+        reason: 'startRecording must stop quietly if its State was disposed',
+      );
+      expect(tester.takeException(), isNull);
+      expect(
+        recorder.methods,
+        isNot(contains('start')),
+        reason: 'a disposed recorder widget must not start native capture',
+      );
+    });
   });
 
   group('press-and-hold mic affordance (mobile composer)', () {
     late _FakeRecorderChannel recorder;
+    late _FakeHapticChannel haptics;
     late VoidCallback restoreErrors;
 
     setUp(() {
       recorder = _FakeRecorderChannel();
       recorder.install();
+      haptics = _FakeHapticChannel();
+      haptics.install();
       _installGrantedMicPermission();
       restoreErrors = _suppressRecordEventChannelErrors();
     });
     tearDown(() {
       recorder.remove();
+      haptics.remove();
       _removeMicPermission();
       restoreErrors();
     });
 
-    testWidgets(
-      'press-and-hold the mic starts the production recording state',
-      (tester) async {
-        useMobileSurface(tester);
-        final finished = <RecordInfo>[];
+    test('mobile composer dispose cancels a pending recording starter', () async {
+      final source = await File(
+        'third_party/chat-uikit-flutter/tencent_cloud_chat_message/lib/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart',
+      ).readAsString();
 
-        await tester.pumpWidget(
-          _localized(
-            child: TencentCloudChatMessageInputMobile(
-              // Inject the platform-mobile gate so _onStartRecording is
-              // reachable under `flutter test` (host OS is macOS, where the
-              // production TencentCloudChatPlatformAdapter().isMobile is
-              // false). Defaults to the real adapter in production.
-              debugIsMobile: () => true,
-              inputData: _data(),
-              inputMethods: _methods(onVoice: finished.add),
-            ),
+      expect(source, contains('_cancelPendingRecordingStarter();'));
+      expect(source, contains('_recordingStarter?.cancel();'));
+    });
+
+    testWidgets('press-and-hold the mic starts the production recording state', (
+      tester,
+    ) async {
+      useMobileSurface(tester);
+      final finished = <RecordInfo>[];
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            // Inject the platform-mobile gate so _onStartRecording is
+            // reachable under `flutter test` (host OS is macOS, where the
+            // production TencentCloudChatPlatformAdapter().isMobile is
+            // false). Defaults to the real adapter in production.
+            debugIsMobile: () => true,
+            inputData: _data(),
+            inputMethods: _methods(onVoice: finished.add),
           ),
-        );
-        await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Empty field -> the trailing affordance is the press-to-record mic.
-        final mic = find.byIcon(Icons.mic);
-        expect(mic, findsOneWidget);
+      // Empty field -> the trailing affordance is the press-to-record mic.
+      final mic = find.byIcon(Icons.mic);
+      expect(mic, findsOneWidget);
 
-        // Press and hold the REAL mic affordance. PointerDown -> the production
-        // _onStartRecording: it awaits the (mocked) permission gate, then arms a
-        // 100ms timer that calls startRecording() which does real
-        // getTemporaryDirectory + mkdir IO. Driving the gesture INSIDE runAsync
-        // makes that 100ms timer a real timer, so a real delay fires the whole
-        // chain. pumps stay OUTSIDE runAsync.
-        late TestGesture gesture;
-        await tester.runAsync(() async {
-          gesture = await tester.startGesture(tester.getCenter(mic));
-          await Future<void>.delayed(const Duration(milliseconds: 350));
-        });
-        // Render the recording state with a single pump() (recording runs a
-        // 10ms periodic timer, so the tree never settles).
-        await tester.pump();
+      // Press and hold the REAL mic affordance. PointerDown -> the production
+      // _onStartRecording: it awaits the (mocked) permission gate, then arms a
+      // 100ms timer that calls startRecording() which does real
+      // getTemporaryDirectory + mkdir IO. Driving the gesture INSIDE runAsync
+      // makes that 100ms timer a real timer, so a real delay fires the whole
+      // chain. pumps stay OUTSIDE runAsync.
+      late TestGesture gesture;
+      await tester.runAsync(() async {
+        gesture = await tester.startGesture(tester.getCenter(mic));
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      });
+      // Render the recording state with a single pump() (recording runs a
+      // 10ms periodic timer, so the tree never settles).
+      await tester.pump();
 
-        // The production recorder was started via _recordingWidgetKey.
-        expect(recorder.methods, contains('start'),
-            reason: 'holding the mic should start the real recorder');
-        // The composer swapped to the recording widget (IndexedStack index 1):
-        // the elapsed counter is visible.
-        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsOneWidget);
+      // The production recorder was started via _recordingWidgetKey.
+      expect(
+        recorder.methods,
+        contains('start'),
+        reason: 'holding the mic should start the real recorder',
+      );
+      // The composer swapped to the recording widget (IndexedStack index 1):
+      // the elapsed counter is visible.
+      expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsOneWidget);
 
-        // Release away from the trash icon -> normal-release stop (stopRecording
-        // does real recorder IO, so let it complete under runAsync too).
-        await tester.runAsync(() async {
-          await gesture.up();
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-        });
-        await tester.pumpAndSettle();
-        expect(recorder.methods, contains('stop'),
-            reason: 'releasing the mic should stop the real recorder');
-      },
-    );
+      // Release away from the trash icon -> normal-release stop (stopRecording
+      // does real recorder IO, so let it complete under runAsync too).
+      await tester.runAsync(() async {
+        await gesture.up();
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
+      expect(
+        recorder.methods,
+        contains('stop'),
+        reason: 'releasing the mic should stop the real recorder',
+      );
+    });
   });
 }

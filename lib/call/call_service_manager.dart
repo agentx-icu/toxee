@@ -14,6 +14,8 @@ import '../adapters/logger_adapter.dart';
 import '../util/logger.dart';
 import 'call_codec_profile.dart';
 import 'call_media_capabilities.dart';
+import 'call_media_interruption_controller.dart';
+import 'call_video_lifecycle_controller.dart';
 import 'call_quality_estimator.dart';
 import 'call_state_notifier.dart';
 import 'call_overlay_manager.dart';
@@ -31,6 +33,34 @@ import '../util/locale_controller.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
 
+@visibleForTesting
+bool callForegroundUsesCamera({
+  required CallMode mode,
+  required bool isVideoEnabled,
+  required bool supportsVideoCapture,
+  required bool isVideoCapturing,
+}) {
+  return mode == CallMode.video &&
+      isVideoEnabled &&
+      supportsVideoCapture &&
+      isVideoCapturing;
+}
+
+@visibleForTesting
+bool shouldShowIncomingCallNotificationFallbackNotice(
+  IncomingCallNotificationOutcome outcome,
+) {
+  return outcome == IncomingCallNotificationOutcome.inAppOnlyFallback ||
+      outcome == IncomingCallNotificationOutcome.failedFallback;
+}
+
+@visibleForTesting
+bool shouldOfferSettingsForIncomingCallNotificationFallback(
+  IncomingCallNotificationOutcome outcome,
+) {
+  return outcome == IncomingCallNotificationOutcome.inAppOnlyFallback;
+}
+
 /// Manages ToxAV service lifecycle and bridges events to CallStateNotifier.
 ///
 /// Supports two call paths:
@@ -38,7 +68,9 @@ import '../util/tox_utils.dart';
 ///   2. **Native ToxAV path** — direct toxav_call/answer/control (qTox interop)
 ///
 /// Native ToxAV calls use inviteIDs of the form `native_av_<friendNumber>`.
-class CallServiceManager implements CallOverlayManager {
+class CallServiceManager
+    with WidgetsBindingObserver
+    implements CallOverlayManager {
   final FfiChatService _chatService;
   final CallStateNotifier _callState;
   ToxAVService? _avService;
@@ -48,6 +80,10 @@ class CallServiceManager implements CallOverlayManager {
   final CallAudioPlatform _callAudioPlatform = CallAudioPlatform();
   final VideoHandler _videoHandler = VideoHandler();
   final RingtonePlayer _ringtone = RingtonePlayer();
+  final CallMediaInterruptionController _mediaInterruption =
+      CallMediaInterruptionController();
+  final CallVideoLifecycleController _videoLifecycle =
+      CallVideoLifecycleController();
   StreamSubscription<CallAudioEvent>? _audioPlatformSub;
 
   /// CallKit bridge (iOS only; no-op on every other platform). Surfaces the
@@ -159,13 +195,28 @@ class CallServiceManager implements CallOverlayManager {
   /// so an out-of-order end (e.g. ended before we ever entered inCall on
   /// the signaling path) doesn't leave the service stuck in phoneCall mode.
   bool _foregroundElevated = false;
+  bool? _foregroundUsesCamera;
+  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+
+  bool get _isAppForeground => _appLifecycleState == AppLifecycleState.resumed;
+
+  bool _foregroundCallUsesCamera() {
+    return callForegroundUsesCamera(
+      mode: _callState.mode,
+      isVideoEnabled: _callState.isVideoEnabled,
+      supportsVideoCapture: CallMediaCapabilities.supportsVideoCapture(),
+      isVideoCapturing: _videoHandler.isCapturing,
+    );
+  }
 
   /// Elevate the Android foreground service to `phoneCall` mode for the
   /// duration of the active call. Idempotent. Localized via the user's
   /// currently-selected locale (no [BuildContext] needed at this layer).
   void _elevateForegroundForCall() {
-    if (_foregroundElevated) return;
+    final usesCamera = _foregroundCallUsesCamera();
+    if (_foregroundElevated && _foregroundUsesCamera == usesCamera) return;
     _foregroundElevated = true;
+    _foregroundUsesCamera = usesCamera;
     try {
       final l10n = lookupAppLocalizations(AppLocale.locale.value);
       final callerName =
@@ -178,6 +229,7 @@ class CallServiceManager implements CallOverlayManager {
           title: l10n.runtimeForegroundCallTitle,
           body: body,
           settingsLabel: l10n.runtimeForegroundSettingsLabel,
+          usesCamera: usesCamera,
         ),
       );
     } catch (e, st) {
@@ -187,11 +239,17 @@ class CallServiceManager implements CallOverlayManager {
     }
   }
 
+  void _refreshForegroundForCall() {
+    if (!_foregroundElevated) return;
+    _elevateForegroundForCall();
+  }
+
   /// Restore the Android foreground service to dataSync mode at end-of-call.
   /// Idempotent — only fires if we previously elevated.
   void _restoreForegroundAfterCall() {
     if (!_foregroundElevated) return;
     _foregroundElevated = false;
+    _foregroundUsesCamera = null;
     try {
       final l10n = lookupAppLocalizations(AppLocale.locale.value);
       unawaited(
@@ -426,8 +484,76 @@ class CallServiceManager implements CallOverlayManager {
     // ended), so sample the friend's Tox transport state during active calls
     // and drive markReconnecting/clearReconnecting from the edges.
     _callState.addListener(_syncReconnectWatchdog);
+    WidgetsBinding.instance.addObserver(this);
 
     _initialized = true;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
+    final generation = _captureGeneration;
+    final inviteID = _callState.inviteID;
+    bool sameActiveVideoCall() {
+      return generation == _captureGeneration &&
+          inviteID != null &&
+          _callState.inviteID == inviteID &&
+          _hasActiveMediaCall &&
+          _callState.mode == CallMode.video &&
+          _callState.isVideoEnabled &&
+          CallMediaCapabilities.supportsVideoCapture();
+    }
+
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        unawaited(
+          _videoLifecycle
+              .suspend(
+                canSuspend: sameActiveVideoCall,
+                stopVideo: () async {
+                  await _videoHandler.stop();
+                  _refreshForegroundForCall();
+                },
+              )
+              .catchError((Object e, StackTrace st) {
+                AppLogger.warn(
+                  '[CallServiceManager] lifecycle camera suspend failed: $e',
+                );
+              }),
+        );
+        break;
+      case AppLifecycleState.resumed:
+        unawaited(
+          _videoLifecycle
+              .resume(
+                canResume: () =>
+                    _isAppForeground &&
+                    !_mediaInterruption.isSuspended &&
+                    sameActiveVideoCall(),
+                startVideo: () async {
+                  final friendNumber = _getActiveFriendNumber();
+                  final avService = _avService;
+                  if (friendNumber == null || avService == null) return;
+                  await _videoHandler.startCapture(friendNumber, avService);
+                  if (!_isAppForeground ||
+                      _mediaInterruption.isSuspended ||
+                      !sameActiveVideoCall()) {
+                    await _videoHandler.stop();
+                  }
+                  _refreshForegroundForCall();
+                },
+              )
+              .catchError((Object e, StackTrace st) {
+                AppLogger.warn(
+                  '[CallServiceManager] lifecycle camera resume failed: $e',
+                );
+              }),
+        );
+        break;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -483,16 +609,16 @@ class CallServiceManager implements CallOverlayManager {
   /// Report an incoming or outgoing call to CallKit so the system call UI
   /// shows up. iOS-only; no-op elsewhere. `_activeCallKitId` tracks the
   /// session id so subsequent connected/ended reports find the same record.
-  Future<void> _callKitReportRinging({
+  Future<bool> _callKitReportRinging({
     required String callId,
     required String displayName,
     required bool hasVideo,
     required bool incoming,
   }) async {
-    if (!_callKit.isSupported) return;
+    if (!_callKit.isSupported) return false;
     _activeCallKitId = callId;
     if (incoming) {
-      await _callKit.reportIncomingCall(
+      return _callKit.reportIncomingCall(
         callId: callId,
         displayName: displayName,
         hasVideo: hasVideo,
@@ -503,6 +629,7 @@ class CallServiceManager implements CallOverlayManager {
         displayName: displayName,
         hasVideo: hasVideo,
       );
+      return true;
     }
   }
 
@@ -517,6 +644,49 @@ class CallServiceManager implements CallOverlayManager {
     if (id == null || !_callKit.isSupported) return;
     _activeCallKitId = null;
     await _callKit.reportCallEnded(callId: id, reason: reason);
+  }
+
+  void _showAndroidIncomingCallSurface({
+    required String callId,
+    required String displayName,
+    required bool isVideo,
+  }) {
+    unawaited(
+      _showAndroidIncomingCallSurfaceAndHandleFallback(
+        callId: callId,
+        displayName: displayName,
+        isVideo: isVideo,
+      ),
+    );
+  }
+
+  Future<void> _showAndroidIncomingCallSurfaceAndHandleFallback({
+    required String callId,
+    required String displayName,
+    required bool isVideo,
+  }) async {
+    final outcome = await NotificationService.instance
+        .showIncomingCallNotification(
+          callId: callId,
+          displayName: displayName,
+          isVideo: isVideo,
+        );
+    if (!shouldShowIncomingCallNotificationFallbackNotice(outcome)) return;
+    if (_callState.inviteID != callId ||
+        _callState.state == CallUIState.idle ||
+        _callState.state == CallUIState.ended) {
+      return;
+    }
+    _emitLocalizedUiNotice(
+      (l10n) => l10n.callIncomingNotificationPermissionRequired,
+      offerSettings: shouldOfferSettingsForIncomingCallNotificationFallback(
+        outcome,
+      ),
+    );
+  }
+
+  void _cancelAndroidIncomingCallSurface() {
+    unawaited(NotificationService.instance.cancelIncomingCallNotification());
   }
 
   // ---------------------------------------------------------------------------
@@ -623,18 +793,26 @@ class CallServiceManager implements CallOverlayManager {
             // local camera is never advertised as on.
             _callState.disableLocalVideo();
           }
-          unawaited(
-            _callKitReportRinging(
-              callId: inviteID,
-              displayName: nickname ?? callInfo.inviter,
-              hasVideo: isVideo,
-              incoming: true,
-            ),
+          _showAndroidIncomingCallSurface(
+            callId: inviteID,
+            displayName: nickname ?? callInfo.inviter,
+            isVideo: isVideo,
           );
-          _ringtone.start(); // incoming call ringtone
+          final callKitHandled = await _callKitReportRinging(
+            callId: inviteID,
+            displayName: nickname ?? callInfo.inviter,
+            hasVideo: isVideo,
+            incoming: true,
+          );
+          if (!callKitHandled &&
+              _callState.state == CallUIState.ringing &&
+              _callState.inviteID == inviteID) {
+            unawaited(_ringtone.start());
+          }
         }
         break;
       case CallState.inCall:
+        _cancelAndroidIncomingCallSurface();
         _ringtone.stop();
         _callState.enterCall();
         unawaited(_callKitReportConnected());
@@ -729,15 +907,22 @@ class CallServiceManager implements CallOverlayManager {
       // camera is never advertised as on.
       _callState.disableLocalVideo();
     }
-    unawaited(
-      _callKitReportRinging(
-        callId: inviteID,
-        displayName: nickname ?? remoteUserID,
-        hasVideo: videoEnabled,
-        incoming: true,
-      ),
+    _showAndroidIncomingCallSurface(
+      callId: inviteID,
+      displayName: nickname ?? remoteUserID,
+      isVideo: videoEnabled,
     );
-    _ringtone.start();
+    final callKitHandled = await _callKitReportRinging(
+      callId: inviteID,
+      displayName: nickname ?? remoteUserID,
+      hasVideo: videoEnabled,
+      incoming: true,
+    );
+    if (!callKitHandled &&
+        _callState.state == CallUIState.ringing &&
+        _callState.inviteID == inviteID) {
+      unawaited(_ringtone.start());
+    }
   }
 
   /// Called when ToxAV call state changes (e.g. peer answered, peer hung up).
@@ -905,17 +1090,20 @@ class CallServiceManager implements CallOverlayManager {
         return;
       }
       if (_callState.mode == CallMode.video &&
+          _callState.isVideoEnabled &&
           CallMediaCapabilities.supportsVideoCapture()) {
         await _videoHandler.startCapture(friendNumber, avService);
         if (gen != _captureGeneration) {
           await _videoHandler.stop();
         }
+        _refreshForegroundForCall();
       }
     } catch (e) {
       debugPrint('[CallServiceManager] _startMediaCapture error: $e');
       // Best-effort cleanup if something blew up mid-init.
       await _audioHandler.stop();
       await _videoHandler.stop();
+      _refreshForegroundForCall();
     }
   }
 
@@ -926,6 +1114,10 @@ class CallServiceManager implements CallOverlayManager {
   /// leaving the audio/video handlers half-started.
   void _endCallCleanup() {
     _captureGeneration++;
+    _cancelAndroidIncomingCallSurface();
+    _mediaInterruption.cancel();
+    _videoLifecycle.cancel();
+    _videoHandler.resetCameraSelectionForNextCall();
     // Forget bitrate history so the next call starts at CallQuality.unknown
     // instead of inheriting the last call's last-seen value.
     _qualityEstimator.reset();
@@ -941,7 +1133,8 @@ class CallServiceManager implements CallOverlayManager {
     // so requesting camera permission would only block or reject an accept
     // that needs nothing but the microphone.
     final result = await CallPermissionHelper.requestPermissionsForCallDetailed(
-      isVideo: _callState.mode == CallMode.video &&
+      isVideo:
+          _callState.mode == CallMode.video &&
           CallMediaCapabilities.supportsVideoCapture(),
     );
     if (!result.granted) {
@@ -994,7 +1187,8 @@ class CallServiceManager implements CallOverlayManager {
   /// duplicate-ring suppression is intentionally silent).
   void _onCallSetupFailed(CallSetupFailureReason reason, List<String> userids) {
     AppLogger.warn(
-        '[CallServiceManager] call setup failed: $reason userids=${userids.length}');
+      '[CallServiceManager] call setup failed: $reason userids=${userids.length}',
+    );
     switch (reason) {
       case CallSetupFailureReason.preflightDenied:
         return;
@@ -1065,15 +1259,18 @@ class CallServiceManager implements CallOverlayManager {
           ? _callState.isSpeakerOn
           : state == CallUIState.ringing || _callState.mode == CallMode.video;
       await _callAudioPlatform.activateSession(preferSpeaker: preferSpeaker);
+      await _syncProximityMonitoring();
       return;
     }
 
+    await _callAudioPlatform.setProximityMonitoring(false);
     await _callAudioPlatform.deactivateSession();
   }
 
   @override
   Future<void> selectAudioRoute(String routeId) async {
     await _callAudioPlatform.selectRoute(routeId);
+    await _syncProximityMonitoring();
   }
 
   /// Most-recently-seen audio route kind. Tracked across `routeChanged`
@@ -1086,6 +1283,42 @@ class CallServiceManager implements CallOverlayManager {
     switch (event.kind) {
       case CallAudioEventKind.interruptionBegan:
       case CallAudioEventKind.focusLost:
+        _emitLocalizedUiNotice(
+          (l10n) => l10n.callAudioInterrupted,
+          offerSettings: false,
+        );
+        if (_hasActiveMediaCall) {
+          unawaited(
+            _mediaInterruption.suspend(_suspendMediaForInterruption).catchError(
+              (Object e, StackTrace st) {
+                AppLogger.warn(
+                  '[CallServiceManager] media interruption suspend failed: $e',
+                );
+              },
+            ),
+          );
+        }
+        break;
+      case CallAudioEventKind.focusDucked:
+        break;
+      case CallAudioEventKind.interruptionEnded:
+      case CallAudioEventKind.focusGained:
+        unawaited(
+          _mediaInterruption
+              .resume(
+                canResume: () => shouldResumeInterruptedCallMedia(
+                  event: event,
+                  hasActiveMediaCall: _hasActiveMediaCall,
+                ),
+                resumeMedia: _resumeMediaAfterInterruption,
+              )
+              .catchError((Object e, StackTrace st) {
+                AppLogger.warn(
+                  '[CallServiceManager] media interruption resume failed: $e',
+                );
+              }),
+        );
+        break;
       case CallAudioEventKind.noisy:
         _emitLocalizedUiNotice(
           (l10n) => l10n.callAudioInterrupted,
@@ -1110,10 +1343,79 @@ class CallServiceManager implements CallOverlayManager {
           );
         }
         _lastRouteKind = newKind;
+        unawaited(_syncProximityMonitoring());
+        break;
+      case CallAudioEventKind.state:
+        unawaited(_syncProximityMonitoring());
         break;
       default:
         break;
     }
+  }
+
+  bool get _hasActiveMediaCall =>
+      _callState.state == CallUIState.inCall ||
+      _callState.state == CallUIState.reconnecting;
+
+  Future<void> _syncProximityMonitoring() {
+    return _callAudioPlatform.setProximityMonitoring(
+      shouldEnableCallProximity(
+        isActiveMediaCall: _hasActiveMediaCall,
+        isVideoCall: _callState.mode == CallMode.video,
+        selectedRouteKind: _callAudioPlatform.state.value.selectedRoute?.kind,
+      ),
+    );
+  }
+
+  Future<void> _suspendMediaForInterruption() async {
+    await _audioHandler.stop();
+    await _videoHandler.stop();
+    _refreshForegroundForCall();
+  }
+
+  Future<void> _resumeMediaAfterInterruption() async {
+    final generation = _captureGeneration;
+    final inviteID = _callState.inviteID;
+    final friendNumber = _getActiveFriendNumber();
+    final avService = _avService;
+    if (!_hasActiveMediaCall || friendNumber == null || avService == null) {
+      return;
+    }
+    bool sameActiveCall() {
+      return generation == _captureGeneration &&
+          inviteID != null &&
+          _callState.inviteID == inviteID &&
+          _hasActiveMediaCall;
+    }
+
+    bool canResumeVideo() {
+      return sameActiveCall() &&
+          _isAppForeground &&
+          _callState.mode == CallMode.video &&
+          _callState.isVideoEnabled &&
+          CallMediaCapabilities.supportsVideoCapture();
+    }
+
+    await _audioHandler.startCapture(friendNumber, avService);
+    if (!sameActiveCall()) {
+      await _audioHandler.stop();
+      await _videoHandler.stop();
+      _refreshForegroundForCall();
+      return;
+    }
+    if (canResumeVideo()) {
+      await _videoHandler.startCapture(friendNumber, avService);
+      if (!sameActiveCall()) {
+        await _audioHandler.stop();
+        await _videoHandler.stop();
+        _refreshForegroundForCall();
+        return;
+      }
+      if (!canResumeVideo()) {
+        await _videoHandler.stop();
+      }
+    }
+    _refreshForegroundForCall();
   }
 
   int? _getActiveFriendNumber() {
@@ -1141,6 +1443,7 @@ class CallServiceManager implements CallOverlayManager {
       await rejectCall();
       return;
     }
+    _cancelAndroidIncomingCallSurface();
 
     if (_isNativeCall(inviteID)) {
       // Native ToxAV path — answer directly via toxav_answer
@@ -1155,8 +1458,8 @@ class CallServiceManager implements CallOverlayManager {
         // Audio-only profiles already carry videoBitRate 0.
         final sendVideoBitRate =
             isVideo && CallMediaCapabilities.supportsVideoCapture()
-                ? profile.videoBitRate
-                : 0;
+            ? profile.videoBitRate
+            : 0;
         await _avService!.answerCall(
           fn,
           audioBitRate: profile.audioBitRate,
@@ -1285,6 +1588,7 @@ class CallServiceManager implements CallOverlayManager {
     final preferSpeaker = _callState.isSpeakerOn;
     try {
       await _callAudioPlatform.activateSession(preferSpeaker: preferSpeaker);
+      await _syncProximityMonitoring();
     } catch (e) {
       AppLogger.warn(
         '[CallServiceManager] toggleSpeaker activateSession failed: $e',
@@ -1332,6 +1636,7 @@ class CallServiceManager implements CallOverlayManager {
 
     if (!_callState.isVideoEnabled) {
       await _videoHandler.stop();
+      _refreshForegroundForCall();
       return;
     }
 
@@ -1340,13 +1645,32 @@ class CallServiceManager implements CallOverlayManager {
         friendNumber != null &&
         _avService != null) {
       await _videoHandler.startCapture(friendNumber, _avService!);
+      _refreshForegroundForCall();
     }
+  }
+
+  @override
+  Future<void> switchCamera() {
+    final generation = _captureGeneration;
+    final inviteID = _callState.inviteID;
+    if (inviteID == null) return Future<void>.value();
+
+    return _videoHandler.switchCamera(
+      canSwitch: () =>
+          generation == _captureGeneration &&
+          _callState.inviteID == inviteID &&
+          _hasActiveMediaCall &&
+          _callState.mode == CallMode.video &&
+          _callState.isVideoEnabled &&
+          CallMediaCapabilities.supportsCameraSwitch(),
+    );
   }
 
   bool _avPollBoosted = false;
 
   void _syncAvPollBoost() {
-    final boost = _callState.state == CallUIState.ringing ||
+    final boost =
+        _callState.state == CallUIState.ringing ||
         _callState.state == CallUIState.inCall ||
         _callState.state == CallUIState.reconnecting;
     if (boost == _avPollBoosted) return;
@@ -1364,7 +1688,8 @@ class CallServiceManager implements CallOverlayManager {
   bool _watchdogMarkedReconnecting = false;
 
   void _syncReconnectWatchdog() {
-    final active = _callState.state == CallUIState.inCall ||
+    final active =
+        _callState.state == CallUIState.inCall ||
         _callState.state == CallUIState.reconnecting;
     if (active && _peerTransportWatchdog == null) {
       _peerTransportWatchdog = Timer.periodic(
@@ -1404,6 +1729,7 @@ class CallServiceManager implements CallOverlayManager {
   }
 
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callState.removeListener(_syncAvPollBoost);
     _callState.removeListener(_syncReconnectWatchdog);
     _peerTransportWatchdog?.cancel();
@@ -1413,6 +1739,7 @@ class CallServiceManager implements CallOverlayManager {
       _chatService.setAvSessionActive(false);
     }
     _ringtone.stop();
+    _cancelAndroidIncomingCallSurface();
     _ringtone.dispose();
     _audioHandler.stop();
     _videoHandler.stop();
@@ -1422,7 +1749,10 @@ class CallServiceManager implements CallOverlayManager {
     _audioPlatformSub?.cancel();
     _callKitSub?.cancel();
     _callKitSub = null;
-    unawaited(_callAudioPlatform.dispose());
+    unawaited(() async {
+      await _callAudioPlatform.setProximityMonitoring(false);
+      await _callAudioPlatform.dispose();
+    }());
     _nativeCallFriendNumbers.clear();
     _avService?.shutdown();
     _callBridge?.dispose();

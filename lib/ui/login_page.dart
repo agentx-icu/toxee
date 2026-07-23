@@ -9,6 +9,7 @@ import 'dart:io';
 
 // ignore: directives_ordering
 import 'widgets/safe_dialog_pop.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../util/app_spacing.dart';
@@ -28,6 +29,7 @@ import '../i18n/app_localizations.dart';
 import '../util/responsive_layout.dart';
 import '../util/app_theme_config.dart';
 import '../util/account_export_service.dart';
+import '../util/mobile_export_policy.dart';
 import 'testing/ui_keys.dart';
 
 import '../util/account_service.dart';
@@ -69,6 +71,9 @@ class LoginPage extends StatefulWidget {
     this.bootSession,
     this.teardownSession,
     this.exportAccount,
+    this.isDesktopExportPlatformOverride,
+    this.mobileExportSaveFile,
+    this.saveMobileExportCopyOverride,
   });
 
   final LoginUseCase? loginUseCase;
@@ -80,6 +85,15 @@ class LoginPage extends StatefulWidget {
   /// [AccountExportService.exportAccountData]; injected in widget tests so the
   /// export handler is observable without FFI / disk profile state.
   final _ExportAccountFn? exportAccount;
+
+  @visibleForTesting
+  final bool? isDesktopExportPlatformOverride;
+
+  @visibleForTesting
+  final MobileExportSaveFile? mobileExportSaveFile;
+
+  @visibleForTesting
+  final SaveMobileExportCopyFn? saveMobileExportCopyOverride;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -105,6 +119,9 @@ class _LoginPageState extends State<LoginPage> {
   late final _BootSessionFn _bootSession;
   late final _TeardownSessionFn _teardownSession;
   late final _ExportAccountFn _exportAccount;
+  late final bool _isDesktopExportPlatform;
+  late final MobileExportSaveFile _mobileExportSaveFile;
+  late final SaveMobileExportCopyFn _saveMobileExportCopy;
   final TextEditingController _manualHostController = TextEditingController();
   final TextEditingController _manualPortController = TextEditingController();
   final TextEditingController _manualPubkeyController = TextEditingController();
@@ -144,6 +161,22 @@ class _LoginPageState extends State<LoginPage> {
               toxId: toxId,
               password: password,
             );
+    _isDesktopExportPlatform = isDesktopExportPlatform(
+      override: widget.isDesktopExportPlatformOverride,
+    );
+    _mobileExportSaveFile =
+        widget.mobileExportSaveFile ??
+        ({
+          required String dialogTitle,
+          required String fileName,
+          required Uint8List bytes,
+        }) => FilePicker.platform.saveFile(
+          dialogTitle: dialogTitle,
+          fileName: fileName,
+          bytes: bytes,
+        );
+    _saveMobileExportCopy =
+        widget.saveMobileExportCopyOverride ?? saveMobileExportCopy;
     // Listen to text changes to update UI
     _nicknameController.addListener(() {
       if (mounted) setState(() {});
@@ -226,6 +259,8 @@ class _LoginPageState extends State<LoginPage> {
             obscureText: obscure,
             textAlignVertical: TextAlignVertical.center,
             keyboardType: TextInputType.visiblePassword,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.password],
             decoration: InputDecoration(
               labelText: AppLocalizations.of(context)!.password,
               prefixIcon: const Icon(Icons.lock_outline),
@@ -269,6 +304,8 @@ class _LoginPageState extends State<LoginPage> {
               obscureText: true,
               textAlignVertical: TextAlignVertical.center,
               keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.newPassword],
               decoration: InputDecoration(
                 labelText: AppLocalizations.of(context)!.password,
                 hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
@@ -281,6 +318,8 @@ class _LoginPageState extends State<LoginPage> {
               obscureText: true,
               textAlignVertical: TextAlignVertical.center,
               keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.newPassword],
               decoration: InputDecoration(
                 labelText: AppLocalizations.of(context)!.confirmPassword,
                 prefixIcon: const Icon(Icons.lock_outline),
@@ -715,19 +754,42 @@ class _LoginPageState extends State<LoginPage> {
     String toxId,
     String nickname,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
-      final filePath = await _exportAccount(toxId: toxId);
-      if (mounted) {
-        AppSnackBar.showSuccess(
-          context,
-          AppLocalizations.of(context)!.accountExportedSuccessfully(filePath),
+      final internalFilePath = await _exportAccount(toxId: toxId);
+      var filePath = internalFilePath;
+      MobileExportSaveResult? mobileSaveResult;
+      if (!_isDesktopExportPlatform) {
+        mobileSaveResult = await _saveMobileExportCopy(
+          internalFilePath: internalFilePath,
+          dialogTitle: l10n.exportAccount,
+          fileName: buildAccountExportFileName(
+            toxId: toxId,
+            nickname: nickname,
+            suffix: '.tox',
+          ),
+          saveFile: _mobileExportSaveFile,
         );
+        filePath =
+            mobileSaveResult.userSelectedPath ??
+            mobileSaveResult.internalFilePath;
+      }
+      if (mounted) {
+        if (mobileSaveResult?.disposition ==
+            MobileExportSaveDisposition.cancelled) {
+          AppSnackBar.showInfo(context, mobileSaveResult!.cancellationNotice);
+        } else {
+          AppSnackBar.showSuccess(
+            context,
+            l10n.accountExportedSuccessfully(filePath),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
         AppSnackBar.showError(
           context,
-          AppLocalizations.of(context)!.failedToExportAccount(e.toString()),
+          l10n.failedToExportAccount(e.toString()),
         );
       }
     }
@@ -763,6 +825,8 @@ class _LoginPageState extends State<LoginPage> {
                   controller: inputController,
                   obscureText: true,
                   keyboardType: TextInputType.visiblePassword,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.password],
                   decoration: InputDecoration(
                     labelText: AppLocalizations.of(ctx)!.password,
                     prefixIcon: const Icon(Icons.lock_outline),

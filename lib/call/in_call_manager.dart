@@ -17,6 +17,7 @@ abstract class InCallManager {
   Widget? get localPreview;
   Future<void> toggleMute();
   Future<void> toggleVideo();
+  Future<void> switchCamera();
   Future<void> toggleSpeaker();
   Future<void> hangUp();
   Future<void> selectAudioRoute(String routeId);

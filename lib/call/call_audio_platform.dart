@@ -3,12 +3,16 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-enum CallAudioRouteKind {
-  earpiece,
-  speaker,
-  wired,
-  bluetooth,
-  unknown,
+enum CallAudioRouteKind { earpiece, speaker, wired, bluetooth, unknown }
+
+bool shouldEnableCallProximity({
+  required bool isActiveMediaCall,
+  required bool isVideoCall,
+  required CallAudioRouteKind? selectedRouteKind,
+}) {
+  return isActiveMediaCall &&
+      !isVideoCall &&
+      selectedRouteKind == CallAudioRouteKind.earpiece;
 }
 
 class CallAudioRoute {
@@ -92,6 +96,7 @@ enum CallAudioEventKind {
   interruptionEnded,
   noisy,
   focusLost,
+  focusDucked,
   focusGained,
   unknown,
 }
@@ -99,10 +104,12 @@ enum CallAudioEventKind {
 class CallAudioEvent {
   final CallAudioEventKind kind;
   final CallAudioState? state;
+  final bool shouldResume;
 
   const CallAudioEvent({
     required this.kind,
     this.state,
+    this.shouldResume = true,
   });
 
   factory CallAudioEvent.fromMap(Map<dynamic, dynamic> map) {
@@ -110,6 +117,7 @@ class CallAudioEvent {
     return CallAudioEvent(
       kind: _kindFromString(map['type'] as String?),
       state: stateMap is Map ? CallAudioState.fromMap(stateMap) : null,
+      shouldResume: map['shouldResume'] as bool? ?? true,
     );
   }
 
@@ -127,6 +135,8 @@ class CallAudioEvent {
         return CallAudioEventKind.noisy;
       case 'focusLost':
         return CallAudioEventKind.focusLost;
+      case 'focusDucked':
+        return CallAudioEventKind.focusDucked;
       case 'focusGained':
         return CallAudioEventKind.focusGained;
       default:
@@ -135,19 +145,29 @@ class CallAudioEvent {
   }
 }
 
+bool shouldResumeInterruptedCallMedia({
+  required CallAudioEvent event,
+  required bool hasActiveMediaCall,
+}) {
+  if (!hasActiveMediaCall) return false;
+  return switch (event.kind) {
+    CallAudioEventKind.interruptionEnded => event.shouldResume,
+    CallAudioEventKind.focusGained => true,
+    _ => false,
+  };
+}
+
 class CallAudioPlatform {
-  CallAudioPlatform({
-    MethodChannel? methodChannel,
-    EventChannel? eventChannel,
-  })  : _methodChannel = methodChannel ??
-            const MethodChannel('toxee/call_audio'),
-        _eventChannel = eventChannel ??
-            const EventChannel('toxee/call_audio_events');
+  CallAudioPlatform({MethodChannel? methodChannel, EventChannel? eventChannel})
+    : _methodChannel = methodChannel ?? const MethodChannel('toxee/call_audio'),
+      _eventChannel =
+          eventChannel ?? const EventChannel('toxee/call_audio_events');
 
   final MethodChannel _methodChannel;
   final EventChannel _eventChannel;
-  final ValueNotifier<CallAudioState> state =
-      ValueNotifier(const CallAudioState());
+  final ValueNotifier<CallAudioState> state = ValueNotifier(
+    const CallAudioState(),
+  );
   final StreamController<CallAudioEvent> _events =
       StreamController<CallAudioEvent>.broadcast();
   StreamSubscription<dynamic>? _eventSubscription;
@@ -164,8 +184,8 @@ class CallAudioPlatform {
     }
     try {
       _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
-            _handleNativeEvent,
-          );
+        _handleNativeEvent,
+      );
       await refreshState();
     } on MissingPluginException {
       // Native bridge is unavailable in non-mobile test/runtime environments.
@@ -173,10 +193,9 @@ class CallAudioPlatform {
   }
 
   Future<void> activateSession({required bool preferSpeaker}) async {
-    await _invokeAndUpdateState(
-      'activateSession',
-      <String, dynamic>{'preferSpeaker': preferSpeaker},
-    );
+    await _invokeAndUpdateState('activateSession', <String, dynamic>{
+      'preferSpeaker': preferSpeaker,
+    });
   }
 
   Future<void> deactivateSession() async {
@@ -188,10 +207,21 @@ class CallAudioPlatform {
   }
 
   Future<void> selectRoute(String routeId) async {
-    await _invokeAndUpdateState(
-      'setRoute',
-      <String, dynamic>{'routeId': routeId},
-    );
+    await _invokeAndUpdateState('setRoute', <String, dynamic>{
+      'routeId': routeId,
+    });
+  }
+
+  Future<void> setProximityMonitoring(bool enabled) async {
+    if (!isSupported) return;
+    try {
+      await _methodChannel.invokeMethod<void>(
+        'setProximityMonitoring',
+        <String, dynamic>{'enabled': enabled},
+      );
+    } on MissingPluginException {
+      // Native bridge is unavailable in non-mobile test/runtime environments.
+    }
   }
 
   Future<void> _invokeAndUpdateState(
@@ -202,8 +232,10 @@ class CallAudioPlatform {
       return;
     }
     try {
-      final result =
-          await _methodChannel.invokeMethod<dynamic>(method, arguments);
+      final result = await _methodChannel.invokeMethod<dynamic>(
+        method,
+        arguments,
+      );
       if (result is Map) {
         state.value = CallAudioState.fromMap(result);
       }

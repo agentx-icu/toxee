@@ -44,6 +44,7 @@ import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conve
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message.dart'
     as msg_pkg;
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/tencent_cloud_chat_message_input.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_camera.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_widgets/tencent_cloud_chat_message_item_builders.dart';
 import 'package:tencent_cloud_chat_common/components/components_definition/tencent_cloud_chat_component_builder_definitions.dart';
 import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart'
@@ -98,6 +99,9 @@ import 'settings/settings_page.dart';
 import 'settings/sidebar.dart';
 import 'applications/applications_page.dart';
 import 'home/home_utils.dart';
+import 'home/mobile_attachment_policy.dart';
+import 'home/profile_send_message_navigation.dart';
+import 'home/tim2tox_plugin_policy.dart';
 import 'home/toxee_message_header_info.dart';
 import 'home/auto_accept_apply.dart';
 import '../util/app_theme_config.dart';
@@ -123,6 +127,7 @@ import 'widgets/app_page_route.dart';
 import 'widgets/app_snackbar.dart';
 import 'package:window_manager/window_manager.dart';
 import '../notifications/notification_message_listener.dart';
+import '../notifications/notification_payload.dart';
 import '../notifications/notification_service.dart';
 import 'testing/ui_keys.dart';
 import 'testing/l3_debug_tools.dart';
@@ -387,11 +392,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     TencentCloudChatContactAppBarName.trailingBuilder = newEntryHook;
     _bag.add(() {
       if (identical(
-          TencentCloudChatConversationAppBarName.trailingBuilder, newEntryHook)) {
+        TencentCloudChatConversationAppBarName.trailingBuilder,
+        newEntryHook,
+      )) {
         TencentCloudChatConversationAppBarName.trailingBuilder = null;
       }
       if (identical(
-          TencentCloudChatContactAppBarName.trailingBuilder, newEntryHook)) {
+        TencentCloudChatContactAppBarName.trailingBuilder,
+        newEntryHook,
+      )) {
         TencentCloudChatContactAppBarName.trailingBuilder = null;
       }
     });
@@ -783,6 +792,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String? userId,
     String? groupId,
     required _MediaPickType type,
+    String? selectedPath,
   }) async {
     final appL10n = AppLocalizations.of(context)!;
     final label = switch (type) {
@@ -809,15 +819,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     try {
-      final path = await runL3AwareAttachmentPicker(
-        pickFile: () async => (await FilePicker.platform.pickFiles(
-          type: switch (type) {
-            _MediaPickType.file => FileType.any,
-            _MediaPickType.image => FileType.image,
-            _MediaPickType.video => FileType.video,
-          },
-        ))?.files.single.path,
-      );
+      final path =
+          selectedPath ??
+          await runL3AwareAttachmentPicker(
+            pickFile: () async => (await FilePicker.platform.pickFiles(
+              type: switch (type) {
+                _MediaPickType.file => FileType.any,
+                _MediaPickType.image => FileType.image,
+                _MediaPickType.video => FileType.video,
+              },
+            ))?.files.single.path,
+          );
       if (path == null || path.isEmpty) {
         _showSnackBar(appL10n.noLabelSelected(label));
         return;
@@ -875,6 +887,54 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _showCameraMediaOptions(
+    BuildContext context, {
+    String? userId,
+    String? groupId,
+  }) async {
+    if ((userId == null || userId.isEmpty) &&
+        (groupId == null || groupId.isEmpty)) {
+      final current = UikitDataFacade.currentConversation;
+      userId = current?.userID;
+      groupId = current?.groupID;
+    }
+
+    final cameraLabel =
+        TencentCloudChatLocalizations.of(context)?.camera ?? 'Camera';
+    if (groupId != null && groupId.isNotEmpty) {
+      _showSnackBar(
+        AppLocalizations.of(context)!.sendingToGroupsNotSupported(cameraLabel),
+      );
+      return;
+    }
+
+    await TencentCloudChatMessageCamera.showCameraOptions(
+      context: context,
+      onSendImage: ({required String imagePath}) {
+        if (!mounted) return;
+        unawaited(
+          _sendMedia(
+            context,
+            userId: userId,
+            type: _MediaPickType.image,
+            selectedPath: imagePath,
+          ),
+        );
+      },
+      onSendVideo: ({required String videoPath}) {
+        if (!mounted) return;
+        unawaited(
+          _sendMedia(
+            context,
+            userId: userId,
+            type: _MediaPickType.video,
+            selectedPath: videoPath,
+          ),
+        );
+      },
+    );
+  }
+
   Future<String> _createSelfQrCardImage() async {
     final nick = await Prefs.getNickname();
     final avatarPath = await Prefs.getAvatarPath();
@@ -918,7 +978,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // button. `_sendMedia(type: file)` opens the OS picker with FileType.any, so
     // it already sends images, videos and every other file type — the separate
     // photo/video buttons were removed to declutter the desktop toolbar. Mobile
-    // keeps its own photo/video attachment options (see home_page_bootstrap).
+    // exposes File plus Camera, with camera results routed back through
+    // [_sendMedia] so both surfaces share the same send/offline behavior.
     final options = <TencentCloudChatMessageGeneralOptionItem>[
       TencentCloudChatMessageGeneralOptionItem(
         icon: Icons.attach_file,
@@ -1070,49 +1131,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     if (!_globalAdapterInited) {
       try {
-        // Set contact event handlers for navigation
-        // Note: onNavigateToChat is an alias for onTapContactItem (getter that returns _onTapContactItem)
+        // Set contact event handlers for navigation. The fork exposes two
+        // slots: onTapContactItem (contact/group ROW taps) and
+        // onNavigateToChat (profile "Send a message" tiles; falls back to
+        // onTapContactItem only when no dedicated handler is registered).
         UikitDataFacade
             .contactEventHandlers = TencentCloudChatContactEventHandlers(
           uiEventHandlers: TencentCloudChatContactUIEventHandlers(
+            // A contact/group ROW tap in a list: users open their profile,
+            // groups open the group chat. Profile "Send a message" tiles no
+            // longer arrive here — they fire the dedicated onNavigateToChat
+            // slot below. The old single-slot design (onNavigateToChat aliased
+            // onTapContactItem in the UIKit fork) forced this handler to guess
+            // the firing surface via _inContactProfileContext, and the guess
+            // broke for profiles pushed from the chat-header avatar (which
+            // never set the flag): "Send a message" was misread as a row tap
+            // and pushed profile pages in an endless loop.
             onTapContactItem: ({String? userID, String? groupID}) async {
-              // Handle navigation from contact list and profile page "Send Message" button.
               if (userID != null) {
-                // Explicit state field replaces the old `Navigator.canPop()`
-                // heuristic: the latter mis-fired whenever any other route
-                // (search, settings push, etc.) happened to be on the stack
-                // and would pop the wrong page on a contact-list tap.
-                if (_inContactProfileContext) {
-                  // Swallow a near-instant re-entry: a synthetic double-tap (or
-                  // a harness firing onTap twice) would otherwise pop the profile
-                  // we JUST opened straight back to the chat. A genuine "Send
-                  // Message" tap from inside the profile lands far later.
-                  if (_profileJustOpened) {
-                    return true; // swallow the immediate second fire
-                  }
-                  // We're inside a profile page — this is "Send Message".
-                  // Close the profile, switch to chats tab, open 1:1 chat.
-                  Navigator.of(context).pop();
-                  setState(() {
-                    _index = 0;
-                    _inContactProfileContext = false;
-                  });
-                  _selectConversation(peerId: userID);
-                  return true; // Handled, prevent default navigation
-                } else {
-                  // Contact list tap → show profile on the right side.
-                  _showUserProfileOnRight(context, userID);
-                  return true; // Handled, prevent default navigation
+                // Swallow synthetic double-taps (harness firing onTap twice)
+                // and re-entry while a profile is already up — a second
+                // _showUserProfileOnRight would stack profile routes.
+                if (_profileJustOpened || _inContactProfileContext) {
+                  return true;
                 }
+                _showUserProfileOnRight(context, userID);
+                return true; // Handled, prevent default navigation
               } else if (groupID != null) {
-                // For groups, still switch to chats tab and open group chat
-                setState(() {
-                  _index = 0;
-                });
-                _selectConversation(groupId: groupID);
+                // _openChat (not _selectConversation) so compact layouts push
+                // the message route — binding alone is a no-op there.
+                _openChat(groupId: groupID);
                 return true; // Handled, prevent default navigation
               }
               return false;
+            },
+            // A profile surface's "Send a message" tile (user profile chat
+            // button, group profile chat button): close the profile and open
+            // the chat — regardless of whether the profile was pushed from the
+            // contacts tab, the chat-header avatar, or a message-row avatar.
+            // Policy lives in handleProfileSendMessage (L1-tested).
+            onNavigateToChat: ({String? userID, String? groupID}) async {
+              final handled = handleProfileSendMessage(
+                Navigator.of(context),
+                isCompactLayout: !ResponsiveLayout.shouldShowMasterDetail(
+                  context,
+                ),
+                openChat: ({String? peerId, String? groupId}) =>
+                    _openChat(peerId: peerId, groupId: groupId),
+                userID: userID,
+                groupID: groupID,
+              );
+              if (handled) {
+                _inContactProfileContext = false;
+              }
+              return handled;
             },
           ),
         );
@@ -1155,6 +1227,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 try {
                   UikitDataFacade.setConversationConfig(
+                    useDesktopMode: showMasterDetail,
                     forceDesktopLayout: showMasterDetail,
                   );
                 } catch (_) {
@@ -1907,10 +1980,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Show user profile page - uses router which handles desktop/mobile modes.
   ///
   /// Sets `_inContactProfileContext = true` while the profile route is on
-  /// screen so `_onTapContactItem` can distinguish a Send Message tap from
-  /// inside the profile from a contact-list tap on the underlying tab.
-  /// The flag is cleared after the route returns; `_onTapContactItem` also
-  /// clears it on the Send-Message path (it pops the profile itself).
+  /// screen so `onTapContactItem` can swallow re-entrant row taps (synthetic
+  /// double-taps) instead of stacking a second profile route. The flag is
+  /// cleared when the route returns; the `onNavigateToChat` handler also
+  /// clears it on the Send-a-message path (it pops the profile itself).
   void _showUserProfileOnRight(BuildContext context, String userID) {
     _inContactProfileContext = true;
     // Guard briefly against the double-fire's second onTapContactItem; clear

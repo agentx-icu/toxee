@@ -117,6 +117,43 @@ test_workflow_does_not_use_secrets_in_if_conditions() {
   fi
 }
 
+test_ios_workflow_passes_staged_framework_to_xcode() {
+  echo "[test] iOS workflow passes staged framework to Xcode"
+  local workflow="$ROOT/.github/workflows/build-packages.yml"
+  local ios_job build_step
+  ios_job="$(awk '
+    /^  ios:/ { in_ios = 1 }
+    in_ios { print }
+    /^  publish:/ { exit }
+  ' "$workflow")"
+  build_step="$(awk '
+    /^[[:space:]]*- name: Build iOS app$/ { in_step = 1 }
+    in_step && /^[[:space:]]*- name: Package iOS artifacts$/ { exit }
+    in_step { print }
+  ' <<<"$ios_job")"
+
+  line_number_for() {
+    local text="$1"
+    local pattern="$2"
+    printf '%s\n' "$text" | rg -n "$pattern" | cut -d: -f1 | head -n 1 || true
+  }
+
+  local stage_line build_step_line export_line missing_check_line flutter_build_line
+  stage_line="$(line_number_for "$ios_job" 'tool/ci/build_tim2tox\.sh --target ios')"
+  build_step_line="$(line_number_for "$ios_job" '^[[:space:]]*- name: Build iOS app$')"
+  export_line="$(line_number_for "$build_step" 'export TIM2TOX_IOS_FRAMEWORK_PATH="\$PWD/build/native-artifacts/ios/tim2tox_ffi\.framework"')"
+  missing_check_line="$(line_number_for "$build_step" 'staged Tim2Tox iOS framework missing')"
+  flutter_build_line="$(line_number_for "$build_step" 'flutter build ios --release')"
+
+  [[ -n "$stage_line" ]] || fail "iOS workflow does not stage Tim2Tox artifacts before building"
+  [[ -n "$build_step_line" ]] || fail "iOS workflow is missing the Build iOS app step"
+  [[ -n "$export_line" ]] || fail "Build iOS app step does not export the staged Tim2Tox framework path"
+  [[ -n "$missing_check_line" ]] || fail "Build iOS app step does not fail early when the staged framework is missing"
+  [[ -n "$flutter_build_line" ]] || fail "Build iOS app step does not run flutter build ios"
+  (( stage_line < build_step_line )) || fail "iOS workflow stages Tim2Tox after the iOS app build step"
+  (( export_line < flutter_build_line )) || fail "Build iOS app step exports TIM2TOX_IOS_FRAMEWORK_PATH after flutter build ios"
+}
+
 test_analyze_workflow_tolerates_existing_warnings() {
   echo "[test] analyze workflow is non-fatal for existing warnings"
   rg -n 'flutter analyze lib tool --no-fatal-warnings --no-fatal-infos' "$ROOT/.github/workflows/analyze.yml" >/dev/null || \
@@ -278,6 +315,7 @@ test_linux_packaging_supports_deb_and_rpm_installers
 test_ios_unsigned_build_is_packaged_as_validation_ipa
 test_ios_signed_build_is_packaged_as_ipa
 test_workflow_does_not_use_secrets_in_if_conditions
+test_ios_workflow_passes_staged_framework_to_xcode
 test_analyze_workflow_tolerates_existing_warnings
 test_desktop_release_workflow_uses_multi_arch_installers
 test_release_publish_filters_non_installable_mobile_assets

@@ -576,6 +576,11 @@ jobs:
 
       - name: Build iOS app
         run: |
+          export TIM2TOX_IOS_FRAMEWORK_PATH="$PWD/build/native-artifacts/ios/tim2tox_ffi.framework"
+          if [[ ! -d "$TIM2TOX_IOS_FRAMEWORK_PATH" ]]; then
+            echo "error: staged Tim2Tox iOS framework missing: $TIM2TOX_IOS_FRAMEWORK_PATH" >&2
+            exit 1
+          fi
           if [[ "${IOS_SIGNING_READY:-false}" == "true" ]]; then
             flutter build ios --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
           else

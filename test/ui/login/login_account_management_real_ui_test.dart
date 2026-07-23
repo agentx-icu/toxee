@@ -45,6 +45,7 @@ import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localiz
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/util/mobile_export_policy.dart';
 import 'package:toxee/util/prefs.dart';
 
 const _exportOptionKey = Key('login_account_management_export_option');
@@ -54,7 +55,10 @@ const _deleteConfirmButtonKey = Key('login_delete_account_confirm_button');
 
 Widget _pumpableLoginPage({
   Future<String> Function({required String toxId, String? password})?
-      exportAccount,
+  exportAccount,
+  bool? isDesktopExportPlatformOverride,
+  MobileExportSaveFile? mobileExportSaveFile,
+  SaveMobileExportCopyFn? saveMobileExportCopyOverride,
 }) {
   return MaterialApp(
     localizationsDelegates: const [
@@ -65,7 +69,12 @@ Widget _pumpableLoginPage({
       GlobalCupertinoLocalizations.delegate,
     ],
     supportedLocales: const [Locale('en')],
-    home: LoginPage(exportAccount: exportAccount),
+    home: LoginPage(
+      exportAccount: exportAccount,
+      isDesktopExportPlatformOverride: isDesktopExportPlatformOverride,
+      mobileExportSaveFile: mobileExportSaveFile,
+      saveMobileExportCopyOverride: saveMobileExportCopyOverride,
+    ),
   );
 }
 
@@ -126,10 +135,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   final secureStore = <String, String>{};
-  const secureChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
-  const pathProviderChannel =
-      MethodChannel('plugins.flutter.io/path_provider');
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
   setUp(() {
     secureStore.clear();
@@ -161,8 +170,9 @@ void main() {
     // _confirmDeleteAccountFromLoginPage -> AccountService.deleteAccountWithout
     // Service touches AppPaths (path_provider) when removing the profile/data
     // dirs; mock to a temp path so it no-ops cleanly.
-    messenger.setMockMethodCallHandler(pathProviderChannel,
-        (MethodCall call) async {
+    messenger.setMockMethodCallHandler(pathProviderChannel, (
+      MethodCall call,
+    ) async {
       return '${Directory.systemTemp.path}/login_acct_mgmt_test';
     });
   });
@@ -197,10 +207,16 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
 
-        expect(find.byKey(_exportOptionKey), findsOneWidget,
-            reason: 'Export option must render in the management sheet');
-        expect(find.byKey(_deleteOptionKey), findsOneWidget,
-            reason: 'Delete option must render in the management sheet');
+        expect(
+          find.byKey(_exportOptionKey),
+          findsOneWidget,
+          reason: 'Export option must render in the management sheet',
+        );
+        expect(
+          find.byKey(_deleteOptionKey),
+          findsOneWidget,
+          reason: 'Delete option must render in the management sheet',
+        );
         // The sheet title shows the account nickname.
         expect(find.text('Alice'), findsWidgets);
       },
@@ -222,8 +238,11 @@ void main() {
           find.byKey(UiKeys.loginPageAccountCard(toxId)),
         );
 
-        expect(find.byKey(_exportOptionKey), findsOneWidget,
-            reason: 'Right-click must open the management sheet with Export');
+        expect(
+          find.byKey(_exportOptionKey),
+          findsOneWidget,
+          reason: 'Right-click must open the management sheet with Export',
+        );
         expect(find.byKey(_deleteOptionKey), findsOneWidget);
       },
     );
@@ -259,10 +278,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         // The production handler invoked the export seam with the row's toxId.
-        expect(exportedToxId, toxId,
-            reason:
-                'Export must call the export handler with the selected account '
-                'toxId');
+        expect(
+          exportedToxId,
+          toxId,
+          reason:
+              'Export must call the export handler with the selected account '
+              'toxId',
+        );
         // And surfaced the success SnackBar carrying the returned file path.
         expect(
           find.textContaining('exported successfully'),
@@ -303,13 +325,91 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
 
-        expect(invoked, isTrue,
-            reason: 'The production export handler must have run');
+        expect(
+          invoked,
+          isTrue,
+          reason: 'The production export handler must have run',
+        );
         expect(
           find.textContaining(RegExp('Failed to export', caseSensitive: false)),
           findsOneWidget,
           reason: 'A throwing export must surface the failure SnackBar',
         );
+      },
+    );
+
+    testWidgets(
+      'mobile export keeps the internal copy and saves bytes through the picker',
+      (tester) async {
+        const toxId =
+            '1212121212121212121212121212121212121212121212121212121212121212';
+        final internalFile = File(
+          '${Directory.systemTemp.path}/login_mobile_export_${DateTime.now().microsecondsSinceEpoch}.tox',
+        );
+        addTearDown(() {
+          if (internalFile.existsSync()) internalFile.deleteSync();
+        });
+        Uint8List? savedBytes;
+        String? seenFileName;
+        await initAccounts([
+          {'toxId': toxId, 'nickname': 'Mobile Alice', 'statusMessage': ''},
+        ]);
+        await _pumpAndLoad(
+          tester,
+          _pumpableLoginPage(
+            isDesktopExportPlatformOverride: false,
+            exportAccount: ({required String toxId, String? password}) async {
+              internalFile.writeAsBytesSync(const <int>[6, 7, 8]);
+              return internalFile.path;
+            },
+            mobileExportSaveFile:
+                ({
+                  required String dialogTitle,
+                  required String fileName,
+                  required Uint8List bytes,
+                }) async {
+                  seenFileName = fileName;
+                  savedBytes = bytes;
+                  return '/user-visible/$fileName';
+                },
+            saveMobileExportCopyOverride:
+                ({
+                  required internalFilePath,
+                  required dialogTitle,
+                  required fileName,
+                  required saveFile,
+                }) async {
+                  final bytes = File(internalFilePath).readAsBytesSync();
+                  final userSelectedPath = await saveFile(
+                    dialogTitle: dialogTitle,
+                    fileName: fileName,
+                    bytes: bytes,
+                  );
+                  return MobileExportSaveResult(
+                    disposition: userSelectedPath == null
+                        ? MobileExportSaveDisposition.cancelled
+                        : MobileExportSaveDisposition.exported,
+                    internalFilePath: internalFilePath,
+                    userSelectedPath: userSelectedPath,
+                  );
+                },
+          ),
+        );
+
+        await tester.longPress(find.byKey(UiKeys.loginPageAccountCard(toxId)));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        await tester.tap(find.byKey(_exportOptionKey));
+        for (var i = 0; i < 20 && seenFileName == null; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        expect(seenFileName, 'Mobile Alice_12121212.tox');
+        expect(savedBytes, Uint8List.fromList(const <int>[6, 7, 8]));
+        expect(internalFile.existsSync(), isTrue);
+        expect(find.textContaining('/user-visible/'), findsOneWidget);
       },
     );
   });
@@ -334,8 +434,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(find.byKey(_deleteConfirmInputKey), findsOneWidget,
-            reason: 'No-password account must show the confirm-word input');
+        expect(
+          find.byKey(_deleteConfirmInputKey),
+          findsOneWidget,
+          reason: 'No-password account must show the confirm-word input',
+        );
         // The dialog copy embeds the required word ("delete") via
         // deleteAccountConfirmWordPrompt('delete').
         expect(
@@ -362,20 +465,23 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
 
-        await tester.enterText(
-          find.byKey(_deleteConfirmInputKey),
-          'nope',
-        );
+        await tester.enterText(find.byKey(_deleteConfirmInputKey), 'nope');
         await tester.pump();
         await tester.tap(find.byKey(_deleteConfirmButtonKey));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
 
         // Wrong word -> error SnackBar, dialog stays open, account not removed.
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'A wrong word must keep the confirm dialog open');
-        expect(await Prefs.getAccountByToxId(toxId), isNotNull,
-            reason: 'A wrong confirm word must NOT delete the account');
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'A wrong word must keep the confirm dialog open',
+        );
+        expect(
+          await Prefs.getAccountByToxId(toxId),
+          isNotNull,
+          reason: 'A wrong confirm word must NOT delete the account',
+        );
       },
     );
 
@@ -412,67 +518,84 @@ void main() {
 
         // The production deleteAccountWithoutService ran -> account gone from
         // Prefs and the card removed from the rebuilt list.
-        expect(find.byType(AlertDialog), findsNothing,
-            reason: 'A correct word must dismiss the dialog');
-        expect(await Prefs.getAccountByToxId(toxId), isNull,
-            reason: 'The correct confirm word must delete the account');
-        expect(find.byKey(UiKeys.loginPageAccountCard(toxId)), findsNothing,
-            reason: 'The deleted account card must disappear from the list');
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason: 'A correct word must dismiss the dialog',
+        );
+        expect(
+          await Prefs.getAccountByToxId(toxId),
+          isNull,
+          reason: 'The correct confirm word must delete the account',
+        );
+        expect(
+          find.byKey(UiKeys.loginPageAccountCard(toxId)),
+          findsNothing,
+          reason: 'The deleted account card must disappear from the list',
+        );
       },
     );
   });
 
   group('LoginPage account delete — password-protected', () {
-    testWidgets(
-      'a WRONG password is rejected; the account stays in the list',
-      (tester) async {
-        const toxId =
-            '2222222222222222222222222222222222222222222222222222222222222222';
-        await initAccounts([
-          {'toxId': toxId, 'nickname': 'Heidi', 'statusMessage': ''},
-        ]);
-        // Seed a real password (PBKDF2) on the real event loop.
-        await tester.runAsync(() async {
-          final ok = await Prefs.setAccountPassword(toxId, 'correct-pw');
-          expect(ok, isTrue);
-        });
-        await _pumpAndLoad(tester, _pumpableLoginPage());
+    testWidgets('a WRONG password is rejected; the account stays in the list', (
+      tester,
+    ) async {
+      const toxId =
+          '2222222222222222222222222222222222222222222222222222222222222222';
+      await initAccounts([
+        {'toxId': toxId, 'nickname': 'Heidi', 'statusMessage': ''},
+      ]);
+      // Seed a real password (PBKDF2) on the real event loop.
+      await tester.runAsync(() async {
+        final ok = await Prefs.setAccountPassword(toxId, 'correct-pw');
+        expect(ok, isTrue);
+      });
+      await _pumpAndLoad(tester, _pumpableLoginPage());
 
-        await tester.longPress(find.byKey(UiKeys.loginPageAccountCard(toxId)));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
-        // Delete -> _confirmDeleteAccountFromLoginPage first awaits
-        // hasAccountPassword; run that open inside runAsync.
-        await _tapAndAwait(
-          tester,
-          trigger: find.byKey(_deleteOptionKey),
-          isDone: () => find.byType(AlertDialog).evaluate().isNotEmpty,
-        );
+      await tester.longPress(find.byKey(UiKeys.loginPageAccountCard(toxId)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      // Delete -> _confirmDeleteAccountFromLoginPage first awaits
+      // hasAccountPassword; run that open inside runAsync.
+      await _tapAndAwait(
+        tester,
+        trigger: find.byKey(_deleteOptionKey),
+        isDone: () => find.byType(AlertDialog).evaluate().isNotEmpty,
+      );
 
-        // Password-protected branch shows the password input (obscured).
-        final input = find.byKey(_deleteConfirmInputKey);
-        expect(input, findsOneWidget);
-        expect(tester.widget<TextField>(input).obscureText, isTrue,
-            reason: 'Password-delete branch must obscure the input');
+      // Password-protected branch shows the password input (obscured).
+      final input = find.byKey(_deleteConfirmInputKey);
+      expect(input, findsOneWidget);
+      expect(
+        tester.widget<TextField>(input).obscureText,
+        isTrue,
+        reason: 'Password-delete branch must obscure the input',
+      );
 
-        await tester.enterText(input, 'wrong-pw');
-        await tester.pump();
-        await _tapAndAwait(
-          tester,
-          trigger: find.byKey(_deleteConfirmButtonKey),
-          // Done when the error SnackBar is up (dialog stays open).
-          isDone: () => find
-              .textContaining(RegExp('Invalid password', caseSensitive: false))
-              .evaluate()
-              .isNotEmpty,
-        );
+      await tester.enterText(input, 'wrong-pw');
+      await tester.pump();
+      await _tapAndAwait(
+        tester,
+        trigger: find.byKey(_deleteConfirmButtonKey),
+        // Done when the error SnackBar is up (dialog stays open).
+        isDone: () => find
+            .textContaining(RegExp('Invalid password', caseSensitive: false))
+            .evaluate()
+            .isNotEmpty,
+      );
 
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason: 'A wrong password must keep the confirm dialog open');
-        expect(await Prefs.getAccountByToxId(toxId), isNotNull,
-            reason: 'A wrong password must NOT delete the account');
-      },
-    );
+      expect(
+        find.byType(AlertDialog),
+        findsOneWidget,
+        reason: 'A wrong password must keep the confirm dialog open',
+      );
+      expect(
+        await Prefs.getAccountByToxId(toxId),
+        isNotNull,
+        reason: 'A wrong password must NOT delete the account',
+      );
+    });
 
     testWidgets(
       'the CORRECT password deletes the account and removes it from the list',
@@ -508,12 +631,21 @@ void main() {
           isDone: () => find.byType(AlertDialog).evaluate().isEmpty,
         );
 
-        expect(find.byType(AlertDialog), findsNothing,
-            reason: 'A correct password must dismiss the dialog');
-        expect(await Prefs.getAccountByToxId(toxId), isNull,
-            reason: 'The correct password must delete the account');
-        expect(find.byKey(UiKeys.loginPageAccountCard(toxId)), findsNothing,
-            reason: 'The deleted account card must disappear from the list');
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason: 'A correct password must dismiss the dialog',
+        );
+        expect(
+          await Prefs.getAccountByToxId(toxId),
+          isNull,
+          reason: 'The correct password must delete the account',
+        );
+        expect(
+          find.byKey(UiKeys.loginPageAccountCard(toxId)),
+          findsNothing,
+          reason: 'The deleted account card must disappear from the list',
+        );
       },
     );
   });

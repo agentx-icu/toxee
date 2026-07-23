@@ -90,6 +90,48 @@ _mi_validate_triple() {
     return 0
 }
 
+# Reclaim the disposable per-launch app copies (`ToxeeB-<epoch>-<pid>.app`) that
+# launch_fixture_c_pair.sh dittos for B. Each is a full ~185M bundle and every
+# launch mints a fresh path, so without a GC they accumulate forever.
+#
+# Follows this library's "only touch what you can prove is dead" rule: a copy
+# still backing a live process is kept, never yanked out from under it. Copies
+# with a FIXED name (presence's `ToxeeB.app`) are reused in place rather than
+# accumulating, and deliberately do not match the pattern.
+# $2 is the min-age window in seconds (default 60): a bundle mid-`ditto` has no
+# process yet, so liveness alone would green-light deleting it while it is still
+# being written. A copy skipped for being young is simply reclaimed on the next
+# pass. Teardown passes 0 — stop_fixture_c_pair.sh already assumes exclusivity
+# (it kills A and B out of the shared runtime root), so nothing of ours can be
+# mid-launch by the time it sweeps.
+_mi_gc_app_copies() {
+    local copies_dir="${1:-}"
+    local min_age_secs="${2:-${TOXEE_MULTI_GC_MIN_AGE_SECS:-60}}"
+    if [[ -z "$copies_dir" || ! -d "$copies_dir" ]]; then
+        return 0
+    fi
+    local now copy mtime reclaimed=0
+    now="$(date +%s)"
+    for copy in "$copies_dir"/Toxee[AB]-*.app; do
+        [[ -d "$copy" ]] || continue
+        mtime="$(stat -f %m "$copy" 2>/dev/null || echo 0)"
+        if [[ "$mtime" -gt 0 && $((now - mtime)) -lt "$min_age_secs" ]]; then
+            echo "gc: skipping app copy $(basename "$copy") (<${min_age_secs}s old)" >&2
+            continue
+        fi
+        if [[ -n "$(_mi_pids_for_executable "$copy/Contents/MacOS/Toxee")" ]]; then
+            echo "gc: keeping in-use app copy $(basename "$copy")" >&2
+            continue
+        fi
+        rm -rf "$copy"
+        reclaimed=$((reclaimed + 1))
+    done
+    if [[ "$reclaimed" -gt 0 ]]; then
+        echo "gc: reclaimed $reclaimed stale app copy/copies from $copies_dir" >&2
+    fi
+    return 0
+}
+
 _mi_stop_with_grace() {
     local pid="${1:-}"
     local grace_secs="${2:-5}"

@@ -205,6 +205,15 @@ class InCallView extends StatelessWidget {
           selected: !callState.isVideoEnabled,
           onPressed: () async => manager.toggleVideo(),
         ),
+      if (isVideo &&
+          callState.isVideoEnabled &&
+          CallMediaCapabilities.supportsCameraSwitch())
+        CallDockAction(
+          key: UiKeys.callCameraSwitchButton,
+          icon: Icons.cameraswitch,
+          label: l10n.callSwitchCamera,
+          onPressed: () async => manager.switchCamera(),
+        ),
       if (!showSpeakerToggle && supportsRouteSelection)
         CallDockAction(
           icon: Icons.route,

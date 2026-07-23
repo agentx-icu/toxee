@@ -265,7 +265,9 @@ bool get debugL3IrcLocalAddOverrideEnabled =>
 /// surface — the Add-Channel button would stay hidden and the channel list stale,
 /// even though dump_state (which reads prefs) shows the new values. The page
 /// listens to this notifier and re-runs its state load on bump. Test-only signal.
-final ValueNotifier<int> debugApplicationsIrcReloadSignal = ValueNotifier<int>(0);
+final ValueNotifier<int> debugApplicationsIrcReloadSignal = ValueNotifier<int>(
+  0,
+);
 
 /// Mirrors [runL3AwareExportSaveFilePicker] for the avatar image picker: returns
 /// the override path when set, else delegates to the real [pickFiles].
@@ -4278,7 +4280,13 @@ MCPCallEntry _l3SimulateNotificationTapEntry() => MCPCallEntry.tool(
       );
     }
     // Convenience: a bare Tox id becomes a C2C tap payload (the real form).
-    const known = ['c2c_', 'group_', 'missed_call:', 'friend_req:'];
+    const known = [
+      'c2c_',
+      'group_',
+      'missed_call:',
+      'incoming_call:',
+      'friend_req:',
+    ];
     if (!known.any(payload.startsWith)) {
       payload = 'c2c_$payload';
     }
@@ -6364,11 +6372,17 @@ MCPCallEntry _l3SetCallPermissionEntry() => MCPCallEntry.tool(
         CallPermission.camera,
       ],
     );
-    AppLogger.info('[L3] l3_set_call_permission: DENIED forced '
-        '(requiresSettings=$requiresSettings)');
+    AppLogger.info(
+      '[L3] l3_set_call_permission: DENIED forced '
+      '(requiresSettings=$requiresSettings)',
+    );
     return MCPCallResult(
       message: 'call permission forced denied',
-      parameters: {'ok': true, 'granted': false, 'requiresSettings': requiresSettings},
+      parameters: {
+        'ok': true,
+        'granted': false,
+        'requiresSettings': requiresSettings,
+      },
     );
   },
   definition: MCPToolDefinition(
@@ -6380,7 +6394,9 @@ MCPCallEntry _l3SetCallPermissionEntry() => MCPCallEntry.tool(
         'granted=true or clear=true restores the real OS path.',
     inputSchema: ObjectSchema(
       properties: {
-        'granted': StringSchema(description: '"false" arms denial; "true" clears.'),
+        'granted': StringSchema(
+          description: '"false" arms denial; "true" clears.',
+        ),
         'requiresSettings': StringSchema(
           description: 'Denial offers a Settings action (default true).',
         ),
@@ -6727,10 +6743,16 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         // real-UI test assert a call attempt raised the denial UI without racing
         // the transient SnackBar. + the last notice's offerSettings flag.
         'permissionDeniedNoticeCount':
-            FakeUIKit.instance.callServiceManager?.debugPermissionDeniedNoticeCount ??
-                0,
-        'lastPermissionNoticeOffersSettings': FakeUIKit
-                .instance.callServiceManager?.debugLastPermissionNoticeOffersSettings ??
+            FakeUIKit
+                .instance
+                .callServiceManager
+                ?.debugPermissionDeniedNoticeCount ??
+            0,
+        'lastPermissionNoticeOffersSettings':
+            FakeUIKit
+                .instance
+                .callServiceManager
+                ?.debugLastPermissionNoticeOffersSettings ??
             false,
       };
     }

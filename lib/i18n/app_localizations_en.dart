@@ -1333,6 +1333,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get callVideoOn => 'Video on';
 
   @override
+  String get callSwitchCamera => 'Switch camera';
+
+  @override
   String get callSpeakerOff => 'Speaker off';
 
   @override
@@ -1355,6 +1358,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get callPermissionMicrophoneCameraRequired =>
       'Microphone and camera permissions are required to continue the call.';
+
+  @override
+  String get callIncomingNotificationPermissionRequired =>
+      'Incoming calls can only ring inside Toxee until notification permission is enabled.';
 
   @override
   String get callFailedGroupUnsupported => 'Group calls are not supported yet.';
