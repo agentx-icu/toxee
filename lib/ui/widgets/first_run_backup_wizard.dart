@@ -17,6 +17,8 @@ import '../../util/logger.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
 
+part 'first_run_backup_wizard_parts.dart';
+
 /// Outcome of the first-run backup wizard. The caller (registration flow)
 /// uses this to decide whether to proceed to HomePage. Today both terminal
 /// states proceed to HomePage; the type exists so future product changes
@@ -330,7 +332,15 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
                         switchOutCurve: AppCurves.exit,
                         transitionBuilder: (child, animation) =>
                             FadeTransition(opacity: animation, child: child),
-                        child: _buildBody(context, l10n, cs),
+                        child: _FirstRunBackupWizardBody(
+                          key: ValueKey<String>(
+                            'wizard-body-${_statusMessage != null}-$_statusIsError',
+                          ),
+                          statusMessage: _statusMessage,
+                          statusIsError: _statusIsError,
+                          l10n: l10n,
+                          colorScheme: cs,
+                        ),
                       ),
                     ),
                   ),
@@ -348,142 +358,19 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
                 ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 480),
-                  child: _buildActions(context, l10n, isMobileWidth),
+                  child: _FirstRunBackupWizardActions(
+                    busy: _busy,
+                    l10n: l10n,
+                    isMobileWidth: isMobileWidth,
+                    onExportNow: _exportNow,
+                    onMaybeDismiss: _maybeDismiss,
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  /// Body: icon + title + body text + (optional) status banner. Re-keyed on
-  /// status presence so [AnimatedSwitcher] can fade the banner in/out cleanly.
-  Widget _buildBody(
-    BuildContext context,
-    AppLocalizations l10n,
-    ColorScheme cs,
-  ) {
-    return Column(
-      key: ValueKey<String>(
-        'wizard-body-${_statusMessage != null}-$_statusIsError',
-      ),
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Tinted-primary chip for the shield icon — same recipe as the
-        // upgrade screen / login form, keeps the visual language consistent.
-        Center(
-          child: Container(
-            width: 88,
-            height: 88,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppThemeConfig.tintedPrimaryCardColor(cs.primary),
-              border: Border.all(
-                color: AppThemeConfig.tintedPrimaryCardBorderColor(cs.primary),
-              ),
-            ),
-            child: Icon(Icons.shield_outlined, size: 44, color: cs.primary),
-          ),
-        ),
-        AppSpacing.verticalLg,
-        Text(
-          l10n.firstRunBackupWizardTitle,
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-          textAlign: TextAlign.center,
-        ),
-        AppSpacing.verticalMd,
-        Text(
-          l10n.firstRunBackupWizardBody,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-          textAlign: TextAlign.center,
-        ),
-        if (_statusMessage != null) ...[
-          AppSpacing.verticalLg,
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: _statusIsError
-                  ? cs.errorContainer
-                  : cs.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(AppRadii.card),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  _statusIsError ? Icons.error_outline : Icons.info_outline,
-                  size: 20,
-                  color: _statusIsError ? cs.onErrorContainer : cs.onSurface,
-                ),
-                AppSpacing.horizontalSm,
-                Expanded(
-                  child: Text(
-                    _statusMessage!,
-                    style: TextStyle(
-                      color: _statusIsError
-                          ? cs.onErrorContainer
-                          : cs.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  /// Bottom action row: primary FilledButton ("Export now") + secondary
-  /// TextButton ("I'll do it later"). Primary is full-width on mobile, capped
-  /// at 320 on desktop so it doesn't stretch absurdly wide on tablets.
-  Widget _buildActions(
-    BuildContext context,
-    AppLocalizations l10n,
-    bool isMobileWidth,
-  ) {
-    final primaryWidth = isMobileWidth ? double.infinity : 320.0;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Center(
-          child: SizedBox(
-            width: primaryWidth,
-            child: FilledButton.icon(
-              key: const Key('firstRunBackupWizard.exportButton'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.button),
-                ),
-              ),
-              onPressed: _busy ? null : _exportNow,
-              icon: _busy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_alt),
-              label: Text(l10n.firstRunBackupWizardExportNow),
-            ),
-          ),
-        ),
-        AppSpacing.verticalSm,
-        TextButton(
-          key: const Key('firstRunBackupWizard.laterButton'),
-          onPressed: _busy ? null : _maybeDismiss,
-          child: Text(l10n.firstRunBackupWizardLater),
-        ),
-      ],
     );
   }
 }
