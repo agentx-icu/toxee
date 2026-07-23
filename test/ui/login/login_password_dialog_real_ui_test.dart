@@ -140,35 +140,36 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   final secureStore = <String, String>{};
-  const secureChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
 
   setUp(() {
     secureStore.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
-      final args =
-          (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
-      switch (call.method) {
-        case 'write':
-          secureStore[args['key'] as String] = args['value'] as String;
-          return null;
-        case 'read':
-          return secureStore[args['key'] as String];
-        case 'delete':
-          secureStore.remove(args['key'] as String);
-          return null;
-        case 'containsKey':
-          return secureStore.containsKey(args['key'] as String);
-        case 'readAll':
-          return Map<String, String>.from(secureStore);
-        case 'deleteAll':
-          secureStore.clear();
-          return null;
-        default:
-          return null;
-      }
-    });
+          final args =
+              (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
+          switch (call.method) {
+            case 'write':
+              secureStore[args['key'] as String] = args['value'] as String;
+              return null;
+            case 'read':
+              return secureStore[args['key'] as String];
+            case 'delete':
+              secureStore.remove(args['key'] as String);
+              return null;
+            case 'containsKey':
+              return secureStore.containsKey(args['key'] as String);
+            case 'readAll':
+              return Map<String, String>.from(secureStore);
+            case 'deleteAll':
+              secureStore.clear();
+              return null;
+            default:
+              return null;
+          }
+        });
   });
 
   tearDown(() {
@@ -194,11 +195,16 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       await Prefs.initialize(prefs);
       final ok = await Prefs.setAccountPassword(toxId, password);
-      expect(ok, isTrue,
-          reason:
-              'precondition: the account password must persist to the mock');
-      expect(await Prefs.hasAccountPassword(toxId), isTrue,
-          reason: 'precondition: hasAccountPassword must report true');
+      expect(
+        ok,
+        isTrue,
+        reason: 'precondition: the account password must persist to the mock',
+      );
+      expect(
+        await Prefs.hasAccountPassword(toxId),
+        isTrue,
+        reason: 'precondition: hasAccountPassword must report true',
+      );
     });
   }
 
@@ -232,16 +238,24 @@ void main() {
         await _pumpAndLoad(tester, _pumpableLoginPage());
         await openQuickLoginDialog(tester, toxId);
 
-        expect(find.byType(AlertDialog), findsOneWidget,
-            reason:
-                'A password-protected account must prompt before logging in');
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason: 'A password-protected account must prompt before logging in',
+        );
         final fieldFinder = find.descendant(
           of: find.byType(AlertDialog),
           matching: find.byType(TextField),
         );
         expect(fieldFinder, findsOneWidget);
-        expect(tester.widget<TextField>(fieldFinder).obscureText, isTrue,
-            reason: 'Password field must start obscured');
+        expect(
+          tester.widget<TextField>(fieldFinder).obscureText,
+          isTrue,
+          reason: 'Password field must start obscured',
+        );
+        final passwordField = tester.widget<TextField>(fieldFinder);
+        expect(passwordField.autofillHints, contains(AutofillHints.password));
+        expect(passwordField.textInputAction, TextInputAction.done);
         expect(
           find.descendant(
             of: find.byType(AlertDialog),
@@ -275,14 +289,19 @@ void main() {
 
         // Toggling visibility is a pure synchronous setState (no crypto), so it
         // is safe to do outside runAsync.
-        await tester.tap(find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.byIcon(Icons.visibility_off),
-        ));
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byIcon(Icons.visibility_off),
+          ),
+        );
         await tester.pump();
 
-        expect(tester.widget<TextField>(fieldFinder).obscureText, isFalse,
-            reason: 'Toggling visibility must reveal the password');
+        expect(
+          tester.widget<TextField>(fieldFinder).obscureText,
+          isFalse,
+          reason: 'Toggling visibility must reveal the password',
+        );
         expect(
           find.descendant(
             of: find.byType(AlertDialog),
@@ -333,8 +352,11 @@ void main() {
               .isNotEmpty,
         );
 
-        expect(controller.loginCalls, 0,
-            reason: 'A wrong password must NOT proceed into login');
+        expect(
+          controller.loginCalls,
+          0,
+          reason: 'A wrong password must NOT proceed into login',
+        );
         expect(
           find.textContaining(RegExp('Invalid password', caseSensitive: false)),
           findsWidgets,
@@ -378,15 +400,24 @@ void main() {
           isDone: () => controller.loginCalls >= 1,
         );
 
-        expect(find.byType(AlertDialog), findsNothing,
-            reason: 'Dialog must dismiss after a correct password');
-        expect(controller.loginCalls, 1,
-            reason: 'A correct password must proceed into login exactly once');
+        expect(
+          find.byType(AlertDialog),
+          findsNothing,
+          reason: 'Dialog must dismiss after a correct password',
+        );
+        expect(
+          controller.loginCalls,
+          1,
+          reason: 'A correct password must proceed into login exactly once',
+        );
         expect(controller.lastLoginParams!.nickname, 'Secured');
-        expect(controller.lastLoginParams!.password, 'correct-pw',
-            reason:
-                'The verified password must be forwarded to login() so it is '
-                'not re-prompted by the use case');
+        expect(
+          controller.lastLoginParams!.password,
+          'correct-pw',
+          reason:
+              'The verified password must be forwarded to login() so it is '
+              'not re-prompted by the use case',
+        );
       },
     );
 
@@ -414,8 +445,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         expect(find.byType(AlertDialog), findsNothing);
-        expect(controller.loginCalls, 0,
-            reason: 'Cancelling the password prompt must not log in');
+        expect(
+          controller.loginCalls,
+          0,
+          reason: 'Cancelling the password prompt must not log in',
+        );
       },
     );
   });

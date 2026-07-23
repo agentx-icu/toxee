@@ -31,29 +31,30 @@ import 'testing/ui_keys.dart';
 /// spinner, error banner, and the injectable callbacks run identically on iOS,
 /// Android, and desktop. The hermetic real-UI gates in
 /// `test/ui/register/*_real_ui_test.dart` therefore cover all targets at once.
-typedef _RegisterAccountFn = Future<RegisterResult> Function({
-  required String nickname,
-  required String statusMessage,
-  required String password,
-});
+typedef _RegisterAccountFn =
+    Future<RegisterResult> Function({
+      required String nickname,
+      required String statusMessage,
+      required String password,
+    });
 
 typedef _RegisterBootSessionFn = Future<void> Function(FfiChatService service);
 
-typedef _RegisterTeardownSessionFn = Future<void> Function({
-  required FfiChatService service,
-  bool reEncryptProfile,
-});
+typedef _RegisterTeardownSessionFn =
+    Future<void> Function({
+      required FfiChatService service,
+      bool reEncryptProfile,
+    });
 
-typedef _ShowFirstRunBackupWizardFn = Future<void> Function({
-  required BuildContext context,
-  required String toxId,
-  required String nickname,
-});
+typedef _ShowFirstRunBackupWizardFn =
+    Future<void> Function({
+      required BuildContext context,
+      required String toxId,
+      required String nickname,
+    });
 
-typedef _NavigateToHomeFn = Future<void> Function(
-  BuildContext context,
-  FfiChatService service,
-);
+typedef _NavigateToHomeFn =
+    Future<void> Function(BuildContext context, FfiChatService service);
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({
@@ -115,43 +116,42 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   void initState() {
     super.initState();
-    _registerAccount = widget.registerAccount ??
+    _registerAccount =
+        widget.registerAccount ??
         ({
           required String nickname,
           required String statusMessage,
           required String password,
-        }) =>
-            AccountService.registerNewAccount(
-              nickname: nickname,
-              statusMessage: statusMessage,
-              password: password,
-            );
+        }) => AccountService.registerNewAccount(
+          nickname: nickname,
+          statusMessage: statusMessage,
+          password: password,
+        );
     _bootSession = widget.bootSession ?? AppBootstrapCoordinator.boot;
-    _teardownSession = widget.teardownSession ??
-        ({
-          required FfiChatService service,
-          bool reEncryptProfile = true,
-        }) =>
+    _teardownSession =
+        widget.teardownSession ??
+        ({required FfiChatService service, bool reEncryptProfile = true}) =>
             AccountService.teardownCurrentSession(
               service: service,
               reEncryptProfile: reEncryptProfile,
             );
-    _showFirstRunBackupWizard = widget.showFirstRunBackupWizard ??
+    _showFirstRunBackupWizard =
+        widget.showFirstRunBackupWizard ??
         ({
           required BuildContext context,
           required String toxId,
           required String nickname,
-        }) =>
-            FirstRunBackupWizard.show(
-              context,
-              toxId: toxId,
-              nickname: nickname,
-            ).then((_) {});
-    _navigateToHome = widget.navigateToHome ??
+        }) => FirstRunBackupWizard.show(
+          context,
+          toxId: toxId,
+          nickname: nickname,
+        ).then((_) {});
+    _navigateToHome =
+        widget.navigateToHome ??
         (BuildContext context, FfiChatService service) {
-          return Navigator.of(context).pushReplacement(AppPageRoute(
-            page: HomePage(service: service),
-          ));
+          return Navigator.of(
+            context,
+          ).pushReplacement(AppPageRoute(page: HomePage(service: service)));
         };
     _nicknameController.addListener(() {
       if (mounted) setState(() {});
@@ -160,16 +160,21 @@ class _RegisterPageState extends State<RegisterPage> {
       if (mounted) setState(() {});
     });
     _nicknameFocusNode.addListener(() {
-      if (mounted) setState(() => _nicknameFocused = _nicknameFocusNode.hasFocus);
+      if (mounted)
+        setState(() => _nicknameFocused = _nicknameFocusNode.hasFocus);
     });
     _statusFocusNode.addListener(() {
       if (mounted) setState(() => _statusFocused = _statusFocusNode.hasFocus);
     });
     _passwordFocusNode.addListener(() {
-      if (mounted) setState(() => _passwordFocused = _passwordFocusNode.hasFocus);
+      if (mounted)
+        setState(() => _passwordFocused = _passwordFocusNode.hasFocus);
     });
     _confirmPasswordFocusNode.addListener(() {
-      if (mounted) setState(() => _confirmPasswordFocused = _confirmPasswordFocusNode.hasFocus);
+      if (mounted)
+        setState(
+          () => _confirmPasswordFocused = _confirmPasswordFocusNode.hasFocus,
+        );
     });
   }
 
@@ -231,7 +236,9 @@ class _RegisterPageState extends State<RegisterPage> {
       if (mounted) {
         unawaited(HapticFeedback.lightImpact());
         setState(() {
-          _error = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
+          _error = e is Exception
+              ? e.toString().replaceFirst('Exception: ', '')
+              : e.toString();
         });
       }
     } finally {
@@ -244,9 +251,12 @@ class _RegisterPageState extends State<RegisterPage> {
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) => Scaffold(
         appBar: AppBar(
-          leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
+          leadingWidth:
+              56 + ResponsiveLayout.responsiveHorizontalPadding(context),
           leading: Padding(
-            padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
+            padding: EdgeInsetsDirectional.only(
+              start: ResponsiveLayout.responsiveHorizontalPadding(context),
+            ),
             child: IconButton(
               // Stable test key for the AppBar back button (real-UI pop assertion).
               key: const Key('register_back_button'),
@@ -267,190 +277,292 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               child: SingleChildScrollView(
                 padding: ResponsiveLayout.responsivePadding(context),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                  AppSpacing.verticalLg,
-                  TextFormField(
-                    key: UiKeys.registerPageNicknameField,
-                    controller: _nicknameController,
-                    focusNode: _nicknameFocusNode,
-                    textAlignVertical: TextAlignVertical.center,
-                    keyboardType: TextInputType.name,
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context)!.nickname,
-                      hintText: AppLocalizations.of(context)!.nicknameHintExample,
-                      prefixIcon: Icon(Icons.person, color: _nicknameFocused ? Theme.of(context).colorScheme.primary : null),
-                      errorText: calculateTextLength(_nicknameController.text) > 12
-                          ? AppLocalizations.of(context)!.nicknameTooLong
-                          : null,
-                    ),
-                    textCapitalization: TextCapitalization.words,
-                    maxLength: 24,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return AppLocalizations.of(context)!.nicknameCannotBeEmpty;
-                      }
-                      if (calculateTextLength(value.trim()) > 12) {
-                        return AppLocalizations.of(context)!.nicknameTooLong;
-                      }
-                      return null;
-                    },
-                  ),
-                  AppSpacing.verticalLg,
-                  TextFormField(
-                    // Stable test key for the status-message field (real-UI gate).
-                    key: const Key('register_status_field'),
-                    controller: _statusMessageController,
-                    focusNode: _statusFocusNode,
-                    textAlignVertical: TextAlignVertical.center,
-                    keyboardType: TextInputType.text,
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context)!.statusMessage,
-                      hintText: AppLocalizations.of(context)!.statusMessage,
-                      prefixIcon: Icon(Icons.info_outline, color: _statusFocused ? Theme.of(context).colorScheme.primary : null),
-                      errorText: calculateTextLength(_statusMessageController.text) > 24
-                          ? AppLocalizations.of(context)!.statusMessageTooLong
-                          : null,
-                    ),
-                    textCapitalization: TextCapitalization.sentences,
-                    maxLines: 2,
-                    maxLength: 48,
-                    validator: (value) {
-                      if (value != null && value.trim().isNotEmpty) {
-                        if (calculateTextLength(value.trim()) > 24) {
-                          return AppLocalizations.of(context)!.statusMessageTooLong;
-                        }
-                      }
-                      return null;
-                    },
-                  ),
-                  AppSpacing.verticalLg,
-                  TextFormField(
-                    key: UiKeys.registerPagePasswordField,
-                    controller: _passwordController,
-                    focusNode: _passwordFocusNode,
-                    obscureText: _passwordObscure,
-                    textAlignVertical: TextAlignVertical.center,
-                    keyboardType: TextInputType.visiblePassword,
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context)!.password,
-                      hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                      prefixIcon: Icon(Icons.lock_outline, color: _passwordFocused ? Theme.of(context).colorScheme.primary : null),
-                      suffixIcon: IconButton(
-                        // Stable test key for the password visibility toggle.
-                        key: const Key('register_password_visibility_toggle'),
-                        icon: Icon(
-                          // State-suffixed key so a real-UI driver can OBSERVE the
-                          // obscure flip (the IconButton key above stays stable for
-                          // tapping). Same "encode state in the key" pattern as the
-                          // conversation online-dot. Shared Dart → covers mobile too.
-                          key: Key(
-                            'register_password_visibility_icon_'
-                            '${_passwordObscure ? 'obscured' : 'visible'}',
-                          ),
-                          _passwordObscure ? Icons.visibility_off : Icons.visibility,
-                        ),
-                        onPressed: () => setState(() => _passwordObscure = !_passwordObscure),
-                        tooltip: AppLocalizations.of(context)!.passwordVisibility,
-                      ),
-                    ),
-                    onChanged: (_) {
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                  RegisterPasswordStrengthBar(
-                    password: _passwordController.text,
-                  ),
-                  AppSpacing.verticalLg,
-                  TextFormField(
-                    key: UiKeys.registerPageConfirmPasswordField,
-                    controller: _confirmPasswordController,
-                    focusNode: _confirmPasswordFocusNode,
-                    obscureText: _confirmPasswordObscure,
-                    textAlignVertical: TextAlignVertical.center,
-                    keyboardType: TextInputType.visiblePassword,
-                    decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context)!.confirmPassword,
-                      prefixIcon: Icon(Icons.lock_outline, color: _confirmPasswordFocused ? Theme.of(context).colorScheme.primary : null),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_confirmPasswordController.text.isNotEmpty && _passwordController.text.isNotEmpty)
-                            Icon(
-                              // Stable test key for the confirm-password match/mismatch
-                              // indicator (check_circle when matching, cancel otherwise).
-                              key: const Key('register_confirm_match_icon'),
-                              _confirmPasswordController.text == _passwordController.text ? Icons.check_circle : Icons.cancel,
-                              color: _confirmPasswordController.text == _passwordController.text
+                child: AutofillGroup(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AppSpacing.verticalLg,
+                        TextFormField(
+                          key: UiKeys.registerPageNicknameField,
+                          controller: _nicknameController,
+                          focusNode: _nicknameFocusNode,
+                          textAlignVertical: TextAlignVertical.center,
+                          keyboardType: TextInputType.name,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.nickname],
+                          decoration: InputDecoration(
+                            labelText: AppLocalizations.of(context)!.nickname,
+                            hintText: AppLocalizations.of(
+                              context,
+                            )!.nicknameHintExample,
+                            prefixIcon: Icon(
+                              Icons.person,
+                              color: _nicknameFocused
                                   ? Theme.of(context).colorScheme.primary
-                                  : Theme.of(context).colorScheme.error,
-                              size: 20,
+                                  : null,
                             ),
-                          IconButton(
-                            // Stable test key for the confirm-password visibility toggle.
-                            key: const Key('register_confirm_visibility_toggle'),
-                            icon: Icon(_confirmPasswordObscure ? Icons.visibility_off : Icons.visibility),
-                            onPressed: () => setState(() => _confirmPasswordObscure = !_confirmPasswordObscure),
-                            tooltip: AppLocalizations.of(context)!.passwordVisibility,
+                            errorText:
+                                calculateTextLength(_nicknameController.text) >
+                                    12
+                                ? AppLocalizations.of(context)!.nicknameTooLong
+                                : null,
+                          ),
+                          textCapitalization: TextCapitalization.words,
+                          maxLength: 24,
+                          onFieldSubmitted: (_) =>
+                              _statusFocusNode.requestFocus(),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return AppLocalizations.of(
+                                context,
+                              )!.nicknameCannotBeEmpty;
+                            }
+                            if (calculateTextLength(value.trim()) > 12) {
+                              return AppLocalizations.of(
+                                context,
+                              )!.nicknameTooLong;
+                            }
+                            return null;
+                          },
+                        ),
+                        AppSpacing.verticalLg,
+                        TextFormField(
+                          // Stable test key for the status-message field (real-UI gate).
+                          key: const Key('register_status_field'),
+                          controller: _statusMessageController,
+                          focusNode: _statusFocusNode,
+                          textAlignVertical: TextAlignVertical.center,
+                          keyboardType: TextInputType.text,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            labelText: AppLocalizations.of(
+                              context,
+                            )!.statusMessage,
+                            hintText: AppLocalizations.of(
+                              context,
+                            )!.statusMessage,
+                            prefixIcon: Icon(
+                              Icons.info_outline,
+                              color: _statusFocused
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                            ),
+                            errorText:
+                                calculateTextLength(
+                                      _statusMessageController.text,
+                                    ) >
+                                    24
+                                ? AppLocalizations.of(
+                                    context,
+                                  )!.statusMessageTooLong
+                                : null,
+                          ),
+                          textCapitalization: TextCapitalization.sentences,
+                          maxLines: 2,
+                          maxLength: 48,
+                          onFieldSubmitted: (_) =>
+                              _passwordFocusNode.requestFocus(),
+                          validator: (value) {
+                            if (value != null && value.trim().isNotEmpty) {
+                              if (calculateTextLength(value.trim()) > 24) {
+                                return AppLocalizations.of(
+                                  context,
+                                )!.statusMessageTooLong;
+                              }
+                            }
+                            return null;
+                          },
+                        ),
+                        AppSpacing.verticalLg,
+                        TextFormField(
+                          key: UiKeys.registerPagePasswordField,
+                          controller: _passwordController,
+                          focusNode: _passwordFocusNode,
+                          obscureText: _passwordObscure,
+                          textAlignVertical: TextAlignVertical.center,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.newPassword],
+                          decoration: InputDecoration(
+                            labelText: AppLocalizations.of(context)!.password,
+                            hintText: AppLocalizations.of(
+                              context,
+                            )!.ircChannelPasswordHint,
+                            prefixIcon: Icon(
+                              Icons.lock_outline,
+                              color: _passwordFocused
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                            ),
+                            suffixIcon: IconButton(
+                              // Stable test key for the password visibility toggle.
+                              key: const Key(
+                                'register_password_visibility_toggle',
+                              ),
+                              icon: Icon(
+                                // State-suffixed key so a real-UI driver can OBSERVE the
+                                // obscure flip (the IconButton key above stays stable for
+                                // tapping). Same "encode state in the key" pattern as the
+                                // conversation online-dot. Shared Dart → covers mobile too.
+                                key: Key(
+                                  'register_password_visibility_icon_'
+                                  '${_passwordObscure ? 'obscured' : 'visible'}',
+                                ),
+                                _passwordObscure
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                              onPressed: () => setState(
+                                () => _passwordObscure = !_passwordObscure,
+                              ),
+                              tooltip: AppLocalizations.of(
+                                context,
+                              )!.passwordVisibility,
+                            ),
+                          ),
+                          onChanged: (_) {
+                            if (mounted) setState(() {});
+                          },
+                          onFieldSubmitted: (_) =>
+                              _confirmPasswordFocusNode.requestFocus(),
+                        ),
+                        RegisterPasswordStrengthBar(
+                          password: _passwordController.text,
+                        ),
+                        AppSpacing.verticalLg,
+                        TextFormField(
+                          key: UiKeys.registerPageConfirmPasswordField,
+                          controller: _confirmPasswordController,
+                          focusNode: _confirmPasswordFocusNode,
+                          obscureText: _confirmPasswordObscure,
+                          textAlignVertical: TextAlignVertical.center,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.newPassword],
+                          decoration: InputDecoration(
+                            labelText: AppLocalizations.of(
+                              context,
+                            )!.confirmPassword,
+                            prefixIcon: Icon(
+                              Icons.lock_outline,
+                              color: _confirmPasswordFocused
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                            ),
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_confirmPasswordController
+                                        .text
+                                        .isNotEmpty &&
+                                    _passwordController.text.isNotEmpty)
+                                  Icon(
+                                    // Stable test key for the confirm-password match/mismatch
+                                    // indicator (check_circle when matching, cancel otherwise).
+                                    key: const Key(
+                                      'register_confirm_match_icon',
+                                    ),
+                                    _confirmPasswordController.text ==
+                                            _passwordController.text
+                                        ? Icons.check_circle
+                                        : Icons.cancel,
+                                    color:
+                                        _confirmPasswordController.text ==
+                                            _passwordController.text
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Theme.of(context).colorScheme.error,
+                                    size: 20,
+                                  ),
+                                IconButton(
+                                  // Stable test key for the confirm-password visibility toggle.
+                                  key: const Key(
+                                    'register_confirm_visibility_toggle',
+                                  ),
+                                  icon: Icon(
+                                    _confirmPasswordObscure
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _confirmPasswordObscure =
+                                        !_confirmPasswordObscure,
+                                  ),
+                                  tooltip: AppLocalizations.of(
+                                    context,
+                                  )!.passwordVisibility,
+                                ),
+                              ],
+                            ),
+                          ),
+                          validator: (value) {
+                            final pwd = _passwordController.text;
+                            if (pwd.isNotEmpty) {
+                              if (value == null || value != pwd) {
+                                return AppLocalizations.of(
+                                  context,
+                                )!.passwordsDoNotMatch;
+                              }
+                            }
+                            if (value != null &&
+                                value.isNotEmpty &&
+                                pwd.isEmpty) {
+                              return AppLocalizations.of(
+                                context,
+                              )!.passwordsDoNotMatch;
+                            }
+                            return null;
+                          },
+                          onChanged: (_) {
+                            if (mounted) setState(() {});
+                          },
+                          onFieldSubmitted: (_) => _register(),
+                        ),
+                        if (_error != null) ...[
+                          AppSpacing.verticalLg,
+                          ErrorBanner(
+                            message: _error!,
+                            onRetry: () {
+                              setState(() => _error = null);
+                              _register();
+                            },
+                            onDismiss: () => setState(() => _error = null),
                           ),
                         ],
-                      ),
+                        AppSpacing.verticalXl,
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            key: UiKeys.registerPageRegisterButton,
+                            onPressed:
+                                (_busy ||
+                                    calculateTextLength(
+                                          _nicknameController.text,
+                                        ) >
+                                        12 ||
+                                    calculateTextLength(
+                                          _statusMessageController.text,
+                                        ) >
+                                        24)
+                                ? null
+                                : _register,
+                            child: _busy
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Theme.of(context).colorScheme.onPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : Text(AppLocalizations.of(context)!.register),
+                          ),
+                        ),
+                      ],
                     ),
-                    validator: (value) {
-                      final pwd = _passwordController.text;
-                      if (pwd.isNotEmpty) {
-                        if (value == null || value != pwd) {
-                          return AppLocalizations.of(context)!.passwordsDoNotMatch;
-                        }
-                      }
-                      if (value != null && value.isNotEmpty && pwd.isEmpty) {
-                        return AppLocalizations.of(context)!.passwordsDoNotMatch;
-                      }
-                      return null;
-                    },
-                    onChanged: (_) {
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                  if (_error != null) ...[
-                    AppSpacing.verticalLg,
-                    ErrorBanner(
-                      message: _error!,
-                      onRetry: () {
-                        setState(() => _error = null);
-                        _register();
-                      },
-                      onDismiss: () => setState(() => _error = null),
-                    ),
-                  ],
-                  AppSpacing.verticalXl,
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      key: UiKeys.registerPageRegisterButton,
-                      onPressed: (_busy ||
-                              calculateTextLength(_nicknameController.text) > 12 ||
-                              calculateTextLength(_statusMessageController.text) > 24)
-                          ? null
-                          : _register,
-                      child: _busy
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Theme.of(context).colorScheme.onPrimary,
-                                ),
-                              ),
-                            )
-                          : Text(AppLocalizations.of(context)!.register),
-                    ),
-                  ),
-                    ],
                   ),
                 ),
               ),
