@@ -22,17 +22,31 @@
 #   * emits both a .framework (run_toxee_ios.sh's primary candidate) and a raw
 #     .dylib, ad-hoc signed for the simulator loader.
 #
-# Output:
+# Output (SDK=iphonesimulator, the default):
 #   third_party/tim2tox/build/ios-sim/libtim2tox_ffi.dylib   (universal)
 #   third_party/tim2tox/build/ios/tim2tox_ffi.framework      (picked up automatically)
+# Output (SDK=iphoneos — real device / App Store archive):
+#   third_party/tim2tox/build/ios-dev/libtim2tox_ffi.dylib   (arm64)
+#   third_party/tim2tox/build/ios-device/tim2tox_ffi.framework
+# The two SDK variants use fully separate per-arch build/cache dirs — an arm64
+# simulator libsodium/opus/vpx cache must never be linked into a device build
+# (wrong Mach-O platform loads never, and only fails at app launch).
 #
-# Env overrides: ARCHS (default "arm64 x86_64"), SDK (iphonesimulator|iphoneos),
+# Env overrides: ARCHS (default "arm64 x86_64" sim / "arm64" device),
+#                SDK (iphonesimulator|iphoneos),
 #                IOS_MIN (default 13.0), SODIUM_VERSION (default 1.0.20),
 #                TOXAV (default 1; TOXAV=0 builds the calling-stub variant).
 set -euo pipefail
 
-ARCHS="${ARCHS:-arm64 x86_64}"
 SDK="${SDK:-iphonesimulator}"
+if [[ "$SDK" == iphoneos* ]]; then
+  ARCHS="${ARCHS:-arm64}"
+  VARIANT="ios-dev"
+  [[ "$ARCHS" == "arm64" ]] || { echo "SDK=iphoneos supports only ARCHS=arm64 (got '$ARCHS')" >&2; exit 1; }
+else
+  ARCHS="${ARCHS:-arm64 x86_64}"
+  VARIANT="ios-sim"
+fi
 IOS_MIN="${IOS_MIN:-13.0}"
 SODIUM_VERSION="${SODIUM_VERSION:-1.0.20}"
 TOXAV="${TOXAV:-1}"
@@ -74,7 +88,7 @@ build_arch() {
   local arch="$1"
   local triple; triple="$(triple_for "$arch")"
   local tflags="-target $triple -isysroot $SYSROOT"
-  local base="$TIM2TOX_DIR/build/ios-sim-${arch}"
+  local base="$TIM2TOX_DIR/build/${VARIANT}-${arch}"
   local dep_prefix="$base/deps-prefix"
   local ffi_build="$base/ffi-build"
   local src="$base/src"
@@ -159,7 +173,7 @@ done
 # ---------------------------------------------------------------------------
 # lipo into a single universal dylib
 # ---------------------------------------------------------------------------
-OUT_BASE="$TIM2TOX_DIR/build/ios-sim"
+OUT_BASE="$TIM2TOX_DIR/build/$VARIANT"
 mkdir -p "$OUT_BASE"
 UNIVERSAL="$OUT_BASE/libtim2tox_ffi.dylib"
 if [[ ${#SLICES[@]} -gt 1 ]]; then
@@ -196,8 +210,15 @@ fi
 # ---------------------------------------------------------------------------
 # Package: framework (primary) + raw dylib, ad-hoc signed
 # ---------------------------------------------------------------------------
-OUT_FW="$TIM2TOX_DIR/build/ios/tim2tox_ffi.framework"
-mkdir -p "$TIM2TOX_DIR/build/ios"
+if [[ "$SDK" == iphoneos* ]]; then
+  FW_DIR="$TIM2TOX_DIR/build/ios-device"
+  FW_PLATFORM="iPhoneOS"
+else
+  FW_DIR="$TIM2TOX_DIR/build/ios"
+  FW_PLATFORM="iPhoneSimulator"
+fi
+OUT_FW="$FW_DIR/tim2tox_ffi.framework"
+mkdir -p "$FW_DIR"
 rm -rf "$OUT_FW"; mkdir -p "$OUT_FW"
 cp "$UNIVERSAL" "$OUT_FW/tim2tox_ffi"
 install_name_tool -id "@rpath/tim2tox_ffi.framework/tim2tox_ffi" "$OUT_FW/tim2tox_ffi"
@@ -215,7 +236,7 @@ cat > "$OUT_FW/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>MinimumOSVersion</key><string>${IOS_MIN}</string>
-  <key>CFBundleSupportedPlatforms</key><array><string>iPhoneSimulator</string></array>
+  <key>CFBundleSupportedPlatforms</key><array><string>${FW_PLATFORM}</string></array>
 </dict>
 </plist>
 PLIST
