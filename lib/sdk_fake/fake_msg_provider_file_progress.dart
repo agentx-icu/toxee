@@ -19,7 +19,9 @@ part of 'fake_msg_provider.dart';
 
 extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
   void _onFileProgress(({int instanceId, String peerId, String? path, int received, int total, bool isSend, String? msgID}) progress) {
+    if (_disposed) return;
     if (!progress.isSend && progress.path != null) {
+      var historyMutationRecorded = false;
       // File receiving progress
       // CRITICAL: Prioritize msgID matching to avoid fileNumber reuse issues
       // Find the message by msgID first (most reliable), then fall back to path matching
@@ -28,6 +30,8 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
 
       // Priority 1: Match by msgID if available (most reliable, avoids fileNumber conflicts)
       if (progress.msgID != null && progress.msgID!.isNotEmpty) {
+        historyMutationRecorded =
+            _recordProgressCacheMutation(progress.peerId);
         // P1-23: always record the latest progress in `_fileProgress`,
         // even if the message isn't in `_buffers` yet (it may arrive a
         // tick later via the FakeMessage event). Previously a missing
@@ -64,11 +68,11 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
           // emit/update phase. When the FakeMessage event lands, _mapMsg
           // will read `_fileProgress[msgID]` and reflect the right state.
           AppLogger.log(
-              '[FakeMessageProvider] msgID=${progress.msgID} not yet in any conversation buffer; cached progress and deferred emit');
+              '[FakeMessageProvider] Message not yet in a conversation buffer; cached progress and deferred emit');
           return;
         }
       } else {
-        AppLogger.log('[FakeMessageProvider] ⚠️ progress.msgID is null or empty, will use path matching');
+        AppLogger.log('[FakeMessageProvider] Progress identity is unavailable; using path matching');
       }
 
       // Priority 2: Fall back to path/filename matching ONLY if msgID was not provided
@@ -188,7 +192,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
               matchedMsg = latestMsg; // Update matchedMsg to reference the latest state
             } catch (_) {
               // Message not found in _buffers, use original matchedMsg
-              AppLogger.log('[FakeMessageProvider] ⚠️ Message not found in _buffers after re-fetch: msgID=$msgID, conv=$matchedConvID');
+              AppLogger.log('[FakeMessageProvider] Message not found in buffers after re-fetch');
             }
           }
 
@@ -241,26 +245,33 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
           );
 
           if (isAlreadyComplete) {
+            if (!historyMutationRecorded) {
+              _recordHistoryMutation(matchedConvID);
+              historyMutationRecorded = true;
+            }
             // File is already complete, ignore this progress update to prevent re-adding to _fileProgress
             // CRITICAL: Also remove from _fileProgress if it exists, to prevent UI from showing spinning state
             final hadProgress = _fileProgress.containsKey(msgID);
             if (hadProgress) {
               final oldProgress = _fileProgress[msgID];
               _fileProgress.remove(msgID);
-              AppLogger.log('[FakeMessageProvider] ⚠️ File already complete, removed from _fileProgress for msgID=$msgID (old progress: ${oldProgress?.received}/${oldProgress?.total})');
+              AppLogger.log('[FakeMessageProvider] File already complete; removed progress ${oldProgress?.received}/${oldProgress?.total}');
             } else {
-              AppLogger.log('[FakeMessageProvider] File already complete, ignoring progress update for msgID=$msgID (no _fileProgress entry)');
+              AppLogger.log('[FakeMessageProvider] File already complete; ignoring progress update');
             }
             // Skip processing this progress update - don't update _fileProgress or message elements
             // This prevents completed files from showing spinning state when delayed progress_recv events arrive
           } else {
+            if (!historyMutationRecorded) {
+              _recordHistoryMutation(matchedConvID);
+            }
             // CRITICAL: Clear progress when file is complete to prevent UI from showing spinning state
             // If file is complete (received >= total), remove from _fileProgress so UI knows it's done
             final isComplete = progress.received >= progress.total && progress.total > 0;
             if (isComplete) {
               final hadProgress = _fileProgress.containsKey(msgID);
               _fileProgress.remove(msgID);
-              AppLogger.log('[FakeMessageProvider] ✅ File complete, cleared progress for msgID=$msgID (hadProgress=$hadProgress)');
+              AppLogger.log('[FakeMessageProvider] File complete; cleared progress hadProgress=$hadProgress');
             } else {
               final oldProgress = _fileProgress[msgID];
               _fileProgress[msgID] = (
@@ -437,10 +448,10 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                 }
               }
             }
-            AppLogger.log('[FakeMessageProvider] Image complete: msgID=$msgID, hasLocalUrl=$hasLocalUrl, progress.path=${progress.path}, oldImageElem.path=${oldImageElem.path}');
+            AppLogger.log('[FakeMessageProvider] Image complete: hasLocalMedia=$hasLocalUrl, received=${progress.received}, total=${progress.total}');
             if (!hasLocalUrl && progress.path != null && !progress.path!.startsWith('/tmp/receiving_')) {
               // Create imageList with localUrl
-              AppLogger.log('[FakeMessageProvider] Creating imageList with localUrl for completed image: msgID=$msgID, localUrl=${progress.path}');
+              AppLogger.log('[FakeMessageProvider] Creating imageList for completed local image');
               final imageList = <V2TimImage?>[];
               final thumbImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB);
               thumbImage.localUrl = progress.path;
@@ -479,7 +490,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
               }
               // Skip logging imageElem updates - too frequent during file transfer
             } else {
-              AppLogger.log('[FakeMessageProvider] ⚠️ Image complete but hasLocalUrl=$hasLocalUrl or progress.path is null/temp: msgID=$msgID, progress.path=${progress.path}');
+              AppLogger.log('[FakeMessageProvider] Image completion hasLocalMedia=$hasLocalUrl but no publishable local URL');
             }
             }
             // Update video element path if it's still using temp path or is complete
