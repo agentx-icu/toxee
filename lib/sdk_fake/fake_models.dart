@@ -26,7 +26,9 @@ class FakeMessage {
     required this.timestampMs,
     this.filePath,
     this.fileName, // original file name (for received files, to avoid showing id-prefixed names)
+    this.fileSize,
     this.mediaKind,
+    this.cloudCustomData,
     this.isPending = false, // true if message is pending (offline, not sent yet)
     this.isReceived = false, // true if message has been received by peer
     this.isRead = false, // true if message has been read by peer
@@ -38,7 +40,9 @@ class FakeMessage {
   final int timestampMs;
   final String? filePath;
   final String? fileName; // original file name (for received files, to avoid showing id-prefixed names)
+  final int? fileSize;
   final String? mediaKind; // image/video/audio/file
+  final String? cloudCustomData;
   final bool isPending; // true if message is pending (offline, not sent yet)
   final bool isReceived; // true if message has been received by peer
   final bool isRead; // true if message has been read by peer
