@@ -57,6 +57,7 @@ tool/vendor_state.json
 .cache/
 .worktrees/
 .slim/deepwork/
+.slim/worktrees/
 dist/
 
 # Canonical prose docs live in `doc/` (singular). Block accidental writes to the
