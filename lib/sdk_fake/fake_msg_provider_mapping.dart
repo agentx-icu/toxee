@@ -21,7 +21,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
   ) {
     final normalized = <FakeMessage>[];
     for (final msg in history) {
-      final isControlText = (msg.mediaKind == null || msg.mediaKind!.isEmpty) &&
+      final isControlText =
+          (msg.mediaKind == null || msg.mediaKind!.isEmpty) &&
           msg.text.isNotEmpty &&
           msg.text.startsWith('__');
       if (!isControlText) {
@@ -29,7 +30,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         continue;
       }
 
-      if (msg.text.startsWith('__revoke__:')) {
+      final envelope = parseTextControlEnvelope(msg.text);
+      if (envelope is RevokeTextEnvelope) {
         final payload = _parseRevokeControlSignalPayload(msg.text);
         final targetMsgID = payload == null
             ? null
@@ -37,13 +39,6 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         if (targetMsgID != null && targetMsgID.isNotEmpty) {
           normalized.removeWhere((item) => item.msgID == targetMsgID);
         }
-        continue;
-      }
-
-      if (msg.text.startsWith('__face__:') ||
-          msg.text.startsWith('__custom__:') ||
-          msg.text.startsWith('__location__:')) {
-        normalized.add(_rewriteControlSignalForBubble(msg));
         continue;
       }
 
@@ -64,12 +59,12 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       return revokedID;
     }
 
-    final senderTimestampMs =
-        payload['senderTimestampMs'] is int ? payload['senderTimestampMs'] as int : null;
+    final senderTimestampMs = payload['senderTimestampMs'] is int
+        ? payload['senderTimestampMs'] as int
+        : null;
     if (senderTimestampMs == null) return revokedID;
 
-    final senderUID =
-        (payload['fromUserId'] as String?) ?? signal.fromUser;
+    final senderUID = (payload['fromUserId'] as String?) ?? signal.fromUser;
     FakeMessage? best;
     var bestDelta = 5000;
     for (final msg in history.reversed) {
@@ -87,10 +82,13 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
 
   /// Map a call record FakeMessage to V2TimMessage with custom element.
   V2TimMessage _mapCallRecordMsg(FakeMessage m) {
-    AppLogger.log('[FakeMessageProvider] _mapCallRecordMsg: msgID=${m.msgID}, conv=${m.conversationID}, textLen=${m.text.length}');
+    AppLogger.log(
+      '[FakeMessageProvider] _mapCallRecordMsg: textLen=${m.text.length}',
+    );
     final msg = V2TimMessage(elemType: MessageElemType.V2TIM_ELEM_TYPE_CUSTOM);
     msg.msgID = m.msgID;
     msg.timestamp = (m.timestampMs ~/ 1000);
+    msg.cloudCustomData = m.cloudCustomData;
 
     // Set userID/groupID from conversationID
     if (m.conversationID.startsWith('c2c_')) {
@@ -110,7 +108,9 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
     msg.isSelf = (selfId != null && compareToxIds(m.fromUser, selfId));
     msg.sender = m.fromUser;
     msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_SUCC;
-    AppLogger.log('[FakeMessageProvider] _mapCallRecordMsg: elemType=${msg.elemType}, isSelf=${msg.isSelf}, customElem.data=${msg.customElem?.data?.substring(0, 80)}...');
+    AppLogger.log(
+      '[FakeMessageProvider] _mapCallRecordMsg: elemType=${msg.elemType}, isSelf=${msg.isSelf}, customDataLength=${msg.customElem?.data?.length ?? 0}',
+    );
 
     // Set faceUrl for avatar display
     if (msg.isSelf ?? false) {
@@ -133,9 +133,19 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       return _mapCallRecordMsg(m);
     }
 
+    final controlEnvelope = m.mediaKind == null || m.mediaKind!.isEmpty
+        ? parseTextControlEnvelope(m.text)
+        : PlainTextEnvelope(m.text);
+
     // Determine element type based on mediaKind and filePath
     int elemType = MessageElemType.V2TIM_ELEM_TYPE_TEXT;
-    if (m.mediaKind == 'custom') {
+    if (controlEnvelope is FaceTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_FACE;
+    } else if (controlEnvelope is LocationTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_LOCATION;
+    } else if (controlEnvelope is CustomTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_CUSTOM;
+    } else if (m.mediaKind == 'custom') {
       // A custom inbound message (peer custom elem / l3_inject_c2c_custom)
       // carries NO filePath, so it must be typed here independent of the
       // filePath gate below — otherwise it stays TEXT and renders as an
@@ -176,13 +186,15 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       'call_record',
       'custom',
     };
-    final isUnknownCustom = m.mediaKind != null &&
+    final isUnknownCustom =
+        m.mediaKind != null &&
         !knownKinds.contains(m.mediaKind) &&
         elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT;
 
     final msg = V2TimMessage(elemType: elemType);
     msg.msgID = m.msgID;
     msg.timestamp = (m.timestampMs ~/ 1000);
+    msg.cloudCustomData = m.cloudCustomData;
 
     // CRITICAL: For C2C messages, userID should be the receiver (the other person), not the sender
     // For self-sent messages: userID = receiver (the other person), fromUser = selfId
@@ -209,8 +221,11 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         case 'image':
           // Set image element with local path for UIKit to display
           // Check if this is a receiving file (temporary path indicates receiving)
-          final isReceiving = m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
+          final isReceiving =
+              m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
           final fileExists = m.filePath != null ? file.existsSync() : false;
+          final imageFileSize =
+              m.fileSize ?? (fileExists ? file.lengthSync() : null);
           // Check if we have progress information for this message
           final progress = _fileProgress[m.msgID];
           // Determine localUrl: if file is complete (not receiving and file exists), set localUrl
@@ -219,14 +234,20 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           // Priority 1: If isPending is false, file is complete - set localUrl regardless of file existence check
           if (!m.isPending && m.filePath != null && !isReceiving) {
             localUrl = m.filePath;
-          } else if (progress != null && progress.received >= progress.total && progress.total > 0) {
+          } else if (progress != null &&
+              progress.received >= progress.total &&
+              progress.total > 0) {
             // Progress indicates file is complete
-            if (progress.path != null && !progress.path!.startsWith('/tmp/receiving_')) {
+            if (progress.path != null &&
+                !progress.path!.startsWith('/tmp/receiving_')) {
               localUrl = progress.path;
-            } else if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+            } else if (m.filePath != null &&
+                !m.filePath!.startsWith('/tmp/receiving_')) {
               localUrl = m.filePath;
             }
-          } else if (progress != null && progress.path != null && !progress.path!.startsWith('/tmp/receiving_')) {
+          } else if (progress != null &&
+              progress.path != null &&
+              !progress.path!.startsWith('/tmp/receiving_')) {
             // Progress has a valid path (from file_done or progress_recv), use it even if file is still receiving
             final progressFile = File(progress.path!);
             if (progressFile.existsSync()) {
@@ -241,7 +262,10 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           }
           // CRITICAL: For images, also check if filePath is in file_recv or avatars directory (file already received)
           // This handles the case where file_done event updated the message but _mapMsg is called before progress update
-          if (localUrl == null && m.filePath != null && (m.filePath!.contains('/file_recv/') || m.filePath!.contains('/avatars/'))) {
+          if (localUrl == null &&
+              m.filePath != null &&
+              (m.filePath!.contains('/file_recv/') ||
+                  m.filePath!.contains('/avatars/'))) {
             final file = File(m.filePath!);
             if (file.existsSync()) {
               localUrl = m.filePath;
@@ -259,23 +283,25 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           if (imagePath != null && !imagePath.startsWith('/tmp/receiving_')) {
             // Use local path as URL for Tox protocol (only if not a temp receiving path)
             imageUrl = imagePath;
-          } else if (localUrl != null && !localUrl.startsWith('/tmp/receiving_')) {
+          } else if (localUrl != null &&
+              !localUrl.startsWith('/tmp/receiving_')) {
             // Use localUrl if available and not a temp path
             imageUrl = localUrl;
           }
           // If imageUrl is still null, don't set it (let UIKit handle download)
 
-          if (localUrl != null || (imagePath != null && !imagePath.startsWith('/tmp/receiving_'))) {
+          if (localUrl != null ||
+              (imagePath != null && !imagePath.startsWith('/tmp/receiving_'))) {
             // Create thumb image with localUrl (UIKit checks thumb image by default)
-            final thumbImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB);
+            final thumbImage = V2TimImage(
+              type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB,
+            );
             thumbImage.uuid = imageUuid;
             if (imageUrl != null) {
               thumbImage.url = imageUrl;
             }
             thumbImage.localUrl = localUrl;
-            if (fileExists && m.filePath != null) {
-              thumbImage.size = file.lengthSync();
-            }
+            thumbImage.size = imageFileSize;
             // P2-2: real width/height parsing would require decoding JPEG/PNG
             // headers — non-trivial without adding a media-decoding dep.
             // Set 0 so the SDK image cache key isn't `nullnull_*` (which
@@ -285,30 +311,36 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             thumbImage.height = 0;
             imageList.add(thumbImage);
             // Also create origin image with localUrl
-            final originImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN);
+            final originImage = V2TimImage(
+              type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN,
+            );
             originImage.uuid = imageUuid;
             if (imageUrl != null) {
               originImage.url = imageUrl;
             }
             originImage.localUrl = localUrl;
-            if (fileExists && m.filePath != null) {
-              originImage.size = file.lengthSync();
-            }
+            originImage.size = imageFileSize;
             originImage.width = 0; // P2-2: see thumb comment above.
             originImage.height = 0;
             imageList.add(originImage);
           } else {
             // Even if localUrl is null, create imageList with uuid for downloadMessage
             // Don't set url if it's a temp receiving path - UIKit will handle download
-            final thumbImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB);
+            final thumbImage = V2TimImage(
+              type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB,
+            );
             thumbImage.uuid = imageUuid;
+            thumbImage.size = imageFileSize;
             // Only set url if it's not a temp receiving path
             if (imageUrl != null) {
               thumbImage.url = imageUrl;
             }
             imageList.add(thumbImage);
-            final originImage = V2TimImage(type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN);
+            final originImage = V2TimImage(
+              type: V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN,
+            );
             originImage.uuid = imageUuid;
+            originImage.size = imageFileSize;
             // Only set url if it's not a temp receiving path
             if (imageUrl != null) {
               originImage.url = imageUrl;
@@ -319,14 +351,18 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           // This ensures imageElem is not null, which is required for UIKit to render the image
           // CRITICAL: Use localUrl or final path (not temp path) for imageElem.path if available
           // This ensures isAlreadyComplete check can correctly detect completed files
-          final imageElemPath = (localUrl != null && !localUrl.startsWith('/tmp/receiving_'))
+          final imageElemPath =
+              (localUrl != null && !localUrl.startsWith('/tmp/receiving_'))
               ? localUrl
-              : ((m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_'))
+              : ((m.filePath != null &&
+                        !m.filePath!.startsWith('/tmp/receiving_'))
                   ? m.filePath
                   : m.filePath);
           msg.imageElem = V2TimImageElem(
             path: imageElemPath,
-            imageList: imageList.isNotEmpty ? imageList : (imageList.isEmpty ? [] : null),
+            imageList: imageList.isNotEmpty
+                ? imageList
+                : (imageList.isEmpty ? [] : null),
           );
           // Debug: Log image message creation
           // Also set text element with file name as fallback
@@ -340,7 +376,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         case 'file':
           // Set file element with local path and file name
           // Check if this is a receiving file (temporary path indicates receiving)
-          final isReceiving = m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
+          final isReceiving =
+              m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
           final fileExists = m.filePath != null ? file.existsSync() : false;
           final fileSize = fileExists ? file.lengthSync() : null;
           // Check if we have progress information for this message
@@ -352,12 +389,16 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           // This handles the case where file_done has updated the message but file.existsSync() might fail due to timing
           if (!m.isPending && m.filePath != null && !isReceiving) {
             localUrl = m.filePath;
-          } else if (progress != null && progress.received >= progress.total && progress.total > 0) {
+          } else if (progress != null &&
+              progress.received >= progress.total &&
+              progress.total > 0) {
             // Progress indicates file is complete - check this BEFORE isReceiving check
             // Use progress.path if available (from progress_recv events), otherwise use m.filePath if it's not a temp path
-            if (progress.path != null && !progress.path!.startsWith('/tmp/receiving_')) {
+            if (progress.path != null &&
+                !progress.path!.startsWith('/tmp/receiving_')) {
               localUrl = progress.path;
-            } else if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+            } else if (m.filePath != null &&
+                !m.filePath!.startsWith('/tmp/receiving_')) {
               localUrl = m.filePath;
             }
           } else if (isReceiving) {
@@ -370,7 +411,10 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           // CRITICAL: For files, also check if filePath is in file_recv or avatars directory (file already received)
           // This handles the case where file_done event updated the message but _mapMsg is called before progress update
           // Similar to image messages, this ensures localUrl is set when file is in file_recv directory
-          if (localUrl == null && m.filePath != null && (m.filePath!.contains('/file_recv/') || m.filePath!.contains('/avatars/'))) {
+          if (localUrl == null &&
+              m.filePath != null &&
+              (m.filePath!.contains('/file_recv/') ||
+                  m.filePath!.contains('/avatars/'))) {
             final file = File(m.filePath!);
             if (file.existsSync()) {
               localUrl = m.filePath;
@@ -381,10 +425,12 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           // CRITICAL: Don't use /tmp/receiving_ paths as URL - they are temporary and will fail when used as online URLs
           // Only use valid local paths (file_recv) or null if still receiving
           String? fileUrl;
-          if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+          if (m.filePath != null &&
+              !m.filePath!.startsWith('/tmp/receiving_')) {
             // Use local path as URL for Tox protocol (only if not a temp receiving path)
             fileUrl = m.filePath;
-          } else if (localUrl != null && !localUrl.startsWith('/tmp/receiving_')) {
+          } else if (localUrl != null &&
+              !localUrl.startsWith('/tmp/receiving_')) {
             // Use localUrl if available and not a temp path
             fileUrl = localUrl;
           }
@@ -392,17 +438,20 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
 
           // CRITICAL: Use localUrl or final path (not temp path) for fileElem.path if available
           // This ensures isAlreadyComplete check can correctly detect completed files
-          final fileElemPath = (localUrl != null && !localUrl.startsWith('/tmp/receiving_'))
+          final fileElemPath =
+              (localUrl != null && !localUrl.startsWith('/tmp/receiving_'))
               ? localUrl
-              : ((m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_'))
+              : ((m.filePath != null &&
+                        !m.filePath!.startsWith('/tmp/receiving_'))
                   ? m.filePath
                   : m.filePath);
           msg.fileElem = V2TimFileElem(
             path: fileElemPath,
             fileName: fileName,
             UUID: fileUuid, // Required for downloadMessage
-            url: fileUrl, // Required for downloadMessage (null if still receiving)
-            fileSize: fileSize ?? (progress != null ? progress.total : null),
+            url:
+                fileUrl, // Required for downloadMessage (null if still receiving)
+            fileSize: m.fileSize ?? fileSize ?? progress?.total,
             localUrl: localUrl,
           );
           // Also set text element with file name
@@ -414,25 +463,37 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           break;
         case 'video':
           // Set video element with proper V2TimVideoElem (UIKit expects videoElem for video messages)
-          final isReceivingVideo = m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
-          final videoFileExists = m.filePath != null ? file.existsSync() : false;
+          final isReceivingVideo =
+              m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
+          final videoFileExists = m.filePath != null
+              ? file.existsSync()
+              : false;
           final videoFileSize = videoFileExists ? file.lengthSync() : null;
           final videoProgress = _fileProgress[m.msgID];
           // Determine localVideoUrl using same logic as file/image
           String? localVideoUrl;
           if (!m.isPending && m.filePath != null && !isReceivingVideo) {
             localVideoUrl = m.filePath;
-          } else if (videoProgress != null && videoProgress.received >= videoProgress.total && videoProgress.total > 0) {
-            if (videoProgress.path != null && !videoProgress.path!.startsWith('/tmp/receiving_')) {
+          } else if (videoProgress != null &&
+              videoProgress.received >= videoProgress.total &&
+              videoProgress.total > 0) {
+            if (videoProgress.path != null &&
+                !videoProgress.path!.startsWith('/tmp/receiving_')) {
               localVideoUrl = videoProgress.path;
-            } else if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+            } else if (m.filePath != null &&
+                !m.filePath!.startsWith('/tmp/receiving_')) {
               localVideoUrl = m.filePath;
             }
-          } else if (!isReceivingVideo && m.filePath != null && videoFileExists) {
+          } else if (!isReceivingVideo &&
+              m.filePath != null &&
+              videoFileExists) {
             localVideoUrl = m.filePath;
           }
           // Check file_recv/avatars directory
-          if (localVideoUrl == null && m.filePath != null && (m.filePath!.contains('/file_recv/') || m.filePath!.contains('/avatars/'))) {
+          if (localVideoUrl == null &&
+              m.filePath != null &&
+              (m.filePath!.contains('/file_recv/') ||
+                  m.filePath!.contains('/avatars/'))) {
             final f = File(m.filePath!);
             if (f.existsSync()) {
               localVideoUrl = m.filePath;
@@ -440,20 +501,27 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           }
           final videoUuid = m.msgID.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
           String? videoUrl;
-          if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+          if (m.filePath != null &&
+              !m.filePath!.startsWith('/tmp/receiving_')) {
             videoUrl = m.filePath;
-          } else if (localVideoUrl != null && !localVideoUrl.startsWith('/tmp/receiving_')) {
+          } else if (localVideoUrl != null &&
+              !localVideoUrl.startsWith('/tmp/receiving_')) {
             videoUrl = localVideoUrl;
           }
-          final videoElemPath = (localVideoUrl != null && !localVideoUrl.startsWith('/tmp/receiving_'))
+          final videoElemPath =
+              (localVideoUrl != null &&
+                  !localVideoUrl.startsWith('/tmp/receiving_'))
               ? localVideoUrl
-              : ((m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_'))
+              : ((m.filePath != null &&
+                        !m.filePath!.startsWith('/tmp/receiving_'))
                   ? m.filePath
                   : m.filePath);
           msg.videoElem = V2TimVideoElem(
             videoPath: videoElemPath,
             UUID: videoUuid,
-            videoSize: videoFileSize ?? (videoProgress != null ? videoProgress.total : null),
+            videoSize: m.fileSize ??
+                videoFileSize ??
+                (videoProgress != null ? videoProgress.total : null),
             // TODO(P1-11): real duration is not available from the Tox file
             // transfer envelope. Probing via dart:io is non-trivial without
             // adding a media-decoding dep; leave as 0 and wire a real
@@ -470,25 +538,37 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           break;
         case 'audio':
           // Set sound element with proper V2TimSoundElem (UIKit expects soundElem for audio messages)
-          final isReceivingAudio = m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
-          final audioFileExists = m.filePath != null ? file.existsSync() : false;
+          final isReceivingAudio =
+              m.filePath != null && m.filePath!.startsWith('/tmp/receiving_');
+          final audioFileExists = m.filePath != null
+              ? file.existsSync()
+              : false;
           final audioFileSize = audioFileExists ? file.lengthSync() : null;
           final audioProgress = _fileProgress[m.msgID];
           // Determine localUrl using same logic as file/image
           String? audioLocalUrl;
           if (!m.isPending && m.filePath != null && !isReceivingAudio) {
             audioLocalUrl = m.filePath;
-          } else if (audioProgress != null && audioProgress.received >= audioProgress.total && audioProgress.total > 0) {
-            if (audioProgress.path != null && !audioProgress.path!.startsWith('/tmp/receiving_')) {
+          } else if (audioProgress != null &&
+              audioProgress.received >= audioProgress.total &&
+              audioProgress.total > 0) {
+            if (audioProgress.path != null &&
+                !audioProgress.path!.startsWith('/tmp/receiving_')) {
               audioLocalUrl = audioProgress.path;
-            } else if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+            } else if (m.filePath != null &&
+                !m.filePath!.startsWith('/tmp/receiving_')) {
               audioLocalUrl = m.filePath;
             }
-          } else if (!isReceivingAudio && m.filePath != null && audioFileExists) {
+          } else if (!isReceivingAudio &&
+              m.filePath != null &&
+              audioFileExists) {
             audioLocalUrl = m.filePath;
           }
           // Check file_recv/avatars directory
-          if (audioLocalUrl == null && m.filePath != null && (m.filePath!.contains('/file_recv/') || m.filePath!.contains('/avatars/'))) {
+          if (audioLocalUrl == null &&
+              m.filePath != null &&
+              (m.filePath!.contains('/file_recv/') ||
+                  m.filePath!.contains('/avatars/'))) {
             final f = File(m.filePath!);
             if (f.existsSync()) {
               audioLocalUrl = m.filePath;
@@ -496,20 +576,27 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           }
           final audioUuid = m.msgID.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
           String? audioUrl;
-          if (m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_')) {
+          if (m.filePath != null &&
+              !m.filePath!.startsWith('/tmp/receiving_')) {
             audioUrl = m.filePath;
-          } else if (audioLocalUrl != null && !audioLocalUrl.startsWith('/tmp/receiving_')) {
+          } else if (audioLocalUrl != null &&
+              !audioLocalUrl.startsWith('/tmp/receiving_')) {
             audioUrl = audioLocalUrl;
           }
-          final soundElemPath = (audioLocalUrl != null && !audioLocalUrl.startsWith('/tmp/receiving_'))
+          final soundElemPath =
+              (audioLocalUrl != null &&
+                  !audioLocalUrl.startsWith('/tmp/receiving_'))
               ? audioLocalUrl
-              : ((m.filePath != null && !m.filePath!.startsWith('/tmp/receiving_'))
+              : ((m.filePath != null &&
+                        !m.filePath!.startsWith('/tmp/receiving_'))
                   ? m.filePath
                   : m.filePath);
           msg.soundElem = V2TimSoundElem(
             path: soundElemPath,
             UUID: audioUuid,
-            dataSize: audioFileSize ?? (audioProgress != null ? audioProgress.total : null),
+            dataSize: m.fileSize ??
+                audioFileSize ??
+                (audioProgress != null ? audioProgress.total : null),
             // TODO(P1-11): real duration is not available from the Tox file
             // transfer envelope. Probing audio length via dart:io is
             // non-trivial without adding a media-decoding dep; leave as 0
@@ -540,7 +627,24 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       // For failed messages restored from persistence, text might be empty but we still need textElem
       // Since FakeMessage doesn't have elemType, we determine if it's a text message by checking if there's no filePath
       // If there's no filePath and no mediaKind, it's likely a text message
-      if (m.mediaKind == 'custom') {
+      if (controlEnvelope is FaceTextEnvelope) {
+        msg.faceElem = V2TimFaceElem(
+          index: controlEnvelope.payload['index'] as int,
+          data: controlEnvelope.payload['data'] as String,
+        );
+      } else if (controlEnvelope is LocationTextEnvelope) {
+        msg.locationElem = V2TimLocationElem(
+          desc: controlEnvelope.payload['desc'] as String,
+          longitude: (controlEnvelope.payload['longitude'] as num).toDouble(),
+          latitude: (controlEnvelope.payload['latitude'] as num).toDouble(),
+        );
+      } else if (controlEnvelope is CustomTextEnvelope) {
+        msg.customElem = V2TimCustomElem(
+          data: controlEnvelope.rawPayload,
+          desc: '',
+          extension: '',
+        );
+      } else if (m.mediaKind == 'custom') {
         // Mirror the history / Platform converter: a custom elem carries its
         // JSON payload in customElem.data and renders via
         // getCustomMessageBuilder (which keeps the Reply menu item, unlike a
@@ -559,7 +663,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
     // emitted a kind we don't yet recognise), render a placeholder
     // instead of an empty bubble. Preserves the original text in the
     // brackets so power users / log readers can still see what arrived.
-    if (isUnknownCustom && (msg.textElem == null || (msg.textElem!.text ?? '').isEmpty)) {
+    if (isUnknownCustom &&
+        (msg.textElem == null || (msg.textElem!.text ?? '').isEmpty)) {
       final preview = m.text.isNotEmpty
           ? (m.text.length > 32 ? m.text.substring(0, 32) : m.text)
           : (m.mediaKind ?? 'unknown');
@@ -600,7 +705,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         // If message is older than 10 seconds, it's likely a pending message from before restart
         // and should be marked as failed. This handles the case where client restarted
         // and old pending messages are loaded from history.
-        final messageAge = DateTime.now().millisecondsSinceEpoch - m.timestampMs;
+        final messageAge =
+            DateTime.now().millisecondsSinceEpoch - m.timestampMs;
         if (messageAge > 10000) {
           // Old pending message (likely from before restart) - mark as failed
           msg.status = 3; // V2TIM_MSG_STATUS_SEND_FAIL
@@ -617,7 +723,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         msg.status = 2; // V2TIM_MSG_STATUS_SEND_SUCC
         msg.isPeerRead = false; // Message received but not read yet
       } else {
-        msg.status = 2; // V2TIM_MSG_STATUS_SEND_SUCC (default for sent messages)
+        msg.status =
+            2; // V2TIM_MSG_STATUS_SEND_SUCC (default for sent messages)
         msg.isPeerRead = false;
       }
     } else {
@@ -637,6 +744,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       String? friendAvatarPath = _cachedFriendAvatars[m.fromUser];
       if (friendAvatarPath == null) {
         Prefs.getFriendAvatarPath(m.fromUser).then((avatarPath) {
+          if (_disposed) return;
           if (avatarPath != null && avatarPath.isNotEmpty) {
             _cachedFriendAvatars[m.fromUser] = avatarPath;
           } else {
@@ -652,39 +760,41 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
   }
 
   Future<void> _loadHistoryForConversation(String conversationID) async {
-    final mgr = FakeUIKit.instance.messageManager;
-    if (mgr == null) {
-      return;
-    }
+    final mutationGeneration =
+        _historyReloadGuards[conversationID]?.mutationGeneration ??
+        (_historyMutationGenerations[conversationID] ?? 0);
+    final historyLoader = _historyLoader;
+    final mgr = historyLoader == null ? FakeUIKit.instance.messageManager : null;
 
     try {
-      final hist = _normalizeControlSignalsInHistory(
-        await mgr.getHistory(conversationID),
-      );
+      final List<FakeMessage> loadedHistory;
+      if (historyLoader != null) {
+        loadedHistory = await historyLoader(conversationID);
+      } else if (mgr != null) {
+        loadedHistory = await mgr.getHistory(conversationID);
+      } else {
+        return;
+      }
+      final hist = _normalizeControlSignalsInHistory(loadedHistory);
 
       // Pre-load avatars for all message senders so _mapMsg can set faceUrl synchronously.
       // Without this, the async cache is empty when history messages are first mapped,
       // causing all message bubbles to fall back to the default avatar.
       final ffiInstance = FakeUIKit.instance.im?.ffi;
       final selfId = ffiInstance?.selfId;
+      String? stagedSelfAvatarPath;
+      final stagedFriendAvatars = <String, String>{};
       if (_cachedSelfAvatarPath == null) {
-        _cachedSelfAvatarPath = await Prefs.getAvatarPath();
+        stagedSelfAvatarPath = await Prefs.getAvatarPath();
       }
       final senderIds = hist.map((h) => h.fromUser).whereType<String>().toSet();
       for (final senderId in senderIds) {
         if (senderId == selfId) continue;
         if (!_cachedFriendAvatars.containsKey(senderId)) {
           final avatarPath = await Prefs.getFriendAvatarPath(senderId);
-          _cachedFriendAvatars[senderId] = avatarPath ?? '';
+          stagedFriendAvatars[senderId] = avatarPath ?? '';
         }
       }
-
-      // Ensure buffer exists (it should be created by streamFor, but create it here if missing)
-      if (!_buffers.containsKey(conversationID)) {
-        _buffers[conversationID] = <V2TimMessage>[];
-      }
-
-      final list = _buffers[conversationID]!;
 
       // Extract userID and groupID from conversationID for restoring failed messages
       String? userID;
@@ -699,7 +809,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       // both passes (restore-missing + restore-failed-status). The
       // previous code re-read SharedPreferences and re-parsed JSON twice
       // per page open; this is now a single fetch.
-      List<Map<String, dynamic>> cachedFailedMessages = <Map<String, dynamic>>[];
+      List<Map<String, dynamic>> cachedFailedMessages =
+          <Map<String, dynamic>>[];
       try {
         final currentToxId = await Prefs.getCurrentAccountToxId();
         cachedFailedMessages =
@@ -711,7 +822,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       } catch (e) {
         AppLogger.logError(
             '[FakeChatMessageProvider] _loadHistoryForConversation: Error loading failed messages: $e',
-            e);
+          e,
+        );
       }
 
       // Restore failed messages from persistence (pass 1: backfill missing
@@ -721,7 +833,10 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         if (failedMessagesData.isNotEmpty) {
           // Create a set of existing message IDs for quick lookup
           // FakeMessage only has msgID, not id
-          final existingMsgIDs = hist.map((h) => h.msgID).whereType<String>().toSet();
+          final existingMsgIDs = hist
+              .map((h) => h.msgID)
+              .whereType<String>()
+              .toSet();
 
           for (final failedMsgData in failedMessagesData) {
             final msgID = failedMsgData['msgID'] as String?;
@@ -746,7 +861,9 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
               final isSelf = failedMsgData['isSelf'] as bool? ?? true;
               // For self-sent messages, fromUser should be selfId
               // For received messages, fromUser should be the sender (which would be in userID field)
-              final fromUser = isSelf ? selfId : (failedMsgData['userID'] as String? ?? userID ?? '');
+              final fromUser = isSelf
+                  ? selfId
+                  : (failedMsgData['userID'] as String? ?? userID ?? '');
               // CRITICAL: Try to recover text content from history if it's empty in persistence
               // This handles the case where text was lost during persistence
               String text = failedMsgData['text'] as String? ?? '';
@@ -763,22 +880,53 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
               }
 
               // Add to history list as FakeMessage (will be converted to V2TimMessage below)
-              hist.add(FakeMessage(
+              hist.add(
+                FakeMessage(
                 msgID: msgID,
                 conversationID: conversationID,
                 fromUser: fromUser,
                 text: text,
-                timestampMs: (failedMsgData['timestamp'] as int? ?? (DateTime.now().millisecondsSinceEpoch / 1000).ceil()) * 1000,
+                fileSize: failedMsgData['fileSize'] as int?,
+                cloudCustomData: failedMsgData['cloudCustomData'] as String?,
+                  timestampMs:
+                      (failedMsgData['timestamp'] as int? ??
+                          (DateTime.now().millisecondsSinceEpoch / 1000)
+                              .ceil()) *
+                      1000,
                 isPending: false,
                 isReceived: true,
                 isRead: false,
-              ));
+                ),
+              );
             }
           }
         }
       } catch (e) {
         // Ignore errors during failed message restoration
       }
+
+      // A live mutation after this load began owns the newer state. All reads
+      // above are allowed to finish, but a stale load must remain side-effect
+      // free from this point onward (buffer rebuild, UIKit update, and stream
+      // emission are intentionally one synchronous generation-checked block).
+      if (!_isCurrentHistoryGeneration(
+        conversationID,
+        mutationGeneration,
+      )) {
+        return;
+      }
+
+      _cachedSelfAvatarPath ??= stagedSelfAvatarPath;
+      for (final entry in stagedFriendAvatars.entries) {
+        _cachedFriendAvatars.putIfAbsent(entry.key, () => entry.value);
+      }
+
+      // Ensure buffer exists (it should be created by streamFor, but create it here if missing)
+      if (!_buffers.containsKey(conversationID)) {
+        _buffers[conversationID] = <V2TimMessage>[];
+      }
+
+      final list = _buffers[conversationID]!;
 
       // Only clear and reload if we have history messages to load
       // If hist is empty, keep existing messages in buffer (they might not be saved yet)
@@ -798,7 +946,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
 
         // Clear existing list and add history messages
         list.clear();
-        V2TimMessage? latestMessage; // Track the latest message for conversation list update
+        V2TimMessage?
+        latestMessage; // Track the latest message for conversation list update
 
         // Create a set of failed message IDs for quick lookup.
         // P2-6: reuse the already-loaded `cachedFailedMessages` instead
@@ -836,9 +985,11 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
             // Also restore textElem if it's missing
             final failedMsgData = failedMsgDataMap[msgID ?? id ?? ''];
-            if (failedMsgData != null && msg.textElem == null &&
+            if (failedMsgData != null &&
+                msg.textElem == null &&
                 (msg.elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT ||
-                 failedMsgData['elemType'] == MessageElemType.V2TIM_ELEM_TYPE_TEXT)) {
+                    failedMsgData['elemType'] ==
+                        MessageElemType.V2TIM_ELEM_TYPE_TEXT)) {
               final text = failedMsgData['text'] as String?;
               if (text != null && text.isNotEmpty) {
                 msg.textElem = V2TimTextElem(text: text);
@@ -849,7 +1000,8 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
           }
           list.add(msg);
           // Track the latest message (highest timestamp)
-          if (latestMessage == null || (msg.timestamp ?? 0) > (latestMessage.timestamp ?? 0)) {
+          if (latestMessage == null ||
+              (msg.timestamp ?? 0) > (latestMessage.timestamp ?? 0)) {
             latestMessage = msg;
           }
         }
