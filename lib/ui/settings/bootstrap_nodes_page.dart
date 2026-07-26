@@ -20,9 +20,11 @@ class BootstrapNodesPage extends StatefulWidget {
     super.key,
     this.service,
     this.onNodeSelected,
+    this.fetchNodes,
   });
   final FfiChatService? service;
   final VoidCallback? onNodeSelected;
+  final Future<List<BootstrapNode>> Function()? fetchNodes;
 
   @override
   State<BootstrapNodesPage> createState() => _BootstrapNodesPageState();
@@ -34,7 +36,6 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
   String? _error;
   final Map<String, bool> _testingNodes = {};
   final Map<String, String?> _testResults = {};
-  final Map<String, int?> _nodeLatencies = {}; // Store latency for each node
   final Map<String, bool> _nodeTestSuccess = {}; // Track test success status
 
   @override
@@ -49,12 +50,15 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
       _error = null;
     });
     try {
-      final nodes = await BootstrapNodesService.fetchNodes();
+      final nodes =
+          await (widget.fetchNodes ?? BootstrapNodesService.fetchNodes)();
+      if (!mounted) return;
       setState(() {
-        _nodes = nodes;
+        _nodes = nodes.where((node) => node.preferredHost != null).toList();
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -63,24 +67,24 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
   }
 
   Future<void> _testNode(BootstrapNode node) async {
+    final host = node.preferredHost;
+    if (host == null) return;
     // Capture all l10n strings before any async gap so the catch block
     // doesn't need to re-fetch from a potentially-disposed context.
     final appL10n = AppLocalizations.of(context)!;
-    final successLabel = appL10n.success;
-    final failedLabel = appL10n.failed;
+    final successLabel = appL10n.nodeTestSuccess;
+    final failedLabel = appL10n.nodeTestFailed;
     final unavailableLabel = appL10n.nodeTestUnavailableBeforeLogin;
     setState(() {
       _testingNodes[node.publicKey] = true;
       _testResults[node.publicKey] = null;
-      _nodeLatencies[node.publicKey] = null;
       _nodeTestSuccess[node.publicKey] = false;
     });
     try {
-      final startTime = DateTime.now();
       bool success;
       if (widget.service != null) {
-        success = await widget.service!.addBootstrapNode(
-          node.ipv4,
+        success = await widget.service!.tryBootstrapNode(
+          host,
           node.port,
           node.publicKey,
         );
@@ -89,39 +93,41 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
         // so surface "test unavailable" rather than a misleading green check.
         setState(() {
           _testResults[node.publicKey] = unavailableLabel;
-          _nodeLatencies[node.publicKey] = null;
           _nodeTestSuccess[node.publicKey] = false;
         });
         return;
       }
-      final endTime = DateTime.now();
-      final latency = endTime.difference(startTime).inMilliseconds;
+      if (!mounted) return;
       setState(() {
         _testResults[node.publicKey] = success ? successLabel : failedLabel;
-        _nodeLatencies[node.publicKey] = success ? latency : null;
         _nodeTestSuccess[node.publicKey] = success;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _testResults[node.publicKey] = appL10n.error(e.toString());
-        _nodeLatencies[node.publicKey] = null;
         _nodeTestSuccess[node.publicKey] = false;
       });
     } finally {
-      setState(() {
-        _testingNodes[node.publicKey] = false;
-      });
+      if (mounted) {
+        setState(() {
+          _testingNodes[node.publicKey] = false;
+        });
+      }
     }
   }
 
   Future<void> _selectNode(BootstrapNode node) async {
+    final host = node.preferredHost;
+    final endpoint = node.formattedEndpoint;
+    if (host == null || endpoint == null) return;
     // Only allow selecting nodes that are online
     final isOnline = node.status == 'ONLINE';
     final isTestedSuccess = _nodeTestSuccess[node.publicKey] ?? false;
     final hasBeenTested = _testResults[node.publicKey] != null;
-    
+
     final appL10n = AppLocalizations.of(context)!;
-    
+
     if (!isOnline) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -131,13 +137,15 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
       );
       return;
     }
-    
+
     // Show warning if node hasn't been tested or test failed, but allow selection
-    String confirmMessage = appL10n.switchNodeConfirm('${node.ipv4}:${node.port}');
+    String confirmMessage = appL10n.switchNodeConfirm(endpoint);
     if (!hasBeenTested) {
-      confirmMessage = '${appL10n.switchNodeConfirm('${node.ipv4}:${node.port}')}\n\n${appL10n.nodeNotTestedWarning}';
+      confirmMessage =
+          '${appL10n.switchNodeConfirm(endpoint)}\n\n${appL10n.nodeNotTestedWarning}';
     } else if (!isTestedSuccess) {
-      confirmMessage = '${appL10n.switchNodeConfirm('${node.ipv4}:${node.port}')}\n\n${appL10n.nodeTestFailedWarning}';
+      confirmMessage =
+          '${appL10n.switchNodeConfirm(endpoint)}\n\n${appL10n.nodeTestFailedWarning}';
     }
 
     // Show confirmation dialog
@@ -158,7 +166,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
         ],
       ),
     );
-    
+
     if (confirmed != true) return;
     if (!mounted) return;
 
@@ -174,13 +182,14 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
       final rootNavigator = Navigator.of(context, rootNavigator: true);
       final messenger = ScaffoldMessenger.of(context);
       bool dialogShown = false;
-      unawaited(showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
         ),
-      ));
+      );
       dialogShown = true;
 
       void dismissDialog() {
@@ -192,30 +201,26 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
 
       try {
         final success = await widget.service!.addBootstrapNode(
-          node.ipv4,
+          host,
           node.port,
           node.publicKey,
         );
-        // Persist the selection so the next cold start hits the same node
-        // (this used to depend on a re-login side-effect, which corrupted the
-        // session identity).
-        await Prefs.setCurrentBootstrapNode(
-          node.ipv4,
-          node.port,
-          node.publicKey,
-        );
-
-        dismissDialog();
 
         if (!success) {
+          dismissDialog();
           messenger.showSnackBar(
             SnackBar(
-              content: Text(appL10n.nodeSwitchFailed('Failed to add bootstrap node')),
+              content: Text(
+                appL10n.nodeSwitchFailed('Failed to add bootstrap node'),
+              ),
               backgroundColor: errorColor,
             ),
           );
           return;
         }
+
+        await Prefs.setCurrentBootstrapNode(host, node.port, node.publicKey);
+        dismissDialog();
 
         messenger.showSnackBar(SnackBar(content: Text(appL10n.nodeSwitched)));
         widget.onNodeSelected?.call();
@@ -235,11 +240,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
       final navigator = Navigator.of(context);
       final messenger = ScaffoldMessenger.of(context);
       try {
-        await Prefs.setCurrentBootstrapNode(
-          node.ipv4,
-          node.port,
-          node.publicKey,
-        );
+        await Prefs.setCurrentBootstrapNode(host, node.port, node.publicKey);
         messenger.showSnackBar(SnackBar(content: Text(appL10n.nodeSwitched)));
         widget.onNodeSelected?.call();
         await Future.delayed(const Duration(milliseconds: 100));
@@ -255,7 +256,6 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
     }
   }
 
-
   /// Returns [child] verbatim on desktop (no pull-to-refresh affordance there;
   /// the AppBar already exposes a refresh IconButton); wraps in
   /// [RefreshIndicator] otherwise.
@@ -265,11 +265,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
     required Widget child,
   }) {
     if (isDesktop) return child;
-    return RefreshIndicator(
-      color: color,
-      onRefresh: _loadNodes,
-      child: child,
-    );
+    return RefreshIndicator(color: color, onRefresh: _loadNodes, child: child);
   }
 
   @override
@@ -285,176 +281,202 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
               onPressed: _loadNodes,
               tooltip: appL10n.refresh,
             ),
-            SizedBox(width: ResponsiveLayout.responsiveHorizontalPadding(context)),
+            SizedBox(
+              width: ResponsiveLayout.responsiveHorizontalPadding(context),
+            ),
           ],
         ),
         body: SafeArea(
           child: _loading
-            ? const LoadingShimmer(itemCount: 5, itemHeight: 56)
-            : _error != null
-                ? EmptyStateWidget(
-                    icon: Icons.cloud_off,
-                    // TODO(l10n): key=failedToLoadNodes
-                    title: 'Failed to load nodes',
-                    subtitle: _error,
-                    action: ElevatedButton(
-                      onPressed: _loadNodes,
-                      child: Text(appL10n.retry),
-                    ),
-                  )
-                : _nodes.isEmpty
-                ? EmptyStateWidget(
-                    icon: Icons.dns_outlined,
-                    // TODO(l10n): key=noBootstrapNodes
-                    title: 'No bootstrap nodes',
-                    action: ElevatedButton(
-                      onPressed: _loadNodes,
-                      child: Text(appL10n.retry),
-                    ),
-                  )
-                : _wrapWithRefresh(
-                    isDesktop: PlatformUtils.isDesktop,
-                    color: Theme.of(context).colorScheme.primary,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      itemCount: _nodes.length,
-                      itemBuilder: (context, index) {
-                        final node = _nodes[index];
-                        final isOnline = node.status == 'ONLINE';
-                        final isTesting = _testingNodes[node.publicKey] ?? false;
-                        final testResult = _testResults[node.publicKey];
-                        final latency = _nodeLatencies[node.publicKey];
-                        final isTestedSuccess = _nodeTestSuccess[node.publicKey] ?? false;
-                        final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
-                        final statusColor = isOnline
-                            ? AppThemeConfig.successColor
-                            : Theme.of(context).colorScheme.error;
-                        // Stagger entrance for first 10 rows only; respect
-                        // reduced-motion preference (no-op when disabled).
-                        final disableAnims = MediaQuery.disableAnimationsOf(context);
-                        final card = Card(
-                          elevation: 0,
-                          clipBehavior: Clip.antiAlias,
-                          margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                          shape: RoundedRectangleBorder(
-                            side: BorderSide(color: outlineVariant),
-                            borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
+              ? const LoadingShimmer(itemCount: 5, itemHeight: 56)
+              : _error != null
+              ? EmptyStateWidget(
+                  icon: Icons.cloud_off,
+                  // TODO(l10n): key=failedToLoadNodes
+                  title: 'Failed to load nodes',
+                  subtitle: _error,
+                  action: ElevatedButton(
+                    onPressed: _loadNodes,
+                    child: Text(appL10n.retry),
+                  ),
+                )
+              : _nodes.isEmpty
+              ? EmptyStateWidget(
+                  icon: Icons.dns_outlined,
+                  // TODO(l10n): key=noBootstrapNodes
+                  title: 'No bootstrap nodes',
+                  action: ElevatedButton(
+                    onPressed: _loadNodes,
+                    child: Text(appL10n.retry),
+                  ),
+                )
+              : _wrapWithRefresh(
+                  isDesktop: PlatformUtils.isDesktop,
+                  color: Theme.of(context).colorScheme.primary,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    itemCount: _nodes.length,
+                    itemBuilder: (context, index) {
+                      final node = _nodes[index];
+                      final endpoint = node.formattedEndpoint ?? '';
+                      final isOnline = node.status == 'ONLINE';
+                      final isTesting = _testingNodes[node.publicKey] ?? false;
+                      final testResult = _testResults[node.publicKey];
+                      final isTestedSuccess =
+                          _nodeTestSuccess[node.publicKey] ?? false;
+                      final outlineVariant = Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant;
+                      final statusColor = isOnline
+                          ? AppThemeConfig.successColor
+                          : Theme.of(context).colorScheme.error;
+                      // Stagger entrance for first 10 rows only; respect
+                      // reduced-motion preference (no-op when disabled).
+                      final disableAnims = MediaQuery.disableAnimationsOf(
+                        context,
+                      );
+                      final card = Card(
+                        elevation: 0,
+                        clipBehavior: Clip.antiAlias,
+                        margin: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.xs,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          side: BorderSide(color: outlineVariant),
+                          borderRadius: BorderRadius.circular(
+                            AppThemeConfig.cardBorderRadius,
                           ),
-                          child: InkWell(
-                            onTap: isOnline ? () => _selectNode(node) : null,
-                            child: ListTile(
-                              leading: Container(
-                                width: 10,
-                                height: 10,
-                                decoration: BoxDecoration(
-                                  color: statusColor,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              title: Text(
-                                '${node.ipv4}:${node.port}',
-                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: colorTheme.primaryTextColor,
-                                      fontFamily: 'monospace',
-                                    ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (node.location != null)
-                                    Text(
-                                      node.location!,
-                                      style: Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  if (node.maintainer != null)
-                                    Text(
-                                      AppLocalizations.of(context)!.maintainer(node.maintainer!),
-                                      style: Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  if (node.lastPing != null)
-                                    Text(
-                                      appL10n.lastPing(node.lastPing.toString()),
-                                      style: Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                  if (testResult != null) ...[
-                                    AppSpacing.verticalXs,
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          isTestedSuccess ? Icons.check_circle : Icons.error,
-                                          size: 14,
-                                          color: isTestedSuccess
-                                              ? AppThemeConfig.successColor
-                                              : Theme.of(context).colorScheme.error,
-                                        ),
-                                        AppSpacing.horizontalXs,
-                                        Text(
-                                          testResult,
-                                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                                color: isTestedSuccess
-                                                    ? AppThemeConfig.successColor
-                                                    : Theme.of(context).colorScheme.error,
-                                              ),
-                                        ),
-                                        if (latency != null && isTestedSuccess) ...[
-                                          AppSpacing.horizontalSm,
-                                          Text(
-                                            '${latency}ms',
-                                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                  color: AppThemeConfig.successColor,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontFamily: 'monospace',
-                                                ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: isTesting
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          )
-                                        : const Icon(Icons.network_check),
-                                    onPressed: isTesting ? null : () => _testNode(node),
-                                    tooltip: appL10n.testNode,
-                                  ),
-                                  if (isOnline)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: AppSpacing.sm),
-                                      child: Icon(
-                                        isTestedSuccess ? Icons.check_circle : Icons.chevron_right,
-                                        size: 20,
-                                        color: isTestedSuccess
-                                            ? AppThemeConfig.successColor
-                                            : Theme.of(context).iconTheme.color?.withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                ],
+                        ),
+                        child: InkWell(
+                          onTap: isOnline ? () => _selectNode(node) : null,
+                          child: ListTile(
+                            leading: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: statusColor,
+                                shape: BoxShape.circle,
                               ),
                             ),
+                            title: Text(
+                              endpoint,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: colorTheme.primaryTextColor,
+                                    fontFamily: 'monospace',
+                                  ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (node.location != null)
+                                  Text(
+                                    node.location!,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                if (node.maintainer != null)
+                                  Text(
+                                    AppLocalizations.of(
+                                      context,
+                                    )!.maintainer(node.maintainer!),
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                if (node.lastPing != null)
+                                  Text(
+                                    appL10n.lastPing(node.lastPing.toString()),
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                if (testResult != null) ...[
+                                  AppSpacing.verticalXs,
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isTestedSuccess
+                                            ? Icons.send_outlined
+                                            : Icons.error_outline,
+                                        size: 14,
+                                        color: isTestedSuccess
+                                            ? AppThemeConfig.successColor
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.error,
+                                      ),
+                                      AppSpacing.horizontalXs,
+                                      Text(
+                                        testResult,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(
+                                              color: isTestedSuccess
+                                                  ? AppThemeConfig.successColor
+                                                  : Theme.of(
+                                                      context,
+                                                    ).colorScheme.error,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: isTesting
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.send_outlined),
+                                  onPressed: isTesting
+                                      ? null
+                                      : () => _testNode(node),
+                                  tooltip: appL10n.testNode,
+                                ),
+                                if (isOnline)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: AppSpacing.sm,
+                                    ),
+                                    child: Icon(
+                                      isTestedSuccess
+                                          ? Icons.send_outlined
+                                          : Icons.chevron_right,
+                                      size: 20,
+                                      color: isTestedSuccess
+                                          ? AppThemeConfig.successColor
+                                          : Theme.of(context).iconTheme.color
+                                                ?.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        );
-                        if (disableAnims || index >= 10) return card;
-                        return StaggeredListItem(
-                          index: index,
-                          staggerDelay: const Duration(milliseconds: 40),
-                          child: card,
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                      if (disableAnims || index >= 10) return card;
+                      return StaggeredListItem(
+                        index: index,
+                        staggerDelay: const Duration(milliseconds: 40),
+                        child: card,
+                      );
+                    },
                   ),
-      ),
+                ),
         ),
+      ),
     );
   }
 }
-
