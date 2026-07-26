@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
@@ -8,6 +8,8 @@ import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_text_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_custom_elem.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_face_elem.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_location_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_image_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_image.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_file_elem.dart';
@@ -17,6 +19,7 @@ import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_status.dart';
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
+import 'package:tim2tox_dart/utils/control_message_envelope.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/fake_im.dart';
 import '../sdk_fake/fake_models.dart';
@@ -38,14 +41,43 @@ part 'fake_msg_provider_mapping.dart';
 /// hot-reload, etc.).
 class _HistoryReloadEntry {
   int loadedAtMs;
+  int mutationGeneration;
   Future<void>? inFlight;
-  _HistoryReloadEntry(this.loadedAtMs);
+  _HistoryReloadEntry(this.loadedAtMs, this.mutationGeneration);
 }
 
-class FakeChatMessageProvider implements ChatMessageProvider {
+@visibleForTesting
+final class FakeChatScratchOwner {
+  const FakeChatScratchOwner({
+    required this.accountToxId,
+    required this.writeBytes,
+    required this.deleteFile,
+  });
+
+  final String accountToxId;
+  final Future<String> Function({
+    required String category,
+    required String suggestedFileName,
+    required Uint8List bytes,
+  })
+  writeBytes;
+  final Future<void> Function(String path) deleteFile;
+}
+
+class FakeChatMessageProvider
+    implements ChatMessageProviderWithSendResult, ChatScratchFileProvider {
+  static final RegExp _fullToxAddressPattern = RegExp(r'^[0-9A-Fa-f]{76}$');
+
+  final Future<List<FakeMessage>> Function(String conversationID)?
+  _historyLoader;
+  final Future<void> Function(FakeMessage message)? _topicMappingBarrier;
+  final Future<String?> Function() _scratchAccountToxIdLoader;
+  final FakeChatScratchOwner? Function() _scratchOwnerLoader;
   final Map<String, StreamController<List<V2TimMessage>>> _ctrls = {};
   final Map<String, List<V2TimMessage>> _buffers = {};
   final Map<String, _HistoryReloadEntry> _historyReloadGuards = {};
+  final Map<String, int> _historyMutationGenerations = {};
+  bool _disposed = false;
   static const int _historyReloadTtlMs = 3000;
   StreamSubscription? _sub;
   StreamSubscription? _progressUpdatesSub;
@@ -53,9 +85,11 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   StreamSubscription? _fileRequestsSub;
   StreamSubscription? _avatarUpdatedSub;
   String? _cachedSelfAvatarPath; // Cache self avatar path to avoid async calls
-  final Map<String, String?> _cachedFriendAvatars = {}; // Cache friend avatar paths
+  final Map<String, String?> _cachedFriendAvatars =
+      {}; // Cache friend avatar paths
   // Track file receive progress: msgID -> (received, total, path)
-  final Map<String, ({int received, int total, String? path})> _fileProgress = {};
+  final Map<String, ({int received, int total, String? path})> _fileProgress =
+      {};
 
   /// S94/G2: read-only view of in-flight RECEIVE progress, keyed by msgID.
   /// Values are byte counts (received/total), NOT a 0-100 percent — derive
@@ -77,12 +111,29 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   @visibleForTesting
   void debugSetFileProgress(
     String msgId, {
+    String? peerID,
     required int received,
     required int total,
     String? path,
   }) {
+    if (peerID != null) {
+      _recordProgressCacheMutation(peerID);
+    }
     _fileProgress[msgId] = (received: received, total: total, path: path);
   }
+
+  /// Test seam: capture the currently running reload before a live mutation
+  /// invalidates its guard entry, then await that exact stale future.
+  @visibleForTesting
+  Future<void>? debugHistoryReloadCompletion(String conversationID) =>
+      _historyReloadGuards[conversationID]?.inFlight;
+
+  @visibleForTesting
+  String? debugCachedFriendAvatar(String userID) =>
+      _cachedFriendAvatars[userID];
+
+  @visibleForTesting
+  int get debugControllerCount => _ctrls.length;
 
   /// P1-22 (degraded): mirror of FfiChatService.progressUpdates for messages
   /// that are *being sent* (isSend == true), exposed so call-site UI can
@@ -91,10 +142,10 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   /// hooks; this stream is additive and unused by UIKit today.
   /// TODO(P1-22): forward each event into UIKit's onSendMessageProgress
   /// once the routing path is stable.
-  final _sendProgressCtrl = StreamController<
-      ({String? msgID, int received, int total})>.broadcast();
-  Stream<({String? msgID, int received, int total})>
-      get sendProgressStream => _sendProgressCtrl.stream;
+  final _sendProgressCtrl =
+      StreamController<({String? msgID, int received, int total})>.broadcast();
+  Stream<({String? msgID, int received, int total})> get sendProgressStream =>
+      _sendProgressCtrl.stream;
 
   /// P2-6/P2-7: lazy cache of failed-message IDs for the current account so
   /// the routing layer can answer "is this msgID failed?" without
@@ -102,15 +153,29 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   /// invalidated on any save/remove via [invalidateFailedMsgCache].
   Set<String>? _failedMsgIDsCache;
   bool _failedCacheDirty = true;
+
   /// Mark the failed-message cache as stale; the next read refreshes it.
   void invalidateFailedMsgCache() {
     _failedCacheDirty = true;
   }
 
-  FakeChatMessageProvider() {
+  FakeChatMessageProvider({
+    @visibleForTesting
+    Future<List<FakeMessage>> Function(String conversationID)? historyLoader,
+    @visibleForTesting
+    Future<void> Function(FakeMessage message)? topicMappingBarrier,
+    @visibleForTesting Future<String?> Function()? scratchAccountToxIdLoader,
+    @visibleForTesting FakeChatScratchOwner? Function()? scratchOwnerLoader,
+  }) : _historyLoader = historyLoader,
+       _topicMappingBarrier = topicMappingBarrier,
+       _scratchAccountToxIdLoader =
+           scratchAccountToxIdLoader ?? Prefs.getCurrentAccountToxId,
+       _scratchOwnerLoader = scratchOwnerLoader ?? _resolveLiveScratchOwner {
     // Load self avatar path on initialization
     Prefs.getAvatarPath().then((path) {
-      _cachedSelfAvatarPath = path;
+      if (!_disposed) {
+        _cachedSelfAvatarPath = path;
+      }
     });
     // Listen for message data updates to sync deletions
     _listenForMessageDeletions();
@@ -144,22 +209,34 @@ class FakeChatMessageProvider implements ChatMessageProvider {
       _fileRequestsSub = ffi.fileRequests.listen((req) async {
         try {
           AppLogger.log(
-              '[FakeMessageProvider] P1-5 auto-accept large file: peer=${req.peerId}, fileNumber=${req.fileNumber}, size=${req.fileSize}, name=${req.fileName}');
-          await ffi.acceptFileTransfer(req.peerId, req.fileNumber);
+            '[FakeMessageProvider] P1-5 auto-accept large file: fileNumber=${req.fileNumber}, size=${req.fileSize}',
+          );
+          await ffi.acceptFileTransfer(
+            req.peerId,
+            req.fileNumber,
+            instanceId: req.instanceId,
+          );
         } catch (e) {
           AppLogger.log(
-              '[FakeMessageProvider] P1-5 auto-accept failed for ${req.fileName}: $e');
+            '[FakeMessageProvider] P1-5 auto-accept failed: ${e.runtimeType}',
+          );
         }
       });
       // When a friend's avatar is received and saved, invalidate our in-memory cache
       // and re-emit the stream for their conversation so message bubbles update immediately.
       _avatarUpdatedSub = ffi.avatarUpdated.listen((uid) async {
-        _cachedFriendAvatars.remove(uid);
-        final newPath = await Prefs.getFriendAvatarPath(uid);
-        _cachedFriendAvatars[uid] = newPath ?? '';
+        if (_disposed) return;
         final convId = 'c2c_$uid';
         if (_buffers.containsKey(convId) && _ctrls.containsKey(convId)) {
+          _recordHistoryMutation(convId);
+        }
+        _cachedFriendAvatars.remove(uid);
+        final newPath = await Prefs.getFriendAvatarPath(uid);
+        if (_disposed) return;
+        _cachedFriendAvatars[uid] = newPath ?? '';
+        if (_buffers.containsKey(convId) && _ctrls.containsKey(convId)) {
           final msgs = _buffers[convId]!;
+          _recordHistoryMutation(convId);
           for (final msg in msgs) {
             if (msg.isSelf != true) {
               msg.faceUrl = newPath?.isNotEmpty == true ? newPath : null;
@@ -169,7 +246,66 @@ class FakeChatMessageProvider implements ChatMessageProvider {
         }
       });
     }
-    _sub = FakeUIKit.instance.eventBusInstance.on<FakeMessage>(FakeIM.topicMessage).listen(_onTopicMessage);
+    _sub = FakeUIKit.instance.eventBusInstance
+        .on<FakeMessage>(FakeIM.topicMessage)
+        .listen(_onTopicMessage);
+  }
+
+  static FakeChatScratchOwner? _resolveLiveScratchOwner() {
+    final ffi = FakeUIKit.instance.im?.ffi;
+    if (ffi == null) return null;
+    return FakeChatScratchOwner(
+      accountToxId: ffi.getSelfToxId()?.trim() ?? '',
+      writeBytes:
+          ({required category, required suggestedFileName, required bytes}) {
+            return ffi.writeBytesToScratch(
+              bytes,
+              category: category,
+              suggestedFileName: suggestedFileName,
+            );
+          },
+      deleteFile: ffi.deleteScratchFile,
+    );
+  }
+
+  Future<FakeChatScratchOwner> _validatedScratchOwner() async {
+    final activeToxId = (await _scratchAccountToxIdLoader())?.trim();
+    final owner = _scratchOwnerLoader();
+    if (owner == null) {
+      throw StateError('Scratch storage is unavailable before session startup');
+    }
+    final ownerToxId = owner.accountToxId.trim();
+    if (activeToxId == null ||
+        !_fullToxAddressPattern.hasMatch(activeToxId) ||
+        !_fullToxAddressPattern.hasMatch(ownerToxId)) {
+      throw StateError('Scratch storage requires a full account Tox ID');
+    }
+    if (activeToxId.toUpperCase() != ownerToxId.toUpperCase()) {
+      throw StateError(
+        'Scratch storage owner does not match the active account',
+      );
+    }
+    return owner;
+  }
+
+  @override
+  Future<String> writeScratchBytes({
+    required String category,
+    required String suggestedFileName,
+    required Uint8List bytes,
+  }) async {
+    final owner = await _validatedScratchOwner();
+    return owner.writeBytes(
+      category: category,
+      suggestedFileName: suggestedFileName,
+      bytes: bytes,
+    );
+  }
+
+  @override
+  Future<void> deleteScratchFile(String path) async {
+    final owner = await _validatedScratchOwner();
+    await owner.deleteFile(path);
   }
 
   /// Find the conversation ID that matches a given userID, handling Tox ID
@@ -193,7 +329,12 @@ class FakeChatMessageProvider implements ChatMessageProvider {
 
   @override
   Stream<List<V2TimMessage>> streamFor({String? userID, String? groupID}) {
-    final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+    if (_disposed) {
+      return const Stream<List<V2TimMessage>>.empty();
+    }
+    final conv = (groupID != null && groupID.isNotEmpty)
+        ? 'group_$groupID'
+        : 'c2c_$userID';
     final ctrl = _ctrls.putIfAbsent(conv, () => StreamController.broadcast());
 
     // Check if buffer already has messages
@@ -204,9 +345,12 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     // multiple subscribers per conversation) used to hit the on-disk
     // persistence layer for every subscribe; now repeat subscribes within
     // the TTL just re-emit the in-memory buffer. Writes call
-    // [_invalidateHistoryReloadCache] to force the next subscribe to
+    // [_recordHistoryMutation] to force the next subscribe to
     // refresh.
-    Future.microtask(() => _reloadHistoryIfStale(conv));
+    // Start immediately so the reload captures the generation before
+    // [streamFor] returns. The async load still yields at its first await and
+    // never blocks subscription setup.
+    unawaited(_reloadHistoryIfStale(conv));
 
     // If buffer already has messages, emit them immediately (for real-time updates)
     // But we still reload history in the background to ensure failed messages are restored
@@ -220,6 +364,9 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   }
 
   Future<void> _reloadHistoryIfStale(String conv) {
+    if (_disposed) {
+      return Future<void>.value();
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     final guard = _historyReloadGuards[conv];
     if (guard != null) {
@@ -228,12 +375,20 @@ class FakeChatMessageProvider implements ChatMessageProvider {
         return Future<void>.value();
       }
     }
-    final entry =
-        _historyReloadGuards.putIfAbsent(conv, () => _HistoryReloadEntry(0));
-    final future = _loadHistoryForConversation(conv).whenComplete(() {
-      entry
-        ..loadedAtMs = DateTime.now().millisecondsSinceEpoch
-        ..inFlight = null;
+    final generation = _historyMutationGenerations[conv] ?? 0;
+    final entry = _historyReloadGuards.putIfAbsent(
+      conv,
+      () => _HistoryReloadEntry(0, generation),
+    );
+    entry.mutationGeneration = generation;
+    late final Future<void> future;
+    future = _loadHistoryForConversation(conv).whenComplete(() {
+      if (identical(_historyReloadGuards[conv], entry) &&
+          identical(entry.inFlight, future)) {
+        entry
+          ..loadedAtMs = DateTime.now().millisecondsSinceEpoch
+          ..inFlight = null;
+      }
     });
     entry.inFlight = future;
     return future;
@@ -246,9 +401,47 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     _historyReloadGuards.remove(conv);
   }
 
+  /// Record a live in-memory mutation so an older disk read cannot replace it.
+  void _recordHistoryMutation(String conv) {
+    if (_disposed) {
+      return;
+    }
+    _historyMutationGenerations[conv] =
+        (_historyMutationGenerations[conv] ?? 0) + 1;
+    _invalidateHistoryReloadCache(conv);
+  }
+
+  bool _isCurrentHistoryGeneration(String conv, int generation) =>
+      !_disposed && (_historyMutationGenerations[conv] ?? 0) == generation;
+
+  bool _recordProgressCacheMutation(String peerID) {
+    final conv = findConversationForUser(peerID);
+    if (conv == null) {
+      return false;
+    }
+    _recordHistoryMutation(conv);
+    return true;
+  }
+
   @override
-  Future<void> sendText({String? userID, String? groupID, required String text}) async {
-    final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+  Future<void> sendText({
+    String? userID,
+    String? groupID,
+    required String text,
+  }) async {
+    await sendTextWithResult(userID: userID, groupID: groupID, text: text);
+  }
+
+  @override
+  Future<ChatMessageSendResult> sendTextWithResult({
+    String? userID,
+    String? groupID,
+    required String text,
+    String? clientMessageID,
+  }) async {
+    final conv = (groupID != null && groupID.isNotEmpty)
+        ? 'group_$groupID'
+        : 'c2c_$userID';
     final mgr = FakeUIKit.instance.messageManager;
     if (mgr == null) {
       throw Exception("Message manager is not available");
@@ -257,15 +450,22 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     // message and surfaces a pending bubble. Drain runs when the friend's
     // status flips online. No pre-emptive throw here.
     try {
-      await mgr.sendText(conv, text);
+      return await mgr.sendText(conv, text, clientMessageID: clientMessageID);
     } catch (e) {
       rethrow;
     }
   }
 
   @override
-  Future<void> sendImage({String? userID, String? groupID, required String imagePath, String? imageName}) async {
-    final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+  Future<void> sendImage({
+    String? userID,
+    String? groupID,
+    required String imagePath,
+    String? imageName,
+  }) async {
+    final conv = (groupID != null && groupID.isNotEmpty)
+        ? 'group_$groupID'
+        : 'c2c_$userID';
     final mgr = FakeUIKit.instance.messageManager;
     if (mgr == null) {
       return;
@@ -286,7 +486,8 @@ class FakeChatMessageProvider implements ChatMessageProvider {
       final size = await File(imagePath).length();
       if (size > 5 * 1024 * 1024) {
         AppLogger.log(
-            '[sendImage] large image (${size ~/ 1024}KB) sent without compression — TODO(P1-21)');
+          '[sendImage] large image (${size ~/ 1024}KB) sent without compression — TODO(P1-21)',
+        );
       }
     } catch (_) {
       // File-size check is best-effort.
@@ -303,8 +504,15 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   }
 
   @override
-  Future<void> sendFile({String? userID, String? groupID, required String filePath, String? fileName}) async {
-    final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+  Future<void> sendFile({
+    String? userID,
+    String? groupID,
+    required String filePath,
+    String? fileName,
+  }) async {
+    final conv = (groupID != null && groupID.isNotEmpty)
+        ? 'group_$groupID'
+        : 'c2c_$userID';
     final mgr = FakeUIKit.instance.messageManager;
     if (mgr == null) {
       return;
@@ -333,8 +541,17 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   /// Update or add a message to the buffer and emit to stream
   /// This is used when messages are added/updated outside of FakeMessage events
   /// (e.g., when sendMessageFinalPhase updates message status to FAIL)
-  void updateMessageInBuffer(V2TimMessage message, {String? userID, String? groupID}) {
-    final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+  void updateMessageInBuffer(
+    V2TimMessage message, {
+    String? userID,
+    String? groupID,
+  }) {
+    if (_disposed) {
+      return;
+    }
+    final conv = (groupID != null && groupID.isNotEmpty)
+        ? 'group_$groupID'
+        : 'c2c_$userID';
     if (conv.isEmpty) {
       return;
     }
@@ -342,11 +559,13 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     final list = _buffers.putIfAbsent(conv, () => <V2TimMessage>[]);
 
     // Check if message already exists by msgID or id
-    final existingIndex = list.indexWhere((msg) =>
-      (msg.msgID != null && msg.msgID == message.msgID) ||
-      (msg.id != null && msg.id == message.id && message.id != null)
+    final existingIndex = list.indexWhere(
+      (msg) =>
+          (msg.msgID != null && msg.msgID == message.msgID) ||
+          (msg.id != null && msg.id == message.id && message.id != null),
     );
 
+    _recordHistoryMutation(conv);
     if (existingIndex >= 0) {
       // Message exists - update it
       list[existingIndex] = message;
@@ -354,8 +573,6 @@ class FakeChatMessageProvider implements ChatMessageProvider {
       // New message - add it
       list.add(message);
     }
-
-    _invalidateHistoryReloadCache(conv);
 
     // Sort by timestamp ascending (oldest first, newest last)
     list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
@@ -372,9 +589,12 @@ class FakeChatMessageProvider implements ChatMessageProvider {
         final ffi = FakeUIKit.instance.im?.ffi;
         final selfId = ffi?.selfId ?? '';
         final isSelf = message.isSelf ?? false;
-        final fromUser = isSelf ? selfId : (message.sender ?? message.userID ?? '');
+        final fromUser = isSelf
+            ? selfId
+            : (message.sender ?? message.userID ?? '');
         final text = message.textElem?.text ?? '';
-        final timestampMs = (message.timestamp ?? 0) * 1000; // Convert seconds to milliseconds
+        final timestampMs =
+            (message.timestamp ?? 0) * 1000; // Convert seconds to milliseconds
 
         final fakeMsg = FakeMessage(
           msgID: message.msgID ?? message.id ?? '',
@@ -384,7 +604,11 @@ class FakeChatMessageProvider implements ChatMessageProvider {
           timestampMs: timestampMs,
           filePath: message.fileElem?.path ?? message.imageElem?.path,
           fileName: message.fileElem?.fileName,
-          mediaKind: message.imageElem != null ? 'image' : (message.fileElem != null ? 'file' : null),
+          fileSize: message.fileElem?.fileSize,
+          mediaKind: message.imageElem != null
+              ? 'image'
+              : (message.fileElem != null ? 'file' : null),
+          cloudCustomData: message.cloudCustomData,
           isPending: false, // Failed messages are not pending
           isReceived: false,
           isRead: false,
@@ -394,7 +618,8 @@ class FakeChatMessageProvider implements ChatMessageProvider {
         FakeUIKit.instance.eventBusInstance.emit(FakeIM.topicMessage, fakeMsg);
       } catch (e) {
         AppLogger.warn(
-            '[FakeMessageProvider] FakeMessage event emission failed: $e');
+          '[FakeMessageProvider] FakeMessage event emission failed: $e',
+        );
       }
     }
   }
@@ -439,14 +664,18 @@ class FakeChatMessageProvider implements ChatMessageProvider {
           final chatMsg = history.firstWhere((m) => m.msgID == msgID);
           // Found the ChatMessage, convert it to FakeMessage then to V2TimMessage
           final fakeMsg = FakeMessage(
-            msgID: chatMsg.msgID ?? '${chatMsg.timestamp.millisecondsSinceEpoch}_${chatMsg.fromUserId}',
+            msgID:
+                chatMsg.msgID ??
+                '${chatMsg.timestamp.millisecondsSinceEpoch}_${chatMsg.fromUserId}',
             conversationID: conversationID,
             fromUser: chatMsg.fromUserId,
             text: chatMsg.text,
             timestampMs: chatMsg.timestamp.millisecondsSinceEpoch,
             filePath: chatMsg.filePath,
             fileName: chatMsg.fileName,
+            fileSize: chatMsg.fileSize,
             mediaKind: chatMsg.mediaKind,
+            cloudCustomData: chatMsg.cloudCustomData,
             isPending: chatMsg.isPending,
             isReceived: chatMsg.isReceived,
             isRead: chatMsg.isRead,
@@ -464,16 +693,24 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   }
 
   @override
-  Future<void> deleteMessages({String? userID, String? groupID, required List<String> msgIDs}) async {
+  Future<void> deleteMessages({
+    String? userID,
+    String? groupID,
+    required List<String> msgIDs,
+  }) async {
     try {
       if (msgIDs.isEmpty) {
         return;
       }
 
-      final conv = (groupID != null && groupID.isNotEmpty) ? 'group_$groupID' : 'c2c_$userID';
+      final conv = (groupID != null && groupID.isNotEmpty)
+          ? 'group_$groupID'
+          : 'c2c_$userID';
 
       if (conv.isEmpty || (userID == null && groupID == null)) {
-        throw Exception('Invalid conversation: userID and groupID cannot both be null');
+        throw Exception(
+          'Invalid conversation: userID and groupID cannot both be null',
+        );
       }
 
       // Remove messages from buffer
@@ -504,6 +741,7 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   /// Remove messages from buffer by their IDs
   /// This is called when messages are deleted
   void _removeMessagesFromBuffer(String conversationID, List<String> msgIDs) {
+    _recordHistoryMutation(conversationID);
     final list = _buffers[conversationID];
     if (list == null) {
       return;
@@ -515,8 +753,6 @@ class FakeChatMessageProvider implements ChatMessageProvider {
       final id = msg.id ?? '';
       return msgIDs.contains(msgID) || (id.isNotEmpty && msgIDs.contains(id));
     });
-
-    _invalidateHistoryReloadCache(conversationID);
 
     // Re-sort after removal
     list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
@@ -531,12 +767,12 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   /// Clear message buffer for a conversation and notify UI
   /// This is called when chat history is cleared
   void clearMessageBuffer(String conversationID) {
+    _recordHistoryMutation(conversationID);
     // Clear the buffer (remove or clear the list)
     if (_buffers.containsKey(conversationID)) {
       _buffers[conversationID]!.clear();
       _buffers.remove(conversationID);
     }
-    _invalidateHistoryReloadCache(conversationID);
     // Emit empty list to stream to notify UI (if stream controller exists)
     final ctrl = _ctrls[conversationID];
     if (ctrl != null && !ctrl.isClosed) {
@@ -545,6 +781,10 @@ class FakeChatMessageProvider implements ChatMessageProvider {
   }
 
   void dispose() {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
     _sub?.cancel();
     _progressUpdatesSub?.cancel();
     _sendProgressSub?.cancel();
@@ -556,6 +796,7 @@ class FakeChatMessageProvider implements ChatMessageProvider {
     _ctrls.clear();
     _buffers.clear();
     _historyReloadGuards.clear();
+    _historyMutationGenerations.clear();
     _cachedSelfAvatarPath = null;
     _cachedFriendAvatars.clear();
     _fileProgress.clear();
