@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/call/call_service_manager.dart';
 import 'package:toxee/notifications/notification_service.dart';
 
@@ -40,24 +41,32 @@ void main() {
   test(
     'Android denied incoming-call notification records in-app fallback',
     () async {
-      const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+      const channel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      const windowChannel = MethodChannel('toxee/incoming_call_window');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             if (call.method == 'initialize') return true;
             if (call.method == 'getNotificationAppLaunchDetails') return null;
             return null;
           });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(windowChannel, (_) async => null);
       addTearDown(() {
         NotificationService.debugForceIsAndroid = null;
         NotificationService.instance.debugAndroidPermissionGranted = null;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null);
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(windowChannel, null);
       });
 
       final service = NotificationService.instance;
       await service.init();
       NotificationService.debugForceIsAndroid = true;
       service.debugAndroidPermissionGranted = false;
+      SharedPreferences.setMockInitialValues(<String, Object>{});
 
       final result = await service.showIncomingCallNotification(
         callId: 'call-42',
