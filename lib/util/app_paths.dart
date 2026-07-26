@@ -367,6 +367,34 @@ abstract final class AppPaths {
     return p.join(base, 'account_data', _accountPrefix(toxId));
   }
 
+  /// Full-ID account root reserved for ephemeral scratch data.
+  ///
+  /// Persistent account paths above retain their historical 16-character
+  /// prefix for compatibility. Scratch must not use that prefix because two
+  /// accounts with the same public-key prefix can otherwise share helpers.
+  static Future<String> getAccountScratchDataRoot(String toxId) async {
+    final base = await applicationSupportPath;
+    return p.join(base, 'account_data', _fullAccountPathSegment(toxId));
+  }
+
+  /// Scratch root for [toxId]:
+  /// `<appSupport>/account_data/<fullToxId>/scratch`.
+  static Future<String> getAccountScratchRoot(String toxId) async {
+    final accountRoot = await getAccountScratchDataRoot(toxId);
+    return p.join(accountRoot, 'scratch');
+  }
+
+  static String _fullAccountPathSegment(String toxId) {
+    final normalized = toxId.trim();
+    if (normalized.isEmpty ||
+        p.isAbsolute(normalized) ||
+        p.basename(normalized) != normalized ||
+        !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(normalized)) {
+      throw ArgumentError.value(toxId, 'toxId', 'Unsafe account identifier');
+    }
+    return normalized;
+  }
+
   /// Chat history directory for the given account: `<accountDataRoot>/chat_history`.
   ///
   /// iOS file-protection note (H8 part 2, 2026-05-19 persistence review):
@@ -431,8 +459,9 @@ abstract final class AppPaths {
     if (await legacyQueueFile.exists()) {
       await Directory(accountRoot).create(recursive: true);
       final destQueue = File(accountQueuePath);
-      if (!await destQueue.exists())
+      if (!await destQueue.exists()) {
         await legacyQueueFile.copy(accountQueuePath);
+      }
     }
 
     // Migrate avatars from global <appSupport>/avatars/ to per-account directory
