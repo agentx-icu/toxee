@@ -21,7 +21,7 @@ void main() {
     // so `setMockInitialValues` alone does NOT give Prefs a fresh store between
     // tests. Re-`initialize` it with a fresh instance so each case is isolated
     // (codex — otherwise a later case inherits an earlier case's restored node).
-    Prefs.initialize(await SharedPreferences.getInstance());
+    await Prefs.initialize(await SharedPreferences.getInstance());
   });
 
   group('S92 LAN bootstrap — recoverFromCrashedSession (pure Prefs)', () {
@@ -33,8 +33,7 @@ void main() {
       expect(await Prefs.getPreLanBootstrapNode(), isNull);
     });
 
-    test(
-        'stale running-flag + saved pre-LAN node → restores the node as current, '
+    test('stale running-flag + saved pre-LAN node → restores the node as current, '
         'clears the pre-LAN node, clears the flag', () async {
       // Simulate a process that crashed between start and stop: the LAN-running
       // flag is set, the user's ORIGINAL bootstrap node was saved aside, and the
@@ -49,14 +48,19 @@ void main() {
       expect(cur?.host, '1.2.3.4', reason: 'the pre-LAN node is restored');
       expect(cur?.port, 33445);
       expect(cur?.pubkey, 'PRELANPUBKEY');
-      expect(await Prefs.getPreLanBootstrapNode(), isNull,
-          reason: 'the saved-aside node is consumed/cleared');
-      expect(await Prefs.getLanBootstrapServiceRunning(), isFalse,
-          reason: 'the stale running flag is cleared');
+      expect(
+        await Prefs.getPreLanBootstrapNode(),
+        isNull,
+        reason: 'the saved-aside node is consumed/cleared',
+      );
+      expect(
+        await Prefs.getLanBootstrapServiceRunning(),
+        isFalse,
+        reason: 'the stale running flag is cleared',
+      );
     });
 
-    test(
-        'stale running-flag + NO saved pre-LAN node → clears the flag and '
+    test('stale running-flag + NO saved pre-LAN node → clears the flag and '
         'leaves the current bootstrap node UNTOUCHED', () async {
       await Prefs.setLanBootstrapServiceRunning(true);
       // The user's normal current node is present; NO pre-LAN node was stashed
@@ -68,21 +72,52 @@ void main() {
 
       expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
       final cur = await Prefs.getCurrentBootstrapNode();
-      expect(cur?.host, '9.9.9.9',
-          reason: 'with no pre-LAN node, recovery must NOT touch current node');
+      expect(
+        cur?.host,
+        '9.9.9.9',
+        reason: 'with no pre-LAN node, recovery must NOT touch current node',
+      );
       expect(cur?.port, 33445);
       expect(cur?.pubkey, 'USERNODE');
     });
+
+    test(
+      'failed pre-LAN restore preserves snapshot and running flag for retry',
+      () async {
+        await Prefs.setLanBootstrapServiceRunning(true);
+        await Prefs.setPreLanBootstrapNode('203.0.113.7', 33445, 'PRELANKEY');
+        await Prefs.setCurrentBootstrapNode('192.168.1.9', 40000, 'DEADLANKEY');
+        final failingManager = LanBootstrapServiceManager.forTesting(
+          localAddressProvider: () async => null,
+          setCurrentBootstrapNode: (_, _, _) async {
+            throw StateError('simulated preference write failure');
+          },
+        );
+
+        await failingManager.recoverFromCrashedSession();
+
+        final current = await Prefs.getCurrentBootstrapNode();
+        final snapshot = await Prefs.getPreLanBootstrapNode();
+        expect(current?.host, '192.168.1.9');
+        expect(snapshot?.host, '203.0.113.7');
+        expect(await Prefs.getLanBootstrapServiceRunning(), isTrue);
+      },
+    );
   });
 
-  group('S92 LAN bootstrap — observable state on a fresh (un-started) manager',
-      () {
-    test('isBootstrapServiceRunning() is false with no live instance', () {
-      expect(mgr.isBootstrapServiceRunning(), isFalse);
-    });
+  group(
+    'S92 LAN bootstrap — observable state on a fresh (un-started) manager',
+    () {
+      test('isBootstrapServiceRunning() is false with no live instance', () {
+        expect(mgr.isBootstrapServiceRunning(), isFalse);
+      });
 
-    test('getBootstrapServiceInfo() is null when nothing is running', () async {
-      expect(await mgr.getBootstrapServiceInfo(), isNull);
-    });
-  });
+      test(
+        'getBootstrapServiceInfo() is null when nothing is running',
+        () async {
+          expect(await mgr.getBootstrapServiceInfo(), isNull);
+        },
+      );
+    },
+  );
 }

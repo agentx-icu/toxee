@@ -1,31 +1,14 @@
 import 'dart:async';
+import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:ffi/ffi.dart' as pkgffi;
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
-import 'package:tim2tox_dart/service/ffi_chat_service.dart';
-import '../adapters/shared_prefs_adapter.dart';
-import '../adapters/logger_adapter.dart';
 import 'app_paths.dart';
 import 'prefs.dart';
 import 'logger.dart';
 import 'platform_utils.dart';
-
-/// FfiChatPathResolver adapter that routes the file_recv / avatars fallbacks
-/// through toxee's `AppPaths`. Used so `FfiChatService` does not need to call
-/// `getApplicationSupportDirectory()` directly when toxee is the integrator
-/// (X6 from the 2026-05-18 local-storage review). Tim2Tox standalone tests
-/// can still omit a resolver and get the built-in defaults.
-class _AppPathsFfiChatResolver implements FfiChatPathResolver {
-  const _AppPathsFfiChatResolver();
-
-  @override
-  Future<String> resolveFileRecvDirectory() => AppPaths.fileRecvPath;
-
-  @override
-  Future<String> resolveAvatarsDirectory() => AppPaths.avatarsPath;
-}
 
 /// LAN Bootstrap Service information
 class LanBootstrapService {
@@ -47,10 +30,21 @@ class ProbeResult {
   final String ip;
   final LanBootstrapService? service; // null if no service found
 
-  ProbeResult({
-    required this.ip,
-    this.service,
+  ProbeResult({required this.ip, this.service});
+}
+
+class LanAddressCandidate {
+  const LanAddressCandidate({
+    required this.interfaceName,
+    required this.address,
+    required this.type,
+    this.isLoopback = false,
   });
+
+  final String interfaceName;
+  final String address;
+  final InternetAddressType type;
+  final bool isLoopback;
 }
 
 /// LAN Bootstrap Service manager
@@ -61,28 +55,56 @@ class LanBootstrapServiceManager {
     return _instance!;
   }
 
-  LanBootstrapServiceManager._();
+  LanBootstrapServiceManager._()
+    : _localAddressProvider = getLocalIPAddress,
+      _startupTimeout = const Duration(seconds: 30),
+      _setCurrentBootstrapNode = Prefs.setCurrentBootstrapNode;
+
+  @visibleForTesting
+  LanBootstrapServiceManager.forTesting({
+    required Future<String?> Function() localAddressProvider,
+    Duration startupTimeout = const Duration(seconds: 30),
+    Future<void> Function(String host, int port, String pubkey)?
+    setCurrentBootstrapNode,
+  }) : _localAddressProvider = localAddressProvider,
+       _startupTimeout = startupTimeout,
+       _setCurrentBootstrapNode =
+           setCurrentBootstrapNode ?? Prefs.setCurrentBootstrapNode;
+
+  final Future<String?> Function() _localAddressProvider;
+  final Duration _startupTimeout;
+  final Future<void> Function(String host, int port, String pubkey)
+  _setCurrentBootstrapNode;
 
   int? _bootstrapInstanceHandle;
-  FfiChatService? _bootstrapService;
-  Timer? _bootstrapPollingTimer;
   String? _bootstrapServiceIP;
   int? _bootstrapServicePort;
   String? _bootstrapServicePubkey;
 
-  /// Guards against concurrent invocations of [startLocalBootstrapService].
-  /// Without this flag, two near-simultaneous taps could both pass the
-  /// `_bootstrapInstanceHandle == null` check, race into
-  /// [_startLocalBootstrapServiceImpl], and leak the first native handle.
-  bool _starting = false;
+  @visibleForTesting
+  int? get nativeInstanceHandle => _bootstrapInstanceHandle;
+
+  /// Concurrent callers await the same native startup instead of racing into
+  /// separate handle creation or receiving a false failure from a second tap.
+  Future<bool>? _startFuture;
+  Completer<bool>? _startResult;
+  int _lifecycleGeneration = 0;
 
   /// Virtual/container interface name prefixes to filter out.
   /// Also covers VPN tunnels (tun*/tap*/utun*/wg*) — LAN bootstrap should
   /// advertise a real LAN address, not a VPN endpoint reachable from anywhere
   /// the VPN tunnels reach.
   static const _virtualInterfacePrefixes = [
-    'docker', 'veth', 'br-', 'virbr', 'vbox', 'vmnet',
-    'tun', 'tap', 'utun', 'wg',
+    'docker',
+    'veth',
+    'br-',
+    'virbr',
+    'vbox',
+    'vmnet',
+    'tun',
+    'tap',
+    'utun',
+    'wg',
   ];
 
   static bool _isVirtualInterface(String name) {
@@ -90,123 +112,155 @@ class LanBootstrapServiceManager {
     return _virtualInterfacePrefixes.any((p) => lower.startsWith(p));
   }
 
+  static String? selectPreferredAddress(
+    Iterable<LanAddressCandidate> candidates,
+  ) {
+    final usable = <({LanAddressCandidate candidate, int rank})>[];
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      final address = candidate.address.trim();
+      if (address.isEmpty ||
+          candidate.isLoopback ||
+          _isVirtualInterface(candidate.interfaceName)) {
+        continue;
+      }
+      final key = '${candidate.interfaceName}\u0000$address';
+      if (!seen.add(key)) continue;
+      final rank = _addressRank(candidate.type, address);
+      if (rank == null) continue;
+      usable.add((
+        candidate: LanAddressCandidate(
+          interfaceName: candidate.interfaceName,
+          address: address,
+          type: candidate.type,
+        ),
+        rank: rank,
+      ));
+    }
+    usable.sort((left, right) {
+      final rankOrder = left.rank.compareTo(right.rank);
+      if (rankOrder != 0) return rankOrder;
+      final interfaceOrder = left.candidate.interfaceName.compareTo(
+        right.candidate.interfaceName,
+      );
+      if (interfaceOrder != 0) return interfaceOrder;
+      return left.candidate.address.compareTo(right.candidate.address);
+    });
+    return usable.isEmpty ? null : usable.first.candidate.address;
+  }
+
+  static int? _addressRank(InternetAddressType type, String address) {
+    final lower = address.toLowerCase();
+    if (type == InternetAddressType.IPv4) {
+      if (lower == '127.0.0.1') return null;
+      if (lower.startsWith('169.254.')) return 4;
+      if (_isPrivateIpv4(lower)) return 0;
+      return 1;
+    }
+    if (lower == '::1' || lower.startsWith('fe80:')) return null;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return 2;
+    if (lower.startsWith('2') || lower.startsWith('3')) return 3;
+    return null;
+  }
+
+  static bool _isPrivateIpv4(String address) {
+    if (address.startsWith('10.') || address.startsWith('192.168.')) {
+      return true;
+    }
+    if (!address.startsWith('172.')) return false;
+    final parts = address.split('.');
+    if (parts.length != 4) return false;
+    final second = int.tryParse(parts[1]);
+    return second != null && second >= 16 && second <= 31;
+  }
+
   /// Get local LAN IP address. Filters out virtual/container interfaces.
   /// Supports 169.254.x.x (link-local/APIPA) as last-resort fallback.
   static Future<String?> getLocalIPAddress() async {
     try {
-      final List<String> physicalCandidates = [];
-      String? linkLocal;
-
-      for (var interface in await NetworkInterface.list()) {
-        if (_isVirtualInterface(interface.name)) continue;
-
-        for (var addr in interface.addresses) {
-          if (addr.type != InternetAddressType.IPv4 || addr.isLoopback) continue;
-
-          final ip = addr.address;
-
-          if (ip.startsWith('169.254.')) {
-            linkLocal ??= ip;
-            continue;
-          }
-
-          if (ip.startsWith('192.168.') ||
-              ip.startsWith('10.') ||
-              (ip.startsWith('172.') &&
-                  int.tryParse(ip.split('.')[1]) != null &&
-                  int.parse(ip.split('.')[1]) >= 16 &&
-                  int.parse(ip.split('.')[1]) <= 31)) {
-            physicalCandidates.add(ip);
-          }
-        }
-      }
-
-      if (physicalCandidates.isNotEmpty) {
-        if (physicalCandidates.length > 1) {
-          AppLogger.log(
-            '[LanBootstrapService] Multiple LAN interfaces: ${physicalCandidates.join(", ")}, using ${physicalCandidates.first}',
-          );
-        }
-        return physicalCandidates.first;
-      }
-
-      if (linkLocal != null) {
-        AppLogger.log(
-          '[LanBootstrapService] Using link-local/APIPA address $linkLocal (no other LAN interface found)',
-        );
-        return linkLocal;
-      }
+      final interfaces = await NetworkInterface.list();
+      final candidates = interfaces.expand(
+        (interface) => interface.addresses.map(
+          (address) => LanAddressCandidate(
+            interfaceName: interface.name,
+            address: address.address,
+            type: address.type,
+            isLoopback: address.isLoopback,
+          ),
+        ),
+      );
+      return selectPreferredAddress(candidates);
     } catch (e) {
       AppLogger.logError('Failed to get local IP address', e, null);
     }
     return null;
   }
 
-  /// Get current Tox instance's bootstrap info (UDP port and public key)
-  /// Returns null if the service is not initialized or info is not available
-  static Future<({String ip, int port, String pubkey})?> getToxBootstrapInfo(
-    FfiChatService service,
-  ) async {
-    try {
-      final localIP = await getLocalIPAddress();
-      if (localIP == null) return null;
-
-      final udpPort = service.getUdpPort();
-      if (udpPort == 0) return null;
-
-      final dhtId = service.getDhtId();
-      if (dhtId == null || dhtId.isEmpty) return null;
-
-      return (
-        ip: localIP,
-        port: udpPort,
-        pubkey: dhtId,
-      );
-    } catch (e) {
-      AppLogger.logError('Failed to get Tox bootstrap info', e, null);
-      return null;
-    }
-  }
-
   /// Start local bootstrap service. Desktop only; startup is limited to 30 seconds.
   Future<bool> startLocalBootstrapService(int port) async {
     if (!PlatformUtils.isDesktop) {
-      AppLogger.log('[LanBootstrapService] LAN bootstrap is only supported on desktop');
+      AppLogger.log(
+        '[LanBootstrapService] LAN bootstrap is only supported on desktop',
+      );
       return false;
     }
     if (_bootstrapInstanceHandle != null) {
       AppLogger.log('[LanBootstrapService] Bootstrap service already running');
       return true;
     }
-    if (_starting) {
-      AppLogger.log('[LanBootstrapService] Bootstrap service start already in progress');
-      return false;
+    final inFlight = _startResult;
+    if (inFlight != null) {
+      return inFlight.future;
     }
-    _starting = true;
 
+    final generation = ++_lifecycleGeneration;
+    final result = Completer<bool>();
+    final startFuture = _runStart(port, generation);
+    _startResult = result;
+    _startFuture = startFuture;
+    unawaited(
+      startFuture
+          .then((value) {
+            if (!result.isCompleted) result.complete(value);
+          })
+          .whenComplete(() {
+            if (identical(_startFuture, startFuture)) _startFuture = null;
+            if (identical(_startResult, result)) _startResult = null;
+          }),
+    );
+    return result.future;
+  }
+
+  Future<bool> _runStart(int port, int generation) async {
     try {
-      final result = await _startLocalBootstrapServiceImpl(port)
-          .timeout(const Duration(seconds: 30), onTimeout: () {
-        throw TimeoutException('Bootstrap service startup timed out after 30 seconds');
-      });
-      return result;
+      return await _startLocalBootstrapServiceImpl(port, generation);
     } on TimeoutException catch (e) {
       AppLogger.logError('Bootstrap service startup timeout', e, null);
-      await stopLocalBootstrapService();
+      if (generation == _lifecycleGeneration) {
+        await stopLocalBootstrapService();
+      }
       return false;
     } catch (e, stackTrace) {
       AppLogger.logError('Failed to start bootstrap service', e, stackTrace);
-      await stopLocalBootstrapService();
+      if (generation == _lifecycleGeneration) {
+        await stopLocalBootstrapService();
+      }
       return false;
-    } finally {
-      _starting = false;
     }
   }
 
-  Future<bool> _startLocalBootstrapServiceImpl(int port) async {
+  Future<bool> _startLocalBootstrapServiceImpl(int port, int generation) async {
     final ffi = Tim2ToxFfi.open();
 
-    final localIP = await getLocalIPAddress();
+    final localIP = await _localAddressProvider().timeout(
+      _startupTimeout,
+      onTimeout: () {
+        throw TimeoutException(
+          'LAN address lookup timed out after $_startupTimeout',
+        );
+      },
+    );
+    if (generation != _lifecycleGeneration) return false;
     if (localIP == null) {
       AppLogger.logError('Failed to get local IP address', null, null);
       return false;
@@ -216,132 +270,101 @@ class LanBootstrapServiceManager {
     // the bootstrap profile path inline. AppPaths.lanBootstrapProfilePath is
     // the single source of truth for this location.
     final profilePath = await AppPaths.lanBootstrapProfilePath;
+    if (generation != _lifecycleGeneration) return false;
     final profileDir = p.dirname(profilePath);
     final profileDirFile = Directory(profileDir);
     if (!await profileDirFile.exists()) {
       await profileDirFile.create(recursive: true);
     }
-
-    // Capture the user account's current FFI instance so we can restore it
-    // when we're done switching to the bootstrap-service instance. Without
-    // this, every subsequent SDK call that goes through the binary-replacement
-    // path (history, friend ops, profile updates) would silently target the
-    // bootstrap instance instead of the user's Tox handle.
-    final previousInstance = ffi.getCurrentInstanceId();
+    if (generation != _lifecycleGeneration) return false;
 
     final profilePathPtr = profilePath.toNativeUtf8();
-    final instanceHandle = ffi.createTestInstanceNative(profilePathPtr);
-    pkgffi.malloc.free(profilePathPtr);
-
-    if (instanceHandle == 0) {
-      AppLogger.logError('Failed to create bootstrap service instance', null, null);
-      return false;
+    final int instanceHandle;
+    try {
+      instanceHandle = ffi.createTestInstanceNative(profilePathPtr);
+    } finally {
+      pkgffi.malloc.free(profilePathPtr);
     }
 
-    final setResult = ffi.setCurrentInstance(instanceHandle);
-    if (setResult == 0) {
-      AppLogger.logError('Failed to set bootstrap service instance', null, null);
-      ffi.destroyTestInstance(instanceHandle);
+    if (instanceHandle == 0) {
+      AppLogger.logError(
+        'Failed to create bootstrap service instance',
+        null,
+        null,
+      );
       return false;
     }
 
     _bootstrapInstanceHandle = instanceHandle;
 
-    final prefs = await SharedPreferences.getInstance();
-    _bootstrapService = FfiChatService(
-      preferencesService: SharedPreferencesAdapter(prefs),
-      loggerService: AppLoggerAdapter(),
-      bootstrapService: null,
-      pathResolver: const _AppPathsFfiChatResolver(),
-    );
-
-    try {
-      await _bootstrapService!.init();
-
-      ffi.setCurrentInstance(instanceHandle);
-
-      await _bootstrapService!.login(
-        userId: 'BootstrapService',
-        userSig: 'dummy_sig',
-      );
-
-      final udpPort = _bootstrapService!.getUdpPort();
-      final dhtId = _bootstrapService!.getDhtId();
-
-      if (udpPort == 0 || dhtId == null) {
-        AppLogger.logError('Failed to get bootstrap service info', null, null);
-        // stopLocalBootstrapService will restore the previous instance.
-        await stopLocalBootstrapService();
-        return false;
-      }
-
-      _bootstrapServiceIP = localIP;
-      _bootstrapServicePort = udpPort;
-      _bootstrapServicePubkey = dhtId;
-
-      ffi.setCurrentInstance(instanceHandle);
-      await _bootstrapService!.startPolling();
-
-      await Prefs.setLanBootstrapServiceRunning(true);
-
-      AppLogger.log('[LanBootstrapService] Bootstrap service started at $localIP:$udpPort');
-      return true;
-    } finally {
-      // Always restore the user instance — even on the success path, so the
-      // rest of the app keeps targeting the user's Tox handle.
-      if (previousInstance != 0) {
-        ffi.setCurrentInstance(previousInstance);
-      }
+    if (ffi.isInstanceInitialized(instanceHandle) != 1) {
+      throw StateError('Bootstrap service instance was not initialized');
     }
+
+    final udpPort = ffi.getUdpPort(instanceHandle);
+    final dhtId = _readDhtIdForInstance(ffi, instanceHandle);
+
+    if (udpPort == 0 || dhtId == null || dhtId.isEmpty) {
+      throw StateError('Failed to get bootstrap service info');
+    }
+
+    _bootstrapServiceIP = localIP;
+    _bootstrapServicePort = udpPort;
+    _bootstrapServicePubkey = dhtId;
+
+    await Prefs.setLanBootstrapServiceRunning(true);
+    if (generation != _lifecycleGeneration) {
+      await _discardCancelledStart(ffi, instanceHandle);
+      return false;
+    }
+
+    AppLogger.log(
+      '[LanBootstrapService] Bootstrap service started at '
+      '$localIP:$udpPort (requested port: $port)',
+    );
+    return true;
   }
 
   /// Stop local bootstrap service
-  Future<void> stopLocalBootstrapService() async {
-    _bootstrapPollingTimer?.cancel();
-    _bootstrapPollingTimer = null;
-
+  Future<bool> stopLocalBootstrapService() async {
+    _lifecycleGeneration += 1;
+    final pendingResult = _startResult;
+    if (pendingResult != null && !pendingResult.isCompleted) {
+      pendingResult.complete(false);
+    }
+    if (identical(_startResult, pendingResult)) _startResult = null;
+    _startFuture = null;
     final ffi = Tim2ToxFfi.open();
     final bootstrapHandle = _bootstrapInstanceHandle;
     final previousInstance = ffi.getCurrentInstanceId();
-    // If current is the bootstrap instance (e.g. caller forgot to restore),
-    // there's no user instance to restore — clearing is safer than a dangle.
-    final restoreTarget =
-        (previousInstance != 0 && previousInstance != bootstrapHandle)
-            ? previousInstance
-            : null;
-
-    // Dispose the Dart-side FfiChatService FIRST (it stops polling and tears
-    // down listeners). Destroying the native handle before this dispose would
-    // make the dispose's tail-end FFI calls operate on a freed instance.
-    if (_bootstrapService != null) {
-      try {
-        if (bootstrapHandle != null) {
-          ffi.setCurrentInstance(bootstrapHandle);
-        }
-        await _bootstrapService!.dispose();
-      } catch (e) {
-        AppLogger.logError('Error disposing bootstrap service', e, null);
-      } finally {
-        _bootstrapService = null;
-      }
-    }
+    final restoreTarget = previousInstance == bootstrapHandle
+        ? 0
+        : previousInstance;
 
     if (bootstrapHandle != null) {
       try {
-        ffi.destroyTestInstance(bootstrapHandle);
+        final destroyed = ffi.destroyTestInstance(bootstrapHandle);
+        if (destroyed == 0) {
+          if (ffi.isInstanceInitialized(bootstrapHandle) == 1) {
+            throw StateError('Native bootstrap instance was not destroyed');
+          }
+          AppLogger.warn(
+            '[LanBootstrapService] Native bootstrap handle was already gone; '
+            'clearing stale Dart state',
+          );
+        }
       } catch (e) {
         AppLogger.logError('Error destroying bootstrap instance', e, null);
-      } finally {
-        _bootstrapInstanceHandle = null;
+        ffi.setCurrentInstance(restoreTarget);
+        return false;
       }
+      _bootstrapInstanceHandle = null;
     }
 
-    if (restoreTarget != null) {
-      try {
-        ffi.setCurrentInstance(restoreTarget);
-      } catch (e) {
-        AppLogger.logError('Error restoring previous instance', e, null);
-      }
+    try {
+      ffi.setCurrentInstance(restoreTarget);
+    } catch (e) {
+      AppLogger.logError('Error restoring previous instance', e, null);
     }
 
     _bootstrapServiceIP = null;
@@ -350,12 +373,52 @@ class LanBootstrapServiceManager {
 
     await Prefs.setLanBootstrapServiceRunning(false);
     AppLogger.log('[LanBootstrapService] Bootstrap service stopped');
+    return true;
+  }
+
+  Future<void> _discardCancelledStart(
+    Tim2ToxFfi ffiLibrary,
+    int instanceHandle,
+  ) async {
+    if (_bootstrapInstanceHandle != instanceHandle) {
+      if (_bootstrapInstanceHandle == null) {
+        await Prefs.setLanBootstrapServiceRunning(false);
+      }
+      return;
+    }
+
+    final destroyed = ffiLibrary.destroyTestInstance(instanceHandle);
+    if (destroyed == 0 &&
+        ffiLibrary.isInstanceInitialized(instanceHandle) == 1) {
+      return;
+    }
+    _bootstrapInstanceHandle = null;
+    _bootstrapServiceIP = null;
+    _bootstrapServicePort = null;
+    _bootstrapServicePubkey = null;
+    await Prefs.setLanBootstrapServiceRunning(false);
+  }
+
+  static String? _readDhtIdForInstance(Tim2ToxFfi ffiLibrary, int instanceId) {
+    final buffer = pkgffi.malloc.allocate<ffi.Int8>(65);
+    try {
+      final length = ffiLibrary.getDhtIdForInstanceNative(
+        instanceId,
+        buffer,
+        65,
+      );
+      if (length <= 0 || length > 64) return null;
+      return buffer.cast<pkgffi.Utf8>().toDartString(length: length);
+    } finally {
+      pkgffi.malloc.free(buffer);
+    }
   }
 
   /// Get bootstrap service info
-  Future<({String ip, int port, String pubkey})?> getBootstrapServiceInfo() async {
-    if (_bootstrapServiceIP == null || 
-        _bootstrapServicePort == null || 
+  Future<({String ip, int port, String pubkey})?>
+  getBootstrapServiceInfo() async {
+    if (_bootstrapServiceIP == null ||
+        _bootstrapServicePort == null ||
         _bootstrapServicePubkey == null) {
       return null;
     }
@@ -386,19 +449,20 @@ class LanBootstrapServiceManager {
     final priorNode = await Prefs.getPreLanBootstrapNode();
     if (priorNode != null) {
       try {
-        await Prefs.setCurrentBootstrapNode(
+        await _setCurrentBootstrapNode(
           priorNode.host,
           priorNode.port,
           priorNode.pubkey,
         );
+        await Prefs.clearPreLanBootstrapNode();
       } catch (e, st) {
         AppLogger.logError(
           '[LanBootstrapService] recovery: failed to restore pre-LAN node',
           e,
           st,
         );
+        return;
       }
-      await Prefs.clearPreLanBootstrapNode();
     }
     await Prefs.setLanBootstrapServiceRunning(false);
   }
