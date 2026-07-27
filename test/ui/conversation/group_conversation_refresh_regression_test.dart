@@ -26,6 +26,38 @@ void main() {
       expect(merged.faceUrl, 'existing-face');
     });
 
+    test('sparse merge preserves existing draft text and timestamp', () {
+      final existing = V2TimConversation(conversationID: 'group_tox_conf_1')
+        ..draftText = 'unfinished'
+        ..draftTimestamp = 123;
+      final refreshed = V2TimConversation(conversationID: 'group_tox_conf_1');
+
+      final merged = mergeExternalConversationUpdate(
+        existing: existing,
+        refreshed: refreshed,
+      );
+
+      expect(merged.draftText, 'unfinished');
+      expect(merged.draftTimestamp, 123);
+    });
+
+    test('sparse merge keeps an explicit empty draft clear', () {
+      final existing = V2TimConversation(conversationID: 'group_tox_conf_1')
+        ..draftText = 'unfinished'
+        ..draftTimestamp = 123;
+      final refreshed = V2TimConversation(conversationID: 'group_tox_conf_1')
+        ..draftText = ''
+        ..draftTimestamp = 456;
+
+      final merged = mergeExternalConversationUpdate(
+        existing: existing,
+        refreshed: refreshed,
+      );
+
+      expect(merged.draftText, '');
+      expect(merged.draftTimestamp, 456);
+    });
+
     test(
         'resolveGroupIdForUnread falls back to v2 groupID for conference messages',
         () {

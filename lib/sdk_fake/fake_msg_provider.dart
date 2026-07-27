@@ -4,20 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
-import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_text_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_custom_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_face_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_location_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_image_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_image.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_file_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_video_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_sound_elem.dart';
-import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';
-import 'package:tencent_cloud_chat_sdk/enum/message_status.dart';
+import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
 import 'package:tim2tox_dart/utils/control_message_envelope.dart';
 import '../sdk_fake/fake_uikit_core.dart';
@@ -46,33 +34,17 @@ class _HistoryReloadEntry {
   _HistoryReloadEntry(this.loadedAtMs, this.mutationGeneration);
 }
 
-@visibleForTesting
-final class FakeChatScratchOwner {
-  const FakeChatScratchOwner({
-    required this.accountToxId,
-    required this.writeBytes,
-    required this.deleteFile,
-  });
-
-  final String accountToxId;
-  final Future<String> Function({
-    required String category,
-    required String suggestedFileName,
-    required Uint8List bytes,
-  })
-  writeBytes;
-  final Future<void> Function(String path) deleteFile;
-}
-
 class FakeChatMessageProvider
-    implements ChatMessageProviderWithSendResult, ChatScratchFileProvider {
+    implements
+        ChatMessageProviderWithSendResult,
+        ChatDraftProviderOwnsConversationState,
+        ChatScratchFileProvider {
   static final RegExp _fullToxAddressPattern = RegExp(r'^[0-9A-Fa-f]{76}$');
 
+  final FfiChatService? _ffiService;
   final Future<List<FakeMessage>> Function(String conversationID)?
   _historyLoader;
   final Future<void> Function(FakeMessage message)? _topicMappingBarrier;
-  final Future<String?> Function() _scratchAccountToxIdLoader;
-  final FakeChatScratchOwner? Function() _scratchOwnerLoader;
   final Map<String, StreamController<List<V2TimMessage>>> _ctrls = {};
   final Map<String, List<V2TimMessage>> _buffers = {};
   final Map<String, _HistoryReloadEntry> _historyReloadGuards = {};
@@ -160,17 +132,14 @@ class FakeChatMessageProvider
   }
 
   FakeChatMessageProvider({
+    FfiChatService? ffiService,
     @visibleForTesting
     Future<List<FakeMessage>> Function(String conversationID)? historyLoader,
     @visibleForTesting
     Future<void> Function(FakeMessage message)? topicMappingBarrier,
-    @visibleForTesting Future<String?> Function()? scratchAccountToxIdLoader,
-    @visibleForTesting FakeChatScratchOwner? Function()? scratchOwnerLoader,
-  }) : _historyLoader = historyLoader,
-       _topicMappingBarrier = topicMappingBarrier,
-       _scratchAccountToxIdLoader =
-           scratchAccountToxIdLoader ?? Prefs.getCurrentAccountToxId,
-       _scratchOwnerLoader = scratchOwnerLoader ?? _resolveLiveScratchOwner {
+  }) : _ffiService = ffiService,
+       _historyLoader = historyLoader,
+       _topicMappingBarrier = topicMappingBarrier {
     // Load self avatar path on initialization
     Prefs.getAvatarPath().then((path) {
       if (!_disposed) {
@@ -180,7 +149,7 @@ class FakeChatMessageProvider
     // Listen for message data updates to sync deletions
     _listenForMessageDeletions();
     // Listen to file transfer progress updates from FfiChatService
-    final ffi = FakeUIKit.instance.im?.ffi;
+    final ffi = _liveFfi;
     if (ffi != null) {
       _progressUpdatesSub = ffi.progressUpdates.listen(_onFileProgress);
       // P1-22: also fan out send-side progress into a public stream that
@@ -209,7 +178,7 @@ class FakeChatMessageProvider
       _fileRequestsSub = ffi.fileRequests.listen((req) async {
         try {
           AppLogger.log(
-            '[FakeMessageProvider] P1-5 auto-accept large file: fileNumber=${req.fileNumber}, size=${req.fileSize}',
+            '[FakeMessageProvider] P1-5 auto-accept large file request: size=${req.fileSize}',
           );
           await ffi.acceptFileTransfer(
             req.peerId,
@@ -251,41 +220,34 @@ class FakeChatMessageProvider
         .listen(_onTopicMessage);
   }
 
-  static FakeChatScratchOwner? _resolveLiveScratchOwner() {
-    final ffi = FakeUIKit.instance.im?.ffi;
-    if (ffi == null) return null;
-    return FakeChatScratchOwner(
-      accountToxId: ffi.getSelfToxId()?.trim() ?? '',
-      writeBytes:
-          ({required category, required suggestedFileName, required bytes}) {
-            return ffi.writeBytesToScratch(
-              bytes,
-              category: category,
-              suggestedFileName: suggestedFileName,
-            );
-          },
-      deleteFile: ffi.deleteScratchFile,
-    );
+  FfiChatService? get _liveFfi => _ffiService ?? FakeUIKit.instance.im?.ffi;
+
+  FfiChatService get _draftFfi {
+    final ffi = _liveFfi;
+    if (ffi == null) {
+      throw StateError('Conversation draft persistence is unavailable');
+    }
+    return ffi;
   }
 
-  Future<FakeChatScratchOwner> _validatedScratchOwner() async {
-    final activeToxId = (await _scratchAccountToxIdLoader())?.trim();
-    final owner = _scratchOwnerLoader();
-    if (owner == null) {
+  Future<FfiChatService> _validatedScratchFfi() async {
+    final ffi = _liveFfi;
+    if (ffi == null) {
       throw StateError('Scratch storage is unavailable before session startup');
     }
-    final ownerToxId = owner.accountToxId.trim();
-    if (activeToxId == null ||
-        !_fullToxAddressPattern.hasMatch(activeToxId) ||
-        !_fullToxAddressPattern.hasMatch(ownerToxId)) {
-      throw StateError('Scratch storage requires a full account Tox ID');
+
+    final activeAccountToxId = (await Prefs.getCurrentAccountToxId())?.trim();
+    final liveAccountToxId = ffi.getSelfToxId()?.trim();
+    if (activeAccountToxId == null ||
+        !_fullToxAddressPattern.hasMatch(activeAccountToxId) ||
+        liveAccountToxId == null ||
+        !_fullToxAddressPattern.hasMatch(liveAccountToxId)) {
+      throw StateError('Scratch storage requires the current full Tox ID');
     }
-    if (activeToxId.toUpperCase() != ownerToxId.toUpperCase()) {
-      throw StateError(
-        'Scratch storage owner does not match the active account',
-      );
+    if (activeAccountToxId.toUpperCase() != liveAccountToxId.toUpperCase()) {
+      throw StateError('Scratch owner does not match the active account');
     }
-    return owner;
+    return ffi;
   }
 
   @override
@@ -294,18 +256,72 @@ class FakeChatMessageProvider
     required String suggestedFileName,
     required Uint8List bytes,
   }) async {
-    final owner = await _validatedScratchOwner();
-    return owner.writeBytes(
+    final ffi = await _validatedScratchFfi();
+    return ffi.writeBytesToScratch(
+      bytes,
       category: category,
       suggestedFileName: suggestedFileName,
-      bytes: bytes,
     );
   }
 
   @override
   Future<void> deleteScratchFile(String path) async {
-    final owner = await _validatedScratchOwner();
-    await owner.deleteFile(path);
+    final ffi = await _validatedScratchFfi();
+    await ffi.deleteScratchFile(path);
+  }
+
+  String _validatedDraftAccountToxId(FfiChatService ffi, String accountToxId) {
+    final explicitAccountToxId = accountToxId.trim();
+    final isExplicitFull = RegExp(
+      r'^[0-9a-fA-F]{76}$',
+    ).hasMatch(explicitAccountToxId);
+    final isExplicitPublicKey = RegExp(
+      r'^[0-9a-fA-F]{64}$',
+    ).hasMatch(explicitAccountToxId);
+    if (!isExplicitFull && !isExplicitPublicKey) {
+      throw ArgumentError.value(
+        accountToxId,
+        'accountToxId',
+        'must contain the full Tox account ID or its 64-character public key',
+      );
+    }
+
+    final liveAccountToxId = ffi.getSelfToxId()?.trim();
+    if (liveAccountToxId == null ||
+        !RegExp(r'^[0-9a-fA-F]{76}$').hasMatch(liveAccountToxId)) {
+      throw StateError(
+        'Conversation drafts require the current full Tox account ID',
+      );
+    }
+    if (toToxPublicKey(liveAccountToxId) !=
+        toToxPublicKey(explicitAccountToxId)) {
+      throw StateError('Draft account does not match the current Tox account');
+    }
+    return liveAccountToxId.toUpperCase();
+  }
+
+  @override
+  Future<String?> loadDraft({
+    required String conversationID,
+    required String accountToxId,
+  }) async {
+    final ffi = _draftFfi;
+    _validatedDraftAccountToxId(ffi, accountToxId);
+    return (await ffi.loadConversationDraft(conversationID))?.text;
+  }
+
+  @override
+  Future<void> saveDraft({
+    required String conversationID,
+    required String accountToxId,
+    String? draft,
+  }) async {
+    final ffi = _draftFfi;
+    _validatedDraftAccountToxId(ffi, accountToxId);
+    await ffi.setConversationDraft(
+      conversationID: conversationID,
+      draftText: draft,
+    );
   }
 
   /// Find the conversation ID that matches a given userID, handling Tox ID
@@ -327,6 +343,10 @@ class FakeChatMessageProvider
     return null;
   }
 
+  StreamController<List<V2TimMessage>> _controllerFor(String conversationID) =>
+      _ctrls[conversationID] ??=
+          StreamController<List<V2TimMessage>>.broadcast();
+
   @override
   Stream<List<V2TimMessage>> streamFor({String? userID, String? groupID}) {
     if (_disposed) {
@@ -335,7 +355,7 @@ class FakeChatMessageProvider
     final conv = (groupID != null && groupID.isNotEmpty)
         ? 'group_$groupID'
         : 'c2c_$userID';
-    final ctrl = _ctrls.putIfAbsent(conv, () => StreamController.broadcast());
+    final stream = _controllerFor(conv).stream;
 
     // Check if buffer already has messages
     final hasBuffer = _buffers.containsKey(conv) && _buffers[conv]!.isNotEmpty;
@@ -357,10 +377,10 @@ class FakeChatMessageProvider
     if (hasBuffer) {
       // UIKit's getMessageListForRender reverses the list, so we need to reverse here too
       final reversedList = List<V2TimMessage>.from(_buffers[conv]!.reversed);
-      ctrl.add(reversedList);
+      _controllerFor(conv).add(reversedList);
     }
 
-    return ctrl.stream;
+    return stream;
   }
 
   Future<void> _reloadHistoryIfStale(String conv) {
@@ -618,7 +638,7 @@ class FakeChatMessageProvider
         FakeUIKit.instance.eventBusInstance.emit(FakeIM.topicMessage, fakeMsg);
       } catch (e) {
         AppLogger.warn(
-          '[FakeMessageProvider] FakeMessage event emission failed: $e',
+          '[FakeMessageProvider] FakeMessage event emission failed: ${e.runtimeType}',
         );
       }
     }
@@ -757,10 +777,9 @@ class FakeChatMessageProvider
     // Re-sort after removal
     list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
     // Emit updated list to stream
-    final ctrl = _ctrls[conversationID];
-    if (ctrl != null && !ctrl.isClosed) {
+    if (_ctrls[conversationID]?.isClosed == false) {
       final reversedList = List<V2TimMessage>.from(list.reversed);
-      ctrl.add(reversedList);
+      _ctrls[conversationID]?.add(reversedList);
     }
   }
 
@@ -774,9 +793,8 @@ class FakeChatMessageProvider
       _buffers.remove(conversationID);
     }
     // Emit empty list to stream to notify UI (if stream controller exists)
-    final ctrl = _ctrls[conversationID];
-    if (ctrl != null && !ctrl.isClosed) {
-      ctrl.add(<V2TimMessage>[]);
+    if (_ctrls[conversationID]?.isClosed == false) {
+      _ctrls[conversationID]?.add(<V2TimMessage>[]);
     }
   }
 
