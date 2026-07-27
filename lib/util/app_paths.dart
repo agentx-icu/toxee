@@ -370,8 +370,8 @@ abstract final class AppPaths {
   /// Full-ID account root reserved for ephemeral scratch data.
   ///
   /// Persistent account paths above retain their historical 16-character
-  /// prefix for compatibility. Scratch must not use that prefix because two
-  /// accounts with the same public-key prefix can otherwise share helpers.
+  /// prefix for compatibility. Scratch uses the full Tox ID so two accounts
+  /// sharing the same public-key prefix cannot share helper files.
   static Future<String> getAccountScratchDataRoot(String toxId) async {
     final base = await applicationSupportPath;
     return p.join(base, 'account_data', _fullAccountPathSegment(toxId));
@@ -386,11 +386,12 @@ abstract final class AppPaths {
 
   static String _fullAccountPathSegment(String toxId) {
     final normalized = toxId.trim();
-    if (normalized.isEmpty ||
-        p.isAbsolute(normalized) ||
-        p.basename(normalized) != normalized ||
-        !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(normalized)) {
-      throw ArgumentError.value(toxId, 'toxId', 'Unsafe account identifier');
+    if (!RegExp(r'^[0-9a-fA-F]{76}$').hasMatch(normalized)) {
+      throw ArgumentError.value(
+        toxId,
+        'toxId',
+        'Expected a full 76-character Tox account ID',
+      );
     }
     return normalized;
   }
@@ -626,11 +627,11 @@ abstract final class AppPaths {
   // ─────────────────────────────────────────────────────────────────────
   static const MethodChannel _backupChannel = MethodChannel('toxee/ios_backup');
 
-  /// Marks a directory or file as excluded from iOS backups. No-op on
-  /// non-iOS platforms. Safe to call multiple times; the underlying API
-  /// is idempotent. Errors are logged at debug level and swallowed —
-  /// failing to set this attribute should never prevent the app from
-  /// running.
+  /// Marks a derivable directory or file as excluded from iOS backups. No-op
+  /// on non-iOS platforms. Safe to call multiple times; the underlying API is
+  /// idempotent. Errors are logged and swallowed for best-effort cache and log
+  /// housekeeping. Security-sensitive callers must use
+  /// [excludeFromBackupOrThrow] instead.
   ///
   /// TODO(persistence): file-protection class promotion is deferred. We
   /// currently rely on the Application Support default
@@ -641,15 +642,20 @@ abstract final class AppPaths {
   /// readable while the app is backgrounded but locked after device reboot
   /// until first unlock). H8 part 2 in the 2026-05-19 persistence review.
   static Future<void> markExcludedFromBackup(String path) async {
-    if (!Platform.isIOS) return;
     try {
-      await _backupChannel.invokeMethod<void>(
-        'markExcludedFromBackup',
-        <String, String>{'path': path},
-      );
+      await excludeFromBackupOrThrow(path);
     } catch (e) {
-      // Log but never throw — this is a defensive housekeeping call.
       AppLogger.warn('[AppPaths] markExcludedFromBackup($path) failed: $e');
     }
+  }
+
+  /// Marks a security-sensitive path as excluded from iOS backups and surfaces
+  /// native failures to the caller. No-op on non-iOS platforms.
+  static Future<void> excludeFromBackupOrThrow(String path) async {
+    if (!Platform.isIOS) return;
+    await _backupChannel.invokeMethod<void>(
+      'markExcludedFromBackup',
+      <String, String>{'path': path},
+    );
   }
 }
