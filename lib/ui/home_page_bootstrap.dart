@@ -149,7 +149,7 @@ extension _HomePageBootstrap on _HomePageState {
     // rendered twice (live double-bubble). Sharing the one instance also closes
     // a teardown leak — FakeUIKit.dispose() disposes its messageProvider, so a
     // separate registry instance never got its bus subscription cancelled.
-    final sharedMessageProvider = FakeUIKit.instance.messageProvider;
+    var sharedMessageProvider = FakeUIKit.instance.messageProvider;
     if (sharedMessageProvider == null) {
       // Invariant violation: startWithFfi should have created it before now.
       // Log loudly (codex review) — the fallback keeps the UI alive but a
@@ -157,13 +157,23 @@ extension _HomePageBootstrap on _HomePageState {
       // so this must be investigated rather than silently tolerated.
       AppLogger.logError(
         '[HomePage] FakeUIKit.messageProvider null at _initAfterSessionReady '
-        '— startWithFfi ordering invariant violated; falling back to a '
-        'standalone provider (risks double-subscription). Investigate startup '
-        'ordering.',
+        '— startWithFfi ordering invariant violated; installing an owned '
+        'fallback provider. Investigate startup ordering.',
       );
+      final registeredProvider = ChatMessageProviderRegistry.provider;
+      sharedMessageProvider = registeredProvider is FakeChatMessageProvider
+          ? FakeUIKit.instance.adoptOwnedMessageProvider(registeredProvider)
+          : FakeUIKit.instance.ensureOwnedMessageProvider(widget.service);
     }
-    ChatMessageProviderRegistry.provider ??=
-        sharedMessageProvider ?? FakeChatMessageProvider();
+    final registeredMessageProvider = ChatMessageProviderRegistry.provider;
+    if (registeredMessageProvider is FakeChatMessageProvider &&
+        !identical(registeredMessageProvider, sharedMessageProvider)) {
+      registeredMessageProvider.dispose();
+    }
+    if (registeredMessageProvider == null ||
+        registeredMessageProvider is FakeChatMessageProvider) {
+      ChatMessageProviderRegistry.provider = sharedMessageProvider;
+    }
 
     UikitDataFacade.addUsedComponent(
       conv_pkg.TencentCloudChatConversationManager.register(),
