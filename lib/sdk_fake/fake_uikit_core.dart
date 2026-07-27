@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
@@ -53,7 +54,7 @@ class FakeUIKit {
     // group messages live-update the per-group recency map without a
     // full history re-scan.
     GroupMemberLastSeenCache.instance.attach(eventBusInstance);
-    messageProvider = FakeChatMessageProvider();
+    ensureOwnedMessageProvider(service);
     callStateNotifier = CallStateNotifier();
     callServiceManager = CallServiceManager(service, callStateNotifier!);
 
@@ -74,6 +75,25 @@ class FakeUIKit {
   }
 
   FakeIM? get im => _im;
+
+  /// Return the session-owned message provider, creating it when startup or a
+  /// defensive fallback reaches this point before normal provider wiring.
+  FakeChatMessageProvider ensureOwnedMessageProvider(FfiChatService service) {
+    return messageProvider ??= FakeChatMessageProvider(ffiService: service);
+  }
+
+  /// Adopt an already-created fallback so [dispose] owns its subscriptions and
+  /// stream controllers just like a provider created during [startWithFfi].
+  FakeChatMessageProvider adoptOwnedMessageProvider(
+    FakeChatMessageProvider provider,
+  ) {
+    final owned = messageProvider;
+    if (owned != null && !identical(owned, provider)) {
+      throw StateError('FakeUIKit already owns a different message provider');
+    }
+    messageProvider = provider;
+    return provider;
+  }
 
   /// Insert a call record custom message into the chat conversation.
   ///
@@ -250,7 +270,11 @@ class FakeUIKit {
     conversationManager?.dispose();
     messageManager?.dispose();
     contactManager?.dispose();
-    messageProvider?.dispose();
+    final ownedMessageProvider = messageProvider;
+    ownedMessageProvider?.dispose();
+    if (identical(ChatMessageProviderRegistry.provider, ownedMessageProvider)) {
+      ChatMessageProviderRegistry.provider = null;
+    }
     messageProvider = null;
     eventBusInstance.dispose();
     _started = false;
