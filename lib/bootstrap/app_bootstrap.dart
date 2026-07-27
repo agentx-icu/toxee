@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import '../notifications/notification_service.dart';
+import '../util/account_export_service.dart';
 import '../util/account_reconciliation.dart';
 import '../util/account_scratch_storage.dart';
+import '../util/account_service.dart';
 import '../util/app_paths.dart';
 import '../util/lan_bootstrap_service.dart';
 import '../util/logger.dart';
@@ -26,10 +28,9 @@ class AppBootstrap {
       return prefsResult;
     }
     await cleanupScratchAtColdStart();
-    // After Prefs is initialized, repair any orphaned per-account profile
-    // directories left behind by a partially-completed import (A2). Safe
-    // to run on every cold start; no-op when nothing is orphaned.
-    await AccountReconciliation.reconcileOrphanedProfiles();
+    // Fail closed: journaled restore recovery must finish before account
+    // reconciliation or any later auto-login path can expose partial state.
+    await recoverPendingRestoreBeforeAccountExposure();
     // If the previous run crashed while the LAN bootstrap service was active,
     // the running-flag plus pre-LAN snapshot may still be on disk while no
     // native instance exists. Restore the prior bootstrap node and clear the
@@ -88,5 +89,29 @@ class AppBootstrap {
         st,
       );
     }
+  }
+
+  static Future<void> recoverPendingRestoreBeforeAccountExposure({
+    Future<void> Function()? recoverPendingRestore,
+    Future<void> Function()? recoverPendingDeletions,
+    Future<void> Function()? reconcileAccounts,
+  }) async {
+    final recover =
+        recoverPendingRestore ??
+        AccountExportService.recoverPendingFullBackupRestore;
+    final reconcile =
+        reconcileAccounts ??
+        () async {
+          await AccountReconciliation.reconcileOrphanedProfiles();
+        };
+    final recoverDeletions =
+        recoverPendingDeletions ??
+        () async {
+          await AccountService.recoverPendingAccountDeletions();
+        };
+
+    await recover();
+    await recoverDeletions();
+    await reconcile();
   }
 }
