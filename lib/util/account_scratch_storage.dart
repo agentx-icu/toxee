@@ -18,11 +18,11 @@ class AccountScratchStorage
   }) : accountToxId = accountToxId.trim(),
        accountDataRoot = p.normalize(p.absolute(accountDataRoot)),
        _accountAvailable = true {
-    if (this.accountToxId.isEmpty) {
+    if (!_fullToxIdPattern.hasMatch(this.accountToxId)) {
       throw ArgumentError.value(
         accountToxId,
         'accountToxId',
-        'Must not be empty',
+        'Scratch storage requires the full 76-character Tox ID',
       );
     }
   }
@@ -36,6 +36,11 @@ class AccountScratchStorage
       _accountAvailable = false;
 
   static const Duration defaultTimeToLive = Duration(days: 7);
+  static final RegExp _fullToxIdPattern = RegExp(r'^[0-9a-fA-F]{76}$');
+  static final RegExp _categoryPattern = RegExp(
+    r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$',
+  );
+  static final RegExp _badBasenamePattern = RegExp(r'[/\\:\x00-\x1F\x7F]');
 
   final String accountToxId;
   final String accountDataRoot;
@@ -70,18 +75,16 @@ class AccountScratchStorage
     _requireAccountAvailable();
     return _serialized(() async {
       final destination = await _prepareDestination(
-        category,
-        suggestedFileName,
+        category: category,
+        basename: suggestedFileName,
       );
       final temporary = File(_temporaryPath(destination));
       try {
         await _writeBytesExclusively(temporary, bytes);
-        await _replaceAtomically(temporary, destination);
+        await temporary.rename(destination.path);
         return destination.path;
       } finally {
-        if (await temporary.exists()) {
-          await temporary.delete();
-        }
+        await _deleteFileBestEffort(temporary);
       }
     });
   }
@@ -105,30 +108,28 @@ class AccountScratchStorage
       }
 
       final destination = await _prepareDestination(
-        category,
-        suggestedFileName,
+        category: category,
+        basename: suggestedFileName,
       );
       final temporary = File(_temporaryPath(destination));
       try {
         await temporary.create(exclusive: true);
-        final temporaryHandle = await temporary.open(mode: FileMode.writeOnly);
+        final sink = await temporary.open(mode: FileMode.writeOnly);
         try {
           await for (final chunk in source.openRead()) {
-            await temporaryHandle.writeFrom(chunk);
+            await sink.writeFrom(chunk);
           }
-          await temporaryHandle.flush();
+          await sink.flush();
         } finally {
-          await temporaryHandle.close();
+          await sink.close();
         }
         if (await source.length() != await temporary.length()) {
           throw const FileSystemException('Scratch copy length mismatch');
         }
-        await _replaceAtomically(temporary, destination);
+        await temporary.rename(destination.path);
         return destination.path;
       } finally {
-        if (await temporary.exists()) {
-          await temporary.delete();
-        }
+        await _deleteFileBestEffort(temporary);
       }
     });
   }
@@ -149,11 +150,11 @@ class AccountScratchStorage
 
       final type = await FileSystemEntity.type(candidate, followLinks: false);
       if (type == FileSystemEntityType.notFound) return;
-      if (type == FileSystemEntityType.directory) {
+      if (type != FileSystemEntityType.file) {
         throw ArgumentError.value(
           filePath,
           'filePath',
-          'Directories are not scratch files',
+          'Scratch deletion only accepts owned regular files',
         );
       }
 
@@ -163,19 +164,19 @@ class AccountScratchStorage
         throw StateError('Scratch file resolves outside the owned root');
       }
       await File(candidate).delete();
-      try {
-        await File(candidate).parent.delete();
-      } on FileSystemException {
-        // The item directory is not empty or is being used by another process.
-      }
+      await _deleteDirectoryBestEffort(Directory(p.dirname(candidate)));
     });
   }
 
-  Future<File> _prepareDestination(String category, String basename) async {
-    final safeCategory = _sanitizeSegment(category, fallback: 'misc');
-    final safeBasename = _sanitizeSegment(basename, fallback: 'scratch.bin');
+  Future<File> _prepareDestination({
+    required String category,
+    required String basename,
+  }) async {
+    _validateCategory(category);
+    _validateBasename(basename);
+
     final canonicalRoot = await _canonicalScratchRoot();
-    final categoryDirectory = Directory(p.join(scratchRoot, safeCategory));
+    final categoryDirectory = Directory(p.join(scratchRoot, category));
     await _createDirectoryWithoutLink(categoryDirectory.path);
     final canonicalCategory = await categoryDirectory.resolveSymbolicLinks();
     if (!p.isWithin(canonicalRoot, canonicalCategory)) {
@@ -188,7 +189,7 @@ class AccountScratchStorage
       await itemDirectory.delete(recursive: true);
       throw StateError('Scratch item directory resolves outside its category');
     }
-    final destination = File(p.join(itemDirectory.path, safeBasename));
+    final destination = File(p.join(itemDirectory.path, basename));
     if (await FileSystemEntity.type(destination.path, followLinks: false) ==
         FileSystemEntityType.link) {
       throw StateError('Scratch destination must not be a symbolic link');
@@ -229,13 +230,6 @@ class AccountScratchStorage
     );
   }
 
-  static Future<void> _replaceAtomically(
-    File temporary,
-    File destination,
-  ) async {
-    await temporary.rename(destination.path);
-  }
-
   static Future<void> _writeBytesExclusively(
     File temporary,
     Uint8List bytes,
@@ -262,12 +256,28 @@ class AccountScratchStorage
     return completer.future;
   }
 
-  static String _sanitizeSegment(String value, {required String fallback}) {
-    var result = value.trim().replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
-    result = result.replaceAll(RegExp(r'\.{2,}'), '_');
-    result = result.replaceAll(RegExp(r'^\.+'), '');
-    if (result.isEmpty || result == '.' || result == '..') return fallback;
-    return result;
+  static void _validateCategory(String category) {
+    if (!_categoryPattern.hasMatch(category)) {
+      throw ArgumentError.value(
+        category,
+        'category',
+        'Scratch category must be a safe path segment',
+      );
+    }
+  }
+
+  static void _validateBasename(String basename) {
+    if (basename.isEmpty ||
+        basename == '.' ||
+        basename == '..' ||
+        _badBasenamePattern.hasMatch(basename) ||
+        p.basename(basename) != basename) {
+      throw ArgumentError.value(
+        basename,
+        'suggestedFileName',
+        'Scratch filename must be a safe basename',
+      );
+    }
   }
 
   void _requireAccountAvailable() {
@@ -290,9 +300,10 @@ class AccountScratchStorage
     final accountData = Directory(
       p.join(applicationSupportRoot, 'account_data'),
     );
-    if (await accountData.exists()) {
+    if (await _isRealDirectory(accountData.path)) {
       await for (final account in accountData.list(followLinks: false)) {
         if (account is! Directory) continue;
+        if (!_fullToxIdPattern.hasMatch(p.basename(account.path))) continue;
         await _cleanupExactRoot(
           root: Directory(p.join(account.path, 'scratch')),
           trustedParent: accountData,
@@ -308,9 +319,9 @@ class AccountScratchStorage
       cutoff: cutoff,
     );
 
-    final downloadsPath = configuredDownloadsRoot?.trim();
-    if (downloadsPath != null && downloadsPath.isNotEmpty) {
-      final downloadsRoot = Directory(downloadsPath);
+    final downloads = configuredDownloadsRoot?.trim();
+    if (downloads != null && downloads.isNotEmpty) {
+      final downloadsRoot = Directory(downloads);
       await _cleanupExactRoot(
         root: Directory(p.join(downloadsRoot.path, 'toxee_image_paste')),
         trustedParent: downloadsRoot,
@@ -332,9 +343,8 @@ class AccountScratchStorage
     required Directory trustedParent,
     required DateTime cutoff,
   }) async {
-    if (!await root.exists() || !await trustedParent.exists()) return;
-    if (await FileSystemEntity.type(root.path, followLinks: false) !=
-        FileSystemEntityType.directory) {
+    if (!await _isRealDirectory(root.path) ||
+        !await _isRealDirectory(trustedParent.path)) {
       return;
     }
 
@@ -344,12 +354,37 @@ class AccountScratchStorage
 
     await for (final entity in root.list(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
+      if (await FileSystemEntity.type(entity.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        continue;
+      }
       final canonicalFile = await entity.resolveSymbolicLinks();
       if (!p.isWithin(canonicalRoot, canonicalFile)) continue;
       final stat = await entity.stat();
       if (stat.modified.isBefore(cutoff)) {
         await entity.delete();
       }
+    }
+  }
+
+  static Future<bool> _isRealDirectory(String path) async {
+    return await FileSystemEntity.type(path, followLinks: false) ==
+        FileSystemEntityType.directory;
+  }
+
+  static Future<void> _deleteFileBestEffort(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // Best-effort cleanup after a failed scratch operation.
+    }
+  }
+
+  static Future<void> _deleteDirectoryBestEffort(Directory directory) async {
+    try {
+      if (await directory.exists()) await directory.delete();
+    } on FileSystemException {
+      // Leave non-empty or concurrently used item directories intact.
     }
   }
 }

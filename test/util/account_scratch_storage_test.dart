@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/bootstrap/app_bootstrap.dart';
 import 'package:toxee/util/account_deletion.dart';
 import 'package:toxee/util/account_scratch_storage.dart';
-import 'package:toxee/util/account_service.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -27,9 +26,9 @@ void main() {
     applicationSupport = Directory(p.join(testRoot.path, 'app_support'));
     await applicationSupport.create(recursive: true);
     AppPaths.debugApplicationSupportOverride = applicationSupport.path;
+    AccountDeletionTestHooks.reset();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
-    AccountDeletionTestHooks.removePassword = (_) async => true;
   });
 
   tearDown(() async {
@@ -40,131 +39,181 @@ void main() {
     }
   });
 
-  AccountScratchStorage storageFor(String toxId) {
+  Future<AccountScratchStorage> storageFor(String toxId) async {
     return AccountScratchStorage(
       accountToxId: toxId,
-      accountDataRoot: p.join(applicationSupport.path, 'account_data', toxId),
+      accountDataRoot: await AppPaths.getAccountScratchDataRoot(toxId),
     );
   }
 
   test(
-    'full account IDs with the same prefix have isolated scratch roots',
+    'scratch resolver uses the full account ID for same-prefix accounts',
     () async {
+      final firstRoot = await AppPaths.getAccountScratchDataRoot(_accountA);
+      final secondRoot = await AppPaths.getAccountScratchDataRoot(_accountB);
+
       expect(
-        await AppPaths.getAccountScratchDataRoot(_accountA),
+        firstRoot,
         p.join(applicationSupport.path, 'account_data', _accountA),
       );
       expect(
-        await AppPaths.getAccountScratchDataRoot(_accountB),
+        secondRoot,
         p.join(applicationSupport.path, 'account_data', _accountB),
       );
-      final first = storageFor(_accountA);
-      final second = storageFor(_accountB);
-
-      final firstPath = await first.writeBytesToScratch(
-        Uint8List.fromList(<int>[1, 2, 3]),
-        category: 'message_images',
-        suggestedFileName: 'preview.png',
+      expect(firstRoot, isNot(secondRoot));
+      expect(
+        await AppPaths.getAccountScratchRoot(_accountA),
+        p.join(firstRoot, 'scratch'),
       );
-      final secondPath = await second.writeBytesToScratch(
-        Uint8List.fromList(<int>[4, 5, 6]),
-        category: 'message_images',
-        suggestedFileName: 'preview.png',
-      );
-
-      expect(firstPath, contains(_accountA));
-      expect(secondPath, contains(_accountB));
-      expect(firstPath, isNot(secondPath));
-      expect(await File(firstPath).readAsBytes(), <int>[1, 2, 3]);
-      expect(await File(secondPath).readAsBytes(), <int>[4, 5, 6]);
     },
   );
 
+  test('invalid account IDs are rejected before path creation', () async {
+    expect(
+      () => AccountScratchStorage(
+        accountToxId: _accountA.substring(0, 64),
+        accountDataRoot: testRoot.path,
+      ),
+      throwsArgumentError,
+    );
+    await expectLater(
+      AppPaths.getAccountScratchDataRoot('../$_accountA'),
+      throwsArgumentError,
+    );
+  });
+
   test(
-    'writes and copies publish complete files without temporary leftovers',
+    'writes and copies publish complete isolated files without temp leftovers',
     () async {
-      final storage = storageFor(_accountA);
+      final first = await storageFor(_accountA);
+      final second = await storageFor(_accountB);
       final firstBytes = Uint8List.fromList(List<int>.filled(4096, 0x11));
       final secondBytes = Uint8List.fromList(List<int>.filled(8192, 0x22));
 
-      final writes = await Future.wait(<Future<String>>[
-        storage.writeBytesToScratch(
+      final written = await Future.wait(<Future<String>>[
+        first.writeBytesToScratch(
           firstBytes,
-          category: 'avatars',
-          suggestedFileName: 'same.bin',
+          category: 'clipboard_images',
+          suggestedFileName: 'same.png',
         ),
-        storage.writeBytesToScratch(
+        second.writeBytesToScratch(
           secondBytes,
-          category: 'avatars',
-          suggestedFileName: 'same.bin',
+          category: 'clipboard_images',
+          suggestedFileName: 'same.png',
         ),
       ]);
-      expect(writes[0], isNot(writes[1]));
-      expect(await File(writes.first).readAsBytes(), firstBytes);
-      expect(await File(writes.last).readAsBytes(), secondBytes);
+      expect(written.first, contains(_accountA));
+      expect(written.last, contains(_accountB));
+      expect(await File(written.first).readAsBytes(), firstBytes);
+      expect(await File(written.last).readAsBytes(), secondBytes);
 
-      final source = File(p.join(testRoot.path, 'user-selected.jpg'));
+      final source = File(p.join(testRoot.path, 'picked.jpg'));
       await source.writeAsBytes(<int>[9, 8, 7, 6]);
-      final copiedPath = await storage.copyFileToScratch(
+      final copied = await first.copyFileToScratch(
         source.path,
         category: 'image_paste',
-        suggestedFileName: p.basename(source.path),
+        suggestedFileName: 'picked.jpg',
       );
-      expect(await File(copiedPath).readAsBytes(), <int>[9, 8, 7, 6]);
+      expect(await File(copied).readAsBytes(), <int>[9, 8, 7, 6]);
 
-      final scratchEntries = await Directory(
-        storage.scratchRoot,
+      final entries = await Directory(
+        first.scratchRoot,
       ).list(recursive: true, followLinks: false).toList();
       expect(
-        scratchEntries.where(
-          (entry) => p.basename(entry.path).contains('.tmp.'),
-        ),
+        entries.where((entry) => p.basename(entry.path).contains('.tmp.')),
         isEmpty,
       );
     },
   );
 
   test(
-    'rejects unsafe target names and denies traversal and symlink escapes',
+    'invalid categories, basenames, and failed copies do not publish files',
     () async {
-      final storage = storageFor(_accountA);
+      final storage = await storageFor(_accountA);
       await expectLater(
         storage.writeBytesToScratch(
-          Uint8List.fromList(<int>[1]),
-          category: '../../image paste',
-          suggestedFileName: '../picked image.png',
+          Uint8List(0),
+          category: '../bad',
+          suggestedFileName: 'safe.png',
         ),
         throwsArgumentError,
       );
-      await storage.writeBytesToScratch(
-        Uint8List.fromList(<int>[1]),
-        category: 'image_paste',
-        suggestedFileName: 'picked-image.png',
-      );
-
-      final external = File(p.join(testRoot.path, 'export.zip'));
-      await external.writeAsString('user export');
       await expectLater(
-        storage.deleteScratchFile(external.path),
+        storage.writeBytesToScratch(
+          Uint8List(0),
+          category: 'clipboard_images',
+          suggestedFileName: '../escape.png',
+        ),
         throwsArgumentError,
       );
 
-      final link = Link(p.join(storage.scratchRoot, 'linked-export.zip'));
-      await link.create(external.path);
+      final sourceDirectory = Directory(p.join(testRoot.path, 'not_a_file'));
+      await sourceDirectory.create();
       await expectLater(
-        storage.deleteScratchFile(link.path),
+        storage.copyFileToScratch(
+          sourceDirectory.path,
+          category: 'clipboard_images',
+          suggestedFileName: 'copy.png',
+        ),
         throwsArgumentError,
       );
-      expect(await external.readAsString(), 'user export');
+      expect(await Directory(storage.scratchRoot).exists(), isFalse);
+    },
+  );
+
+  test('delete accepts only canonical owned non-symlink files', () async {
+    final storage = await storageFor(_accountA);
+    final owned = await storage.writeBytesToScratch(
+      Uint8List.fromList(<int>[1]),
+      category: 'clipboard_images',
+      suggestedFileName: 'owned.png',
+    );
+    await storage.deleteScratchFile(owned);
+    expect(await File(owned).exists(), isFalse);
+
+    final external = File(p.join(testRoot.path, 'account-export.zip'));
+    await external.writeAsString('keep');
+    await expectLater(
+      storage.deleteScratchFile(external.path),
+      throwsArgumentError,
+    );
+
+    final link = Link(p.join(storage.scratchRoot, 'linked-export.zip'));
+    await link.create(external.path);
+    await expectLater(
+      storage.deleteScratchFile(link.path),
+      throwsArgumentError,
+    );
+    expect(await external.readAsString(), 'keep');
+  });
+
+  test(
+    'symlink scratch roots are rejected before writing outside the account',
+    () async {
+      final storage = await storageFor(_accountA);
+      final external = Directory(p.join(testRoot.path, 'external_scratch'));
+      await external.create(recursive: true);
+      await Directory(storage.accountDataRoot).create(recursive: true);
+      await Link(storage.scratchRoot).create(external.path);
+
+      await expectLater(
+        storage.writeBytesToScratch(
+          Uint8List.fromList(<int>[1]),
+          category: 'clipboard_images',
+          suggestedFileName: 'escape.png',
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(await external.list().toList(), isEmpty);
     },
   );
 
   test(
-    'TTL cleanup visits only known scratch and exact legacy roots',
+    'TTL cleanup touches only known scratch and exact legacy roots',
     () async {
       final now = DateTime(2026, 7, 26, 12);
       final cutoff = now.subtract(const Duration(days: 7));
-      final storage = storageFor(_accountA);
+      final storage = await storageFor(_accountA);
       final expired = File(
         p.join(storage.scratchRoot, 'avatars', 'expired.png'),
       );
@@ -181,6 +230,12 @@ void main() {
       );
       await boundary.setLastModified(cutoff);
       await fresh.setLastModified(cutoff.add(const Duration(seconds: 1)));
+
+      final linkedExternal = File(p.join(testRoot.path, 'linked-export.tox'));
+      await linkedExternal.writeAsString('keep');
+      await Link(
+        p.join(storage.scratchRoot, 'avatars', 'linked.tox'),
+      ).create(linkedExternal.path);
 
       final fakeSystemTemp = Directory(p.join(testRoot.path, 'system_temp'));
       final avatarLegacy = File(
@@ -239,6 +294,7 @@ void main() {
       expect(await avatarLegacy.exists(), isFalse);
       expect(await pasteLegacy.exists(), isFalse);
       expect(await genericTemp.exists(), isTrue);
+      expect(await linkedExternal.exists(), isTrue);
       for (final sentinel in sentinels) {
         expect(await sentinel.exists(), isTrue, reason: sentinel.path);
       }
@@ -246,23 +302,20 @@ void main() {
     },
   );
 
-  test(
-    'cold-start cleanup failures degrade without escaping bootstrap',
-    () async {
-      var called = false;
-      await AppBootstrap.cleanupScratchAtColdStart(
-        cleanup: () async {
-          called = true;
-          throw const FileSystemException('injected cleanup failure');
-        },
-      );
-      expect(called, isTrue);
-    },
-  );
+  test('cold-start cleanup failures are nonfatal', () async {
+    var called = false;
+    await AppBootstrap.cleanupScratchAtColdStart(
+      cleanup: () async {
+        called = true;
+        throw const FileSystemException('injected cleanup failure');
+      },
+    );
+    expect(called, isTrue);
+  });
 
-  test('account deletion removes only that full-ID scratch root', () async {
-    final first = storageFor(_accountA);
-    final second = storageFor(_accountB);
+  test('account deletion removes this full-ID scratch root only', () async {
+    final first = await storageFor(_accountA);
+    final second = await storageFor(_accountB);
     await first.writeBytesToScratch(
       Uint8List.fromList(<int>[1]),
       category: 'avatars',
@@ -276,8 +329,15 @@ void main() {
     final export = File(p.join(testRoot.path, 'saved-account.zip'));
     await export.writeAsString('keep');
 
-    await AccountService.deleteAccountWithoutService(toxId: _accountA);
+    AccountDeletionTestHooks.removePassword = (_) async => true;
+    AccountDeletionTestHooks.clearPrefsData = (_) async {};
+    AccountDeletionTestHooks.cleanupPrivacyResidue = (_) async {};
+    AccountDeletionTestHooks.removeAccount = (_) async {};
+    final result = await AccountDeletionCoordinator.deleteAccount(
+      toxId: _accountA,
+    );
 
+    expect(result.completed, isTrue);
     expect(await Directory(first.accountDataRoot).exists(), isFalse);
     expect(await File(secondFile).exists(), isTrue);
     expect(await export.exists(), isTrue);
