@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui';
 import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart'
     show MissingPluginException, PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -11,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'logger.dart';
 import 'tox_utils.dart';
 import '../models/account_summary.dart';
+import 'auto_download_policy.dart';
+import 'prefs/draft_prefs.dart';
 import 'prefs/password_verifier.dart';
 import 'prefs/scoped_key.dart';
 
@@ -24,7 +27,6 @@ part 'prefs/chat_prefs.dart';
 /// See [PrefsImpl.global] and [prefs_interfaces.dart] for migration.
 class Prefs {
   static const _kServerId = 'server_id';
-  static String _draftKey(String peerId) => 'draft_$peerId';
   static const _kPinned = 'pinned_peers';
   static const _kMuted = 'muted_peers';
   static const _kGroups = 'groups_list';
@@ -43,9 +45,12 @@ class Prefs {
   static const _kCurrentBootstrapHost = 'current_bootstrap_host';
   static const _kCurrentBootstrapPort = 'current_bootstrap_port';
   static const _kCurrentBootstrapPubkey = 'current_bootstrap_pubkey';
-  static const _kBootstrapNodeMode = 'bootstrap_node_mode'; // 'manual', 'auto', or 'lan'
-  static const _kLanBootstrapPort = 'lan_bootstrap_port'; // Local bootstrap service port
-  static const _kLanBootstrapServiceRunning = 'lan_bootstrap_service_running'; // Service running status
+  static const _kBootstrapNodeMode =
+      'bootstrap_node_mode'; // 'manual', 'auto', or 'lan'
+  static const _kLanBootstrapPort =
+      'lan_bootstrap_port'; // Local bootstrap service port
+  static const _kLanBootstrapServiceRunning =
+      'lan_bootstrap_service_running'; // Service running status
   // Snapshot of the auto/manual node taken when LAN mode is engaged, so we can
   // restore it when the LAN service is stopped. Without this, stopping the
   // local LAN node leaves current_bootstrap_* still pointing at the no-longer-
@@ -59,23 +64,33 @@ class Prefs {
   static const _kNotificationSoundEnabled = 'notification_sound_enabled';
   static const _kCallPermissionsPrewarmed = 'call_permissions_prewarmed';
   static const _kCardText = 'self_card_text';
-  static const _kCurrentAccountToxId = 'current_account_tox_id'; // Which account is active (for per-account avatar/pinned/localFriends)
+  static const _kCurrentAccountToxId =
+      'current_account_tox_id'; // Which account is active (for per-account avatar/pinned/localFriends)
   static const _kDownloadsDirectory = 'downloads_directory';
-  static const _kProfileStorageRoot = 'profile_storage_root'; // Optional custom root for tox profiles (survives uninstall when outside app)
+  static const _kProfileStorageRoot =
+      'profile_storage_root'; // Optional custom root for tox profiles (survives uninstall when outside app)
   static const _kAutoDownloadSizeLimit = 'auto_download_size_limit'; // in MB
+  static const _kFailedMessagesBase = 'tencent_cloud_chat_failed_messages';
   static const _kIrcAppInstalled = 'irc_app_installed'; // bool
-  static const _kIrcChannels = 'irc_channels'; // List<String> - JSON array of channel names
-  static const _kIrcServer = 'irc_server'; // String - IRC server address (default: "irc.libera.chat")
+  static const _kIrcChannels =
+      'irc_channels'; // List<String> - JSON array of channel names
+  static const _kIrcServer =
+      'irc_server'; // String - IRC server address (default: "irc.libera.chat")
   static const _kIrcPort = 'irc_port'; // int - IRC server port (default: 6667)
-  static const _kIrcUseSasl = 'irc_use_sasl'; // bool - Whether to use SASL authentication
-  static String _ircChannelPasswordKey(String channel) => 'irc_channel_password_$channel';
-  static String _ircChannelNicknameKey(String channel) => 'irc_channel_nickname_$channel';
+  static const _kIrcUseSasl =
+      'irc_use_sasl'; // bool - Whether to use SASL authentication
+  static String _ircChannelPasswordKey(String channel) =>
+      'irc_channel_password_$channel';
+  static String _ircChannelNicknameKey(String channel) =>
+      'irc_channel_nickname_$channel';
   // Window/layout state (desktop)
   static const _kWindowBounds = 'window_bounds'; // "left,top,width,height"
   static const _kWindowMaximized = 'window_maximized';
-  static const _kSplitterPosition = 'splitter_position'; // conversation list width or ratio (0.0-1.0)
+  static const _kSplitterPosition =
+      'splitter_position'; // conversation list width or ratio (0.0-1.0)
   // Contact list sorting
-  static const _kFriendListSortingMode = 'friend_list_sorting_mode'; // 'name' | 'activity'
+  static const _kFriendListSortingMode =
+      'friend_list_sorting_mode'; // 'name' | 'activity'
   static String _friendActivityKey(String userId) => 'friend_activity_$userId';
   // Tox IDs of accounts created through the debug-only L3 harness
   // (l3_register_account). Membership — not the current nickname — is what
@@ -85,7 +100,8 @@ class Prefs {
 
   // Per-account settings keys (scoped by account prefix, replacing JSON storage)
   static const _kAccountAutoAcceptFriends = 'acct_auto_accept_friends';
-  static const _kAccountAutoAcceptGroupInvites = 'acct_auto_accept_group_invites';
+  static const _kAccountAutoAcceptGroupInvites =
+      'acct_auto_accept_group_invites';
   static const _kAccountAutoLogin = 'acct_auto_login';
   static const _kAccountNotificationSound = 'acct_notification_sound';
 
@@ -103,8 +119,9 @@ class Prefs {
   /// data-protection keychain requires a real development certificate and
   /// fails with -34018 / errSecMissingEntitlement on unsigned local builds).
   static const _macOsOptions = MacOsOptions(useDataProtectionKeyChain: false);
-  static const FlutterSecureStorage _secureStorage =
-      FlutterSecureStorage(mOptions: _macOsOptions);
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
+    mOptions: _macOsOptions,
+  );
 
   /// Read a key from secure storage, returning null when the platform channel
   /// is not available (test environment without a mock — flutter_secure_storage
@@ -183,7 +200,7 @@ class Prefs {
   static Future<String?> getServerId() async {
     final p = await _getPrefs();
     return p.getString(_kServerId);
-    }
+  }
 
   static Future<void> setServerId(String value) async {
     final p = await _getPrefs();
@@ -193,19 +210,24 @@ class Prefs {
   static Future<String?> getDraft(String peerId) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
-    final key = _scopedKey(_draftKey(peerId), current);
-    return p.getString(key);
+    if (current == null || current.isEmpty) return null;
+    final draft = await DraftPrefs(
+      p,
+      activeAccountToxId: getCurrentAccountToxId,
+    ).loadDraft(accountToxId: current, conversationID: peerId);
+    return draft?.text;
   }
 
   static Future<void> setDraft(String peerId, String text) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
-    final key = _scopedKey(_draftKey(peerId), current);
-    if (text.isEmpty) {
-      await p.remove(key);
-    } else {
-      await p.setString(key, text);
+    if (current == null || current.isEmpty) {
+      throw StateError('Cannot store a draft without an active account');
     }
+    await DraftPrefs(
+      p,
+      activeAccountToxId: getCurrentAccountToxId,
+    ).saveDraft(accountToxId: current, conversationID: peerId, text: text);
   }
 
   /// Storage key for pinned/conversation list scoped by account (avoids loading other account's data).
@@ -368,7 +390,8 @@ class Prefs {
   // cannot lose a write — both would otherwise read the same snapshot and the
   // second `setQuitGroups` would overwrite the first.
   static Future<void> _quitGroupsRmw(
-      void Function(Set<String> set) mutate) async {
+    void Function(Set<String> set) mutate,
+  ) async {
     final prev = _quitGroupsRmwTail;
     final completer = Completer<void>();
     _quitGroupsRmwTail = completer.future;
@@ -595,7 +618,8 @@ class Prefs {
     return Locale(parts[0]);
   }
 
-  static Future<({String host, int port, String pubkey})?> getCurrentBootstrapNode() async {
+  static Future<({String host, int port, String pubkey})?>
+  getCurrentBootstrapNode() async {
     final p = await _getPrefs();
     final host = p.getString(_kCurrentBootstrapHost);
     final port = p.getInt(_kCurrentBootstrapPort);
@@ -606,7 +630,11 @@ class Prefs {
     return null;
   }
 
-  static Future<void> setCurrentBootstrapNode(String host, int port, String pubkey) async {
+  static Future<void> setCurrentBootstrapNode(
+    String host,
+    int port,
+    String pubkey,
+  ) async {
     final p = await _getPrefs();
     await p.setString(_kCurrentBootstrapHost, host);
     await p.setInt(_kCurrentBootstrapPort, port);
@@ -663,7 +691,8 @@ class Prefs {
   /// Snapshot of the bootstrap node that was active before LAN mode took over.
   /// Used by LAN start/stop to restore the prior auto/manual node when the
   /// local service is stopped.
-  static Future<({String host, int port, String pubkey})?> getPreLanBootstrapNode() async {
+  static Future<({String host, int port, String pubkey})?>
+  getPreLanBootstrapNode() async {
     final p = await _getPrefs();
     final host = p.getString(_kPreLanBootstrapHost);
     final port = p.getInt(_kPreLanBootstrapPort);
@@ -674,7 +703,11 @@ class Prefs {
     return null;
   }
 
-  static Future<void> setPreLanBootstrapNode(String host, int port, String pubkey) async {
+  static Future<void> setPreLanBootstrapNode(
+    String host,
+    int port,
+    String pubkey,
+  ) async {
     final p = await _getPrefs();
     await p.setString(_kPreLanBootstrapHost, host);
     await p.setInt(_kPreLanBootstrapPort, port);
@@ -744,7 +777,10 @@ class Prefs {
 
   /// Set auto-accept group invites setting for a specific account.
   /// When [toxId] is null, uses current account.
-  static Future<void> setAutoAcceptGroupInvites(bool value, [String? toxId]) async {
+  static Future<void> setAutoAcceptGroupInvites(
+    bool value, [
+    String? toxId,
+  ]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
     if (effectiveToxId == null || effectiveToxId.isEmpty) {
@@ -818,7 +854,10 @@ class Prefs {
 
   /// Set notification sound enabled setting for a specific account.
   /// When [toxId] is null, uses current account.
-  static Future<void> setNotificationSoundEnabled(bool value, [String? toxId]) async {
+  static Future<void> setNotificationSoundEnabled(
+    bool value, [
+    String? toxId,
+  ]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
     if (effectiveToxId == null || effectiveToxId.isEmpty) {
@@ -884,18 +923,12 @@ class Prefs {
     }
   }
 
-  /// Default auto-download size limit when the user has not picked one.
-  /// Mobile (Android/iOS) gets a much tighter cap — cellular data is the
-  /// common path and 30 MB silently consumed by a single image/video is
-  /// hostile UX. Desktop keeps the historical 30 MB default.
-  static int get _defaultAutoDownloadSizeLimitMb {
-    if (Platform.isAndroid || Platform.isIOS) return 5;
-    return 30;
-  }
-
-  static Future<int> getAutoDownloadSizeLimit() async {
+  static Future<int> getAutoDownloadSizeLimit({bool? isMobileOverride}) async {
     final p = await _getPrefs();
-    return p.getInt(_kAutoDownloadSizeLimit) ?? _defaultAutoDownloadSizeLimitMb;
+    return p.getInt(_kAutoDownloadSizeLimit) ??
+        defaultAutoDownloadSizeLimitMb(
+          isMobile: isMobileOverride ?? (Platform.isAndroid || Platform.isIOS),
+        );
   }
 
   static Future<void> setAutoDownloadSizeLimit(int sizeInMB) async {
@@ -1009,7 +1042,8 @@ class Prefs {
   }
 
   // Friend nickname storage (from Tox, different from remark which is user-edited)
-  static String _friendNicknameKey(String friendId) => 'friend_nickname_$friendId';
+  static String _friendNicknameKey(String friendId) =>
+      'friend_nickname_$friendId';
 
   static Future<String?> getFriendNickname(String friendId) async {
     final p = await _getPrefs();
@@ -1018,7 +1052,10 @@ class Prefs {
     return p.getString(key);
   }
 
-  static Future<void> setFriendNickname(String friendId, String nickname) async {
+  static Future<void> setFriendNickname(
+    String friendId,
+    String nickname,
+  ) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
     final key = _scopedKey(_friendNicknameKey(friendId), current);
@@ -1030,7 +1067,8 @@ class Prefs {
   }
 
   // Friend status message storage (from Tox, selfSignature)
-  static String _friendStatusMessageKey(String friendId) => 'friend_status_message_$friendId';
+  static String _friendStatusMessageKey(String friendId) =>
+      'friend_status_message_$friendId';
 
   static Future<String?> getFriendStatusMessage(String friendId) async {
     final p = await _getPrefs();
@@ -1039,7 +1077,10 @@ class Prefs {
     return p.getString(key);
   }
 
-  static Future<void> setFriendStatusMessage(String friendId, String statusMessage) async {
+  static Future<void> setFriendStatusMessage(
+    String friendId,
+    String statusMessage,
+  ) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
     final key = _scopedKey(_friendStatusMessageKey(friendId), current);
@@ -1102,19 +1143,28 @@ class Prefs {
     return list.toSet();
   }
 
-  static Future<void> setBlackList(Set<String> userIDs, [String? userToxId]) async {
+  static Future<void> setBlackList(
+    Set<String> userIDs, [
+    String? userToxId,
+  ]) async {
     final p = await _getPrefs();
     final key = _blackListKey(userToxId);
     await p.setStringList(key, userIDs.toList());
   }
 
-  static Future<void> addToBlackList(List<String> userIDs, [String? userToxId]) async {
+  static Future<void> addToBlackList(
+    List<String> userIDs, [
+    String? userToxId,
+  ]) async {
     final blackList = await getBlackList(userToxId);
     blackList.addAll(userIDs);
     await setBlackList(blackList, userToxId);
   }
 
-  static Future<void> removeFromBlackList(List<String> userIDs, [String? userToxId]) async {
+  static Future<void> removeFromBlackList(
+    List<String> userIDs, [
+    String? userToxId,
+  ]) async {
     final blackList = await getBlackList(userToxId);
     blackList.removeAll(userIDs);
     await setBlackList(blackList, userToxId);
@@ -1131,14 +1181,19 @@ class Prefs {
     return scopedPrefsKey('c2c_recv_opt_$userID', prefix);
   }
 
-  static Future<int> getC2CReceiveMessageOpt(String userID,
-      [String? userToxId]) async {
+  static Future<int> getC2CReceiveMessageOpt(
+    String userID, [
+    String? userToxId,
+  ]) async {
     final p = await _getPrefs();
     return p.getInt(_c2cRecvOptKey(userID, userToxId)) ?? 0;
   }
 
-  static Future<void> setC2CReceiveMessageOpt(String userID, int opt,
-      [String? userToxId]) async {
+  static Future<void> setC2CReceiveMessageOpt(
+    String userID,
+    int opt, [
+    String? userToxId,
+  ]) async {
     final p = await _getPrefs();
     final key = _c2cRecvOptKey(userID, userToxId);
     if (opt == 0) {
@@ -1161,14 +1216,19 @@ class Prefs {
     return scopedPrefsKey('group_recv_opt_$groupID', prefix);
   }
 
-  static Future<int> getGroupReceiveMessageOpt(String groupID,
-      [String? userToxId]) async {
+  static Future<int> getGroupReceiveMessageOpt(
+    String groupID, [
+    String? userToxId,
+  ]) async {
     final p = await _getPrefs();
     return p.getInt(_groupRecvOptKey(groupID, userToxId)) ?? 0;
   }
 
-  static Future<void> setGroupReceiveMessageOpt(String groupID, int opt,
-      [String? userToxId]) async {
+  static Future<void> setGroupReceiveMessageOpt(
+    String groupID,
+    int opt, [
+    String? userToxId,
+  ]) async {
     final p = await _getPrefs();
     final key = _groupRecvOptKey(groupID, userToxId);
     if (opt == 0) {
@@ -1180,9 +1240,13 @@ class Prefs {
 
   // Group member name card storage — account-scoped (S6 fix). Two accounts in
   // the same group must not see each other's per-member nick cards.
-  static String _groupMemberNameCardKey(String groupId, String userId) => 'group_member_namecard_${groupId}_$userId';
+  static String _groupMemberNameCardKey(String groupId, String userId) =>
+      'group_member_namecard_${groupId}_$userId';
 
-  static Future<String?> getGroupMemberNameCard(String groupId, String userId) async {
+  static Future<String?> getGroupMemberNameCard(
+    String groupId,
+    String userId,
+  ) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
     final rawKey = _groupMemberNameCardKey(groupId, userId);
@@ -1200,7 +1264,11 @@ class Prefs {
     return null;
   }
 
-  static Future<void> setGroupMemberNameCard(String groupId, String userId, String nameCard) async {
+  static Future<void> setGroupMemberNameCard(
+    String groupId,
+    String userId,
+    String nameCard,
+  ) async {
     final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
     final rawKey = _groupMemberNameCardKey(groupId, userId);
@@ -1288,7 +1356,7 @@ class Prefs {
     // 1) Remove target account's scoped keys only
     if (scopedSuffix.isNotEmpty) {
       for (final key in p.getKeys()) {
-        if (key.endsWith(scopedSuffix)) {
+        if (!DraftPrefs.isV2StorageKey(key) && key.endsWith(scopedSuffix)) {
           keysToRemove.add(key);
         }
       }
@@ -1334,27 +1402,100 @@ class Prefs {
     }
   }
 
+  /// Clear account-scoped SharedPreferences after the secure password material
+  /// has already been removed by the caller. Used by fail-closed account
+  /// deletion so a keychain/keystore delete failure can stop the workflow before
+  /// any prefs are removed.
+  static Future<void> clearAccountDataAfterPasswordRemoved(
+    String toxId, {
+    bool clearCurrentAccountPointer = true,
+  }) async {
+    final p = await _getPrefs();
+    final current = await getCurrentAccountToxId();
+    final scopedSuffix = _scopedKey('', toxId);
+    final legacyFailedMessagesKey = _legacyFailedMessagesKeyForToxId(toxId);
+
+    final keysToRemove = <String>{};
+
+    if (scopedSuffix.isNotEmpty) {
+      for (final key in p.getKeys()) {
+        if (!DraftPrefs.isV2StorageKey(key) &&
+            key.endsWith(scopedSuffix) &&
+            key != legacyFailedMessagesKey) {
+          keysToRemove.add(key);
+        }
+      }
+    }
+
+    if (current == null || compareToxIds(current, toxId)) {
+      keysToRemove.addAll(<String>{
+        _kPinned,
+        _kMuted,
+        _kGroups,
+        _kQuitGroups,
+        _kLocalFriends,
+        _kCardText,
+        _kAutoAcceptFriends,
+        _kAutoAcceptGroupInvites,
+        _kNotificationSoundEnabled,
+        _selfAvatarHashKey,
+        _kAutoLogin,
+      });
+      if (clearCurrentAccountPointer) {
+        keysToRemove.add(_kCurrentAccountToxId);
+      }
+    }
+
+    await Future.wait(keysToRemove.map((key) => p.remove(key)));
+    if (toxId.isNotEmpty) {
+      await clearScopedKeysForAccount(toxId);
+    }
+    if (clearCurrentAccountPointer &&
+        current != null &&
+        compareToxIds(current, toxId)) {
+      _cachedCurrentAccountToxId = null;
+      _accountToxIdCached = false;
+    }
+  }
+
   /// Remove all SharedPreferences keys scoped to the given account.
   /// Call this when deleting an account so that account's data does not remain.
   static Future<void> clearScopedKeysForAccount(String toxId) async {
     if (toxId.isEmpty) return;
     final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
     final suffix = '_$prefix';
+    final legacyFailedMessagesKey = _legacyFailedMessagesKeyForToxId(toxId);
     final p = await _getPrefs();
-    final keysToRemove = p.getKeys().where((key) => key.endsWith(suffix)).toList();
+    final keysToRemove = p
+        .getKeys()
+        .where(
+          (key) =>
+              (!DraftPrefs.isV2StorageKey(key) &&
+                  key.endsWith(suffix) &&
+                  key != legacyFailedMessagesKey) ||
+              DraftPrefs.isStorageKeyForAccount(key: key, accountToxId: toxId),
+        )
+        .toList();
     await Future.wait(keysToRemove.map((key) => p.remove(key)));
+  }
+
+  static String? _legacyFailedMessagesKeyForToxId(String toxId) {
+    if (toxId.length < 16) return null;
+    return '${_kFailedMessagesBase}_${toxId.substring(0, 16)}';
   }
 
   /// Export all scoped preferences for an account as a serializable map.
   /// Used for full backup (.zip) export.
-  static Future<Map<String, dynamic>> exportScopedPrefsForAccount(String toxId) async {
+  static Future<Map<String, dynamic>> exportScopedPrefsForAccount(
+    String toxId,
+  ) async {
     if (toxId.isEmpty) return {};
     final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
     final suffix = '_$prefix';
     final p = await _getPrefs();
     final result = <String, dynamic>{};
     for (final key in p.getKeys()) {
-      if (key.endsWith(suffix)) {
+      if (!DraftPrefs.isV2StorageKey(key) && key.endsWith(suffix)) {
         // Strip suffix to get base key name for portability
         final baseKey = key.substring(0, key.length - suffix.length);
         final value = p.get(key);
@@ -1362,6 +1503,13 @@ class Prefs {
           result[baseKey] = value;
         }
       }
+    }
+    final portableDrafts = DraftPrefs.exportPortableDrafts(
+      prefs: p,
+      accountToxId: toxId,
+    );
+    if (portableDrafts.isNotEmpty) {
+      result[DraftPrefs.portableBackupSectionKey] = portableDrafts;
     }
     return result;
   }
@@ -1376,11 +1524,36 @@ class Prefs {
   /// partial restore is strictly better than failing the whole import and
   /// leaving the user with nothing — the user can re-import or repair the
   /// offending key later.
-  static Future<void> importScopedPrefsForAccount(String toxId, Map<String, dynamic> data) async {
+  static Future<void> importScopedPrefsForAccount(
+    String toxId,
+    Map<String, dynamic> data, {
+    @visibleForTesting DraftPrefsStringWriter? draftStringWriter,
+  }) async {
     if (toxId.isEmpty) return;
     final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
     final p = await _getPrefs();
-    for (final entry in data.entries) {
+    final primitiveData = Map<String, dynamic>.from(data);
+    final portableDrafts = primitiveData.remove(
+      DraftPrefs.portableBackupSectionKey,
+    );
+    final draftReport = await DraftPrefs.importPortableDrafts(
+      prefs: p,
+      accountToxId: toxId,
+      portableDrafts: portableDrafts,
+      stringWriter: draftStringWriter,
+    );
+    if (draftReport.skippedMalformed > 0) {
+      AppLogger.warn(
+        '[Prefs.importScopedPrefsForAccount] skipped malformed portable draft entries: ${draftReport.skippedMalformed}',
+      );
+    }
+    if (draftReport.writeFailures > 0) {
+      AppLogger.warn(
+        '[Prefs.importScopedPrefsForAccount] failed to write portable draft entries: ${draftReport.writeFailures}',
+      );
+      throw StateError('Failed to restore portable conversation drafts');
+    }
+    for (final entry in primitiveData.entries) {
       final scopedKey = '${entry.key}_$prefix';
       final value = entry.value;
       try {
@@ -1402,8 +1575,9 @@ class Prefs {
         // SharedPreferences setter for them.
       } catch (e, st) {
         AppLogger.warn(
-            '[Prefs.importScopedPrefsForAccount] skipping key '
-            '"${entry.key}" for account prefix=$prefix: $e\n$st');
+          '[Prefs.importScopedPrefsForAccount] skipping key '
+          '"${entry.key}" for account prefix=$prefix: $e\n$st',
+        );
       }
     }
   }
@@ -1429,7 +1603,10 @@ class Prefs {
     if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
     return _setIrcAppInstalledImpl(
-        p, _scopedKey(_kIrcAppInstalled, current), installed);
+      p,
+      _scopedKey(_kIrcAppInstalled, current),
+      installed,
+    );
   }
 
   static Future<List<String>> getIrcChannels() async {
@@ -1443,8 +1620,7 @@ class Prefs {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
-    return _setIrcChannelsImpl(
-        p, _scopedKey(_kIrcChannels, current), channels);
+    return _setIrcChannelsImpl(p, _scopedKey(_kIrcChannels, current), channels);
   }
 
   static Future<void> addIrcChannel(String channel) async {
@@ -1471,12 +1647,16 @@ class Prefs {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return null;
     final p = await _getPrefs();
-    final value =
-        p.getString(_scopedKey(_ircChannelNicknameKey(channel), current));
+    final value = p.getString(
+      _scopedKey(_ircChannelNicknameKey(channel), current),
+    );
     return (value != null && value.isNotEmpty) ? value : null;
   }
 
-  static Future<void> setIrcChannelNickname(String channel, String? nickname) async {
+  static Future<void> setIrcChannelNickname(
+    String channel,
+    String? nickname,
+  ) async {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
@@ -1504,7 +1684,10 @@ class Prefs {
     return (fromSecure != null && fromSecure.isNotEmpty) ? fromSecure : null;
   }
 
-  static Future<void> setIrcChannelPassword(String channel, String? password) async {
+  static Future<void> setIrcChannelPassword(
+    String channel,
+    String? password,
+  ) async {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
     final key = _scopedKey(_ircChannelPasswordKey(channel), current);
@@ -1612,9 +1795,11 @@ class Prefs {
       // nickname update with `Nickname already used by another account`. The
       // fuzzy comparator matches the same equivalence the existing-row lookup
       // below uses, so the self-vs-other distinction stays consistent.
-      final duplicate = accounts.any((acc) =>
-          !compareToxIds(acc['toxId'] ?? '', toxId) &&
-          (acc['nickname'] ?? '').trim() == normalizedNickname);
+      final duplicate = accounts.any(
+        (acc) =>
+            !compareToxIds(acc['toxId'] ?? '', toxId) &&
+            (acc['nickname'] ?? '').trim() == normalizedNickname,
+      );
       if (duplicate) {
         throw StateError('Nickname already used by another account');
       }
@@ -1627,10 +1812,11 @@ class Prefs {
     // a duplicate row. `compareToxIds` matches when one ID is a 16-char
     // prefix of the other, or when both normalize to the same 64-char
     // public-key form — which is exactly the equivalence we want.
-    final existingIndex =
-        accounts.indexWhere((acc) => compareToxIds(acc['toxId'] ?? '', toxId));
+    final existingIndex = accounts.indexWhere(
+      (acc) => compareToxIds(acc['toxId'] ?? '', toxId),
+    );
     Map<String, String> account;
-    
+
     if (existingIndex >= 0) {
       // Update existing account
       account = accounts[existingIndex];
@@ -1657,7 +1843,8 @@ class Prefs {
         account['autoAcceptGroupInvites'] = autoAcceptGroupInvites.toString();
       }
       if (notificationSoundEnabled != null) {
-        account['notificationSoundEnabled'] = notificationSoundEnabled.toString();
+        account['notificationSoundEnabled'] = notificationSoundEnabled
+            .toString();
       }
       accounts[existingIndex] = account;
     } else {
@@ -1687,7 +1874,8 @@ class Prefs {
         account['autoAcceptGroupInvites'] = 'false'; // Default to false
       }
       if (notificationSoundEnabled != null) {
-        account['notificationSoundEnabled'] = notificationSoundEnabled.toString();
+        account['notificationSoundEnabled'] = notificationSoundEnabled
+            .toString();
       } else {
         account['notificationSoundEnabled'] = 'true'; // Default to true
       }
@@ -1709,11 +1897,14 @@ class Prefs {
     // Fuzzy match — mirrors [getAccountByToxId] so callers can pass any of
     // the formats that flow through the system (76-char service.selfId,
     // 64-char toxIdForLogin, 16-char prefix) and still hit the same row.
-    int index = accounts.indexWhere((acc) => (acc['toxId']?.trim() ?? '') == normalized);
+    int index = accounts.indexWhere(
+      (acc) => (acc['toxId']?.trim() ?? '') == normalized,
+    );
     if (index < 0) {
       final lowered = normalized.toLowerCase();
       index = accounts.indexWhere(
-          (acc) => (acc['toxId']?.trim() ?? '').toLowerCase() == lowered);
+        (acc) => (acc['toxId']?.trim() ?? '').toLowerCase() == lowered,
+      );
     }
     if (index < 0 && normalized.length >= 64) {
       final prefix = normalized.substring(0, 64);
@@ -1724,7 +1915,8 @@ class Prefs {
     }
     if (index < 0) {
       index = accounts.indexWhere(
-          (acc) => compareToxIds(acc['toxId']?.trim() ?? '', normalized));
+        (acc) => compareToxIds(acc['toxId']?.trim() ?? '', normalized),
+      );
     }
     if (index < 0) return;
     accounts[index]['lastLoginTime'] = DateTime.now().toIso8601String();
@@ -1746,8 +1938,9 @@ class Prefs {
   static Future<void> setAccountAvatarPath(String toxId, String? path) async {
     if (toxId.isEmpty) return;
     final accounts = await getAccountList();
-    final index =
-        accounts.indexWhere((acc) => compareToxIds(acc['toxId'] ?? '', toxId));
+    final index = accounts.indexWhere(
+      (acc) => compareToxIds(acc['toxId'] ?? '', toxId),
+    );
     if (index < 0) return;
     if (path == null || path.isEmpty) {
       accounts[index].remove('avatarPath');
@@ -1808,7 +2001,9 @@ class Prefs {
   }
 
   /// All accounts whose nickname (trimmed) matches [nickname].
-  static Future<List<Map<String, String>>> getAccountsByNickname(String nickname) async {
+  static Future<List<Map<String, String>>> getAccountsByNickname(
+    String nickname,
+  ) async {
     final normalized = nickname.trim();
     final accounts = await getAccountList();
     return accounts
@@ -1818,7 +2013,9 @@ class Prefs {
 
   /// Account whose nickname uniquely matches [nickname].
   /// Returns null if no match. Throws [StateError] if more than one account has that nickname.
-  static Future<Map<String, String>?> getUniqueAccountByNickname(String nickname) async {
+  static Future<Map<String, String>?> getUniqueAccountByNickname(
+    String nickname,
+  ) async {
     final matches = await getAccountsByNickname(nickname);
     if (matches.isEmpty) return null;
     if (matches.length > 1) {
@@ -1829,7 +2026,9 @@ class Prefs {
 
   /// Get account info by nickname (for backward compatibility and login flow)
   /// Note: This may return null if nickname is not unique
-  static Future<Map<String, String>?> getAccountByNickname(String nickname) async {
+  static Future<Map<String, String>?> getAccountByNickname(
+    String nickname,
+  ) async {
     final accounts = await getAccountList();
     try {
       return accounts.firstWhere((acc) => acc['nickname'] == nickname);
@@ -1941,7 +2140,8 @@ class Prefs {
     final legacyHash = prefs.getString(fromLegacyHashKey);
     final legacySalt = prefs.getString(fromLegacySaltKey);
 
-    final anySource = secureHash != null ||
+    final anySource =
+        secureHash != null ||
         secureSalt != null ||
         legacyHash != null ||
         legacySalt != null;
@@ -1994,12 +2194,16 @@ class Prefs {
       for (final k in undoSecure) {
         try {
           await _secureDelete(k);
-        } catch (_) {/* best effort */}
+        } catch (_) {
+          /* best effort */
+        }
       }
       for (final k in undoLegacy) {
         try {
           await prefs.remove(k);
-        } catch (_) {/* best effort */}
+        } catch (_) {
+          /* best effort */
+        }
       }
       return PasswordMigrationOutcome.migrationFailed;
     }
@@ -2009,16 +2213,24 @@ class Prefs {
     // toxId after account_list is migrated).
     try {
       if (secureHash != null) await _secureDelete(fromHashKey);
-    } catch (_) {/* best effort */}
+    } catch (_) {
+      /* best effort */
+    }
     try {
       if (secureSalt != null) await _secureDelete(fromSaltKey);
-    } catch (_) {/* best effort */}
+    } catch (_) {
+      /* best effort */
+    }
     try {
       if (legacyHash != null) await prefs.remove(fromLegacyHashKey);
-    } catch (_) {/* best effort */}
+    } catch (_) {
+      /* best effort */
+    }
     try {
       if (legacySalt != null) await prefs.remove(fromLegacySaltKey);
-    } catch (_) {/* best effort */}
+    } catch (_) {
+      /* best effort */
+    }
 
     return PasswordMigrationOutcome.migratedFully;
   }
@@ -2069,7 +2281,10 @@ class Prefs {
 
   static Future<void> setFriendListSortingMode(String mode) async {
     final p = await _getPrefs();
-    await p.setString(_kFriendListSortingMode, mode == 'activity' ? 'activity' : 'name');
+    await p.setString(
+      _kFriendListSortingMode,
+      mode == 'activity' ? 'activity' : 'name',
+    );
   }
 
   /// Last activity time (milliseconds since epoch) for a friend. Used for "sort by activity".
@@ -2111,4 +2326,3 @@ enum PasswordMigrationOutcome {
   /// undone; the namespace is back to its pre-call state.
   migrationFailed,
 }
-
