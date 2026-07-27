@@ -32,6 +32,7 @@
 // in the same handler. See the header comment in lib/ui/login_page.dart.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -43,6 +44,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:toxee/i18n/app_localizations.dart';
+import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/mobile_export_policy.dart';
@@ -103,15 +105,22 @@ Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
 Future<void> _tapAndAwait(
   WidgetTester tester, {
   required Finder trigger,
-  required bool Function() isDone,
+  required FutureOr<bool> Function() isDone,
+  Duration timeout = const Duration(seconds: 10),
+  String? timeoutMessage,
 }) async {
   await tester.runAsync(() async {
     await tester.tap(trigger);
-    for (var i = 0; i < 60; i++) {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (await isDone()) return;
       await tester.pump(const Duration(milliseconds: 50));
-      if (isDone()) break;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    if (await isDone()) return;
+    throw StateError(
+      timeoutMessage ?? 'Timed out after ${timeout.inSeconds}s waiting for trigger completion',
+    );
   });
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 100));
@@ -139,9 +148,14 @@ void main() {
     'plugins.it_nomads.com/flutter_secure_storage',
   );
   const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
+  late Directory appSupportRoot;
 
-  setUp(() {
+  setUp(() async {
     secureStore.clear();
+    appSupportRoot = await Directory.systemTemp.createTemp(
+      'toxee_login_acct_mgmt_test_',
+    );
+    AppPaths.debugApplicationSupportOverride = appSupportRoot.path;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(secureChannel, (MethodCall call) async {
@@ -173,15 +187,22 @@ void main() {
     messenger.setMockMethodCallHandler(pathProviderChannel, (
       MethodCall call,
     ) async {
-      return '${Directory.systemTemp.path}/login_acct_mgmt_test';
+      if (call.method == 'getApplicationSupportDirectory') {
+        return appSupportRoot.path;
+      }
+      return null;
     });
   });
 
-  tearDown(() {
+  tearDown(() async {
+    AppPaths.debugApplicationSupportOverride = null;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(secureChannel, null);
     messenger.setMockMethodCallHandler(pathProviderChannel, null);
+    if (await appSupportRoot.exists()) {
+      await appSupportRoot.delete(recursive: true);
+    }
   });
 
   Future<void> initAccounts(List<Map<String, String>> accounts) async {
@@ -506,14 +527,19 @@ void main() {
 
         await tester.enterText(find.byKey(_deleteConfirmInputKey), 'delete');
         await tester.pump();
-        // deleteAccountWithoutService awaits SharedPreferences + path_provider
-        // channels and then _loadAccountList rebuilds — drive the real event
-        // loop until the card is gone so all those async hops complete.
         await _tapAndAwait(
           tester,
           trigger: find.byKey(_deleteConfirmButtonKey),
-          isDone: () =>
-              find.byKey(UiKeys.loginPageAccountCard(toxId)).evaluate().isEmpty,
+          isDone: () async {
+            final cardGone = find
+                .byKey(UiKeys.loginPageAccountCard(toxId))
+                .evaluate()
+                .isEmpty;
+            final prefsCleared = await Prefs.getAccountByToxId(toxId) == null;
+            return cardGone && prefsCleared;
+          },
+          timeoutMessage:
+              'Timed out waiting for delete confirmation to clear both the UI card and Prefs row for $toxId',
         );
 
         // The production deleteAccountWithoutService ran -> account gone from

@@ -228,7 +228,9 @@ class FakeIM {
       if (_disposed) return;
       // Debug: log file messages to track where they come from
       if (m.filePath != null || m.mediaKind != null) {
-        AppLogger.log('[FakeIM] Received file message from ffi.messages stream: msgID=${m.msgID}, filePath=${m.filePath}, fileName=${m.fileName}, isPending=${m.isPending}');
+        AppLogger.log(
+          '[FakeIM] Received media message from ffi.messages stream: mediaKind=${m.mediaKind}, isPending=${m.isPending}',
+        );
       }
       String? convId;
       if (m.groupId != null) {
@@ -278,9 +280,9 @@ class FakeIM {
       }
 
       if (convId == null) {
-        AppLogger.log('[FakeIM] dropping unroutable message emit: '
-            'msgID=${m.msgID} isSelf=${m.isSelf} groupId=${m.groupId} '
-            'fromUser=${m.fromUserId} (no target peer, history refresh will recover)');
+        AppLogger.log(
+          '[FakeIM] dropping unroutable message emit: isSelf=${m.isSelf}, hasGroup=${m.groupId != null} (history refresh will recover)',
+        );
       } else {
         final msg = FakeMessage(
           msgID: m.msgID ?? '${m.timestamp.millisecondsSinceEpoch}_${m.fromUserId}',
@@ -290,7 +292,9 @@ class FakeIM {
           timestampMs: m.timestamp.millisecondsSinceEpoch,
           filePath: m.filePath,
           fileName: m.fileName,
+          fileSize: m.fileSize,
           mediaKind: m.mediaKind,
+          cloudCustomData: m.cloudCustomData,
           isPending: m.isPending,
           isReceived: m.isReceived,
           isRead: m.isRead,
@@ -735,7 +739,9 @@ class FakeIM {
           timestampMs: h.timestamp.millisecondsSinceEpoch,
           filePath: h.filePath,
           fileName: h.fileName, // Pass original file name
+          fileSize: h.fileSize,
           mediaKind: h.mediaKind,
+          cloudCustomData: h.cloudCustomData,
           isPending: h.isPending,
         );
         bus.emit(topicMessage, msg);
@@ -753,7 +759,9 @@ class FakeIM {
           timestampMs: h.timestamp.millisecondsSinceEpoch,
           filePath: h.filePath,
           fileName: h.fileName, // Pass original file name
+          fileSize: h.fileSize,
           mediaKind: h.mediaKind,
+          cloudCustomData: h.cloudCustomData,
           isPending: h.isPending,
         );
         bus.emit(topicMessage, msg);
@@ -793,4 +801,3 @@ class FakeIM {
     }
   }
 }
-

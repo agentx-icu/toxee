@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -11,6 +12,7 @@ import '../adapters/logger_adapter.dart';
 import '../adapters/bootstrap_adapter.dart';
 import 'prefs.dart';
 import 'prefs_upgrader.dart';
+import 'account_scratch_storage.dart';
 import 'app_paths.dart';
 import 'account_export_service.dart';
 import 'default_avatar_installer.dart';
@@ -198,12 +200,15 @@ class AccountService {
   /// chose to leave unprotected. Without the clear, logout re-encrypts with the
   /// now-removed password while the verifier is gone → next launch shows no
   /// password prompt and hands FFI an undecryptable blob (silent startup
-  /// failure). Returns whether the verifier removal succeeded.
+  /// failure). Returns whether the verifier removal succeeded; the session
+  /// password is retained when durable removal fails.
   static Future<bool> removeAccountPassword(FfiChatService service) async {
     final toxId = service.getSelfToxId();
     if (toxId == null || toxId.isEmpty) return false;
     final ok = await Prefs.removeAccountPassword(toxId);
-    SessionPasswordStore.clear(toxId);
+    if (ok) {
+      SessionPasswordStore.clear(toxId);
+    }
     return ok;
   }
 
@@ -259,6 +264,7 @@ class AccountService {
       );
       final fileRecvPath = await AppPaths.getAccountFileRecvPath(toxId);
       final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
+      final scratchStorage = await _scratchStorageForAccount(toxId);
       await Directory(historyDirectory).create(recursive: true);
       await Directory(avatarsPath).create(recursive: true);
 
@@ -304,6 +310,7 @@ class AccountService {
         queueFilePath: queueFilePath,
         fileRecvPath: fileRecvPath,
         avatarsPath: avatarsPath,
+        scratchFileService: scratchStorage,
       );
 
       await service.init(profileDirectory: profileDir);
@@ -437,6 +444,7 @@ class AccountService {
     final queueFilePath = await AppPaths.getAccountOfflineQueueFilePath(toxId);
     final fileRecvPath = await AppPaths.getAccountFileRecvPath(toxId);
     final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
+    final scratchStorage = await _scratchStorageForAccount(toxId);
 
     await Directory(historyDirectory).create(recursive: true);
     await Directory(avatarsPath).create(recursive: true);
@@ -453,10 +461,23 @@ class AccountService {
       queueFilePath: queueFilePath,
       fileRecvPath: fileRecvPath,
       avatarsPath: avatarsPath,
+      scratchFileService: scratchStorage,
     );
-    await svc.init(profileDirectory: profileDirectory);
-    await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
-    return svc;
+    try {
+      await svc.init(profileDirectory: profileDirectory);
+      await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
+      return svc;
+    } catch (_) {
+      try {
+        await svc.dispose();
+      } catch (disposeError) {
+        AppLogger.warn(
+          '[AccountService] Register: scoped service dispose after init '
+          'failure failed: $disposeError',
+        );
+      }
+      rethrow;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -474,6 +495,9 @@ class AccountService {
     required String nickname,
     String statusMessage = '',
     String password = '',
+    @visibleForTesting
+    Future<void> Function(String profileFilePath, String password)?
+    encryptProfileFileOverride,
   }) async {
     // 1. Validate uniqueness
     final existingAccount = await Prefs.getAccountByNickname(nickname);
@@ -490,6 +514,7 @@ class AccountService {
     final previousAccount = await Prefs.getCurrentAccountToxId();
     final previousNickname = await Prefs.getNickname();
     final previousStatusMessage = await Prefs.getStatusMessage();
+    final previousAvatarPath = await Prefs.getAvatarPath();
 
     const maxAttempts = 2;
     String? tempDir;
@@ -508,10 +533,15 @@ class AccountService {
       await Directory(root).create(recursive: true);
 
       for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        // This bootstrap-only instance has no Tox ID yet and is disposed before
+        // any message/media helper can run. The live account-scoped service is
+        // reopened through _createAccountScopedService once the ID is known.
         final svc = FfiChatService(
           preferencesService: SharedPreferencesAdapter(prefs),
           loggerService: AppLoggerAdapter(),
           bootstrapService: BootstrapNodesAdapter(prefs),
+          scratchFileService:
+              AccountScratchStorage.unavailableUntilAccountKnown(),
         );
         tempDir = p.join(
           root,
@@ -573,9 +603,8 @@ class AccountService {
       // degrade to "no avatar" rather than abort account creation entirely.
       String? defaultAvatarPath;
       try {
-        defaultAvatarPath = await DefaultAvatarInstaller.installDefaultUserAvatar(
-          toxId: tid,
-        );
+        defaultAvatarPath =
+            await DefaultAvatarInstaller.installDefaultUserAvatar(toxId: tid);
       } catch (e) {
         AppLogger.warn(
           '[AccountService] Register: default avatar install failed '
@@ -600,18 +629,23 @@ class AccountService {
         statusMessage: statusMessage,
         avatarPath: defaultAvatarPath,
       );
-      await Prefs.setAvatarPath(defaultAvatarPath);
       accountVisible = true;
+      await Prefs.setAvatarPath(defaultAvatarPath);
 
       // 7. Handle password encryption if needed
       if (password.isNotEmpty) {
-        await Prefs.setAccountPassword(tid, password);
+        final passwordPersisted = await Prefs.setAccountPassword(tid, password);
+        if (!passwordPersisted) {
+          throw StateError('Failed to persist account password verifier');
+        }
         SessionPasswordStore.set(tid, password);
 
         // Encrypt then decrypt to verify, then re-init with account-scoped paths
         await svc.dispose();
+        service = null;
         final profilePath = AppPaths.profileFileInDirectory(profileDir);
-        await AccountExportService.encryptProfileFile(profilePath, password);
+        await (encryptProfileFileOverride ??
+            AccountExportService.encryptProfileFile)(profilePath, password);
         await AccountExportService.decryptProfileFile(profilePath, password);
 
         final prefsForNew = await SharedPreferences.getInstance();
@@ -620,6 +654,7 @@ class AccountService {
           toxId: tid,
           profileDirectory: profileDir,
         );
+        service = newService;
         // The `updateSelfProfile` above ran on the now-disposed temp service;
         // its in-memory `tox_self_set_name` did NOT survive the dispose+reopen
         // (the on-disk profile predates it). Re-apply on the LIVE scoped
@@ -639,12 +674,14 @@ class AccountService {
 
       // 8. No password: re-open with account-scoped paths, then start polling
       await svc.dispose();
+      service = null;
       final prefsForScoped = await SharedPreferences.getInstance();
       final scopedService = await _createAccountScopedService(
         prefs: prefsForScoped,
         toxId: tid,
         profileDirectory: profileDir,
       );
+      service = scopedService;
       // See the password branch above: set the name on the live scoped instance
       // (the pre-dispose temp service's name set is lost on reopen).
       await scopedService.updateSelfProfile(
@@ -679,6 +716,7 @@ class AccountService {
       await Prefs.setCurrentAccountToxId(previousAccount);
       await Prefs.setNickname(previousNickname ?? '');
       await Prefs.setStatusMessage(previousStatusMessage ?? '');
+      await Prefs.setAvatarPath(previousAvatarPath);
 
       if (tempDir != null) {
         try {
@@ -702,6 +740,16 @@ class AccountService {
         } catch (de) {
           AppLogger.warn(
             '[AccountService] Register: rollback final dir cleanup failed: $de',
+          );
+        }
+      }
+
+      if (toxId != null && toxId.isNotEmpty) {
+        try {
+          await _deleteAccountDataRoots(toxId);
+        } catch (de) {
+          AppLogger.warn(
+            '[AccountService] Register: rollback account data cleanup failed: $de',
           );
         }
       }
@@ -764,11 +812,7 @@ class AccountService {
 
     // 9. Delete account data directory
     try {
-      final accountDataRoot = await AppPaths.getAccountDataRoot(toxId);
-      final dataDir = Directory(accountDataRoot);
-      if (await dataDir.exists()) {
-        await dataDir.delete(recursive: true);
-      }
+      await _deleteAccountDataRoots(toxId);
     } catch (e, st) {
       AppLogger.logError(
         '[AccountService] Failed to delete account data directory',
@@ -831,11 +875,7 @@ class AccountService {
 
     // Delete account data directory
     try {
-      final accountDataRoot = await AppPaths.getAccountDataRoot(toxId);
-      final dataDir = Directory(accountDataRoot);
-      if (await dataDir.exists()) {
-        await dataDir.delete(recursive: true);
-      }
+      await _deleteAccountDataRoots(toxId);
     } catch (e, st) {
       AppLogger.logError(
         '[AccountService] Failed to delete account data directory',
@@ -867,5 +907,30 @@ class AccountService {
     if (current != null && compareToxIds(current, toxId)) {
       await Prefs.setCurrentAccountToxId(null);
     }
+  }
+
+  static Future<void> _deleteAccountDataRoots(String toxId) async {
+    final roots = <String>{
+      p.normalize(p.absolute(await AppPaths.getAccountDataRoot(toxId))),
+      p.normalize(p.absolute(await AppPaths.getAccountScratchDataRoot(toxId))),
+    };
+    for (final root in roots) {
+      final directory = Directory(root);
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    }
+  }
+
+  static Future<AccountScratchStorage> _scratchStorageForAccount(
+    String toxId,
+  ) async {
+    final storage = AccountScratchStorage(
+      accountToxId: toxId,
+      accountDataRoot: await AppPaths.getAccountScratchDataRoot(toxId),
+    );
+    await Directory(storage.scratchRoot).create(recursive: true);
+    await AppPaths.markExcludedFromBackup(storage.scratchRoot);
+    return storage;
   }
 }

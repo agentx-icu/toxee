@@ -98,13 +98,16 @@ class BootstrapNodeEnsurer {
   /// session always has entry points immediately.
   static Future<void> _seedFromFallback(FfiChatService service) async {
     final fallback = BootstrapNodesService.fallbackNodes
-        .where((n) => n.ipv4.isNotEmpty && n.publicKey.isNotEmpty)
+        .where((n) => n.preferredHost != null && n.publicKey.isNotEmpty)
         .toList();
     if (fallback.isEmpty) return;
     final first = fallback.first;
-    await Prefs.setCurrentBootstrapNode(first.ipv4, first.port, first.publicKey);
+    final firstHost = first.preferredHost;
+    if (firstHost == null) return;
+    await Prefs.setCurrentBootstrapNode(firstHost, first.port, first.publicKey);
     for (final n in fallback.take(maxAutoNodes)) {
-      await _safeAdd(service, n.ipv4, n.port, n.publicKey);
+      final host = n.preferredHost;
+      if (host != null) await _safeTry(service, host, n.port, n.publicKey);
     }
   }
 
@@ -113,10 +116,12 @@ class BootstrapNodeEnsurer {
       final fetch = debugNodeFetcher ?? BootstrapNodesService.fetchNodes;
       final nodes = await fetch();
       var usable = nodes
-          .where((n) =>
-              n.status == 'ONLINE' &&
-              n.ipv4.isNotEmpty &&
-              n.publicKey.isNotEmpty)
+          .where(
+            (n) =>
+                n.status == 'ONLINE' &&
+                n.preferredHost != null &&
+                n.publicKey.isNotEmpty,
+          )
           .toList();
       if (usable.isEmpty) {
         // The API was reachable but flagged every node OFFLINE (stale or
@@ -125,25 +130,53 @@ class BootstrapNodeEnsurer {
         // back to any structurally-valid node rather than leaving the session
         // with no entry points.
         usable = nodes
-            .where((n) => n.ipv4.isNotEmpty && n.publicKey.isNotEmpty)
+            .where((n) => n.preferredHost != null && n.publicKey.isNotEmpty)
             .toList();
       }
       for (final n in usable.take(maxAutoNodes)) {
-        await _safeAdd(service, n.ipv4, n.port, n.publicKey);
+        final host = n.preferredHost;
+        if (host != null) await _safeTry(service, host, n.port, n.publicKey);
       }
     } catch (e, st) {
       AppLogger.logError(
-          '[BootstrapNodeEnsurer] failed to apply online nodes', e, st);
+        '[BootstrapNodeEnsurer] failed to apply online nodes',
+        e,
+        st,
+      );
     }
   }
 
   static Future<void> _safeAdd(
-      FfiChatService service, String host, int port, String pubkey) async {
+    FfiChatService service,
+    String host,
+    int port,
+    String pubkey,
+  ) async {
     try {
       await service.addBootstrapNode(host, port, pubkey);
     } catch (e, st) {
       AppLogger.logError(
-          '[BootstrapNodeEnsurer] addBootstrapNode failed ($host:$port)', e, st);
+        '[BootstrapNodeEnsurer] addBootstrapNode failed ($host:$port)',
+        e,
+        st,
+      );
+    }
+  }
+
+  static Future<void> _safeTry(
+    FfiChatService service,
+    String host,
+    int port,
+    String pubkey,
+  ) async {
+    try {
+      await service.tryBootstrapNode(host, port, pubkey);
+    } catch (e, st) {
+      AppLogger.logError(
+        '[BootstrapNodeEnsurer] tryBootstrapNode failed ($host:$port)',
+        e,
+        st,
+      );
     }
   }
 }

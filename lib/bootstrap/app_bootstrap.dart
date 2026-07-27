@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../notifications/notification_service.dart';
 import '../util/account_reconciliation.dart';
+import '../util/account_scratch_storage.dart';
 import '../util/app_paths.dart';
 import '../util/lan_bootstrap_service.dart';
 import '../util/logger.dart';
@@ -24,6 +25,7 @@ class AppBootstrap {
     if (prefsResult != null) {
       return prefsResult;
     }
+    await cleanupScratchAtColdStart();
     // After Prefs is initialized, repair any orphaned per-account profile
     // directories left behind by a partially-completed import (A2). Safe
     // to run on every cold start; no-op when nothing is orphaned.
@@ -36,9 +38,10 @@ class AppBootstrap {
       await LanBootstrapServiceManager.instance.recoverFromCrashedSession();
     } catch (e, st) {
       AppLogger.logError(
-          '[AppBootstrap] LAN bootstrap crash recovery failed; continuing',
-          e,
-          st);
+        '[AppBootstrap] LAN bootstrap crash recovery failed; continuing',
+        e,
+        st,
+      );
     }
     await AppRuntimeBootstrap.initialize();
     await DesktopShellBootstrap.initializeIfNeeded();
@@ -52,7 +55,10 @@ class AppBootstrap {
     } catch (e, st) {
       // Don't let a notification-init failure block app startup.
       AppLogger.logError(
-          '[AppBootstrap] NotificationService.init failed; continuing', e, st);
+        '[AppBootstrap] NotificationService.init failed; continuing',
+        e,
+        st,
+      );
     }
     // iOS: keep received-file scratch space out of iCloud / iTunes backups.
     // file_recv holds derivable / re-transferable content; Apple's review
@@ -67,5 +73,20 @@ class AppBootstrap {
     }
     return const AppBootstrapSuccess();
   }
-}
 
+  /// Best-effort cold-start cleanup. Storage maintenance must never prevent
+  /// the login flow from starting.
+  static Future<void> cleanupScratchAtColdStart({
+    Future<void> Function()? cleanup,
+  }) async {
+    try {
+      await (cleanup ?? AccountScratchStorage.cleanupExpiredAtStartup)();
+    } catch (e, st) {
+      AppLogger.logError(
+        '[AppBootstrap] scratch cleanup failed; continuing',
+        e,
+        st,
+      );
+    }
+  }
+}

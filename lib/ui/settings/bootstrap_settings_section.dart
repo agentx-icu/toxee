@@ -21,13 +21,20 @@ import 'bootstrap_nodes_page.dart';
 /// When [service] is null (e.g. login settings), test and route/scan actions that
 /// require the service are hidden or use Prefs-only behavior.
 class BootstrapSettingsSection extends StatefulWidget {
-  const BootstrapSettingsSection({super.key, this.service, this.colorTheme});
+  const BootstrapSettingsSection({
+    super.key,
+    this.service,
+    this.colorTheme,
+    this.lanBootstrapServiceManager,
+  });
 
   /// When null, test node and "Route selection" / "Scan LAN" use Prefs-only or are hidden.
   final FfiChatService? service;
 
   /// Theme from [TencentCloudChatThemeWidget]. If null, Material theme colors are used.
   final dynamic colorTheme;
+
+  final LanBootstrapServiceManager? lanBootstrapServiceManager;
 
   @override
   State<BootstrapSettingsSection> createState() =>
@@ -44,10 +51,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
 
   bool _testingCurrentNode = false;
   String? _nodeTestResult;
-  int? _nodeLatency;
   bool _testingManualNode = false;
   String? _manualNodeTestResult;
-  int? _manualNodeLatency;
+  ({String host, int port, String pubkey})? _testedManualNode;
 
   bool _lanBootstrapServiceRunning = false;
   String? _lanBootstrapServiceIP;
@@ -57,6 +63,8 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       TextEditingController();
 
   dynamic get _colorTheme => widget.colorTheme;
+  LanBootstrapServiceManager get _lanManager =>
+      widget.lanBootstrapServiceManager ?? LanBootstrapServiceManager.instance;
 
   @override
   void initState() {
@@ -91,6 +99,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
 
   Future<void> _setBootstrapNodeMode(String mode) async {
     if (!PlatformUtils.isDesktop && mode == 'lan') return;
+    final previousMode = await Prefs.getBootstrapNodeMode();
+    if (previousMode == 'lan' && mode != 'lan') {
+      if (!await _restoreAndStopLanTransaction()) return;
+    }
     await Prefs.setBootstrapNodeMode(mode);
     if (mounted) {
       setState(() => _bootstrapNodeMode = mode);
@@ -109,18 +121,23 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       final nodes = await BootstrapNodesService.fetchNodes();
       if (nodes.isEmpty) return;
       final onlineNode = nodes.firstWhere(
-        (n) => n.status == 'ONLINE',
+        (n) => n.status == 'ONLINE' && n.preferredHost != null,
         orElse: () => nodes.first,
       );
+      final host = onlineNode.preferredHost;
+      if (host == null) return;
       if (widget.service != null) {
-        await widget.service!.addBootstrapNode(
-          onlineNode.ipv4,
+        final accepted = await widget.service!.addBootstrapNode(
+          host,
           onlineNode.port,
           onlineNode.publicKey,
         );
+        if (!accepted) {
+          throw StateError('Failed to apply automatic bootstrap node');
+        }
       }
       await Prefs.setCurrentBootstrapNode(
-        onlineNode.ipv4,
+        host,
         onlineNode.port,
         onlineNode.publicKey,
       );
@@ -141,18 +158,16 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
 
   Future<void> _loadCurrentBootstrapNode() async {
     final node = await Prefs.getCurrentBootstrapNode();
-    if (mounted) {
-      setState(() {
-        _currentBootstrapNode = node;
-        _nodeTestResult = null;
-        _nodeLatency = null;
-        if (node != null) {
-          _manualHostController.text = node.host;
-          _manualPortController.text = node.port.toString();
-          _manualPubkeyController.text = node.pubkey;
-        }
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _currentBootstrapNode = node;
+      _nodeTestResult = null;
+      if (node != null) {
+        _manualHostController.text = node.host;
+        _manualPortController.text = node.port.toString();
+        _manualPubkeyController.text = node.pubkey;
+      }
+    });
     if (_manualPortController.text.isEmpty) {
       _manualPortController.text = '33445';
     }
@@ -161,8 +176,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
   Future<void> _loadLanBootstrapServiceState() async {
     final running = await Prefs.getLanBootstrapServiceRunning();
     if (running) {
-      final info = await LanBootstrapServiceManager.instance
-          .getBootstrapServiceInfo();
+      final info = await _lanManager.getBootstrapServiceInfo();
       if (mounted) {
         setState(() {
           _lanBootstrapServiceRunning = true;
@@ -190,13 +204,11 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     setState(() {
       _testingCurrentNode = true;
       _nodeTestResult = null;
-      _nodeLatency = null;
     });
     try {
-      final start = DateTime.now();
       bool success;
       if (widget.service != null) {
-        success = await widget.service!.addBootstrapNode(
+        success = await widget.service!.tryBootstrapNode(
           _currentBootstrapNode!.host,
           _currentBootstrapNode!.port,
           _currentBootstrapNode!.pubkey,
@@ -207,14 +219,12 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         // green/red. The real check happens at first bootstrap.
         success = false;
       }
-      final latency = DateTime.now().difference(start).inMilliseconds;
       if (mounted) {
         setState(() {
           _testingCurrentNode = false;
           _nodeTestResult = widget.service != null
               ? (success ? 'success' : 'failed')
               : null;
-          _nodeLatency = (widget.service != null && success) ? latency : null;
         });
       }
     } catch (_) {
@@ -222,7 +232,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         setState(() {
           _testingCurrentNode = false;
           _nodeTestResult = 'failed';
-          _nodeLatency = null;
         });
       }
     }
@@ -232,7 +241,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     final host = _manualHostController.text.trim();
     final portText = _manualPortController.text.trim();
     final pubkey = _manualPubkeyController.text.trim();
-    if (host.isEmpty || portText.isEmpty || pubkey.isEmpty) {
+    if (host.isEmpty ||
+        portText.isEmpty ||
+        pubkey.isEmpty ||
+        !_isValidPubkey(pubkey)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -258,13 +270,12 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     setState(() {
       _testingManualNode = true;
       _manualNodeTestResult = null;
-      _manualNodeLatency = null;
+      _testedManualNode = null;
     });
     try {
-      final start = DateTime.now();
       bool success;
       if (widget.service != null) {
-        success = await widget.service!.addBootstrapNode(host, port, pubkey);
+        success = await widget.service!.tryBootstrapNode(host, port, pubkey);
       } else {
         // Pre-login (login settings): no FFI session yet. A TCP probe to a
         // UDP Tox port misleads users into "tested OK"; mark as not tested
@@ -273,7 +284,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
           setState(() {
             _testingManualNode = false;
             _manualNodeTestResult = null;
-            _manualNodeLatency = null;
+            _testedManualNode = null;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -285,12 +296,13 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         }
         return;
       }
-      final latency = DateTime.now().difference(start).inMilliseconds;
       if (mounted) {
         setState(() {
           _testingManualNode = false;
           _manualNodeTestResult = success ? 'success' : 'failed';
-          _manualNodeLatency = success ? latency : null;
+          _testedManualNode = success
+              ? (host: host, port: port, pubkey: pubkey)
+              : null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -310,7 +322,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         setState(() {
           _testingManualNode = false;
           _manualNodeTestResult = 'failed';
-          _manualNodeLatency = null;
+          _testedManualNode = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -325,7 +337,16 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
   }
 
   Future<void> _setManualNodeAsCurrent() async {
-    if (_manualNodeTestResult != 'success') {
+    final host = _manualHostController.text.trim();
+    final portText = _manualPortController.text.trim();
+    final pubkey = _manualPubkeyController.text.trim();
+    final port = int.tryParse(portText);
+    final candidate = port == null
+        ? null
+        : (host: host, port: port, pubkey: pubkey);
+    if (_manualNodeTestResult != 'success' ||
+        candidate == null ||
+        candidate != _testedManualNode) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -338,28 +359,28 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       }
       return;
     }
-    final host = _manualHostController.text.trim();
-    final portText = _manualPortController.text.trim();
-    final pubkey = _manualPubkeyController.text.trim();
-    if (host.isEmpty || portText.isEmpty || pubkey.isEmpty) return;
-    final port = int.tryParse(portText);
-    if (port == null || port <= 0 || port > 65535) return;
+    if (candidate.host.isEmpty ||
+        candidate.port <= 0 ||
+        candidate.port > 65535 ||
+        !_isValidPubkey(candidate.pubkey)) {
+      return;
+    }
     try {
-      await Prefs.setCurrentBootstrapNode(host, port, pubkey);
-      // Apply to the live FfiChatService when we have one — without this the
-      // change only takes effect on the next cold start, which is surprising
-      // because the snackbar reports the switch as successful.
       if (widget.service != null) {
-        try {
-          await widget.service!.addBootstrapNode(host, port, pubkey);
-        } catch (e, st) {
-          AppLogger.logError(
-            '[BootstrapSettingsSection] failed to apply manual node to live service',
-            e,
-            st,
-          );
+        final accepted = await widget.service!.addBootstrapNode(
+          candidate.host,
+          candidate.port,
+          candidate.pubkey,
+        );
+        if (!accepted) {
+          throw StateError('Failed to apply bootstrap node');
         }
       }
+      await Prefs.setCurrentBootstrapNode(
+        candidate.host,
+        candidate.port,
+        candidate.pubkey,
+      );
       await _loadCurrentBootstrapNode();
       if (mounted) {
         setState(() => _manualInputExpanded = false);
@@ -384,7 +405,28 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     }
   }
 
+  void _invalidateManualNodeProbe(String _) {
+    if (_manualNodeTestResult == null && _testedManualNode == null) return;
+    setState(() {
+      _manualNodeTestResult = null;
+      _testedManualNode = null;
+    });
+  }
+
   Future<void> _startLanBootstrapService() async {
+    if (widget.service == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.nodeTestUnavailableBeforeLogin,
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+      return;
+    }
     final port = int.tryParse(_lanBootstrapPortController.text.trim()) ?? 33445;
     if (port <= 0 || port > 65535) {
       if (mounted) {
@@ -399,45 +441,52 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     }
     await Prefs.setLanBootstrapPort(port);
 
-    // Snapshot the auto/manual node that's active right now so _stop can
-    // restore it later. Do this BEFORE start so a failed start still leaves
-    // the snapshot intact (next stop will roll back to the original node).
     final priorNode = await Prefs.getCurrentBootstrapNode();
-    if (priorNode != null && await Prefs.getPreLanBootstrapNode() == null) {
+    final existingSnapshot = await Prefs.getPreLanBootstrapNode();
+    var snapshotCreated = false;
+    if (priorNode != null && existingSnapshot == null) {
       await Prefs.setPreLanBootstrapNode(
         priorNode.host,
         priorNode.port,
         priorNode.pubkey,
       );
+      snapshotCreated = true;
     }
 
-    final success = await LanBootstrapServiceManager.instance
-        .startLocalBootstrapService(port);
-    if (success) {
-      // Propagate the LAN node into prefs + live user FfiChatService so the
-      // user's Tox handle actually bootstraps off the local service. Without
-      // this, the LAN service runs but the user account still tries the prior
-      // (auto/manual) public node — which is the very thing LAN mode was
-      // meant to replace (e.g. offline networks).
-      final info = await LanBootstrapServiceManager.instance
-          .getBootstrapServiceInfo();
-      if (info != null) {
-        await Prefs.setCurrentBootstrapNode(info.ip, info.port, info.pubkey);
-        if (widget.service != null) {
-          try {
-            await widget.service!.addBootstrapNode(
+    var success = false;
+    try {
+      success = await _lanManager.startLocalBootstrapService(port);
+      if (success) {
+        final info = await _lanManager.getBootstrapServiceInfo();
+        if (info == null) {
+          success = false;
+        } else {
+          success = await widget.service!.addBootstrapNode(
+            info.ip,
+            info.port,
+            info.pubkey,
+          );
+          if (success) {
+            await Prefs.setCurrentBootstrapNode(
               info.ip,
               info.port,
               info.pubkey,
             );
-          } catch (e, st) {
-            AppLogger.logError(
-              '[BootstrapSettingsSection] failed to apply LAN node to live service',
-              e,
-              st,
-            );
           }
         }
+      }
+    } catch (e, st) {
+      AppLogger.logError(
+        '[BootstrapSettingsSection] failed to start/apply LAN node',
+        e,
+        st,
+      );
+      success = false;
+    }
+    if (!success) {
+      await _lanManager.stopLocalBootstrapService();
+      if (snapshotCreated) {
+        await Prefs.clearPreLanBootstrapNode();
       }
     }
 
@@ -463,20 +512,31 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
   }
 
   Future<void> _stopLanBootstrapService() async {
-    await LanBootstrapServiceManager.instance.stopLocalBootstrapService();
+    if (!await _restoreAndStopLanTransaction()) return;
 
-    // Restore the auto/manual node that was active before LAN started, so the
-    // user's Tox handle doesn't keep targeting the now-dead LAN address.
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    await _loadLanBootstrapServiceState();
+    await _loadCurrentBootstrapNode();
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text(l10n.serviceStopped)));
+  }
+
+  Future<bool> _restoreAndStopLanTransaction() async {
     final priorNode = await Prefs.getPreLanBootstrapNode();
     if (priorNode != null) {
-      await Prefs.setCurrentBootstrapNode(
-        priorNode.host,
-        priorNode.port,
-        priorNode.pubkey,
-      );
       if (widget.service != null) {
         try {
-          await widget.service!.addBootstrapNode(
+          final restored = await widget.service!.addBootstrapNode(
+            priorNode.host,
+            priorNode.port,
+            priorNode.pubkey,
+          );
+          if (!restored) {
+            throw StateError('Failed to restore prior bootstrap node');
+          }
+          await Prefs.setCurrentBootstrapNode(
             priorNode.host,
             priorNode.port,
             priorNode.pubkey,
@@ -487,18 +547,42 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
             e,
             st,
           );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  AppLocalizations.of(context)!.nodeSwitchFailed(e.toString()),
+                ),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
+          }
+          return false;
         }
+      } else {
+        await Prefs.setCurrentBootstrapNode(
+          priorNode.host,
+          priorNode.port,
+          priorNode.pubkey,
+        );
       }
-      await Prefs.clearPreLanBootstrapNode();
     }
 
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    await _loadLanBootstrapServiceState();
-    await _loadCurrentBootstrapNode();
-    if (!mounted) return;
-    messenger.showSnackBar(SnackBar(content: Text(l10n.serviceStopped)));
+    try {
+      final stopped = await _lanManager.stopLocalBootstrapService();
+      if (!stopped) {
+        throw StateError('Failed to stop LAN bootstrap service');
+      }
+    } catch (e, st) {
+      AppLogger.logError(
+        '[BootstrapSettingsSection] failed to stop LAN service',
+        e,
+        st,
+      );
+      return false;
+    }
+    if (priorNode != null) await Prefs.clearPreLanBootstrapNode();
+    return true;
   }
 
   bool _isValidPubkey(String pubkey) {
@@ -646,7 +730,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                             ),
                             AppSpacing.verticalXs,
                             Text(
-                              '${_currentBootstrapNode!.host}:${_currentBootstrapNode!.port}',
+                              formatBootstrapEndpoint(
+                                _currentBootstrapNode!.host,
+                                _currentBootstrapNode!.port,
+                              ),
                               style: Theme.of(context).textTheme.bodyMedium
                                   ?.copyWith(
                                     color: primaryTextColor,
@@ -677,29 +764,12 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 children: [
                                   _StatusPill(
                                     label: _nodeTestResult == 'success'
-                                        ? l10n.online
-                                        : l10n.offline,
+                                        ? l10n.nodeTestSuccess
+                                        : l10n.nodeTestFailed,
                                     color: _nodeTestResult == 'success'
                                         ? AppThemeConfig.successColor
                                         : Theme.of(context).colorScheme.error,
                                   ),
-                                  if (_nodeLatency != null &&
-                                      _nodeTestResult == 'success')
-                                    Text(
-                                      '${_nodeLatency}ms',
-                                      // Tabular figures so latency numerics
-                                      // don't reflow as digits change width.
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: secondaryTextColor,
-                                            fontFamily: 'monospace',
-                                            fontFeatures: const [
-                                              FontFeature.tabularFigures(),
-                                            ],
-                                          ),
-                                    ),
                                 ],
                               ),
                             ],
@@ -724,7 +794,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(Icons.speed, size: 18),
+                                : const Icon(Icons.send_outlined, size: 18),
                             label: Text(l10n.testNode),
                             onPressed: !_testingCurrentNode
                                 ? _testCurrentNode
@@ -955,6 +1025,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 child: TextField(
                                   key: UiKeys.manualNodeHostField,
                                   controller: _manualHostController,
+                                  onChanged: _invalidateManualNodeProbe,
                                   textAlignVertical: TextAlignVertical.center,
                                   decoration: InputDecoration(
                                     labelText: l10n.nodeHost,
@@ -977,6 +1048,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 child: TextField(
                                   key: UiKeys.manualNodePortField,
                                   controller: _manualPortController,
+                                  onChanged: _invalidateManualNodeProbe,
                                   keyboardType: TextInputType.number,
                                   textAlignVertical: TextAlignVertical.center,
                                   decoration: InputDecoration(
@@ -1000,6 +1072,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                           TextField(
                             key: UiKeys.manualNodePubkeyField,
                             controller: _manualPubkeyController,
+                            onChanged: _invalidateManualNodeProbe,
                             maxLines: 2,
                             textAlignVertical: TextAlignVertical.center,
                             decoration: InputDecoration(
@@ -1031,25 +1104,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                       ? AppThemeConfig.successColor
                                       : Theme.of(context).colorScheme.error,
                                 ),
-                                if (_manualNodeLatency != null &&
-                                    _manualNodeTestResult == 'success') ...[
-                                  AppSpacing.horizontalSm,
-                                  Text(
-                                    '${_manualNodeLatency}ms',
-                                    // Tabular figures keep the latency display
-                                    // from reflowing when the value updates.
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: secondaryTextColor,
-                                          fontFamily: 'monospace',
-                                          fontFeatures: const [
-                                            FontFeature.tabularFigures(),
-                                          ],
-                                        ),
-                                  ),
-                                ],
                               ],
                             ),
                             AppSpacing.verticalMd,
@@ -1067,7 +1121,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                             strokeWidth: 2,
                                           ),
                                         )
-                                      : const Icon(Icons.speed, size: 18),
+                                      : const Icon(
+                                          Icons.send_outlined,
+                                          size: 18,
+                                        ),
                                   label: Text(l10n.testNode),
                                   onPressed: !_testingManualNode
                                       ? _testManualNode
@@ -1173,80 +1230,74 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     Color secondaryTextColor,
     bool hasService,
   ) {
-    return Row(
-      children: [
-        Expanded(
-          child: RadioListTile<String>(
-            key: UiKeys.settingsBootstrapModeManual,
-            contentPadding: EdgeInsets.zero,
-            value: 'manual',
-            groupValue: _bootstrapNodeMode,
-            title: Text(l10n.manualMode),
-            subtitle: Text(
-              l10n.manualModeDesc,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-            onChanged: (v) {
-              if (v != null) _setBootstrapNodeMode(v);
-            },
-          ),
-        ),
-        Expanded(
-          child: RadioListTile<String>(
-            key: UiKeys.settingsBootstrapModeAuto,
-            contentPadding: EdgeInsets.zero,
-            value: 'auto',
-            groupValue: _bootstrapNodeMode,
-            title: Text(l10n.autoMode),
-            // The subtitle is a NON-interactive RichText: it merely DISPLAYS the
-            // nodes.tox.chat source URL (styled as a link). It deliberately has no
-            // tap recognizer / GestureDetector. Two reasons: (1) Flutter forbids
-            // an interactive RichText inside a RadioListTile — the tile uses
-            // MergeSemantics while a recognizer-bearing RichText needs its own
-            // semantics node, which asserts in debug (see RadioListTile docs);
-            // (2) a full-subtitle launch handler swallowed taps on the tile's
-            // center, so selecting the 'auto' radio by tapping the tile silently
-            // opened a browser instead. With a plain subtitle, ANY tap on the
-            // tile (including its center) fires onChanged and selects 'auto'.
-            subtitle: RichText(
-              text: TextSpan(
-                style: Theme.of(
-                  context,
-                ).textTheme.labelSmall?.copyWith(color: secondaryTextColor),
-                children: [
-                  TextSpan(text: l10n.autoModeDescPrefix),
-                  TextSpan(
-                    text: 'https://nodes.tox.chat/',
-                    style: TextStyle(
-                      color: primaryColor,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ],
+    return RadioGroup<String>(
+      groupValue: _bootstrapNodeMode,
+      onChanged: (value) {
+        if (value != null) _setBootstrapNodeMode(value);
+      },
+      child: Row(
+        children: [
+          Expanded(
+            child: RadioListTile<String>(
+              key: UiKeys.settingsBootstrapModeManual,
+              contentPadding: EdgeInsets.zero,
+              value: 'manual',
+              title: Text(l10n.manualMode),
+              subtitle: Text(
+                l10n.manualModeDesc,
+                style: Theme.of(context).textTheme.labelSmall,
               ),
             ),
-            onChanged: (v) {
-              if (v != null) _setBootstrapNodeMode(v);
-            },
           ),
-        ),
-        Expanded(
-          child: RadioListTile<String>(
-            key: UiKeys.settingsBootstrapModeLan,
-            contentPadding: EdgeInsets.zero,
-            value: 'lan',
-            groupValue: _bootstrapNodeMode,
-            title: Text(l10n.lanMode),
-            subtitle: Text(
-              l10n.lanModeDesc,
-              style: Theme.of(context).textTheme.labelSmall,
+          Expanded(
+            child: RadioListTile<String>(
+              key: UiKeys.settingsBootstrapModeAuto,
+              contentPadding: EdgeInsets.zero,
+              value: 'auto',
+              title: Text(l10n.autoMode),
+              // The subtitle is a NON-interactive RichText: it merely DISPLAYS the
+              // nodes.tox.chat source URL (styled as a link). It deliberately has no
+              // tap recognizer / GestureDetector. Two reasons: (1) Flutter forbids
+              // an interactive RichText inside a RadioListTile — the tile uses
+              // MergeSemantics while a recognizer-bearing RichText needs its own
+              // semantics node, which asserts in debug (see RadioListTile docs);
+              // (2) a full-subtitle launch handler swallowed taps on the tile's
+              // center, so selecting the 'auto' radio by tapping the tile silently
+              // opened a browser instead. With a plain subtitle, ANY tap on the
+              // tile (including its center) fires onChanged and selects 'auto'.
+              subtitle: RichText(
+                text: TextSpan(
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: secondaryTextColor),
+                  children: [
+                    TextSpan(text: l10n.autoModeDescPrefix),
+                    TextSpan(
+                      text: 'https://nodes.tox.chat/',
+                      style: TextStyle(
+                        color: primaryColor,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            onChanged: (v) {
-              if (v != null) _setBootstrapNodeMode(v);
-            },
           ),
-        ),
-      ],
+          Expanded(
+            child: RadioListTile<String>(
+              key: UiKeys.settingsBootstrapModeLan,
+              contentPadding: EdgeInsets.zero,
+              value: 'lan',
+              title: Text(l10n.lanMode),
+              subtitle: Text(
+                l10n.lanModeDesc,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
@@ -524,7 +525,7 @@ class FakeMessageManager {
     final key = normalizeToxId(userID);
     _localMessages.putIfAbsent(key, () => <FakeMessage>[]).add(msg);
     AppLogger.log(
-        '[FakeMessageManager] addLocalMessage: userID=$userID, key=$key, msgID=${msg.msgID}, total=${_localMessages[key]!.length}');
+        '[FakeMessageManager] addLocalMessage: total=${_localMessages[key]!.length}');
   }
 
   Future<List<FakeMessage>> getHistory(String conversationID,
@@ -540,11 +541,10 @@ class FakeMessageManager {
     } else {
       id = conversationID;
     }
-    AppLogger.log(
-        '[FakeMessageManager] getHistory called: conversationID=$conversationID, id=$id');
+    AppLogger.log('[FakeMessageManager] getHistory called');
     final hist = _ffi.getHistory(id);
     AppLogger.log(
-        '[FakeMessageManager] getHistory returned ${hist.length} messages for id=$id');
+        '[FakeMessageManager] getHistory returned ${hist.length} messages');
     // Sort by timestamp ascending (oldest first, newest last) - UIKit pattern
     // DO NOT reverse here! UIKit's reverse ListView will handle the display order
     final sorted = hist
@@ -557,7 +557,9 @@ class FakeMessageManager {
               timestampMs: h.timestamp.millisecondsSinceEpoch,
               filePath: h.filePath,
               fileName: h.fileName, // Pass original file name
+              fileSize: h.fileSize,
               mediaKind: h.mediaKind,
+              cloudCustomData: h.cloudCustomData,
               isPending: h.isPending,
               isReceived: h.isReceived,
               isRead: h.isRead,
@@ -569,7 +571,7 @@ class FakeMessageManager {
     final localMsgs = _localMessages[normalizedId];
     if (localMsgs != null && localMsgs.isNotEmpty) {
       AppLogger.log(
-          '[FakeMessageManager] getHistory: merging ${localMsgs.length} local messages for $normalizedId');
+          '[FakeMessageManager] getHistory: merging ${localMsgs.length} local messages');
       sorted.addAll(localMsgs);
     }
 
@@ -579,41 +581,55 @@ class FakeMessageManager {
     return takeLatestWindow(sorted, count);
   }
 
-  Future<void> sendText(String conversationID, String text) async {
+  Future<ChatMessageSendResult> sendText(
+    String conversationID,
+    String text, {
+    String? clientMessageID,
+  }) async {
     if (conversationID.startsWith('c2c_')) {
       final uid = conversationID.substring(4);
       // Always call _ffi.sendText - it will handle offline messages by creating pending messages
       // This ensures messages are displayed in the chat window even when friend is offline
-      await _ffi.sendText(uid, text);
-
-      // Get the message from history (which includes pending messages for offline friends)
-      final history = _ffi.getHistory(uid);
-      final lastMsg = history.isNotEmpty ? history.last : null;
-
-      // If message was created (either sent or pending), emit it via bus for UIKit
-      if (lastMsg != null && lastMsg.text == text && lastMsg.isSelf) {
-        Prefs.setFriendActivity(uid, DateTime.now());
-        final msgID =
-            lastMsg.msgID ?? '${DateTime.now().microsecondsSinceEpoch}';
-        final msg = FakeMessage(
-          msgID: msgID,
-          conversationID: conversationID,
-          fromUser: _ffi.selfId,
-          text: text,
-          timestampMs: lastMsg.timestamp.millisecondsSinceEpoch,
-          isPending: lastMsg
-              .isPending, // Use actual pending status from FfiChatService
-          isReceived: lastMsg.isReceived,
-          isRead: lastMsg.isRead,
+      final sent = await _ffi.sendTextWithResult(
+        uid,
+        text,
+        clientMessageID: clientMessageID,
+      );
+      await Prefs.setFriendActivity(uid, DateTime.now());
+      final messageID = sent.msgID;
+      if (messageID == null || messageID.isEmpty) {
+        throw StateError(
+          'FfiChatService.sendText returned an empty message ID',
         );
-        _bus.emit(FakeIM.topicMessage, msg);
       }
-    } else if (conversationID.startsWith('group_')) {
-      final gid = conversationID.substring(6);
-      await _ffi.sendGroupText(gid, text);
-      // Don't emit local echo for group messages - Tox will echo it back via ffi.messages.listen
-      // This prevents duplicate messages in the chat window
+      return ChatMessageSendResult(
+        messageID: messageID,
+        isPending: sent.isPending,
+      );
     }
+    if (conversationID.startsWith('group_')) {
+      final gid = conversationID.substring(6);
+      final sent = await _ffi.sendGroupTextWithResult(
+        gid,
+        text,
+        clientMessageID: clientMessageID,
+      );
+      final messageID = sent.msgID;
+      if (messageID == null || messageID.isEmpty) {
+        throw StateError(
+          'FfiChatService.sendGroupText returned an empty message ID',
+        );
+      }
+      return ChatMessageSendResult(
+        messageID: messageID,
+        isPending: sent.isPending,
+      );
+    }
+    throw ArgumentError.value(
+      conversationID,
+      'conversationID',
+      'must start with c2c_ or group_',
+    );
   }
 
   Future<void> sendFile(String conversationID, String filePath) async {

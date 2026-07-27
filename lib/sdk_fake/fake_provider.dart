@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:tencent_cloud_chat_common/external/chat_data_provider.dart';
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
+import 'package:tim2tox_dart/utils/control_message_envelope.dart';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimConversationListener.dart';
 import 'package:tencent_cloud_chat_sdk/enum/conversation_type.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
@@ -10,6 +11,8 @@ import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_text_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_custom_elem.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_face_elem.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_location_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_image_elem.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_image.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_file_elem.dart';
@@ -106,7 +109,9 @@ class FakeChatDataProvider implements ChatDataProvider {
               }
             } else {
               await C2CRecvOptCache.hydrateFromPrefs(
-                  c.conversationID.replaceFirst('c2c_', ''), selfToxId);
+                c.conversationID.replaceFirst('c2c_', ''),
+                selfToxId,
+              );
             }
             _convMap[c.conversationID] = await _mapConv(c);
           }
@@ -131,12 +136,15 @@ class FakeChatDataProvider implements ChatDataProvider {
         }
       } catch (e, st) {
         AppLogger.logError(
-            '[FakeChatDataProvider] error seeding initial conversations', e, st);
+          '[FakeChatDataProvider] error seeding initial conversations',
+          e,
+          st,
+        );
       }
     }();
-    _convSub = FakeUIKit.instance.eventBusInstance
-        .on<FakeConversation>(FakeIM.topicConversation)
-        .listen((c) async {
+    _convSub = FakeUIKit.instance.eventBusInstance.on<FakeConversation>(FakeIM.topicConversation).listen((
+      c,
+    ) async {
       // Skip conversations that were explicitly deleted via the SDK.
       // FakeIM's periodic refresh re-emits ALL friends every 5s; without this check,
       // deleted conversations would reappear in the conversation list.
@@ -158,7 +166,8 @@ class FakeChatDataProvider implements ChatDataProvider {
           // This is important because buildConversationList only adds/updates, it doesn't remove
           UikitDataFacade.removeConversation([c.conversationID]);
           AppLogger.debug(
-              '[FakeChatDataProvider] Removed quit group conversation ${c.conversationID} from UIKit conversation list via FakeConversation event');
+            '[FakeChatDataProvider] Removed quit group conversation ${c.conversationID} from UIKit conversation list via FakeConversation event',
+          );
           return; // Skip adding this conversation
         }
         // Always get the latest group name from Prefs to ensure we have the latest
@@ -203,9 +212,9 @@ class FakeChatDataProvider implements ChatDataProvider {
     });
 
     // Listen for new messages to update conversation lastMessage
-    _messageSub = FakeUIKit.instance.eventBusInstance
-        .on<FakeMessage>(FakeIM.topicMessage)
-        .listen((msg) async {
+    _messageSub = FakeUIKit.instance.eventBusInstance.on<FakeMessage>(FakeIM.topicMessage).listen((
+      msg,
+    ) async {
       // R-3 / U-1 / U-2: never let raw control-signal payloads
       // (`__revoke__:`, `__face__:`, `__custom__:`, `__location__:`) end
       // up as the visible "last message" preview in the conversation
@@ -241,8 +250,9 @@ class FakeChatDataProvider implements ChatDataProvider {
         bool isFailedMessage = false;
         try {
           final userID = msg.conversationID.startsWith('c2c_') ? peerId : null;
-          final groupID =
-              msg.conversationID.startsWith('group_') ? peerId : null;
+          final groupID = msg.conversationID.startsWith('group_')
+              ? peerId
+              : null;
           final currentToxId = await Prefs.getCurrentAccountToxId();
           final failedMessagesData =
               await Tim2ToxFailedMessagePersistence.loadFailedMessages(
@@ -265,7 +275,8 @@ class FakeChatDataProvider implements ChatDataProvider {
           }
         } catch (e) {
           AppLogger.warn(
-              '[FakeChatDataProvider] failed-message check threw, continuing with normal mapping: $e');
+            '[FakeChatDataProvider] failed-message check threw, continuing with normal mapping: $e',
+          );
         }
 
         // Try to get the message from lastMessages first
@@ -290,7 +301,10 @@ class FakeChatDataProvider implements ChatDataProvider {
             mediaKind: msg.mediaKind,
           );
           lastMessage = _chatMessageToV2TimMessage(
-              tempChatMsg, peerId, msg.conversationID.startsWith('group_'));
+            tempChatMsg,
+            peerId,
+            msg.conversationID.startsWith('group_'),
+          );
           // Set failed status if message is in failed list
           if (isFailedMessage) {
             lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
@@ -298,7 +312,10 @@ class FakeChatDataProvider implements ChatDataProvider {
         } else {
           // Use the message from lastMessages (preferred, as it has all fields including isSelf)
           lastMessage = _chatMessageToV2TimMessage(
-              lastMsg, peerId, msg.conversationID.startsWith('group_'));
+            lastMsg,
+            peerId,
+            msg.conversationID.startsWith('group_'),
+          );
           // Still check if it's in failed list (in case lastMessages has it but it's actually failed)
           if (isFailedMessage) {
             lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
@@ -345,7 +362,8 @@ class FakeChatDataProvider implements ChatDataProvider {
           }
         }
         // Use FfiChatService unread so sidebar and conversation list show correct count when new message arrives
-        final unread = _ffiService?.getUnreadOf(peerId) ??
+        final unread =
+            _ffiService?.getUnreadOf(peerId) ??
             _convMap[msg.conversationID]?.unreadCount ??
             0;
         final conv = FakeConversation(
@@ -358,8 +376,10 @@ class FakeChatDataProvider implements ChatDataProvider {
         );
         // CRITICAL: Pass lastMessage to _mapConv to ensure it's preserved
         // This ensures that failed messages are not overridden by _mapConv's logic
-        final updatedConv =
-            await _mapConv(conv, overrideLastMessage: lastMessage);
+        final updatedConv = await _mapConv(
+          conv,
+          overrideLastMessage: lastMessage,
+        );
         _convMap[msg.conversationID] = updatedConv;
         _scheduleConvListEmit();
       });
@@ -379,7 +399,8 @@ class FakeChatDataProvider implements ChatDataProvider {
       // buildConversationList only adds/updates; it doesn't remove, so we need explicit removal.
       UikitDataFacade.removeConversation([convId]);
       AppLogger.debug(
-          '[FakeChatDataProvider] Removed conversation $convId from UIKit conversation list via FakeFriendDeleted event');
+            '[FakeChatDataProvider] Removed conversation $convId from UIKit conversation list via FakeFriendDeleted event',
+          );
     });
 
     // Listen for group deletion events
@@ -396,7 +417,8 @@ class FakeChatDataProvider implements ChatDataProvider {
       // buildConversationList only adds/updates, it doesn't remove, so we need to explicitly remove
       UikitDataFacade.removeConversation([convId]);
       AppLogger.debug(
-          '[FakeChatDataProvider] Removed conversation $convId from UIKit conversation list via FakeGroupDeleted event');
+            '[FakeChatDataProvider] Removed conversation $convId from UIKit conversation list via FakeGroupDeleted event',
+          );
     });
 
     // Listen for SDK conversation deletion events (fired by C++ OnConversationDeleted)
@@ -422,9 +444,12 @@ class FakeChatDataProvider implements ChatDataProvider {
                   // new opt immediately (a message can arrive in the gap an
                   // async-only write would leave). Durable persist follows.
                   C2CRecvOptCache.setLocal(peer, opt);
-                  unawaited(Prefs.getCurrentAccountToxId().then(
-                    (toxId) => C2CRecvOptCache.setAndPersist(peer, opt, toxId),
-                  ));
+                  unawaited(
+                    Prefs.getCurrentAccountToxId().then(
+                      (toxId) =>
+                          C2CRecvOptCache.setAndPersist(peer, opt, toxId),
+                    ),
+                  );
                 }
               }
               if (_convMap.containsKey(cid)) {
@@ -444,7 +469,8 @@ class FakeChatDataProvider implements ChatDataProvider {
               _convMap.remove(convId);
               _sdkDeletedConvIds.add(convId);
               AppLogger.debug(
-                  '[FakeChatDataProvider] Removed conversation $convId from _convMap via onConversationDeleted');
+                '[FakeChatDataProvider] Removed conversation $convId from _convMap via onConversationDeleted',
+              );
             }
             _scheduleConvListEmit();
           },
@@ -454,10 +480,12 @@ class FakeChatDataProvider implements ChatDataProvider {
             .getConversationManager()
             .addConversationListener(listener: listener);
         AppLogger.debug(
-            '[FakeChatDataProvider] Registered onConversationDeleted listener');
+          '[FakeChatDataProvider] Registered onConversationDeleted listener',
+        );
       } catch (e) {
         AppLogger.debug(
-            '[FakeChatDataProvider] Failed to register conversation listener: $e');
+          '[FakeChatDataProvider] Failed to register conversation listener: $e',
+        );
       }
     });
   }
@@ -502,17 +530,21 @@ class FakeChatDataProvider implements ChatDataProvider {
     });
   }
 
-  Future<V2TimConversation> _mapConv(FakeConversation c,
-      {V2TimMessage? overrideLastMessage}) async {
+  Future<V2TimConversation> _mapConv(
+    FakeConversation c, {
+    V2TimMessage? overrideLastMessage,
+  }) async {
     final conv = V2TimConversation(conversationID: c.conversationID);
-    conv.type =
-        c.isGroup ? ConversationType.V2TIM_GROUP : ConversationType.V2TIM_C2C;
+    conv.type = c.isGroup
+        ? ConversationType.V2TIM_GROUP
+        : ConversationType.V2TIM_C2C;
     if (c.isGroup) {
       conv.groupID = c.conversationID.replaceFirst('group_', '');
       // Map Tox group type to UIKit GroupType for call button visibility:
       // "conference" → AVChatRoom (calls not supported), "group" → Work (calls supported)
-      conv.groupType =
-          (c.groupType == 'conference') ? GroupType.AVChatRoom : GroupType.Work;
+      conv.groupType = (c.groupType == 'conference')
+          ? GroupType.AVChatRoom
+          : GroupType.Work;
     } else {
       conv.userID = c.conversationID.replaceFirst('c2c_', '');
     }
@@ -543,7 +575,8 @@ class FakeChatDataProvider implements ChatDataProvider {
       conv.recvOpt = await Prefs.getGroupReceiveMessageOpt(gid, accountToxId);
     } else {
       conv.recvOpt = C2CRecvOptCache.optFor(
-          conv.userID ?? c.conversationID.replaceFirst('c2c_', ''));
+        conv.userID ?? c.conversationID.replaceFirst('c2c_', ''),
+      );
     }
     // Set orderkey for sorting: pinned conversations get higher orderkey
     // Use timestamp as base, add large offset for pinned conversations
@@ -593,7 +626,8 @@ class FakeChatDataProvider implements ChatDataProvider {
             final failedMsgID = failedMsgData['msgID'] as String?;
             final failedID = failedMsgData['id'] as String?;
             final failedText = failedMsgData['text'] as String? ?? '';
-            final failedElemType = failedMsgData['elemType'] as int? ??
+            final failedElemType =
+                failedMsgData['elemType'] as int? ??
                 MessageElemType.V2TIM_ELEM_TYPE_TEXT;
 
             // Create a V2TimMessage from failed message data
@@ -618,7 +652,8 @@ class FakeChatDataProvider implements ChatDataProvider {
         }
       } catch (e) {
         AppLogger.warn(
-            '[FakeChatDataProvider] failed-message loading for conversation row threw: $e');
+          '[FakeChatDataProvider] failed-message loading for conversation row threw: $e',
+        );
       }
 
       // Get message from lastMessages (keyed by normalized peer id)
@@ -638,8 +673,11 @@ class FakeChatDataProvider implements ChatDataProvider {
         }
         if (lastMsg != null) {
           lastMsgTimestampMs = lastMsg.timestamp.millisecondsSinceEpoch;
-          lastMsgFromService =
-              _chatMessageToV2TimMessage(lastMsg, peerId, c.isGroup);
+          lastMsgFromService = _chatMessageToV2TimMessage(
+            lastMsg,
+            peerId,
+            c.isGroup,
+          );
         }
       }
 
@@ -671,10 +709,23 @@ class FakeChatDataProvider implements ChatDataProvider {
   /// Note: This method does NOT check failed persistence - that should be done by the caller
   /// if the message might be failed (e.g., in FakeMessage listener)
   V2TimMessage _chatMessageToV2TimMessage(
-      ChatMessage chatMsg, String peerId, bool isGroup) {
+    ChatMessage chatMsg,
+    String peerId,
+    bool isGroup,
+  ) {
+    final controlEnvelope =
+        chatMsg.mediaKind == null || chatMsg.mediaKind!.isEmpty
+        ? parseTextControlEnvelope(chatMsg.text)
+        : PlainTextEnvelope(chatMsg.text);
     // Determine element type based on mediaKind
     int elemType = MessageElemType.V2TIM_ELEM_TYPE_TEXT;
-    if (chatMsg.mediaKind != null) {
+    if (controlEnvelope is FaceTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_FACE;
+    } else if (controlEnvelope is LocationTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_LOCATION;
+    } else if (controlEnvelope is CustomTextEnvelope) {
+      elemType = MessageElemType.V2TIM_ELEM_TYPE_CUSTOM;
+    } else if (chatMsg.mediaKind != null) {
       switch (chatMsg.mediaKind) {
         case 'image':
           elemType = MessageElemType.V2TIM_ELEM_TYPE_IMAGE;
@@ -689,6 +740,9 @@ class FakeChatDataProvider implements ChatDataProvider {
           elemType = MessageElemType.V2TIM_ELEM_TYPE_FILE;
           break;
         case 'call_record':
+          elemType = MessageElemType.V2TIM_ELEM_TYPE_CUSTOM;
+          break;
+        case 'custom':
           elemType = MessageElemType.V2TIM_ELEM_TYPE_CUSTOM;
           break;
         default:
@@ -707,11 +761,48 @@ class FakeChatDataProvider implements ChatDataProvider {
 
     // Call record: custom elem with JSON data; session list summary via getMessageSummary/handleCustomMessage
     if (chatMsg.mediaKind == 'call_record') {
-      msg.customElem =
-          V2TimCustomElem(data: chatMsg.text, desc: '', extension: '');
+      msg.customElem = V2TimCustomElem(
+        data: chatMsg.text,
+        desc: '',
+        extension: '',
+      );
       final callLabel = TencentCloudChatIntl().localization?.call ?? 'Call';
       msg.textElem = V2TimTextElem(
-          text: '[$callLabel]'); // Fallback if summary reads textElem
+        text: '[$callLabel]',
+      ); // Fallback if summary reads textElem
+      return msg;
+    }
+
+    if (chatMsg.mediaKind == 'custom') {
+      msg.customElem = V2TimCustomElem(
+        data: chatMsg.text,
+        desc: '',
+        extension: '',
+      );
+      return msg;
+    }
+
+    if (controlEnvelope is FaceTextEnvelope) {
+      msg.faceElem = V2TimFaceElem(
+        index: controlEnvelope.payload['index'] as int,
+        data: controlEnvelope.payload['data'] as String,
+      );
+      return msg;
+    }
+    if (controlEnvelope is LocationTextEnvelope) {
+      msg.locationElem = V2TimLocationElem(
+        desc: controlEnvelope.payload['desc'] as String,
+        longitude: (controlEnvelope.payload['longitude'] as num).toDouble(),
+        latitude: (controlEnvelope.payload['latitude'] as num).toDouble(),
+      );
+      return msg;
+    }
+    if (controlEnvelope is CustomTextEnvelope) {
+      msg.customElem = V2TimCustomElem(
+        data: controlEnvelope.rawPayload,
+        desc: '',
+        extension: '',
+      );
       return msg;
     }
 
@@ -723,8 +814,10 @@ class FakeChatDataProvider implements ChatDataProvider {
       switch (chatMsg.mediaKind) {
         case 'image':
           // Generate UUID from msgID for download identification
-          final imageUuid = (chatMsg.msgID ?? msg.msgID ?? '')
-              .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+          final imageUuid = (chatMsg.msgID ?? msg.msgID ?? '').replaceAll(
+            RegExp(r'[^a-zA-Z0-9]'),
+            '_',
+          );
           final imagePath = chatMsg.filePath;
           final imageUrl = imagePath; // Use local path as URL for Tox protocol
           int? fileSize;
@@ -734,7 +827,8 @@ class FakeChatDataProvider implements ChatDataProvider {
             }
           } catch (e) {
             AppLogger.warn(
-                '[FakeChatDataProvider] file size lookup for image attachment failed: $e');
+              '[FakeChatDataProvider] file size lookup for image attachment failed: ${e.runtimeType}',
+            );
           }
 
           // Create imageList with both thumb and origin images
@@ -769,8 +863,10 @@ class FakeChatDataProvider implements ChatDataProvider {
           break;
         case 'file':
           // Generate UUID from msgID for download identification
-          final fileUuid = (chatMsg.msgID ?? msg.msgID ?? '')
-              .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+          final fileUuid = (chatMsg.msgID ?? msg.msgID ?? '').replaceAll(
+            RegExp(r'[^a-zA-Z0-9]'),
+            '_',
+          );
           final fileUrl =
               chatMsg.filePath; // Use local path as URL for Tox protocol
 
@@ -811,20 +907,7 @@ class FakeChatDataProvider implements ChatDataProvider {
     } else {
       // Text message
       if (chatMsg.text.isNotEmpty) {
-        // U-1 / U-2: keep raw control-signal payloads out of the
-        // conversation-list "last message" preview. The full rewrite (with
-        // customElem.data carrying the original JSON) happens on the
-        // V2TimAdvancedMsgListener path in tim2tox_sdk_platform; here we
-        // only need a friendly preview string.
-        String previewText = chatMsg.text;
-        if (previewText.startsWith('__face__:')) {
-          previewText = '[Sticker]';
-        } else if (previewText.startsWith('__custom__:')) {
-          previewText = '[Custom Message]';
-        } else if (previewText.startsWith('__location__:')) {
-          previewText = '[Location]';
-        }
-        msg.textElem = V2TimTextElem(text: previewText);
+        msg.textElem = V2TimTextElem(text: chatMsg.text);
       }
     }
 
@@ -943,7 +1026,8 @@ class FakeChatDataProvider implements ChatDataProvider {
             .removeConversationListener(listener: listener);
       } catch (e) {
         AppLogger.debug(
-            '[FakeChatDataProvider] removeConversationListener threw on dispose: $e');
+          '[FakeChatDataProvider] removeConversationListener threw on dispose: $e',
+        );
       }
       _sdkConvListener = null;
     }

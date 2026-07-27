@@ -72,6 +72,7 @@ void main() {
   // tests (write→false). Needed only by the set-path group, but harmless to the
   // others (which never write a verifier).
   final secureStore = <String, String>{};
+  bool failSecureDeletes = false;
   const secureChannel =
       MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
 
@@ -79,6 +80,7 @@ void main() {
     env = await setUpAccountExportTestEnv();
     SessionPasswordStore.clear(); // static singleton — avoid cross-test bleed.
     secureStore.clear();
+    failSecureDeletes = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
       final args =
@@ -90,6 +92,12 @@ void main() {
         case 'read':
           return secureStore[args['key'] as String];
         case 'delete':
+          if (failSecureDeletes) {
+            throw PlatformException(
+              code: 'secure-delete-failed',
+              message: 'Injected secure-storage delete failure',
+            );
+          }
           secureStore.remove(args['key'] as String);
           return null;
         case 'containsKey':
@@ -211,7 +219,9 @@ void main() {
           reason: 'precondition: login armed the session password');
 
       // The fix under test.
-      await AccountService.removeAccountPassword(service);
+      final ok = await AccountService.removeAccountPassword(service);
+      expect(ok, isTrue,
+          reason: 'the secure-storage delete completed durably');
       expect(SessionPasswordStore.get(toxId), isNull,
           reason: 'remove must clear the in-memory session password');
 
@@ -222,6 +232,45 @@ void main() {
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
           isFalse,
           reason: 'logout must not re-encrypt a password-removed profile');
+    }, skip: skipReason);
+
+    test(
+        'failed durable password removal leaves the session password armed',
+        () async {
+      final fixture = ToxProfileFixture.create();
+      if (fixture == null) {
+        markTestSkipped('ToxProfileFixture.create() returned null');
+        return;
+      }
+      const password = 'retain-on-delete-failure';
+      final toxId = fixture.toxId;
+
+      final profilePath = await _stageProfile(fixture);
+      await AccountExportService.encryptProfileFile(profilePath, password);
+      await Prefs.addAccount(toxId: toxId, nickname: 'DeleteFailAcct');
+      await Prefs.setCurrentAccountToxId(toxId);
+
+      final service = await AccountService.initializeServiceForAccount(
+        toxId: toxId,
+        password: password,
+        startPolling: false,
+      );
+      addTearDown(() async {
+        try {
+          await service.dispose();
+        } catch (_) {}
+      });
+      expect(SessionPasswordStore.get(toxId), password,
+          reason: 'precondition: login armed the session password');
+
+      failSecureDeletes = true;
+      final ok = await AccountService.removeAccountPassword(service);
+
+      expect(ok, isFalse,
+          reason: 'the secure-storage facade rejected durable deletion');
+      expect(SessionPasswordStore.get(toxId), password,
+          reason: 'a failed durable removal must retain the password so the '
+              'still-protected account can be re-encrypted on logout');
     }, skip: skipReason);
 
     test(

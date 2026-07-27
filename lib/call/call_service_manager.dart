@@ -568,7 +568,10 @@ class CallServiceManager
   /// already locally ended). Empty callId means CallKit was reset — tear
   /// down whatever's live.
   void _onCallKitAction(CallKitAction action) {
-    debugPrint('[CallServiceManager] CallKit action: $action');
+    debugPrint(
+      '[CallServiceManager] CallKit action: kind=${action.kind} '
+      'muted=${action.muted}',
+    );
     final activeId = _callState.inviteID;
     if (action.callId.isEmpty) {
       if (activeId != null) unawaited(hangUp());
@@ -576,7 +579,7 @@ class CallServiceManager
     }
     if (activeId != null && action.callId != activeId) {
       debugPrint(
-        '[CallServiceManager] CallKit action for stale callId ${action.callId}; ignoring',
+        '[CallServiceManager] CallKit action for stale call; ignoring',
       );
       return;
     }
@@ -771,8 +774,8 @@ class CallServiceManager
     String? endReason,
   }) async {
     AppLogger.info(
-      '[CallServiceManager] signaling state inviteID=$inviteID '
-      'state=$state endReason=$endReason currentUiState=${_callState.state}',
+      '[CallServiceManager] signaling state=$state endReason=$endReason '
+      'currentUiState=${_callState.state}',
     );
     switch (state) {
       case CallState.ringing:
@@ -1435,6 +1438,7 @@ class CallServiceManager
 
   @override
   Future<void> acceptCall() async {
+    _cancelAndroidIncomingCallSurface();
     final inviteID = _callState.inviteID;
     if (inviteID == null) return;
 
@@ -1443,8 +1447,6 @@ class CallServiceManager
       await rejectCall();
       return;
     }
-    _cancelAndroidIncomingCallSurface();
-
     if (_isNativeCall(inviteID)) {
       // Native ToxAV path — answer directly via toxav_answer
       final fn = _getNativeFriendNumber(inviteID);
@@ -1480,6 +1482,7 @@ class CallServiceManager
 
   @override
   Future<void> rejectCall() async {
+    _cancelAndroidIncomingCallSurface();
     final inviteID = _callState.inviteID;
     if (inviteID == null) return;
 
@@ -1507,6 +1510,7 @@ class CallServiceManager
 
   @override
   Future<void> hangUp() async {
+    _cancelAndroidIncomingCallSurface();
     final inviteID = _callState.inviteID;
     if (inviteID == null) return;
 

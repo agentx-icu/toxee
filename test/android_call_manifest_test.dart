@@ -108,18 +108,59 @@ void main() {
     expect(activity, contains('payload'));
     expect(activity, contains('incoming_call:'));
     expect(activity, contains('INCOMING_CALL_WINDOW_TOKEN_ARG'));
-    expect(activity, contains('INCOMING_CALL_WINDOW_TOKEN_PREF_KEY'));
-    expect(activity, contains('activeIncomingCallWindowToken'));
+    expect(activity, contains('INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY'));
+    expect(activity, contains('activeIncomingCallWindowNonceDigest'));
     expect(activity, contains('armIncomingCallWindow'));
     expect(activity, contains('setShowWhenLocked'));
     expect(activity, contains('setTurnScreenOn'));
     expect(notificationService, contains('toxee/incoming_call_window'));
-    expect(notificationService, contains('_newIncomingCallWindowToken'));
-    expect(notificationService, contains('_incomingCallWindowTokenPrefsKey'));
+    expect(notificationService, contains('_issueIncomingCallWindowLease'));
+    expect(notificationService, contains('IncomingCallWindowLeaseStore'));
     expect(notificationService, contains('armIncomingCallWindow'));
     expect(notificationService, contains('clearIncomingCallWindow'));
-    expect(notificationService, contains('_stripIncomingCallWindowToken'));
+    expect(notificationService, contains('stripIncomingCallWindowNonce'));
   });
+
+  test(
+    'Android incoming-call lock-screen lease validates digest, binding, and expiry',
+    () async {
+      final activity = await mainActivityFile.readAsString();
+
+      expect(activity, contains('java.security.MessageDigest'));
+      expect(activity, contains('MessageDigest.getInstance("SHA-256")'));
+      expect(activity, contains('MessageDigest.isEqual'));
+      expect(activity, contains('INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY'));
+      expect(activity, contains('INCOMING_CALL_WINDOW_CALL_DIGEST_PREF_KEY'));
+      expect(activity, contains('INCOMING_CALL_WINDOW_EXPIRES_AT_PREF_KEY'));
+      expect(activity, contains('"flutter.toxee_incoming_call_window_token"'));
+      expect(
+        activity,
+        contains('"flutter.toxee_incoming_call_window_call_digest"'),
+      );
+      expect(
+        activity,
+        contains('"flutter.toxee_incoming_call_window_expires_at_ms"'),
+      );
+      expect(activity, contains('"toxee:incoming-call-window:call:v1"'));
+      expect(activity, contains('System.currentTimeMillis()'));
+      expect(activity, contains('clearIncomingCallWindowLease()'));
+      expect(activity, contains('consumeValidIncomingCallWindowLease(intent)'));
+      expect(
+        activity,
+        isNot(
+          contains('.putString(INCOMING_CALL_WINDOW_TOKEN_PREF_KEY, token)'),
+        ),
+        reason:
+            'MainActivity must never overwrite the digest lease with a raw nonce.',
+      );
+      expect(
+        activity,
+        isNot(contains('activeIncomingCallWindowToken')),
+        reason:
+            'The in-memory one-shot value must be a nonce digest, not raw token text.',
+      );
+    },
+  );
 
   test('Android opts into predictive back for PopScope handlers', () async {
     final manifest = await manifestFile.readAsString();

@@ -520,7 +520,7 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get testNode => 'اختبار العقدة';
+  String get testNode => 'إرسال طلب تمهيد';
 
   @override
   String get deleteAccount => 'حذف الحساب';
@@ -621,7 +621,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get canOnlySelectTestedNode =>
-      'يمكن اختيار العقد التي تم اختبارها بنجاح فقط، يرجى اختبار العقدة أولاً';
+      'أرسل طلب تمهيد بنجاح قبل اختيار هذه العقدة';
 
   @override
   String get switchNode => 'تبديل العقدة';
@@ -823,11 +823,11 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get nodeNotTestedWarning =>
-      'ملاحظة: لم يتم اختبار هذه العقدة وقد لا تكون قابلة للاتصال.';
+      'لم يتم إرسال طلب تمهيد إلى هذه العقدة بعد.';
 
   @override
   String get nodeTestFailedWarning =>
-      'ملاحظة: فشل اختبار هذه العقدة وقد لا تكون قابلة للاتصال.';
+      'فشل طلب التمهيد؛ قد لا تكون هذه العقدة متاحة.';
 
   @override
   String get nicknameTooLong => 'الاسم المستعار طويل جداً';
@@ -866,10 +866,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get setAsCurrentNode => 'تعيين كعقدة حالية';
 
   @override
-  String get nodeTestSuccess => 'نجح اختبار العقدة';
+  String get nodeTestSuccess => 'تم إرسال طلب التمهيد';
 
   @override
-  String get nodeTestFailed => 'فشل اختبار العقدة';
+  String get nodeTestFailed => 'فشل إرسال طلب التمهيد';
 
   @override
   String get nodeTestUnavailableBeforeLogin =>

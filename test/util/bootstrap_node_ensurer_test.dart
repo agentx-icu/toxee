@@ -10,9 +10,7 @@ import 'package:toxee/util/prefs.dart';
 /// Records the bootstrap nodes applied to the live instance, and lets the test
 /// dictate `isConnected`, without touching the native Tox core.
 class _RecordingService extends FfiChatService {
-  _RecordingService({bool connected = false})
-      : _connected = connected,
-        super();
+  _RecordingService({bool connected = false}) : _connected = connected, super();
 
   final bool _connected;
   final List<({String host, int port, String pubkey})> added = [];
@@ -22,6 +20,12 @@ class _RecordingService extends FfiChatService {
 
   @override
   Future<bool> addBootstrapNode(String host, int port, String publicKey) async {
+    added.add((host: host, port: port, pubkey: publicKey));
+    return true;
+  }
+
+  @override
+  Future<bool> tryBootstrapNode(String host, int port, String publicKey) async {
     added.add((host: host, port: port, pubkey: publicKey));
     return true;
   }
@@ -38,12 +42,12 @@ bool _ffiAvailable() {
 }
 
 BootstrapNode _node(String ip, {String status = 'ONLINE'}) => BootstrapNode(
-      ipv4: ip,
-      port: 33445,
-      // 64 hex chars — a structurally valid Tox public key.
-      publicKey: 'A' * 64,
-      status: status,
-    );
+  ipv4: ip,
+  port: 33445,
+  // 64 hex chars — a structurally valid Tox public key.
+  publicKey: 'A' * 64,
+  status: status,
+);
 
 Future<void> _resetPrefs() async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -78,29 +82,31 @@ void main() {
     expect(saved?.host, fallback.first.ipv4);
   });
 
-  test('auto mode applies at most maxAutoNodes nodes from the live list',
-      () async {
-    if (!_ffiAvailable()) return;
-    await _resetPrefs();
-    // A saved node exists, so ensureForSession skips the fallback seed and goes
-    // straight to the (background) live refresh — exercised deterministically
-    // here via refreshIfDisconnected which awaits it.
-    BootstrapNodeEnsurer.debugNodeFetcher =
-        () async => List.generate(8, (i) => _node('10.0.0.$i'));
+  test(
+    'auto mode applies at most maxAutoNodes nodes from the live list',
+    () async {
+      if (!_ffiAvailable()) return;
+      await _resetPrefs();
+      // A saved node exists, so ensureForSession skips the fallback seed and goes
+      // straight to the (background) live refresh — exercised deterministically
+      // here via refreshIfDisconnected which awaits it.
+      BootstrapNodeEnsurer.debugNodeFetcher = () async =>
+          List.generate(8, (i) => _node('10.0.0.$i'));
 
-    final service = _RecordingService(connected: false);
-    await BootstrapNodeEnsurer.refreshIfDisconnected(service);
+      final service = _RecordingService(connected: false);
+      await BootstrapNodeEnsurer.refreshIfDisconnected(service);
 
-    expect(service.added.length, BootstrapNodeEnsurer.maxAutoNodes);
-  });
+      expect(service.added.length, BootstrapNodeEnsurer.maxAutoNodes);
+    },
+  );
 
   test('manual mode applies only the saved node and never fetches', () async {
     if (!_ffiAvailable()) return;
     await _resetPrefs();
     await Prefs.setBootstrapNodeMode('manual');
     await Prefs.setCurrentBootstrapNode('manual.example', 12345, 'B' * 64);
-    BootstrapNodeEnsurer.debugNodeFetcher =
-        () async => throw StateError('manual mode must not hit the node list');
+    BootstrapNodeEnsurer.debugNodeFetcher = () async =>
+        throw StateError('manual mode must not hit the node list');
 
     final service = _RecordingService();
     await BootstrapNodeEnsurer.ensureForSession(service);
@@ -113,8 +119,8 @@ void main() {
   test('refreshIfDisconnected is a no-op when already connected', () async {
     if (!_ffiAvailable()) return;
     await _resetPrefs();
-    BootstrapNodeEnsurer.debugNodeFetcher =
-        () async => throw StateError('must not fetch when connected');
+    BootstrapNodeEnsurer.debugNodeFetcher = () async =>
+        throw StateError('must not fetch when connected');
 
     final service = _RecordingService(connected: true);
     await BootstrapNodeEnsurer.refreshIfDisconnected(service);
@@ -130,14 +136,37 @@ void main() {
     // Regression guard for the gap Codex flagged: filtering strictly on ONLINE
     // would apply nothing and leave the session with no DHT entry point.
     BootstrapNodeEnsurer.debugNodeFetcher = () async => [
-          _node('5.5.5.5', status: 'OFFLINE'),
-          _node('6.6.6.6', status: 'OFFLINE'),
-        ];
+      _node('5.5.5.5', status: 'OFFLINE'),
+      _node('6.6.6.6', status: 'OFFLINE'),
+    ];
 
     final service = _RecordingService(connected: false);
     await BootstrapNodeEnsurer.refreshIfDisconnected(service);
 
-    expect(service.added.map((n) => n.host),
-        containsAll(<String>['5.5.5.5', '6.6.6.6']));
+    expect(
+      service.added.map((n) => n.host),
+      containsAll(<String>['5.5.5.5', '6.6.6.6']),
+    );
+  });
+
+  test('auto mode applies an IPv6-only node with its raw host', () async {
+    if (!_ffiAvailable()) return;
+    await _resetPrefs();
+    await Prefs.setCurrentBootstrapNode('seed.example', 33445, 'B' * 64);
+    BootstrapNodeEnsurer.debugNodeFetcher = () async => [
+      BootstrapNode(
+        ipv4: '',
+        ipv6: '2001:db8::20',
+        port: 33445,
+        publicKey: 'A' * 64,
+        status: 'ONLINE',
+      ),
+    ];
+
+    final service = _RecordingService(connected: false);
+    await BootstrapNodeEnsurer.refreshIfDisconnected(service);
+
+    expect(service.added, hasLength(1));
+    expect(service.added.single.host, '2001:db8::20');
   });
 }
