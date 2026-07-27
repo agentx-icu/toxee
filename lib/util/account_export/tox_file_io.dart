@@ -18,9 +18,12 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import '../app_paths.dart';
 import '../logger.dart';
 import '../prefs.dart';
+import 'atomic_file_write.dart';
 import 'encryption.dart';
 import 'exceptions.dart';
 import 'ffi_constants.dart';
+
+const String _exportStageSuffix = '.new';
 
 /// Sanitize file name (remove characters illegal on common filesystems).
 String sanitizeFileName(String fileName) {
@@ -48,7 +51,9 @@ Future<String> exportAccountData({
   // Normalize toxId (trim whitespace, ensure consistent format)
   final normalizedToxId = toxId.trim();
   AppLogger.log(
-      '[AccountExportService] Export: Looking for account with toxId: "$normalizedToxId" (length: ${normalizedToxId.length})');
+    '[AccountExportService] Export: Account lookup started: '
+    'identifierLength=${normalizedToxId.length}',
+  );
 
   // Get account info - Prefs.getAccountByToxId now handles normalization
   var account = await Prefs.getAccountByToxId(normalizedToxId);
@@ -56,26 +61,32 @@ Future<String> exportAccountData({
   // If not found, try to get from account list and find by partial match
   if (account == null) {
     AppLogger.log(
-        '[AccountExportService] Export: Account not found by getAccountByToxId, checking account list manually...');
+      '[AccountExportService] Export: Primary account lookup found=false',
+    );
     final allAccounts = await Prefs.getAccountList();
     AppLogger.log(
-        '[AccountExportService] Export: Found ${allAccounts.length} accounts in list');
+      '[AccountExportService] Export: Account candidate count=${allAccounts.length}',
+    );
     for (final acc in allAccounts) {
       final accToxId = acc['toxId']?.trim() ?? '';
       AppLogger.log(
-          '[AccountExportService] Export: Checking account: toxId="$accToxId" (length: ${accToxId.length}), nickname="${acc['nickname']}"');
+        '[AccountExportService] Export: Checking account candidate: '
+        'identifierLength=${accToxId.length}',
+      );
       // Try exact match
       if (accToxId == normalizedToxId) {
         account = acc;
         AppLogger.log(
-            '[AccountExportService] Export: Found account by exact match');
+          '[AccountExportService] Export: Found account by exact match',
+        );
         break;
       }
       // Try case-insensitive match
       if (accToxId.toLowerCase() == normalizedToxId.toLowerCase()) {
         account = acc;
         AppLogger.log(
-            '[AccountExportService] Export: Found account by case-insensitive match');
+          '[AccountExportService] Export: Found account by case-insensitive match',
+        );
         break;
       }
       // Try partial match (first 64 chars, as toxId might be longer)
@@ -83,7 +94,8 @@ Future<String> exportAccountData({
         if (accToxId.substring(0, 64) == normalizedToxId.substring(0, 64)) {
           account = acc;
           AppLogger.log(
-              '[AccountExportService] Export: Found account by partial match (first 64 chars)');
+            '[AccountExportService] Export: Found account by partial match (first 64 chars)',
+          );
           break;
         }
       }
@@ -93,7 +105,9 @@ Future<String> exportAccountData({
   // If still not found, try to create account data from current session
   if (account == null) {
     AppLogger.log(
-        '[AccountExportService] Export: Account still not found, attempting to create from current session data...');
+      '[AccountExportService] Export: Account lookup found=false; '
+      'usingCurrentSession=true',
+    );
     // Try to get nickname and status from Prefs (backward compatibility)
     final nickname = await Prefs.getNickname();
     final statusMessage = await Prefs.getStatusMessage();
@@ -110,7 +124,10 @@ Future<String> exportAccountData({
         'lastLoginTime': DateTime.now().toIso8601String(),
       };
       AppLogger.log(
-          '[AccountExportService] Export: Created account data from current session: nickname="$nickname"');
+        '[AccountExportService] Export: Created account data from current '
+        'session: hasNickname=true, '
+        'hasStatusMessage=${statusMessage?.isNotEmpty ?? false}',
+      );
     } else {
       // Last resort: create minimal account data
       account = {
@@ -123,11 +140,11 @@ Future<String> exportAccountData({
         'lastLoginTime': DateTime.now().toIso8601String(),
       };
       AppLogger.log(
-          '[AccountExportService] Export: Created minimal account data');
+        '[AccountExportService] Export: Created minimal account data',
+      );
     }
   } else {
-    AppLogger.log(
-        '[AccountExportService] Export: Found account: nickname="${account['nickname']}"');
+    AppLogger.log('[AccountExportService] Export: Account lookup found=true');
   }
 
   final nickname = account['nickname'] ?? '';
@@ -140,11 +157,8 @@ Future<String> exportAccountData({
   try {
     final resolvedPath = await AppPaths.resolveToxProfilePath(normalizedToxId);
     if (resolvedPath == null) {
-      final primaryDir =
-          await AppPaths.getProfileDirectoryForToxId(normalizedToxId);
-      final primaryPath = AppPaths.profileFileInDirectory(primaryDir);
       throw Exception(
-        'Tox profile file not found. Tried: $primaryPath and fallback locations. '
+        'Tox profile file not found. '
         'Ensure this account has been used at least once on this device, or restore from a full backup.',
       );
     }
@@ -154,28 +168,40 @@ Future<String> exportAccountData({
       throw Exception('Tox profile file is empty');
     }
     AppLogger.log(
-        '[AccountExportService] Export: Read tox profile from $resolvedPath: ${toxProfileData.length} bytes');
-  } catch (e, stackTrace) {
-    AppLogger.logError('Export: Error reading tox profile file', e, stackTrace);
+      '[AccountExportService] Export: Read profile: '
+      'byteCount=${toxProfileData.length}',
+    );
+  } catch (error) {
+    AppLogger.error(
+      '[AccountExportService] Export: Profile read succeeded=false; '
+      'errorType=${error.runtimeType}',
+    );
+    if (error is FileSystemException) {
+      throw const FileSystemException('Unable to read account profile data');
+    }
     rethrow;
   }
 
   // Encrypt if password is provided
   Uint8List finalData;
   if (password != null && password.isNotEmpty) {
-    AppLogger.log('[AccountExportService] Export: Encrypting with password...');
+    AppLogger.log('[AccountExportService] Export: Encryption requested=true');
     try {
       finalData = passEncrypt(toxProfileData, password);
       AppLogger.log(
-          '[AccountExportService] Export: Encrypted to ${finalData.length} bytes');
-    } catch (e, stackTrace) {
-      AppLogger.logError('Export: Encryption error', e, stackTrace);
+        '[AccountExportService] Export: Encryption succeeded=true; '
+        'byteCount=${finalData.length}',
+      );
+    } catch (error) {
+      AppLogger.error(
+        '[AccountExportService] Export: Encryption succeeded=false; '
+        'errorType=${error.runtimeType}',
+      );
       rethrow;
     }
   } else {
     finalData = toxProfileData;
-    AppLogger.log(
-        '[AccountExportService] Export: No encryption, using plain profile');
+    AppLogger.log('[AccountExportService] Export: Encryption requested=false');
   }
 
   // Determine file path
@@ -188,8 +214,9 @@ Future<String> exportAccountData({
     }
   } else {
     // Use default naming: {nickname}_{toxId前8位}.tox
-    final safeNickname =
-        sanitizeFileName(nickname.isEmpty ? 'account' : nickname);
+    final safeNickname = sanitizeFileName(
+      nickname.isEmpty ? 'account' : nickname,
+    );
     final fileName = '${safeNickname}_$toxIdPrefix.tox';
 
     // Save to Downloads directory
@@ -207,13 +234,24 @@ Future<String> exportAccountData({
       await parentDir.create(recursive: true);
     }
 
-    await exportFile.writeAsBytes(finalData);
+    await writeBytesAtomically(
+      exportFile,
+      finalData,
+      tempSuffix: _exportStageSuffix,
+    );
     AppLogger.log(
-        '[AccountExportService] Account export successful: $finalFilePath (${finalData.length} bytes)');
+      '[AccountExportService] Export: Write succeeded=true; '
+      'byteCount=${finalData.length}',
+    );
     return finalFilePath;
-  } catch (e, stackTrace) {
-    AppLogger.logError(
-        'Error writing export file: Target path: $finalFilePath', e, stackTrace);
+  } catch (error) {
+    AppLogger.error(
+      '[AccountExportService] Export: Write succeeded=false; '
+      'errorType=${error.runtimeType}',
+    );
+    if (error is FileSystemException) {
+      throw const FileSystemException('Unable to write account export data');
+    }
     rethrow;
   }
 }
@@ -234,31 +272,42 @@ Future<Map<String, dynamic>> importAccountData({
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
-    throw Exception('File not found: $filePath');
+    throw Exception('Account data file not found');
   }
 
   // Read file as binary
-  final fileData = await file.readAsBytes();
+  Uint8List fileData;
+  try {
+    fileData = await file.readAsBytes();
+  } catch (error) {
+    if (error is FileSystemException) {
+      throw const FileSystemException('Unable to read account data');
+    }
+    rethrow;
+  }
   if (fileData.isEmpty) {
     throw Exception('File is empty');
   }
 
   AppLogger.log(
-      '[AccountExportService] Import: Read file: ${fileData.length} bytes');
+    '[AccountExportService] Import: Read file: byteCount=${fileData.length}',
+  );
 
   // Check if encrypted
   bool isEncrypted = false;
   if (fileData.length >= toxPassEncryptionExtraLength) {
     try {
       isEncrypted = isDataEncrypted(fileData);
-    } catch (e, stackTrace) {
-      AppLogger.logError('Import: Error checking encryption', e, stackTrace);
+    } catch (error) {
+      AppLogger.warn(
+        '[AccountExportService] Import: Encryption check succeeded=false; '
+        'errorType=${error.runtimeType}',
+      );
       // Continue, assume not encrypted
     }
   }
 
-  AppLogger.log(
-      '[AccountExportService] Import: File is ${isEncrypted ? "encrypted" : "not encrypted"}');
+  AppLogger.log('[AccountExportService] Import: Encrypted=$isEncrypted');
 
   // Decrypt if encrypted
   Uint8List decryptedData;
@@ -270,9 +319,14 @@ Future<Map<String, dynamic>> importAccountData({
     try {
       decryptedData = passDecrypt(fileData, password);
       AppLogger.log(
-          '[AccountExportService] Import: Decrypted to ${decryptedData.length} bytes');
-    } catch (e, stackTrace) {
-      AppLogger.logError('Import: Decryption error', e, stackTrace);
+        '[AccountExportService] Import: Decryption succeeded=true; '
+        'byteCount=${decryptedData.length}',
+      );
+    } catch (error) {
+      AppLogger.error(
+        '[AccountExportService] Import: Decryption succeeded=false; '
+        'errorType=${error.runtimeType}',
+      );
       rethrow;
     }
   } else {
@@ -280,14 +334,16 @@ Future<Map<String, dynamic>> importAccountData({
   }
 
   // Extract toxId from profile
-  final toxId =
-      _extractToxIdFromProfile(decryptedData, isEncrypted ? password : null);
-  AppLogger.log('[AccountExportService] Import: Extracted toxId: $toxId');
+  final toxId = _extractToxIdFromProfile(
+    decryptedData,
+    isEncrypted ? password : null,
+  );
+  AppLogger.log(
+    '[AccountExportService] Import: Identifier extraction succeeded=true; '
+    'identifierLength=${toxId.length}',
+  );
 
-  return {
-    'toxId': toxId,
-    'toxProfile': decryptedData,
-  };
+  return {'toxId': toxId, 'toxProfile': decryptedData};
 }
 
 /// Extract the 64-char public-key hex Tox ID from a profile blob.
@@ -303,8 +359,9 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
   try {
     final ffiLib = Tim2ToxFfi.open();
     final profilePtr = pkgffi.malloc<ffi.Uint8>(profileData.length);
-    final toxIdBuffer =
-        pkgffi.malloc<ffi.Int8>(128); // 64 hex chars + null terminator
+    final toxIdBuffer = pkgffi.malloc<ffi.Int8>(
+      128,
+    ); // 64 hex chars + null terminator
 
     ffi.Pointer<ffi.Uint8>? passphrasePtr;
     try {
@@ -314,7 +371,9 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
       if (passphrase != null) {
         final passwordBytes = utf8.encode(passphrase);
         passphrasePtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
-        passphrasePtr.asTypedList(passwordBytes.length).setAll(0, passwordBytes);
+        passphrasePtr
+            .asTypedList(passwordBytes.length)
+            .setAll(0, passwordBytes);
         passphraseLen = passwordBytes.length;
       }
 
@@ -331,8 +390,9 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
         throw Exception('Failed to extract Tox ID from profile');
       }
 
-      final toxId =
-          toxIdBuffer.cast<pkgffi.Utf8>().toDartString(length: toxIdLen);
+      final toxId = toxIdBuffer.cast<pkgffi.Utf8>().toDartString(
+        length: toxIdLen,
+      );
 
       if (passphrasePtr != null) {
         pkgffi.malloc.free(passphrasePtr);
@@ -342,8 +402,11 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
       pkgffi.malloc.free(profilePtr);
       pkgffi.malloc.free(toxIdBuffer);
     }
-  } catch (e, stackTrace) {
-    AppLogger.logError('Import: Error extracting toxId', e, stackTrace);
+  } catch (error) {
+    AppLogger.error(
+      '[AccountExportService] Import: Identifier extraction succeeded=false; '
+      'errorType=${error.runtimeType}',
+    );
     rethrow;
   }
 }

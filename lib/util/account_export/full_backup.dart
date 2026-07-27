@@ -20,16 +20,47 @@ import 'package:path/path.dart' as p;
 
 import '../app_paths.dart';
 import '../logger.dart';
+import '../mobile_export_policy.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
-import 'backup_path_safety.dart';
+import 'atomic_file_write.dart';
+import 'full_backup_crypto.dart';
+import 'restore_transaction.dart';
 import 'tox_file_io.dart';
 
 /// Current full-backup metadata schema version. Bump when the on-disk
 /// `metadata.json` layout or scoped-prefs key set changes in a
 /// non-backward-compatible way. Backups without `formatVersion` are treated
 /// as v1 for legacy compatibility (older toxee builds shipped without it).
-const int _kBackupFormatVersion = 1;
+const int _kBackupFormatVersion = fullBackupEncryptedFormatVersion;
+final RegExp _backupToxIdPattern = RegExp(
+  r'^[A-Fa-f0-9]{64}([A-Fa-f0-9]{12})?$',
+);
+
+String? _metadataToxId(Map<String, dynamic> metadata) {
+  final rawToxId = metadata['toxId'];
+  if (rawToxId == null) return null;
+  if (rawToxId is! String || !_backupToxIdPattern.hasMatch(rawToxId.trim())) {
+    throw FormatException('Invalid backup metadata toxId: $rawToxId');
+  }
+  return rawToxId.trim();
+}
+
+String _extractProfileToxId(Uint8List toxProfile) {
+  final testExtractor = FullBackupRestoreTestHooks.profileIdentityExtractor;
+  if (testExtractor != null) return testExtractor(toxProfile);
+  return extractToxIdFromProfile(toxProfile);
+}
+
+void _requireProfileMatchesMetadata({
+  required String metadataToxId,
+  required Uint8List toxProfile,
+}) {
+  final profileToxId = _extractProfileToxId(toxProfile);
+  if (!compareToxIds(metadataToxId, profileToxId)) {
+    throw StateError('Backup metadata toxId does not match tox_profile.tox');
+  }
+}
 
 /// Export a comprehensive .zip backup containing:
 /// - `tox_profile.tox` (the Tox identity/profile, optionally encrypted)
@@ -56,6 +87,7 @@ Future<String> exportFullBackup({
   if (toxId.isEmpty) {
     throw ArgumentError('toxId cannot be empty');
   }
+  requireFullBackupExportPassword(password);
 
   final normalizedToxId = toxId.trim();
   final account = await Prefs.getAccountByToxId(normalizedToxId);
@@ -68,22 +100,24 @@ Future<String> exportFullBackup({
   if (resolvedToxPath != null) {
     final profileData = await File(resolvedToxPath).readAsBytes();
     archive.addFile(
-        ArchiveFile('tox_profile.tox', profileData.length, profileData));
+      ArchiveFile('tox_profile.tox', profileData.length, profileData),
+    );
   }
 
   // 2. Add chat_history/ directory
   try {
-    final historyDir =
-        await AppPaths.getAccountChatHistoryPath(normalizedToxId);
+    final historyDir = await AppPaths.getAccountChatHistoryPath(
+      normalizedToxId,
+    );
     final historyDirectory = Directory(historyDir);
     if (await historyDirectory.exists()) {
       await for (final entity in historyDirectory.list(recursive: true)) {
         if (entity is File) {
-          final relativePath =
-              _archiveRelative(entity.path, from: historyDir);
+          final relativePath = _archiveRelative(entity.path, from: historyDir);
           final data = await entity.readAsBytes();
           archive.addFile(
-              ArchiveFile('chat_history/$relativePath', data.length, data));
+            ArchiveFile('chat_history/$relativePath', data.length, data),
+          );
         }
       }
     }
@@ -93,13 +127,15 @@ Future<String> exportFullBackup({
 
   // 3. Add offline_message_queue.json
   try {
-    final queuePath =
-        await AppPaths.getAccountOfflineQueueFilePath(normalizedToxId);
+    final queuePath = await AppPaths.getAccountOfflineQueueFilePath(
+      normalizedToxId,
+    );
     final queueFile = File(queuePath);
     if (await queueFile.exists()) {
       final data = await queueFile.readAsBytes();
       archive.addFile(
-          ArchiveFile('offline_message_queue.json', data.length, data));
+        ArchiveFile('offline_message_queue.json', data.length, data),
+      );
     }
   } catch (e) {
     AppLogger.logError('Full backup: Error adding offline queue', e, null);
@@ -112,11 +148,11 @@ Future<String> exportFullBackup({
     if (await avatarsDirectory.exists()) {
       await for (final entity in avatarsDirectory.list(recursive: true)) {
         if (entity is File) {
-          final relativePath =
-              _archiveRelative(entity.path, from: avatarsDir);
+          final relativePath = _archiveRelative(entity.path, from: avatarsDir);
           final data = await entity.readAsBytes();
-          archive
-              .addFile(ArchiveFile('avatars/$relativePath', data.length, data));
+          archive.addFile(
+            ArchiveFile('avatars/$relativePath', data.length, data),
+          );
         }
       }
     }
@@ -126,8 +162,9 @@ Future<String> exportFullBackup({
 
   // 4. Add metadata.json (scoped prefs)
   try {
-    final scopedPrefs =
-        await Prefs.exportScopedPrefsForAccount(normalizedToxId);
+    final scopedPrefs = await Prefs.exportScopedPrefsForAccount(
+      normalizedToxId,
+    );
 
     // 4a. Discover missing friend_avatar_path entries from avatars directory.
     // Avatar files may exist on disk but have no corresponding pref key
@@ -159,8 +196,9 @@ Future<String> exportFullBackup({
     // 4b. Convert absolute avatar paths to relative paths for portability.
     // On import, these will be converted back to the target machine's paths.
     final accountDataRoot = await AppPaths.getAccountDataRoot(normalizedToxId);
-    final accountAvatarsDir =
-        await AppPaths.getAccountAvatarsPath(normalizedToxId);
+    final accountAvatarsDir = await AppPaths.getAccountAvatarsPath(
+      normalizedToxId,
+    );
     for (final key in scopedPrefs.keys.toList()) {
       if (key.contains('avatar_path') && scopedPrefs[key] is String) {
         final absPath = scopedPrefs[key] as String;
@@ -200,13 +238,18 @@ Future<String> exportFullBackup({
     final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
     final metadataBytes = utf8.encode(metadataJson);
     archive.addFile(
-        ArchiveFile('metadata.json', metadataBytes.length, metadataBytes));
+      ArchiveFile('metadata.json', metadataBytes.length, metadataBytes),
+    );
   } catch (e) {
     AppLogger.logError('Full backup: Error adding metadata', e, null);
   }
 
-  // 5. Encode archive to ZIP
-  final zipData = ZipEncoder().encode(archive);
+  // 5. Encrypt the plaintext archive, then encode the outer archive to ZIP.
+  final encryptedArchive = await encryptFullBackupArchive(
+    plaintextArchive: archive,
+    password: password!,
+  );
+  final zipData = ZipEncoder().encode(encryptedArchive);
   // Defensive guard: surface a clean error if encoding produced nothing,
   // so callers don't silently write a zero-byte backup file.
   // ignore: unnecessary_null_comparison
@@ -222,32 +265,26 @@ Future<String> exportFullBackup({
       finalFilePath = '$finalFilePath.zip';
     }
   } else {
-    final safeNickname =
-        sanitizeFileName(nickname.isEmpty ? 'account' : nickname);
-    final toxIdPrefix = normalizedToxId.length >= 8
-        ? normalizedToxId.substring(0, 8)
-        : normalizedToxId;
-    final fileName = '${safeNickname}_${toxIdPrefix}_backup.zip';
     final downloadsDir = await AppPaths.getDownloadsPath();
-    finalFilePath = p.join(downloadsDir, fileName);
+    finalFilePath = p.join(downloadsDir, buildFullBackupExportFileName());
   }
 
-  // 7. Write to file
+  // 7. Write to file atomically.
   final exportFile = File(finalFilePath);
-  final parentDir = exportFile.parent;
-  if (!await parentDir.exists()) {
-    await parentDir.create(recursive: true);
-  }
-  await exportFile.writeAsBytes(zipData);
+  await writeBytesAtomically(exportFile, zipData);
   AppLogger.log(
-      'Full backup exported: $finalFilePath (${zipData.length} bytes)');
+    'Full backup exported: $finalFilePath (${zipData.length} bytes)',
+  );
   return finalFilePath;
 }
 
 /// Reads toxId and nickname from a .zip backup without writing to disk.
 /// Use this to check account collisions before calling [importFullBackup].
 /// Throws if file is not a valid zip or toxId cannot be determined.
-Future<Map<String, String>> readFullBackupMetadata(String filePath) async {
+Future<Map<String, String>> readFullBackupMetadata(
+  String filePath, {
+  String? password,
+}) async {
   final file = File(filePath);
   if (!await file.exists()) {
     throw Exception('File not found: $filePath');
@@ -260,27 +297,40 @@ Future<Map<String, String>> readFullBackupMetadata(String filePath) async {
   if (fileData.isEmpty) {
     throw Exception('File is empty');
   }
-  final archive = ZipDecoder().decodeBytes(fileData);
+  final outerArchive = ZipDecoder().decodeBytes(fileData);
+  final archive = await openFullBackupArchive(
+    outerArchive: outerArchive,
+    password: password,
+  );
 
   String? toxId;
   String nickname = '';
 
   final metadataFile = archive.findFile('metadata.json');
   if (metadataFile != null) {
-    final metadataJson = utf8.decode(metadataFile.content as List<int>);
-    final metadata = json.decode(metadataJson) as Map<String, dynamic>;
-    toxId = metadata['toxId'] as String?;
+    final metadata = readArchiveMetadata(archive);
+    toxId = _metadataToxId(metadata);
     nickname = metadata['nickname'] as String? ?? '';
   }
 
   final profileFile = archive.findFile('tox_profile.tox');
-  if (profileFile != null && (toxId == null || toxId.isEmpty)) {
+  if (profileFile != null) {
     final toxProfile = Uint8List.fromList(profileFile.content as List<int>);
-    try {
-      toxId = extractToxIdFromProfile(toxProfile);
-    } catch (e) {
-      AppLogger.logError(
-          'readFullBackupMetadata: Error extracting toxId', e, null);
+    if (toxId == null || toxId.isEmpty) {
+      try {
+        toxId = _extractProfileToxId(toxProfile);
+      } catch (e) {
+        AppLogger.logError(
+          'readFullBackupMetadata: Error extracting toxId',
+          e,
+          null,
+        );
+      }
+    } else {
+      _requireProfileMatchesMetadata(
+        metadataToxId: toxId,
+        toxProfile: toxProfile,
+      );
     }
   }
 
@@ -320,7 +370,11 @@ Future<Map<String, dynamic>> importFullBackup({
     throw Exception('File is empty');
   }
 
-  final archive = ZipDecoder().decodeBytes(fileData);
+  final outerArchive = ZipDecoder().decodeBytes(fileData);
+  final archive = await openFullBackupArchive(
+    outerArchive: outerArchive,
+    password: password,
+  );
 
   // 1. Find and extract metadata.json
   Map<String, dynamic> metadata = {};
@@ -329,14 +383,10 @@ Future<Map<String, dynamic>> importFullBackup({
 
   final metadataFile = archive.findFile('metadata.json');
   if (metadataFile != null) {
-    final metadataJson = utf8.decode(metadataFile.content as List<int>);
-    metadata = json.decode(metadataJson) as Map<String, dynamic>;
+    metadata = readArchiveMetadata(archive);
     // Refuse backups produced by a newer toxee schema. Missing field is
     // treated as v1 (legacy backups predating the version field).
-    final rawVersion = metadata['formatVersion'];
-    final version = rawVersion is int
-        ? rawVersion
-        : int.tryParse(rawVersion?.toString() ?? '') ?? 1;
+    final version = backupFormatVersion(metadata);
     if (version > _kBackupFormatVersion) {
       AppLogger.warn(
         '[full_backup] import refused: backup formatVersion=$version exceeds supported=$_kBackupFormatVersion',
@@ -346,7 +396,7 @@ Future<Map<String, dynamic>> importFullBackup({
         '($_kBackupFormatVersion). Upgrade the app to import this backup.',
       );
     }
-    toxId = metadata['toxId'] as String?;
+    toxId = _metadataToxId(metadata);
     nickname = metadata['nickname'] as String? ?? '';
   }
 
@@ -359,11 +409,19 @@ Future<Map<String, dynamic>> importFullBackup({
     if (toxId == null || toxId.isEmpty) {
       // Extract toxId from profile
       try {
-        toxId = extractToxIdFromProfile(toxProfile);
+        toxId = _extractProfileToxId(toxProfile);
       } catch (e) {
         AppLogger.logError(
-            'Full backup import: Error extracting toxId', e, null);
+          'Full backup import: Error extracting toxId',
+          e,
+          null,
+        );
       }
+    } else {
+      _requireProfileMatchesMetadata(
+        metadataToxId: toxId,
+        toxProfile: toxProfile,
+      );
     }
   }
 
@@ -371,117 +429,25 @@ Future<Map<String, dynamic>> importFullBackup({
     throw Exception('Could not determine Tox ID from backup');
   }
 
-  // Preflight archive paths before writing any account files. This keeps a
-  // malicious or malformed backup from partially restoring profile data before
-  // an unsafe nested path is rejected.
-  final historyDir = await AppPaths.getAccountChatHistoryPath(toxId);
-  final avatarsDir = await AppPaths.getAccountAvatarsPath(toxId);
-  for (final entry in archive.files) {
-    if (!entry.isFile) continue;
-    if (entry.name.startsWith('chat_history/')) {
-      final relativePath = entry.name.substring('chat_history/'.length);
-      if (relativePath.isNotEmpty) {
-        safeBackupRestorePath(
-          baseDir: historyDir,
-          relativePath: relativePath,
-        );
-      }
-    } else if (entry.name.startsWith('avatars/')) {
-      final relativePath = entry.name.substring('avatars/'.length);
-      if (relativePath.isNotEmpty) {
-        safeBackupRestorePath(
-          baseDir: avatarsDir,
-          relativePath: relativePath,
-        );
-      }
-    }
-  }
+  return FullBackupRestoreTransaction.restore(
+    FullBackupRestoreInput(
+      toxId: toxId,
+      nickname: nickname,
+      archive: archive,
+      metadata: metadata,
+      toxProfile: toxProfile,
+    ),
+  );
+}
 
-  // 3. Write tox_profile.tox to per-account directory
-  if (toxProfile != null) {
-    final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-    await Directory(profileDir).create(recursive: true);
-    final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-    await File(profileFilePath).writeAsBytes(toxProfile);
-  }
+Future<void> finalizeFullBackupImport({required String toxId}) {
+  return FullBackupRestoreTransaction.finalizePendingRestore(toxId: toxId);
+}
 
-  // 4. Restore chat_history/
-  for (final entry in archive.files) {
-    if (entry.name.startsWith('chat_history/') && !entry.isFile) continue;
-    if (entry.name.startsWith('chat_history/') && entry.isFile) {
-      final relativePath = entry.name.substring('chat_history/'.length);
-      if (relativePath.isEmpty) continue;
-      final targetPath = safeBackupRestorePath(
-        baseDir: historyDir,
-        relativePath: relativePath,
-      );
-      final targetFile = File(targetPath);
-      await targetFile.parent.create(recursive: true);
-      await targetFile.writeAsBytes(entry.content as List<int>);
-    }
-  }
+Future<void> rollbackPendingFullBackupRestore({String? toxId}) {
+  return FullBackupRestoreTransaction.rollbackPendingRestore(toxId: toxId);
+}
 
-  // 4.5 Restore avatars/
-  for (final entry in archive.files) {
-    if (entry.name.startsWith('avatars/') && !entry.isFile) continue;
-    if (entry.name.startsWith('avatars/') && entry.isFile) {
-      final relativePath = entry.name.substring('avatars/'.length);
-      if (relativePath.isEmpty) continue;
-      final targetPath = safeBackupRestorePath(
-        baseDir: avatarsDir,
-        relativePath: relativePath,
-      );
-      final targetFile = File(targetPath);
-      await targetFile.parent.create(recursive: true);
-      await targetFile.writeAsBytes(entry.content as List<int>);
-    }
-  }
-
-  // 5. Restore offline_message_queue.json
-  final queueFile = archive.findFile('offline_message_queue.json');
-  if (queueFile != null) {
-    final queuePath = await AppPaths.getAccountOfflineQueueFilePath(toxId);
-    final targetFile = File(queuePath);
-    await targetFile.parent.create(recursive: true);
-    await targetFile.writeAsBytes(queueFile.content as List<int>);
-  }
-
-  // 6. Restore scoped prefs from metadata
-  final scopedPrefs = metadata['scopedPrefs'] as Map<String, dynamic>?;
-  if (scopedPrefs != null && scopedPrefs.isNotEmpty) {
-    // Convert relative avatar paths back to absolute paths for this machine
-    final accountDataRoot = await AppPaths.getAccountDataRoot(toxId);
-    for (final key in scopedPrefs.keys.toList()) {
-      if (key.contains('avatar_path') && scopedPrefs[key] is String) {
-        final val = scopedPrefs[key] as String;
-        if (val.startsWith('@account_data/')) {
-          final relPath = val.substring('@account_data/'.length);
-          try {
-            // Validate the metadata-derived path the same way archive file
-            // entries are validated — `p.join` does not normalize `..`, so a
-            // crafted `@account_data/../../../etc/...` value would otherwise
-            // be stored as a pref pointing outside the account data root and
-            // read later when rendering the avatar.
-            scopedPrefs[key] = safeBackupRestorePath(
-              baseDir: accountDataRoot,
-              relativePath: relPath,
-            );
-          } catch (_) {
-            scopedPrefs.remove(key);
-          }
-        } else {
-          // Non-portable absolute path (older backups / foreign machine).
-          // Don't restore a path that would dangle or escape this account.
-          scopedPrefs.remove(key);
-        }
-      }
-    }
-    await Prefs.importScopedPrefsForAccount(toxId, scopedPrefs);
-  }
-
-  return {
-    'toxId': toxId,
-    'nickname': nickname,
-    'toxProfile': toxProfile,
-  };
+Future<void> recoverPendingFullBackupRestore() {
+  return FullBackupRestoreTransaction.recoverPendingRestore();
 }
