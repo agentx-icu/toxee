@@ -288,69 +288,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// Dialog with password + confirm password; returns password if both match, null on cancel or mismatch.
-  Future<String?> _showConfirmPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              keyboardType: TextInputType.visiblePassword,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.newPassword],
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.password,
-                hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                prefixIcon: const Icon(Icons.lock_outline),
-              ),
-            ),
-            AppSpacing.verticalMd,
-            TextField(
-              controller: confirmController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              keyboardType: TextInputType.visiblePassword,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.newPassword],
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.confirmPassword,
-                prefixIcon: const Icon(Icons.lock_outline),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () {
-              final pwd = passwordController.text;
-              if (pwd != confirmController.text) {
-                AppSnackBar.showError(
-                  context,
-                  AppLocalizations.of(context)!.passwordsDoNotMatch,
-                );
-                return;
-              }
-              popDialogIfCurrent(context, pwd);
-            },
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _quickLogin(Map<String, String> account) async {
     final toxId = account['toxId'];
     if (toxId == null || toxId.isEmpty) return;
@@ -648,8 +585,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _importToxProfile() async {
     final l10n = AppLocalizations.of(context)!;
     final result = await _loginController.importAccount(
-      requestPassword: () =>
-          _showConfirmPasswordDialog(l10n.enterPasswordToImport),
+      requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
       importedAccountDefaultName: l10n.importedAccountDefaultName,
     );
     if (!mounted) return;
@@ -668,6 +604,7 @@ class _LoginPageState extends State<LoginPage> {
         final message = switch (kind) {
           ImportFailureKind.noFileSelected => localized.importNoFileSelected,
           ImportFailureKind.cancelled => localized.importCancelled,
+          ImportFailureKind.invalidPassword => localized.invalidPassword,
           ImportFailureKind.accountAlreadyExists =>
             localized.accountAlreadyExists,
           ImportFailureKind.generalError => localized.failedToImport(
