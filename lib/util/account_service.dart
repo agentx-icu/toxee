@@ -12,6 +12,7 @@ import '../adapters/logger_adapter.dart';
 import '../adapters/bootstrap_adapter.dart';
 import 'prefs.dart';
 import 'prefs_upgrader.dart';
+import 'account_deletion.dart';
 import 'account_scratch_storage.dart';
 import 'app_paths.dart';
 import 'account_export_service.dart';
@@ -21,7 +22,6 @@ import 'group_member_list_debouncer.dart';
 import 'irc_app_manager.dart';
 import 'logger.dart';
 import 'short_tox_id_backfill.dart';
-import 'tox_utils.dart';
 
 /// Result from [AccountService.registerNewAccount].
 class RegisterResult {
@@ -34,6 +34,65 @@ class RegisterResult {
     required this.toxId,
     required this.profileDirectory,
   });
+}
+
+enum AccountTeardownStage { profileReEncryption }
+
+final class AccountTeardownFailure implements Exception {
+  const AccountTeardownFailure({
+    required this.toxId,
+    required this.stage,
+    required this.cause,
+    required this.stackTrace,
+  });
+
+  final String toxId;
+  final AccountTeardownStage stage;
+  final Object cause;
+  final StackTrace stackTrace;
+
+  @override
+  String toString() {
+    return 'Account teardown failed at ${stage.name} for $toxId: $cause';
+  }
+}
+
+abstract final class AccountTeardownTestHooks {
+  AccountTeardownTestHooks._();
+
+  @visibleForTesting
+  static Future<void> Function(FfiChatService service)? shutdownIrcSession;
+
+  @visibleForTesting
+  static Future<void> Function(FfiChatService service)? disposeService;
+
+  @visibleForTesting
+  static Future<void> Function(String profilePath, String password)?
+  encryptProfileFile;
+
+  @visibleForTesting
+  static void reset() {
+    shutdownIrcSession = null;
+    disposeService = null;
+    encryptProfileFile = null;
+  }
+}
+
+abstract final class AccountRegistrationTestHooks {
+  AccountRegistrationTestHooks._();
+
+  @visibleForTesting
+  static Future<void> Function(FfiChatService service)? disposeService;
+
+  @visibleForTesting
+  static Future<void> Function(String profilePath, String password)?
+  encryptProfileFile;
+
+  @visibleForTesting
+  static void reset() {
+    disposeService = null;
+    encryptProfileFile = null;
+  }
 }
 
 /// Calculate text length where Chinese characters count as 1, and
@@ -113,7 +172,12 @@ class AccountService {
     // still alive (before dispose below). Falls back to a plain cache reset when
     // there is no live service to drive the native teardown.
     if (service != null) {
-      await IrcAppManager().shutdownSession(service);
+      final shutdownIrcSession = AccountTeardownTestHooks.shutdownIrcSession;
+      if (shutdownIrcSession != null) {
+        await shutdownIrcSession(service);
+      } else {
+        await IrcAppManager().shutdownSession(service);
+      }
     } else {
       IrcAppManager().resetCache();
     }
@@ -121,7 +185,12 @@ class AccountService {
     // 4. Dispose service
     if (service != null) {
       try {
-        await service.dispose();
+        final disposeService = AccountTeardownTestHooks.disposeService;
+        if (disposeService != null) {
+          await disposeService(service);
+        } else {
+          await service.dispose();
+        }
       } catch (e, st) {
         AppLogger.logError(
           '[AccountService] teardown: service.dispose error',
@@ -140,16 +209,22 @@ class AccountService {
         final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
         final profilePath = AppPaths.profileFileInDirectory(profileDir);
         if (await File(profilePath).exists()) {
-          await AccountExportService.encryptProfileFile(
-            profilePath,
-            sessionPassword,
-          );
+          final encryptProfileFile =
+              AccountTeardownTestHooks.encryptProfileFile ??
+              AccountExportService.encryptProfileFile;
+          await encryptProfileFile(profilePath, sessionPassword);
         }
       } catch (e, st) {
         AppLogger.logError(
           '[AccountService] teardown: re-encrypt profile error',
           e,
           st,
+        );
+        throw AccountTeardownFailure(
+          toxId: toxId,
+          stage: AccountTeardownStage.profileReEncryption,
+          cause: e,
+          stackTrace: st,
         );
       }
     }
@@ -233,6 +308,7 @@ class AccountService {
     String? password,
     bool startPolling = true,
   }) async {
+    await throwIfAccountDeleting(toxId);
     final previousAccount = await Prefs.getCurrentAccountToxId();
     // Snapshot the global nickname/statusMessage/avatarPath so we can roll
     // them back alongside `currentAccountToxId` if init fails. `_UserAvatar`
@@ -264,7 +340,6 @@ class AccountService {
       );
       final fileRecvPath = await AppPaths.getAccountFileRecvPath(toxId);
       final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
-      final scratchStorage = await _scratchStorageForAccount(toxId);
       await Directory(historyDirectory).create(recursive: true);
       await Directory(avatarsPath).create(recursive: true);
 
@@ -310,7 +385,6 @@ class AccountService {
         queueFilePath: queueFilePath,
         fileRecvPath: fileRecvPath,
         avatarsPath: avatarsPath,
-        scratchFileService: scratchStorage,
       );
 
       await service.init(profileDirectory: profileDir);
@@ -337,6 +411,9 @@ class AccountService {
       // outer `canonicalToxId` across awaits, but the value is known
       // non-null at this point and the catch path reads the outer var.
       final activeToxId = canonicalToxId;
+      service.installScratchFileService(
+        await _scratchStorageForAccount(activeToxId),
+      );
 
       if (nickname != null) {
         await service.updateSelfProfile(
@@ -644,8 +721,11 @@ class AccountService {
         await svc.dispose();
         service = null;
         final profilePath = AppPaths.profileFileInDirectory(profileDir);
-        await (encryptProfileFileOverride ??
-            AccountExportService.encryptProfileFile)(profilePath, password);
+        final encryptProfileFile =
+            encryptProfileFileOverride ??
+            AccountRegistrationTestHooks.encryptProfileFile ??
+            AccountExportService.encryptProfileFile;
+        await encryptProfileFile(profilePath, password);
         await AccountExportService.decryptProfileFile(profilePath, password);
 
         final prefsForNew = await SharedPreferences.getInstance();
@@ -697,7 +777,14 @@ class AccountService {
     } catch (e, st) {
       AppLogger.logError('[AccountService] Register failed', e, st);
       try {
-        await service?.dispose();
+        if (service != null) {
+          final disposeService = AccountRegistrationTestHooks.disposeService;
+          if (disposeService != null) {
+            await disposeService(service);
+          } else {
+            await service.dispose();
+          }
+        }
       } catch (de) {
         AppLogger.warn(
           '[AccountService] Register: dispose during error rollback failed: $de',
@@ -764,162 +851,58 @@ class AccountService {
 
   /// Completely delete an account with a running service.
   ///
-  /// Performs comprehensive cleanup: SDK teardown, prefs, password hash,
-  /// session store, profile directory, and account data directory.
-  static Future<void> deleteAccountCompletely({
+  /// A durable tombstone is written before the service or filesystem is touched.
+  /// Failures leave the tombstone pending for cold-start retry, and account-list
+  /// visibility is removed only after password, prefs, profile, and account-data
+  /// cleanup all succeed.
+  static Future<AccountDeletionResult> deleteAccountCompletely({
     required FfiChatService service,
     required String toxId,
   }) async {
-    // 1. Clear service-level data BEFORE teardown — once teardown disposes
-    // the service, account-level cleanup (SQLite, file locks) can no longer
-    // run. Order matters: must be called on a still-live service.
-    try {
-      await service.clearAllAccountData();
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AccountService] clearAllAccountData before teardown failed',
-        e,
-        st,
-      );
-    }
-
-    // 2. Teardown without re-encrypting (we're deleting the profile)
-    await teardownCurrentSession(service: service, reEncryptProfile: false);
-
-    // 3-5. Clear prefs (includes scoped keys + password hash)
-    await Prefs.clearAccountData(toxId);
-
-    // 6. Remove from account list
-    await Prefs.removeAccount(toxId);
-
-    // 7. Clear session password store
-    SessionPasswordStore.clear(toxId);
-
-    // 8. Delete profile directory
-    try {
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final dir = Directory(profileDir);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AccountService] Failed to delete profile directory',
-        e,
-        st,
-      );
-    }
-
-    // 9. Delete account data directory
-    try {
-      await _deleteAccountDataRoots(toxId);
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AccountService] Failed to delete account data directory',
-        e,
-        st,
-      );
-    }
-
-    // 10. Clean up UIKit failed message keys
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-      final allKeys = prefs.getKeys().toList();
-      for (final key in allKeys) {
-        if (key.contains('tencent_cloud_chat_failed_messages') &&
-            key.contains(prefix)) {
-          await prefs.remove(key);
-        }
-      }
-    } catch (e) {
-      AppLogger.warn(
-        '[AccountService] failed to clean UIKit failed-message prefs: $e',
-      );
-    }
-
-    // 11. Clear current account ID
-    await Prefs.setCurrentAccountToxId(null);
+    final result = await AccountDeletionCoordinator.deleteAccount(
+      toxId: toxId,
+      serviceCleanup: () async {
+        await service.clearAllAccountData();
+        await teardownCurrentSession(service: service, reEncryptProfile: false);
+        SessionPasswordStore.clear(toxId);
+      },
+    );
+    _throwIfDeletionPending(result);
+    return result;
   }
 
   /// Delete an account from the login page (no running service).
   ///
   /// Performs the same cleanup as [deleteAccountCompletely] but skips
   /// service-level teardown since no service is running.
-  static Future<void> deleteAccountWithoutService({
+  static Future<AccountDeletionResult> deleteAccountWithoutService({
     required String toxId,
   }) async {
-    // Clear prefs (includes scoped keys + password hash)
-    await Prefs.clearAccountData(toxId);
-
-    // Remove from account list
-    await Prefs.removeAccount(toxId);
-
-    // Clear session password store
-    SessionPasswordStore.clear(toxId);
-
-    // Delete profile directory
-    try {
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final dir = Directory(profileDir);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AccountService] Failed to delete profile directory',
-        e,
-        st,
-      );
+    final result = await AccountDeletionCoordinator.deleteAccount(toxId: toxId);
+    if (result.completed) {
+      SessionPasswordStore.clear(toxId);
     }
-
-    // Delete account data directory
-    try {
-      await _deleteAccountDataRoots(toxId);
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AccountService] Failed to delete account data directory',
-        e,
-        st,
-      );
-    }
-
-    // Clean up UIKit failed message keys
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-      final allKeys = prefs.getKeys().toList();
-      for (final key in allKeys) {
-        if (key.contains('tencent_cloud_chat_failed_messages') &&
-            key.contains(prefix)) {
-          await prefs.remove(key);
-        }
-      }
-    } catch (e) {
-      AppLogger.warn(
-        '[AccountService] failed to clean UIKit failed-message prefs: $e',
-      );
-    }
-
-    // Clear current account ID if we just deleted the active account, so a
-    // subsequent cold start does not try to load this profile.
-    final current = await Prefs.getCurrentAccountToxId();
-    if (current != null && compareToxIds(current, toxId)) {
-      await Prefs.setCurrentAccountToxId(null);
-    }
+    _throwIfDeletionPending(result);
+    return result;
   }
 
-  static Future<void> _deleteAccountDataRoots(String toxId) async {
-    final roots = <String>{
-      p.normalize(p.absolute(await AppPaths.getAccountDataRoot(toxId))),
-      p.normalize(p.absolute(await AppPaths.getAccountScratchDataRoot(toxId))),
-    };
-    for (final root in roots) {
-      final directory = Directory(root);
-      if (await directory.exists()) {
-        await directory.delete(recursive: true);
-      }
-    }
+  static Future<List<AccountDeletionResult>> recoverPendingAccountDeletions() {
+    return AccountDeletionCoordinator.recoverPendingDeletions();
+  }
+
+  static Future<void> throwIfAccountDeleting(String toxId) {
+    return AccountDeletionCoordinator.throwIfDeleting(toxId);
+  }
+
+  static Future<AccountScratchStorage> createScratchStorageForAccount(
+    String toxId,
+  ) {
+    return _scratchStorageForAccount(toxId);
+  }
+
+  static void _throwIfDeletionPending(AccountDeletionResult result) {
+    final failure = result.failure;
+    if (failure != null) throw failure;
   }
 
   static Future<AccountScratchStorage> _scratchStorageForAccount(
@@ -932,5 +915,26 @@ class AccountService {
     await Directory(storage.scratchRoot).create(recursive: true);
     await AppPaths.markExcludedFromBackup(storage.scratchRoot);
     return storage;
+  }
+
+  static Future<void> _deleteAccountDataRoots(String toxId) async {
+    final roots = <String>{
+      p.normalize(p.absolute(await AppPaths.getAccountDataRoot(toxId))),
+    };
+    try {
+      roots.add(
+        p.normalize(
+          p.absolute(await AppPaths.getAccountScratchDataRoot(toxId)),
+        ),
+      );
+    } on ArgumentError {
+      // Legacy short IDs have no full-ID scratch root.
+    }
+    for (final root in roots) {
+      final directory = Directory(root);
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    }
   }
 }
