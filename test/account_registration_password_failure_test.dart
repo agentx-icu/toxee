@@ -34,6 +34,7 @@ void main() {
   setUp(() async {
     env = await setUpAccountExportTestEnv();
     SessionPasswordStore.clear();
+    AccountRegistrationTestHooks.reset();
     passwordWriteToxId = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
@@ -68,6 +69,7 @@ void main() {
   tearDown(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, null);
+    AccountRegistrationTestHooks.reset();
     SessionPasswordStore.clear();
     await env.dispose();
   });
@@ -88,6 +90,15 @@ void main() {
       final previousRegistry = await Prefs.getAccountList();
 
       var encryptionCalls = 0;
+      var disposeCalls = 0;
+      AccountRegistrationTestHooks.encryptProfileFile = (_, __) async {
+        encryptionCalls++;
+      };
+      AccountRegistrationTestHooks.disposeService = (service) async {
+        disposeCalls++;
+        await service.dispose();
+      };
+
       Object? registrationError;
       RegisterResult? unexpectedResult;
       try {
@@ -95,9 +106,6 @@ void main() {
           nickname: 'Verifier Failure',
           statusMessage: 'Must roll back',
           password: 'registration-password',
-          encryptProfileFileOverride: (_, __) async {
-            encryptionCalls++;
-          },
         );
       } catch (error) {
         registrationError = error;
@@ -168,8 +176,8 @@ void main() {
       expect(await Prefs.getStatusMessage(), 'Previous status');
       expect(await Prefs.getAvatarPath(), '/previous/avatar.png');
       expect(
-        Tim2ToxFfi.open().isInstanceInitialized(0),
-        0,
+        disposeCalls,
+        1,
         reason: 'the failed registration service must be disposed',
       );
 

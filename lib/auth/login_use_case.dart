@@ -69,6 +69,7 @@ class LoginUseCase {
 
     final toxIdForLogin = account?['toxId'];
     if (toxIdForLogin != null && toxIdForLogin.isNotEmpty) {
+      await AccountService.throwIfAccountDeleting(toxIdForLogin);
       final hasPassword = await Prefs.hasAccountPassword(toxIdForLogin);
       if (hasPassword) {
         final password = params.password ?? '';
@@ -86,13 +87,16 @@ class LoginUseCase {
         nickname: nickname,
         statusMessage: statusMessage,
         password: params.password,
-        startPolling: false, // caller (e.g. login page) will call AppBootstrapCoordinator.boot(service) before navigating to HomePage
+        startPolling:
+            false, // caller (e.g. login page) will call AppBootstrapCoordinator.boot(service) before navigating to HomePage
       );
 
       await Prefs.setNickname(nickname);
       await Prefs.setStatusMessage(statusMessage);
 
-      final avatarForAccount = account != null ? (account['avatarPath'] ?? '') : '';
+      final avatarForAccount = account != null
+          ? (account['avatarPath'] ?? '')
+          : '';
       // Use toxIdForLogin (existing account key) so we update the list entry instead of
       // being treated as a new account; service.selfId may differ in format (e.g. 76 vs 64 chars).
       // Skip the lastLoginTime bump here; the caller is responsible for
@@ -125,7 +129,9 @@ class LoginUseCase {
     );
     await legacyService.init();
     await legacyService.login(
-        userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
+      userId: 'FlutterUIKitClient',
+      userSig: 'dummy_sig',
+    );
     // `selfId` returns the V2TIM login `userId` we just passed in (the
     // `FlutterUIKitClient` placeholder), NOT the Tox identity. For any
     // toxId-keyed persistence (account record, current-account pointer,
@@ -136,12 +142,17 @@ class LoginUseCase {
     final toxId = legacyService.getSelfToxId();
     if (toxId == null || toxId.isEmpty) {
       throw StateError(
-          'LoginUseCase: getSelfToxId() returned null after login — the '
-          'Tox FFI did not produce a self address. Refusing to persist an '
-          'account record under a placeholder identity.');
+        'LoginUseCase: getSelfToxId() returned null after login — the '
+        'Tox FFI did not produce a self address. Refusing to persist an '
+        'account record under a placeholder identity.',
+      );
     }
+    legacyService.installScratchFileService(
+      await AccountService.createScratchStorageForAccount(toxId),
+    );
     legacyPrefsAdapter.setAccountPrefix(
-        toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length));
+      toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length),
+    );
     // Apply the profile BEFORE persisting any durable prefs (mirrors the
     // StartupSessionUseCase auto-login path). updateSelfProfile only needs the
     // account prefix set above; persisting the nickname / current-account
@@ -151,7 +162,9 @@ class LoginUseCase {
     // keeps the failure path clean — nothing is persisted unless the profile
     // applied.
     await legacyService.updateSelfProfile(
-        nickname: nickname, statusMessage: statusMessage);
+      nickname: nickname,
+      statusMessage: statusMessage,
+    );
     await Prefs.setNickname(nickname);
     await Prefs.setStatusMessage(statusMessage);
     await Prefs.setCurrentAccountToxId(toxId);
