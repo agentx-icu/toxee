@@ -8,4 +8,8 @@
 library;
 
 export 'account_export/account_export_service.dart'
-    show AccountExportService, PasswordRequiredException;
+    show
+        AccountExportService,
+        InvalidBackupFormatException,
+        InvalidBackupPasswordException,
+        PasswordRequiredException;

@@ -2,11 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
-import 'ffi_chat_service_account_key.dart';
 
-import 'app_paths.dart';
 import 'bootstrap_node_ensurer.dart';
 import 'irc_app_manager.dart';
+import 'ios_backup_policy.dart';
 import 'logger.dart';
 import 'locale_controller.dart';
 import '../call/bg_refresh_bridge.dart';
@@ -59,26 +58,26 @@ class AppBootstrapCoordinator {
       unawaited(_startAndroidForegroundService());
     }
 
-    // iOS: now that the account is logged in and toxId is known, mark the
-    // regenerable / private-key directories excluded from iCloud / iTunes
-    // backup (H8 part 1, 2026-05-19 persistence review).
+    // iOS: now that the account is logged in and toxId is known, apply the
+    // account backup policy (H8 part 1, 2026-05-19 persistence review).
     //   - file_recv: derivable received-file scratch space; should not bloat
     //     backups.
-    //   - tim2tox/: holds the tox profile (private key). Excluded so it
-    //     never leaves the device through iCloud. The chat history directory
-    //     is intentionally NOT excluded — that's the user's irreplaceable
-    //     data and must remain restorable.
+    //   - active profile root / p_<prefix>: holds the tox profile (private
+    //     key). Its exclusion is awaited and a failure aborts boot so the
+    //     caller can present the existing retry/error UI.
+    // The chat history and offline queue are intentionally NOT excluded —
+    // they are user data and remain restorable.
     if (Platform.isIOS) {
-      // `accountKey` returns the real 76-char Tox address; the iOS backup
-      // exclusion paths are derived via `AppPaths.getAccountFileRecvPath(toxId)`
-      // etc., which compute account-scoped directories from the first 16
-      // chars of the toxId. Passing `selfId` (the V2TIM placeholder) would
-      // mark the wrong directory tree (the placeholder-keyed one) for
-      // iCloud exclusion — harmless but pointless.
-      final toxId = service.accountKey;
-      if (toxId.isNotEmpty) {
-        unawaited(_markIosPostLoginExclusions(toxId));
+      // Only the real Tox address may identify persistent profile paths.
+      // accountKey/selfId can fall back to the V2TIM `FlutterUIKitClient`
+      // placeholder, which would mark the wrong p_<prefix> directory.
+      final toxId = service.getSelfToxId();
+      if (toxId == null || toxId.trim().isEmpty) {
+        throw StateError(
+          'Cannot apply iOS backup policy without the real account Tox ID',
+        );
       }
+      await IosPostLoginBackupExcluder(isIos: true).apply(toxId);
       _wireIosBgRefresh(service);
     }
   }
@@ -139,26 +138,6 @@ class AppBootstrapCoordinator {
       AppLogger.logError(
           '[AppBootstrapCoordinator] foreground service start failed '
           '(non-fatal — background polling may be killed by the OS)',
-          e,
-          st);
-    }
-  }
-
-  static Future<void> _markIosPostLoginExclusions(String toxId) async {
-    try {
-      final fileRecv = await AppPaths.getAccountFileRecvPath(toxId);
-      await AppPaths.markExcludedFromBackup(fileRecv);
-      final profileDir = (await AppPaths.toxProfileDir).path;
-      await AppPaths.markExcludedFromBackup(profileDir);
-      // Avatar cache is fully regenerable from peers / self profile —
-      // excluding it from iCloud backup keeps the user's backup size down
-      // without losing any unrecoverable data.
-      final avatarsDir = await AppPaths.getAccountAvatarsPath(toxId);
-      await AppPaths.markExcludedFromBackup(avatarsDir);
-    } catch (e, st) {
-      AppLogger.logError(
-          '[AppBootstrapCoordinator] iOS backup-exclusion marking failed '
-          '(non-fatal)',
           e,
           st);
     }

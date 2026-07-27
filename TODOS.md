@@ -52,17 +52,6 @@ Effort notation: **CC** = a Claude-Code-assisted working day (~30-60 min focused
 - **Priority:** P3 (phase-3 after multi-instance ships).
 - **Depends on / blocked by:** Identity-portability PR 4 (multi-instance) under Outcome X or Y.
 
-### 5. `account_export_service.dart` split refactor (35KB → modular)
-
-- **What:** Split `lib/util/account_export_service.dart` (~1000 LOC, 35KB) into focused modules: encryption wrappers, profile structure parsing, .tox file I/O, FFI plumbing, exception types.
-- **Why:** File is well past `tool/check_complexity.dart`'s 500-LOC warn threshold. CLAUDE.md says the complexity guard is currently warn-only but "the long-term direction is enforcement." This file is one of the highest-risk hot-spots for review-blocking growth.
-- **Pros:** Each chunk independently testable. Easier code review on the export/import touch points (which are security-sensitive). Aligns with project convention.
-- **Cons:** Pure refactor; no user-visible change. ~3-5 CC days. Carries regression risk if not test-covered first.
-- **Context:** Surfaced in 2026-05-15 CEO review Section 5 (Code Quality). The file already has thorough text-trail logging that test coverage can lean on; missing piece is end-to-end test fixture for encrypted/unencrypted/qTox-format roundtrip.
-- **Effort:** M (~3-5 CC days, mostly test-writing).
-- **Priority:** P2 (do before identity-portability PR 1 starts so the wizard work touches a sane file, OR immediately after PR 1 ships).
-- **Depends on / blocked by:** None; standalone refactor.
-
 ### 6. `multi_instance_concurrent_active_count` observability metric
 
 - **What:** Emit a periodic counter (every 60s) of currently-loaded concurrent accounts, plus a high-water-mark gauge. Surfaces in `AppLogger` and in any future telemetry (currently no Sentry/equivalent shipped).

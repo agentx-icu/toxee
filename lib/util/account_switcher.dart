@@ -34,6 +34,7 @@ class AccountSwitcher {
       if (targetAccountMap == null) {
         throw Exception('Target account not found');
       }
+      await AccountService.throwIfAccountDeleting(targetToxId);
       final targetAccount = AccountSummary.fromMap(targetAccountMap);
 
       // 1. Check if target account has a password
@@ -44,7 +45,10 @@ class AccountSwitcher {
         if (password == null) {
           return;
         }
-        final isValid = await Prefs.verifyAccountPassword(targetToxId, password);
+        final isValid = await Prefs.verifyAccountPassword(
+          targetToxId,
+          password,
+        );
         if (!isValid) {
           throw Exception('Invalid password');
         }
@@ -90,14 +94,13 @@ class AccountSwitcher {
       // V2TIM `selfId` is always the same placeholder string, so comparing
       // it with `targetToxId` would always mismatch — use the real address.
       final actualToxId = newService.getSelfToxId() ?? '';
-      if (actualToxId.isNotEmpty &&
-          !compareToxIds(actualToxId, targetToxId)) {
+      if (actualToxId.isNotEmpty && !compareToxIds(actualToxId, targetToxId)) {
         // Log warning but continue
       }
 
       // 7. Navigate to HomePage
       if (context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
+        await Navigator.of(context).pushAndRemoveUntil(
           AppPageRoute(page: HomePage(service: newService)),
           (route) => false,
         );
@@ -110,12 +113,14 @@ class AccountSwitcher {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppLocalizations.of(context)!.failedToSwitchAccount(e.toString())),
+            content: Text(
+              AppLocalizations.of(context)!.failedToSwitchAccount(e.toString()),
+            ),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
         if (currentSessionDisposed) {
-          Navigator.of(context).pushAndRemoveUntil(
+          await Navigator.of(context).pushAndRemoveUntil(
             AppPageRoute(page: const LoginPage()),
             (route) => false,
           );
@@ -125,12 +130,17 @@ class AccountSwitcher {
     }
   }
 
-  static Future<String?> _showPasswordDialog(BuildContext context, String nickname) async {
+  static Future<String?> _showPasswordDialog(
+    BuildContext context,
+    String nickname,
+  ) async {
     final passwordController = TextEditingController();
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.enterPasswordForAccount(nickname)),
+        title: Text(
+          AppLocalizations.of(context)!.enterPasswordForAccount(nickname),
+        ),
         content: TextField(
           controller: passwordController,
           obscureText: true,
@@ -146,7 +156,8 @@ class AccountSwitcher {
             child: Text(AppLocalizations.of(context)!.cancel),
           ),
           TextButton(
-            onPressed: () => popDialogIfCurrent(context, passwordController.text),
+            onPressed: () =>
+                popDialogIfCurrent(context, passwordController.text),
             child: Text(AppLocalizations.of(context)!.ok),
           ),
         ],

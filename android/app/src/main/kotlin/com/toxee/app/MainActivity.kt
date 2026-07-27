@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +27,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        clearExpiredIncomingCallWindowResidue()
         updateIncomingCallLockScreen(intent)
     }
 
@@ -96,8 +98,8 @@ class MainActivity : FlutterActivity() {
                             return@setMethodCallHandler
                         }
                         val nonceDigest = sha256Hex(token)
-                        val storedNonceDigest = incomingCallWindowPrefs()
-                            .getString(INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY, null)
+                        val storedNonceDigest = incomingCallWindowStorage()
+                            .getString(IncomingCallWindowLeaseStore.NONCE_DIGEST_KEY)
                         if (!constantTimeEquals(nonceDigest, storedNonceDigest)) {
                             clearIncomingCallWindowState()
                             result.error(
@@ -111,8 +113,15 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "clearIncomingCallWindow" -> {
-                        clearIncomingCallWindowState()
-                        result.success(null)
+                        if (clearIncomingCallWindowState()) {
+                            result.success(null)
+                        } else {
+                            result.error(
+                                "CLEAR_FAILED",
+                                "Could not clear incoming-call window lease",
+                                null,
+                            )
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -121,77 +130,43 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun updateIncomingCallLockScreen(intent: Intent?) {
-        setIncomingCallLockScreenEnabled(consumeValidIncomingCallWindowLease(intent))
+        setIncomingCallLockScreenEnabled(isIncomingCallNotificationIntent(intent))
     }
 
-    private fun consumeValidIncomingCallWindowLease(intent: Intent?): Boolean {
-        if (intent?.action != FLUTTER_LOCAL_NOTIFICATIONS_SELECT_ACTION) return false
-        val rawPayload = intent.getStringExtra(FLUTTER_LOCAL_NOTIFICATIONS_PAYLOAD_EXTRA)
-            ?: return false
-        if (!rawPayload.startsWith(INCOMING_CALL_PAYLOAD_PREFIX)) return false
-        val payload = incomingCallWindowPayload(rawPayload) ?: return failIncomingCallWindowLease()
-        val prefs = incomingCallWindowPrefs()
-        val storedNonceDigest = prefs.getString(INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY, null)
-        val storedCallDigest = prefs.getString(INCOMING_CALL_WINDOW_CALL_DIGEST_PREF_KEY, null)
-        val expiresAtMs = try {
-            prefs.getLong(INCOMING_CALL_WINDOW_EXPIRES_AT_PREF_KEY, Long.MIN_VALUE)
-        } catch (_: ClassCastException) {
-            Long.MIN_VALUE
+    private fun isIncomingCallNotificationIntent(intent: Intent?): Boolean {
+        val payload = intent?.getStringExtra(FLUTTER_LOCAL_NOTIFICATIONS_PAYLOAD_EXTRA)
+        val granted = IncomingCallWindowLeaseStore.consume(
+            storage = incomingCallWindowStorage(),
+            action = intent?.action,
+            payload = payload,
+            activeNonceDigest = activeIncomingCallWindowNonceDigest,
+            nowEpochMs = System.currentTimeMillis(),
+        )
+        if (granted) {
+            activeIncomingCallWindowNonceDigest = null
         }
-        if (expiresAtMs <= System.currentTimeMillis()) {
-            return failIncomingCallWindowLease()
-        }
+        return granted
+    }
 
-        val nonceDigest = sha256Hex(payload.nonce)
-        val activeNonceDigest = activeIncomingCallWindowNonceDigest
-        if (activeNonceDigest != null && !constantTimeEquals(nonceDigest, activeNonceDigest)) {
-            return failIncomingCallWindowLease()
-        }
-        if (!constantTimeEquals(nonceDigest, storedNonceDigest)) {
-            return failIncomingCallWindowLease()
-        }
-        if (!constantTimeEquals(callDigest(payload.callId), storedCallDigest)) {
-            return failIncomingCallWindowLease()
-        }
-
-        clearIncomingCallWindowLease()
+    private fun clearIncomingCallWindowState(): Boolean {
         activeIncomingCallWindowNonceDigest = null
-        return true
-    }
-
-    private fun incomingCallWindowPayload(payload: String): IncomingCallWindowPayload? {
-        val separator = payload.lastIndexOf(':')
-        if (separator <= INCOMING_CALL_PAYLOAD_PREFIX.length) return null
-        val callId = payload.substring(INCOMING_CALL_PAYLOAD_PREFIX.length, separator)
-        if (callId.isBlank()) return null
-        val nonce = payload.substring(separator + 1).takeIf { it.isNotBlank() } ?: return null
-        return IncomingCallWindowPayload(callId, nonce)
-    }
-
-    private fun failIncomingCallWindowLease(): Boolean {
-        clearIncomingCallWindowLease()
-        activeIncomingCallWindowNonceDigest = null
-        return false
-    }
-
-    private fun clearIncomingCallWindowState() {
-        activeIncomingCallWindowNonceDigest = null
-        clearIncomingCallWindowLease()
+        val cleared = IncomingCallWindowLeaseStore.clearAll(incomingCallWindowStorage())
         setIncomingCallLockScreenEnabled(false)
+        return cleared
     }
 
-    private fun clearIncomingCallWindowLease() {
-        incomingCallWindowPrefs()
-            .edit()
-            .remove(INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY)
-            .remove(INCOMING_CALL_WINDOW_CALL_DIGEST_PREF_KEY)
-            .remove(INCOMING_CALL_WINDOW_EXPIRES_AT_PREF_KEY)
-            .apply()
+    private fun clearExpiredIncomingCallWindowResidue() {
+        IncomingCallWindowLeaseStore.clearExpiredOrLegacyResidue(
+            incomingCallWindowStorage(),
+            System.currentTimeMillis(),
+        )
     }
 
-    private fun incomingCallWindowPrefs() = applicationContext.getSharedPreferences(
-        FLUTTER_SHARED_PREFERENCES_NAME,
-        Context.MODE_PRIVATE,
+    private fun incomingCallWindowStorage() = SharedPreferencesIncomingCallWindowLeaseStorage(
+        applicationContext.getSharedPreferences(
+            IncomingCallWindowLeaseStore.FLUTTER_SHARED_PREFERENCES_NAME,
+            Context.MODE_PRIVATE,
+        ),
     )
 
     private fun setIncomingCallLockScreenEnabled(enabled: Boolean) {
@@ -209,16 +184,6 @@ class MainActivity : FlutterActivity() {
         } else {
             window.clearFlags(flags)
         }
-    }
-
-    private fun callDigest(callId: String): String {
-        val domain = INCOMING_CALL_WINDOW_CALL_DIGEST_DOMAIN.toByteArray(Charsets.UTF_8)
-        val call = callId.toByteArray(Charsets.UTF_8)
-        val bytes = ByteArray(domain.size + 1 + call.size)
-        System.arraycopy(domain, 0, bytes, 0, domain.size)
-        bytes[domain.size] = 0
-        System.arraycopy(call, 0, bytes, domain.size + 1, call.size)
-        return sha256Hex(bytes)
     }
 
     private fun sha256Hex(value: String): String =
@@ -241,6 +206,37 @@ class MainActivity : FlutterActivity() {
             left.toByteArray(Charsets.UTF_8),
             right.toByteArray(Charsets.UTF_8),
         )
+    }
+
+    private class SharedPreferencesIncomingCallWindowLeaseStorage(
+        private val prefs: SharedPreferences,
+    ) : IncomingCallWindowLeaseStorage {
+        override fun contains(key: String): Boolean = prefs.contains(key)
+
+        override fun getString(key: String): String? {
+            return try {
+                prefs.getString(key, null)
+            } catch (_: ClassCastException) {
+                null
+            }
+        }
+
+        override fun getLong(key: String): Long? {
+            if (!prefs.contains(key)) return null
+            return try {
+                prefs.getLong(key, 0L)
+            } catch (_: ClassCastException) {
+                null
+            }
+        }
+
+        override fun remove(keys: Collection<String>): Boolean {
+            val editor = prefs.edit()
+            for (key in keys) {
+                editor.remove(key)
+            }
+            return editor.commit()
+        }
     }
 
     private fun saveImageToGallery(path: String, result: MethodChannel.Result) {
@@ -324,26 +320,10 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    private data class IncomingCallWindowPayload(
-        val callId: String,
-        val nonce: String,
-    )
-
     private companion object {
         const val QR_SAVE_PERMISSION_REQUEST = 0x7172
-        const val FLUTTER_LOCAL_NOTIFICATIONS_SELECT_ACTION = "SELECT_NOTIFICATION"
         const val FLUTTER_LOCAL_NOTIFICATIONS_PAYLOAD_EXTRA = "payload"
-        const val INCOMING_CALL_PAYLOAD_PREFIX = "incoming_call:"
         const val INCOMING_CALL_WINDOW_TOKEN_ARG = "token"
-        const val FLUTTER_SHARED_PREFERENCES_NAME = "FlutterSharedPreferences"
-        const val INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY =
-            "flutter.toxee_incoming_call_window_token"
-        const val INCOMING_CALL_WINDOW_CALL_DIGEST_PREF_KEY =
-            "flutter.toxee_incoming_call_window_call_digest"
-        const val INCOMING_CALL_WINDOW_EXPIRES_AT_PREF_KEY =
-            "flutter.toxee_incoming_call_window_expires_at_ms"
-        const val INCOMING_CALL_WINDOW_CALL_DIGEST_DOMAIN =
-            "toxee:incoming-call-window:call:v1"
         val HEX_CHARS = "0123456789abcdef".toCharArray()
     }
 }

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../util/harness_environment.dart';
 import '../util/logger.dart';
@@ -135,6 +134,8 @@ class NotificationService {
       StreamController<String>.broadcast();
   final IncomingCallNotificationLease _incomingCallLease =
       IncomingCallNotificationLease();
+  IncomingCallWindowLeaseStore _incomingCallWindowLeaseStore =
+      IncomingCallWindowLeaseStore();
   final SerializedAsyncTail _incomingNotificationTail = SerializedAsyncTail(
     logError: _logIncomingNotificationTailError,
   );
@@ -171,6 +172,11 @@ class NotificationService {
   IncomingCallNotificationOutcome?
   get debugLastIncomingCallNotificationOutcome =>
       _lastIncomingCallNotificationOutcome;
+
+  @visibleForTesting
+  set debugIncomingCallWindowLeaseStore(IncomingCallWindowLeaseStore? store) {
+    _incomingCallWindowLeaseStore = store ?? IncomingCallWindowLeaseStore();
+  }
 
   // Per-conversation message accumulator for inbox-style grouping. Cleared
   // when the user opens the conversation (callers tell us via
@@ -829,7 +835,7 @@ class NotificationService {
           return;
         }
 
-        final issue = await _issueIncomingCallWindowLease(callId);
+        final issue = await _incomingCallWindowLeaseStore.issue(callId);
         if (!_incomingCallLease.isCurrent(generation, callId)) {
           complete(IncomingCallNotificationOutcome.cancelled);
           return;
@@ -889,18 +895,60 @@ class NotificationService {
     final generation = _incomingCallLease.cancel();
     return _enqueueIncomingNotification(() async {
       if (!_incomingCallLease.isCancellationCurrent(generation)) return;
-      await _clearAndroidIncomingCallWindow();
-      await _cancelAndroidIncomingCallBanner();
+      Object? clearError;
+      StackTrace? clearStackTrace;
+      try {
+        await _clearAndroidIncomingCallWindow();
+      } catch (error, stackTrace) {
+        clearError = error;
+        clearStackTrace = stackTrace;
+      }
+
+      if (!_incomingCallLease.isCancellationCurrent(generation)) {
+        if (clearError != null) {
+          _throwLoggedIncomingCallWindowClearFailure(
+            clearError,
+            clearStackTrace!,
+          );
+        }
+        return;
+      }
+
+      if (_isAndroidPlatform && _initialized && _platformSupported) {
+        try {
+          await _plugin.cancel(_androidIncomingCallNotificationId);
+        } catch (_) {
+          AppLogger.debug(
+            '[NotificationService] cancel incoming-call notification failed',
+          );
+        }
+      }
+
+      if (clearError != null) {
+        _throwLoggedIncomingCallWindowClearFailure(
+          clearError,
+          clearStackTrace!,
+        );
+      }
     });
+  }
+
+  static Never _throwLoggedIncomingCallWindowClearFailure(
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    AppLogger.warn(
+      '[NotificationService] incoming-call lease clear failed after '
+      'notification cancellation attempt',
+    );
+    AppLogger.debug('[NotificationService] stack: $stackTrace');
+    Error.throwWithStackTrace(error, stackTrace);
   }
 
   Future<void> _clearAndroidIncomingCallWindow() async {
     Object? failure;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await IncomingCallWindowLeaseStore(
-        preferences: SharedPreferencesIncomingCallWindowPreferences(prefs),
-      ).clear();
+      await _incomingCallWindowLeaseStore.clear();
     } catch (_) {
       failure = const IncomingCallWindowLeaseStorageException(
         'persisted lease clear failed',
@@ -922,15 +970,6 @@ class NotificationService {
     }
   }
 
-  Future<IncomingCallWindowLeaseIssue> _issueIncomingCallWindowLease(
-    String callId,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    return IncomingCallWindowLeaseStore(
-      preferences: SharedPreferencesIncomingCallWindowPreferences(prefs),
-    ).issue(callId);
-  }
-
   Future<void> _armAndroidIncomingCallWindow(String nonce) {
     if (!_isAndroidPlatform) return Future<void>.value();
     return _androidIncomingCallWindowChannel.invokeMethod<void>(
@@ -950,8 +989,8 @@ class NotificationService {
     }
   }
 
-  String _incomingCallPayload(String callId, String token) {
-    return 'incoming_call:$callId:$token';
+  String _incomingCallPayload(String callId, String nonce) {
+    return 'incoming_call:$callId:$nonce';
   }
 
   Future<void> _enqueueIncomingNotification(Future<void> Function() action) {

@@ -1,9 +1,13 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tim2tox_dart/interfaces/draft_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/extended_preferences_service.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
+import '../util/auto_download_policy.dart';
 import '../util/logger.dart';
+import '../util/platform_utils.dart';
+import '../util/prefs/draft_prefs.dart';
 import '../util/prefs/scoped_key.dart';
 
 /// Adapter that implements ExtendedPreferencesService using SharedPreferences.
@@ -15,18 +19,23 @@ import '../util/prefs/scoped_key.dart';
 /// Legacy behavior: when [accountPrefix] is null, keys are scoped by FFI instance_id
 /// (or unscoped for instance_id=0). On first use with accountPrefix, data is migrated
 /// from old unscoped keys to new account-scoped keys.
-class SharedPreferencesAdapter implements ExtendedPreferencesService {
+class SharedPreferencesAdapter
+    implements ExtendedPreferencesService, DraftPreferencesService {
   final SharedPreferences _prefs;
   int? _instanceId;
   String? _accountPrefix;
+  final bool? _isMobileOverride;
 
   // Keys
   static const _kGroups = 'groups_list';
   static const _kQuitGroups = 'quit_groups_list';
   static const _kSelfAvatarHash = 'self_avatar_hash';
-  static String _friendNicknameKey(String friendId) => 'friend_nickname_$friendId';
-  static String _friendStatusMsgKey(String friendId) => 'friend_status_msg_$friendId';
-  static String _friendAvatarPathKey(String friendId) => 'friend_avatar_path_$friendId';
+  static String _friendNicknameKey(String friendId) =>
+      'friend_nickname_$friendId';
+  static String _friendStatusMsgKey(String friendId) =>
+      'friend_status_msg_$friendId';
+  static String _friendAvatarPathKey(String friendId) =>
+      'friend_avatar_path_$friendId';
   // Matches the key shape used by toxee's UI-side Prefs.setFriendRemark, so
   // both the platform write path and the UI write path land on the same
   // account-scoped slot once `_prefixKey` is applied.
@@ -37,7 +46,10 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   static const _kCurrentBootstrapPort = 'current_bootstrap_port';
   static const _kCurrentBootstrapPubkey = 'current_bootstrap_pubkey';
   static const _kAutoDownloadSizeLimit = 'auto_download_size_limit';
-  static String _blackListKey(String? userToxId) => userToxId != null && userToxId.isNotEmpty ? 'black_list_$userToxId' : 'black_list';
+  static String _blackListKey(String? userToxId) =>
+      userToxId != null && userToxId.isNotEmpty
+      ? 'black_list_$userToxId'
+      : 'black_list';
   // Per-peer C2C receive option (DND). Account-scoped via the standard
   // 16-char Tox-ID prefix (matches `Prefs._scopedKey` convention used by
   // `group_member_namecard`, drafts, pin/mute, etc.). The blacklist key
@@ -59,9 +71,14 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     return scopedPrefsKey('group_recv_opt_$groupID', prefix);
   }
 
-  SharedPreferencesAdapter(this._prefs, {int? instanceId, String? accountPrefix})
-      : _instanceId = instanceId,
-        _accountPrefix = accountPrefix;
+  SharedPreferencesAdapter(
+    this._prefs, {
+    int? instanceId,
+    String? accountPrefix,
+    bool? isMobileOverride,
+  }) : _instanceId = instanceId,
+       _accountPrefix = accountPrefix,
+       _isMobileOverride = isMobileOverride;
 
   /// Set the account prefix post-construction. Used by login flows that can't
   /// know the toxId until after `service.login()` resolves selfId (legacy
@@ -130,35 +147,38 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   Future<void> _migrateIfNeeded() async {
     // No-op: migration is handled centrally by PrefsUpgrader.
   }
-  
+
   // Basic PreferencesService methods
   @override
   Future<String?> getString(String key) async => _prefs.getString(key);
-  
+
   @override
-  Future<void> setString(String key, String value) => _prefs.setString(key, value);
-  
+  Future<void> setString(String key, String value) =>
+      _prefs.setString(key, value);
+
   @override
   Future<bool?> getBool(String key) => Future.value(_prefs.getBool(key));
-  
+
   @override
   Future<void> setBool(String key, bool value) => _prefs.setBool(key, value);
-  
+
   @override
   Future<int?> getInt(String key) => Future.value(_prefs.getInt(key));
-  
+
   @override
   Future<void> setInt(String key, int value) => _prefs.setInt(key, value);
-  
+
   @override
-  Future<List<String>?> getStringList(String key) => Future.value(_prefs.getStringList(key));
-  
+  Future<List<String>?> getStringList(String key) =>
+      Future.value(_prefs.getStringList(key));
+
   @override
-  Future<void> setStringList(String key, List<String> value) => _prefs.setStringList(key, value);
-  
+  Future<void> setStringList(String key, List<String> value) =>
+      _prefs.setStringList(key, value);
+
   @override
   Future<void> remove(String key) => _prefs.remove(key);
-  
+
   /// S4 fix: do NOT call SharedPreferences.clear() — that would wipe global
   /// settings (theme, locale, bootstrap nodes, account list, every other
   /// account's data) along with the current account's. Instead, scope the
@@ -175,14 +195,78 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       // No way to identify which keys belong to "this account"; refuse rather
       // than wipe the entire SharedPreferences store.
       AppLogger.warn(
-          '[SharedPrefsAdapter] refused clear() — no accountPrefix; would wipe global keys');
+        '[SharedPrefsAdapter] refused clear() — no accountPrefix; would wipe global keys',
+      );
       return;
     }
     final suffix = '_$prefix';
-    final keysToRemove = _prefs.getKeys().where((k) => k.endsWith(suffix)).toList();
+    final keysToRemove = _prefs
+        .getKeys()
+        .where((k) => !DraftPrefs.isV2StorageKey(k) && k.endsWith(suffix))
+        .toSet();
+    final currentToxId = _prefs.getString('current_account_tox_id')?.trim();
+    if (currentToxId != null &&
+        DraftPrefs.isFullAccountToxId(currentToxId) &&
+        currentToxId.toUpperCase().startsWith(prefix.toUpperCase())) {
+      keysToRemove.addAll(
+        _prefs.getKeys().where(
+          (k) => DraftPrefs.isStorageKeyForAccount(
+            key: k,
+            accountToxId: currentToxId,
+          ),
+        ),
+      );
+    }
     await Future.wait(keysToRemove.map(_prefs.remove));
   }
-  
+
+  DraftPrefs get _draftPrefs => DraftPrefs(
+    _prefs,
+    activeAccountToxId: () async => _prefs.getString('current_account_tox_id'),
+  );
+
+  @override
+  Future<ConversationDraft?> loadConversationDraft({
+    required String accountToxId,
+    required String conversationID,
+  }) async {
+    final stored = await _draftPrefs.loadDraft(
+      accountToxId: accountToxId,
+      conversationID: conversationID,
+    );
+    if (stored == null) return null;
+    return ConversationDraft(
+      conversationID: conversationID.trim(),
+      text: stored.text,
+      timestamp: stored.updatedAt,
+    );
+  }
+
+  @override
+  Future<void> saveConversationDraft({
+    required String accountToxId,
+    required ConversationDraft draft,
+  }) {
+    return _draftPrefs.saveDraft(
+      accountToxId: accountToxId,
+      conversationID: draft.conversationID,
+      text: draft.text,
+      updatedAt: draft.timestamp,
+    );
+  }
+
+  @override
+  Future<void> removeConversationDraft({
+    required String accountToxId,
+    required String conversationID,
+  }) {
+    return _draftPrefs.saveDraft(
+      accountToxId: accountToxId,
+      conversationID: conversationID,
+      text: '',
+    );
+  }
+
   // ExtendedPreferencesService methods
   @override
   Future<Set<String>> getGroups() async {
@@ -199,7 +283,8 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   @override
   Future<Set<String>> getQuitGroups() async {
     await _migrateIfNeeded();
-    return _prefs.getStringList(_prefixKey(_kQuitGroups))?.toSet() ?? <String>{};
+    return _prefs.getStringList(_prefixKey(_kQuitGroups))?.toSet() ??
+        <String>{};
   }
 
   @override
@@ -207,21 +292,21 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     await _migrateIfNeeded();
     await _prefs.setStringList(_prefixKey(_kQuitGroups), groups.toList());
   }
-  
+
   @override
   Future<void> addQuitGroup(String groupId) async {
     final groups = await getQuitGroups();
     groups.add(groupId);
     await setQuitGroups(groups);
   }
-  
+
   @override
   Future<void> removeQuitGroup(String groupId) async {
     final groups = await getQuitGroups();
     groups.remove(groupId);
     await setQuitGroups(groups);
   }
-  
+
   @override
   Future<String?> getSelfAvatarHash() => _getStringScoped(_kSelfAvatarHash);
 
@@ -233,22 +318,23 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await remove(_prefixKey(_kSelfAvatarHash));
     }
   }
-  
+
   @override
-  Future<String?> getFriendNickname(String friendId) => _getStringScoped(_friendNicknameKey(friendId));
-  
+  Future<String?> getFriendNickname(String friendId) =>
+      _getStringScoped(_friendNicknameKey(friendId));
+
   @override
-  Future<void> setFriendNickname(String friendId, String nickname) => 
+  Future<void> setFriendNickname(String friendId, String nickname) =>
       setString(_prefixKey(_friendNicknameKey(friendId)), nickname);
-  
+
   @override
-  Future<String?> getFriendStatusMessage(String friendId) => 
+  Future<String?> getFriendStatusMessage(String friendId) =>
       _getStringScoped(_friendStatusMsgKey(friendId));
-  
+
   @override
-  Future<void> setFriendStatusMessage(String friendId, String statusMessage) => 
+  Future<void> setFriendStatusMessage(String friendId, String statusMessage) =>
       setString(_prefixKey(_friendStatusMsgKey(friendId)), statusMessage);
-  
+
   @override
   Future<String?> getFriendAvatarPath(String friendId) =>
       _getStringScoped(_friendAvatarPathKey(friendId));
@@ -275,7 +361,7 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await setString(key, remark);
     }
   }
-  
+
   @override
   Future<Set<String>> getLocalFriends() async {
     final scopedKey = _prefixKey(_kLocalFriends);
@@ -297,14 +383,15 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   Future<void> setLocalFriends(Set<String> ids) async {
     await _prefs.setStringList(_prefixKey(_kLocalFriends), ids.toList());
   }
-  
+
   @override
   Future<String> getBootstrapNodeMode() async {
     return _prefs.getString(_kBootstrapNodeMode) ?? 'auto';
   }
-  
+
   @override
-  Future<({String host, int port, String pubkey})?> getCurrentBootstrapNode() async {
+  Future<({String host, int port, String pubkey})?>
+  getCurrentBootstrapNode() async {
     final host = _prefs.getString(_kCurrentBootstrapHost);
     if (host == null) return null;
     final port = _prefs.getInt(_kCurrentBootstrapPort) ?? 33445;
@@ -312,24 +399,31 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     if (pubkey.isEmpty) return null;
     return (host: host, port: port, pubkey: pubkey);
   }
-  
+
   @override
-  Future<void> setCurrentBootstrapNode(String host, int port, String pubkey) async {
+  Future<void> setCurrentBootstrapNode(
+    String host,
+    int port,
+    String pubkey,
+  ) async {
     await _prefs.setString(_kCurrentBootstrapHost, host);
     await _prefs.setInt(_kCurrentBootstrapPort, port);
     await _prefs.setString(_kCurrentBootstrapPubkey, pubkey);
   }
-  
+
   @override
   Future<int> getAutoDownloadSizeLimit() async {
-    return _prefs.getInt(_kAutoDownloadSizeLimit) ?? 100; // Default 100MB
+    return _prefs.getInt(_kAutoDownloadSizeLimit) ??
+        defaultAutoDownloadSizeLimitMb(
+          isMobile: _isMobileOverride ?? PlatformUtils.isMobile,
+        );
   }
-  
+
   @override
   Future<void> setAutoDownloadSizeLimit(int sizeInMB) async {
     await _prefs.setInt(_kAutoDownloadSizeLimit, sizeInMB);
   }
-  
+
   @override
   Future<String?> getAvatarPath() async {
     final scopedKey = _prefixKey('self_avatar_path');
@@ -353,7 +447,8 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
           final accounts = json.decode(listJson) as List<dynamic>;
           for (final a in accounts) {
             final toxId = a['toxId'] as String? ?? '';
-            if (toxId.length >= 16 && toxId.substring(0, 16) == _accountPrefix) {
+            if (toxId.length >= 16 &&
+                toxId.substring(0, 16) == _accountPrefix) {
               final path = a['avatarPath'] as String?;
               if (path != null && path.isNotEmpty) {
                 await _prefs.setString(scopedKey, path);
@@ -363,7 +458,8 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
           }
         } catch (e) {
           AppLogger.warn(
-              '[SharedPrefsAdapter] account_list JSON parse for avatar fallback failed: $e');
+            '[SharedPrefsAdapter] account_list JSON parse for avatar fallback failed: $e',
+          );
         }
       }
     }
@@ -379,18 +475,18 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await remove(scopedKey);
     }
   }
-  
+
   @override
-  Future<String?> getFriendAvatarHash(String friendId) => 
+  Future<String?> getFriendAvatarHash(String friendId) =>
       _getStringScoped('friend_avatar_hash_$friendId');
-  
+
   @override
-  Future<void> setFriendAvatarHash(String friendId, String hash) => 
+  Future<void> setFriendAvatarHash(String friendId, String hash) =>
       setString(_prefixKey('friend_avatar_hash_$friendId'), hash);
-  
+
   @override
   Future<String?> getDownloadsDirectory() => getString('downloads_directory');
-  
+
   @override
   Future<void> setDownloadsDirectory(String? path) async {
     if (path != null) {
@@ -399,17 +495,17 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await remove('downloads_directory');
     }
   }
-  
+
   @override
-  Future<String?> getGroupName(String groupId) => 
+  Future<String?> getGroupName(String groupId) =>
       getString(_prefixKey('group_name_$groupId'));
 
   @override
-  Future<void> setGroupName(String groupId, String name) => 
+  Future<void> setGroupName(String groupId, String name) =>
       setString(_prefixKey('group_name_$groupId'), name);
 
   @override
-  Future<String?> getGroupAvatar(String groupId) => 
+  Future<String?> getGroupAvatar(String groupId) =>
       getString(_prefixKey('group_avatar_$groupId'));
 
   @override
@@ -422,11 +518,14 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   }
 
   @override
-  Future<String?> getGroupNotification(String groupId) => 
+  Future<String?> getGroupNotification(String groupId) =>
       getString(_prefixKey('group_notification_$groupId'));
 
   @override
-  Future<void> setGroupNotification(String groupId, String? notification) async {
+  Future<void> setGroupNotification(
+    String groupId,
+    String? notification,
+  ) async {
     if (notification != null && notification.isNotEmpty) {
       await setString(_prefixKey('group_notification_$groupId'), notification);
     } else {
@@ -435,11 +534,14 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   }
 
   @override
-  Future<String?> getGroupIntroduction(String groupId) => 
+  Future<String?> getGroupIntroduction(String groupId) =>
       getString(_prefixKey('group_introduction_$groupId'));
 
   @override
-  Future<void> setGroupIntroduction(String groupId, String? introduction) async {
+  Future<void> setGroupIntroduction(
+    String groupId,
+    String? introduction,
+  ) async {
     if (introduction != null && introduction.isNotEmpty) {
       await setString(_prefixKey('group_introduction_$groupId'), introduction);
     } else {
@@ -448,15 +550,15 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   }
 
   @override
-  Future<String?> getGroupOwner(String groupId) => 
+  Future<String?> getGroupOwner(String groupId) =>
       getString(_prefixKey('group_owner_$groupId'));
 
   @override
-  Future<void> setGroupOwner(String groupId, String ownerId) => 
+  Future<void> setGroupOwner(String groupId, String ownerId) =>
       setString(_prefixKey('group_owner_$groupId'), ownerId);
 
   @override
-  Future<String?> getGroupConferenceId(String groupId) => 
+  Future<String?> getGroupConferenceId(String groupId) =>
       getString(_prefixKey('group_conference_id_$groupId'));
 
   @override
@@ -467,11 +569,11 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await remove(_prefixKey('group_conference_id_$groupId'));
     }
   }
-  
+
   @override
-  Future<String?> getGroupChatId(String groupId) => 
+  Future<String?> getGroupChatId(String groupId) =>
       getString(_prefixKey('group_chat_id_$groupId'));
-  
+
   @override
   Future<void> setGroupChatId(String groupId, String chatId) async {
     if (chatId.isNotEmpty) {
@@ -480,16 +582,16 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
       await remove(_prefixKey('group_chat_id_$groupId'));
     }
   }
-  
+
   Future<Set<String>> getStringSet(String key) async {
     final list = await getStringList(key);
     return list?.toSet() ?? <String>{};
   }
-  
+
   Future<void> setStringSet(String key, Set<String> value) async {
     await setStringList(key, value.toList());
   }
-  
+
   @override
   Future<Set<String>> getBlackList([String? userToxId]) async {
     // userToxId should be provided by the caller (Tim2ToxSdkPlatform)
@@ -497,14 +599,14 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     final key = _blackListKey(userToxId);
     return _prefs.getStringList(key)?.toSet() ?? <String>{};
   }
-  
+
   @override
   Future<void> setBlackList(Set<String> userIDs, [String? userToxId]) async {
     // userToxId should be provided by the caller (Tim2ToxSdkPlatform)
     final key = _blackListKey(userToxId);
     await _prefs.setStringList(key, userIDs.toList());
   }
-  
+
   @override
   Future<void> addToBlackList(List<String> userIDs, [String? userToxId]) async {
     // userToxId should be provided by the caller (Tim2ToxSdkPlatform)
@@ -512,9 +614,12 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     blackList.addAll(userIDs);
     await setBlackList(blackList, userToxId);
   }
-  
+
   @override
-  Future<void> removeFromBlackList(List<String> userIDs, [String? userToxId]) async {
+  Future<void> removeFromBlackList(
+    List<String> userIDs, [
+    String? userToxId,
+  ]) async {
     // userToxId should be provided by the caller (Tim2ToxSdkPlatform)
     final blackList = await getBlackList(userToxId);
     blackList.removeAll(userIDs);
@@ -522,14 +627,20 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   }
 
   @override
-  Future<int> getC2CReceiveMessageOpt(String userID, [String? userToxId]) async {
+  Future<int> getC2CReceiveMessageOpt(
+    String userID, [
+    String? userToxId,
+  ]) async {
     final key = _c2cRecvOptKey(userID, userToxId);
     return _prefs.getInt(key) ?? 0;
   }
 
   @override
-  Future<void> setC2CReceiveMessageOpt(String userID, int opt,
-      [String? userToxId]) async {
+  Future<void> setC2CReceiveMessageOpt(
+    String userID,
+    int opt, [
+    String? userToxId,
+  ]) async {
     final key = _c2cRecvOptKey(userID, userToxId);
     if (opt == 0) {
       await _prefs.remove(key);
@@ -539,15 +650,20 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
   }
 
   @override
-  Future<int> getGroupReceiveMessageOpt(String groupID,
-      [String? userToxId]) async {
+  Future<int> getGroupReceiveMessageOpt(
+    String groupID, [
+    String? userToxId,
+  ]) async {
     final key = _groupRecvOptKey(groupID, userToxId);
     return _prefs.getInt(key) ?? 0;
   }
 
   @override
-  Future<void> setGroupReceiveMessageOpt(String groupID, int opt,
-      [String? userToxId]) async {
+  Future<void> setGroupReceiveMessageOpt(
+    String groupID,
+    int opt, [
+    String? userToxId,
+  ]) async {
     final key = _groupRecvOptKey(groupID, userToxId);
     if (opt == 0) {
       await _prefs.remove(key);
@@ -556,4 +672,3 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
     }
   }
 }
-

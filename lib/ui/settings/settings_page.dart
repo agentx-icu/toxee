@@ -498,15 +498,25 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
+      final exportPassword = await _showConfirmPasswordDialog(
+        l10n.enterPasswordToExport,
+      );
+      if (exportPassword == null) return;
+      if (exportPassword.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l10n.invalidPassword),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+        return;
+      }
+
       String? outputPath;
       final isDesktopPlatform = isDesktopExportPlatform();
-      final account = await Prefs.getAccountByToxId(toxId);
-      final nickname = account?['nickname'] ?? 'account';
-      final defaultFileName = buildAccountExportFileName(
-        toxId: toxId,
-        nickname: nickname,
-        suffix: '_backup.zip',
-      );
+      final defaultFileName = buildFullBackupExportFileName();
       if (isDesktopPlatform) {
         outputPath = await runL3AwareExportSaveFilePicker(
           dialogTitle: l10n.exportAccount,
@@ -530,12 +540,15 @@ class _SettingsPageState extends State<SettingsPage> {
       if (isDesktopPlatform) {
         filePath = await AccountExportService.exportFullBackup(
           toxId: toxId,
+          password: exportPassword,
           filePath: outputPath,
         );
       } else {
         mobileSaveResult = await createAndSaveMobileExportCopy(
-          createInternalExport: () =>
-              AccountExportService.exportFullBackup(toxId: toxId),
+          createInternalExport: () => AccountExportService.exportFullBackup(
+            toxId: toxId,
+            password: exportPassword,
+          ),
           dialogTitle: l10n.exportAccount,
           fileName: defaultFileName,
           saveFile:
@@ -693,6 +706,9 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _importAccount() async {
+    String? rollbackToxId;
+    var rollbackFullBackup = false;
+    final l10n = AppLocalizations.of(context)!;
     try {
       // Show file picker for .tox and .zip files
       final result = await FilePicker.platform.pickFiles(
@@ -726,10 +742,33 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (isZip) {
         // ZIP: check account collision before any disk writes (importFullBackup writes profile/history/avatars/prefs).
-        final metadata = await AccountExportService.readFullBackupMetadata(
-          filePath,
-        );
+        Map<String, String> metadata;
+        try {
+          metadata = await AccountExportService.readFullBackupMetadata(
+            filePath,
+            password: password,
+          );
+        } on PasswordRequiredException {
+          if (!mounted) return;
+          password = await _showPasswordDialog(l10n.enterPasswordToImport);
+          if (password == null || !mounted) return;
+          if (password.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.invalidPassword),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
+            return;
+          }
+          metadata = await AccountExportService.readFullBackupMetadata(
+            filePath,
+            password: password,
+          );
+        }
         final metaToxId = metadata['toxId']!;
+        rollbackToxId = metaToxId;
+        rollbackFullBackup = true;
         final existingAccount = await Prefs.getAccountByToxId(metaToxId);
         final profileDir = await AppPaths.getProfileDirectoryForToxId(
           metaToxId,
@@ -740,14 +779,12 @@ class _SettingsPageState extends State<SettingsPage> {
             await showDialog<void>(
               context: context,
               builder: (context) => AlertDialog(
-                title: Text(AppLocalizations.of(context)!.importAccount),
-                content: Text(
-                  AppLocalizations.of(context)!.accountAlreadyExists,
-                ),
+                title: Text(l10n.importAccount),
+                content: Text(l10n.accountAlreadyExists),
                 actions: [
                   TextButton(
                     onPressed: () => popDialogIfCurrent(context),
-                    child: Text(AppLocalizations.of(context)!.ok),
+                    child: Text(l10n.ok),
                   ),
                 ],
               ),
@@ -755,58 +792,29 @@ class _SettingsPageState extends State<SettingsPage> {
           }
           return;
         }
-        try {
-          accountData = await AccountExportService.importFullBackup(
-            filePath: filePath,
-            password: password,
-          );
-        } catch (e) {
-          if (e.toString().contains('Password required') ||
-              e.toString().contains('password')) {
-            if (mounted) {
-              password = await _showConfirmPasswordDialog(
-                AppLocalizations.of(context)!.enterPasswordToImport,
-              );
-              if (password == null) return;
-              accountData = await AccountExportService.importFullBackup(
-                filePath: filePath,
-                password: password,
-              );
-            } else {
-              rethrow;
-            }
-          } else {
-            rethrow;
-          }
-        }
+        accountData = await AccountExportService.importFullBackup(
+          filePath: filePath,
+          password: password,
+        );
       } else {
         try {
           accountData = await AccountExportService.importAccountData(
             filePath: filePath,
             password: password,
           );
-        } catch (e) {
-          if (e.toString().contains('Password required') ||
-              e.toString().contains('password')) {
-            if (mounted) {
-              password = await _showConfirmPasswordDialog(
-                AppLocalizations.of(context)!.enterPasswordToImport,
-              );
-              if (password == null) return;
-              accountData = await AccountExportService.importAccountData(
-                filePath: filePath,
-                password: password,
-              );
-            } else {
-              rethrow;
-            }
-          } else {
-            rethrow;
-          }
+        } on PasswordRequiredException {
+          if (!mounted) return;
+          password = await _showPasswordDialog(l10n.enterPasswordToImport);
+          if (password == null || !mounted) return;
+          accountData = await AccountExportService.importAccountData(
+            filePath: filePath,
+            password: password,
+          );
         }
       }
 
       final toxId = accountData['toxId'] as String;
+      rollbackToxId = toxId;
       final toxProfile = accountData['toxProfile'] as Uint8List?;
       final importedNickname = (accountData['nickname'] as String?) ?? '';
       final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
@@ -820,14 +828,12 @@ class _SettingsPageState extends State<SettingsPage> {
             await showDialog<void>(
               context: context,
               builder: (context) => AlertDialog(
-                title: Text(AppLocalizations.of(context)!.importAccount),
-                content: Text(
-                  AppLocalizations.of(context)!.accountAlreadyExists,
-                ),
+                title: Text(l10n.importAccount),
+                content: Text(l10n.accountAlreadyExists),
                 actions: [
                   TextButton(
                     onPressed: () => popDialogIfCurrent(context),
-                    child: Text(AppLocalizations.of(context)!.ok),
+                    child: Text(l10n.ok),
                   ),
                 ],
               ),
@@ -850,7 +856,7 @@ class _SettingsPageState extends State<SettingsPage> {
       // Add/update account (.zip may contain nickname, .tox does not)
       final displayNickname = importedNickname.isNotEmpty
           ? importedNickname
-          : AppLocalizations.of(context)!.importedAccount;
+          : l10n.importedAccount;
       await Prefs.addAccount(
         toxId: toxId,
         nickname: displayNickname,
@@ -859,9 +865,14 @@ class _SettingsPageState extends State<SettingsPage> {
         autoAcceptFriends: false,
         notificationSoundEnabled: true,
       );
+      if (isZip) {
+        await AccountExportService.finalizeFullBackupImport(toxId: toxId);
+      }
 
-      // If password was used for import, set it for the account
-      if (password != null && password.isNotEmpty) {
+      // Only .tox import passwords are account passwords. Full-backup .zip
+      // passwords decrypt the archive and must not silently become the
+      // restored account's login password.
+      if (!isZip && password != null && password.isNotEmpty) {
         await Prefs.setAccountPassword(toxId, password);
       }
 
@@ -871,14 +882,39 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.accountImportedSuccessfully,
-            ),
+            content: Text(l10n.accountImportedSuccessfully),
             backgroundColor: Theme.of(context).colorScheme.primary,
           ),
         );
       }
+    } on InvalidBackupPasswordException catch (e, stackTrace) {
+      AppLogger.logError(
+        '[SettingsPage] Full-backup password rejected',
+        e,
+        stackTrace,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.invalidPassword),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
     } catch (e, stackTrace) {
+      if (rollbackFullBackup && rollbackToxId != null) {
+        try {
+          await AccountExportService.rollbackPendingFullBackupRestore(
+            toxId: rollbackToxId,
+          );
+        } catch (rollbackError, rollbackStackTrace) {
+          AppLogger.logError(
+            '[SettingsPage] Full-backup rollback failed',
+            rollbackError,
+            rollbackStackTrace,
+          );
+        }
+      }
       AppLogger.logError(
         '[SettingsPage] Import account failed: $e',
         e,
@@ -888,14 +924,12 @@ class _SettingsPageState extends State<SettingsPage> {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text(AppLocalizations.of(context)!.importAccount),
-            content: Text(
-              AppLocalizations.of(context)!.failedToImportAccount(e.toString()),
-            ),
+            title: Text(l10n.importAccount),
+            content: Text(l10n.failedToImportAccount(e.toString())),
             actions: [
               TextButton(
                 onPressed: () => popDialogIfCurrent(context),
-                child: Text(AppLocalizations.of(context)!.ok),
+                child: Text(l10n.ok),
               ),
             ],
           ),
@@ -991,7 +1025,46 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  /// Password + confirm password dialog for export/import; returns password if both match.
+  Future<String?> _showPasswordDialog(String title) async {
+    final passwordController = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: passwordController,
+          autofocus: true,
+          obscureText: true,
+          textAlignVertical: TextAlignVertical.center,
+          keyboardType: TextInputType.visiblePassword,
+          textInputAction: TextInputAction.done,
+          autofillHints: const [AutofillHints.password],
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.password,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(
+                AppThemeConfig.inputBorderRadius,
+              ),
+            ),
+          ),
+          onSubmitted: (value) => popDialogIfCurrent(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => popDialogIfCurrent<String>(context),
+            child: Text(AppLocalizations.of(context)!.cancel),
+          ),
+          TextButton(
+            onPressed: () =>
+                popDialogIfCurrent(context, passwordController.text),
+            child: Text(AppLocalizations.of(context)!.ok),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Password + confirmation dialog for exports; returns the password on match.
   Future<String?> _showConfirmPasswordDialog(String title) async {
     final passwordController = TextEditingController();
     final confirmController = TextEditingController();

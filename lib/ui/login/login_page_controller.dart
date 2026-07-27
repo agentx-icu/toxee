@@ -42,6 +42,7 @@ final class ImportSuccess extends ImportResult {
 enum ImportFailureKind {
   noFileSelected,
   cancelled,
+  invalidPassword,
   accountAlreadyExists,
   generalError,
 }
@@ -106,7 +107,7 @@ typedef ImportFullBackupFn =
     });
 
 typedef ReadFullBackupMetadataFn =
-    Future<Map<String, dynamic>> Function(String filePath);
+    Future<Map<String, dynamic>> Function(String filePath, {String? password});
 
 typedef AddAccountFn =
     Future<void> Function({
@@ -120,6 +121,11 @@ typedef AddAccountFn =
 
 typedef SetAccountPasswordFn =
     Future<void> Function(String toxId, String password);
+
+typedef FinalizeFullBackupImportFn =
+    Future<void> Function({required String toxId});
+
+typedef RollbackFullBackupImportFn = Future<void> Function({String? toxId});
 
 Future<void> _defaultAddAccount({
   required String toxId,
@@ -147,6 +153,8 @@ class LoginPageController {
     @visibleForTesting ReadFullBackupMetadataFn? readFullBackupMetadataFn,
     @visibleForTesting AddAccountFn? addAccountFn,
     @visibleForTesting SetAccountPasswordFn? setAccountPasswordFn,
+    @visibleForTesting FinalizeFullBackupImportFn? finalizeFullBackupImportFn,
+    @visibleForTesting RollbackFullBackupImportFn? rollbackFullBackupImportFn,
   }) : _loginUseCase = loginUseCase ?? LoginUseCase(),
        _importAccountDataFn =
            importAccountDataFn ?? AccountExportService.importAccountData,
@@ -156,7 +164,13 @@ class LoginPageController {
            readFullBackupMetadataFn ??
            AccountExportService.readFullBackupMetadata,
        _addAccountFn = addAccountFn ?? _defaultAddAccount,
-       _setAccountPasswordFn = setAccountPasswordFn ?? Prefs.setAccountPassword;
+       _setAccountPasswordFn = setAccountPasswordFn ?? Prefs.setAccountPassword,
+       _finalizeFullBackupImportFn =
+           finalizeFullBackupImportFn ??
+           AccountExportService.finalizeFullBackupImport,
+       _rollbackFullBackupImportFn =
+           rollbackFullBackupImportFn ??
+           AccountExportService.rollbackPendingFullBackupRestore;
 
   final LoginUseCase _loginUseCase;
   final ImportAccountDataFn _importAccountDataFn;
@@ -164,6 +178,8 @@ class LoginPageController {
   final ReadFullBackupMetadataFn _readFullBackupMetadataFn;
   final AddAccountFn _addAccountFn;
   final SetAccountPasswordFn _setAccountPasswordFn;
+  final FinalizeFullBackupImportFn _finalizeFullBackupImportFn;
+  final RollbackFullBackupImportFn _rollbackFullBackupImportFn;
 
   /// Runs login with the given credentials. Password must be provided when account has one.
   Future<LoginControllerResult> login({
@@ -198,6 +214,7 @@ class LoginPageController {
     @visibleForTesting String? filePathOverride,
   }) async {
     String? rollbackToxId;
+    bool rollbackFullBackup = false;
     try {
       final filePath =
           filePathOverride ??
@@ -216,9 +233,28 @@ class LoginPageController {
       Map<String, dynamic> accountData;
 
       if (isZip) {
-        final metadata = await _readFullBackupMetadataFn(filePath);
+        Map<String, dynamic> metadata;
+        try {
+          metadata = await _readFullBackupMetadataFn(
+            filePath,
+            password: password,
+          );
+        } on PasswordRequiredException {
+          password = await requestPassword();
+          if (password == null) {
+            return const ImportFailure(ImportFailureKind.cancelled);
+          }
+          if (password.isEmpty) {
+            return const ImportFailure(ImportFailureKind.invalidPassword);
+          }
+          metadata = await _readFullBackupMetadataFn(
+            filePath,
+            password: password,
+          );
+        }
         final toxId = metadata['toxId']!;
         rollbackToxId = toxId;
+        rollbackFullBackup = true;
         final existingAccount = await Prefs.getAccountByToxId(toxId);
         if (existingAccount != null) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
@@ -228,30 +264,10 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
-        try {
-          accountData = await _importFullBackupFn(
-            filePath: filePath,
-            password: password,
-          );
-        } catch (e) {
-          // Primary check: typed exception. Fallback string check kept as a
-          // defensive layer in case some lower-level error surface keeps the
-          // legacy `Exception('Password required …')` message.
-          if (e is PasswordRequiredException ||
-              e.toString().contains('Password required') ||
-              e.toString().contains('password')) {
-            password = await requestPassword();
-            if (password == null) {
-              return const ImportFailure(ImportFailureKind.cancelled);
-            }
-            accountData = await _importFullBackupFn(
-              filePath: filePath,
-              password: password,
-            );
-          } else {
-            rethrow;
-          }
-        }
+        accountData = await _importFullBackupFn(
+          filePath: filePath,
+          password: password,
+        );
       } else {
         try {
           accountData = await _importAccountDataFn(
@@ -309,13 +325,30 @@ class LoginPageController {
         autoAcceptFriends: false,
         notificationSoundEnabled: true,
       );
-      if (password != null && password.isNotEmpty) {
+      if (isZip) {
+        await _finalizeFullBackupImportFn(toxId: toxId);
+      }
+      if (!isZip && password != null && password.isNotEmpty) {
         await _setAccountPasswordFn(toxId, password);
       }
       return const ImportSuccess();
+    } on InvalidBackupPasswordException catch (e, st) {
+      AppLogger.logError(
+        '[LoginPageController] Full-backup password rejected',
+        e,
+        st,
+      );
+      return ImportFailure(
+        ImportFailureKind.invalidPassword,
+        detail: e.toString(),
+      );
     } catch (e, st) {
       if (rollbackToxId != null) {
-        await _rollbackImportedAccount(rollbackToxId);
+        if (rollbackFullBackup) {
+          await _rollbackFullBackupImportFn(toxId: rollbackToxId);
+        } else {
+          await _rollbackImportedAccount(rollbackToxId);
+        }
       }
       AppLogger.logError('[LoginPageController] Import failed', e, st);
       return ImportFailure(

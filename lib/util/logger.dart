@@ -1,15 +1,11 @@
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+
 import 'app_paths.dart';
 
 /// Log levels for unified format (matches C++ V2TIMLog).
-enum LogLevel {
-  debug,
-  info,
-  warn,
-  error,
-  fatal,
-}
+enum LogLevel { debug, info, warn, error, fatal }
 
 class AppLogger {
   static int _sequence = 0;
@@ -31,7 +27,8 @@ class AppLogger {
   static int _rotationIndex = 0;
   static DateTime? _sessionTimestamp;
 
-  static const String _tid = 'main'; // Dart main isolate; use Isolate.current.debugName if needed
+  static const String _tid =
+      'main'; // Dart main isolate; use Isolate.current.debugName if needed
 
   static int _getPid() {
     try {
@@ -70,40 +67,107 @@ class AppLogger {
     _customLogPath = path;
   }
 
-  static Future<void> initialize() async {
-    if (_initialized) return;
-    try {
-      if (_enableFileLogging) {
-        if (_customLogPath != null) {
-          final logFile = File(_customLogPath!);
-          final logDir = logFile.parent;
-          if (!await logDir.exists()) {
-            await logDir.create(recursive: true);
-          }
-          _logFile = logFile;
-          stderr.writeln('AppLogger: Log file initialized at: ${logFile.path}');
-          stderr.writeln('AppLogger: Log directory exists: ${await logDir.exists()}');
-        } else {
-          final logDir = await AppPaths.logsDir;
-          if (!await logDir.exists()) {
-            await logDir.create(recursive: true);
-          }
-          _sessionTimestamp = DateTime.now();
-          final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
-          _logFile = File('${logDir.path}/app_$timestamp.log');
-        }
-        await _logFile!.writeAsString('=== App Log Started ===\n', mode: FileMode.append);
-        _currentLogBytes = await _safeFileLength(_logFile!);
+  static void closeLogSinkForDeletion() {
+    _logFile = null;
+    _initialized = false;
+    _hasLoggedError = false;
+    _currentLogBytes = 0;
+    _rotationIndex = 0;
+    _sessionTimestamp = null;
+  }
 
-        // P11: clean up old log files. Keep the most recent [_maxLogFiles]
-        // app_*.log files; never delete the file we just opened.
-        await _pruneOldLogFiles();
-      }
-      _initialized = true;
+  static Future<void> openFreshLogSink(String path) async {
+    closeLogSinkForDeletion();
+    _customLogPath = path;
+    _enableFileLogging = true;
+    await _initialize(verifySink: true);
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _sequence = 0;
+    _enableFileLogging = true;
+    _enableConsoleLogging = false;
+    _logFile = null;
+    _initialized = false;
+    _customLogPath = null;
+    _hasLoggedError = false;
+    _currentLogBytes = 0;
+    _rotationIndex = 0;
+    _sessionTimestamp = null;
+  }
+
+  static Future<void> initialize() async {
+    try {
+      await _initialize();
     } catch (e) {
       stderr.writeln('Warning: Failed to initialize file logging: $e');
       _enableFileLogging = false;
     }
+  }
+
+  static Future<void> _initialize({bool verifySink = false}) async {
+    if (_initialized) return;
+    if (_enableFileLogging) {
+      if (_customLogPath != null) {
+        final logFile = File(_customLogPath!);
+        final logDir = logFile.parent;
+        if (!await logDir.exists()) {
+          await logDir.create(recursive: true);
+        }
+        _logFile = logFile;
+        stderr.writeln('AppLogger: Log file initialized at: ${logFile.path}');
+        stderr.writeln(
+          'AppLogger: Log directory exists: ${await logDir.exists()}',
+        );
+      } else {
+        final logDir = await AppPaths.logsDir;
+        if (!await logDir.exists()) {
+          await logDir.create(recursive: true);
+        }
+        _sessionTimestamp = DateTime.now();
+        final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
+        _logFile = File('${logDir.path}/app_$timestamp.log');
+      }
+      const startMarker = '=== App Log Started ===\n';
+      final logFile = _logFile!;
+      final previousLength = verifySink && await logFile.exists()
+          ? await logFile.length()
+          : 0;
+      await logFile.writeAsString(
+        startMarker,
+        mode: FileMode.append,
+        flush: verifySink,
+      );
+      _currentLogBytes = verifySink
+          ? await _verifySinkWrite(
+              logFile,
+              minimumLength: previousLength + startMarker.length,
+            )
+          : await _safeFileLength(logFile);
+
+      // P11: clean up old log files. Keep the most recent [_maxLogFiles]
+      // app_*.log files; never delete the file we just opened.
+      await _pruneOldLogFiles();
+    }
+    _initialized = true;
+  }
+
+  static Future<int> _verifySinkWrite(
+    File file, {
+    required int minimumLength,
+  }) async {
+    if (!await file.exists()) {
+      throw FileSystemException('Fresh log sink was not created', file.path);
+    }
+    final length = await file.length();
+    if (length < minimumLength) {
+      throw FileSystemException(
+        'Fresh log sink did not persist the startup marker',
+        file.path,
+      );
+    }
+    return length;
   }
 
   /// Length of [file] in bytes, or 0 if it does not exist / cannot be stat'd.
@@ -229,7 +293,9 @@ class AppLogger {
     if (_logFile == null) {
       if (!_hasLoggedError) {
         _hasLoggedError = true;
-        stderr.writeln('AppLogger: Log file is null, cannot write. Call initialize() first.');
+        stderr.writeln(
+          'AppLogger: Log file is null, cannot write. Call initialize() first.',
+        );
       }
       return;
     }
@@ -284,7 +350,11 @@ class AppLogger {
   }
 
   /// Log at ERROR level with exception and stack trace
-  static void logError(String message, [Object? error, StackTrace? stackTrace]) {
+  static void logError(
+    String message, [
+    Object? error,
+    StackTrace? stackTrace,
+  ]) {
     _emit(LogLevel.error, message);
     if (error != null) {
       _emit(LogLevel.error, 'Error: $error');

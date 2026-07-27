@@ -13,7 +13,7 @@
 //   * Per-peer draft messages             — getDraft/setDraft
 //
 // Two distinct scoping shapes are exercised on purpose:
-//   * Friend-remark / pinned / groups / local-friends / draft scope on the
+//   * Friend-remark / pinned / groups / local-friends scope on the
 //     CURRENT account's 16-char prefix via `_scopedKey` (key = `<base>_<first16>`).
 //     There is no toxId argument; the active account is read from
 //     getCurrentAccountToxId(), so we control scope with setCurrentAccountToxId.
@@ -34,9 +34,9 @@ void main() {
   // Two toxIds whose first 16 chars DIFFER, so current-account-scoped state
   // must land on independent keys.
   const toxIdA =
-      'AAAAAAAAAAAAAAAA1111111111111111111111111111111111111111111111111111111111111111';
+      'AAAAAAAAAAAAAAAA111111111111111111111111111111111111111111111111111111111111';
   const toxIdB =
-      'BBBBBBBBBBBBBBBB2222222222222222222222222222222222222222222222222222222222222222';
+      'BBBBBBBBBBBBBBBB222222222222222222222222222222222222222222222222222222222222';
 
   const friend1 = 'FRIEND00000000000000000000000000000000000000000000000000000001';
   const friend2 = 'FRIEND00000000000000000000000000000000000000000000000000000002';

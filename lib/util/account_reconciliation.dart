@@ -9,12 +9,12 @@ import 'prefs.dart';
 
 /// Startup-only repair pass for orphaned profile directories.
 ///
-/// Background: [importFullBackup] (and similar paths) writes a per-account
-/// `p_<first16>/tox_profile.tox` to [AppPaths.getProfileStorageRoot] *before*
-/// the caller persists an `account_list` entry via [Prefs.addAccount]. If the
-/// process is killed between those two steps, the profile sits on disk
-/// invisible to startup — the user sees a missing account, but the data is
-/// still there.
+/// Background: older imports and the single `.tox` path can leave a per-account
+/// `p_<first16>/tox_profile.tox` in [AppPaths.getProfileStorageRoot] without a
+/// matching `account_list` entry. If the process is killed between those two
+/// steps, the profile sits on disk invisible to startup — the user sees a
+/// missing account, but the data is still there. Journaled full-backup restore
+/// recovery runs before this helper and handles its own partial states.
 ///
 /// This helper enumerates the profile storage root, finds `p_*` directories
 /// with a readable `tox_profile.tox` that has no matching `account_list`
@@ -71,7 +71,8 @@ abstract final class AccountReconciliation {
           final toxId = extractToxIdFromProfile(bytes);
           if (toxId.isEmpty) {
             AppLogger.warn(
-                '[AccountReconciliation] empty toxId extracted from $profilePath; skipping');
+              '[AccountReconciliation] empty toxId extracted from $profilePath; skipping',
+            );
             continue;
           }
           // Belt-and-braces: confirm the extracted toxId matches the dir prefix,
@@ -79,8 +80,9 @@ abstract final class AccountReconciliation {
           // by hand) doesn't get registered under the wrong key.
           if (_prefixOf(toxId) != prefix) {
             AppLogger.warn(
-                '[AccountReconciliation] extracted toxId prefix (${_prefixOf(toxId)}) '
-                'does not match dir prefix ($prefix); skipping $profilePath');
+              '[AccountReconciliation] extracted toxId prefix (${_prefixOf(toxId)}) '
+              'does not match dir prefix ($prefix); skipping $profilePath',
+            );
             continue;
           }
 
@@ -92,21 +94,26 @@ abstract final class AccountReconciliation {
           );
           recovered++;
           AppLogger.warn(
-              '[AccountReconciliation] recovered orphaned profile: '
-              'toxIdPrefix=$prefix nickname="$nickname" path=$profilePath');
+            '[AccountReconciliation] recovered orphaned profile: '
+            'toxIdPrefix=$prefix nickname="$nickname" path=$profilePath',
+          );
         } catch (e, st) {
           // Per-orphan failure must not abort the pass. The most common cause
           // here is an encrypted profile or a missing FFI (e.g. running in a
           // unit test without libtim2tox_ffi available).
           AppLogger.logError(
-              '[AccountReconciliation] failed to recover $profilePath',
-              e,
-              st);
+            '[AccountReconciliation] failed to recover $profilePath',
+            e,
+            st,
+          );
         }
       }
     } catch (e, st) {
       AppLogger.logError(
-          '[AccountReconciliation] reconcileOrphanedProfiles failed', e, st);
+        '[AccountReconciliation] reconcileOrphanedProfiles failed',
+        e,
+        st,
+      );
     }
     return recovered;
   }

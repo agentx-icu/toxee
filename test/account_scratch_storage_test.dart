@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/bootstrap/app_bootstrap.dart';
+import 'package:toxee/util/account_deletion.dart';
 import 'package:toxee/util/account_scratch_storage.dart';
 import 'package:toxee/util/account_service.dart';
 import 'package:toxee/util/app_paths.dart';
@@ -28,9 +29,11 @@ void main() {
     AppPaths.debugApplicationSupportOverride = applicationSupport.path;
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
+    AccountDeletionTestHooks.removePassword = (_) async => true;
   });
 
   tearDown(() async {
+    AccountDeletionTestHooks.reset();
     AppPaths.debugApplicationSupportOverride = null;
     if (await testRoot.exists()) {
       await testRoot.delete(recursive: true);
@@ -122,18 +125,21 @@ void main() {
   );
 
   test(
-    'sanitizes target names and denies traversal and symlink escapes',
+    'rejects unsafe target names and denies traversal and symlink escapes',
     () async {
       final storage = storageFor(_accountA);
-      final sanitized = await storage.writeBytesToScratch(
-        Uint8List.fromList(<int>[1]),
-        category: '../../image paste',
-        suggestedFileName: '../picked image.png',
+      await expectLater(
+        storage.writeBytesToScratch(
+          Uint8List.fromList(<int>[1]),
+          category: '../../image paste',
+          suggestedFileName: '../picked image.png',
+        ),
+        throwsArgumentError,
       );
-      expect(p.isWithin(storage.scratchRoot, sanitized), isTrue);
-      expect(
-        p.relative(sanitized, from: storage.scratchRoot),
-        isNot(contains('..')),
+      await storage.writeBytesToScratch(
+        Uint8List.fromList(<int>[1]),
+        category: 'image_paste',
+        suggestedFileName: 'picked-image.png',
       );
 
       final external = File(p.join(testRoot.path, 'export.zip'));
@@ -147,7 +153,7 @@ void main() {
       await link.create(external.path);
       await expectLater(
         storage.deleteScratchFile(link.path),
-        throwsA(isA<StateError>()),
+        throwsArgumentError,
       );
       expect(await external.readAsString(), 'user export');
     },

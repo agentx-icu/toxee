@@ -16,8 +16,14 @@ void main() {
   final mainActivityFile = File(
     '$repoRoot/android/app/src/main/kotlin/com/toxee/app/MainActivity.kt',
   );
+  final incomingCallLeaseStoreFile = File(
+    '$repoRoot/android/app/src/main/kotlin/com/toxee/app/IncomingCallWindowLeaseStore.kt',
+  );
   final notificationServiceFile = File(
     '$repoRoot/lib/notifications/notification_service.dart',
+  );
+  final incomingCallLeaseDartFile = File(
+    '$repoRoot/lib/notifications/incoming_call_window_lease.dart',
   );
 
   test(
@@ -89,6 +95,7 @@ void main() {
   test('Android incoming-call lock-screen surface is runtime gated', () async {
     final manifest = await manifestFile.readAsString();
     final activity = await mainActivityFile.readAsString();
+    final leaseStore = await incomingCallLeaseStoreFile.readAsString();
     final notificationService = await notificationServiceFile.readAsString();
 
     expect(manifest, contains('android.permission.USE_FULL_SCREEN_INTENT'));
@@ -104,18 +111,34 @@ void main() {
       reason:
           'Only incoming-call notification launches may turn the screen on.',
     );
-    expect(activity, contains('SELECT_NOTIFICATION'));
+    expect(activity, contains('action = intent?.action'));
+    expect(leaseStore, contains('SELECT_NOTIFICATION'));
     expect(activity, contains('payload'));
-    expect(activity, contains('incoming_call:'));
+    expect(
+      leaseStore,
+      contains('INCOMING_CALL_PAYLOAD_NAME = "incoming_call"'),
+    );
+    expect(leaseStore, contains('INCOMING_CALL_PAYLOAD_PREFIX'));
+    expect(leaseStore, contains('MessageDigest.isEqual'));
+    expect(leaseStore, contains('EXPIRES_AT_EPOCH_MS_KEY'));
+    expect(activity, contains('IncomingCallWindowLeaseStore.consume'));
     expect(activity, contains('INCOMING_CALL_WINDOW_TOKEN_ARG'));
-    expect(activity, contains('INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY'));
     expect(activity, contains('activeIncomingCallWindowNonceDigest'));
+    expect(
+      activity,
+      contains('activeNonceDigest = activeIncomingCallWindowNonceDigest'),
+    );
     expect(activity, contains('armIncomingCallWindow'));
+    expect(activity, contains('commit()'));
     expect(activity, contains('setShowWhenLocked'));
     expect(activity, contains('setTurnScreenOn'));
     expect(notificationService, contains('toxee/incoming_call_window'));
-    expect(notificationService, contains('_issueIncomingCallWindowLease'));
+    expect(
+      notificationService,
+      contains('_incomingCallWindowLeaseStore.issue(callId)'),
+    );
     expect(notificationService, contains('IncomingCallWindowLeaseStore'));
+    expect(notificationService, contains('_armAndroidIncomingCallWindow'));
     expect(notificationService, contains('armIncomingCallWindow'));
     expect(notificationService, contains('clearIncomingCallWindow'));
     expect(notificationService, contains('stripIncomingCallWindowNonce'));
@@ -125,26 +148,43 @@ void main() {
     'Android incoming-call lock-screen lease validates digest, binding, and expiry',
     () async {
       final activity = await mainActivityFile.readAsString();
+      final leaseStore = await incomingCallLeaseStoreFile.readAsString();
+      final dartLease = await incomingCallLeaseDartFile.readAsString();
 
       expect(activity, contains('java.security.MessageDigest'));
       expect(activity, contains('MessageDigest.getInstance("SHA-256")'));
       expect(activity, contains('MessageDigest.isEqual'));
-      expect(activity, contains('INCOMING_CALL_WINDOW_NONCE_DIGEST_PREF_KEY'));
-      expect(activity, contains('INCOMING_CALL_WINDOW_CALL_DIGEST_PREF_KEY'));
-      expect(activity, contains('INCOMING_CALL_WINDOW_EXPIRES_AT_PREF_KEY'));
-      expect(activity, contains('"flutter.toxee_incoming_call_window_token"'));
+      expect(activity, contains('activeIncomingCallWindowNonceDigest'));
+      expect(leaseStore, contains('NONCE_DIGEST_KEY'));
+      expect(leaseStore, contains('CALL_ID_DIGEST_KEY'));
+      expect(leaseStore, contains('EXPIRES_AT_EPOCH_MS_KEY'));
       expect(
-        activity,
-        contains('"flutter.toxee_incoming_call_window_call_digest"'),
+        leaseStore,
+        contains('"flutter.toxee_incoming_call_window_nonce_sha256"'),
       );
       expect(
-        activity,
-        contains('"flutter.toxee_incoming_call_window_expires_at_ms"'),
+        leaseStore,
+        contains('"flutter.toxee_incoming_call_window_call_id_sha256"'),
       );
-      expect(activity, contains('"toxee:incoming-call-window:call:v1"'));
+      expect(
+        leaseStore,
+        contains('"flutter.toxee_incoming_call_window_expires_at_epoch_ms"'),
+      );
+      expect(dartLease, contains("'toxee_incoming_call_window_nonce_sha256'"));
+      expect(dartLease, contains("'toxee_incoming_call_window_call_id_sha256'"));
+      expect(
+        dartLease,
+        contains("'toxee_incoming_call_window_expires_at_epoch_ms'"),
+      );
+      expect(leaseStore, contains('"toxee.incoming-call.v1:"'));
+      expect(dartLease, contains("'toxee.incoming-call.v1:\$callId'"));
+      expect(
+        leaseStore,
+        isNot(contains('toxee:incoming-call-window:call:v1')),
+      );
+      expect(leaseStore, contains('grantAfterClear -> clearAll(storage)'));
       expect(activity, contains('System.currentTimeMillis()'));
-      expect(activity, contains('clearIncomingCallWindowLease()'));
-      expect(activity, contains('consumeValidIncomingCallWindowLease(intent)'));
+      expect(activity, contains('IncomingCallWindowLeaseStore.consume'));
       expect(
         activity,
         isNot(
@@ -152,6 +192,19 @@ void main() {
         ),
         reason:
             'MainActivity must never overwrite the digest lease with a raw nonce.',
+      );
+      expect(
+        leaseStore,
+        contains('allKeys = listOf(LEGACY_RAW_TOKEN_KEY) + leaseKeys'),
+        reason:
+            'Native storage must remove legacy raw-token residue.',
+      );
+      expect(
+        leaseStore,
+        isNot(
+          contains('storedNonceDigest = storage.getString(LEGACY_RAW_TOKEN_KEY)'),
+        ),
+        reason: 'A legacy raw token must never authorize lock-screen access.',
       );
       expect(
         activity,

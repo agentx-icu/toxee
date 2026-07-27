@@ -64,6 +64,11 @@ String buildAccountExportFileName({
   return '${safeNickname}_$toxIdPrefix$suffix';
 }
 
+String buildFullBackupExportFileName({DateTime? timestamp}) {
+  final value = (timestamp ?? DateTime.now()).millisecondsSinceEpoch;
+  return 'toxee_full_backup_$value.zip';
+}
+
 Future<MobileExportSaveResult> saveMobileExportCopy({
   required String internalFilePath,
   required String dialogTitle,

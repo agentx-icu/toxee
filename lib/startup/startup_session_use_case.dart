@@ -31,6 +31,7 @@ class StartupSessionUseCase {
     FfiChatService? service;
     try {
       onStepChanged(StartupStep.checkingUserInfo);
+      await AccountService.recoverPendingAccountDeletions();
       final nick = await Prefs.getNickname();
       final statusMsg = await Prefs.getStatusMessage();
       final autoLogin = await Prefs.getAutoLogin();
@@ -89,8 +90,9 @@ class StartupSessionUseCase {
         // decrypt). Fail-open: a probe error must never block the normal init
         // path (the probe is advisory).
         try {
-          final profilePath =
-              await AppPaths.resolveToxProfilePath(toxIdForStartup);
+          final profilePath = await AppPaths.resolveToxProfilePath(
+            toxIdForStartup,
+          );
           if (profilePath != null &&
               await AccountExportService.isProfileFileEncrypted(profilePath)) {
             return const StartupShowLogin();
@@ -130,7 +132,9 @@ class StartupSessionUseCase {
         service = legacyService;
         await legacyService.init();
         await legacyService.login(
-            userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
+          userId: 'FlutterUIKitClient',
+          userSig: 'dummy_sig',
+        );
         // See LoginUseCase: `selfId` returns the V2TIM login `userId`
         // placeholder, not the Tox identity. Use `getSelfToxId()` for any
         // toxId-keyed persistence (account record, pointer, prefs prefix,
@@ -139,14 +143,19 @@ class StartupSessionUseCase {
         final toxId = legacyService.getSelfToxId();
         if (toxId == null || toxId.isEmpty) {
           throw StateError(
-              'StartupSessionUseCase: getSelfToxId() returned null after '
-              'login — refusing to persist an account record under a '
-              'placeholder identity. The caller should surface this so the '
-              'user can retry rather than silently end up with a corrupted '
-              'account_list entry.');
+            'StartupSessionUseCase: getSelfToxId() returned null after '
+            'login — refusing to persist an account record under a '
+            'placeholder identity. The caller should surface this so the '
+            'user can retry rather than silently end up with a corrupted '
+            'account_list entry.',
+          );
         }
+        legacyService.installScratchFileService(
+          await AccountService.createScratchStorageForAccount(toxId),
+        );
         legacyPrefsAdapter.setAccountPrefix(
-            toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length));
+          toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length),
+        );
         // Apply the profile BEFORE persisting the account pointer/record.
         // updateSelfProfile only needs the prefix (set above); persisting the
         // current-account pointer + account record first meant a throw here
@@ -155,7 +164,9 @@ class StartupSessionUseCase {
         // these prefs). Ordering the durable writes last keeps the failure
         // path clean — nothing is persisted unless the profile applied.
         await legacyService.updateSelfProfile(
-            nickname: nick, statusMessage: statusMsg ?? '');
+          nickname: nick,
+          statusMessage: statusMsg ?? '',
+        );
         await Prefs.setCurrentAccountToxId(toxId);
         await Prefs.addAccount(
           toxId: toxId,
@@ -176,8 +187,7 @@ class StartupSessionUseCase {
         // is keyed by the real Tox ID. Resolve the real ID from the FFI;
         // fall back to the placeholder only if discovery failed (in which
         // case the touch was always going to be a no-op anyway).
-        final touchId =
-            currentService.getSelfToxId() ?? currentService.selfId;
+        final touchId = currentService.getSelfToxId() ?? currentService.selfId;
         await Prefs.touchAccountLoginTime(touchId);
       } catch (_) {}
 

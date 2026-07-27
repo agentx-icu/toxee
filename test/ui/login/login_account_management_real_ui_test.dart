@@ -44,10 +44,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:toxee/i18n/app_localizations.dart';
-import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/mobile_export_policy.dart';
+import 'package:toxee/util/app_paths.dart';
+import 'package:toxee/util/logger.dart';
 import 'package:toxee/util/prefs.dart';
 
 const _exportOptionKey = Key('login_account_management_export_option');
@@ -109,19 +110,25 @@ Future<void> _tapAndAwait(
   Duration timeout = const Duration(seconds: 10),
   String? timeoutMessage,
 }) async {
+  var completed = false;
   await tester.runAsync(() async {
     await tester.tap(trigger);
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      if (await isDone()) return;
       await tester.pump(const Duration(milliseconds: 50));
+      if (await isDone()) {
+        completed = true;
+        break;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    if (await isDone()) return;
-    throw StateError(
-      timeoutMessage ?? 'Timed out after ${timeout.inSeconds}s waiting for trigger completion',
-    );
   });
+  if (!completed) {
+    fail(
+      timeoutMessage ??
+          'Timed out after ${timeout.inSeconds}s waiting for trigger completion',
+    );
+  }
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 100));
 }
@@ -151,11 +158,12 @@ void main() {
   late Directory appSupportRoot;
 
   setUp(() async {
-    secureStore.clear();
     appSupportRoot = await Directory.systemTemp.createTemp(
-      'toxee_login_acct_mgmt_test_',
+      'login_acct_mgmt_test_',
     );
     AppPaths.debugApplicationSupportOverride = appSupportRoot.path;
+    AppLogger.resetForTesting();
+    secureStore.clear();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(secureChannel, (MethodCall call) async {
@@ -195,11 +203,12 @@ void main() {
   });
 
   tearDown(() async {
-    AppPaths.debugApplicationSupportOverride = null;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(secureChannel, null);
     messenger.setMockMethodCallHandler(pathProviderChannel, null);
+    AppLogger.resetForTesting();
+    AppPaths.debugApplicationSupportOverride = null;
     if (await appSupportRoot.exists()) {
       await appSupportRoot.delete(recursive: true);
     }
@@ -676,5 +685,3 @@ void main() {
     );
   });
 }
-
-// Needed for the path_provider temp-dir mock.

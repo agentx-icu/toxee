@@ -73,6 +73,7 @@ void main() {
       );
       expect(issue.toString(), isNot(contains(issue.nonce)));
       expect(issue.toString(), isNot(contains(issue.callDigest)));
+      expect(issue.toString(), isNot(contains(issue.callId)));
     });
 
     for (var failedWrite = 1; failedWrite <= 3; failedWrite++) {
@@ -93,7 +94,7 @@ void main() {
           expect(preferences.values, isEmpty);
           expect(
             preferences.removeCalls,
-            containsAll(incomingCallWindowLeasePreferenceKeys),
+            containsAll(incomingCallWindowLeaseCleanupPreferenceKeys),
           );
         },
       );
@@ -147,13 +148,13 @@ void main() {
       );
     });
 
-    for (final failedKey in incomingCallWindowLeasePreferenceKeys) {
+    for (final failedKey in incomingCallWindowLeaseCleanupPreferenceKeys) {
       test(
         'clear reports a false remove for $failedKey after trying all keys',
         () async {
           final preferences = _FakeLeasePreferences(failRemoveKey: failedKey)
             ..values.addAll(<String, Object>{
-              for (final key in incomingCallWindowLeasePreferenceKeys)
+              for (final key in incomingCallWindowLeaseCleanupPreferenceKeys)
                 key: 'old',
             });
           final store = IncomingCallWindowLeaseStore(preferences: preferences);
@@ -165,7 +166,7 @@ void main() {
 
           expect(
             preferences.removeCalls,
-            unorderedEquals(incomingCallWindowLeasePreferenceKeys),
+            unorderedEquals(incomingCallWindowLeaseCleanupPreferenceKeys),
           );
           expect(preferences.values.keys, <String>[failedKey]);
         },
@@ -178,7 +179,7 @@ void main() {
               throwRemoveKey: incomingCallWindowCallDigestPrefsKey,
             )
             ..values.addAll(<String, Object>{
-              for (final key in incomingCallWindowLeasePreferenceKeys)
+              for (final key in incomingCallWindowLeaseCleanupPreferenceKeys)
                 key: 'old',
             });
       final store = IncomingCallWindowLeaseStore(preferences: preferences);
@@ -191,7 +192,7 @@ void main() {
       expect(preferences.writeCount, 0);
       expect(
         preferences.removeCalls,
-        unorderedEquals(incomingCallWindowLeasePreferenceKeys),
+        unorderedEquals(incomingCallWindowLeaseCleanupPreferenceKeys),
       );
     });
   });
@@ -281,7 +282,7 @@ void main() {
 
         expect(outcome, IncomingCallNotificationOutcome.inAppOnlyFallback);
         final preferences = await SharedPreferences.getInstance();
-        for (final key in incomingCallWindowLeasePreferenceKeys) {
+        for (final key in incomingCallWindowLeaseCleanupPreferenceKeys) {
           expect(preferences.containsKey(key), isFalse);
         }
       },
@@ -306,7 +307,7 @@ void main() {
       );
 
       final preferences = await SharedPreferences.getInstance();
-      for (final key in incomingCallWindowLeasePreferenceKeys) {
+      for (final key in incomingCallWindowLeaseCleanupPreferenceKeys) {
         expect(preferences.containsKey(key), isFalse);
       }
     });
@@ -445,7 +446,7 @@ void main() {
         await NotificationService.instance.cancelIncomingCallNotification();
 
         final preferences = await SharedPreferences.getInstance();
-        for (final key in incomingCallWindowLeasePreferenceKeys) {
+        for (final key in incomingCallWindowLeaseCleanupPreferenceKeys) {
           expect(preferences.containsKey(key), isFalse);
         }
       },
