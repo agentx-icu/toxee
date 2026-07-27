@@ -23,6 +23,14 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
+fun isUnitTestOnlyInvocation(taskNames: List<String>): Boolean {
+    if (taskNames.isEmpty()) return false
+    return taskNames.all { taskName ->
+        val lowerName = taskName.lowercase()
+        lowerName == "test" || lowerName.endsWith(":test") || lowerName.contains("unittest")
+    }
+}
+
 android {
     namespace = "com.toxee.app"
     compileSdk = flutter.compileSdkVersion
@@ -63,7 +71,7 @@ android {
             ?.map { it.name }?.sorted() ?: emptyList()
         if (ffiAbis.isNotEmpty()) {
             ndk { abiFilters.addAll(ffiAbis) }
-        } else {
+        } else if (!isUnitTestOnlyInvocation(gradle.startParameter.taskNames)) {
             // jniLibs is gitignored, so a clean checkout has no FFI yet. Fail
             // fast rather than ship a libtim2tox_ffi.so-less APK that crashes on
             // every ABI at runtime. Build it first: tool/build_android_ffi.sh.
@@ -109,4 +117,5 @@ dependencies {
     // flutter_local_notifications already, but declared explicitly so the
     // dependency isn't load-bearing on a plugin's version pin.
     implementation("androidx.core:core-ktx:1.13.1")
+    testImplementation("junit:junit:4.13.2")
 }
