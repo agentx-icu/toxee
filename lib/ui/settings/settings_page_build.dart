@@ -412,7 +412,7 @@ extension _SettingsPageBuild on _SettingsPageState {
                         label: Text(
                           AppLocalizations.of(context)!.importAccount,
                         ),
-                        onPressed: _importAccount,
+                        onPressed: _importInProgress ? null : _importAccount,
                       ),
                     ],
                   ),
