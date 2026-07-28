@@ -134,10 +134,10 @@ hermetic tests 59/59 still green)
 | 16 | profile_edit_status_persists | 1i | S8 | same for status message | FAIL→FIXED(same crash+save-tap fixes as case 15) |
 | 17 | profile_copy_toxid_snackbar | 1i | S102 | copy button → snackbar | PASS |
 | 18 | profile_qr_copy | 1i | S103 | QR section copy action → snackbar | PASS |
-| 19 | profile_avatar_picker_opens | 1i | S79 | avatar tap → default-avatar grid/picker surface mounts (native picker untouched) | SKIP(no in-app avatar picker — native NSOpenPanel only; l3 override test-gated) |
-| 20 | profile_avatar_select_default_applies | 1i | S79 | select a bundled default avatar → avatar updates (faceUrl changes) | SKIP(no in-app default-avatar selection surface — same root as 19) |
+| 19 | profile_avatar_picker_opens | 1i | S79 | tap real avatar camera control with a deterministic sandbox image → `selfAvatarPath` changes | PASS |
+| 20 | profile_avatar_select_default_applies | 1i | S79 | repeat the real avatar control with a distinct sandbox image → a new `selfAvatarPath` persists | PASS |
 
-Sweep: `sweep_profile` · Campaign: `rui-profile`. **Batch 2 STATUS: DONE** (6/8 WRITTEN+unrun, 2 SKIP — no in-app avatar surface; analyze 0-new; planner + campaign-list green; profile hermetic tests 10/10 green)
+Sweep: `sweep_profile` · Campaign: `rui-profile`. **Batch 2 STATUS: DONE** (8/8 runnable, 0 SKIP; avatar cases drive the real control with the fixed picker-path seam; analyze 0-new; planner + campaign-list green; profile hermetic tests 10/10 green)
 
 #### Batch 3 — Login / register (9 cases, 1i; password cases mutate then restore state)
 
@@ -148,13 +148,13 @@ Sweep: `sweep_profile` · Campaign: `rui-profile`. **Batch 2 STATUS: DONE** (6/8
 | 23 | register_empty_nickname_error | 1i | S4 | submit empty nickname → inline validation error | PASS |
 | 24 | register_password_mismatch_error | 1i | S4 | mismatched passwords → inline error | PASS |
 | 25 | register_password_strength_flips | 1i | S4 | typing weak→strong flips the strength caption (Weak→Strong) | FAIL→FIXED(HARNESS: synthetic enterText didn't reliably REPLACE the field so the strong pw was computed against stale content→never "Strong"; switched both types to focusType real keystrokes) |
-| 26 | login_restore_entry_opens | 1i | S9/S71 | restore-from-tox card → import/restore surface mounts; cancel back | SKIP(native-picker-only — restore card opens NSOpenPanel directly, no in-app surface) |
+| 26 | login_restore_entry_opens | 1i | S9/S71 | tap real restore card with a fixed invalid `.tox` path → real handler shows error banner; remain logged out | PASS |
 | 27 | login_password_wrong_error | 1i | S2b | set pw (settings) → logout → card → wrong pw → error, stays on login | FAIL→FIXED(card tap: raw tapAt/tapKeyCenter does NOT fire the card InkWell→tryTapKey; PRODUCT _quickLogin re-entrancy guard makes the double-fire safe) |
 | 28 | login_password_correct_unlocks | 1i | S2b | correct pw → HomePage; then REMOVE password (restore no-pw state) | FAIL→FIXED(same card-tap + guard fix as 27; cascade-cleared) |
 | 29 | account_switch_second_account | 1i | S3/S72 | register a 2nd account (ONCE, end of suite) → switch back via login cards; dump shows switched toxId | FAIL→FIXED(switch-back uses the fixed _quickLoginNoPassword card tap; cascade-cleared) |
 
-Sweep: `sweep_login` · Campaign: `rui-login`. **Batch 3 STATUS: DONE** (8/9 WRITTEN+unrun,
-1 SKIP — case 26 native-picker-only; case 29 registers the ONLY extra account of the
+Sweep: `sweep_login` · Campaign: `rui-login`. **Batch 3 STATUS: DONE** (9/9 runnable,
+0 SKIP; case 26 drives the real restore card through the fixed picker-path seam; case 29 registers the ONLY extra account of the
 campaign; password cases RESTORE the no-password state via the production change-password
 dialog. analyze 0-NEW vs 222 baseline; planner/validate/campaign-list/self-test green;
 touched-lib hermetic tests 57/57 green; 4 codex rounds, all findings applied)
