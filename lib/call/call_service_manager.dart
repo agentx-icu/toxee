@@ -1733,6 +1733,7 @@ class CallServiceManager
   }
 
   void dispose() {
+    onCallRecordNeeded = null;
     WidgetsBinding.instance.removeObserver(this);
     _callState.removeListener(_syncAvPollBoost);
     _callState.removeListener(_syncReconnectWatchdog);
