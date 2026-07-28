@@ -194,18 +194,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _handleSave() async {
     if (widget.onSave == null || _isSaving) return;
+    final submittedNickName = _nickController.text.trim();
+    final submittedStatusMessage = _statusController.text.trim();
     setState(() => _isSaving = true);
     try {
-      await widget.onSave!(
-        _nickController.text.trim(),
-        _statusController.text.trim(),
-      );
+      await widget.onSave!(submittedNickName, submittedStatusMessage);
       final cardText = _cardTextController.text.trim();
       await Prefs.setCardText(cardText.isNotEmpty ? cardText : null);
-      _savedNickName = _nickController.text.trim();
-      _savedStatusMessage = _statusController.text.trim();
-      _invalidateQrCard();
       if (!mounted) return;
+      _savedNickName = submittedNickName;
+      _savedStatusMessage = submittedStatusMessage;
+      _nickController.text = submittedNickName;
+      _statusController.text = submittedStatusMessage;
+      _invalidateQrCard();
       setState(() => _editMode = false);
       final tL10n = TencentCloudChatLocalizations.of(context);
       AppSnackBar.showSuccess(
@@ -221,6 +222,21 @@ class _ProfilePageState extends State<ProfilePage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  void _cancelEditing() {
+    _nickController.text = _savedNickName ?? widget.nickName ?? '';
+    _statusController.text = _savedStatusMessage ?? widget.statusMessage ?? '';
+    setState(() => _editMode = false);
+  }
+
+  void _toggleEditing() {
+    if (_isSaving) return;
+    if (_editMode) {
+      _cancelEditing();
+      return;
+    }
+    setState(() => _editMode = true);
   }
 
   Future<void> _handleSaveCardText() async {
@@ -456,6 +472,7 @@ class _ProfilePageState extends State<ProfilePage> {
       statusText: statusText,
       isEditable: widget.isEditable,
       editMode: _editMode,
+      isSaving: _isSaving,
       isConnected: isConnected,
       primaryColor: colorTheme.primaryColor,
       onPrimary: colorTheme.onPrimary,
@@ -465,7 +482,7 @@ class _ProfilePageState extends State<ProfilePage> {
       avatarFileExists: _avatarFileExists,
       avatarVersion: _avatarVersion,
       onAvatarTap: _pickAvatar,
-      onToggleEdit: () => setState(() => _editMode = !_editMode),
+      onToggleEdit: _toggleEditing,
       onlineLabel: appL10n.statusOnline,
       offlineLabel: appL10n.statusOffline,
       editTooltip: tL10n?.edit ?? 'Edit',
@@ -483,7 +500,7 @@ class _ProfilePageState extends State<ProfilePage> {
               cancelLabel: tL10n?.cancel ?? appL10n.cancel,
               nicknameTooLong: appL10n.nicknameTooLong,
               statusTooLong: appL10n.statusMessageTooLong,
-              onCancel: () => setState(() => _editMode = false),
+              onCancel: _cancelEditing,
               onSave: _handleSave,
               onAnyFieldChanged: () => setState(() {}),
             )

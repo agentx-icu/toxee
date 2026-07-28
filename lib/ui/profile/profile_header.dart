@@ -16,6 +16,7 @@ class ProfileHeader extends StatelessWidget {
     required this.statusText,
     required this.isEditable,
     required this.editMode,
+    required this.isSaving,
     required this.isConnected,
     required this.primaryColor,
     required this.onPrimary,
@@ -38,6 +39,7 @@ class ProfileHeader extends StatelessWidget {
   final String statusText;
   final bool isEditable;
   final bool editMode;
+  final bool isSaving;
   final bool isConnected;
   final Color primaryColor;
   final Color onPrimary;
@@ -108,7 +110,7 @@ class ProfileHeader extends StatelessWidget {
                       key: UiKeys.profileEditToggle,
                       icon: Icon(editMode ? Icons.close : Icons.edit, size: 20),
                       tooltip: editMode ? cancelTooltip : editTooltip,
-                      onPressed: onToggleEdit,
+                      onPressed: isSaving ? null : onToggleEdit,
                     ),
                 ],
               ),
@@ -135,4 +137,3 @@ class ProfileHeader extends StatelessWidget {
     );
   }
 }
-
