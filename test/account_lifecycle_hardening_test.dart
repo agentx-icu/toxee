@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/auth/login_use_case.dart';
+import 'package:toxee/runtime/session_runtime_coordinator.dart';
 import 'package:toxee/startup/startup_outcome.dart';
 import 'package:toxee/startup/startup_session_use_case.dart';
 import 'package:toxee/util/account_deletion.dart';
@@ -36,6 +37,7 @@ void main() {
     AppLogger.resetForTesting();
     AccountDeletionTestHooks.reset();
     AccountTeardownTestHooks.reset();
+    SessionRuntimeCoordinator.debugReset();
     secureStorage = _SecureStorageHarness();
     _installSecureStorageHarness(secureStorage);
   });
@@ -45,6 +47,7 @@ void main() {
         .setMockMethodCallHandler(_secureChannel, null);
     AccountDeletionTestHooks.reset();
     AccountTeardownTestHooks.reset();
+    SessionRuntimeCoordinator.debugReset();
     SessionPasswordStore.clear();
     AppLogger.resetForTesting();
     await env.dispose();
@@ -592,6 +595,92 @@ void main() {
   });
 
   group('fail-closed session teardown', () {
+    test(
+      'runtime failure does not skip later teardown and surfaces first typed failure',
+      () async {
+        await _seedDeletableAccount(
+          _toxId,
+          nickname: 'Complete teardown',
+          current: true,
+        );
+        const sessionPassword = 'recovery-material';
+        SessionPasswordStore.set(_toxId, sessionPassword);
+        final runtimeFailure = StateError('runtime teardown failed');
+        final steps = <String>[];
+        SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {
+          steps.add('runtime');
+          throw runtimeFailure;
+        };
+        AccountTeardownTestHooks.shutdownIrcSession = (_) async {
+          steps.add('irc');
+          throw StateError('irc shutdown failed');
+        };
+        AccountTeardownTestHooks.disposeService = (_) async {
+          steps.add('service');
+        };
+        AccountTeardownTestHooks.encryptProfileFile = (_, password) async {
+          steps.add('encrypt');
+          expect(password, sessionPassword);
+        };
+
+        await expectLater(
+          () => AccountService.teardownCurrentSession(
+            service: _FakeFfiChatService(_toxId),
+          ),
+          throwsA(
+            isA<AccountTeardownFailure>()
+                .having(
+                  (failure) => failure.stage.name,
+                  'stage',
+                  'runtimeDisposal',
+                )
+                .having((failure) => failure.cause, 'cause', runtimeFailure),
+          ),
+        );
+
+        expect(steps, ['runtime', 'irc', 'service', 'encrypt']);
+        expect(SessionPasswordStore.get(_toxId), isNull);
+      },
+    );
+
+    test('service dispose failure is surfaced after profile cleanup', () async {
+      await _seedDeletableAccount(
+        _toxId,
+        nickname: 'Dispose failure',
+        current: true,
+      );
+      const sessionPassword = 'recovery-material';
+      SessionPasswordStore.set(_toxId, sessionPassword);
+      final disposeFailure = StateError('service dispose failed');
+      var profileEncrypted = false;
+      SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {};
+      AccountTeardownTestHooks.shutdownIrcSession = (_) async {};
+      AccountTeardownTestHooks.disposeService = (_) async {
+        throw disposeFailure;
+      };
+      AccountTeardownTestHooks.encryptProfileFile = (_, _) async {
+        profileEncrypted = true;
+      };
+
+      await expectLater(
+        () => AccountService.teardownCurrentSession(
+          service: _FakeFfiChatService(_toxId),
+        ),
+        throwsA(
+          isA<AccountTeardownFailure>()
+              .having(
+                (failure) => failure.stage.name,
+                'stage',
+                'serviceDisposal',
+              )
+              .having((failure) => failure.cause, 'cause', disposeFailure),
+        ),
+      );
+
+      expect(profileEncrypted, isTrue);
+      expect(SessionPasswordStore.get(_toxId), isNull);
+    });
+
     test(
       're-encryption failure is surfaced and preserves recovery password',
       () async {

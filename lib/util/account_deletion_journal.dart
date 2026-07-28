@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import 'account_export/atomic_file_write.dart';
 import 'app_paths.dart';
+import 'safe_diagnostics.dart';
 import 'tox_utils.dart';
 
 enum AccountDeletionStage {
@@ -65,7 +66,8 @@ final class AccountDeletionFailure implements Exception {
 
   @override
   String toString() {
-    return 'Account deletion failed at ${stage.name} for $toxId: $cause';
+    return 'Account deletion failed stage=${stage.name} '
+        '${SafeDiagnostics.describeError(cause)}';
   }
 }
 
@@ -89,9 +91,11 @@ final class AccountDeletionResult {
   String toString() {
     final pendingFailure = failure;
     if (pendingFailure == null) {
-      return 'AccountDeletionResult.completed($toxId)';
+      return 'AccountDeletionResult(completed=true)';
     }
-    return 'AccountDeletionResult.pending($pendingFailure)';
+    return 'AccountDeletionResult(completed=false '
+        'stage=${pendingFailure.stage.name} '
+        '${SafeDiagnostics.describeError(pendingFailure.cause)})';
   }
 }
 
@@ -102,7 +106,7 @@ final class AccountDeletionInProgressException implements Exception {
 
   @override
   String toString() {
-    return 'Account $toxId is being deleted; cleanup is pending and will retry.';
+    return 'Account deletion in progress status=pending';
   }
 }
 
@@ -157,7 +161,7 @@ final class AccountDeletionTombstone {
       updatedAt: DateTime.now().toUtc(),
       deletedCurrentAccount: deletedCurrentAccount,
       failureStage: failure.stage,
-      failureDescription: failure.cause.toString(),
+      failureDescription: SafeDiagnostics.describeError(failure.cause),
     );
   }
 

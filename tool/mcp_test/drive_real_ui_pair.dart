@@ -89,11 +89,13 @@ import 'local_irc_server.dart';
 //                   switch-toggle/password-mismatch/logout-cancel) + the
 //                   sweep_settings2 chain.
 //   profile       — Batch-2 self-profile sweep (open overlay / edit-toggle /
-//                   nickname+status edit / copy-toxid / qr-copy; avatar SKIPs) +
+//                   nickname+status edit / copy-toxid / qr-copy / real-control
+//                   avatar changes with deterministic picker input) +
 //                   the sweep_profile chain.
 //   login         — Batch-3 login/register sweep (logout, saved-account card,
-//                   register open/back + validation, restore SKIP, quick-login
-//                   wrong/correct password + remove, account switch) +
+//                   register open/back + validation, real restore-card error
+//                   path, quick-login wrong/correct password + remove, account
+//                   switch) +
 //                   the sweep_login chain.
 //   contacts      — Batch-4 contacts/friend-profile sweep (add-friend dialog
 //                   guards, contact subtabs, row->profile, send-message tile,
@@ -398,22 +400,30 @@ Future<int> _main(List<String> args) async {
     }
     if (scenario == 'profile_avatar_picker_opens') {
       await ensureHome(a, nickA);
-      // A `bool?` runner returning null is a SKIP — exit 75 (the runner's
-      // _realUiSkipExitCode, distinct from 0=PASS / 78=BLOCKED) so it is NOT
-      // tallied as a PASS. false → 1 (FAIL); true → 0 (PASS) — neither happens
-      // for these no-surface cases, which always return null.
-      return await _profileAvatarPickerOpens(a) == false ? 1 : 75;
+      // Keep the nullable SKIP exit contract for an unavailable test-account
+      // marker; the profile sweep normally runs the real avatar-control path.
+      final result = await _profileAvatarPickerOpens(a);
+      return switch (result) {
+        true => 0,
+        false => 1,
+        null => 75,
+      };
     }
     if (scenario == 'profile_avatar_select_default_applies') {
       await ensureHome(a, nickA);
-      return await _profileAvatarSelectDefaultApplies(a) == false ? 1 : 75;
+      final result = await _profileAvatarSelectDefaultApplies(a);
+      return switch (result) {
+        true => 0,
+        false => 1,
+        null => 75,
+      };
     }
     // Batch 3 — login / register (single-instance; drive only A). sweep_login
     // chains all 9 on one launch (the canonical entry). The individual cases
     // below run the minimum prelude each needs: cases that act on the LoginPage
     // (21/22/23/24/25) log out first; the password cases (27/28) and the account
-    // switch (29) manage their own logout/login internally; 26 is a SKIP (exit
-    // 75, like the Batch-2 avatar SKIPs).
+    // switch (29) manage their own logout/login internally; 26 drives the real
+    // restore card with deterministic invalid-file input.
     if (scenario == 'sweep_login') {
       return await runLoginSweep(a, nickA);
     }
@@ -434,7 +444,8 @@ Future<int> _main(List<String> args) async {
       await ensureHome(a, nickA);
       // Drives the REAL restore card via the account-import seam (invalid .tox
       // → error banner). Needs the primary toxId to relogin/set the seam.
-      final tox = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
+      final tox =
+          (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
       final r = await _loginRestoreEntryOpens(a, tox);
       return r == null ? 75 : (r ? 0 : 1);
     }
@@ -721,20 +732,28 @@ Future<int> _main(List<String> args) async {
               // later scenarios on the same pair launch (codex P2). The case
               // function re-checks and prints the canonical SKIP reason.
               if (a.isMobileShell) {
-                return skipMap(await _chatHistoryScrollLoadMore(
-                  a, b, chTox2A, chTox2B,
-                  earliestText: '', earliestId: '',
-                ));
+                return skipMap(
+                  await _chatHistoryScrollLoadMore(
+                    a,
+                    b,
+                    chTox2A,
+                    chTox2B,
+                    earliestText: '',
+                    earliestId: '',
+                  ),
+                );
               }
               final seeded = await _seedChatHistory(a, b, chTox2A, chTox2B);
-              return skipMap(await _chatHistoryScrollLoadMore(
-                a,
-                b,
-                chTox2A,
-                chTox2B,
-                earliestText: seeded?.earliestText ?? '',
-                earliestId: seeded?.earliestId ?? '',
-              ));
+              return skipMap(
+                await _chatHistoryScrollLoadMore(
+                  a,
+                  b,
+                  chTox2A,
+                  chTox2B,
+                  earliestText: seeded?.earliestText ?? '',
+                  earliestId: seeded?.earliestId ?? '',
+                ),
+              );
             }
           case 'chat_inbound_while_scrolled_up':
             {

@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
 import '../widgets/app_page_route.dart';
@@ -33,6 +34,7 @@ import '../../util/account_service.dart';
 import '../../util/tox_utils.dart';
 import '../../util/logger.dart';
 import '../../util/responsive_layout.dart';
+import '../../util/safe_diagnostics.dart';
 import '../login_page.dart';
 import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
@@ -65,6 +67,63 @@ typedef SettingsSwitchAccountFn =
       required String targetToxId,
       FfiChatService? currentService,
     });
+
+typedef SettingsPickImportFileFn = Future<String?> Function();
+
+typedef SettingsImportAccountDataFn =
+    Future<Map<String, dynamic>> Function({
+      required String filePath,
+      String? password,
+    });
+
+typedef EncryptProfileFileFn =
+    Future<bool> Function(String profileFilePath, String password);
+
+typedef SettingsAddImportedAccountFn =
+    Future<void> Function({
+      required String toxId,
+      required String nickname,
+      required String statusMessage,
+      required bool autoLogin,
+      required bool autoAcceptFriends,
+      required bool notificationSoundEnabled,
+    });
+
+typedef SettingsSetImportedAccountPasswordFn =
+    Future<bool> Function(String toxId, String password);
+
+Future<String?> _pickSettingsImportFile() async {
+  return (await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: ['tox', 'zip'],
+  ))?.files.single.path;
+}
+
+Future<void> _addSettingsImportedAccount({
+  required String toxId,
+  required String nickname,
+  required String statusMessage,
+  required bool autoLogin,
+  required bool autoAcceptFriends,
+  required bool notificationSoundEnabled,
+}) {
+  return Prefs.addAccount(
+    toxId: toxId,
+    nickname: nickname,
+    statusMessage: statusMessage,
+    autoLogin: autoLogin,
+    autoAcceptFriends: autoAcceptFriends,
+    notificationSoundEnabled: notificationSoundEnabled,
+  );
+}
+
+Future<bool> _encryptSettingsProfileFile(
+  String profileFilePath,
+  String password,
+) async {
+  await AccountExportService.encryptProfileFile(profileFilePath, password);
+  return true;
+}
 
 /// English words shown for confirmation when deleting account without password.
 const _kDeleteConfirmWords = <String>[
@@ -100,6 +159,11 @@ class SettingsPage extends StatefulWidget {
     required this.onAutoAcceptGroupInvitesChanged,
     this.teardownSession,
     this.switchAccountFn,
+    this.pickImportFileFn,
+    this.importAccountDataFn,
+    this.encryptProfileFileFn,
+    this.addImportedAccountFn,
+    this.setImportedAccountPasswordFn,
   });
   final FfiChatService service;
   final Stream<bool>
@@ -116,6 +180,12 @@ class SettingsPage extends StatefulWidget {
   /// Test seam for account switching; defaults to
   /// [AccountSwitcher.switchAccount]. See [SettingsSwitchAccountFn].
   final SettingsSwitchAccountFn? switchAccountFn;
+
+  final SettingsPickImportFileFn? pickImportFileFn;
+  final SettingsImportAccountDataFn? importAccountDataFn;
+  final EncryptProfileFileFn? encryptProfileFileFn;
+  final SettingsAddImportedAccountFn? addImportedAccountFn;
+  final SettingsSetImportedAccountPasswordFn? setImportedAccountPasswordFn;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -138,6 +208,13 @@ class _SettingsPageState extends State<SettingsPage> {
   // Resolved test seams: the injected override, else the production binding.
   late final SettingsTeardownSessionFn _teardownSession;
   late final SettingsSwitchAccountFn _switchAccountFn;
+  late final SettingsPickImportFileFn _pickImportFileFn;
+  late final SettingsImportAccountDataFn _importAccountDataFn;
+  late final EncryptProfileFileFn _encryptProfileFileFn;
+  late final SettingsAddImportedAccountFn _addImportedAccountFn;
+  late final SettingsSetImportedAccountPasswordFn _setImportedAccountPasswordFn;
+  bool _importInProgress = false;
+  bool _accountSwitchInProgress = false;
 
   @override
   void initState() {
@@ -160,6 +237,15 @@ class _SettingsPageState extends State<SettingsPage> {
           targetToxId: targetToxId,
           currentService: currentService,
         );
+    _pickImportFileFn = widget.pickImportFileFn ?? _pickSettingsImportFile;
+    _importAccountDataFn =
+        widget.importAccountDataFn ?? AccountExportService.importAccountData;
+    _encryptProfileFileFn =
+        widget.encryptProfileFileFn ?? _encryptSettingsProfileFile;
+    _addImportedAccountFn =
+        widget.addImportedAccountFn ?? _addSettingsImportedAccount;
+    _setImportedAccountPasswordFn =
+        widget.setImportedAccountPasswordFn ?? Prefs.setAccountPassword;
     _loadAutoLogin();
     _loadCurrentNickname();
     _loadAvatarPath();
@@ -329,51 +415,62 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.switchAccount),
-        content: Text(
-          AppLocalizations.of(
-            context,
-          )!.switchAccountConfirm(account['nickname'] ?? ''),
-        ),
-        actions: [
-          TextButton(
-            key: UiKeys.settingsAccountSwitchCancelButton,
-            onPressed: () => popDialogIfCurrent(context, false),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            key: UiKeys.settingsAccountSwitchConfirmButton,
-            onPressed: () => popDialogIfCurrent(context, true),
-            child: Text(AppLocalizations.of(context)!.switchAccount),
-          ),
-        ],
-      ),
-    );
+    if (_accountSwitchInProgress) return;
+    _accountSwitchInProgress = true;
 
-    if (confirmed == true && mounted) {
-      try {
-        await _switchAccountFn(
-          context: context,
-          targetToxId: toxId,
-          currentService: widget.service,
-        );
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                AppLocalizations.of(
-                  context,
-                )!.failedToSwitchAccount(e.toString()),
-              ),
-              backgroundColor: Theme.of(context).colorScheme.error,
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(AppLocalizations.of(context)!.switchAccount),
+          content: Text(
+            AppLocalizations.of(
+              context,
+            )!.switchAccountConfirm(account['nickname'] ?? ''),
+          ),
+          actions: [
+            TextButton(
+              key: UiKeys.settingsAccountSwitchCancelButton,
+              onPressed: () => popDialogIfCurrent(context, false),
+              child: Text(AppLocalizations.of(context)!.cancel),
             ),
+            TextButton(
+              key: UiKeys.settingsAccountSwitchConfirmButton,
+              onPressed: () => popDialogIfCurrent(context, true),
+              child: Text(AppLocalizations.of(context)!.switchAccount),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true && mounted) {
+        try {
+          await _switchAccountFn(
+            context: context,
+            targetToxId: toxId,
+            currentService: widget.service,
           );
+        } catch (e) {
+          SafeDiagnostics.logFailure('[SettingsPage] Account switch failed', e);
+          if (mounted) {
+            final l10n = AppLocalizations.of(context)!;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  e is InvalidAccountSwitchPasswordException
+                      ? l10n.invalidPassword
+                      : l10n.failedToSwitchAccount(
+                          SafeDiagnostics.describeError(e),
+                        ),
+                ),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
+          }
         }
       }
+    } finally {
+      _accountSwitchInProgress = false;
     }
   }
 
@@ -467,7 +564,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final cancelled =
         mobileSaveResult?.disposition == MobileExportSaveDisposition.cancelled;
     final message = cancelled
-        ? mobileSaveResult!.cancellationNotice
+        ? AppLocalizations.of(context)!.importCancelled
         : AppLocalizations.of(
             context,
           )!.accountExportedSuccessfully(exportedPath);
@@ -570,13 +667,15 @@ class _SettingsPageState extends State<SettingsPage> {
         exportedPath: filePath,
         mobileSaveResult: mobileSaveResult,
       );
-    } catch (e, stackTrace) {
-      AppLogger.logError('Full backup export error', e, stackTrace);
+    } catch (e) {
+      SafeDiagnostics.logFailure('Full backup export error', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              AppLocalizations.of(context)!.failedToExportAccount(e.toString()),
+              AppLocalizations.of(
+                context,
+              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
             ),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
@@ -687,15 +786,16 @@ class _SettingsPageState extends State<SettingsPage> {
         exportedPath: filePath,
         mobileSaveResult: mobileSaveResult,
       );
-    } catch (e, stackTrace) {
-      // Log detailed error for debugging
-      AppLogger.logError('Export account error', e, stackTrace);
+    } catch (e) {
+      SafeDiagnostics.logFailure('Export account error', e);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              AppLocalizations.of(context)!.failedToExportAccount(e.toString()),
+              AppLocalizations.of(
+                context,
+              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
             ),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
@@ -706,19 +806,16 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _importAccount() async {
+    if (_importInProgress) return;
+    setState(() => _importInProgress = true);
     String? rollbackToxId;
     var rollbackFullBackup = false;
+    var rollbackImportedAccount = false;
     final l10n = AppLocalizations.of(context)!;
     try {
       // Show file picker for .tox and .zip files
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['tox', 'zip'],
-      );
-
-      if (result == null || result.files.single.path == null) return;
-
-      final filePath = result.files.single.path!;
+      final filePath = await _pickImportFileFn();
+      if (filePath == null) return;
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
       // Check if file is encrypted by reading first bytes and checking magic number
@@ -732,8 +829,9 @@ class _SettingsPageState extends State<SettingsPage> {
           // If it throws an error about password, we'll catch and prompt
         }
       } catch (e) {
-        AppLogger.warn(
-          '[SettingsPage] pre-import file size probe failed (import will retry and surface the real error): $e',
+        SafeDiagnostics.logFailure(
+          '[SettingsPage] pre-import file size probe failed; import will retry',
+          e,
         );
       }
 
@@ -798,7 +896,7 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       } else {
         try {
-          accountData = await AccountExportService.importAccountData(
+          accountData = await _importAccountDataFn(
             filePath: filePath,
             password: password,
           );
@@ -806,10 +904,26 @@ class _SettingsPageState extends State<SettingsPage> {
           if (!mounted) return;
           password = await _showPasswordDialog(l10n.enterPasswordToImport);
           if (password == null || !mounted) return;
-          accountData = await AccountExportService.importAccountData(
-            filePath: filePath,
-            password: password,
-          );
+          try {
+            accountData = await _importAccountDataFn(
+              filePath: filePath,
+              password: password,
+            );
+          } catch (e) {
+            SafeDiagnostics.logFailure(
+              '[SettingsPage] Import password rejected',
+              e,
+            );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(l10n.invalidPassword),
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
+              );
+            }
+            return;
+          }
         }
       }
 
@@ -845,19 +959,30 @@ class _SettingsPageState extends State<SettingsPage> {
 
       // For .tox imports, write profile; .zip imports already wrote it in importFullBackup
       if (!isZip && toxProfile != null) {
+        rollbackImportedAccount = true;
         final parentDir = Directory(profileDir);
         if (!await parentDir.exists()) {
           await parentDir.create(recursive: true);
         }
         final toxProfileFile = File(profileFilePath);
         await toxProfileFile.writeAsBytes(toxProfile);
+        if (password != null && password.isNotEmpty) {
+          final encrypted = await _encryptProfileFileFn(
+            profileFilePath,
+            password,
+          );
+          if (!encrypted) {
+            throw StateError('Failed to encrypt imported account profile');
+          }
+        }
       }
 
       // Add/update account (.zip may contain nickname, .tox does not)
       final displayNickname = importedNickname.isNotEmpty
           ? importedNickname
           : l10n.importedAccount;
-      await Prefs.addAccount(
+      if (!isZip) rollbackImportedAccount = true;
+      await _addImportedAccountFn(
         toxId: toxId,
         nickname: displayNickname,
         statusMessage: '', // .tox files don't contain status message
@@ -873,7 +998,10 @@ class _SettingsPageState extends State<SettingsPage> {
       // passwords decrypt the archive and must not silently become the
       // restored account's login password.
       if (!isZip && password != null && password.isNotEmpty) {
-        await Prefs.setAccountPassword(toxId, password);
+        final persisted = await _setImportedAccountPasswordFn(toxId, password);
+        if (!persisted) {
+          throw StateError('Failed to persist imported account password');
+        }
       }
 
       // Reload account list
@@ -887,11 +1015,10 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       }
-    } on InvalidBackupPasswordException catch (e, stackTrace) {
-      AppLogger.logError(
+    } on InvalidBackupPasswordException catch (e) {
+      SafeDiagnostics.logFailure(
         '[SettingsPage] Full-backup password rejected',
         e,
-        stackTrace,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -901,31 +1028,36 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       }
-    } catch (e, stackTrace) {
-      if (rollbackFullBackup && rollbackToxId != null) {
+    } catch (e) {
+      if (rollbackToxId != null &&
+          (rollbackFullBackup || rollbackImportedAccount)) {
         try {
-          await AccountExportService.rollbackPendingFullBackupRestore(
-            toxId: rollbackToxId,
-          );
-        } catch (rollbackError, rollbackStackTrace) {
-          AppLogger.logError(
-            '[SettingsPage] Full-backup rollback failed',
+          if (rollbackFullBackup) {
+            await AccountExportService.rollbackPendingFullBackupRestore(
+              toxId: rollbackToxId,
+            );
+          } else {
+            await ImportedAccountRollback.run(
+              toxId: rollbackToxId,
+              logContext: 'SettingsPage',
+            );
+          }
+        } catch (rollbackError) {
+          SafeDiagnostics.logFailure(
+            '[SettingsPage] Import rollback failed',
             rollbackError,
-            rollbackStackTrace,
           );
         }
       }
-      AppLogger.logError(
-        '[SettingsPage] Import account failed: $e',
-        e,
-        stackTrace,
-      );
+      SafeDiagnostics.logFailure('[SettingsPage] Import account failed', e);
       if (mounted) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
             title: Text(l10n.importAccount),
-            content: Text(l10n.failedToImportAccount(e.toString())),
+            content: Text(
+              l10n.failedToImportAccount(SafeDiagnostics.describeError(e)),
+            ),
             actions: [
               TextButton(
                 onPressed: () => popDialogIfCurrent(context),
@@ -934,6 +1066,12 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _importInProgress = false);
+      } else {
+        _importInProgress = false;
       }
     }
   }
@@ -1012,11 +1150,14 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       }
     } catch (e) {
+      SafeDiagnostics.logFailure('[SettingsPage] Set password failed', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              AppLocalizations.of(context)!.failedToSetPassword(e.toString()),
+              AppLocalizations.of(
+                context,
+              )!.failedToSetPassword(SafeDiagnostics.describeError(e)),
             ),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
@@ -1620,7 +1761,7 @@ class _SettingsPageState extends State<SettingsPage> {
             OutlinedButton.icon(
               icon: const Icon(Icons.download, size: 18),
               label: Text(AppLocalizations.of(context)!.importAccount),
-              onPressed: _importAccount,
+              onPressed: _importInProgress ? null : _importAccount,
             ),
           ],
         ),
@@ -1748,6 +1889,7 @@ class _SettingsPageState extends State<SettingsPage> {
         (route) => false,
       );
     } catch (e) {
+      SafeDiagnostics.logFailure('[SettingsPage] Delete account failed', e);
       // Close loading dialog
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -1757,7 +1899,9 @@ class _SettingsPageState extends State<SettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            AppLocalizations.of(context)!.deleteAccountFailed(e.toString()),
+            AppLocalizations.of(
+              context,
+            )!.deleteAccountFailed(SafeDiagnostics.describeError(e)),
           ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),

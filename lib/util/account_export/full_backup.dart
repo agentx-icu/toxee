@@ -22,6 +22,7 @@ import '../app_paths.dart';
 import '../logger.dart';
 import '../mobile_export_policy.dart';
 import '../prefs.dart';
+import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'atomic_file_write.dart';
 import 'full_backup_crypto.dart';
@@ -41,7 +42,7 @@ String? _metadataToxId(Map<String, dynamic> metadata) {
   final rawToxId = metadata['toxId'];
   if (rawToxId == null) return null;
   if (rawToxId is! String || !_backupToxIdPattern.hasMatch(rawToxId.trim())) {
-    throw FormatException('Invalid backup metadata toxId: $rawToxId');
+    throw const FormatException('Invalid backup metadata toxId');
   }
   return rawToxId.trim();
 }
@@ -122,7 +123,7 @@ Future<String> exportFullBackup({
       }
     }
   } catch (e) {
-    AppLogger.logError('Full backup: Error adding chat_history', e, null);
+    SafeDiagnostics.logFailure('Full backup: Error adding chat_history', e);
   }
 
   // 3. Add offline_message_queue.json
@@ -138,7 +139,7 @@ Future<String> exportFullBackup({
       );
     }
   } catch (e) {
-    AppLogger.logError('Full backup: Error adding offline queue', e, null);
+    SafeDiagnostics.logFailure('Full backup: Error adding offline queue', e);
   }
 
   // 3.5 Add avatars/ directory
@@ -157,7 +158,7 @@ Future<String> exportFullBackup({
       }
     }
   } catch (e) {
-    AppLogger.logError('Full backup: Error adding avatars', e, null);
+    SafeDiagnostics.logFailure('Full backup: Error adding avatars', e);
   }
 
   // 4. Add metadata.json (scoped prefs)
@@ -241,7 +242,7 @@ Future<String> exportFullBackup({
       ArchiveFile('metadata.json', metadataBytes.length, metadataBytes),
     );
   } catch (e) {
-    AppLogger.logError('Full backup: Error adding metadata', e, null);
+    SafeDiagnostics.logFailure('Full backup: Error adding metadata', e);
   }
 
   // 5. Encrypt the plaintext archive, then encode the outer archive to ZIP.
@@ -273,7 +274,7 @@ Future<String> exportFullBackup({
   final exportFile = File(finalFilePath);
   await writeBytesAtomically(exportFile, zipData);
   AppLogger.log(
-    'Full backup exported: $finalFilePath (${zipData.length} bytes)',
+    'Full backup exported (bytes=${zipData.length}, files=${archive.files.length})',
   );
   return finalFilePath;
 }
@@ -287,11 +288,11 @@ Future<Map<String, String>> readFullBackupMetadata(
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
-    throw Exception('File not found: $filePath');
+    throw Exception('File not found');
   }
   final ext = p.extension(filePath).toLowerCase();
   if (ext != '.zip') {
-    throw Exception('Not a .zip file: $filePath');
+    throw Exception('Not a .zip file');
   }
   final fileData = await file.readAsBytes();
   if (fileData.isEmpty) {
@@ -320,10 +321,9 @@ Future<Map<String, String>> readFullBackupMetadata(
       try {
         toxId = _extractProfileToxId(toxProfile);
       } catch (e) {
-        AppLogger.logError(
+        SafeDiagnostics.logFailure(
           'readFullBackupMetadata: Error extracting toxId',
           e,
-          null,
         );
       }
     } else {
@@ -354,7 +354,7 @@ Future<Map<String, dynamic>> importFullBackup({
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
-    throw Exception('File not found: $filePath');
+    throw Exception('File not found');
   }
 
   // Check file extension
@@ -411,10 +411,9 @@ Future<Map<String, dynamic>> importFullBackup({
       try {
         toxId = _extractProfileToxId(toxProfile);
       } catch (e) {
-        AppLogger.logError(
+        SafeDiagnostics.logFailure(
           'Full backup import: Error extracting toxId',
           e,
-          null,
         );
       }
     } else {

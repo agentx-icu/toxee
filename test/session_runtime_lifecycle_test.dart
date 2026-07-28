@@ -34,6 +34,8 @@
 // `SessionRuntimeCoordinator.disposeRuntime()`, which is the actual unit we
 // care about for the platform-reset assertion.
 
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
@@ -48,6 +50,7 @@ import 'package:toxee/runtime/session_runtime_coordinator.dart';
 import 'package:toxee/sdk_fake/fake_im.dart';
 import 'package:toxee/sdk_fake/fake_models.dart';
 import 'package:toxee/sdk_fake/fake_uikit_core.dart';
+import 'package:toxee/util/app_bootstrap_coordinator.dart';
 
 import 'account_export/test_support.dart';
 
@@ -59,11 +62,11 @@ class _StubFfiChatService extends FfiChatService {
 
   @override
   Future<List<({String userId, String nickName, String status, bool online})>>
-      getFriendList() async => const [];
+  getFriendList() async => const [];
 
   @override
-  Future<List<({String userId, String wording})>> getFriendApplications() async =>
-      const [];
+  Future<List<({String userId, String wording})>>
+  getFriendApplications() async => const [];
 
   @override
   int getUnreadOf(String peerId) => 0;
@@ -87,13 +90,15 @@ bool _ffiAvailable() {
 /// minus the CallServiceManager.initialize() step. Returns the installed
 /// platform so tests can compare identity across calls.
 Future<Tim2ToxSdkPlatform> _installPlatformLikeCoordinator(
-    FfiChatService service) async {
+  FfiChatService service,
+) async {
   if (!FakeUIKit.instance.isStarted) {
     await FakeUIKit.instance.startWithFfi(service);
   }
   if (TencentCloudChatSdkPlatform.instance is! Tim2ToxSdkPlatform) {
-    final eventBusAdapter =
-        EventBusAdapter(FakeUIKit.instance.eventBusInstance);
+    final eventBusAdapter = EventBusAdapter(
+      FakeUIKit.instance.eventBusInstance,
+    );
     final conversationManagerAdapter = ConversationManagerAdapter(
       FakeUIKit.instance.conversationManager!,
     );
@@ -129,6 +134,81 @@ void main() {
       ? null
       : 'tim2tox FFI library not loadable in this environment';
 
+  group('RC3 startup ordering', () {
+    test('runtime → TIM SDK → history hook → polling', () async {
+      final events = <String>[];
+
+      await AppBootstrapCoordinator.debugRunCoreStartupSequence(
+        initializeRuntime: () async => events.add('runtime'),
+        initializeTimSdk: () async => events.add('timSdk'),
+        installHistoryHook: () async => events.add('historyHook'),
+        startPolling: () async => events.add('polling'),
+      );
+
+      expect(events, ['runtime', 'timSdk', 'historyHook', 'polling']);
+    });
+
+    test('TIM SDK failure prevents history-hook install and polling', () async {
+      final events = <String>[];
+
+      await expectLater(
+        AppBootstrapCoordinator.debugRunCoreStartupSequence(
+          initializeRuntime: () async => events.add('runtime'),
+          initializeTimSdk: () async {
+            events.add('timSdk');
+            throw StateError('TIM SDK init failed');
+          },
+          installHistoryHook: () async => events.add('historyHook'),
+          startPolling: () async => events.add('polling'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(events, ['runtime', 'timSdk']);
+    });
+
+    test(
+      'history-hook post-TIM install is idempotent and reinstalls after dispose',
+      () async {
+        final ffi = _StubFfiChatService();
+        var installs = 0;
+        SessionRuntimeCoordinator.debugReset();
+        addTearDown(SessionRuntimeCoordinator.debugReset);
+        SessionRuntimeCoordinator.debugInitBodyOverride = (_) async {};
+        SessionRuntimeCoordinator.debugHistoryHookInstallOverride = (_) {
+          installs++;
+        };
+        SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {};
+
+        final runtime = SessionRuntimeCoordinator(service: ffi);
+        await runtime.ensureInitialized();
+        expect(
+          installs,
+          0,
+          reason: 'pre-TIM runtime initialization must not install the hook',
+        );
+
+        runtime.installHistoryHookAfterTimSdkInitialized();
+        runtime.installHistoryHookAfterTimSdkInitialized();
+        expect(
+          installs,
+          1,
+          reason: 'the post-TIM install point must be idempotent',
+        );
+
+        await SessionRuntimeCoordinator.disposeRuntime();
+        await runtime.ensureInitialized();
+        runtime.installHistoryHookAfterTimSdkInitialized();
+        expect(
+          installs,
+          2,
+          reason: 'a new login must reinstall the hook after teardown',
+        );
+      },
+      skip: skipReason,
+    );
+  });
+
   group('SessionRuntime lifecycle', () {
     late AccountExportTestEnv env;
 
@@ -140,18 +220,16 @@ void main() {
       // RingtonePlayer → AudioPlayer. AudioPlayer fires an async `create`
       // over `xyz.luan/audioplayers`; without a stub the unhandled
       // MissingPluginException pollutes the test report.
-      TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('xyz.luan/audioplayers'),
-        (MethodCall call) async => null,
-      );
-      TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
+            const MethodChannel('xyz.luan/audioplayers'),
+            (MethodCall call) async => null,
+          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('xyz.luan/audioplayers.global'),
-        (MethodCall call) async => null,
-      );
+            const MethodChannel('xyz.luan/audioplayers.global'),
+            (MethodCall call) async => null,
+          );
 
       // Hard reset shared singletons regardless of coordinator state. The
       // coordinator's disposeRuntime early-returns when state == disposed,
@@ -173,121 +251,161 @@ void main() {
       } catch (_) {}
       TencentCloudChatSdkPlatform.instance = MethodChannelTencentCloudChatSdk();
       // Clear the audioplayers mock so it doesn't leak into other files.
-      TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-              const MethodChannel('xyz.luan/audioplayers'), null);
-      TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
+            const MethodChannel('xyz.luan/audioplayers'),
+            null,
+          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-              const MethodChannel('xyz.luan/audioplayers.global'), null);
+            const MethodChannel('xyz.luan/audioplayers.global'),
+            null,
+          );
       await env.dispose();
     });
 
     test(
-        'install is idempotent — second invocation does not replace the Platform or restart FakeUIKit',
-        () async {
-      final ffi = _StubFfiChatService();
+      'install is idempotent — second invocation does not replace the Platform or restart FakeUIKit',
+      () async {
+        final ffi = _StubFfiChatService();
 
-      // First install.
-      await _installPlatformLikeCoordinator(ffi);
-      expect(FakeUIKit.instance.isStarted, isTrue,
-          reason: 'first install must mark FakeUIKit started');
-      final firstPlatform = TencentCloudChatSdkPlatform.instance;
-      expect(firstPlatform, isA<Tim2ToxSdkPlatform>(),
-          reason: 'platform must be Tim2ToxSdkPlatform after install');
-      final firstIm = FakeUIKit.instance.im;
-      final firstConvMgr = FakeUIKit.instance.conversationManager;
-      expect(firstIm, isNotNull);
-      expect(firstConvMgr, isNotNull);
-
-      // Second install — must not replace the platform or recreate managers.
-      await _installPlatformLikeCoordinator(ffi);
-      expect(identical(firstPlatform, TencentCloudChatSdkPlatform.instance),
+        // First install.
+        await _installPlatformLikeCoordinator(ffi);
+        expect(
+          FakeUIKit.instance.isStarted,
           isTrue,
-          reason: 'second install must not swap Tim2ToxSdkPlatform instance');
-      expect(identical(firstIm, FakeUIKit.instance.im), isTrue,
-          reason: 'second install must not recreate FakeIM');
-      expect(
+          reason: 'first install must mark FakeUIKit started',
+        );
+        final firstPlatform = TencentCloudChatSdkPlatform.instance;
+        expect(
+          firstPlatform,
+          isA<Tim2ToxSdkPlatform>(),
+          reason: 'platform must be Tim2ToxSdkPlatform after install',
+        );
+        final firstIm = FakeUIKit.instance.im;
+        final firstConvMgr = FakeUIKit.instance.conversationManager;
+        expect(firstIm, isNotNull);
+        expect(firstConvMgr, isNotNull);
+
+        // Second install — must not replace the platform or recreate managers.
+        await _installPlatformLikeCoordinator(ffi);
+        expect(
+          identical(firstPlatform, TencentCloudChatSdkPlatform.instance),
+          isTrue,
+          reason: 'second install must not swap Tim2ToxSdkPlatform instance',
+        );
+        expect(
+          identical(firstIm, FakeUIKit.instance.im),
+          isTrue,
+          reason: 'second install must not recreate FakeIM',
+        );
+        expect(
           identical(firstConvMgr, FakeUIKit.instance.conversationManager),
           isTrue,
-          reason: 'second install must not recreate FakeConversationManager');
-    }, skip: skipReason);
+          reason: 'second install must not recreate FakeConversationManager',
+        );
+      },
+      skip: skipReason,
+    );
 
     test(
-        'SessionRuntimeCoordinator.disposeRuntime resets the platform to MethodChannelTencentCloudChatSdk',
-        () async {
-      final ffi = _StubFfiChatService();
-      await _installPlatformLikeCoordinator(ffi);
+      'SessionRuntimeCoordinator.disposeRuntime resets the platform to MethodChannelTencentCloudChatSdk',
+      () async {
+        final ffi = _StubFfiChatService();
+        await _installPlatformLikeCoordinator(ffi);
 
-      // Drive the coordinator dispose path directly. Since we bypassed
-      // ensureInitialized (state stays at notStarted/disposed), the coordinator
-      // dispose early-returns. We assert the EXPECTED behavior of the full
-      // coordinator dispose path by also invoking the equivalent teardown
-      // manually here — the two together exercise the contract the rest of
-      // the codebase relies on.
-      await SessionRuntimeCoordinator.disposeRuntime();
-      await _disposeLikeCoordinator();
+        // Drive the coordinator dispose path directly. Since we bypassed
+        // ensureInitialized (state stays at notStarted/disposed), the coordinator
+        // dispose early-returns. We assert the EXPECTED behavior of the full
+        // coordinator dispose path by also invoking the equivalent teardown
+        // manually here — the two together exercise the contract the rest of
+        // the codebase relies on.
+        await SessionRuntimeCoordinator.disposeRuntime();
+        await _disposeLikeCoordinator();
 
-      expect(FakeUIKit.instance.isStarted, isFalse,
-          reason: 'FakeUIKit must report not-started after dispose');
-      expect(TencentCloudChatSdkPlatform.instance is Tim2ToxSdkPlatform,
+        expect(
+          FakeUIKit.instance.isStarted,
+          isFalse,
+          reason: 'FakeUIKit must report not-started after dispose',
+        );
+        expect(
+          TencentCloudChatSdkPlatform.instance is Tim2ToxSdkPlatform,
           isFalse,
           reason:
-              'platform must be reset away from Tim2ToxSdkPlatform after dispose');
-      expect(TencentCloudChatSdkPlatform.instance,
+              'platform must be reset away from Tim2ToxSdkPlatform after dispose',
+        );
+        expect(
+          TencentCloudChatSdkPlatform.instance,
           isA<MethodChannelTencentCloudChatSdk>(),
-          reason: 'platform must fall back to the default MethodChannel impl');
-      expect(FakeUIKit.instance.callSystemReady.value, isFalse,
-          reason: 'callSystemReady must be reset on dispose');
-    }, skip: skipReason);
+          reason: 'platform must fall back to the default MethodChannel impl',
+        );
+        expect(
+          FakeUIKit.instance.callSystemReady.value,
+          isFalse,
+          reason: 'callSystemReady must be reset on dispose',
+        );
+      },
+      skip: skipReason,
+    );
 
     test(
-        'logout → login cycle does not leak timers (FakeIM steady-state + startup timers)',
-        () async {
-      // Session 1: install runtime, observe FakeIM timer count.
-      final ffi1 = _StubFfiChatService();
-      await _installPlatformLikeCoordinator(ffi1);
-      expect(FakeUIKit.instance.im, isNotNull);
-      final firstActive = FakeUIKit.instance.im!.debugActiveTimerCount;
-      expect(firstActive, greaterThan(0),
-          reason: 'FakeIM.start() must arm at least one timer');
+      'logout → login cycle does not leak timers (FakeIM steady-state + startup timers)',
+      () async {
+        // Session 1: install runtime, observe FakeIM timer count.
+        final ffi1 = _StubFfiChatService();
+        await _installPlatformLikeCoordinator(ffi1);
+        expect(FakeUIKit.instance.im, isNotNull);
+        final firstActive = FakeUIKit.instance.im!.debugActiveTimerCount;
+        expect(
+          firstActive,
+          greaterThan(0),
+          reason: 'FakeIM.start() must arm at least one timer',
+        );
 
-      // Logout.
-      await _disposeLikeCoordinator();
-      expect(FakeUIKit.instance.im, isNull,
-          reason: 'dispose must null out FakeIM');
+        // Logout.
+        await _disposeLikeCoordinator();
+        expect(
+          FakeUIKit.instance.im,
+          isNull,
+          reason: 'dispose must null out FakeIM',
+        );
 
-      // Session 2: re-install and count again.
-      final ffi2 = _StubFfiChatService();
-      await _installPlatformLikeCoordinator(ffi2);
-      expect(FakeUIKit.instance.im, isNotNull);
-      final secondActive = FakeUIKit.instance.im!.debugActiveTimerCount;
+        // Session 2: re-install and count again.
+        final ffi2 = _StubFfiChatService();
+        await _installPlatformLikeCoordinator(ffi2);
+        expect(FakeUIKit.instance.im, isNotNull);
+        final secondActive = FakeUIKit.instance.im!.debugActiveTimerCount;
 
-      expect(secondActive, equals(firstActive),
+        expect(
+          secondActive,
+          equals(firstActive),
           reason:
               'second-login active-timer count must equal first-login count — '
-              'a higher count indicates a leak (e.g. timers from session 1 not cancelled)');
+              'a higher count indicates a leak (e.g. timers from session 1 not cancelled)',
+        );
 
-      await _disposeLikeCoordinator();
-    }, skip: skipReason);
+        await _disposeLikeCoordinator();
+      },
+      skip: skipReason,
+    );
 
     test(
-        'logout → login does not leak stream subscriptions (session 1 listeners do not fire after re-login emits)',
-        () async {
-      // Session 1: install runtime and subscribe to topicMessage via the bus.
-      final ffi1 = _StubFfiChatService();
-      await _installPlatformLikeCoordinator(ffi1);
+      'logout → login does not leak stream subscriptions (session 1 listeners do not fire after re-login emits)',
+      () async {
+        // Session 1: install runtime and subscribe to topicMessage via the bus.
+        final ffi1 = _StubFfiChatService();
+        await _installPlatformLikeCoordinator(ffi1);
 
-      final session1Bus = FakeUIKit.instance.eventBusInstance;
-      final session1Received = <FakeMessage>[];
-      final session1Sub =
-          session1Bus.on<FakeMessage>(FakeIM.topicMessage).listen((m) {
-        session1Received.add(m);
-      });
+        final session1Bus = FakeUIKit.instance.eventBusInstance;
+        final session1Received = <FakeMessage>[];
+        final session1Sub = session1Bus
+            .on<FakeMessage>(FakeIM.topicMessage)
+            .listen((m) {
+              session1Received.add(m);
+            });
 
-      // Sanity: emitting on session 1 reaches session 1's listener.
-      session1Bus.emit(
+        // Sanity: emitting on session 1 reaches session 1's listener.
+        session1Bus.emit(
           FakeIM.topicMessage,
           FakeMessage(
             msgID: 's1-pre',
@@ -295,19 +413,23 @@ void main() {
             fromUser: 'x',
             text: 'pre',
             timestampMs: 0,
-          ));
-      await Future<void>.delayed(Duration.zero);
-      expect(session1Received.length, 1,
-          reason: 'pre-dispose emit must reach the session-1 listener');
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          session1Received.length,
+          1,
+          reason: 'pre-dispose emit must reach the session-1 listener',
+        );
 
-      // Logout. After this, FakeEventBus.dispose() will have closed every
-      // topic's StreamController and cleared the topic map. Session-1's
-      // subscription is on the OLD (now-closed) controller, so any
-      // post-dispose emit on the same bus reference allocates a fresh
-      // controller (via putIfAbsent) and the old subscriber must NOT see
-      // the event.
-      await _disposeLikeCoordinator();
-      session1Bus.emit(
+        // Logout. After this, FakeEventBus.dispose() will have closed every
+        // topic's StreamController and cleared the topic map. Session-1's
+        // subscription is on the OLD (now-closed) controller, so any
+        // post-dispose emit on the same bus reference allocates a fresh
+        // controller (via putIfAbsent) and the old subscriber must NOT see
+        // the event.
+        await _disposeLikeCoordinator();
+        session1Bus.emit(
           FakeIM.topicMessage,
           FakeMessage(
             msgID: 's1-post-dispose',
@@ -315,30 +437,38 @@ void main() {
             fromUser: 'x',
             text: 'post',
             timestampMs: 0,
-          ));
-      await Future<void>.delayed(Duration.zero);
-      expect(session1Received.length, 1,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          session1Received.length,
+          1,
           reason:
               'after dispose, the old bus must not deliver further events to session-1 listeners — '
-              'a higher count indicates that FakeEventBus.dispose did not close the underlying StreamController');
+              'a higher count indicates that FakeEventBus.dispose did not close the underlying StreamController',
+        );
 
-      // Session 2: re-install. FakeUIKit.eventBusInstance is a `final` field
-      // on the singleton so the reference is identical, but the per-topic
-      // StreamController inside is fresh (dispose cleared the map). The
-      // session-1 subscription must NOT receive session-2 emits.
-      final ffi2 = _StubFfiChatService();
-      await _installPlatformLikeCoordinator(ffi2);
-      final session2Bus = FakeUIKit.instance.eventBusInstance;
-      expect(identical(session1Bus, session2Bus), isTrue,
+        // Session 2: re-install. FakeUIKit.eventBusInstance is a `final` field
+        // on the singleton so the reference is identical, but the per-topic
+        // StreamController inside is fresh (dispose cleared the map). The
+        // session-1 subscription must NOT receive session-2 emits.
+        final ffi2 = _StubFfiChatService();
+        await _installPlatformLikeCoordinator(ffi2);
+        final session2Bus = FakeUIKit.instance.eventBusInstance;
+        expect(
+          identical(session1Bus, session2Bus),
+          isTrue,
           reason:
-              'FakeUIKit.eventBusInstance is a `final` field on a singleton — same reference across sessions');
+              'FakeUIKit.eventBusInstance is a `final` field on a singleton — same reference across sessions',
+        );
 
-      final session2Received = <FakeMessage>[];
-      final session2Sub =
-          session2Bus.on<FakeMessage>(FakeIM.topicMessage).listen((m) {
-        session2Received.add(m);
-      });
-      session2Bus.emit(
+        final session2Received = <FakeMessage>[];
+        final session2Sub = session2Bus
+            .on<FakeMessage>(FakeIM.topicMessage)
+            .listen((m) {
+              session2Received.add(m);
+            });
+        session2Bus.emit(
           FakeIM.topicMessage,
           FakeMessage(
             msgID: 's2-1',
@@ -346,18 +476,27 @@ void main() {
             fromUser: 'y',
             text: 'hello',
             timestampMs: 0,
-          ));
-      await Future<void>.delayed(Duration.zero);
-      expect(session2Received.length, 1,
-          reason: 'session 2 listener must receive the post-relogin event');
-      expect(session1Received.length, 1,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          session2Received.length,
+          1,
+          reason: 'session 2 listener must receive the post-relogin event',
+        );
+        expect(
+          session1Received.length,
+          1,
           reason:
-              'session 1 listener must NOT receive session 2 events (no listener leak across re-init)');
+              'session 1 listener must NOT receive session 2 events (no listener leak across re-init)',
+        );
 
-      await session1Sub.cancel();
-      await session2Sub.cancel();
-      await _disposeLikeCoordinator();
-    }, skip: skipReason);
+        await session1Sub.cancel();
+        await session2Sub.cancel();
+        await _disposeLikeCoordinator();
+      },
+      skip: skipReason,
+    );
 
     test('FakeUIKit.dispose is idempotent — calling twice is safe', () async {
       final ffi = _StubFfiChatService();
@@ -368,16 +507,99 @@ void main() {
       expect(FakeUIKit.instance.isStarted, isFalse);
 
       // Second dispose — must not throw and must not regress state.
-      expect(() => FakeUIKit.instance.dispose(), returnsNormally,
-          reason:
-              'FakeUIKit.dispose must tolerate being called after it already tore down');
+      expect(
+        () => FakeUIKit.instance.dispose(),
+        returnsNormally,
+        reason:
+            'FakeUIKit.dispose must tolerate being called after it already tore down',
+      );
       expect(FakeUIKit.instance.isStarted, isFalse);
 
       // Also verify the coordinator dispose path is idempotent.
       await expectLater(
-          SessionRuntimeCoordinator.disposeRuntime(), completes,
-          reason:
-              'SessionRuntimeCoordinator.disposeRuntime must complete without throwing on a second call');
+        SessionRuntimeCoordinator.disposeRuntime(),
+        completes,
+        reason:
+            'SessionRuntimeCoordinator.disposeRuntime must complete without throwing on a second call',
+      );
     }, skip: skipReason);
+  });
+
+  group('SessionRuntime fail-closed teardown', () {
+    late SessionRuntimeCoordinator coordinator;
+
+    setUp(() {
+      SessionRuntimeCoordinator.debugReset();
+      if (ffiAvailable) {
+        coordinator = SessionRuntimeCoordinator(service: _StubFfiChatService());
+      }
+    });
+
+    tearDown(SessionRuntimeCoordinator.debugReset);
+
+    test(
+      'failed teardown blocks re-init until a dispose retry succeeds',
+      () async {
+        var hookInstallCount = 0;
+        SessionRuntimeCoordinator.debugInitBodyOverride = (_) async {
+          hookInstallCount++;
+        };
+        await coordinator.ensureInitialized();
+        expect(hookInstallCount, 1);
+        SessionRuntimeCoordinator.debugMarkHookInstalled();
+        expect(SessionRuntimeCoordinator.debugHookInstalled, isTrue);
+
+        var teardownAttempts = 0;
+        final firstAttemptGate = Completer<void>();
+        const teardownError = FormatException('history hook uninstall failed');
+        SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {
+          teardownAttempts++;
+          if (teardownAttempts == 1) {
+            await firstAttemptGate.future;
+            throw teardownError;
+          }
+        };
+
+        final firstDispose = SessionRuntimeCoordinator.disposeRuntime();
+        final concurrentDispose = SessionRuntimeCoordinator.disposeRuntime();
+        final firstFailure = expectLater(
+          firstDispose,
+          throwsA(same(teardownError)),
+        );
+        final concurrentFailure = expectLater(
+          concurrentDispose,
+          throwsA(same(teardownError)),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          SessionRuntimeCoordinator.state,
+          SessionRuntimeState.tearingDown,
+          reason: 'an in-flight teardown must not publish disposed',
+        );
+        firstAttemptGate.complete();
+        await Future.wait([firstFailure, concurrentFailure]);
+
+        expect(
+          SessionRuntimeCoordinator.state,
+          SessionRuntimeState.teardownFailed,
+        );
+        expect(SessionRuntimeCoordinator.debugHookInstalled, isTrue);
+        await expectLater(
+          coordinator.ensureInitialized(),
+          throwsA(same(teardownError)),
+        );
+        expect(hookInstallCount, 1);
+
+        await SessionRuntimeCoordinator.disposeRuntime();
+        expect(teardownAttempts, 2);
+        expect(SessionRuntimeCoordinator.state, SessionRuntimeState.disposed);
+        expect(SessionRuntimeCoordinator.debugHookInstalled, isFalse);
+
+        await coordinator.ensureInitialized();
+        expect(SessionRuntimeCoordinator.state, SessionRuntimeState.started);
+        expect(hookInstallCount, 2);
+      },
+      skip: skipReason,
+    );
   });
 }

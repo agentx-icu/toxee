@@ -34,6 +34,7 @@
 
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -77,49 +78,48 @@ void main() {
   // Logout
   // --------------------------------------------------------------------------
 
-  testWidgets(
-    'Logout: Cancel keeps Settings (teardown seam does NOT fire)',
-    (WidgetTester tester) async {
-      final service = SettingsHarnessService();
-      addTearDown(service.disposeStub);
+  testWidgets('Logout: Cancel keeps Settings (teardown seam does NOT fire)', (
+    WidgetTester tester,
+  ) async {
+    final service = SettingsHarnessService();
+    addTearDown(service.disposeStub);
 
-      var teardownCalls = 0;
-      final page = SettingsPage(
-        service: service,
-        connectionStatusStream: service.connectionStatusStream,
-        autoAcceptFriends: false,
-        onAutoAcceptFriendsChanged: (_) {},
-        autoAcceptGroupInvites: false,
-        onAutoAcceptGroupInvitesChanged: (_) {},
-        teardownSession: ({required service, reEncryptProfile = true}) async {
-          teardownCalls += 1;
-        },
-      );
+    var teardownCalls = 0;
+    final page = SettingsPage(
+      service: service,
+      connectionStatusStream: service.connectionStatusStream,
+      autoAcceptFriends: false,
+      onAutoAcceptFriendsChanged: (_) {},
+      autoAcceptGroupInvites: false,
+      onAutoAcceptGroupInvitesChanged: (_) {},
+      teardownSession: ({required service, reEncryptProfile = true}) async {
+        teardownCalls += 1;
+      },
+    );
 
-      await tester.binding.setSurfaceSize(const Size(1280, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(settingsApp(page));
-      await settleSettings(tester);
+    await tester.pumpWidget(settingsApp(page));
+    await settleSettings(tester);
 
-      await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
-      await settleSettings(tester);
-      // The confirm dialog is open (its confirm button is present).
-      expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsOneWidget);
-      expect(find.text('Are you sure you want to log out?'), findsOneWidget);
+    await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
+    await settleSettings(tester);
+    // The confirm dialog is open (its confirm button is present).
+    expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsOneWidget);
+    expect(find.text('Are you sure you want to log out?'), findsOneWidget);
 
-      // Cancel.
-      await tester.tap(find.text('Cancel'));
-      await settleSettings(tester);
+    // Cancel.
+    await tester.tap(find.text('Cancel'));
+    await settleSettings(tester);
 
-      // Dialog gone, still on Settings, teardown never invoked.
-      expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsNothing);
-      expect(find.byKey(UiKeys.settingsLogoutButton), findsOneWidget);
-      expect(teardownCalls, 0, reason: 'cancel must not tear down the session');
-      // Active account pointer untouched.
-      expect(await Prefs.getCurrentAccountToxId(), kSettingsToxId);
-    },
-  );
+    // Dialog gone, still on Settings, teardown never invoked.
+    expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsNothing);
+    expect(find.byKey(UiKeys.settingsLogoutButton), findsOneWidget);
+    expect(teardownCalls, 0, reason: 'cancel must not tear down the session');
+    // Active account pointer untouched.
+    expect(await Prefs.getCurrentAccountToxId(), kSettingsToxId);
+  });
 
   testWidgets(
     'Logout: Confirm fires teardown seam + clears current account + navigates '
@@ -394,6 +394,60 @@ void main() {
         same(service),
         reason: 'switch must pass the current page service',
       );
+    },
+  );
+
+  testWidgets(
+    'Account switch: a second row tap is ignored while switch is pending',
+    (WidgetTester tester) async {
+      await Prefs.addAccount(
+        toxId: kSettingsOtherToxId,
+        nickname: 'Other Nick',
+      );
+      final service = SettingsHarnessService();
+      addTearDown(service.disposeStub);
+      final releaseSwitch = Completer<void>();
+      var switchCalls = 0;
+      final page = SettingsPage(
+        service: service,
+        connectionStatusStream: service.connectionStatusStream,
+        autoAcceptFriends: false,
+        onAutoAcceptFriendsChanged: (_) {},
+        autoAcceptGroupInvites: false,
+        onAutoAcceptGroupInvitesChanged: (_) {},
+        switchAccountFn:
+            ({required context, required targetToxId, currentService}) async {
+              switchCalls++;
+              await releaseSwitch.future;
+            },
+      );
+
+      await tester.binding.setSurfaceSize(const Size(1280, 1100));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(settingsApp(page));
+      await settleSettings(tester);
+
+      final swapButton = find.widgetWithIcon(IconButton, Icons.swap_horiz);
+      await tester.tap(swapButton);
+      await settleSettings(tester);
+      await tester.tap(find.byKey(UiKeys.settingsAccountSwitchConfirmButton));
+      await tester.pumpAndSettle();
+      expect(switchCalls, 1);
+      expect(
+        find.byKey(UiKeys.settingsAccountSwitchConfirmButton),
+        findsNothing,
+      );
+
+      await tester.tap(swapButton);
+      await tester.pumpAndSettle();
+      expect(switchCalls, 1);
+      expect(
+        find.byKey(UiKeys.settingsAccountSwitchConfirmButton),
+        findsNothing,
+      );
+
+      releaseSwitch.complete();
+      await settleSettings(tester);
     },
   );
 }

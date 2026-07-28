@@ -103,9 +103,30 @@ class _RecordingHarnessService extends _HarnessService {
   ({String nickname, String statusMessage})? lastProfileUpdate;
 
   @override
-  Future<void> updateSelfProfile(
-      {required String nickname, required String statusMessage}) async {
+  Future<void> updateSelfProfile({
+    required String nickname,
+    required String statusMessage,
+  }) async {
     lastProfileUpdate = (nickname: nickname, statusMessage: statusMessage);
+  }
+}
+
+class _PendingRecordingHarnessService extends _RecordingHarnessService {
+  final Completer<void> _updateCompleter = Completer<void>();
+  int updateCallCount = 0;
+
+  @override
+  Future<void> updateSelfProfile({
+    required String nickname,
+    required String statusMessage,
+  }) {
+    updateCallCount++;
+    lastProfileUpdate = (nickname: nickname, statusMessage: statusMessage);
+    return _updateCompleter.future;
+  }
+
+  void completeUpdate() {
+    if (!_updateCompleter.isCompleted) _updateCompleter.complete();
   }
 }
 
@@ -200,9 +221,9 @@ void main() {
   // S104 — Sidebar avatar tap → opens self-profile
   // ---------------------------------------------------------------------------
   group('S104 — sidebar avatar tap opens self-profile', () {
-    testWidgets(
-        'tap sidebarUserAvatar → profile mounts with correct identity (A1–A4)',
-        (WidgetTester tester) async {
+    testWidgets('tap sidebarUserAvatar → profile mounts with correct identity (A1–A4)', (
+      WidgetTester tester,
+    ) async {
       final service = _HarnessService();
       addTearDown(service.disposeStub);
 
@@ -236,7 +257,8 @@ void main() {
       expect(
         find.byKey(UiKeys.profileEditToggle),
         findsNothing,
-        reason: 'profile must NOT be open before the avatar tap (pre-condition)',
+        reason:
+            'profile must NOT be open before the avatar tap (pre-condition)',
       );
 
       // REAL INTERACTION: tap the production InkWell → _openProfile →
@@ -288,7 +310,8 @@ void main() {
           matching: find.text(_nickname),
         ),
         findsOneWidget,
-        reason: 'A3: the opened profile header must display the seeded nickname',
+        reason:
+            'A3: the opened profile header must display the seeded nickname',
       );
 
       // --- A4: profileToxIdCopyButton present (ProfileToxIdSection rendered fully).
@@ -299,8 +322,9 @@ void main() {
       );
     });
 
-    testWidgets('dismiss (close-button) removes profile from tree (A5)',
-        (WidgetTester tester) async {
+    testWidgets('dismiss (close-button) removes profile from tree (A5)', (
+      WidgetTester tester,
+    ) async {
       final service = _HarnessService();
       addTearDown(service.disposeStub);
 
@@ -327,8 +351,11 @@ void main() {
       await _settle(tester);
 
       // Profile must be open.
-      expect(find.byKey(UiKeys.profileEditToggle), findsOneWidget,
-          reason: 'profile must be open before testing dismiss');
+      expect(
+        find.byKey(UiKeys.profileEditToggle),
+        findsOneWidget,
+        reason: 'profile must be open before testing dismiss',
+      );
 
       // REAL DISMISS: the desktop dialog exposes a Positioned close IconButton
       // at the top-right with icon Icons.close (sidebar.dart:179-186). Pop via
@@ -397,9 +424,9 @@ void main() {
       );
     }
 
-    testWidgets(
-        'toggle ON mounts edit fields, toggle OFF unmounts them (A1 + A4)',
-        (WidgetTester tester) async {
+    testWidgets('toggle ON mounts edit fields, toggle OFF unmounts them (A1 + A4)', (
+      WidgetTester tester,
+    ) async {
       final service = _RecordingHarnessService();
       addTearDown(service.disposeStub);
 
@@ -487,12 +514,88 @@ void main() {
       expect(
         find.byKey(UiKeys.profileEditToggle),
         findsOneWidget,
-        reason: 'profileEditToggle must remain in read-only mode (not dismissed)',
+        reason:
+            'profileEditToggle must remain in read-only mode (not dismissed)',
       );
     });
 
-    testWidgets('Save path: edit fields unmount after successful save (A3)',
-        (WidgetTester tester) async {
+    testWidgets(
+      'Cancel restores persisted nickname and status without updating profile',
+      (WidgetTester tester) async {
+        final service = _RecordingHarnessService();
+        addTearDown(service.disposeStub);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(buildHarness(service));
+        await tester.pump();
+        await tester.tap(find.text('open profile'));
+        await _settle(tester);
+
+        tester
+            .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+            .onPressed!
+            .call();
+        await _settle(tester);
+
+        await tester.enterText(
+          find.byKey(UiKeys.profileNicknameField),
+          'Discarded nickname',
+        );
+        await tester.enterText(
+          find.byKey(UiKeys.profileStatusField),
+          'Discarded status',
+        );
+        await tester.pump();
+
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await _settle(tester);
+
+        expect(
+          find.byKey(UiKeys.profileNicknameField),
+          findsNothing,
+          reason: 'the real Cancel control must leave edit mode',
+        );
+        expect(
+          service.lastProfileUpdate,
+          isNull,
+          reason: 'Cancel must not call updateSelfProfile',
+        );
+
+        tester
+            .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+            .onPressed!
+            .call();
+        await _settle(tester);
+
+        expect(
+          tester
+              .widget<TextField>(find.byKey(UiKeys.profileNicknameField))
+              .controller!
+              .text,
+          _nickname,
+          reason: 're-entering edit must show the persisted nickname',
+        );
+        expect(
+          tester
+              .widget<TextField>(find.byKey(UiKeys.profileStatusField))
+              .controller!
+              .text,
+          _statusMessage,
+          reason: 're-entering edit must show the persisted status',
+        );
+        expect(
+          service.lastProfileUpdate,
+          isNull,
+          reason: 're-entering after Cancel must not update the service',
+        );
+      },
+    );
+
+    testWidgets('Save path: edit fields unmount after successful save (A3)', (
+      WidgetTester tester,
+    ) async {
       final service = _RecordingHarnessService();
       addTearDown(service.disposeStub);
 
@@ -527,10 +630,14 @@ void main() {
       // Fire the REAL _handleSave via the real FilledButton.onPressed.
       // This runs: onSave (service.updateSelfProfile + Prefs writes) +
       // setState(() => _editMode = false).
-      final saveButton =
-          tester.widget<FilledButton>(find.byKey(UiKeys.profileSaveButton));
-      expect(saveButton.onPressed, isNotNull,
-          reason: 'save button must be enabled after valid text input');
+      final saveButton = tester.widget<FilledButton>(
+        find.byKey(UiKeys.profileSaveButton),
+      );
+      expect(
+        saveButton.onPressed,
+        isNotNull,
+        reason: 'save button must be enabled after valid text input',
+      );
       saveButton.onPressed!.call();
       await _settle(tester);
 
@@ -569,5 +676,112 @@ void main() {
         reason: 'profileEditToggle must remain after save (dialog stays open)',
       );
     });
+
+    testWidgets(
+      'header cancel is disabled during save and submitted values remain saved',
+      (WidgetTester tester) async {
+        final service = _PendingRecordingHarnessService();
+        addTearDown(service.disposeStub);
+        addTearDown(service.completeUpdate);
+
+        await tester.binding.setSurfaceSize(const Size(1280, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        await tester.pumpWidget(buildHarness(service));
+        await tester.pump();
+        await tester.tap(find.text('open profile'));
+        await _settle(tester);
+
+        final enterEditCallback = tester
+            .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+            .onPressed!;
+        enterEditCallback.call();
+        await _settle(tester);
+
+        const submittedNickname = 'Submitted nickname';
+        const submittedStatus = 'Submitted status';
+        await tester.enterText(
+          find.byKey(UiKeys.profileNicknameField),
+          submittedNickname,
+        );
+        await tester.enterText(
+          find.byKey(UiKeys.profileStatusField),
+          submittedStatus,
+        );
+        await tester.pump();
+
+        final headerCancelCallback = tester
+            .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+            .onPressed!;
+        tester
+            .widget<FilledButton>(find.byKey(UiKeys.profileSaveButton))
+            .onPressed!
+            .call();
+        await tester.pump();
+
+        expect(service.updateCallCount, 1);
+        expect(service.lastProfileUpdate, (
+          nickname: submittedNickname,
+          statusMessage: submittedStatus,
+        ));
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+              .onPressed,
+          isNull,
+          reason: 'the header cancel affordance must be disabled while saving',
+        );
+
+        headerCancelCallback.call();
+        await tester.pump();
+        expect(
+          find.byKey(UiKeys.profileNicknameField),
+          findsOneWidget,
+          reason: 'a stale header callback must not cancel a pending save',
+        );
+
+        service.completeUpdate();
+        await _settle(tester);
+
+        expect(service.updateCallCount, 1);
+        expect(
+          find.descendant(
+            of: find.byType(ProfileHeader),
+            matching: find.text(submittedNickname),
+          ),
+          findsOneWidget,
+          reason: 'the completed save must display the submitted nickname',
+        );
+        expect(
+          find.descendant(
+            of: find.byType(ProfileHeader),
+            matching: find.text(submittedStatus),
+          ),
+          findsOneWidget,
+          reason: 'the completed save must display the submitted status',
+        );
+
+        tester
+            .widget<IconButton>(find.byKey(UiKeys.profileEditToggle))
+            .onPressed!
+            .call();
+        await _settle(tester);
+
+        expect(
+          tester
+              .widget<TextField>(find.byKey(UiKeys.profileNicknameField))
+              .controller!
+              .text,
+          submittedNickname,
+        );
+        expect(
+          tester
+              .widget<TextField>(find.byKey(UiKeys.profileStatusField))
+              .controller!
+              .text,
+          submittedStatus,
+        );
+      },
+    );
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import 'bootstrap_node_ensurer.dart';
@@ -15,19 +16,26 @@ import '../runtime/session_runtime_coordinator.dart';
 import '../runtime/tim_sdk_initializer.dart';
 
 /// Orchestrates runtime assembly and service startup: SessionRuntimeCoordinator,
-/// TIMManager SDK, and polling. Used from the startup gate so UI code does not assemble these.
+/// TIMManager SDK, history hook, and polling. Used from the startup gate so UI
+/// code does not assemble these.
 class AppBootstrapCoordinator {
   AppBootstrapCoordinator._();
 
-  /// Initialize session runtime (FakeUIKit, platform, CallServiceManager), TIM SDK, and start polling.
+  /// Initialize session runtime (FakeUIKit, platform, CallServiceManager), TIM
+  /// SDK, history hook, and polling.
   /// Throws on failure so the caller can show error/retry UI.
   static Future<void> boot(FfiChatService service) async {
-    await SessionRuntimeCoordinator(service: service).ensureInitialized();
-    await TimSdkInitializer.ensureInitialized();
-
-    AppLogger.log('[AppBootstrapCoordinator] Starting polling...');
-    await service.startPolling();
-    AppLogger.log('[AppBootstrapCoordinator] Polling started');
+    final runtime = SessionRuntimeCoordinator(service: service);
+    await _runCoreStartupSequence(
+      initializeRuntime: runtime.ensureInitialized,
+      initializeTimSdk: TimSdkInitializer.ensureInitialized,
+      installHistoryHook: runtime.installHistoryHookAfterTimSdkInitialized,
+      startPolling: () async {
+        AppLogger.log('[AppBootstrapCoordinator] Starting polling...');
+        await service.startPolling();
+        AppLogger.log('[AppBootstrapCoordinator] Polling started');
+      },
+    );
 
     // Guarantee the live instance has DHT bootstrap nodes applied. init()'s
     // _loadAndApplySavedBootstrapNode only applies what was already persisted,
@@ -82,6 +90,34 @@ class AppBootstrapCoordinator {
     }
   }
 
+  static Future<void> _runCoreStartupSequence({
+    required FutureOr<void> Function() initializeRuntime,
+    required FutureOr<void> Function() initializeTimSdk,
+    required FutureOr<void> Function() installHistoryHook,
+    required FutureOr<void> Function() startPolling,
+  }) async {
+    await initializeRuntime();
+    await initializeTimSdk();
+    await installHistoryHook();
+    await startPolling();
+  }
+
+  /// Runs the production core startup sequencer with controlled actions.
+  @visibleForTesting
+  static Future<void> debugRunCoreStartupSequence({
+    required FutureOr<void> Function() initializeRuntime,
+    required FutureOr<void> Function() initializeTimSdk,
+    required FutureOr<void> Function() installHistoryHook,
+    required FutureOr<void> Function() startPolling,
+  }) {
+    return _runCoreStartupSequence(
+      initializeRuntime: initializeRuntime,
+      initializeTimSdk: initializeTimSdk,
+      installHistoryHook: installHistoryHook,
+      startPolling: startPolling,
+    );
+  }
+
   /// Restores IRC install state + channel→group mappings for the just-booted
   /// account and reconnects live channels (when the native library is
   /// available). Idempotent w.r.t. the Applications page's own restore call.
@@ -92,9 +128,10 @@ class AppBootstrapCoordinator {
       await manager.restoreChannelMappings(service);
     } catch (e, st) {
       AppLogger.logError(
-          '[AppBootstrapCoordinator] IRC session restore failed (non-fatal)',
-          e,
-          st);
+        '[AppBootstrapCoordinator] IRC session restore failed (non-fatal)',
+        e,
+        st,
+      );
     }
   }
 
@@ -118,7 +155,10 @@ class AppBootstrapCoordinator {
         // for ~25 sec while that thread drains pending events.
       } catch (e, st) {
         AppLogger.logError(
-            '[AppBootstrapCoordinator] BG refresh callback failed', e, st);
+          '[AppBootstrapCoordinator] BG refresh callback failed',
+          e,
+          st,
+        );
       }
     };
   }
@@ -136,10 +176,11 @@ class AppBootstrapCoordinator {
       );
     } catch (e, st) {
       AppLogger.logError(
-          '[AppBootstrapCoordinator] foreground service start failed '
-          '(non-fatal — background polling may be killed by the OS)',
-          e,
-          st);
+        '[AppBootstrapCoordinator] foreground service start failed '
+        '(non-fatal — background polling may be killed by the OS)',
+        e,
+        st,
+      );
     }
   }
 }

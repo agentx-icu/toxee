@@ -54,8 +54,7 @@ void main() {
       SessionRuntimeCoordinator.debugReset();
     });
 
-    test(
-        '#4: a re-init started during teardown blocks until teardown fully '
+    test('#4: a re-init started during teardown blocks until teardown fully '
         'completes (no interleave with the teardown tail)', () async {
       // Bring the runtime to `started` via an immediate init body.
       SessionRuntimeCoordinator.debugInitBodyOverride = (_) async {};
@@ -73,33 +72,38 @@ void main() {
         order.add('init-run');
       };
 
-      // Start teardown: it flips _state→disposed, then hangs in the override
+      // Start teardown: it publishes tearingDown, then hangs in the override
       // while still holding [_disposing].
       final disposeFuture = SessionRuntimeCoordinator.disposeRuntime();
       await Future<void>.delayed(Duration.zero);
       expect(order, ['teardown-start']);
-      expect(SessionRuntimeCoordinator.state, SessionRuntimeState.disposed);
+      expect(SessionRuntimeCoordinator.state, SessionRuntimeState.tearingDown);
 
       // Start a re-init: it must block at the top on [_disposing] and NOT run
       // its body while teardown is in flight (#4).
       final initFuture = coord.ensureInitialized();
       await Future<void>.delayed(Duration.zero);
-      expect(order, ['teardown-start'],
-          reason:
-              're-init must not run its body while teardown is in flight (#4)');
+      expect(
+        order,
+        ['teardown-start'],
+        reason:
+            're-init must not run its body while teardown is in flight (#4)',
+      );
 
       // Release teardown → it finishes → re-init unblocks and runs its body.
       teardownGate.complete();
       await disposeFuture;
       await initFuture;
 
-      expect(order, ['teardown-start', 'teardown-end', 'init-run'],
-          reason: 'init body must run strictly after teardown completes');
+      expect(order, [
+        'teardown-start',
+        'teardown-end',
+        'init-run',
+      ], reason: 'init body must run strictly after teardown completes');
       expect(SessionRuntimeCoordinator.state, SessionRuntimeState.started);
     }, skip: skipReason);
 
-    test(
-        '#3: an init superseded by a concurrent dispose does not report a '
+    test('#3: an init superseded by a concurrent dispose does not report a '
         'false success — it re-inits and ends started', () async {
       var initCalls = 0;
       final firstInitGate = Completer<void>();
@@ -130,16 +134,21 @@ void main() {
       await disposeFuture;
       await initFuture;
 
-      expect(initCalls, 2,
-          reason:
-              'the superseded init must loop and re-run the init body, not '
-              'return a false success after one superseded attempt (#3)');
-      expect(SessionRuntimeCoordinator.state, SessionRuntimeState.started,
-          reason: 'ensureInitialized must end with the runtime actually up');
+      expect(
+        initCalls,
+        2,
+        reason:
+            'the superseded init must loop and re-run the init body, not '
+            'return a false success after one superseded attempt (#3)',
+      );
+      expect(
+        SessionRuntimeCoordinator.state,
+        SessionRuntimeState.started,
+        reason: 'ensureInitialized must end with the runtime actually up',
+      );
     }, skip: skipReason);
 
-    test(
-        'a joiner of a superseded init does not report false success either '
+    test('a joiner of a superseded init does not report false success either '
         '(#3, join path)', () async {
       var initCalls = 0;
       final firstInitGate = Completer<void>();
@@ -171,9 +180,13 @@ void main() {
       // `started` (re-init happened), not a false success against a disposed
       // runtime.
       expect(SessionRuntimeCoordinator.state, SessionRuntimeState.started);
-      expect(initCalls, 2,
-          reason: 'exactly one re-init after supersede; the join must not '
-              'trigger an extra independent init');
+      expect(
+        initCalls,
+        2,
+        reason:
+            'exactly one re-init after supersede; the join must not '
+            'trigger an extra independent init',
+      );
     }, skip: skipReason);
   });
 }

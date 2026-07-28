@@ -8,18 +8,44 @@ import '../util/account_export_service.dart';
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_paths.dart';
-import '../util/logger.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
+import '../util/safe_diagnostics.dart';
 
 import 'startup_outcome.dart';
 import 'startup_step.dart';
 
+typedef StartupInitializeServiceFn =
+    Future<FfiChatService> Function({
+      required String toxId,
+      String? nickname,
+      String? statusMessage,
+      String? password,
+      bool startPolling,
+    });
+typedef StartupTeardownSessionFn =
+    Future<void> Function({FfiChatService? service, bool reEncryptProfile});
+
 /// Encapsulates startup policy: user check, service init, bootstrap, connection.
-/// Ownership and cleanup of [FfiChatService] are handled here; the widget only
-/// reacts to [StartupOutcome] and (for [StartupWaitForConnection]) sets up
-/// timeout and connection listener.
+/// Failures before a ready outcome are cleaned up here. A ready outcome transfers
+/// its service and uncommitted activation lease to the widget, which owns
+/// navigation-time commit or teardown and rollback.
 class StartupSessionUseCase {
+  StartupSessionUseCase({
+    Future<void> Function(FfiChatService service)? bootSession,
+    StartupInitializeServiceFn? initializeServiceForAccount,
+    StartupTeardownSessionFn? teardownSession,
+  }) : _bootSession = bootSession ?? AppBootstrapCoordinator.boot,
+       _initializeServiceForAccount =
+           initializeServiceForAccount ??
+           AccountService.initializeServiceForAccount,
+       _teardownSession =
+           teardownSession ?? AccountService.teardownCurrentSession;
+
+  final Future<void> Function(FfiChatService service) _bootSession;
+  final StartupInitializeServiceFn _initializeServiceForAccount;
+  final StartupTeardownSessionFn _teardownSession;
+
   /// Runs the startup flow. Reports steps via [onStepChanged].
   /// When already connected, calls [loadFriends] then returns [StartupOpenHome].
   /// When not connected, returns [StartupWaitForConnection]; the widget must
@@ -29,6 +55,7 @@ class StartupSessionUseCase {
     required Future<void> Function(FfiChatService) loadFriends,
   }) async {
     FfiChatService? service;
+    AccountActivationTransaction? activation;
     try {
       onStepChanged(StartupStep.checkingUserInfo);
       await AccountService.recoverPendingAccountDeletions();
@@ -97,22 +124,23 @@ class StartupSessionUseCase {
               await AccountExportService.isProfileFileEncrypted(profilePath)) {
             return const StartupShowLogin();
           }
-        } catch (probeError, probeSt) {
-          AppLogger.logError(
+        } catch (probeError) {
+          SafeDiagnostics.logFailure(
             '[StartupSessionUseCase] encrypted-profile probe failed; '
             'continuing with init',
             probeError,
-            probeSt,
           );
         }
 
-        service = await AccountService.initializeServiceForAccount(
+        activation = await AccountActivationTransaction.begin();
+        service = await _initializeServiceForAccount(
           toxId: toxIdForStartup,
           nickname: nick,
           statusMessage: statusMsg ?? '',
           startPolling: false,
         );
       } else {
+        activation = await AccountActivationTransaction.begin();
         final prefs = await SharedPreferences.getInstance();
         // CR-10: mirror LoginUseCase's legacy branch — construct the adapter
         // without a prefix, then inject the 16-char Tox-ID prefix once login
@@ -179,17 +207,7 @@ class StartupSessionUseCase {
       final currentService = service;
 
       onStepChanged(StartupStep.loggingIn);
-      await AppBootstrapCoordinator.boot(currentService);
-
-      try {
-        // `selfId` is the V2TIM login placeholder — touching the account
-        // record under that string is a silent no-op because `account_list`
-        // is keyed by the real Tox ID. Resolve the real ID from the FFI;
-        // fall back to the placeholder only if discovery failed (in which
-        // case the touch was always going to be a no-op anyway).
-        final touchId = currentService.getSelfToxId() ?? currentService.selfId;
-        await Prefs.touchAccountLoginTime(touchId);
-      } catch (_) {}
+      await _bootSession(currentService);
 
       onStepChanged(StartupStep.connecting);
 
@@ -197,26 +215,38 @@ class StartupSessionUseCase {
         onStepChanged(StartupStep.loadingFriends);
         await loadFriends(currentService);
         onStepChanged(StartupStep.completed);
-        return StartupOpenHome(currentService);
+        final readyActivation = activation;
+        activation = null;
+        return StartupOpenHome(currentService, readyActivation);
       }
 
-      return StartupWaitForConnection(currentService);
+      final waitingActivation = activation;
+      activation = null;
+      return StartupWaitForConnection(currentService, waitingActivation);
     } catch (e) {
       if (service != null) {
         try {
-          await AccountService.teardownCurrentSession(
-            service: service,
-            reEncryptProfile: true,
-          );
-        } catch (cleanupError, cleanupSt) {
-          AppLogger.logError(
+          await _teardownSession(service: service, reEncryptProfile: true);
+        } catch (cleanupError) {
+          SafeDiagnostics.logFailure(
             '[StartupSessionUseCase] cleanup after startup failure',
             cleanupError,
-            cleanupSt,
           );
         }
       }
-      return StartupShowError(e.toString());
+      final pendingActivation = activation;
+      if (pendingActivation != null) {
+        try {
+          await pendingActivation.rollback();
+        } catch (rollbackError) {
+          SafeDiagnostics.logFailure(
+            '[StartupSessionUseCase] current-account rollback after startup failure',
+            rollbackError,
+          );
+        }
+      }
+      SafeDiagnostics.logFailure('[StartupSessionUseCase] startup failed', e);
+      return StartupShowError(SafeDiagnostics.describeError(e));
     }
   }
 }
