@@ -35,23 +35,25 @@ import 'testing/ui_keys.dart';
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/feature_flags.dart';
-import '../util/logger.dart';
+import '../util/safe_diagnostics.dart';
 import '../auth/login_use_case.dart';
 import 'login/login_page_controller.dart';
 import 'pairing/pairing_client_page.dart';
 
-typedef _BootSessionFn = Future<void> Function(FfiChatService service);
-typedef _TeardownSessionFn =
+typedef LoginBootSessionFn = Future<void> Function(FfiChatService service);
+typedef LoginTeardownSessionFn =
     Future<void> Function({
       required FfiChatService service,
       bool reEncryptProfile,
     });
+typedef LoginNavigateHomeFn =
+    Future<void> Function(BuildContext context, FfiChatService service);
 
 /// Exports a non-active account's profile and returns the written file path.
 /// Production binds this to [AccountExportService.exportAccountData]; tests
 /// inject a recording stub so the export handler can be driven without the
 /// Tox FFI / on-disk profile.
-typedef _ExportAccountFn =
+typedef LoginExportAccountFn =
     Future<String> Function({required String toxId, String? password});
 
 /// Returns the appropriate trailing chevron for the current text direction.
@@ -70,6 +72,7 @@ class LoginPage extends StatefulWidget {
     this.loginPageController,
     this.bootSession,
     this.teardownSession,
+    this.navigateHome,
     this.exportAccount,
     this.isDesktopExportPlatformOverride,
     this.mobileExportSaveFile,
@@ -78,13 +81,14 @@ class LoginPage extends StatefulWidget {
 
   final LoginUseCase? loginUseCase;
   final LoginPageController? loginPageController;
-  final _BootSessionFn? bootSession;
-  final _TeardownSessionFn? teardownSession;
+  final LoginBootSessionFn? bootSession;
+  final LoginTeardownSessionFn? teardownSession;
+  final LoginNavigateHomeFn? navigateHome;
 
   /// Test seam for the saved-account "Export" action. Defaults to the real
   /// [AccountExportService.exportAccountData]; injected in widget tests so the
   /// export handler is observable without FFI / disk profile state.
-  final _ExportAccountFn? exportAccount;
+  final LoginExportAccountFn? exportAccount;
 
   @visibleForTesting
   final bool? isDesktopExportPlatformOverride;
@@ -109,6 +113,9 @@ class _LoginPageState extends State<LoginPage> {
   // and, on a password-protected account, stack TWO password prompts. The second
   // call returns immediately while the first is still in flight.
   bool _quickLoginInProgress = false;
+  bool _restoreInProgress = false;
+  bool _importInProgress = false;
+  bool _exportAccountInProgress = false;
   String? _error;
   FfiChatService? _service;
   List<Map<String, String>> _accountList = [];
@@ -116,9 +123,10 @@ class _LoginPageState extends State<LoginPage> {
   _verifiedPassword; // Password already verified by _quickLogin, avoids re-prompting in _login
   String? _verifiedPasswordToxId;
   late final LoginPageController _loginController;
-  late final _BootSessionFn _bootSession;
-  late final _TeardownSessionFn _teardownSession;
-  late final _ExportAccountFn _exportAccount;
+  late final LoginBootSessionFn _bootSession;
+  late final LoginTeardownSessionFn _teardownSession;
+  late final LoginNavigateHomeFn _navigateHome;
+  late final LoginExportAccountFn _exportAccount;
   late final bool _isDesktopExportPlatform;
   late final MobileExportSaveFile _mobileExportSaveFile;
   late final SaveMobileExportCopyFn _saveMobileExportCopy;
@@ -154,6 +162,7 @@ class _LoginPageState extends State<LoginPage> {
               service: service,
               reEncryptProfile: reEncryptProfile,
             );
+    _navigateHome = widget.navigateHome ?? _defaultNavigateHome;
     _exportAccount =
         widget.exportAccount ??
         ({required String toxId, String? password}) =>
@@ -200,6 +209,15 @@ class _LoginPageState extends State<LoginPage> {
         _statusMessageController.text = v;
       }
     });
+  }
+
+  Future<void> _defaultNavigateHome(
+    BuildContext context,
+    FfiChatService service,
+  ) {
+    return Navigator.of(context)
+        .pushReplacement(AppPageRoute(page: HomePage(service: service)))
+        .then<void>((_) {});
   }
 
   Future<void> _loadAccountList() async {
@@ -453,6 +471,7 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
 
+    final activation = await AccountActivationTransaction.begin();
     final result = await _loginController.login(
       nickname: nickname,
       statusMessage: statusMessage,
@@ -461,7 +480,13 @@ class _LoginPageState extends State<LoginPage> {
 
     if (!mounted) {
       if (result is LoginControllerSuccess) {
-        await _teardownSession(service: result.service);
+        try {
+          await _teardownSession(service: result.service);
+        } finally {
+          await activation.rollback();
+        }
+      } else {
+        await activation.rollback();
       }
       return;
     }
@@ -474,36 +499,54 @@ class _LoginPageState extends State<LoginPage> {
         try {
           await _loadAccountList();
           if (!mounted) {
-            await _teardownSession(service: service);
+            try {
+              await _teardownSession(service: service);
+            } finally {
+              await activation.rollback();
+            }
             return;
           }
           _service = service;
           await _bootSession(service);
-          // Boot succeeded — only now mark this account as "recently logged in"
-          // so a failed boot earlier doesn't leave a misleading timestamp.
-          // `selfId` is the V2TIM login placeholder (`FlutterUIKitClient`);
-          // account_list is keyed by the real Tox address, so use
-          // `getSelfToxId()` here or the touch silently misses the record.
+          if (!mounted) {
+            try {
+              await _teardownSession(service: service);
+            } finally {
+              await activation.rollback();
+            }
+            return;
+          }
+          unawaited(HapticFeedback.lightImpact());
+          // Navigator lookup and route insertion are synchronous. Commit only
+          // after they return a route Future, but do not hold the activation
+          // transaction open for the Home route's lifetime.
+          unawaited(_navigateHome(context, service));
+          activation.commit();
           try {
             final touchId = service.getSelfToxId() ?? service.selfId;
             await Prefs.touchAccountLoginTime(touchId);
           } catch (_) {}
-          if (!mounted) {
+        } catch (e) {
+          try {
             await _teardownSession(service: service);
-            return;
+          } catch (cleanupError) {
+            SafeDiagnostics.logFailure(
+              '[LoginPage] Cleanup after login boot failure failed',
+              cleanupError,
+            );
           }
-          unawaited(HapticFeedback.lightImpact());
-          Navigator.of(
-            context,
-          ).pushReplacement(AppPageRoute(page: HomePage(service: service)));
-        } catch (e, stackTrace) {
-          await _teardownSession(service: service);
-          AppLogger.logError('[LoginPage] Login boot failed', e, stackTrace);
+          try {
+            await activation.rollback();
+          } catch (rollbackError) {
+            SafeDiagnostics.logFailure(
+              '[LoginPage] Current-account rollback after boot failure failed',
+              rollbackError,
+            );
+          }
+          SafeDiagnostics.logFailure('[LoginPage] Login boot failed', e);
           if (!mounted) return;
           unawaited(HapticFeedback.lightImpact());
-          final message = e is Exception
-              ? e.toString().replaceFirst('Exception: ', '')
-              : e.toString();
+          final message = SafeDiagnostics.describeError(e);
           setState(() {
             _error = message;
             _busy = false;
@@ -512,6 +555,8 @@ class _LoginPageState extends State<LoginPage> {
         }
         break;
       case LoginControllerFailure(:final message):
+        await activation.rollback();
+        if (!mounted) return;
         unawaited(HapticFeedback.lightImpact());
         setState(() {
           _error = message;
@@ -531,94 +576,107 @@ class _LoginPageState extends State<LoginPage> {
   /// invalid-password the user can retry without dismissing the action.
   Future<void> _restoreFromToxFile() async {
     if (_busy) return;
-    final l10n = AppLocalizations.of(context)!;
-    while (true) {
-      final result = await _loginController.restoreFromToxFile(
-        requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
-        importedAccountDefaultName: l10n.importedAccountDefaultName,
-      );
-      if (!mounted) return;
-      switch (result) {
-        case RestoreSuccess(:final nickname, :final password, :final toxId):
-          await _loadAccountList();
-          if (!mounted) return;
-          setState(() {
-            _error = null;
-            _nicknameController.text = nickname;
-            _verifiedPassword = password;
-            _verifiedPasswordToxId = toxId;
-          });
-          AppSnackBar.showSuccess(
-            context,
-            l10n.restoreFromToxFileSuccess(nickname),
-          );
-          return;
-        case RestoreFailure(:final kind, :final detail):
-          final message = switch (kind) {
-            RestoreFailureKind.noFileSelected => l10n.importNoFileSelected,
-            RestoreFailureKind.cancelled => l10n.importCancelled,
-            RestoreFailureKind.invalidPassword => l10n.invalidPassword,
-            RestoreFailureKind.accountAlreadyExists =>
-              l10n.accountAlreadyExists,
-            RestoreFailureKind.notAToxProfile =>
-              l10n.restoreFromToxFileInvalidFile,
-            RestoreFailureKind.generalError => l10n.failedToImport(
-              detail ?? '',
-            ),
-          };
-          if (kind == RestoreFailureKind.invalidPassword) {
-            // Allow the user to retry the password without dismissing.
-            AppSnackBar.showError(context, message);
-            continue;
-          }
-          setState(() => _error = message);
-          if (kind != RestoreFailureKind.noFileSelected &&
-              kind != RestoreFailureKind.cancelled) {
-            AppSnackBar.showError(context, message);
-          }
-          return;
+    if (_restoreInProgress) return;
+    _restoreInProgress = true;
+    try {
+      final l10n = AppLocalizations.of(context)!;
+      while (true) {
+        final result = await _loginController.restoreFromToxFile(
+          requestPassword: () =>
+              _showPasswordDialog(l10n.enterPasswordToImport),
+          importedAccountDefaultName: l10n.importedAccountDefaultName,
+        );
+        if (!mounted) return;
+        switch (result) {
+          case RestoreSuccess(:final nickname, :final password, :final toxId):
+            await _loadAccountList();
+            if (!mounted) return;
+            setState(() {
+              _error = null;
+              _nicknameController.text = nickname;
+              _verifiedPassword = password;
+              _verifiedPasswordToxId = toxId;
+            });
+            AppSnackBar.showSuccess(
+              context,
+              l10n.restoreFromToxFileSuccess(nickname),
+            );
+            return;
+          case RestoreFailure(:final kind, :final detail):
+            final message = switch (kind) {
+              RestoreFailureKind.noFileSelected => l10n.importNoFileSelected,
+              RestoreFailureKind.cancelled => l10n.importCancelled,
+              RestoreFailureKind.invalidPassword => l10n.invalidPassword,
+              RestoreFailureKind.accountAlreadyExists =>
+                l10n.accountAlreadyExists,
+              RestoreFailureKind.notAToxProfile =>
+                l10n.restoreFromToxFileInvalidFile,
+              RestoreFailureKind.generalError => l10n.failedToImport(
+                detail ?? '',
+              ),
+            };
+            if (kind == RestoreFailureKind.invalidPassword) {
+              // Allow the user to retry the password without dismissing.
+              AppSnackBar.showError(context, message);
+              continue;
+            }
+            setState(() => _error = message);
+            if (kind != RestoreFailureKind.noFileSelected &&
+                kind != RestoreFailureKind.cancelled) {
+              AppSnackBar.showError(context, message);
+            }
+            return;
+        }
       }
+    } finally {
+      _restoreInProgress = false;
     }
   }
 
   /// Import a tox_profile.tox or .zip file via [LoginPageController].
   Future<void> _importToxProfile() async {
-    final l10n = AppLocalizations.of(context)!;
-    final result = await _loginController.importAccount(
-      requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
-      importedAccountDefaultName: l10n.importedAccountDefaultName,
-    );
-    if (!mounted) return;
-    switch (result) {
-      case ImportSuccess():
-        await _loadAccountList();
-        if (!mounted) return;
-        setState(() => _error = null);
-        AppSnackBar.showSuccess(
-          context,
-          AppLocalizations.of(context)!.accountImportedSuccessfully,
-        );
-        break;
-      case ImportFailure(:final kind, :final detail):
-        final localized = AppLocalizations.of(context)!;
-        final message = switch (kind) {
-          ImportFailureKind.noFileSelected => localized.importNoFileSelected,
-          ImportFailureKind.cancelled => localized.importCancelled,
-          ImportFailureKind.invalidPassword => localized.invalidPassword,
-          ImportFailureKind.accountAlreadyExists =>
-            localized.accountAlreadyExists,
-          ImportFailureKind.generalError => localized.failedToImport(
-            detail ?? '',
-          ),
-        };
-        setState(() => _error = message);
-        // Suppress the toast for user-initiated cancellation paths; surface
-        // it for genuine failures.
-        if (kind != ImportFailureKind.noFileSelected &&
-            kind != ImportFailureKind.cancelled) {
-          AppSnackBar.showError(context, message);
-        }
-        break;
+    if (_importInProgress) return;
+    _importInProgress = true;
+    try {
+      final l10n = AppLocalizations.of(context)!;
+      final result = await _loginController.importAccount(
+        requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
+        importedAccountDefaultName: l10n.importedAccountDefaultName,
+      );
+      if (!mounted) return;
+      switch (result) {
+        case ImportSuccess():
+          await _loadAccountList();
+          if (!mounted) return;
+          setState(() => _error = null);
+          AppSnackBar.showSuccess(
+            context,
+            AppLocalizations.of(context)!.accountImportedSuccessfully,
+          );
+          break;
+        case ImportFailure(:final kind, :final detail):
+          final localized = AppLocalizations.of(context)!;
+          final message = switch (kind) {
+            ImportFailureKind.noFileSelected => localized.importNoFileSelected,
+            ImportFailureKind.cancelled => localized.importCancelled,
+            ImportFailureKind.invalidPassword => localized.invalidPassword,
+            ImportFailureKind.accountAlreadyExists =>
+              localized.accountAlreadyExists,
+            ImportFailureKind.generalError => localized.failedToImport(
+              detail ?? '',
+            ),
+          };
+          setState(() => _error = message);
+          // Suppress the toast for user-initiated cancellation paths; surface
+          // it for genuine failures.
+          if (kind != ImportFailureKind.noFileSelected &&
+              kind != ImportFailureKind.cancelled) {
+            AppSnackBar.showError(context, message);
+          }
+          break;
+      }
+    } finally {
+      _importInProgress = false;
     }
   }
 
@@ -691,6 +749,8 @@ class _LoginPageState extends State<LoginPage> {
     String toxId,
     String nickname,
   ) async {
+    if (_exportAccountInProgress) return;
+    _exportAccountInProgress = true;
     final l10n = AppLocalizations.of(context)!;
     try {
       final internalFilePath = await _exportAccount(toxId: toxId);
@@ -714,7 +774,7 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         if (mobileSaveResult?.disposition ==
             MobileExportSaveDisposition.cancelled) {
-          AppSnackBar.showInfo(context, mobileSaveResult!.cancellationNotice);
+          AppSnackBar.showInfo(context, l10n.importCancelled);
         } else {
           AppSnackBar.showSuccess(
             context,
@@ -723,12 +783,15 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
     } catch (e) {
+      SafeDiagnostics.logFailure('[LoginPage] Account export failed', e);
       if (mounted) {
         AppSnackBar.showError(
           context,
-          l10n.failedToExportAccount(e.toString()),
+          l10n.failedToExportAccount(SafeDiagnostics.describeError(e)),
         );
       }
+    } finally {
+      _exportAccountInProgress = false;
     }
   }
 
@@ -846,8 +909,14 @@ class _LoginPageState extends State<LoginPage> {
           );
         }
       } catch (e) {
+        SafeDiagnostics.logFailure('[LoginPage] Account deletion failed', e);
         if (mounted) {
-          AppSnackBar.showError(context, e.toString());
+          AppSnackBar.showError(
+            context,
+            AppLocalizations.of(
+              context,
+            )!.deleteAccountFailed(SafeDiagnostics.describeError(e)),
+          );
         }
       }
     }
