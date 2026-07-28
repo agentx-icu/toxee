@@ -170,10 +170,9 @@ String _realUiPlatform = 'macos';
 /// picks iPad simulators. Null = leave the caller's environment untouched.
 String? _forcedIosDeviceType;
 
-/// Exit code a real-UI driver returns when a scenario is a SKIP (its surface
-/// genuinely does not exist on this platform — e.g. the Batch-2 avatar cases,
-/// whose self-profile avatar tap opens a native NSOpenPanel with no in-app
-/// picker grid). Distinct from 0 (PASS), non-zero failures, and 78 (BLOCKED) so
+/// Exit code a real-UI driver returns when a scenario is a SKIP (for example, a
+/// platform-specific surface or required deterministic input is unavailable).
+/// Distinct from 0 (PASS), non-zero failures, and 78 (BLOCKED) so
 /// the runner does not tally a SKIP as a PASS. EX_NOPERM-adjacent; arbitrary but
 /// reserved here.
 const _realUiSkipExitCode = 75;
@@ -221,7 +220,7 @@ const _validRealUiScenarios = {
   'settings_logout_cancel',
   // Batch 2 — self profile (single-instance, no-friend). The 8 cases are
   // individually runnable; sweep_profile chains them on one launch. Cases 19/20
-  // (avatar) are SKIPs inside the sweep — no in-app avatar picker surface.
+  // drive the real avatar control with deterministic fixed picker-path input.
   'sweep_profile',
   'profile_open_sidebar_avatar',
   'profile_edit_toggle_roundtrip',
@@ -232,9 +231,8 @@ const _validRealUiScenarios = {
   'profile_avatar_picker_opens',
   'profile_avatar_select_default_applies',
   // Batch 3 — login / register (single-instance, no-friend). The 9 cases are
-  // individually runnable; sweep_login chains them on one launch. Case 26
-  // (login_restore_entry_opens) is a SKIP inside the sweep — the restore card
-  // opens the native NSOpenPanel with no in-app pre-picker surface.
+  // individually runnable; sweep_login chains them on one launch. Case 26 taps
+  // the real restore card with deterministic invalid-file picker input.
   'sweep_login',
   'login_register_open_back',
   'login_account_card_renders',
@@ -2130,9 +2128,11 @@ String _realUiSymbolicDriverEnvPrefix() {
 /// bare path (the live runner runs them via `bash`); PowerShell `.ps1` scripts
 /// are printed as a `powershell -ExecutionPolicy Bypass -File <script>` line so
 /// the Windows dry-run is faithful to how the runner executes it.
-String _realUiLaunchInvocation() => _realUiScriptInvocation(_realUiConfig.launchScript);
+String _realUiLaunchInvocation() =>
+    _realUiScriptInvocation(_realUiConfig.launchScript);
 
-String _realUiStopInvocation() => _realUiScriptInvocation(_realUiConfig.stopScript);
+String _realUiStopInvocation() =>
+    _realUiScriptInvocation(_realUiConfig.stopScript);
 
 String _realUiScriptInvocation(String script) => _realUiConfig.usesPowershell
     ? 'powershell -ExecutionPolicy Bypass -File $script'
@@ -2393,8 +2393,8 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
       if (rc == 78) {
         return rc;
       }
-      // A SKIP (e.g. a scenario whose surface does not exist on desktop — the
-      // Batch-2 avatar cases) is NOT a pass and NOT a failure: log it and move
+      // A SKIP (e.g. a scenario whose required platform surface is unavailable)
+      // is NOT a pass and NOT a failure: log it and move
       // on without updating pairState (the scenario did nothing). Without this,
       // a SKIP returning 0 would be tallied upstream as a PASS.
       if (rc == _realUiSkipExitCode) {
