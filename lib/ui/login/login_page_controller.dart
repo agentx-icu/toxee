@@ -7,8 +7,9 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../../auth/login_use_case.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
-import '../../util/logger.dart';
+import '../../util/imported_account_rollback.dart';
 import '../../util/prefs.dart';
+import '../../util/safe_diagnostics.dart';
 import '../testing/l3_debug_tools.dart';
 
 /// Result of [LoginPageController.login].
@@ -51,7 +52,7 @@ final class ImportFailure extends ImportResult {
   const ImportFailure(this.kind, {this.detail});
   final ImportFailureKind kind;
 
-  /// Raw underlying error string for [ImportFailureKind.generalError]; null
+  /// Sanitized runtime-type detail for [ImportFailureKind.generalError]; null
   /// for cancellation / file-not-selected / duplicate-account cases.
   final String? detail;
 }
@@ -120,12 +121,17 @@ typedef AddAccountFn =
     });
 
 typedef SetAccountPasswordFn =
-    Future<void> Function(String toxId, String password);
+    Future<bool> Function(String toxId, String password);
+
+typedef EncryptProfileFileFn =
+    Future<bool> Function(String profileFilePath, String password);
 
 typedef FinalizeFullBackupImportFn =
     Future<void> Function({required String toxId});
 
 typedef RollbackFullBackupImportFn = Future<void> Function({String? toxId});
+typedef RollbackImportedAccountFn =
+    Future<void> Function({required String toxId, required String logContext});
 
 Future<void> _defaultAddAccount({
   required String toxId,
@@ -145,6 +151,21 @@ Future<void> _defaultAddAccount({
   );
 }
 
+Future<bool> _defaultEncryptProfileFile(
+  String profileFilePath,
+  String password,
+) async {
+  await AccountExportService.encryptProfileFile(profileFilePath, password);
+  return true;
+}
+
+Future<void> _defaultRollbackImportedAccount({
+  required String toxId,
+  required String logContext,
+}) {
+  return ImportedAccountRollback.run(toxId: toxId, logContext: logContext);
+}
+
 class LoginPageController {
   LoginPageController({
     LoginUseCase? loginUseCase,
@@ -153,8 +174,10 @@ class LoginPageController {
     @visibleForTesting ReadFullBackupMetadataFn? readFullBackupMetadataFn,
     @visibleForTesting AddAccountFn? addAccountFn,
     @visibleForTesting SetAccountPasswordFn? setAccountPasswordFn,
+    @visibleForTesting EncryptProfileFileFn? encryptProfileFileFn,
     @visibleForTesting FinalizeFullBackupImportFn? finalizeFullBackupImportFn,
     @visibleForTesting RollbackFullBackupImportFn? rollbackFullBackupImportFn,
+    @visibleForTesting RollbackImportedAccountFn? rollbackImportedAccountFn,
   }) : _loginUseCase = loginUseCase ?? LoginUseCase(),
        _importAccountDataFn =
            importAccountDataFn ?? AccountExportService.importAccountData,
@@ -165,12 +188,16 @@ class LoginPageController {
            AccountExportService.readFullBackupMetadata,
        _addAccountFn = addAccountFn ?? _defaultAddAccount,
        _setAccountPasswordFn = setAccountPasswordFn ?? Prefs.setAccountPassword,
+       _encryptProfileFileFn =
+           encryptProfileFileFn ?? _defaultEncryptProfileFile,
        _finalizeFullBackupImportFn =
            finalizeFullBackupImportFn ??
            AccountExportService.finalizeFullBackupImport,
        _rollbackFullBackupImportFn =
            rollbackFullBackupImportFn ??
-           AccountExportService.rollbackPendingFullBackupRestore;
+           AccountExportService.rollbackPendingFullBackupRestore,
+       _rollbackImportedAccountFn =
+           rollbackImportedAccountFn ?? _defaultRollbackImportedAccount;
 
   final LoginUseCase _loginUseCase;
   final ImportAccountDataFn _importAccountDataFn;
@@ -178,8 +205,10 @@ class LoginPageController {
   final ReadFullBackupMetadataFn _readFullBackupMetadataFn;
   final AddAccountFn _addAccountFn;
   final SetAccountPasswordFn _setAccountPasswordFn;
+  final EncryptProfileFileFn _encryptProfileFileFn;
   final FinalizeFullBackupImportFn _finalizeFullBackupImportFn;
   final RollbackFullBackupImportFn _rollbackFullBackupImportFn;
+  final RollbackImportedAccountFn _rollbackImportedAccountFn;
 
   /// Runs login with the given credentials. Password must be provided when account has one.
   Future<LoginControllerResult> login({
@@ -196,12 +225,9 @@ class LoginPageController {
         ),
       );
       return LoginControllerSuccess(success.service);
-    } catch (e, st) {
-      AppLogger.logError('[LoginPageController] Login failed', e, st);
-      final message = e is Exception
-          ? e.toString().replaceFirst('Exception: ', '')
-          : e.toString();
-      return LoginControllerFailure(message);
+    } catch (e) {
+      SafeDiagnostics.logFailure('[LoginPageController] Login failed', e);
+      return LoginControllerFailure(SafeDiagnostics.describeError(e));
     }
   }
 
@@ -253,8 +279,6 @@ class LoginPageController {
           );
         }
         final toxId = metadata['toxId']!;
-        rollbackToxId = toxId;
-        rollbackFullBackup = true;
         final existingAccount = await Prefs.getAccountByToxId(toxId);
         if (existingAccount != null) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
@@ -264,6 +288,8 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
+        rollbackToxId = toxId;
+        rollbackFullBackup = true;
         accountData = await _importFullBackupFn(
           filePath: filePath,
           password: password,
@@ -275,17 +301,23 @@ class LoginPageController {
             password: password,
           );
         } catch (e) {
-          if (e is PasswordRequiredException ||
-              e.toString().contains('Password required') ||
-              e.toString().contains('password')) {
+          if (e is PasswordRequiredException) {
             password = await requestPassword();
             if (password == null) {
               return const ImportFailure(ImportFailureKind.cancelled);
             }
-            accountData = await _importAccountDataFn(
-              filePath: filePath,
-              password: password,
-            );
+            try {
+              accountData = await _importAccountDataFn(
+                filePath: filePath,
+                password: password,
+              );
+            } catch (e) {
+              SafeDiagnostics.logFailure(
+                '[LoginPageController] Import: decrypt failed with password',
+                e,
+              );
+              return const ImportFailure(ImportFailureKind.invalidPassword);
+            }
           } else {
             rethrow;
           }
@@ -293,7 +325,6 @@ class LoginPageController {
       }
 
       final toxId = accountData['toxId'] as String;
-      rollbackToxId = toxId;
       final toxProfile = accountData['toxProfile'] as Uint8List?;
       final importedNickname = (accountData['nickname'] as String?) ?? '';
 
@@ -310,13 +341,24 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
+        rollbackToxId = toxId;
         await Directory(profileDir).create(recursive: true);
         await File(profileFilePath).writeAsBytes(toxProfile);
+        if (password != null && password.isNotEmpty) {
+          final encrypted = await _encryptProfileFileFn(
+            profileFilePath,
+            password,
+          );
+          if (!encrypted) {
+            throw StateError('Failed to encrypt imported account profile');
+          }
+        }
       }
 
       final displayNickname = importedNickname.isNotEmpty
           ? importedNickname
           : importedAccountDefaultName;
+      rollbackToxId ??= toxId;
       await _addAccountFn(
         toxId: toxId,
         nickname: displayNickname,
@@ -329,31 +371,40 @@ class LoginPageController {
         await _finalizeFullBackupImportFn(toxId: toxId);
       }
       if (!isZip && password != null && password.isNotEmpty) {
-        await _setAccountPasswordFn(toxId, password);
-      }
-      return const ImportSuccess();
-    } on InvalidBackupPasswordException catch (e, st) {
-      AppLogger.logError(
-        '[LoginPageController] Full-backup password rejected',
-        e,
-        st,
-      );
-      return ImportFailure(
-        ImportFailureKind.invalidPassword,
-        detail: e.toString(),
-      );
-    } catch (e, st) {
-      if (rollbackToxId != null) {
-        if (rollbackFullBackup) {
-          await _rollbackFullBackupImportFn(toxId: rollbackToxId);
-        } else {
-          await _rollbackImportedAccount(rollbackToxId);
+        final persisted = await _setAccountPasswordFn(toxId, password);
+        if (!persisted) {
+          throw StateError('Failed to persist imported account password');
         }
       }
-      AppLogger.logError('[LoginPageController] Import failed', e, st);
+      return const ImportSuccess();
+    } on InvalidBackupPasswordException catch (e) {
+      SafeDiagnostics.logFailure(
+        '[LoginPageController] Full-backup password rejected',
+        e,
+      );
+      return const ImportFailure(ImportFailureKind.invalidPassword);
+    } catch (e) {
+      if (rollbackToxId != null) {
+        try {
+          if (rollbackFullBackup) {
+            await _rollbackFullBackupImportFn(toxId: rollbackToxId);
+          } else {
+            await _rollbackImportedAccountFn(
+              toxId: rollbackToxId,
+              logContext: 'LoginPageController',
+            );
+          }
+        } catch (rollbackError) {
+          SafeDiagnostics.logFailure(
+            '[LoginPageController] Import rollback failed',
+            rollbackError,
+          );
+        }
+      }
+      SafeDiagnostics.logFailure('[LoginPageController] Import failed', e);
       return ImportFailure(
         ImportFailureKind.generalError,
-        detail: e.toString(),
+        detail: SafeDiagnostics.describeError(e),
       );
     }
   }
@@ -421,32 +472,26 @@ class LoginPageController {
           // a wrong password (the only other failure is corruption AFTER the
           // password gate, which is exceedingly rare). Surface as
           // invalidPassword so the UI can show the retry-friendly copy.
-          AppLogger.logError(
+          SafeDiagnostics.logFailure(
             '[LoginPageController] Restore: decrypt failed with password',
             e,
-            null,
           );
-          return RestoreFailure(
-            RestoreFailureKind.invalidPassword,
-            detail: e.toString(),
-          );
+          return const RestoreFailure(RestoreFailureKind.invalidPassword);
         }
       } catch (e) {
         // Non-password errors at this point (e.g. corrupt header) mean the
         // file is not a valid Tox profile.
-        AppLogger.logError(
+        SafeDiagnostics.logFailure(
           '[LoginPageController] Restore: invalid tox file',
           e,
-          null,
         );
         return RestoreFailure(
           RestoreFailureKind.notAToxProfile,
-          detail: e.toString(),
+          detail: SafeDiagnostics.describeError(e),
         );
       }
 
       final toxId = accountData['toxId'] as String;
-      rollbackToxId = toxId;
       final toxProfile = accountData['toxProfile'] as Uint8List?;
       final importedNickname = (accountData['nickname'] as String?) ?? '';
 
@@ -465,8 +510,18 @@ class LoginPageController {
       if (await File(profileFilePath).exists()) {
         return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
       }
+      rollbackToxId = toxId;
       await Directory(profileDir).create(recursive: true);
       await File(profileFilePath).writeAsBytes(toxProfile);
+      if (password != null && password.isNotEmpty) {
+        final encrypted = await _encryptProfileFileFn(
+          profileFilePath,
+          password,
+        );
+        if (!encrypted) {
+          throw StateError('Failed to encrypt imported account profile');
+        }
+      }
 
       final displayNickname = importedNickname.isNotEmpty
           ? importedNickname
@@ -480,60 +535,34 @@ class LoginPageController {
         notificationSoundEnabled: true,
       );
       if (password != null && password.isNotEmpty) {
-        await _setAccountPasswordFn(toxId, password);
+        final persisted = await _setAccountPasswordFn(toxId, password);
+        if (!persisted) {
+          throw StateError('Failed to persist imported account password');
+        }
       }
       return RestoreSuccess(
         toxId: toxId,
         nickname: displayNickname,
         password: password,
       );
-    } catch (e, st) {
+    } catch (e) {
       if (rollbackToxId != null) {
-        await _rollbackImportedAccount(rollbackToxId);
+        try {
+          await _rollbackImportedAccountFn(
+            toxId: rollbackToxId,
+            logContext: 'LoginPageController',
+          );
+        } catch (rollbackError) {
+          SafeDiagnostics.logFailure(
+            '[LoginPageController] Restore rollback failed',
+            rollbackError,
+          );
+        }
       }
-      AppLogger.logError('[LoginPageController] Restore failed', e, st);
+      SafeDiagnostics.logFailure('[LoginPageController] Restore failed', e);
       return RestoreFailure(
         RestoreFailureKind.generalError,
-        detail: e.toString(),
-      );
-    }
-  }
-
-  Future<void> _rollbackImportedAccount(String toxId) async {
-    try {
-      await Prefs.clearAccountData(toxId);
-    } catch (e) {
-      AppLogger.warn(
-        '[LoginPageController] rollback: clearAccountData failed for $toxId: $e',
-      );
-    }
-    try {
-      await Prefs.removeAccount(toxId);
-    } catch (e) {
-      AppLogger.warn(
-        '[LoginPageController] rollback: removeAccount failed for $toxId: $e',
-      );
-    }
-    try {
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final dir = Directory(profileDir);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-    } catch (e) {
-      AppLogger.warn(
-        '[LoginPageController] rollback: profile cleanup failed for $toxId: $e',
-      );
-    }
-    try {
-      final accountDataRoot = await AppPaths.getAccountDataRoot(toxId);
-      final dir = Directory(accountDataRoot);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-    } catch (e) {
-      AppLogger.warn(
-        '[LoginPageController] rollback: account data cleanup failed for $toxId: $e',
+        detail: SafeDiagnostics.describeError(e),
       );
     }
   }
