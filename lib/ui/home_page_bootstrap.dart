@@ -79,9 +79,8 @@ extension _HomePageBootstrap on _HomePageState {
   }
 
   Future<void> _initAfterSessionReady() async {
-    await SessionRuntimeCoordinator(
-      service: widget.service,
-    ).ensureInitialized();
+    final runtime = SessionRuntimeCoordinator(service: widget.service);
+    await runtime.ensureInitialized();
     if (!mounted) return;
     AppLogger.debug(
       '[HomePage] HYBRID MODE: Binary replacement + Platform interface',
@@ -109,10 +108,10 @@ extension _HomePageBootstrap on _HomePageState {
       });
       return;
     }
-    // BinaryReplacementHistoryHook is now installed inside
-    // SessionRuntimeCoordinator.ensureInitialized() — same atomic init
-    // block as the platform — to close the platform-installed-but-hook-
-    // not-installed window. Don't re-install here.
+    // AppBootstrapCoordinator installs this before polling. Keep the explicit
+    // idempotent post-TIM call here as well so HomePage's existing fallback SDK
+    // initialization path preserves the same listener-ordering invariant.
+    runtime.installHistoryHookAfterTimSdkInitialized();
     if (!mounted) return;
     TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
     AppLogger.debug(
