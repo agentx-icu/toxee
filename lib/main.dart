@@ -34,6 +34,8 @@ import 'util/app_theme_config.dart';
 import 'util/app_component_themes.dart';
 import 'util/design_tokens.dart';
 import 'util/account_service.dart';
+import 'util/prefs.dart';
+import 'util/safe_diagnostics.dart';
 import 'util/send_failure_notifier.dart';
 import 'package:tencent_cloud_chat_common/data/theme/tencent_cloud_chat_theme.dart';
 import 'startup/startup_outcome.dart';
@@ -43,6 +45,7 @@ import 'startup/startup_step.dart';
 import 'bootstrap/app_bootstrap.dart';
 import 'bootstrap/app_bootstrap_result.dart';
 import 'ui/widgets/desktop_window_frame.dart';
+part 'startup/startup_gate.dart';
 
 /// Routes print() output to AppLogger. Parses TCCF lines (TencentCloudChatLog)
 /// so level and body are normalized instead of duplicating timestamp in body.
@@ -308,7 +311,8 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   /// systems in sync.
   void _toggleThemeBrightness() {
     final mode = AppTheme.mode.value;
-    final isDark = mode == ThemeMode.dark ||
+    final isDark =
+        mode == ThemeMode.dark ||
         (mode == ThemeMode.system &&
             WidgetsBinding.instance.platformDispatcher.platformBrightness ==
                 Brightness.dark);
@@ -430,7 +434,8 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
                           return MediaQuery(
                             data: mq.copyWith(
                               padding: mq.padding.copyWith(
-                                top: mq.padding.top +
+                                top:
+                                    mq.padding.top +
                                     ResponsiveLayout.desktopTitleBarInset(),
                               ),
                             ),
@@ -446,7 +451,7 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
                   },
                 );
               },
-              home: const _StartupGate(),
+              home: const StartupGate(),
             );
           },
         );
@@ -643,223 +648,4 @@ ThemeData _applyAppTheming(ThemeData base) {
       radius: const Radius.circular(3.0),
     ),
   );
-}
-
-class _StartupGate extends StatefulWidget {
-  const _StartupGate();
-
-  @override
-  State<_StartupGate> createState() => _StartupGateState();
-}
-
-class _StartupGateState extends State<_StartupGate> {
-  bool _checking = true;
-  String? _error;
-  bool _waitingForConnection = false;
-  Timer? _timeoutTimer;
-  StreamSubscription<bool>? _connectionSub;
-  StartupStep _currentStep = StartupStep.checkingUserInfo;
-  FfiChatService? _serviceWaitingForConnection;
-  final StartupSessionUseCase _startupUseCase = StartupSessionUseCase();
-
-  Widget _buildHomePage(FfiChatService service) => HomePage(service: service);
-
-  @override
-  void initState() {
-    super.initState();
-    _runStartup();
-  }
-
-  @override
-  void dispose() {
-    _timeoutTimer?.cancel();
-    _connectionSub?.cancel();
-    if (_serviceWaitingForConnection != null) {
-      unawaited(
-        AccountService.teardownCurrentSession(
-          service: _serviceWaitingForConnection,
-          reEncryptProfile: true,
-        ),
-      );
-    }
-    super.dispose();
-  }
-
-  void _updateStep(StartupStep step) {
-    if (mounted) {
-      setState(() {
-        _currentStep = step;
-      });
-    }
-  }
-
-  Future<void> _runStartup() async {
-    final outcome = await _startupUseCase.execute(
-      onStepChanged: _updateStep,
-      loadFriends: _loadFriendsInfo,
-    );
-    if (!mounted) return;
-    switch (outcome) {
-      case StartupShowLogin():
-        setState(() => _checking = false);
-        break;
-      case StartupShowError(:final message):
-        setState(() {
-          _error = message;
-          _checking = false;
-        });
-        break;
-      case StartupOpenHome(:final service):
-        unawaited(HapticFeedback.lightImpact());
-        unawaited(
-          Navigator.of(context)
-              .pushReplacement(AppPageRoute(page: _buildHomePage(service)))
-              .then((_) {}),
-        );
-        break;
-      case StartupWaitForConnection(:final service):
-        setState(() {
-          _waitingForConnection = true;
-          _serviceWaitingForConnection = service;
-        });
-        _waitForConnectionAndNavigate(service);
-        break;
-    }
-  }
-
-  void _waitForConnectionAndNavigate(FfiChatService service) {
-    _timeoutTimer = Timer(const Duration(seconds: 20), () {
-      if (!mounted) return;
-      _connectionSub?.cancel();
-      _updateStep(StartupStep.completed);
-      unawaited(
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (!mounted) return;
-          _serviceWaitingForConnection = null;
-          unawaited(
-            Navigator.of(context)
-                .pushReplacement(AppPageRoute(page: _buildHomePage(service)))
-                .then((_) {}),
-          );
-        }),
-      );
-    });
-
-    _connectionSub = service.connectionStatusStream.listen((isConnected) {
-      if (!isConnected || !mounted || !_waitingForConnection) return;
-      _timeoutTimer?.cancel();
-      _connectionSub?.cancel();
-      _updateStep(StartupStep.loadingFriends);
-      unawaited(_onConnectionReady(service));
-    });
-  }
-
-  Future<void> _onConnectionReady(FfiChatService service) async {
-    await _loadFriendsInfo(service);
-    if (!mounted) return;
-    _updateStep(StartupStep.completed);
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-    _serviceWaitingForConnection = null;
-    unawaited(HapticFeedback.lightImpact());
-    unawaited(
-      Navigator.of(context)
-          .pushReplacement(AppPageRoute(page: _buildHomePage(service)))
-          .then((_) {}),
-    );
-  }
-
-  Future<void> _loadFriendsInfo(FfiChatService service) async {
-    try {
-      AppLogger.log('[StartupGate] Loading friends information...');
-
-      // Trigger FakeIM to refresh conversations and contacts
-      // This ensures friend list is loaded before entering HomePage
-      if (FakeUIKit.instance.im != null) {
-        // Refresh conversations to load friend list
-        await FakeUIKit.instance.im!.refreshConversations();
-        // Refresh contacts to update friend status
-        await FakeUIKit.instance.im!.refreshContacts();
-      }
-
-      // Wait for friend online status to be updated
-      // Poll friend list multiple times to ensure we get the latest online status
-      // This is important because Tox needs time to establish connections and detect online status
-      const maxAttempts =
-          12; // 12 attempts * 500ms = 6 seconds max (increased from 3 seconds)
-      const pollInterval = Duration(milliseconds: 500);
-
-      for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        await Future.delayed(pollInterval);
-
-        // Get current friend list to check if we have online status
-        final friends = await service.getFriendList();
-
-        // Check if we have at least one friend with online status detected
-        // If we have friends, check if any have online status or if we've waited enough
-        bool hasOnlineStatus = false;
-        if (friends.isNotEmpty) {
-          // Check if any friend has online status (meaning we've detected at least one online friend)
-          // OR if we've waited long enough (attempt >= 6, meaning 3 seconds)
-          // This ensures we don't wait forever if all friends are offline
-          hasOnlineStatus = friends.any((f) => f.online) || attempt >= 6;
-
-          if (hasOnlineStatus || attempt >= maxAttempts - 1) {
-            // We have online status or we've waited long enough
-            AppLogger.log(
-              '[StartupGate] Friends info loaded: ${friends.length} friends, ${friends.where((f) => f.online).length} online',
-            );
-            // Refresh contacts one more time to ensure UI has latest status
-            if (FakeUIKit.instance.im != null) {
-              await FakeUIKit.instance.im!.refreshContacts();
-            }
-            break;
-          }
-        } else if (attempt >= 4) {
-          // If no friends after 2 seconds, proceed anyway (user might not have friends)
-          AppLogger.log('[StartupGate] No friends found, proceeding...');
-          break;
-        }
-      }
-    } catch (e) {
-      // Log error but don't block startup
-      AppLogger.logError(
-        '[StartupGate] Error loading friends info: $e',
-        e,
-        null,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_checking || _waitingForConnection) {
-      return StartupLoadingScreen(
-        currentStep: _currentStep,
-        errorMessage: _error,
-        onRetry: _error != null ? _runStartup : null,
-        onGoToLogin: _error != null
-            ? () {
-                Navigator.of(
-                  context,
-                ).pushReplacement(AppPageRoute(page: const LoginPage()));
-              }
-            : null,
-      );
-    }
-    if (_error != null) {
-      return StartupLoadingScreen(
-        currentStep: _currentStep,
-        errorMessage: _error,
-        onRetry: _runStartup,
-        onGoToLogin: () {
-          Navigator.of(
-            context,
-          ).pushReplacement(AppPageRoute(page: const LoginPage()));
-        },
-      );
-    }
-    // Fall back to registration when no local data
-    return const LoginPage();
-  }
 }
