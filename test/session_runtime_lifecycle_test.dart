@@ -42,10 +42,12 @@ import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager
 import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_method_channel.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
+import 'package:tim2tox_dart/models/chat_message.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/adapters/conversation_manager_adapter.dart';
 import 'package:toxee/adapters/event_bus_adapter.dart';
+import 'package:toxee/call/call_state_notifier.dart';
 import 'package:toxee/runtime/session_runtime_coordinator.dart';
 import 'package:toxee/sdk_fake/fake_im.dart';
 import 'package:toxee/sdk_fake/fake_models.dart';
@@ -58,7 +60,13 @@ import 'account_export/test_support.dart';
 /// FakeConversationManager touch during start/poll so the test doesn't depend
 /// on a real Tox runtime. Construction still calls `Tim2ToxFfi.open()`.
 class _StubFfiChatService extends FfiChatService {
-  _StubFfiChatService() : super();
+  _StubFfiChatService({this.debugSelfId = 'test-self'}) : super();
+
+  final String debugSelfId;
+  final Map<String, List<ChatMessage>> localMessagesByUser = {};
+
+  @override
+  String get selfId => debugSelfId;
 
   @override
   Future<List<({String userId, String nickName, String status, bool online})>>
@@ -70,6 +78,17 @@ class _StubFfiChatService extends FfiChatService {
 
   @override
   int getUnreadOf(String peerId) => 0;
+
+  @override
+  void addLocalMessage(String userId, ChatMessage msg) {
+    localMessagesByUser.putIfAbsent(userId, () => []).add(msg);
+  }
+
+  @override
+  List<ChatMessage> getHistory(String id) {
+    return List<ChatMessage>.unmodifiable(
+        localMessagesByUser[id] ?? const <ChatMessage>[]);
+  }
 }
 
 bool _ffiAvailable() {
@@ -497,6 +516,92 @@ void main() {
       },
       skip: skipReason,
     );
+
+    test(
+        'logout → login replaces CallServiceManager and quarantines stale call callbacks',
+        () async {
+      final ffi1 = _StubFfiChatService(debugSelfId: 'session-1-self');
+      await _installPlatformLikeCoordinator(ffi1);
+
+      final firstManager = FakeUIKit.instance.callServiceManager;
+      final firstState = FakeUIKit.instance.callStateNotifier;
+      expect(firstManager, isNotNull);
+      expect(firstState, isNotNull);
+
+      // Arm the manager-owned reconnect timer through public call state and
+      // manager APIs. Dispose must cancel this timer before session 2 starts.
+      firstState!.startRinging(
+        mode: CallMode.audio,
+        direction: CallDirection.outgoing,
+        inviteID: 'session-1-invite',
+        remoteUserID: 'peer-old',
+      );
+      firstState.enterCall();
+      firstManager!.markReconnecting();
+      expect(firstState.state, CallUIState.reconnecting);
+
+      await _disposeLikeCoordinator();
+      expect(FakeUIKit.instance.callServiceManager, isNull);
+      expect(FakeUIKit.instance.callStateNotifier, isNull);
+
+      final ffi2 = _StubFfiChatService(debugSelfId: 'session-2-self');
+      await _installPlatformLikeCoordinator(ffi2);
+
+      final secondManager = FakeUIKit.instance.callServiceManager;
+      final secondState = FakeUIKit.instance.callStateNotifier;
+      expect(secondManager, isNotNull);
+      expect(secondState, isNotNull);
+      expect(identical(firstManager, secondManager), isFalse,
+          reason: 're-login must create a fresh CallServiceManager');
+      expect(identical(firstState, secondState), isFalse,
+          reason: 're-login must create a fresh CallStateNotifier');
+
+      final session2Received = <FakeMessage>[];
+      final session2Sub = FakeUIKit.instance.eventBusInstance
+          .on<FakeMessage>(FakeIM.topicMessage)
+          .listen(session2Received.add);
+
+      try {
+        firstManager.onCallRecordNeeded?.call(
+          'peer-old',
+          false,
+          true,
+          1,
+          'hangup',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(session2Received, isEmpty,
+            reason:
+                'a stale session-1 call-record callback must not emit into the session-2 event bus');
+        expect(ffi2.localMessagesByUser, isEmpty,
+            reason:
+                'a stale session-1 callback must not write session-2 local call history');
+
+        await Future<void>.delayed(const Duration(seconds: 9));
+        expect(session2Received, isEmpty,
+            reason:
+                'a stale session-1 reconnect timer must not emit into the session-2 event bus');
+        expect(ffi2.localMessagesByUser, isEmpty,
+            reason:
+                'a stale session-1 reconnect timer must not write session-2 local call history');
+
+        secondManager!.onCallRecordNeeded?.call(
+          'peer-new',
+          true,
+          false,
+          2,
+          'hangup',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(session2Received.length, 1,
+            reason: 'the session-2 call-record callback must still emit');
+        expect(ffi2.localMessagesByUser['peer-new']?.length, 1,
+            reason: 'the session-2 call-record callback must still persist');
+      } finally {
+        await session2Sub.cancel();
+        await _disposeLikeCoordinator();
+      }
+    }, skip: skipReason);
 
     test('FakeUIKit.dispose is idempotent — calling twice is safe', () async {
       final ffi = _StubFfiChatService();
