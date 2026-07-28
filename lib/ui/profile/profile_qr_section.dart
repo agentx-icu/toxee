@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 
@@ -8,9 +9,9 @@ import '../../util/app_theme_config.dart';
 
 /// Renders the generated QR card image with save / copy actions below.
 ///
-/// All theme / locale-derived inputs are passed in by [ProfilePage] so the
-/// widget itself stays stateless and parent-driven.
-class ProfileQrSection extends StatelessWidget {
+/// All theme / locale-derived inputs are passed in by [ProfilePage]. Save and
+/// copy pending state stays local so duplicate gestures cannot overlap.
+class ProfileQrSection extends StatefulWidget {
   const ProfileQrSection({
     super.key,
     required this.qrFuture,
@@ -26,9 +27,41 @@ class ProfileQrSection extends StatelessWidget {
   final String versionKey;
   final bool isWide;
   final Color primaryColor;
-  final VoidCallback onSave;
-  final ValueChanged<String> onCopy;
+  final FutureOr<void> Function() onSave;
+  final FutureOr<void> Function(String path) onCopy;
   final bool enableCopy;
+
+  @override
+  State<ProfileQrSection> createState() => _ProfileQrSectionState();
+}
+
+class _ProfileQrSectionState extends State<ProfileQrSection> {
+  bool _isSaving = false;
+  bool _isCopying = false;
+
+  Future<void> _save() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+    try {
+      await widget.onSave();
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _copy(String path) async {
+    if (_isCopying) return;
+    setState(() => _isCopying = true);
+    try {
+      await widget.onCopy(path);
+    } finally {
+      if (mounted) {
+        setState(() => _isCopying = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,15 +74,15 @@ class ProfileQrSection extends StatelessWidget {
           final availWidth = qrConstraints.maxWidth.isFinite
               ? qrConstraints.maxWidth
               : 300.0;
-          final qrWidth = (availWidth * (isWide ? 0.85 : 0.6)).clamp(
+          final qrWidth = (availWidth * (widget.isWide ? 0.85 : 0.6)).clamp(
             160.0,
             260.0,
           );
           final qrHeight = qrWidth * (860.0 / 640.0); // aspect ratio ~1.344
 
           return FutureBuilder<String>(
-            key: ValueKey('qr_$versionKey'),
-            future: qrFuture,
+            key: ValueKey('qr_${widget.versionKey}'),
+            future: widget.qrFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return SizedBox(
@@ -73,7 +106,7 @@ class ProfileQrSection extends StatelessWidget {
               }
               final qrPath = snapshot.data!;
               final outlinedStyle = OutlinedButton.styleFrom(
-                foregroundColor: primaryColor,
+                foregroundColor: widget.primaryColor,
                 side: BorderSide(color: theme.colorScheme.outlineVariant),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(AppRadii.button),
@@ -123,16 +156,16 @@ class ProfileQrSection extends StatelessWidget {
                         style: outlinedStyle,
                         icon: const Icon(Icons.download_rounded, size: 16),
                         label: Text(appL10n.saveImage),
-                        onPressed: onSave,
+                        onPressed: _isSaving ? null : _save,
                       ),
-                      if (enableCopy) ...[
+                      if (widget.enableCopy) ...[
                         AppSpacing.horizontalSm,
                         OutlinedButton.icon(
                           key: UiKeys.profileQrCopyButton,
                           style: outlinedStyle,
                           icon: const Icon(Icons.copy_rounded, size: 16),
                           label: Text(appL10n.copy),
-                          onPressed: () => onCopy(qrPath),
+                          onPressed: _isCopying ? null : () => _copy(qrPath),
                         ),
                       ],
                     ],
