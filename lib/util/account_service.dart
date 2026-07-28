@@ -21,6 +21,7 @@ import 'session_password_store.dart';
 import 'group_member_list_debouncer.dart';
 import 'irc_app_manager.dart';
 import 'logger.dart';
+import 'safe_diagnostics.dart';
 import 'short_tox_id_backfill.dart';
 
 /// Result from [AccountService.registerNewAccount].
@@ -36,7 +37,15 @@ class RegisterResult {
   });
 }
 
-enum AccountTeardownStage { profileReEncryption }
+enum AccountTeardownStage {
+  runtimeDisposal,
+  providerRegistryCleanup,
+  singletonCacheCleanup,
+  ircSessionShutdown,
+  serviceDisposal,
+  profileReEncryption,
+  sessionPasswordClear,
+}
 
 final class AccountTeardownFailure implements Exception {
   const AccountTeardownFailure({
@@ -53,7 +62,58 @@ final class AccountTeardownFailure implements Exception {
 
   @override
   String toString() {
-    return 'Account teardown failed at ${stage.name} for $toxId: $cause';
+    return 'Account teardown failed stage=${stage.name} '
+        '${SafeDiagnostics.describeError(cause)}';
+  }
+}
+
+/// Guards the durable active-account mirror while a session is initialized and
+/// booted. Initialization may publish the candidate account before the runtime
+/// is ready; callers commit only after full boot succeeds.
+final class AccountActivationTransaction {
+  AccountActivationTransaction._({
+    required String? previousToxId,
+    required String? previousNickname,
+    required String? previousStatusMessage,
+    required String? previousAvatarPath,
+  }) : _previousToxId = previousToxId,
+       _previousNickname = previousNickname,
+       _previousStatusMessage = previousStatusMessage,
+       _previousAvatarPath = previousAvatarPath;
+
+  final String? _previousToxId;
+  final String? _previousNickname;
+  final String? _previousStatusMessage;
+  final String? _previousAvatarPath;
+  bool _committed = false;
+  bool _rolledBack = false;
+
+  static Future<AccountActivationTransaction> begin() async {
+    final snapshot = await Future.wait<String?>([
+      Prefs.getCurrentAccountToxId(),
+      Prefs.getNickname(),
+      Prefs.getStatusMessage(),
+      Prefs.getAvatarPath(),
+    ]);
+    return AccountActivationTransaction._(
+      previousToxId: snapshot[0],
+      previousNickname: snapshot[1],
+      previousStatusMessage: snapshot[2],
+      previousAvatarPath: snapshot[3],
+    );
+  }
+
+  void commit() {
+    _committed = true;
+  }
+
+  Future<void> rollback() async {
+    if (_committed || _rolledBack) return;
+    await Prefs.setCurrentAccountToxId(_previousToxId);
+    await Prefs.setNickname(_previousNickname ?? '');
+    await Prefs.setStatusMessage(_previousStatusMessage ?? '');
+    await Prefs.setAvatarPath(_previousAvatarPath);
+    _rolledBack = true;
   }
 }
 
@@ -156,82 +216,107 @@ class AccountService {
         ? SessionPasswordStore.get(toxId)
         : null;
 
-    // 1 & 2. Dispose session runtime (FakeUIKit + platform)
-    await SessionRuntimeCoordinator.disposeRuntime();
+    AccountTeardownFailure? firstFailure;
+    Future<bool> runStep(
+      AccountTeardownStage stage,
+      Future<void> Function() operation,
+    ) async {
+      try {
+        await operation();
+        return true;
+      } catch (e, st) {
+        SafeDiagnostics.logFailure(
+          '[AccountService] teardown_failed stage=${stage.name}',
+          e,
+        );
+        firstFailure ??= AccountTeardownFailure(
+          toxId: toxId,
+          stage: stage,
+          cause: e,
+          stackTrace: st,
+        );
+        return false;
+      }
+    }
 
-    // 3. Clear provider registries
-    ChatDataProviderRegistry.provider = null;
-    ChatMessageProviderRegistry.provider = null;
+    // Every teardown stage is mandatory and best-effort. A failure is recorded
+    // but cannot prevent later stages from releasing their account-owned state.
+    await runStep(
+      AccountTeardownStage.runtimeDisposal,
+      SessionRuntimeCoordinator.disposeRuntime,
+    );
 
-    // 3.5 Clear static singleton caches to prevent cross-account data leaks
-    GroupMemberListDebouncer().clear();
+    await runStep(AccountTeardownStage.providerRegistryCleanup, () async {
+      ChatDataProviderRegistry.provider = null;
+      ChatMessageProviderRegistry.provider = null;
+    });
+
+    await runStep(AccountTeardownStage.singletonCacheCleanup, () async {
+      GroupMemberListDebouncer().clear();
+    });
     // IRC: tear down the LIVE native connections (threads/sockets) for the
     // account being logged out, not just the Dart cache — otherwise the old
     // account's IRC sockets keep running and can forward inbound IRC into the
     // NEXT account's Tox instance (cross-account bleed). Runs while `service` is
     // still alive (before dispose below). Falls back to a plain cache reset when
     // there is no live service to drive the native teardown.
-    if (service != null) {
-      final shutdownIrcSession = AccountTeardownTestHooks.shutdownIrcSession;
-      if (shutdownIrcSession != null) {
-        await shutdownIrcSession(service);
+    await runStep(AccountTeardownStage.ircSessionShutdown, () async {
+      if (service != null) {
+        final shutdownIrcSession = AccountTeardownTestHooks.shutdownIrcSession;
+        if (shutdownIrcSession != null) {
+          await shutdownIrcSession(service);
+        } else {
+          await IrcAppManager().shutdownSession(service);
+        }
       } else {
-        await IrcAppManager().shutdownSession(service);
+        IrcAppManager().resetCache();
       }
-    } else {
-      IrcAppManager().resetCache();
-    }
+    });
 
     // 4. Dispose service
     if (service != null) {
-      try {
+      await runStep(AccountTeardownStage.serviceDisposal, () async {
         final disposeService = AccountTeardownTestHooks.disposeService;
         if (disposeService != null) {
           await disposeService(service);
         } else {
           await service.dispose();
         }
-      } catch (e, st) {
-        AppLogger.logError(
-          '[AccountService] teardown: service.dispose error',
-          e,
-          st,
-        );
-      }
+      });
     }
 
     // 5. Re-encrypt profile on disk
+    var profileReadyForPasswordClear = true;
     if (reEncryptProfile &&
         sessionPassword != null &&
         sessionPassword.isNotEmpty &&
         toxId.isNotEmpty) {
-      try {
-        final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-        final profilePath = AppPaths.profileFileInDirectory(profileDir);
-        if (await File(profilePath).exists()) {
-          final encryptProfileFile =
-              AccountTeardownTestHooks.encryptProfileFile ??
-              AccountExportService.encryptProfileFile;
-          await encryptProfileFile(profilePath, sessionPassword);
-        }
-      } catch (e, st) {
-        AppLogger.logError(
-          '[AccountService] teardown: re-encrypt profile error',
-          e,
-          st,
-        );
-        throw AccountTeardownFailure(
-          toxId: toxId,
-          stage: AccountTeardownStage.profileReEncryption,
-          cause: e,
-          stackTrace: st,
-        );
-      }
+      profileReadyForPasswordClear = await runStep(
+        AccountTeardownStage.profileReEncryption,
+        () async {
+          final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+          final profilePath = AppPaths.profileFileInDirectory(profileDir);
+          if (await File(profilePath).exists()) {
+            final encryptProfileFile =
+                AccountTeardownTestHooks.encryptProfileFile ??
+                AccountExportService.encryptProfileFile;
+            await encryptProfileFile(profilePath, sessionPassword);
+          }
+        },
+      );
     }
 
-    // 6. Clear session password
-    if (toxId.isNotEmpty) {
-      SessionPasswordStore.clear(toxId);
+    // 6. Clear session password only after the profile is safely encrypted.
+    // Retaining it after an encryption failure preserves in-process recovery.
+    if (toxId.isNotEmpty && profileReadyForPasswordClear) {
+      await runStep(AccountTeardownStage.sessionPasswordClear, () async {
+        SessionPasswordStore.clear(toxId);
+      });
+    }
+
+    final failure = firstFailure;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure, failure.stackTrace);
     }
   }
 
@@ -351,9 +436,7 @@ class AccountService {
         if (await File(legacyPath).exists()) {
           await Directory(profileDir).create(recursive: true);
           await File(legacyPath).copy(profileFile);
-          AppLogger.log(
-            '[AccountService] Migrated profile from legacy to $profileDir',
-          );
+          AppLogger.log('[AccountService] profile_migration status=completed');
         } else {
           throw Exception('Profile not found for account');
         }
@@ -498,11 +581,11 @@ class AccountService {
           password.isNotEmpty) {
         try {
           await AccountExportService.encryptProfileFile(profileFile, password);
-        } catch (encryptError, encryptSt) {
-          AppLogger.logError(
-            '[AccountService] Failed to re-encrypt profile after init failure',
+        } catch (encryptError) {
+          SafeDiagnostics.logFailure(
+            '[AccountService] initialization_rollback_failed '
+            'stage=profile_reencryption',
             encryptError,
-            encryptSt,
           );
         }
       }
@@ -548,9 +631,10 @@ class AccountService {
       try {
         await svc.dispose();
       } catch (disposeError) {
-        AppLogger.warn(
-          '[AccountService] Register: scoped service dispose after init '
-          'failure failed: $disposeError',
+        SafeDiagnostics.logFailure(
+          '[AccountService] registration_rollback_failed '
+          'stage=scoped_service_disposal',
+          disposeError,
         );
       }
       rethrow;
@@ -654,8 +738,10 @@ class AccountService {
           try {
             await Directory(tempDir).delete(recursive: true);
           } catch (e) {
-            AppLogger.warn(
-              '[AccountService] Register: failed to clean up temp dir $tempDir: $e',
+            SafeDiagnostics.logFailure(
+              '[AccountService] registration_rollback_failed '
+              'stage=collision_temp_directory_cleanup',
+              e,
             );
           }
           if (attempt + 1 >= maxAttempts) {
@@ -683,9 +769,10 @@ class AccountService {
         defaultAvatarPath =
             await DefaultAvatarInstaller.installDefaultUserAvatar(toxId: tid);
       } catch (e) {
-        AppLogger.warn(
-          '[AccountService] Register: default avatar install failed '
-          '(continuing without one): $e',
+        SafeDiagnostics.logFailure(
+          '[AccountService] registration_optional_step_failed '
+          'stage=default_avatar_install continuation=true',
+          e,
         );
         defaultAvatarPath = null;
       }
@@ -774,8 +861,11 @@ class AccountService {
         toxId: tid,
         profileDirectory: profileDir,
       );
-    } catch (e, st) {
-      AppLogger.logError('[AccountService] Register failed', e, st);
+    } catch (e) {
+      SafeDiagnostics.logFailure(
+        '[AccountService] registration_failed stage=transaction',
+        e,
+      );
       try {
         if (service != null) {
           final disposeService = AccountRegistrationTestHooks.disposeService;
@@ -786,8 +876,10 @@ class AccountService {
           }
         }
       } catch (de) {
-        AppLogger.warn(
-          '[AccountService] Register: dispose during error rollback failed: $de',
+        SafeDiagnostics.logFailure(
+          '[AccountService] registration_rollback_failed '
+          'stage=service_disposal',
+          de,
         );
       }
 
@@ -812,8 +904,10 @@ class AccountService {
             await d.delete(recursive: true);
           }
         } catch (de) {
-          AppLogger.warn(
-            '[AccountService] Register: rollback temp dir cleanup failed: $de',
+          SafeDiagnostics.logFailure(
+            '[AccountService] registration_rollback_failed '
+            'stage=temp_directory_cleanup',
+            de,
           );
         }
       }
@@ -825,8 +919,10 @@ class AccountService {
             await d.delete(recursive: true);
           }
         } catch (de) {
-          AppLogger.warn(
-            '[AccountService] Register: rollback final dir cleanup failed: $de',
+          SafeDiagnostics.logFailure(
+            '[AccountService] registration_rollback_failed '
+            'stage=profile_directory_cleanup',
+            de,
           );
         }
       }
@@ -835,8 +931,10 @@ class AccountService {
         try {
           await _deleteAccountDataRoots(toxId);
         } catch (de) {
-          AppLogger.warn(
-            '[AccountService] Register: rollback account data cleanup failed: $de',
+          SafeDiagnostics.logFailure(
+            '[AccountService] registration_rollback_failed '
+            'stage=account_data_cleanup',
+            de,
           );
         }
       }
