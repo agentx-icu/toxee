@@ -407,9 +407,35 @@ void main() {
     test('non-.zip extension throws', () async {
       final txt = File(p.join(env.extras, 'not_a_zip.txt'));
       await txt.writeAsString('hello');
+      Object? failure;
+      try {
+        await AccountExportService.readFullBackupMetadata(txt.path);
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure, isA<Exception>());
+      expect(failure.toString(), isNot(contains(txt.path)));
+      expect(failure.toString(), isNot(contains(p.basename(txt.path))));
+    });
+
+    test('missing backup validation omits the selected path', () async {
+      final missingPath = p.join(
+        env.extras,
+        'PRIVATE_ACCOUNT_BACKUP_743bd2.zip',
+      );
+      Object? failure;
+      try {
+        await AccountExportService.readFullBackupMetadata(missingPath);
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure, isA<Exception>());
+      expect(failure.toString(), isNot(contains(missingPath)));
       expect(
-        () => AccountExportService.readFullBackupMetadata(txt.path),
-        throwsA(isA<Exception>()),
+        failure.toString(),
+        isNot(contains('PRIVATE_ACCOUNT_BACKUP_743bd2.zip')),
       );
     });
   });
