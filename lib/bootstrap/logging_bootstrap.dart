@@ -7,6 +7,7 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import '../util/app_paths.dart';
 import '../util/harness_environment.dart';
 import '../util/logger.dart';
+import '../util/safe_diagnostics.dart';
 
 /// Log path detection, AppLogger initialization, FFI log file, and native library name.
 ///
@@ -46,12 +47,10 @@ class LoggingBootstrap {
           testFile.writeAsStringSync('test', mode: FileMode.write);
           testFile.deleteSync();
           logPath = testPath;
-          stderr.writeln(
-            'AppLogger: Using log directory from environment: $logDirEnv',
-          );
+          stderr.writeln('AppLogger: Using configured log directory');
         } catch (e) {
           stderr.writeln(
-            'AppLogger: [INFO] Cannot write to project directory due to sandbox restrictions (expected): $logDirEnv',
+            'AppLogger: [INFO] Cannot write to configured log directory',
           );
           stderr.writeln(
             'AppLogger: [INFO] Will use application support directory and create symlink',
@@ -83,12 +82,11 @@ class LoggingBootstrap {
               testFile.writeAsStringSync('test', mode: FileMode.write);
               testFile.deleteSync();
               logPath = testPath;
-              stderr.writeln(
-                'AppLogger: Using Directory.current: ${currentDir.path}',
-              );
+              stderr.writeln('AppLogger: Using working-directory log storage');
             } catch (e) {
               stderr.writeln(
-                'AppLogger: Cannot write to Directory.current: $e',
+                'AppLogger: Cannot write to working-directory log storage '
+                '${SafeDiagnostics.describeError(e)}',
               );
               useSymlink = true;
             }
@@ -98,7 +96,10 @@ class LoggingBootstrap {
           // the symlink/timestamped fallback. Logger isn't initialised yet so
           // stderr is the best we can do, but the fallback path is the
           // canonical case so loud logging here would be noisy.
-          stderr.writeln('AppLogger: Directory.current probe failed: $e');
+          stderr.writeln(
+            'AppLogger: Working-directory probe failed '
+            '${SafeDiagnostics.describeError(e)}',
+          );
         }
       }
 
@@ -107,36 +108,36 @@ class LoggingBootstrap {
       if (logPath == null || useSymlink) {
         try {
           logPath = await AppPaths.logFilePath;
-          stderr.writeln(
-            'AppLogger: Using application support directory: ${await AppPaths.applicationSupportPath}',
-          );
+          stderr.writeln('AppLogger: Using application support log storage');
           if (useSymlink && logDirEnv != null && logDirEnv.isNotEmpty) {
             stderr.writeln(
               'AppLogger: [INFO] Cannot create symlink from sandbox (expected - macOS security restriction)',
             );
-            stderr.writeln('AppLogger: [INFO] Logs will be in: $logPath');
             stderr.writeln(
-              'AppLogger: [INFO] Script will create symlink: $logDirEnv/flutter_client.log -> $logPath',
+              'AppLogger: [INFO] Script will create the configured log symlink',
             );
           }
         } catch (e) {
           stderr.writeln(
-            'AppLogger: Failed to get application support directory: $e',
+            'AppLogger: Failed to get application support directory '
+            '${SafeDiagnostics.describeError(e)}',
           );
         }
       }
 
       if (logPath != null) {
         AppLogger.setLogPath(logPath);
-        stderr.writeln('AppLogger: Set log path to: $logPath');
+        stderr.writeln('AppLogger: Configured log path');
       } else {
         stderr.writeln(
           'AppLogger: WARNING - Could not determine log path, using default',
         );
       }
-    } catch (e, stackTrace) {
-      stderr.writeln('AppLogger: Error setting custom log path: $e');
-      stderr.writeln('AppLogger: Stack trace: $stackTrace');
+    } catch (e) {
+      stderr.writeln(
+        'AppLogger: Error setting custom log path '
+        '${SafeDiagnostics.describeError(e)}',
+      );
     }
 
     await AppLogger.initialize();
@@ -149,13 +150,14 @@ class LoggingBootstrap {
           '=== Test Write ===\n',
           mode: FileMode.append,
         );
-        stderr.writeln('AppLogger: Test write successful to: $logPath');
-        AppLogger.log('AppLogger initialized, log file: $logPath');
+        stderr.writeln('AppLogger: Test write successful');
+        AppLogger.log('AppLogger initialized with file logging');
         AppLogger.log('AppLogger: Log file exists and is ready');
-      } catch (e, stackTrace) {
-        stderr.writeln('AppLogger: ERROR - Failed to write to log file: $e');
-        stderr.writeln('AppLogger: Stack trace: $stackTrace');
-        stderr.writeln('AppLogger: Log file path: $logPath');
+      } catch (e) {
+        stderr.writeln(
+          'AppLogger: ERROR - Failed to write to log file '
+          '${SafeDiagnostics.describeError(e)}',
+        );
       }
     } else {
       stderr.writeln(
@@ -169,7 +171,7 @@ class LoggingBootstrap {
         final ffiLib = Tim2ToxFfi.open();
         ffiLib.setLogFile(logPath);
       } catch (e) {
-        AppLogger.warn('Could not set C++ log file: $e');
+        SafeDiagnostics.logFailure('Could not set C++ log file', e);
       }
     }
 
@@ -186,7 +188,10 @@ class LoggingBootstrap {
         final logDir = File(logPath).parent.path;
         await AppPaths.markExcludedFromBackup(logDir);
       } catch (e) {
-        AppLogger.warn('Could not mark log directory excluded from backup: $e');
+        SafeDiagnostics.logFailure(
+          'Could not mark log directory excluded from backup',
+          e,
+        );
       }
     }
   }
