@@ -28,13 +28,11 @@ part of 'drive_real_ui_pair.dart';
 // nickname/status edits (cases 15/16) RESTORE the original registered values at
 // case end so a later batch that asserts the registered nick is not poisoned.
 //
-// AVATAR cases 19/20 are SKIPPED — see _profileAvatarPickerOpens / the campaign
-// doc: the self-profile avatar tap opens the NATIVE NSOpenPanel directly (no
-// in-app default-avatar grid/picker surface exists — the "default avatars" of
-// commit 5867fdc are a registration-time fallback INSTALLER, not a chooser UI),
-// and the l3 avatar-pick override (l3_set_avatar_pick_path / l3_pick_avatar) is
-// TEST-ACCOUNT-gated so it is refused on the fresh non-test real-UI account AND
-// would be a forbidden l3 bypass of the asserted action anyway.
+// AVATAR cases 19/20 tap the REAL profile_avatar_edit_button. A test-account
+// fixed picker-path seam supplies distinct sandbox images while the production
+// avatar handler remains the asserted action; each case gates on selfAvatarPath
+// changing. They return SKIP only when the account cannot be test-marked for the
+// deterministic picker input.
 
 /// Open the self-profile overlay by tapping the persistent sidebar user-avatar
 /// InkWell, then wait for the overlay landmark (the edit toggle, which only
@@ -56,7 +54,10 @@ Future<bool> _openSelfProfile(Inst inst) async {
     // sidebar element — if its bounds genuinely can't resolve on this frame, the
     // outer loop re-foregrounds and retries tapKeyCenter on the next round
     // rather than risking a stacked-dialog artifact via a double-firing tap.
-    final tapped = await inst.tapKeyCenter('sidebar_user_avatar', timeoutSecs: 4);
+    final tapped = await inst.tapKeyCenter(
+      'sidebar_user_avatar',
+      timeoutSecs: 4,
+    );
     if (tapped && await inst.waitKey('profile_edit_toggle', timeoutSecs: 6)) {
       return true;
     }
@@ -126,9 +127,14 @@ Future<bool> _enterProfileEditMode(Inst inst) async {
 Future<bool> _profileOpenSidebarAvatar(Inst inst) async {
   await _closeSelfProfile(inst);
   await inst.foreground();
-  final closedBefore = await inst.waitKeyGone('profile_edit_toggle', timeoutSecs: 4);
+  final closedBefore = await inst.waitKeyGone(
+    'profile_edit_toggle',
+    timeoutSecs: 4,
+  );
   if (!closedBefore) {
-    print('[pair] profile_open_sidebar_avatar: could not close pre-existing overlay');
+    print(
+      '[pair] profile_open_sidebar_avatar: could not close pre-existing overlay',
+    );
     return false;
   }
   final opened = await _openSelfProfile(inst);
@@ -178,12 +184,7 @@ Future<bool> _profileEditToggleRoundtrip(Inst inst) async {
     '[pair] profile_edit_toggle_roundtrip: entered=$entered saveShown=$saveShown '
     'exited=$exited saveGone=$saveGone toggleStays=$toggleStays closed=$closed',
   );
-  return entered &&
-      saveShown &&
-      exited &&
-      saveGone &&
-      toggleStays &&
-      closed;
+  return entered && saveShown && exited && saveGone && toggleStays && closed;
 }
 
 /// Type [value] into the keyed edit [fieldKey] (clears first), then SINGLE-FIRE
@@ -434,7 +435,10 @@ Future<bool?> _driveAvatarChange(
     // Tap the REAL camera "change avatar" affordance on the editable self
     // profile → _pickAvatar → pickAndPersistAvatar → the L3-aware picker returns
     // the materialized image and persists it.
-    if (!await inst.tapKeyCenter('profile_avatar_edit_button', timeoutSecs: 6) &&
+    if (!await inst.tapKeyCenter(
+          'profile_avatar_edit_button',
+          timeoutSecs: 6,
+        ) &&
         !await inst.tryTapKey('profile_avatar_edit_button')) {
       print('[pair] $label: FAIL — avatar edit affordance not tappable');
       return false;
@@ -463,7 +467,9 @@ Future<bool?> _driveAvatarChange(
 /// seam) so the self avatar actually changes. HARD: `selfAvatarPath` flips.
 Future<bool?> _profileAvatarPickerOpens(Inst inst) async {
   if (!await _openSelfProfile(inst)) {
-    print('[pair] profile_avatar_picker_opens: FAIL — self profile did not open');
+    print(
+      '[pair] profile_avatar_picker_opens: FAIL — self profile did not open',
+    );
     return false;
   }
   return _driveAvatarChange(
@@ -503,16 +509,19 @@ Future<void> _normalizeProfileBetweenCases(Inst inst) async {
   try {
     await _closeSelfProfile(inst);
   } on DriveError catch (e) {
-    print('[sweep] profile normalize: best-effort failed (ignored): ${e.message}');
+    print(
+      '[sweep] profile normalize: best-effort failed (ignored): ${e.message}',
+    );
   }
 }
 
 /// sweep_profile — Batch 2: chain all 8 self-profile cases on ONE launch. Cases
-/// 13–18 are HARD gates; cases 19/20 are SKIPs (no in-app avatar surface — see
-/// the case bodies). Order: open (13) → edit toggle roundtrip (14) → nickname
+/// 13–18 are HARD gates; cases 19/20 drive the real avatar control with
+/// deterministic fixed picker-path input and may SKIP only if the account cannot
+/// be test-marked. Order: open (13) → edit toggle roundtrip (14) → nickname
 /// edit+restore (15) → status edit+restore (16) → copy toxid (17) → QR copy (18)
-/// → avatar SKIPs (19/20). The edit cases RESTORE the original nick/status so a
-/// later batch asserting the registered nick is not poisoned. Prints
+/// → avatar changes (19/20). The edit cases RESTORE the original nick/status so
+/// a later batch asserting the registered nick is not poisoned. Prints
 /// `[sweep] <case>: PASS|FAIL|SKIP(<reason>)` per case + final counts; exits
 /// non-zero if any HARD case fails.
 Future<int> runProfileSweep(Inst inst, String nick) async {
@@ -575,7 +584,7 @@ Future<int> runProfileSweep(Inst inst, String nick) async {
     }
     if (ok == null) {
       skipped++;
-      print('[sweep] ${entry.key}: SKIP(no-in-app-avatar-surface)');
+      print('[sweep] ${entry.key}: SKIP(test-account-mark-unavailable)');
     } else if (ok) {
       passed++;
       print('[sweep] ${entry.key}: PASS');
@@ -595,5 +604,5 @@ Future<int> runProfileSweep(Inst inst, String nick) async {
     '$skipped SKIP (${cases.length} total)',
   );
   await inst.shot('/tmp/ui_profile_sweep_${inst.name}.png');
-  return failed == 0 ? 0 : 1;
+  return failed == 0 && skipped == 0 ? 0 : 1;
 }

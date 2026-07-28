@@ -12,7 +12,7 @@ part of 'drive_real_ui_pair.dart';
 //   logout (serves 21+22) ->
 //   22 login_register_open_back  (on LoginPage: Register CTA -> RegisterPage -> back)
 //   21 login_account_card_renders (the saved-account card shows nick + tox prefix)
-//   26 login_restore_entry_opens  (SKIP — native NSOpenPanel only, no in-app surface)
+//   26 login_restore_entry_opens  (real restore card + fixed invalid .tox input)
 //   23 register_empty_nickname_error   (RegisterPage validation; NO account created)
 //   24 register_password_mismatch_error (RegisterPage validation; NO account created)
 //   25 register_password_strength_flips (RegisterPage strength caption weak->strong)
@@ -30,17 +30,10 @@ part of 'drive_real_ui_pair.dart';
 // no-password state. The sweep therefore ends with the primary account
 // password-free (verified via the no-prompt quick-login at the very end).
 //
-// CASE 26 is a SKIP: the login "Restore from .tox file" card
-// (UiKeys.loginPageRestoreFromToxFile) calls `_restoreFromToxFile` ->
-// `LoginPageController.restoreFromToxFile`, which opens the native
-// `FilePicker.platform.pickFiles` DIRECTLY — there is NO in-app pre-picker /
-// options surface to assert mounting. The login "settings" entry
-// (login_page_settings_button) opens LoginSettingsPage, which is the
-// bootstrap/global settings page, NOT a restore/import surface. The native panel
-// cannot be driven headless and there is no test-account l3 override here, so
-// case 26 returns null (SKIP) — never a fake pass. (Hermetic coverage of the
-// real restore handler lives in login_restore_import_settings_real_ui_test.dart,
-// which injects a controller seam.)
+// CASE 26 taps the REAL "Restore from .tox file" card. The account-import fixed
+// picker-path seam supplies an invalid sandbox .tox file in place of the native
+// panel, then the case asserts the production restore handler's error banner and
+// returns to the logged-out state required by the following register cases.
 
 const _b3PrimaryPassword = 'RuiSweepB3Pw1!';
 const _b3SecondNick = 'RuiSweepB3';
@@ -90,8 +83,7 @@ Future<String> _logoutToLoginPage(Inst inst) async {
   // lands on nothing and the confirm dialog never opens ("logout: confirm
   // dialog did not open"). Scroll it into the visible band first, then
   // center-tap its resolved position (tryTapKey fallback).
-  if (!inst.isIos &&
-      !await _settingsScrollTo(inst, 'settings_logout_button')) {
+  if (!inst.isIos && !await _settingsScrollTo(inst, 'settings_logout_button')) {
     print('[pair] logout: logout button not in band');
   }
   if (!await inst.tapKeyCenter('settings_logout_button', timeoutSecs: 6)) {
@@ -132,8 +124,10 @@ Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
     final ok = await _quickLoginNoPasswordOnce(inst, toxId);
     if (ok) return true;
     if ((await inst.dumpState())['currentAccountToxId']?.toString() == toxId) {
-      print('[pair] quick-login no-password (${_shortId(toxId)}): '
-          'logged in via state-check (ready poll lagged)');
+      print(
+        '[pair] quick-login no-password (${_shortId(toxId)}): '
+        'logged in via state-check (ready poll lagged)',
+      );
       return true;
     }
   }
@@ -188,8 +182,10 @@ Future<bool> _loginRegisterOpenBack(Inst inst) async {
   // keyed card (reliable hit-testing on the wide desktop layout, where a by-text
   // tap can land on the card's label without triggering its InkWell); fall back
   // to the text tap.
-  if (!await inst.tapKeyCenter('login_page_register_account_card',
-          timeoutSecs: 6) &&
+  if (!await inst.tapKeyCenter(
+        'login_page_register_account_card',
+        timeoutSecs: 6,
+      ) &&
       !await _tryTapText(inst, 'Register new account')) {
     print('[pair] register_open_back: Register CTA not tappable');
     return false;
@@ -286,7 +282,9 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
     // LoginPage by now, so relogin the primary, set the override, then unmark.
     if ((await inst.dumpState())['sessionReady'] != true) {
       if (!await _quickLoginNoPassword(inst, primaryToxId)) {
-        print('[pair] login_restore_entry_opens: could not relogin to set seam');
+        print(
+          '[pair] login_restore_entry_opens: could not relogin to set seam',
+        );
         return false;
       }
     }
@@ -313,11 +311,13 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
       'login_page_restore_from_tox_file',
       timeoutSecs: 8,
     );
-    final restoreTapped = restoreCard &&
+    final restoreTapped =
+        restoreCard &&
         (_isWindowsRealUi
             ? await inst.tryTapKey('login_page_restore_from_tox_file')
             : await inst.tapKeyAt('login_page_restore_from_tox_file'));
-    final errorShown = restoreTapped &&
+    final errorShown =
+        restoreTapped &&
         await inst.waitKey('login_page_error_banner', timeoutSecs: 10);
     await inst.shot('/tmp/ui_login_restore_entry_${inst.name}.png');
     ok = restoreCard && restoreTapped && errorShown;
@@ -329,7 +329,9 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
     if (marked) {
       try {
         await inst.unmarkAccountTest();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
     // Clear the account-import override so no test state leaks, then END ON THE
     // LOGINPAGE (logged out) — the FOLLOWING sweep cases (register validation +
@@ -357,7 +359,9 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
     }
     try {
       if (await invalidTox.exists()) await invalidTox.delete();
-    } on Object {/* best-effort */}
+    } on Object {
+      /* best-effort */
+    }
   }
   return ok;
 }
@@ -1065,13 +1069,13 @@ Future<bool> _ensureCleanPrimaryEnd(
 /// autoLogin intact):
 ///   ensureHome (registers the PRIMARY account if the launch is fresh) ->
 ///   logout (serves 21+22) -> 22 register-open-back -> 21 account-card-renders ->
-///   26 restore-entry (SKIP) -> 23/24/25 register validation (NO accounts) ->
+///   26 restore-entry -> 23/24/25 register validation (NO accounts) ->
 ///   quick-login back to primary -> 27 wrong-password (sets pw, logs out, error) ->
 ///   28 correct-password (unlocks, then REMOVES the password) ->
 ///   29 account-switch (register #2, switch back to primary).
 ///
 /// Prints `[sweep] <case>: PASS|FAIL|SKIP(<reason>)` per case + final counts;
-/// exits non-zero if any HARD case fails (26 is the only SKIP).
+/// exits non-zero if any HARD case fails. All 9 cases are executable HARD gates.
 Future<int> runLoginSweep(Inst inst, String nick) async {
   await ensureHome(inst, nick);
   await inst.waitState(
@@ -1154,7 +1158,10 @@ Future<int> runLoginSweep(Inst inst, String nick) async {
         if (skip == null) {
           skipped++;
           results['login_restore_entry_opens'] = 'SKIP';
-          print('[sweep] login_restore_entry_opens: SKIP(native-picker-only)');
+          print(
+            '[sweep] login_restore_entry_opens: '
+            'SKIP(test-input-seam-unavailable)',
+          );
         } else if (skip) {
           passed++;
           results['login_restore_entry_opens'] = 'PASS';
@@ -1246,5 +1253,5 @@ Future<int> runLoginSweep(Inst inst, String nick) async {
       // best-effort
     }
   }
-  return failed == 0 ? 0 : 1;
+  return failed == 0 && skipped == 0 ? 0 : 1;
 }
