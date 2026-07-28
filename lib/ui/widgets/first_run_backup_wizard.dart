@@ -16,6 +16,7 @@ import '../../util/feature_flags.dart';
 import '../../util/logger.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
+import '../../util/safe_diagnostics.dart';
 
 part 'first_run_backup_wizard_parts.dart';
 
@@ -167,10 +168,9 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
         }
       }
 
-      String? filePath;
       MobileExportSaveResult? mobileSaveResult;
       if (widget.exportOverride != null && isDesktopPlatform) {
-        filePath = await widget.exportOverride!(widget.toxId, widget.nickname);
+        await widget.exportOverride!(widget.toxId, widget.nickname);
       } else if (!isDesktopPlatform) {
         final createAndSaveCopy =
             widget.createAndSaveMobileExportCopyOverride ??
@@ -208,17 +208,14 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
           if (mounted) {
             setState(() {
               _busy = false;
-              _statusMessage = mobileSaveResult!.cancellationNotice;
+              _statusMessage = l10n.importCancelled;
               _statusIsError = false;
             });
           }
           return;
         }
-        filePath =
-            mobileSaveResult.userSelectedPath ??
-            mobileSaveResult.internalFilePath;
       } else {
-        filePath = await AccountExportService.exportAccountData(
+        await AccountExportService.exportAccountData(
           toxId: widget.toxId,
           filePath: outputPath,
         );
@@ -230,15 +227,15 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       // Note: we deliberately do NOT show an extra success state inside the
       // wizard before popping. The caller is responsible for surfacing the
       // saved-path message (e.g. via SnackBar) on its next frame.
-      AppLogger.log('[FirstRunBackupWizard] Exported to $filePath');
-    } catch (e, st) {
-      AppLogger.logError('[FirstRunBackupWizard] Export failed', e, st);
+      AppLogger.log('[FirstRunBackupWizard] Export completed');
+    } catch (e) {
+      SafeDiagnostics.logFailure('[FirstRunBackupWizard] Export failed', e);
       if (mounted) {
         setState(() {
           _busy = false;
           _statusMessage = AppLocalizations.of(
             context,
-          )!.firstRunBackupWizardExportFailed(e.toString());
+          )!.firstRunBackupWizardExportFailed(SafeDiagnostics.describeError(e));
           _statusIsError = true;
         });
       }

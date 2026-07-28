@@ -162,11 +162,13 @@ void main() {
     testWidgets('Export-now failure stays on wizard with inline error', (
       tester,
     ) async {
+      const privateDetail =
+          '/private/accounts/alice/account_backup.tox PAYLOAD_SECRET';
       final holder = _ResultHolder();
       await tester.pumpWidget(
         _harness(
           exportOverride: (_, __) async {
-            throw Exception('disk full');
+            throw Exception(privateDetail);
           },
           holder: holder,
         ),
@@ -179,7 +181,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Inline error surface, wizard still mounted.
-      expect(find.textContaining('disk full'), findsOneWidget);
+      expect(find.textContaining('error_type=_Exception'), findsOneWidget);
+      expect(find.textContaining(privateDetail), findsNothing);
       expect(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
         findsOneWidget,
@@ -330,7 +333,7 @@ void main() {
       );
       for (
         var i = 0;
-        i < 20 && find.textContaining('private in-app copy').evaluate().isEmpty;
+        i < 20 && find.text('Cancelled').evaluate().isEmpty;
         i++
       ) {
         await tester.pump(const Duration(milliseconds: 50));
@@ -341,8 +344,9 @@ void main() {
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
         findsOneWidget,
       );
-      expect(find.textContaining('private in-app copy'), findsOneWidget);
-      expect(find.textContaining(internalFile.path), findsOneWidget);
+      expect(find.text('Cancelled'), findsOneWidget);
+      expect(find.textContaining('private in-app copy'), findsNothing);
+      expect(find.textContaining(internalFile.path), findsNothing);
 
       tester.state<NavigatorState>(find.byType(Navigator).first).pop();
       await tester.pumpAndSettle();
