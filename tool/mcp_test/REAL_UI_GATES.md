@@ -96,6 +96,8 @@ campaign log; new execution results belong in build artifacts.
 8/8 runnable, 0 SKIP
 9/9 runnable,
 0 SKIP
+sweep_profile 8/0/0 (was 6/0/2skip)
+sweep_login 9/0/0 (was 8/0/1skip)
 
 Runner: a `long_press` action (`ext.flutter.marionette.longPress`, confirmed) for
 mobile/marionette parity.
