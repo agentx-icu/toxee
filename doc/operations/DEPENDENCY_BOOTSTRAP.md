@@ -1,7 +1,6 @@
 [简体中文](./DEPENDENCY_BOOTSTRAP.zh-CN.md)
 
 # Dependency bootstrap
-> Language: [中文](DEPENDENCY_BOOTSTRAP.md) | [English](DEPENDENCY_BOOTSTRAP.md)
 
 This document describes the exact bootstrap order and how to get from a fresh clone to a buildable tree.
 

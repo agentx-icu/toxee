@@ -1,7 +1,6 @@
 [English](./CALLING_AND_EXTENSIONS.md)
 
 # toxee 通话与扩展
-> 语言 / Language: [中文](CALLING_AND_EXTENSIONS.md) | [English](CALLING_AND_EXTENSIONS.md)
 
 
 本文档说明 toxee 中已经落地、但不属于基础聊天链路的扩展能力：音视频通话、UIKit 插件、局域网 Bootstrap 与 IRC 集成。

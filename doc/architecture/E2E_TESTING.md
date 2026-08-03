@@ -2,7 +2,6 @@
 
 # End-to-end testing strategy for toxee
 
-> Language: [Chinese](E2E_TESTING.md) | [English](E2E_TESTING.md)
 >
 > Generated 2026-05-20. Sibling docs: `HYBRID_ARCHITECTURE.md`, `MAINTAINER_ARCHITECTURE.md`, and the protocol-level test suite at `third_party/tim2tox/auto_tests/README.md`.
 >

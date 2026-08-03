@@ -1,7 +1,6 @@
 [English](./DEPENDENCY_LAYOUT.md)
 
 # 依赖目录结构
-> 语言 / Language: [中文](DEPENDENCY_LAYOUT.md) | [English](DEPENDENCY_LAYOUT.md)
 
 本文说明 toxee 使用的第三方依赖目录结构，以及如何通过 bootstrap 流程让新克隆的仓库可构建。
 

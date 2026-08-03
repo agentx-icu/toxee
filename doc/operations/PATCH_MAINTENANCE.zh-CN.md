@@ -1,7 +1,6 @@
 [English](./PATCH_MAINTENANCE.md)
 
 # 补丁维护
-> 语言 / Language: [中文](PATCH_MAINTENANCE.md) | [English](PATCH_MAINTENANCE.md)
 
 ## 所有权
 

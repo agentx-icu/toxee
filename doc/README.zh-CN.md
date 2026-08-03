@@ -1,7 +1,6 @@
 [English](./README.md)
 
 # toxee 文档
-> 语言 / Language: [中文](README.md) | [English](README.md)
 
 ## 推荐阅读路径（按角色）
 

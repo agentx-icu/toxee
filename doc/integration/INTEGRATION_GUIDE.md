@@ -1,7 +1,6 @@
 [简体中文](./INTEGRATION_GUIDE.zh-CN.md)
 
 # toxee Integration Guide
-> Language: [Chinese](INTEGRATION_GUIDE.md) | [English](INTEGRATION_GUIDE.md)
 
 
 This document explains how to integrate [Tim2Tox](https://github.com/agentx-icu/tim2tox) into a Flutter application, including interface adapter implementation, initialization process, and best practices.

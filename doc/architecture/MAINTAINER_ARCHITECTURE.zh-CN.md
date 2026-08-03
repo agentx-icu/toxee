@@ -2,7 +2,6 @@
 
 # toxee 维护者视角：混合架构设计
 
-> 语言 / Language: [中文](MAINTAINER_ARCHITECTURE.md) | [English](MAINTAINER_ARCHITECTURE.md)
 
 > 本文档面向**维护者**，说明混合架构的成因、职责划分、调用链与修改边界。用户使用与快速上手见 [主 README](../../README.zh-CN.md)；文档索引见 [doc/README](../README.md)。与 [ARCHITECTURE.md](ARCHITECTURE.md)（整体概览）、[HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md)（混合架构权威描述）并列；**初始化顺序与混合架构职责以本文或 HYBRID_ARCHITECTURE 为权威**。
 

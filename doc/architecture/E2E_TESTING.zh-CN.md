@@ -2,7 +2,6 @@
 
 # toxee 端到端测试策略
 
-> 语言 / Language: [中文](E2E_TESTING.md) | [English](E2E_TESTING.md)
 >
 > 生成于 2026-05-20。兄弟文档：`HYBRID_ARCHITECTURE.md`、`MAINTAINER_ARCHITECTURE.md`，以及协议层测试套件 `third_party/tim2tox/auto_tests/README.md`。
 >

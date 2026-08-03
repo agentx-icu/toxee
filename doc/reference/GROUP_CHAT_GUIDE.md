@@ -1,7 +1,6 @@
 [简体中文](./GROUP_CHAT_GUIDE.zh-CN.md)
 
 # toxee Group Chat Guide
-> Language: [Chinese](GROUP_CHAT_GUIDE.md) | [English](GROUP_CHAT_GUIDE.md)
 
 
 This document details the implementation, usage and key processes of the group chat function in toxee.

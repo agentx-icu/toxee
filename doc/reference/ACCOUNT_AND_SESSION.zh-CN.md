@@ -1,7 +1,6 @@
 [English](./ACCOUNT_AND_SESSION.md)
 
 # toxee 账号与会话
-> 语言 / Language: [中文](ACCOUNT_AND_SESSION.md) | [English](ACCOUNT_AND_SESSION.md)
 
 
 本文档说明 toxee 当前的账号生命周期实现，重点覆盖自动登录、手动登录、注册、切换账号、退出登录、删除账号，以及密码保护 profile 的处理方式。

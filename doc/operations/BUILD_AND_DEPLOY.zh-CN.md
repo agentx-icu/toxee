@@ -1,7 +1,6 @@
 [English](./BUILD_AND_DEPLOY.md)
 
 # toxee 构建与部署
-> 语言 / Language: [中文](BUILD_AND_DEPLOY.md) | [English](BUILD_AND_DEPLOY.md)
 
 本文档说明 toxee 当前真实可用的构建与打包流程：本地开发构建、本地安装包打包，以及通过 GitHub Actions 发布 GitHub Releases。遇到构建失败、启动崩溃、bootstrap 异常或运行时排障时，请先看 [../TROUBLESHOOTING.md](../TROUBLESHOOTING.md)。
 

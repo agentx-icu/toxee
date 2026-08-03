@@ -1,7 +1,6 @@
 [简体中文](./README.zh-CN.md)
 
 # toxee Documentation
-> Language: [Chinese](README.md) | [English](README.md)
 
 ## Recommended reading path (by role)
 

@@ -1,7 +1,6 @@
 [简体中文](./DEPENDENCY_LAYOUT.zh-CN.md)
 
 # Dependency Layout
-> Language: [中文](DEPENDENCY_LAYOUT.md) | [English](DEPENDENCY_LAYOUT.md)
 
 This document describes the third-party dependency layout used by toxee and how a fresh clone is made buildable via the bootstrap workflow.
 

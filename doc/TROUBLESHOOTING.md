@@ -1,7 +1,6 @@
 [简体中文](./TROUBLESHOOTING.zh-CN.md)
 
 # toxee Troubleshooting
-> Language: [Chinese](TROUBLESHOOTING.md) | [English](TROUBLESHOOTING.md)
 
 This document provides FAQs, log analysis guides, debugging tips, and performance optimization suggestions for toxee. **Build environment, per-platform steps, dependency installation**: see [BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md). **First-time clone and dependency bootstrap**: see [getting-started.md](getting-started.md), [DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md).
 

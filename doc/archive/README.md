@@ -2,7 +2,6 @@
 
 # Historical and one-off document archive
 
-> Language: [中文](README.md) | [English](README.md)
 
 This directory holds completed or archive-only documents. They are not part of the main documentation entry.
 

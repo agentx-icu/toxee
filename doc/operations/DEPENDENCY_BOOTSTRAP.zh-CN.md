@@ -1,7 +1,6 @@
 [English](./DEPENDENCY_BOOTSTRAP.md)
 
 # 依赖 Bootstrap
-> 语言 / Language: [中文](DEPENDENCY_BOOTSTRAP.md) | [English](DEPENDENCY_BOOTSTRAP.md)
 
 本文说明 bootstrap 的精确执行顺序，以及如何从新克隆得到可构建的目录树。
 

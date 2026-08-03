@@ -2,7 +2,6 @@
 
 # Clone to run
 
-> Language: [中文](getting-started.md) | [English](getting-started.md)
 
 This page is the single-path guide for “running toxee for the first time”: from clone to a runnable app. For detailed dependency order and options, see [operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md).
 

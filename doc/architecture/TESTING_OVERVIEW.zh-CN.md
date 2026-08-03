@@ -2,7 +2,6 @@
 
 # 测试总览 — toxee
 
-> 语言 / Language: [中文](TESTING_OVERVIEW.md) | [English](TESTING_OVERVIEW.md)
 >
 > toxee 所有测试资产的一站式地图：有哪些、如何分类、从最便宜到最昂贵的运行顺序，
 > 以及哪些跑在 CI、哪些只在本地。权威的重组计划见

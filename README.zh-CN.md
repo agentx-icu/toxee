@@ -2,7 +2,6 @@
 
 # toxee
 
-> Language: [English](README.md) | **简体中文**
 >
 > 基于 Tim2Tox 的 Flutter 聊天客户端 / 示例应用
 

@@ -2,7 +2,6 @@
 
 # toxee maintainer view: hybrid architecture design
 
-> Language: [Chinese](MAINTAINER_ARCHITECTURE.md) | [English](MAINTAINER_ARCHITECTURE.md)
 
 This document is for **maintainers**: it explains why the hybrid architecture exists, responsibility split, call chains, and modification boundaries. For using the app and quick start, see [Main README](../../README.md) and [doc/README](../README.md). It sits alongside [ARCHITECTURE.md](ARCHITECTURE.md) (overview) and [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md) (authoritative hybrid description). **Init order and hybrid responsibilities are authoritative in this doc or HYBRID_ARCHITECTURE.**
 

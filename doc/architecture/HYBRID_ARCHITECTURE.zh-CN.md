@@ -1,7 +1,6 @@
 [English](./HYBRID_ARCHITECTURE.md)
 
 # toxee 混合架构
-> 语言 / Language: [中文](HYBRID_ARCHITECTURE.md) | [English](HYBRID_ARCHITECTURE.md)
 
 本文为混合架构的**权威文档**：职责划分、推荐初始化顺序、消息/历史/会话/文件/通话路径以此为准。整体架构概览见 [ARCHITECTURE.md](ARCHITECTURE.md)，维护者视角与设计约束见 [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md)。
 

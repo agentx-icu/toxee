@@ -2,7 +2,6 @@
 
 # toxee
 
-> Language: **English** | [简体中文](README.zh-CN.md)
 >
 > Flutter chat client / example app built on Tim2Tox
 

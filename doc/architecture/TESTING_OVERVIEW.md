@@ -2,7 +2,6 @@
 
 # Testing Overview — toxee
 
-> Language: [Chinese](TESTING_OVERVIEW.md) | [English](TESTING_OVERVIEW.md)
 >
 > The one-stop map of every toxee test asset: what exists, how it is
 > classified, the cheapest-to-most-expensive order to run it, and what

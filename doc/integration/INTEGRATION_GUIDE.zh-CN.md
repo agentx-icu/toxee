@@ -1,7 +1,6 @@
 [English](./INTEGRATION_GUIDE.md)
 
 # toxee 集成
-> 语言 / Language: [中文](INTEGRATION_GUIDE.md) | [English](INTEGRATION_GUIDE.md)
 
 
 本文档说明如何把 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 集成到 Flutter 应用，包括接口适配器实现、初始化流程和最佳实践。

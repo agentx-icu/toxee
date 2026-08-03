@@ -2,7 +2,6 @@
 
 # 从克隆到跑起来
 
-> 语言 / Language: [中文](getting-started.md) | [English](getting-started.md)
 
 本文是「第一次跑 toxee」的单页指引，统一从克隆到可运行的最短路径。详细依赖顺序与选项见 [operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md)。
 

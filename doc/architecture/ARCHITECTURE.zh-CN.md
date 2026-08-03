@@ -1,7 +1,6 @@
 [English](./ARCHITECTURE.md)
 
 # toxee 架构
-> 语言 / Language: [中文](ARCHITECTURE.md) | [English](ARCHITECTURE.md)
 
 本文描述客户端**整体架构与数据流**，为概览。混合架构的职责与**推荐初始化顺序**以 [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md) 或 [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md) 为权威；维护者视角与「最容易改坏的地方」见 [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md)。
 

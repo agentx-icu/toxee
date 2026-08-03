@@ -1,7 +1,6 @@
 [简体中文](./BUILD_AND_DEPLOY.zh-CN.md)
 
 # toxee Build and Deploy
-> Language: [Chinese](BUILD_AND_DEPLOY.md) | [English](BUILD_AND_DEPLOY.md)
 
 This document covers the current build and packaging flow for toxee: local development builds, local packaging, and the GitHub Actions workflow that publishes GitHub Releases. For build failures, startup crashes, bootstrap issues, or runtime debugging, start with [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
 

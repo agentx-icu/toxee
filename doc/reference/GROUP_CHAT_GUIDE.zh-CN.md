@@ -1,7 +1,6 @@
 [English](./GROUP_CHAT_GUIDE.md)
 
 # toxee 群聊功能
-> 语言 / Language: [中文](GROUP_CHAT_GUIDE.md) | [English](GROUP_CHAT_GUIDE.md)
 
 
 本文档详细说明 toxee 中群聊功能的实现、使用方法和关键流程。

@@ -1,7 +1,6 @@
 [简体中文](./PLATFORM_SUPPORT.zh-CN.md)
 
 # toxee Platform Support
-> Language: [Chinese](PLATFORM_SUPPORT.md) | [English](PLATFORM_SUPPORT.md)
 
 
 This document details toxee's multi-operating system and multi-platform support.

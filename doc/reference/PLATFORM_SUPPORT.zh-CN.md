@@ -1,7 +1,6 @@
 [English](./PLATFORM_SUPPORT.md)
 
 # toxee 多平台支持
-> 语言 / Language: [中文](PLATFORM_SUPPORT.md) | [English](PLATFORM_SUPPORT.md)
 
 
 本文档详细说明 toxee 的多操作系统和多平台支持。

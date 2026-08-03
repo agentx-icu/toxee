@@ -1,7 +1,6 @@
 [简体中文](./ARCHITECTURE.zh-CN.md)
 
 # toxee Architecture
-> Language: [Chinese](ARCHITECTURE.md) | [English](ARCHITECTURE.md)
 
 This document describes the **overall client architecture and data flow** (overview). Hybrid architecture responsibilities and the **recommended initialization order** are authoritative in [HYBRID_ARCHITECTURE.md](HYBRID_ARCHITECTURE.md) or [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md); maintainer view and "easy-to-break spots" are in [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md).
 

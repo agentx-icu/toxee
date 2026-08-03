@@ -1,7 +1,6 @@
 [简体中文](./CALLING_AND_EXTENSIONS.zh-CN.md)
 
 # toxee Calling and Extensions
-> Language: [Chinese](CALLING_AND_EXTENSIONS.md) | [English](CALLING_AND_EXTENSIONS.md)
 
 
 This document describes the extension capabilities that have been implemented in toxee but are not part of the basic chat link: audio and video calls, UIKit plugins, LAN Bootstrap and IRC integration.

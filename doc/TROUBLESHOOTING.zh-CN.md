@@ -1,7 +1,6 @@
 [English](./TROUBLESHOOTING.md)
 
 # toxee 故障排查
-> 语言 / Language: [中文](TROUBLESHOOTING.md) | [English](TROUBLESHOOTING.md)
 
 本文档提供 toxee 的常见问题解答、日志分析指南、调试技巧和性能优化建议。**构建环境、各平台详细步骤、依赖安装**见 [operations/BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md)；**首次克隆与依赖引导**见 [getting-started.md](getting-started.md)、[operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md)。
 

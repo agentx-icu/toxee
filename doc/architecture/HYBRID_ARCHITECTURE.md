@@ -1,7 +1,6 @@
 [简体中文](./HYBRID_ARCHITECTURE.zh-CN.md)
 
 # toxee Hybrid Architecture
-> Language: [Chinese](HYBRID_ARCHITECTURE.md) | [English](HYBRID_ARCHITECTURE.md)
 
 This document is the **authoritative** description of the hybrid architecture: responsibility split, recommended init order, and message/history/session/file/call paths. Overall architecture overview: [ARCHITECTURE.md](ARCHITECTURE.md); maintainer view and design constraints: [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md).
 

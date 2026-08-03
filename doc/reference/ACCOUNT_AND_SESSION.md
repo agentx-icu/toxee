@@ -1,7 +1,6 @@
 [简体中文](./ACCOUNT_AND_SESSION.zh-CN.md)
 
 # toxee Account and Session
-> Language: [Chinese](ACCOUNT_AND_SESSION.md) | [English](ACCOUNT_AND_SESSION.md)
 
 
 This document describes the current account lifecycle implementation of toxee, focusing on automatic login, manual login, registration, switching accounts, logging out, deleting accounts, and how to handle password-protected profiles.

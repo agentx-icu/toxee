@@ -1,7 +1,6 @@
 [简体中文](./PATCH_MAINTENANCE.zh-CN.md)
 
 # Patch maintenance
-> Language: [中文](PATCH_MAINTENANCE.md) | [English](PATCH_MAINTENANCE.md)
 
 ## Ownership
 
