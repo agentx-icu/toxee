@@ -175,7 +175,9 @@ C++ layer (dart_compat_group.cpp)
 Dart layer (NativeLibraryManager)
   ↓ groupQuitNotification callback
   ↓ ffiService.cleanupGroupState()
-```**Process**:
+```
+
+**Process**:
 1. Find the mapping from `group_id` to `group_number`
    - If the mapping does not exist, try to restore the mapping via `chat_id`
    - If still not found, log a warning but continue cleaning
@@ -464,7 +466,6 @@ RejoinKnownGroups: Attempting to rejoin group tox_1 using chat_id ...
 tox_group_join: success, group_number=0
 onGroupSelfJoin: group_number=0
 HandleGroupSelfJoin: Rebuilt mapping from stored chat_id
-```
 ```
 
 ## Problem analysis and solutions
