@@ -61,7 +61,7 @@
 
 ## Notes
 - Echo peer harness intentionally not used — this scenario tests multi-account portability on a single toxee instance, no second peer required.
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - This locks in the 2026-05-28 fix at `account_service.dart:248-272` that mirrors `nickname`/`statusMessage`/`avatarPath` per-account on switch. Without it, S3 passes but the sidebar shows A's nickname on B.
 - I1-I6 are privacy-critical and gate ship; I7-I10 are correctness/documentation.
 - Theme is global by design today (`_kThemeMode='theme_mode'` unscoped, `prefs.dart:34`); if product moves to per-account theme, flip §6.5 and I10 assertions.

@@ -29,7 +29,7 @@
 - A7: `get_runtime_errors` matches baseline; no `FATAL`/`bad_alloc`/`tox_kill`.
 
 ## Notes
-- L3-pin: connected call still needs two live toxees (Fixture C, `doc/research/MULTI_INSTANCE_SPIKE.en.md`), but the executable gate above means the scenario is no longer just blocked.
+- L3-pin: connected call still needs two live toxees (Fixture C, `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`), but the executable gate above means the scenario is no longer just blocked.
 - L3-pin (media): real leg needs ToxAV audio flowing (`SENDING_A|ACCEPTING_A`, `:664`); media spike TBD.
 - Record deduped per call by `_callRecordEmitted` (`:195`) — exactly one per hang-up.
 - `callHangupButton` is now available; remaining assertions are about connected-call teardown rather than locating the control.

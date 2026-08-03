@@ -1,6 +1,6 @@
 // L3 debug MCP tool surface — deterministic control + introspection hooks for
 // the AI-driven Layer-3 UI automation (see
-// `doc/research/L3_MCP_IMPROVEMENT_PLAN.en.md`, codex-vetted 2026-05-29).
+// `tool/mcp_test/REAL_UI_GATES.md`, codex-vetted 2026-05-29).
 //
 // WHY: synthetic MCP gestures cannot drive two core flows — message SEND
 // (the desktop composer is Enter-to-send via the legacy `RawKeyEvent.onKey`

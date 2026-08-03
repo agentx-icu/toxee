@@ -1,8 +1,12 @@
+[简体中文](./README.zh-CN.md)
+
 # toxee
 
 > Language: **English** | [简体中文](README.zh-CN.md)
 >
 > Flutter chat client / example app built on Tim2Tox
+
+> **Experimental status:** toxee is an experimental project. Stability and behavior may change. You are welcome to try it and report bugs, compatibility issues, and other feedback.
 
 ---
 
@@ -13,7 +17,7 @@
 - **One-line architecture summary**: toxee integrates Tim2Tox with a hybrid approach of "binary replacement + Platform", where most SDK calls still go through `NativeLibraryManager -> Dart*`, while history, polling, calling, and some stateful flows are implemented through `Tim2ToxSdkPlatform -> FfiChatService`.
 - **Shortest path to run it**: clone -> `dart run tool/bootstrap_deps.dart` -> `flutter pub get` -> `./build_all.sh --platform macos --mode debug` or `./run_toxee.sh`.
 
-For deeper implementation details and role-based reading paths, see [doc/README.en.md](doc/README.en.md).
+For deeper implementation details and role-based reading paths, see [doc/README.md](doc/README.md).
 
 ---
 
@@ -92,7 +96,7 @@ The app currently uses a **hybrid architecture**: it keeps **binary replacement*
 
 - **Pure binary replacement** keeps business code changes minimal, but history messages, `clearHistoryMessage`, `groupQuitNotification`, Bootstrap configuration, polling, and calling all need Dart-side state and persistence. Those flows are incomplete if implemented only with C++ callbacks; UIKit APIs such as `getHistoryMessageList` would fail or behave inconsistently.
 - **Pure Platform** would route all SDK calls through Platform APIs, which means implementing many more methods and tracking SDK version changes closely. It is costly to migrate and maintain, and some SDK behavior still assumes the native library is loaded even when `isCustomPlatform` is enabled.
-- **Hybrid** keeps the "swap the library, keep the call surface" benefits for most SDK usage, while moving the parts that must remain in Dart (history, polling, Bootstrap, calling bridge, and selected callbacks) into `Platform + FfiChatService`. That gives a better balance between compatibility and completeness. See [doc/architecture/HYBRID_ARCHITECTURE.en.md](doc/architecture/HYBRID_ARCHITECTURE.en.md).
+- **Hybrid** keeps the "swap the library, keep the call surface" benefits for most SDK usage, while moving the parts that must remain in Dart (history, polling, Bootstrap, calling bridge, and selected callbacks) into `Platform + FfiChatService`. That gives a better balance between compatibility and completeness. See [doc/architecture/HYBRID_ARCHITECTURE.md](doc/architecture/HYBRID_ARCHITECTURE.md).
 
 **Call chain (ASCII)**:
 
@@ -157,7 +161,7 @@ flutter pub get
 ./run_toxee.sh
 ```
 
-If you hit a `package_config.json` parse error, run `dart tool/bootstrap_deps.dart` first (without `run`), then run `flutter pub get`. Full setup steps and common issues are documented in [doc/getting-started.en.md](doc/getting-started.en.md) and [doc/operations/DEPENDENCY_BOOTSTRAP.en.md](doc/operations/DEPENDENCY_BOOTSTRAP.en.md).
+If you hit a `package_config.json` parse error, run `dart tool/bootstrap_deps.dart` first (without `run`), then run `flutter pub get`. Full setup steps and common issues are documented in [doc/getting-started.md](doc/getting-started.md) and [doc/operations/DEPENDENCY_BOOTSTRAP.md](doc/operations/DEPENDENCY_BOOTSTRAP.md).
 
 ---
 
@@ -165,7 +169,7 @@ If you hit a `package_config.json` parse error, run `dart tool/bootstrap_deps.da
 
 - **Unified build**: `./build_all.sh --platform <macos|ios|android|...> --mode <debug|release>`
 - **Run only**: `./run_toxee.sh` (other platform helpers include `run_toxee_ios.sh`, `run_toxee_android.sh`, and related scripts)
-- For detailed platform steps, dependency layout, and deployment notes, see [doc/operations/BUILD_AND_DEPLOY.en.md](doc/operations/BUILD_AND_DEPLOY.en.md), [doc/operations/DEPENDENCY_BOOTSTRAP.en.md](doc/operations/DEPENDENCY_BOOTSTRAP.en.md), and [doc/operations/DEPENDENCY_LAYOUT.en.md](doc/operations/DEPENDENCY_LAYOUT.en.md). For debugging issues, see [doc/TROUBLESHOOTING.en.md](doc/TROUBLESHOOTING.en.md).
+- For detailed platform steps, dependency layout, and deployment notes, see [doc/operations/BUILD_AND_DEPLOY.md](doc/operations/BUILD_AND_DEPLOY.md), [doc/operations/DEPENDENCY_BOOTSTRAP.md](doc/operations/DEPENDENCY_BOOTSTRAP.md), and [doc/operations/DEPENDENCY_LAYOUT.md](doc/operations/DEPENDENCY_LAYOUT.md). For debugging issues, see [doc/TROUBLESHOOTING.md](doc/TROUBLESHOOTING.md).
 
 ## GitHub Actions packages
 
@@ -203,15 +207,15 @@ Publishing to **GitHub Releases** is built into the same workflow:
 
 ## Documentation hub
 
-For the full documentation index and role-based reading paths (new users / integrators / maintainers), start with [doc/README.en.md](doc/README.en.md).
+For the full documentation index and role-based reading paths (new users / integrators / maintainers), start with [doc/README.md](doc/README.md).
 
 Common entry points:
 
-- [Dependency bootstrap](doc/operations/DEPENDENCY_BOOTSTRAP.en.md)
-- [Troubleshooting](doc/TROUBLESHOOTING.en.md)
-- [Hybrid architecture](doc/architecture/HYBRID_ARCHITECTURE.en.md)
-- [Integration guide](doc/integration/INTEGRATION_GUIDE.en.md)
-- [Maintainer view](doc/architecture/MAINTAINER_ARCHITECTURE.en.md)
+- [Dependency bootstrap](doc/operations/DEPENDENCY_BOOTSTRAP.md)
+- [Troubleshooting](doc/TROUBLESHOOTING.md)
+- [Hybrid architecture](doc/architecture/HYBRID_ARCHITECTURE.md)
+- [Integration guide](doc/integration/INTEGRATION_GUIDE.md)
+- [Maintainer view](doc/architecture/MAINTAINER_ARCHITECTURE.md)
 
 ---
 
@@ -242,10 +246,10 @@ Common entry points:
 ## New contributor onboarding
 
 - Follow the quick start once on your own machine and verify you can log in, send a message, and see the conversation list.
-- Read this README's "Understand this project in 5 minutes", "Relationship with Tim2Tox", and "Current architecture at a glance" sections, then follow the role-based reading path in [doc/README.en.md](doc/README.en.md).
+- Read this README's "Understand this project in 5 minutes", "Relationship with Tim2Tox", and "Current architecture at a glance" sections, then follow the role-based reading path in [doc/README.md](doc/README.md).
 - If you are touching startup, logging, or dependency bootstrap, start with `lib/main.dart`, `lib/bootstrap/logging_bootstrap.dart`, and `tool/bootstrap_deps.dart`.
-- If you are touching messages, conversations, or history, start with `lib/sdk_fake/` and [doc/architecture/HYBRID_ARCHITECTURE.en.md](doc/architecture/HYBRID_ARCHITECTURE.en.md).
-- If you need to change Tim2Tox itself, work in `third_party/tim2tox` (upstream: [agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)) and use [third_party/tim2tox/doc/README.en.md](third_party/tim2tox/doc/README.en.md) as the local documentation entry point.
+- If you are touching messages, conversations, or history, start with `lib/sdk_fake/` and [doc/architecture/HYBRID_ARCHITECTURE.md](doc/architecture/HYBRID_ARCHITECTURE.md).
+- If you need to change Tim2Tox itself, work in `third_party/tim2tox` (upstream: [agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)) and use [third_party/tim2tox/doc/README.md](third_party/tim2tox/doc/README.md) as the local documentation entry point.
 
 ---
 

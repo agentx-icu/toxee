@@ -30,7 +30,7 @@
 - Step 1 vs end: `official.get_runtime_errors({})` back to baseline.
 
 ## Notes
-- L3-pin: tap routing is real and wired (not a gap); the pin is the live-inbound trigger (Fixture C twin) + the OS notification/tap surface, none of which a single instance or L2 can produce. Blocked until `doc/research/MULTI_INSTANCE_SPIKE.en.md` passes; echo peer NOT a substitute (playbook §3.7).
+- L3-pin: tap routing is real and wired (not a gap); the pin is the live-inbound trigger (Fixture C twin) + the OS notification/tap surface, none of which a single instance or L2 can produce. Blocked until `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` passes; echo peer NOT a substitute (playbook §3.7).
 - No posted/success log exists for `showMessageNotification` — the only banner log is the failure warn at `notification_service.dart:390`. Prove the banner via `log stream` on the UNUserNotificationCenter subsystem (same gap S58/S59 call out).
 - OS-gate caveat: macOS-only; the Notification Center AppleScript scrape is brittle. If it can't drive the tap, the routing half is exercisable at L1/L2 via the `onSelectStream`→`_routeToNotificationPayload` seam, leaving only the live-banner half on L3.
 - Cold-start tap variant (tap while A killed) is also wired via `consumeLaunchPayload` (`notification_message_listener.dart:97-100`) — out of scope; this covers the running-app tap.

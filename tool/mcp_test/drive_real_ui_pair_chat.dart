@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 6 of the real-UI sweep campaign — "Chat surface C2C" (16 cases,
-// TWO-PROCESS). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// TWO-PROCESS). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // `sweep_chat` drives BOTH instances. ONE handshake at the top establishes the
 // A<->B friendship that all cases reuse; B's REAL composer sends seed real

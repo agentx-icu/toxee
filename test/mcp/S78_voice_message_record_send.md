@@ -35,5 +35,5 @@
 - Implemented end-to-end: record dialog `tencent_cloud_chat_message_input_recording_desktop.dart`, wiring `tencent_cloud_chat_message_input_desktop.dart:394-419`, send `tim2tox_sdk_platform.dart:4465` + `:5210` (audio as Tox file transfer, duration smuggled in filename). `messageInputBuilder` (`home_page_bootstrap.dart:449`) does NOT strip the mic button.
 - The `(duration=<n> ms)` log label and the `__dur{ms}` filename marker (`:5212`/`:5240`) are a production mislabel: `<n>` is whole SECONDS (recorder `(_elapsedMs/1000).ceil()`, `tencent_cloud_chat_message_input_recording_desktop.dart:148` → `RecordInfo.duration` → `soundElem.duration`).
 - Media-spike pin: Step 4 needs a real mic; dialog hard-stops on `hasPermission()==false` (`:73`), no `RecordInfo` override seam today. Wanted: injectable recorder/`RecordInfo` stub.
-- Fixture-C pin: A5 needs a second live toxee on the DHT (`doc/research/MULTI_INSTANCE_SPIKE.en.md`). Echo peer is NOT a substitute — echoes c2c text, not file transfers (S21).
+- Fixture-C pin: A5 needs a second live toxee on the DHT (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`). Echo peer is NOT a substitute — echoes c2c text, not file transfers (S21).
 - Wanted UiKeys (none today): mic/record button, `conv_<friendId>`, `messageItem_<msgId>`.

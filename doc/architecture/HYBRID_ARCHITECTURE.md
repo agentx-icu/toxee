@@ -1,157 +1,159 @@
-# toxee 混合架构
-> 语言 / Language: [中文](HYBRID_ARCHITECTURE.md) | [English](HYBRID_ARCHITECTURE.en.md)
+[简体中文](./HYBRID_ARCHITECTURE.zh-CN.md)
 
-本文为混合架构的**权威文档**：职责划分、推荐初始化顺序、消息/历史/会话/文件/通话路径以此为准。整体架构概览见 [ARCHITECTURE.md](ARCHITECTURE.md)，维护者视角与设计约束见 [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md)。
+# toxee Hybrid Architecture
+> Language: [Chinese](HYBRID_ARCHITECTURE.md) | [English](HYBRID_ARCHITECTURE.md)
 
-本文档描述 toxee 当前使用的混合架构：底层调用仍以二进制替换路径为主，历史消息、通话、部分自定义回调和扩展能力通过 `Tim2ToxSdkPlatform` 补足。
+This document is the **authoritative** description of the hybrid architecture: responsibility split, recommended init order, and message/history/session/file/call paths. Overall architecture overview: [ARCHITECTURE.md](ARCHITECTURE.md); maintainer view and design constraints: [MAINTAINER_ARCHITECTURE.md](MAINTAINER_ARCHITECTURE.md).
 
-## 一、架构概览
+This document describes the hybrid architecture currently used by toxee: the underlying calls are still based on the binary replacement path, and historical messages, calls, some custom callbacks and expansion capabilities are supplemented by `Tim2ToxSdkPlatform`.
 
-toxee 并非纯二进制替换，而是**混合模式**：
+## 1. Architecture Overview
 
-- **二进制替换**：动态库从 `dart_native_imsdk` 替换为 `libtim2tox_ffi`，大部分 C++ 回调经 NativeLibraryManager 派发
-- **混合 Platform**：由 `SessionRuntimeCoordinator.ensureInitialized()` 在满足 `instance is! Tim2ToxSdkPlatform` 时设置 `Tim2ToxSdkPlatform`；自动登录路径在 `AppBootstrapCoordinator.boot()` 中（进入 HomePage 之前）调用，手动登录路径在 `HomePage._initAfterSessionReady()` 中调用；必须在首屏或更早完成，用于历史查询、部分 SDK 调用及 C++ 特殊回调
+toxee is not a pure binary replacement, but a **mixed mode**:
 
-**重要**：必须设置 Tim2ToxSdkPlatform，否则 clearHistoryMessage、groupQuitNotification、groupChatIdStored 等 C++ 回调无法正确执行。
+- **Binary replacement**: The dynamic library is replaced from `dart_native_imsdk` to `libtim2tox_ffi`, and most C++ callbacks are dispatched through NativeLibraryManager
+- **Hybrid Platform**: `Tim2ToxSdkPlatform` is set by `SessionRuntimeCoordinator.ensureInitialized()` when `instance is! Tim2ToxSdkPlatform`; on auto-login this is called from `AppBootstrapCoordinator.boot()` before entering HomePage, on manual login from the login page calling `boot(service)` or from `HomePage._initAfterSessionReady()`; must be done by or before first screen for historical queries, some SDK calls and C++ special callbacks
 
-## 二、推荐初始化顺序
+**Important**: Tim2ToxSdkPlatform must be set, otherwise C++ callbacks such as clearHistoryMessage, groupQuitNotification, groupChatIdStored, etc. cannot be executed correctly.
 
-**概念顺序**（逻辑依赖关系）：
+## 2. Recommended initialization sequence
+
+**Conceptual order** (logical dependencies):
 
 ```
-1. FfiChatService.init()                  # 初始化 Tox 与本地持久化
-2. FfiChatService.login()                # 恢复 selfId 与连接状态
-3. FfiChatService.updateSelfProfile()    # 同步昵称/签名
-4. FakeUIKit.startWithFfi(service)       # 建立适配层和通话管理器
-5. TIMManager.instance.initSDK()         # 设置 UIKit 侧 _isInitSDK
-6. FfiChatService.startPolling()         # 轮询 native 事件、文件和 ToxAV
-7. HomePage 设置 Tim2ToxSdkPlatform      # 启用 Platform 路径与自定义 callback
-8. 初始化 BinaryReplacementHistoryHook、通话桥与插件
+1. FfiChatService.init() #Initialize Tox and local persistence
+2. FfiChatService.login() #Restore selfId and connection status
+3. FfiChatService.updateSelfProfile() # Synchronize nickname/signature
+4. FakeUIKit.startWithFfi(service) # Establish the adaptation layer and call manager
+5. TIMManager.instance.initSDK() # Set UIKit side _isInitSDK
+6. FfiChatService.startPolling() # Poll native events, files and ToxAV
+7. HomePage settings Tim2ToxSdkPlatform # enable the Platform path and custom callbacks
+8. Initialize BinaryReplacementHistoryHook, call bridge and plug-in
 ```
 
-**实际执行顺序**（与代码一致）：
+**Actual execution sequence** (consistent with the code):
 
-1. **main()**：通过 `AppBootstrap.initialize()` → `LoggingBootstrap.initialize()` 调用 `setNativeLibraryName('tim2tox_ffi')`（见 `lib/bootstrap/logging_bootstrap.dart`），不设置 Platform。
-2. **_StartupGate._decide()**（自动登录路径）：通过 `AccountService.initializeServiceForAccount(..., startPolling: false)` 完成 `init()`、`login()`、`updateSelfProfile()`；随后 `AppBootstrapCoordinator.boot(service)` 执行 `SessionRuntimeCoordinator.ensureInitialized()`（FakeUIKit + Platform）→ `TimSdkInitializer.ensureInitialized()` → `service.startPolling()` → 等待连接/超时 → 加载好友信息 → 导航到 `HomePage(service)`。
-3. **LoginPage 登录成功后**（手动登录路径）：有账号时走 `AccountService.initializeServiceForAccount(..., startPolling: false)`；旧账号兼容路径为手动 `init()` → `login()` → `updateSelfProfile()`（均不在此处调用 startPolling）。随后调用方执行 `AppBootstrapCoordinator.boot(service)`（SessionRuntime + TIM init + startPolling），再导航到 `HomePage(service)`。
-4. **HomePage.initState()**：通过 `_initAfterSessionReady()` 调用 `SessionRuntimeCoordinator.ensureInitialized()`（幂等：若已在 boot 中执行则跳过）；若 FakeUIKit 未启动则 `startWithFfi(widget.service)`，若 Platform 非 `Tim2ToxSdkPlatform` 则设置并挂载 `onGroupMessageReceivedForUnread`；随后在 `TimSdkInitializer.ensureInitialized()` 完成后初始化 `BinaryReplacementHistoryHook`、UIKit 的 group/friend listener，以及 sticker / textTranslate / soundToText 插件。
+1. **main()**: Call `setNativeLibraryName('tim2tox_ffi')` via `AppBootstrap.initialize()` → `LoggingBootstrap.initialize()` (see `lib/bootstrap/logging_bootstrap.dart`); do not set Platform.
+2. **_StartupGate._decide()** (auto-login path): Complete `init()`, `login()`, `updateSelfProfile()` via `AccountService.initializeServiceForAccount(..., startPolling: false)`; then `AppBootstrapCoordinator.boot(service)` runs `SessionRuntimeCoordinator.ensureInitialized()` (FakeUIKit + Platform) → `TimSdkInitializer.ensureInitialized()` → `service.startPolling()` → wait for connection/timeout → load friends → navigate to `HomePage(service)`.
+3. **After login success on LoginPage** (manual login path): With an existing account, use `AccountService.initializeServiceForAccount(..., startPolling: false)`; legacy path (no toxId) is manual `init()` → `login()` → `updateSelfProfile()` (no startPolling here). Then the caller runs `AppBootstrapCoordinator.boot(service)` (SessionRuntime + TIM init + startPolling) and navigates to `HomePage(service)`.
+4. **HomePage.initState()**: Via `_initAfterSessionReady()`, call `SessionRuntimeCoordinator.ensureInitialized()` (idempotent; no-op if already run in boot); if FakeUIKit not started then `startWithFfi(widget.service)`, if Platform is not `Tim2ToxSdkPlatform` set it and mount `onGroupMessageReceivedForUnread`; then after `TimSdkInitializer.ensureInitialized()` completes, initialize `BinaryReplacementHistoryHook`, UIKit group/friend listeners, and sticker / textTranslate / soundToText plug-ins.
 
-**说明**：**Platform 由 SessionRuntimeCoordinator.ensureInitialized() 设置**；自动登录时在进入 HomePage 之前（boot 中）已完成，手动登录时在登录页调用 `boot(service)` 时完成，或若未调用 boot 则首次在 HomePage._initAfterSessionReady() 中完成。`BinaryReplacementHistoryHook` 在 `TimSdkInitializer.ensureInitialized()` 完成后于 HomePage 内初始化；`CallServiceManager` 依赖已设置好的 `Tim2ToxSdkPlatform` 来注册 signaling listener。
+**Note**: **Platform is set** inside `SessionRuntimeCoordinator.ensureInitialized()`; on auto-login this runs before HomePage (in boot); on manual login it runs when the login page calls `boot(service)` or, if not, on first `HomePage._initAfterSessionReady()`. `BinaryReplacementHistoryHook` is initialized in HomePage after `TimSdkInitializer.ensureInitialized()` completes; `CallServiceManager` depends on `Tim2ToxSdkPlatform` already being set to register the signaling listener.
 
-**职责划分**：
+**Division of Responsibilities**:
 
-- **FfiChatService.init**：负责 Tox 核心初始化
-- **TIMManager.initSDK**：设置 SDK 层 `_isInitSDK` 标志，并调用 C++ DartInitSDK（与 FfiChatService 共享同一底层实例）
-- **Platform 设置**：必须在 HomePage 或更早完成，供 getHistoryMessageList、clearHistoryMessage 等使用
+- **FfiChatService.init**: Responsible for Tox core initialization
+- **TIMManager.initSDK**: Set the SDK layer `_isInitSDK` flag and call C++ DartInitSDK (shares the same underlying instance with FfiChatService)
+- **Platform settings**: must be done in HomePage or earlier, for use by getHistoryMessageList, clearHistoryMessage, etc.
 
-## 三、功能流程
+## 3. Functional process
 
-### 3.1 消息发送
+### 3.1 Message sending
 
-| 路径 | 说明 |
+| Path | Description |
 |------|------|
-| **主路径** | FakeChatMessageProvider → FakeMessageManager.sendText/sendFile → FfiChatService |
-| **备用路径** | 若代码走 V2TimMessageManager.sendMessage 且 Platform 已设置 → Tim2ToxSdkPlatform → FfiChatService |
+| **Main Path** | FakeChatMessageProvider → FakeMessageManager.sendText/sendFile → FfiChatService |
+| **Alternate path** | If the code goes to V2TimMessageManager.sendMessage and Platform has been set → Tim2ToxSdkPlatform → FfiChatService |
 
-当前 UIKit 消息输入走 ChatMessageProvider，因此实际发送全部经 FfiChatService。
+Currently UIKit message input goes through the ChatMessageProvider, so all is actually sent via the FfiChatService.
 
-### 3.2 消息历史
+### 3.2 Message history
 
-| 路径 | 说明 |
+| Path | Description |
 |------|------|
-| **Provider 层** | FakeChatMessageProvider._loadHistoryForConversation → FakeMessageManager.getHistory → FfiChatService.getHistory |
-| **SDK 层** | tencent_cloud_chat_common 等调用 getHistoryMessageListV2 → 若 Platform=Tim2ToxSdkPlatform → FfiChatService.getHistory |
+| **Provider layer** | FakeChatMessageProvider._loadHistoryForConversation → FakeMessageManager.getHistory → FfiChatService.getHistory |
+| **SDK layer** | tencent_cloud_chat_common and so on call getHistoryMessageListV2 → if Platform=Tim2ToxSdkPlatform → FfiChatService.getHistory |
 
-两条路径最终都到 FfiChatService/MessageHistoryPersistence。
+Both paths end up at FfiChatService/MessageHistoryPersistence.
 
-### 3.3 会话与好友
+### 3.3 Conversations and Friends
 
-全部经 FakeUIKit 适配层，直接使用 FfiChatService（getFriendList、getFriendApplications、knownGroups），不经过 Platform 或 NativeLibraryManager。
+All pass through the FakeUIKit adaptation layer and use FfiChatService (getFriendList, getFriendApplications, knownGroups) directly without going through Platform or NativeLibraryManager.
 
-### 3.4 文件传输
+### 3.4 File transfer
 
-- **发送**：FakeMessageManager.sendFile → FfiChatService.sendFile
-- **接收**：C++ OnFileRecv → file_request 入队 → FfiChatService.startPolling 消费 → acceptFile
-- **进度**：FfiChatService.progressUpdates stream → FakeChatMessageProvider
+- **Send**: FakeMessageManager.sendFile → FfiChatService.sendFile
+- **Receive**: C++ OnFileRecv → file_request enqueue → FfiChatService.startPolling consumption → acceptFile
+- **Progress**: FfiChatService.progressUpdates stream → FakeChatMessageProvider
 
-`startPolling()` 必须在服务登录后由启动流程显式调用，否则 `file_request`、连接状态和 ToxAV 事件都无法被消费。
+`startPolling()` must be explicitly called by the startup process after service login, otherwise `file_request`, connection status and ToxAV events cannot be consumed.
 
-### 3.5 通话与扩展能力
+### 3.5 Call and expansion capabilities
 
-- **通话**：`FakeUIKit.startWithFfi()` 创建 `CallServiceManager`；`HomePage.initState()` 在 Platform 设置完成后调用其 `initialize()`，随后串起 `ToxAVService`、`CallBridgeService` 和 `TUICallKitAdapter`
-- **贴纸插件**：`HomePage.initState()` 在 message 组件注册前尝试同步注册；若 `selfId` 尚未就绪，则在连接成功后补注册
-- **文本翻译 / 语音转文字**：在 HomePage 中按需懒注册
-- **局域网 Bootstrap / IRC**：入口在客户端侧，分别由 `LanBootstrapServiceManager` 与 `IrcAppManager` 管理，具体实现见扩展文档
+- **Call**: `FakeUIKit.startWithFfi()` creates `CallServiceManager`; `HomePage.initState()` calls its `initialize()` after the Platform is set up, and then strings together `ToxAVService`, `CallBridgeService` and `TUICallKitAdapter`
+- **Sticker plug-in**: `HomePage.initState()` attempts to register synchronously before the message component is registered; if `selfId` is not ready yet, it will be registered after the connection is successful.
+- **Text Translation/Speech to Text**: Lazy registration on demand in HomePage
+- **LAN Bootstrap / IRC**: The entrance is on the client side, managed by `LanBootstrapServiceManager` and `IrcAppManager` respectively. For specific implementation, see the extended document
 
-## 四、回调流程与分工
+## 4. Callback process and division of labor
 
-### 4.1 C++ 回调路径
+### 4.1 C++ callback path
 
 ```
 C++ (dart_compat_layer / callback_bridge)
   → Dart_PostCObject
   → NativeLibraryManager._handleGlobalCallback
-  → 按 instance_id 路由：
-     - instance_id != 0 → Platform.dispatchInstanceGlobalCallback（多实例）
+  → Route by instance_id:
+     - instance_id != 0 → Platform.dispatchInstanceGlobalCallback (multiple instances)
      - instance_id == 0 → _sdkListener、_advancedMsgListener、_friendshipListener、_groupListener
 ```
 
-### 4.2 C++ 回调与 FfiChatService streams 的分工
+### 4.2 Division of labor between C++ callbacks and FfiChatService streams
 
-| 来源 | 用途 | 说明 |
+| Source | Purpose | Description |
 |------|------|------|
-| **C++ ReceiveNewMessage** | 经 NativeLibraryManager 派发到 TIMMessageManager 的 _advancedMsgListener | 二进制替换下新消息的主入口；BinaryReplacementHistoryHook 包装 listener 做持久化 |
-| **FfiChatService.messages** | FfiChatService 内部 _onNativeEvent 产生的 stream | 来自 FfiChatService 的旧式事件（type 0/1/10/11 等），与 C++ 层可能重叠 |
-| **FfiChatService.connectionStatusStream** | 连接状态 | 独立于 C++ 回调 |
+| **C++ ReceiveNewMessage** | _advancedMsgListener dispatched to TIMMessageManager via NativeLibraryManager | The main entry for new messages under binary replacement; BinaryReplacementHistoryHook wraps the listener for persistence |
+| **FfiChatService.messages** | stream generated by _onNativeEvent inside FfiChatService | Old-style events (type 0/1/10/11, etc.) from FfiChatService, which may overlap with the C++ layer |
+| **FfiChatService.connectionStatusStream** | Connection status | Independent of C++ callbacks |
 
-**注意**：在二进制替换模式下，新消息主要由 C++ 的 ReceiveNewMessage 回调经 NativeLibraryManager 派发。FfiChatService._onNativeEvent 主要处理其自身维护的旧式事件协议。两者分工不同，避免重复处理。
+**Note**: In binary replacement mode, new messages are mainly dispatched by the C++ ReceiveNewMessage callback through NativeLibraryManager. FfiChatService._onNativeEvent mainly handles the old event protocol maintained by itself. The division of labor between the two is different to avoid duplication of processing.
 
-### 4.3 特殊回调对 Platform 的依赖
+### 4.3 Dependence of special callbacks on Platform
 
-NativeLibraryManager 中以下回调**依赖 Platform 为 Tim2ToxSdkPlatform**，否则无法访问 ffiService：
+The following callbacks in NativeLibraryManager rely on Platform to be Tim2ToxSdkPlatform, otherwise ffiService cannot be accessed:
 
-- `clearHistoryMessage`：清空历史
-- `groupQuitNotification`：群退出通知
-- `groupChatIdStored`：群 chat_id 持久化
+- `clearHistoryMessage`: Clear history
+- `groupQuitNotification`: Group exit notification
+- `groupChatIdStored`: group chat_id persistence
 
-这些回调由 **NativeLibraryManager._handleGlobalCallback** 在检测到 **platform != null && platform.isCustomPlatform** 时，通过 **dispatchInstanceGlobalCallback** 派发到 **Tim2ToxSdkPlatform._handleCustomCallback** 处理。若 Platform 未设置或类型不符，这些回调会静默失败。
+These callbacks are handled by **NativeLibraryManager._handleGlobalCallback** dispatched to **Tim2ToxSdkPlatform._handleCustomCallback** via **dispatchInstanceGlobalCallback** when **platform != null && platform.isCustomPlatform** is detected. If Platform is not set or the type does not match, these callbacks will fail silently.
 
-## 五、数据流总览
+## 5. Data flow overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        消息发送                                   │
+│ Message sending │
 │  Message Input → FakeChatMessageProvider → FfiChatService        │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                        历史加载                                   │
+│ History loading │
 │  FakeMessageManager.getHistory ──────┐                          │
 │  V2TimMessageManager.getHistoryMessageListV2 ──→ Platform ──┐   │
-│  （SDK 层 isCustomPlatform==true 时走 Platform）         ↓   │
+│ (When the SDK layer isCustomPlatform==true, go to Platform) ↓ │
 │                                         FfiChatService.getHistory│
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                        回调                                       │
+│ Callback │
 │  C++ → NativeLibraryManager → TIMMessageManager listeners       │
 │                            → BinaryReplacementHistoryHook        │
-│  C++ 特殊回调 → Platform.ffiService（需 Platform=Tim2ToxSdkPlatform）│
+│ C++ special callback → Platform.ffiService (requires Platform=Tim2ToxSdkPlatform) │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 六、与纯二进制替换的差异
+## 6. Differences from pure binary replacement
 
-| 项目 | 纯二进制替换（文档描述） | 当前混合方案 |
+| Project | Pure Binary Replacement (Documentation Description) | Current Mixing Scheme |
 |------|--------------------------|--------------|
-| Platform 设置 | 不设置 | **必须设置** Tim2ToxSdkPlatform |
-| 历史查询 | C++ DartGetC2CHistoryMessageList | Platform → FfiChatService.getHistory |
-| 特殊回调 | 无法执行 | 依赖 Platform.ffiService |
-| 消息发送主路径 | NativeLibraryManager.DartSendMessage | FakeChatMessageProvider → FfiChatService |
+| Platform settings | Do not set | **Required** Tim2ToxSdkPlatform |
+| History query | C++ DartGetC2CHistoryMessageList | Platform → FfiChatService.getHistory |
+| Special callback | Unable to execute | Depends on Platform.ffiService |
+| Main path for sending messages | NativeLibraryManager.DartSendMessage | FakeChatMessageProvider → FfiChatService |
 
-## 七、相关文档
+## 7. Related documents
 
-- [ARCHITECTURE.md](ARCHITECTURE.md)：整体架构
-- [reference/IMPLEMENTATION_DETAILS.md](../reference/IMPLEMENTATION_DETAILS.md)：实现细节
-- [reference/CALLING_AND_EXTENSIONS.md](../reference/CALLING_AND_EXTENSIONS.md)：通话、插件、局域网 Bootstrap 与 IRC 扩展
-- [../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md)：二进制替换机制
+- [ARCHITECTURE.md](ARCHITECTURE.md): Overall architecture
+- [IMPLEMENTATION_DETAILS.md](MAINTAINER_ARCHITECTURE.md): Implementation details
+- [CALLING_AND_EXTENSIONS.md](../reference/CALLING_AND_EXTENSIONS.md): Calling, plugins, LAN Bootstrap and IRC extensions
+- [../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md](../../third_party/tim2tox/doc/architecture/BINARY_REPLACEMENT.md): Binary replacement mechanism

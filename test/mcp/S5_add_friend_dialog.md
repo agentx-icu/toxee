@@ -20,7 +20,7 @@
 
 ## Driver
 1. Poll snapshot up to 60s for sidebar `<nicknameA>\nOnline`
-2. **`marionette.tap({ key: "sidebar_contacts_tab" })`** — `NewEntryButton` is mounted inside the UIKit **contacts** AppBar (`home_page.dart:1348` + `ContactAppBarNameOverride.trailing`), NOT the chats AppBar. The button is invisible on chats tab. (See F10 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`.)
+2. **`marionette.tap({ key: "sidebar_contacts_tab" })`** — `NewEntryButton` is mounted inside the UIKit **contacts** AppBar (`home_page.dart:1348` + `ContactAppBarNameOverride.trailing`), NOT the chats AppBar. The button is invisible on chats tab. (See F10 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`.)
 3. `marionette.tap` on `UiKeys.newEntryMenuButton` (`new_entry_menu_button`); snapshot → PopupMenu overlay shows `Add Contact` / `Create Group`
 4. `marionette.tap` on `UiKeys.newEntryAddContactItem` (`new_entry_add_contact_item`)
 5. Snapshot → assert `AddFriendDialog` mounted; `add_friend_id_input`, `add_friend_message_input`, `add_friend_submit_button` present; submit button disabled (race-fix gate: `_canSubmit` reads both controllers)
@@ -41,7 +41,7 @@
 - `official.get_runtime_errors({})` returns Step-1 baseline
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - `_isSubmitting=true` flips before the first await (line 179) to prevent double-tap double-send.
 - `accountKey` (real Tox address), not `selfId`, is used for the self-add guard (line 151).
 - `requestSent` vs `requestQueued` keys off `_isConnected` stream snapshot at submit time.

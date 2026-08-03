@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 3 of the real-UI sweep campaign — "Login / register" (9 cases, single
-// instance, one launch). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// instance, one launch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // State-machine care is the whole game here: the sweep starts from a fresh
 // registered HomePage (ensureHome), then drives login + register surfaces that

@@ -120,7 +120,7 @@ void main(List<String> args) async {
 
   // Hold off writing stateFile until both vendor and patch-apply have succeeded —
   // a half-written state lets `--offline-check-only` falsely pass an un-patched SDK
-  // (see doc/reviews/2026-05-20-batch-6-findings.md F1/F2).
+  // (see doc/operations/DEPENDENCY_BOOTSTRAP.md for the current contract).
   String? vendoredSha256;
   if (needVendor) {
     // Invalidate any prior state immediately so a crash mid-vendor cannot leave

@@ -20,7 +20,7 @@
 //
 // This is the FRESH base: two fresh registrations (NOT a restored pair) — the
 // accept needs a NEW pending application. Per the handoff notes
-// (doc/research/L3_MCP_HANDOFF_2026-05-31.md) the B -> A direction is the
+// (tool/mcp_test/REAL_UI_TWO_PROCESS.md) the B -> A direction is the
 // stable one, so SENDER/REQUESTER=B, RECIPIENT/ACCEPTER=A.
 //
 // Sequence:

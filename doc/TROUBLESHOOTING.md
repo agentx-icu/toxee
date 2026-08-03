@@ -1,27 +1,29 @@
-# toxee 故障排查
-> 语言 / Language: [中文](TROUBLESHOOTING.md) | [English](TROUBLESHOOTING.en.md)
+[简体中文](./TROUBLESHOOTING.zh-CN.md)
 
-本文档提供 toxee 的常见问题解答、日志分析指南、调试技巧和性能优化建议。**构建环境、各平台详细步骤、依赖安装**见 [operations/BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md)；**首次克隆与依赖引导**见 [getting-started.md](getting-started.md)、[operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md)。
+# toxee Troubleshooting
+> Language: [Chinese](TROUBLESHOOTING.md) | [English](TROUBLESHOOTING.md)
 
-## 目录
+This document provides FAQs, log analysis guides, debugging tips, and performance optimization suggestions for toxee. **Build environment, per-platform steps, dependency installation**: see [BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md). **First-time clone and dependency bootstrap**: see [getting-started.md](getting-started.md), [DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md).
 
-- [常见问题](#常见问题)
-- [日志分析](#日志分析)
-- [调试技巧](#调试技巧)
-- [性能优化](#性能优化)
+## Contents
 
-## 常见问题
+- [FAQ](#faq)
+- [Log Analysis](#log-analysis)
+- [Debugging Tips](#debugging-tips)
+- [Performance Optimization](#performance-optimization)
 
-### 构建问题
+## FAQ
 
-#### Q1: 构建时找不到 libsodium
+### Build issues
 
-**症状**:
+#### Q1: libsodium not found when building
+
+**Symptoms**:
 ```
 fatal error: 'sodium.h' file not found
 ```
 
-**解决方案**:
+**Solution**:
 
 **macOS**:
 ```bash
@@ -31,7 +33,7 @@ brew install libsodium
 **Linux**:
 ```bash
 sudo apt-get install libsodium-dev
-# 或
+# or
 sudo yum install libsodium-devel
 ```
 
@@ -40,50 +42,50 @@ sudo yum install libsodium-devel
 vcpkg install libsodium:x64-windows
 ```
 
-#### Q2: CMake 配置失败
+#### Q2: CMake configuration failed
 
-**症状**:
+**Symptoms**:
 ```
 CMake Error: Could not find a package configuration file
 ```
 
-**解决方案**:
-1. 检查 CMake 版本: `cmake --version` (需要 >= 3.4.1)
-2. 检查依赖库是否已安装
-3. 清理构建目录: `rm -rf build` 然后重新构建
-4. 检查环境变量和路径配置
+**Solution**:
+1. Check CMake version: `cmake --version` (requires >= 3.4.1)
+2. Check whether the dependent libraries are installed
+3. Clean the build directory: `rm -rf build` and rebuild
+4. Check environment variables and path configuration
 
-#### Q3: Flutter 依赖解析失败
+#### Q3: Flutter dependency resolution failed
 
-**症状**:
+**Symptoms**:
 ```
 Error: Could not resolve the package 'tim2tox_dart'
 ```
 
-**解决方案**:
+**Solution**:
 ```bash
-# 清理并重新获取依赖
+# Clean and re-obtain dependencies
 flutter clean
 flutter pub get
 
-# 检查 pubspec.yaml 中的路径配置
-# 确保 tim2tox_dart 路径正确
+# Check the path configuration in pubspec.yaml
+# Make sure the tim2tox_dart path is correct
 ```
 
-### 运行时问题
+### Runtime issues
 
-#### Q4: 应用启动后立即崩溃
+#### Q4: App crashes immediately after startup
 
-**症状**: 应用启动后立即退出，没有任何错误信息
+**Symptoms**: App exits immediately after launching without any error message
 
-**可能原因**:
-1. 动态库加载失败
-2. FFI 函数符号未找到
-3. 初始化失败
+**Possible reasons**:
+1. Dynamic library loading failed
+2. FFI function symbol not found
+3. Initialization failed
 
-**解决方案**:
+**Solution**:
 
-1. **检查动态库路径**:
+1. **Check dynamic library path**:
 ```bash
 # macOS
 otool -L libtim2tox_ffi.dylib
@@ -92,17 +94,17 @@ otool -L libtim2tox_ffi.dylib
 ldd libtim2tox_ffi.so
 ```
 
-2. **检查日志文件**:
+2. **Check log files**:
 ```bash
-# 查看构建日志
+# View build log
 cat build/native_build.log
 cat build/flutter_build.log
 
-# 查看运行时日志
+# View runtime logs
 cat build/flutter_client.log
 ```
 
-3. **验证函数符号**:
+3. **Verify function symbols**:
 ```bash
 # macOS/Linux
 nm -D libtim2tox_ffi.dylib | grep Dart
@@ -111,32 +113,32 @@ nm -D libtim2tox_ffi.dylib | grep Dart
 dumpbin /EXPORTS tim2tox_ffi.dll
 ```
 
-#### Q5: 无法连接到 Tox 网络
+#### Q5: Unable to connect to Tox network
 
-**症状**: 应用启动后显示"未连接"或"连接失败"
+**Symptoms**: "Not connected" or "Connection failed" is displayed after the application is launched
 
-**可能原因**:
-1. 网络连接问题
-2. 防火墙阻止
-3. Bootstrap 节点配置错误
-4. libsodium 未正确打包
+**Possible reasons**:
+1. Network connection problem
+2. Firewall blocking
+3. Bootstrap node configuration error
+4. libsodium is not packaged correctly
 
-**解决方案**:
+**Solution**:
 
-1. **检查网络连接**:
+1. **Check network connection**:
 ```bash
-# 测试网络连接
+# Test network connection
 ping 8.8.8.8
 ```
 
-2. **检查防火墙设置**:
-- macOS: 系统偏好设置 > 安全性与隐私 > 防火墙
+2. **Check firewall settings**:
+- macOS: System Preferences > Security & Privacy > Firewall
 - Linux: `sudo ufw status`
-- Windows: Windows Defender 防火墙
+- Windows: Windows Defender Firewall
 
-3. **验证 Bootstrap 节点**:
+3. **Verify Bootstrap node**:
 ```dart
-// 检查当前 Bootstrap 节点配置
+// Check current Bootstrap node configuration
 final host = await bootstrapService.getBootstrapHost();
 final port = await bootstrapService.getBootstrapPort();
 final publicKey = await bootstrapService.getBootstrapPublicKey();
@@ -144,98 +146,98 @@ print('Bootstrap node: $host:$port');
 print('Bootstrap public key: $publicKey');
 ```
 
-4. **查看连接日志**:
+4. **View connection log**:
 ```bash
-# 查看日志中的 "bootstrap nodes queued" 消息
+# Check the logs for "bootstrap nodes queued" messages
 grep "bootstrap" build/flutter_client.log
 ```
 
-#### Q6: 消息发送失败
+#### Q6: Message sending failed
 
-**症状**: 发送消息后立即显示为失败状态
+**Symptom**: Failed status appears immediately after sending message
 
-**可能原因**:
-1. 联系人离线
-2. 消息超时
-3. 网络连接问题
+**Possible reasons**:
+1. The contact is offline
+2. Message timeout
+3. Network connection issues
 
-**解决方案**:
+**Solution**:
 
-1. **检查联系人状态**:
+1. **Check contact status**:
 ```dart
-// 检查好友是否在线
+// Check if friends are online
 final friends = await getFriendList();
 for (final friend in friends) {
   print('Friend: ${friend.userID}, Online: ${friend.isOnline}');
 }
 ```
 
-2. **检查消息超时设置**:
-- 文本消息: 默认 5 秒超时
-- 文件消息: 根据大小动态计算
+2. **Check message timeout settings**:
+- Text messages: Default 5 second timeout
+- File messages: dynamically calculated based on size
 
-3. **查看失败消息日志**:
+3. **View failure message log**:
 ```dart
-// 检查失败消息
+// Check failure message
 final failedMessages = await getFailedMessages();
 for (final msg in failedMessages) {
   print('Failed message: ${msg.msgID}, Reason: ${msg.failureReason}');
 }
 ```
 
-#### macOS 音视频通话（语音无采集、视频黑屏）
+#### macOS voice/video calls (no audio capture, black video)
 
-**症状**: 在 macOS 上语音通话对方听不到本端声音，或视频通话本地/远端黑屏。
+**Symptoms**: On macOS, the other party cannot hear you on voice calls, or video calls show a black screen locally or remotely.
 
-**解决方案**:
+**Solution**:
 
-1. **系统权限**
-   - 打开 **系统设置 → 隐私与安全性 → 麦克风**，确保已允许 toxee 使用麦克风。
-   - 打开 **系统设置 → 隐私与安全性 → 摄像头**，确保已允许 toxee 使用摄像头。
+1. **System permissions**
+   - Open **System Settings → Privacy & Security → Microphone** and ensure toxee is allowed.
+   - Open **System Settings → Privacy & Security → Camera** and ensure toxee is allowed.
 
-2. **关闭占用设备的应用**
-   - 若其他应用（如浏览器标签、会议软件）正在使用麦克风或摄像头，请关闭后再试。
+2. **Close apps using the device**
+   - If another app (e.g. a browser tab, meeting software) is using the microphone or camera, close it and try again.
 
-3. **音频无法采集时**
-   - 确认应用已正确签名并包含沙盒能力：在 Xcode 中检查 Runner target 的 **Signing & Capabilities**，应使用 `Runner/DebugProfile.entitlements`（Debug）或 `Runner/Release.entitlements`（Release），且其中包含 `com.apple.security.device.audio-input`。
-   - 可在终端验证：`codesign -d --entitlements - --xml /path/to/toxee.app 2>/dev/null | grep -A1 audio-input`
-   - 查看控制台或运行日志中是否有 `[AudioHandler]` 相关错误或“all-zero audio”提示。
+3. **When audio is not captured**
+   - Ensure the app is signed with the correct entitlements: In Xcode, check the Runner target's **Signing & Capabilities** uses `Runner/DebugProfile.entitlements` (Debug) or `Runner/Release.entitlements` (Release), and that `com.apple.security.device.audio-input` is present.
+   - You can verify from the terminal: `codesign -d --entitlements - --xml /path/to/toxee.app 2>/dev/null | grep -A1 audio-input`
+   - Check the console or run logs for any `[AudioHandler]` errors or "all-zero audio" messages.
 
-4. **视频黑屏时**
-   - 确认摄像头权限已授予（见上文）。
-   - 查看日志是否有 `[VideoHandler] startCapture: no cameras available` 或 `[VideoHandler] startCapture error`；若有，说明摄像头未就绪或权限/格式问题。
-   - 确保未在其他应用中独占使用摄像头。
+4. **When video is black**
+   - Confirm camera permission is granted (see above).
+   - Check logs for `[VideoHandler] startCapture: no cameras available` or `[VideoHandler] startCapture error`; if present, the camera is not ready or there is a permission/format issue.
+   - Ensure the camera is not exclusively used by another app.
 
-#### Q7: 回调不触发
+#### Q7: Callback does not trigger
 
-**症状**: 注册的监听器回调没有被调用
+**Symptom**: The registered listener callback is not called
 
-**可能原因**:
-1. SendPort 未注册
-2. Dart API 未初始化
-3. Listener 未正确注册
+**Possible reasons**:
+1. SendPort is not registered
+2. Dart API is not initialized
+3. Listener is not registered correctly
 
-**解决方案**:
+**Solution**:
 
-1. **检查 SendPort 注册**:
+1. **Check SendPort registration**:
 ```dart
-// 确保在初始化时调用
+// Make sure to call it on initialization
 final receivePort = ReceivePort();
 bindings.DartRegisterSendPort(receivePort.sendPort.nativePort);
 ```
 
-2. **检查 Dart API 初始化**:
+2. **Check Dart API initialization**:
 ```dart
-// 确保在注册 SendPort 之前调用
+// Make sure to call before registering SendPort
 final result = bindings.DartInitDartApiDL(DartApiDL.initData);
 if (result != 0) {
   print('Failed to initialize Dart API');
 }
 ```
 
-3. **验证 Listener 注册**:
+3. **Verify Listener registration**:
 ```dart
-// 检查 Listener 是否正确注册
+// Check if the Listener is correctly registered
 TencentImSDKPlugin.v2TIMManager
     .getMessageManager()
     .addAdvancedMsgListener(
@@ -247,39 +249,39 @@ TencentImSDKPlugin.v2TIMManager
     );
 ```
 
-#### Q8: UI 显示 "Invalid friend application"
+#### Q8: UI displays "Invalid friend application"
 
-**症状**: 好友申请显示为无效
+**Symptom**: Friend application is shown as invalid
 
-**解决方案**:
-- 确保 `ContactActionProvider` 正确处理好友申请
-- 检查返回的 `resultCode` 是否为 0
-- 查看日志中的错误信息
+**Solution**:
+- Ensure `ContactActionProvider` handles friend requests correctly
+- Check if the returned `resultCode` is 0
+- View error messages in logs
 
-#### Q9: 消息顺序错误
+#### Q9: Wrong message order
 
-**症状**: 消息列表中的消息顺序不正确
+**Symptom**: Messages in the message list are not in the correct order
 
-**解决方案**:
-- 消息列表在渲染前按时间戳升序排序
-- 检查消息的时间戳是否正确
-- 确保消息 ID 格式为 `timestamp_userID`
+**Solution**:
+- The message list is sorted in ascending order by timestamp before rendering
+- Check that the timestamp of the message is correct
+- Make sure the message ID is in the format `timestamp_userID`
 
-#### Q10: 动态库路径错误
+#### Q10: Dynamic library path error
 
-**症状**: 
+**Symptoms**:
 ```
 dlopen failed: library not found
 ```
 
-**解决方案**:
+**Solution**:
 
 **macOS**:
 ```bash
-# 检查动态库路径
+# Check dynamic library path
 otool -L libtim2tox_ffi.dylib
 
-# 修复路径
+# repair path
 install_name_tool -change \
     /old/path/libsodium.dylib \
     @loader_path/libsodium.dylib \
@@ -288,47 +290,47 @@ install_name_tool -change \
 
 **Linux**:
 ```bash
-# 检查依赖
+# Check dependencies
 ldd libtim2tox_ffi.so
 
-# 设置库路径
+# Set library path
 export LD_LIBRARY_PATH=/path/to/libs:$LD_LIBRARY_PATH
 ```
 
 **Windows**:
-- 确保所有 DLL 在可执行文件目录
-- 检查 PATH 环境变量
+- Make sure all DLLs are in the executable directory
+- Check the PATH environment variable
 
-## 日志分析
+## Log analysis
 
-### 日志文件位置
+### Log file location
 
-构建和运行脚本会生成以下日志：
+Building and running the script generates the following logs:
 
-- `build/native_build.log` - C++ 构建日志
-- `build/flutter_build.log` - Flutter 构建日志
-- `build/flutter_client.log` - 应用运行时日志
+- `build/native_build.log` - C++ build log
+- `build/flutter_build.log` - Flutter build log
+- `build/flutter_client.log` - Application runtime log
 
-### 日志级别
+### Log level
 
-#### C++ 日志
+#### C++ Log
 
-在 CMake 配置时设置：
+Set during CMake configuration:
 
 ```bash
 cmake .. -DDEBUG=ON -DTRACE=ON
 ```
 
-日志级别：
-- `ERROR`: 错误信息
-- `WARNING`: 警告信息
-- `INFO`: 一般信息
-- `DEBUG`: 调试信息
-- `TRACE`: 跟踪信息
+Log level:
+- `ERROR`: Error message
+- `WARNING`: Warning message
+- `INFO`: General information
+- `DEBUG`: debugging information
+- `TRACE`: Tracking information
 
-#### Dart 日志
+#### Dart Log
 
-在初始化时设置：
+Set during initialization:
 
 ```dart
 TencentImSDKPlugin.v2TIMManager.initSDK(
@@ -337,101 +339,101 @@ TencentImSDKPlugin.v2TIMManager.initSDK(
 );
 ```
 
-### 关键日志消息
+### Key log messages
 
-#### 初始化成功
+#### Initialization successful
 
 ```
 [callback_bridge] DartRegisterSendPort: registered port 12345
 [dart_compat] DartInitSDK: SDK initialized
 ```
 
-#### 连接成功
+#### Connection successful
 
 ```
 [dart_compat] OnConnectSuccess
 [ffi] Connection status: connected
 ```
 
-#### 消息接收
+#### Message receiving
 
 ```
 [dart_compat] OnRecvNewMessage: msgID=1234567890_user123
 [ffi] Received message from user123
 ```
 
-#### 错误信息
+#### Error message
 
 ```
 [ERROR] Failed to send message: timeout
 [ERROR] Bootstrap connection failed: network error
 ```
 
-### 日志分析技巧
+### Log analysis skills
 
-#### 查找错误
+#### Find errors
 
 ```bash
-# 查找所有错误
+# Find all errors
 grep -i error build/flutter_client.log
 
-# 查找特定错误
+# Find specific errors
 grep "timeout" build/flutter_client.log
 ```
 
-#### 跟踪调用流程
+#### Track the calling process
 
 ```bash
-# 跟踪消息发送
+# Track message delivery
 grep "sendMessage" build/flutter_client.log
 
-# 跟踪回调
+# Tracking callbacks
 grep "SendCallbackToDart" build/flutter_client.log
 ```
 
-#### 性能分析
+#### Performance Analysis
 
 ```bash
-# 查找耗时操作
+# Find time-consuming operations
 grep "took" build/flutter_client.log
 
-# 统计操作次数
+# Count operations
 grep -c "OnRecvNewMessage" build/flutter_client.log
 ```
 
-## 调试技巧
+## Debugging Tips
 
-### 启用详细日志
+### Enable detailed logging
 
-#### C++ 层
+#### C++ layer
 
-在 `CMakeLists.txt` 或构建时启用：
+Enable at `CMakeLists.txt` or build time:
 
 ```bash
 cmake .. -DDEBUG=ON -DTRACE=ON
 ```
 
-#### Dart 层
+#### Dart layer
 
-在代码中启用：
+Enable it in code:
 
 ```dart
-// 设置日志级别
+// Set log level
 TencentImSDKPlugin.v2TIMManager.initSDK(
   sdkAppID: 123456,
   logLevel: LogLevelEnum.V2TIM_LOG_DEBUG,
 );
 
-// 使用 LoggerService
+// Use LoggerService
 loggerService?.debug('Debug message');
 loggerService?.info('Info message');
 loggerService?.warning('Warning message');
 loggerService?.error('Error message', error, stackTrace);
 ```
 
-### 使用调试器
+### Using the debugger
 
-#### C++ 调试 (GDB/LLDB)
+#### C++ Debugging (GDB/LLDB)
 
 ```bash
 # GDB (Linux)
@@ -445,17 +447,17 @@ lldb ./build/example/echo_bot_client
 (lldb) run
 ```
 
-#### Dart 调试 (Flutter)
+#### Dart Debugging (Flutter)
 
 ```bash
-# 运行调试模式
+# Run debug mode
 flutter run --debug
 
-# 附加调试器
-# 在 VS Code 或 Android Studio 中设置断点
+# Attached debugger
+# Set breakpoints in VS Code or Android Studio
 ```
 
-### 检查函数符号
+### Check function symbols
 
 ```bash
 # macOS/Linux
@@ -465,9 +467,9 @@ nm -D libtim2tox_ffi.dylib | grep Dart
 dumpbin /EXPORTS tim2tox_ffi.dll
 ```
 
-### 验证回调消息
+### Verification callback message
 
-在 Dart 层添加日志：
+Add logging in the Dart layer:
 
 ```dart
 receivePort.listen((message) {
@@ -482,25 +484,25 @@ receivePort.listen((message) {
 });
 ```
 
-### 网络调试
+### Network debugging
 
-#### 检查 Tox 连接
+#### Check Tox connection
 
 ```dart
-// 检查连接状态
+// Check connection status
 final status = await ffiService.getConnectionStatus();
 print('Connection status: $status');
 
-// 监听连接状态变化
+// Monitor connection status changes
 ffiService.connectionStatusStream.listen((connected) {
   print('Connection changed: $connected');
 });
 ```
 
-#### 检查 Bootstrap 节点
+#### Check the Bootstrap node
 
 ```dart
-// 获取当前 Bootstrap 节点
+// Get the current Bootstrap node
 final host = await bootstrapService.getBootstrapHost();
 final port = await bootstrapService.getBootstrapPort();
 final publicKey = await bootstrapService.getBootstrapPublicKey();
@@ -508,31 +510,31 @@ print('Bootstrap node: $host:$port');
 print('Bootstrap public key: $publicKey');
 ```
 
-## 性能优化
+## Performance optimization
 
-### 消息处理优化
+### Message processing optimization
 
-#### 批量处理
+#### Batch processing
 
 ```dart
-// 批量处理消息而不是逐个处理
+// Process messages in batches rather than one by one
 final messages = await getMessages();
 processMessagesBatch(messages);
 ```
 
-#### 使用 Stream
+#### Using Stream
 
 ```dart
-// 使用 Stream 而不是轮询
+// Use Stream instead of polling
 ffiService.messages.listen((message) {
   handleMessage(message);
 });
 ```
 
-#### 缓存常用数据
+#### Cache commonly used data
 
 ```dart
-// 缓存好友列表
+// cache friends list
 final friendsCache = <String, V2TimFriendInfo>{};
 final friends = await getFriendList();
 for (final friend in friends) {
@@ -540,86 +542,84 @@ for (final friend in friends) {
 }
 ```
 
-### 网络优化
+### Network optimization
 
-#### 连接池管理
+#### Connection pool management
 
-- 复用 Tox 实例
-- 避免频繁创建和销毁连接
-- 使用连接池管理多个连接
+- Reuse Tox instances
+- Avoid frequent creation and destruction of connections
+- Use connection pooling to manage multiple connections
 
-#### 自动重连
+#### Automatically reconnect
 
 ```dart
-// 监听连接状态并自动重连
+// Monitor connection status and automatically reconnect
 ffiService.connectionStatusStream.listen((connected) {
   if (!connected) {
-    // 自动重连逻辑
+    // Automatic reconnection logic
     reconnect();
   }
 });
 ```
 
-#### 网络状态监控
+#### Network status monitoring
 
 ```dart
-// 监控网络状态
+// Monitor network status
 final connectivity = Connectivity();
 connectivity.onConnectivityChanged.listen((result) {
   if (result == ConnectivityResult.none) {
-    // 处理网络断开
+    // Handling network disconnections
   } else {
-    // 处理网络恢复
+    // Handle network recovery
   }
 });
 ```
 
-### 内存优化
+### Memory optimization
 
-#### 对象池复用
+#### Object pool reuse
 
 ```dart
-// 复用消息对象
+// Reuse message objects
 class MessagePool {
   final _pool = <V2TimMessage>[];
-  
+
   V2TimMessage acquire() {
     return _pool.isNotEmpty ? _pool.removeLast() : V2TimMessage();
   }
-  
+
   void release(V2TimMessage msg) {
     _pool.add(msg);
   }
 }
 ```
 
-#### 及时释放资源
+#### Release resources promptly
 
 ```dart
 @override
 void dispose() {
-  // 取消订阅
+  // Unsubscribe
   _subscription?.cancel();
-  
-  // 清理资源
+
+  // Clean up resources
   _controller.close();
-  
+
   super.dispose();
 }
 ```
 
-#### 避免内存泄漏
+#### Avoid memory leaks- Remove the listener promptly
+- Avoid circular references
+- Use weak references (WeakReference)
 
-- 及时移除监听器
-- 避免循环引用
-- 使用弱引用（WeakReference）
+### UI optimization
 
-### UI 优化
-
-#### 分页加载
+#### Paging loading
 
 ```dart
-// 使用分页加载消息列表
+// Load message list using pagination
 class MessageList extends StatefulWidget {
   @override
   _MessageListState createState() => _MessageListState();
@@ -628,11 +628,11 @@ class MessageList extends StatefulWidget {
 class _MessageListState extends State<MessageList> {
   final _messages = <V2TimMessage>[];
   bool _isLoading = false;
-  
+
   Future<void> _loadMore() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
-    
+
     final more = await loadMessages(offset: _messages.length, limit: 20);
     setState(() {
       _messages.addAll(more);
@@ -642,10 +642,10 @@ class _MessageListState extends State<MessageList> {
 }
 ```
 
-#### 虚拟滚动
+#### Virtual scrolling
 
 ```dart
-// 使用 ListView.builder 实现虚拟滚动
+// Implement virtual scrolling using ListView.builder
 ListView.builder(
   itemCount: _messages.length,
   itemBuilder: (context, index) {
@@ -654,10 +654,10 @@ ListView.builder(
 )
 ```
 
-#### 图片缓存
+#### Image cache
 
 ```dart
-// 使用缓存管理图片
+// Use cache to manage images
 CachedNetworkImage(
   imageUrl: avatarUrl,
   placeholder: (context, url) => CircularProgressIndicator(),
@@ -665,10 +665,10 @@ CachedNetworkImage(
 )
 ```
 
-## 相关文档
+## Related documents
 
-- [toxee 构建与部署](operations/BUILD_AND_DEPLOY.md) - 构建环境、各平台步骤、依赖安装（构建失败时也可先查本文「常见问题」）
-- [getting-started.md](getting-started.md) - 从克隆到跑起来
-- [依赖引导](operations/DEPENDENCY_BOOTSTRAP.md) - bootstrap 顺序与选项
-- [集成指南](integration/INTEGRATION_GUIDE.md) - 集成 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 指南
-- [主 README](../README.zh-CN.md) - 项目概述
+- [toxee Build and Deployment](operations/BUILD_AND_DEPLOY.md) - Build environment, per-platform steps (also check this doc’s FAQ for build failures)
+- [getting-started.md](getting-started.md) - Clone to run
+- [Dependency bootstrap](operations/DEPENDENCY_BOOTSTRAP.md) - Bootstrap order and options
+- [Integration Guide](integration/INTEGRATION_GUIDE.md) - Guide to integrating [Tim2Tox](https://github.com/agentx-icu/tim2tox)
+- [Main README](../README.md) - Project Overview

@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 4 of the real-UI sweep campaign — "Contacts + friend profile" (15
-// cases, TWO-PROCESS). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// cases, TWO-PROCESS). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // `sweep_contacts` drives BOTH instances. ONE handshake at the top establishes
 // the A<->B friendship that cases 33–43 reuse; the add-friend-dialog guard

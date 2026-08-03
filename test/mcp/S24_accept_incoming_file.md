@@ -31,7 +31,7 @@
 
 ## Notes
 - Accept is AUTO, not manual: small files/images auto-accepted inside the request handler (`ffi_chat_service.dart:2242-2257`); large files auto-accepted by `FakeMessageProvider`'s P1-5 listener (`fake_msg_provider.dart:116-125`). Manual "tap to accept" UI is an unbuilt `TODO(P1-5)` (`fake_msg_provider.dart:114`) — when it lands, add an accept-button UiKey and convert Step 4 to a real tap.
-- Multi-instance block: needs a real second toxee on the DHT to originate the send (`doc/research/MULTI_INSTANCE_SPIKE.en.md`).
+- Multi-instance block: needs a real second toxee on the DHT to originate the send (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Echo peer is NOT a substitute (§3.7): echoes c2c text, cannot originate a file transfer.
 - Driving B's send (Step 2) hits the S21 `pickFiles` test-override blocker on the B instance.
 - Wanted UiKeys (none today): `incomingFileAcceptButton` (only once P1-5 UI exists), `conv_<friendId>`, `messageItem_<msgId>`.

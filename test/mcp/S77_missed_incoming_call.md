@@ -31,7 +31,7 @@
 - A7: `get_runtime_errors` matches baseline; no `FATAL`/`bad_alloc`/`tox_kill`.
 
 ## Notes
-- L3-pin: B must place a real inbound ToxAV call from a second live toxee (Fixture C, `doc/research/MULTI_INSTANCE_SPIKE.en.md`); `_onIncomingCall` fires only from real `call_cb_` (S67). Stays `blocked`.
+- L3-pin: B must place a real inbound ToxAV call from a second live toxee (Fixture C, `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`); `_onIncomingCall` fires only from real `call_cb_` (S67). Stays `blocked`.
 - L3-pin (media + OS notif): inbound ring opens a real ToxAV invite (media spike TBD); banner needs Notification permission (A4-gated).
 - Sibling of S70 (outgoing `'timeout'`, non-notifying mirror) and S58 (notif via `log stream`).
 - Record deduped per call by `_callRecordEmitted` (`:195`) — one per missed call.

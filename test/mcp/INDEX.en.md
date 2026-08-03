@@ -8,7 +8,7 @@ Regenerate: `dart run tool/mcp_test/gen_scenario_index.dart`
 
 Freshness gate (CI / pre-commit): `dart run tool/mcp_test/gen_scenario_index.dart --check --warn-playbook-headers`
 
-Plan: `doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md` §3.3. Execution class is derived from each scenario JSON's flags:
+Plan: `tool/mcp_test/REAL_UI_TWO_PROCESS.md` §3.3. Execution class is derived from each scenario JSON's flags:
 `uiDriven` → `l3-ui-single`; else `requiresEchoPeer` → `l3-gate-echo`; else `l3-gate`.
 
 ## Coverage by scenario (S-number)

@@ -28,7 +28,7 @@ String _scenarioBlock(String source, String scenario, String nextScenario) {
 void main() {
   test('real UI avatar and restore coverage stays registered', () {
     final campaign = File(
-      'tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md',
+      'tool/mcp_test/REAL_UI_GATES.md',
     ).readAsStringSync();
     final currentTable = campaign.split('## Batch log').first;
     final profileDriver = File(

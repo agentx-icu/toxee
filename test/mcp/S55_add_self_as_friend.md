@@ -34,7 +34,7 @@
 - `get_runtime_errors({})` baseline-clean.
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - `_localeText('cannotAddSelf', fallback: ...)` falls through to the English fallback in all locales — assert on the English literal until ARB key is added.
 - Guard reads `widget.service.accountKey` (`ffi_chat_service_account_key.dart:46-50` = `getSelfToxId() ?? selfId`); regression gate against reverting to plain `selfId` which is the V2TIM `'FlutterUIKitClient'` placeholder and would never match a hex input.
 - SnackBar auto-dismisses after 4s — snapshot ≤2s of submit tap.

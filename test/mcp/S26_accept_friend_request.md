@@ -32,7 +32,7 @@
 - Log markers on A in order: `[HandleFriendRequest] Received friend request from: <toxB_prefix>` → `[HandleFriendRequest] Storing application in pending_applications_` → tap → `NotifyFriendApplicationListDeleted` → `onFriendListAdded`
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: ...} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: ...} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Two-instance fixture is mandatory: `pending_applications_` is C++-in-memory only; there is no on-disk file you can edit to inject one
 - If A's auto-accept fires first, the test passes for the wrong reason — verify the pref before each run
 - The 接受 button is a `GestureDetector` without `Semantics.onTap`, so `fmt_tap_widget` may silently no-op; fall back to text-based marionette tap

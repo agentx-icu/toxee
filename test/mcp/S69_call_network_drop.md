@@ -31,7 +31,7 @@
 - A7 (negative): no `FATAL`, `bad_alloc`, `terminate called`, `tox_kill` in A's log; `official.get_runtime_errors({})` on A matches the Step-1 baseline.
 
 ## Notes
-- L3-pin (multi-instance): needs two live toxees in separate Containers — see `doc/research/MULTI_INSTANCE_SPIKE.en.md` — but this flow is now covered by the executable Fixture C gate above rather than remaining purely blocked.
+- L3-pin (multi-instance): needs two live toxees in separate Containers — see `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` — but this flow is now covered by the executable Fixture C gate above rather than remaining purely blocked.
 - L3-pin (media): the trigger is a real `TOXAV_FRIEND_CALL_STATE_FINISHED`/`ERROR` (`call_service_manager.dart:618-619,627`) delivered to A's `_onCallState` via the ToxAV `_av_call_state_callback` FFI (`tim2tox_ffi.dart:219`, wired at `toxav_service.dart:493`); media spike TBD (ToxAV call lifecycle under automation).
 - `[CallServiceManager] _onCallState: friendNumber=…, state=…` (`call_service_manager.dart:623`) is **`debugPrint`-gated** (debug-only) — use the durable `AppLogger.info` `[FakeUIKit] _insertCallRecord` line (A2) as the load-bearing marker, not the debug trace.
 - Ringing-drop (callee never accepted) maps to `endReason='cancel'` (incoming) — NOT `'network_error'` (`call_service_manager.dart:639-641`). `'network_error'` is the inCall reconnect-grace path only (`markReconnecting`, `call_service_manager.dart:267-304`); don't assert it here.

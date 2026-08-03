@@ -32,7 +32,7 @@
 - `official.get_runtime_errors({})` returns baseline.
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_create_group_item`; otherwise marionette returns `Element matching {key: new_entry_create_group_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_create_group_item`; otherwise marionette returns `Element matching {key: new_entry_create_group_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - 4-step `handleGroupChanged` ordering invariant is shared with S32 (`test/ui/home/home_group_controller_ordering_test.dart` covers controller level).
 - Canonical name propagation lag: rely on alias OR per-row dynamic key `conv_list_group_tile:<gid>` (proposed) for locale + propagation stability.
 - P0-B5 fix: `joinGroup` now throws on rc≠1; regression would leave ghost gid in `_knownGroups` + `Prefs.groups`. Negative grep on `joinGroup failed` is the gate.

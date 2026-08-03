@@ -36,7 +36,7 @@
 - A7: `official.get_runtime_errors({})` empty vs Step 0 baseline on both sessions
 
 ## Notes
-- Multi-instance fixture (two toxees in separate Containers, live DHT) is mandatory and is exactly what is BLOCKED on the Fixture C spike — see `doc/research/MULTI_INSTANCE_SPIKE.en.md`. Per `doc/architecture/UI_TEST_LAYERING.en.md` §6, this thin spec is retained to record the desired flow while `Status: blocked on Fixture C spike`.
+- Multi-instance fixture (two toxees in separate Containers, live DHT) is mandatory and is exactly what is BLOCKED on the Fixture C spike — see `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`. Per `doc/architecture/UI_TEST_LAYERING.en.md` §6, this thin spec is retained to record the desired flow while `Status: blocked on Fixture C spike`.
 - `pending_applications_` is C++ in-memory only — there is no on-disk file to inject an inbound request, so this cannot be expressed at L2.
 - Per-account key is `acct_auto_accept_friends_<prefix16>` (`prefs.dart:81`, `_scopedKey` uses first-16 of toxId); legacy unscoped `auto_accept_friends` is the `false` fallback.
 - `settingsAutoAcceptFriendToggle` not yet added to `lib/ui/testing/ui_keys.dart`; tap by label/ref today.

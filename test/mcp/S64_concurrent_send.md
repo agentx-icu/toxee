@@ -32,7 +32,7 @@
 - A8: `official.get_runtime_errors({})` matches Step-2 baseline on both sessions
 
 ## Notes
-- BLOCKED on the multi-instance (Fixture C) spike — two OS processes side-by-side over the live DHT is unproven test infra (sandbox isolation Q1, native reentrancy Q2, port collision Q3, log interleave Q4, same-host DHT delivery Q5). See `doc/research/MULTI_INSTANCE_SPIKE.en.md` §2-§4; until it passes this is `backlog`, not coverage.
+- BLOCKED on the multi-instance (Fixture C) spike — two OS processes side-by-side over the live DHT is unproven test infra (sandbox isolation Q1, native reentrancy Q2, port collision Q3, log interleave Q4, same-host DHT delivery Q5). See `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` §2-§4; until it passes this is `backlog`, not coverage.
 - The legacy `message_input_field` / `message_send_button` names are not the shipped contract. Toxee exports `chat_input_text_field`, while desktop send remains Enter-driven rather than a separate tappable button.
 - The synthetic dedup fallback key `${timestamp.millisecondsSinceEpoch}_${fromUserId}` (`message_history_persistence.dart:538`) is fragile under concurrency — if any message lands without a `msgID`, A3 can false-pass; require real `msgID`s.
 - `appendHistory` debounces writes 200ms (`message_history_persistence.dart:95`); poll/settle ≥300ms after the last send before the kill+`jq` count, or A1 undercounts.

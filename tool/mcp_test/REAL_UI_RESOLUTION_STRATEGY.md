@@ -4,8 +4,8 @@
 > User directive (2026-06-13): solve every real-UI case, deep-root-cause every
 > blocked item, reuse app startup aggressively, parallelize to go faster, and
 > discuss tricky problems with codex. This file is the playbook any session
-> follows; the per-campaign run state lives in `REAL_UI_P1P2P3_CAMPAIGN.md` and
-> `REAL_UI_SWEEP_CAMPAIGN.md`.
+> follows; the per-campaign run state lives in `REAL_UI_GATES.md` and
+> `REAL_UI_GATES.md`.
 
 ## Goal
 

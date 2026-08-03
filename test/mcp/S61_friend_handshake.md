@@ -46,7 +46,7 @@ below remain useful for a manual accept-surface pass; S26 owns that UI detail.
 - A8: `official.get_runtime_errors({})` empty vs Step-0 baseline on BOTH sessions
 
 ## Notes
-- Two-instance fixture is mandatory — `pending_applications_` and `connection_status` are C++-in-memory only; no disk state can inject a connected peer. See `doc/research/MULTI_INSTANCE_SPIKE.en.md`.
+- Two-instance fixture is mandatory — `pending_applications_` and `connection_status` are C++-in-memory only; no disk state can inject a connected peer. See `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`.
 - On 2026-06-01 the stable fresh direction is B requests A, A accepts. A->B fresh requests can be slower/flakier immediately after both accounts are newly registered; the reusable post-handshake fixture is `paired_for_e2e`.
 - Connected is `connection_status=2` (UDP) or `=1` (TCP) — the log annotates `(0=NONE,1=TCP,2=UDP)`; treat non-zero as connected, `=2` as the LAN/UDP happy path.
 - Verify A's auto-accept pref before every run; if it fires first, A4 passes for the wrong reason and A3 won't observe a manual accept.

@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 1 of the real-UI sweep campaign — "Settings sweep 2" (12 cases, single
-// instance, one launch). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// instance, one launch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // Every case drives the REAL settings widgets of ONE live instance (A; B is
 // launched-but-idle) and asserts a REAL side-effect: an l3_dump_state field

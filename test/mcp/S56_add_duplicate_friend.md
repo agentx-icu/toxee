@@ -35,7 +35,7 @@
 - `get_runtime_errors({})` baseline-clean.
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_add_contact_item`; otherwise marionette returns `Element matching {key: new_entry_add_contact_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Tier 2 unreachable from MCP today: line 196's `_attemptedThisSession.add(normalizedRaw)` runs only on success, but success path auto-dismisses via line 207's `navigator.maybePop()`, disposing the State. Unlock requires the dialog to stop dismissing on success or add a "send another" affordance.
 - `normalizeToxId` lower-cases and strips whitespace; both guards use it consistently.
 - `getFriendList()` exceptions are swallowed at lines 189-192 — silently disables tier 1 guard. Pre-flight contact-list check is the canary.

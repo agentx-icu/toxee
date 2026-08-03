@@ -29,7 +29,7 @@
 - A8: `official.get_runtime_errors({})` == Step-1 baseline both sides; no `FATAL`/`bad_alloc`/`tox_kill`.
 
 ## Notes
-- Two-instance fixture is mandatory and **blocked on Fixture C spike** (`doc/research/MULTI_INSTANCE_SPIKE.en.md`); echo peer is NOT a substitute (single non-toxee process — playbook §3.7).
+- Two-instance fixture is mandatory and **blocked on Fixture C spike** (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`); echo peer is NOT a substitute (single non-toxee process — playbook §3.7).
 - Connected = `connection_status=2` (UDP) or `=1` (TCP); C++ annotates `(0=NONE,1=TCP,2=UDP)` at `:1395`. Treat non-zero as online.
 - Two presence sources race: the C++ `HandleFriendConnectionStatus` push AND the Dart 2s poll. Either flips the dot — assert on the log line for determinism, the dot for the user-visible effect; allow ≤2s poll slack.
 - In-chat AppBar presence still has no stable key — fall back to `inspect_widget_at_point`. The conversation row itself is now targetable via `conversation_list_item:<friendId>`, and the row's presence dot now exposes `conversation_item_online_dot:<conversationId>`.

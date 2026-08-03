@@ -29,7 +29,7 @@
 - A6: `official.get_runtime_errors({})` empty vs Step 0 baseline on both sessions.
 
 ## Notes
-- Multi-instance (two toxees + live DHT) is what pins this to L3 and BLOCKS it: there is no on-disk artifact to inject a group invite; the gate is C++-in-memory (`auto_accept_group_invites_`) and only flips on a real inbound invite. Gated on the Fixture C / `paired_for_e2e` spike — see `doc/research/MULTI_INSTANCE_SPIKE.en.md`; until it passes this is `backlog`, not `covered`.
+- Multi-instance (two toxees + live DHT) is what pins this to L3 and BLOCKS it: there is no on-disk artifact to inject a group invite; the gate is C++-in-memory (`auto_accept_group_invites_`) and only flips on a real inbound invite. Gated on the Fixture C / `paired_for_e2e` spike — see `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`; until it passes this is `backlog`, not `covered`.
 - Wanted UiKey `settingsAutoAcceptGroupToggle` (and sibling `settingsAutoAcceptFriendToggle`) not yet in `ui_keys.dart`; tap by label/ref today.
 - Verify the Pref before each run: if the gate is already ON the OFF half passes for the wrong reason (mirror of S26's auto-accept-pref discipline).
 - Sibling S46 shares the toggle/Prefs/`_set*` shape; if either earns a bug, the toggle→Pref→FFI plumbing is L1/L2-promotable, only the live-invite half is L3-pinned.

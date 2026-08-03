@@ -32,6 +32,6 @@
 ## Notes
 - Native macOS picker is undriveable by MCP (§7b): `_sendMedia` has no `filePathOverride` seam today (unlike S9's `login_page_controller.dart:340`). Required source change: add `@visibleForTesting filePathOverride` to `_sendMedia` bypassing `pickFiles`, mirroring S9 — until then Step 4 is undriveable.
 - Echo peer is NOT a substitute (§3.7): it echoes c2c text, not file transfers; cannot unblock S21.
-- Multi-instance block: delivery needs a real second toxee on the DHT (`doc/research/MULTI_INSTANCE_SPIKE.en.md`).
+- Multi-instance block: delivery needs a real second toxee on the DHT (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Wanted UiKeys (none today): attach/Photo option key, `conv_<friendId>`, `messageItem_<msgId>`.
 - C2C only — `_sendMedia` rejects groups with `sendingToGroupsNotSupported` (`home_page.dart:583`).
