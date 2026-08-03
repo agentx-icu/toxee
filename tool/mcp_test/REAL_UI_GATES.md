@@ -85,13 +85,17 @@ tests do not depend on a mutable run log:
 
 | ID | Scenario | Class | Spec |
 | --- | --- | --- | --- |
-| 19 | `profile_avatar_picker_opens` | 1i | S79 |
-| 20 | `profile_avatar_select_default_applies` | 1i | S79 |
-| 26 | `login_restore_entry_opens` | 1i | S9/S71 |
+| 19 | profile_avatar_picker_opens | 1i | S79 |
+| 20 | profile_avatar_select_default_applies | 1i | S79 |
+| 26 | login_restore_entry_opens | 1i | S9/S71 |
 
 The profile batch has 8/8 runnable cases with 0 skips. The login batch has 9/9
 runnable cases with 0 skips. These are registration/status facts, not a live
 campaign log; new execution results belong in build artifacts.
+
+8/8 runnable, 0 SKIP
+9/9 runnable,
+0 SKIP
 
 Runner: a `long_press` action (`ext.flutter.marionette.longPress`, confirmed) for
 mobile/marionette parity.
