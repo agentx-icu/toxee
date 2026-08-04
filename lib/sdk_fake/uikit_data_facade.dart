@@ -11,7 +11,7 @@
 // Every method below is a thin forwarder. The docstring names the exact
 // UIKit member it wraps so that when the next UIKit upgrade lands you
 // can grep this file for "UIKit internal:" and walk every touchpoint.
-// See also `doc/architecture/UIKIT_PRIVATE_API.en.md` for the
+// See also `doc/architecture/UIKIT_PRIVATE_API.md` for the
 // regression checklist and CLAUDE.md > "Hybrid architecture" for why
 // toxee even talks to UIKit data this way.
 //

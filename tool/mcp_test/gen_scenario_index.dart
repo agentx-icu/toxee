@@ -1,4 +1,4 @@
-// Generates test/mcp/INDEX.en.md — the single source of truth for the L3 test
+// Generates test/mcp/INDEX.md — the single source of truth for the L3 test
 // coverage map (supersedes the hand-maintained current-state tables in
 // tool/mcp_test/REAL_UI_TWO_PROCESS.md).
 //
@@ -14,7 +14,7 @@
 //   3. test/mcp/S*.md                    — playbook headers (canonical block)
 //
 // Modes:
-//   (default)                  (re)write test/mcp/INDEX.en.md
+//   (default)                  (re)write test/mcp/INDEX.md
 //   --check                    regenerate to memory + diff vs committed file;
 //                              non-zero if stale OR on machine-owned invariant
 //                              violations (schema, dangling feature, fabrication)
@@ -37,7 +37,7 @@ import 'dart:io';
 const String _scenariosRel = 'tool/mcp_test/scenarios';
 const String _manifestRel = 'tool/mcp_test/fixture_c_manifest.json';
 const String _playbooksRel = 'test/mcp';
-const String _indexRel = 'test/mcp/INDEX.en.md';
+const String _indexRel = 'test/mcp/INDEX.md';
 
 const String _regenCmd = 'dart run tool/mcp_test/gen_scenario_index.dart';
 

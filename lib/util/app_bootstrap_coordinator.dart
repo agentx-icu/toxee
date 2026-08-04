@@ -143,7 +143,7 @@ class AppBootstrapCoordinator {
   /// so the native watchdog can mark the BG task complete well within
   /// Apple's 30-sec budget.
   ///
-  /// See `doc/architecture/MOBILE_BACKGROUND.en.md` for the broader story
+  /// See `doc/architecture/MOBILE_BACKGROUND.md` for the broader story
   /// and the PushKit limitation.
   static void _wireIosBgRefresh(FfiChatService service) {
     BgRefreshBridge.instance.onRefresh = () async {

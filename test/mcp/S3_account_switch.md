@@ -7,7 +7,7 @@
 **Status**: reference playbook (single-instance, manual/agent-driven) — account switch + sidebar-refresh; not wired to an automated two-process gate (no cross-process state needed). Covered by the manual MCP playbook drive; account export/import/switch internals are unit-tested.
 **Covered-by**: test/account_switch_resets_global_prefs_test.dart
 
-Reference scenario for `doc/architecture/MCP_UI_TEST_PLAYBOOK.en.md` §5 S3. Written so
+Reference scenario for `doc/architecture/MCP_UI_TEST_PLAYBOOK.md` §5 S3. Written so
 that an AI agent (Claude, Cursor, Codex, …) can drive it end-to-end against
 a real toxee binary on macOS using the MCP routing matrix in §2 of the
 playbook. Cross-platform variant left for follow-up; this file targets

@@ -2,8 +2,8 @@
 
 **Layer**: L3 (MCP playbook)
 **Fixture vector**: `paired_for_e2e` = `accounts=2(A,B in separate sandboxes) current(A)=A1 current(B)=B1 autoLogin=on network=online groups=[gidG joined by both] history=empty`
-**Harness mode**: peerHarness=none (two real toxees; echo peer is NOT a substitute — `MCP_UI_TEST_PLAYBOOK.en.md` §3.7)
-**Promotion target**: L3-pinned because a group text crosses the live Tox NGC DHT between two toxee processes — the inbound copy arrives via the C++ `setGroupMessageGroupCallback` → `HandleGroupMessageGroup` path (`third_party/tim2tox/source/V2TIMManagerImpl.cpp:345`/`413`/`423`), which no on-disk seed can stand in for, and a second running process is L3-only per `UI_TEST_LAYERING.en.md` §3.
+**Harness mode**: peerHarness=none (two real toxees; echo peer is NOT a substitute — `MCP_UI_TEST_PLAYBOOK.md` §3.7)
+**Promotion target**: L3-pinned because a group text crosses the live Tox NGC DHT between two toxee processes — the inbound copy arrives via the C++ `setGroupMessageGroupCallback` → `HandleGroupMessageGroup` path (`third_party/tim2tox/source/V2TIMManagerImpl.cpp:345`/`413`/`423`), which no on-disk seed can stand in for, and a second running process is L3-only per `UI_TEST_LAYERING.md` §3.
 **Status**: covered by executable Fixture C gate — `tool/mcp_test/run_fixture_c_group.sh` (A `l3_create_group` → local id `tox_N` + 64-char chat-id; B `l3_join_group(chatId)` joins the PUBLIC NGC group by chat-id, no invite; A↔B `l3_send_group_text` roundtrip asserted via `l3_dump_state {conversationId:group_<gid>}` group history). Validated live 2026-06-01. Note: the creator keys history by its LOCAL id, the joiner by the chat-id, so the driver reads by trying all `knownGroups`/type-2 candidate keys; the first group message can drop before NGC sync, so the driver re-sends once.
 
 ## Precondition
@@ -30,7 +30,7 @@
 - Negative grep (both sides): `[FfiChatService] _sendPendingGroupMessages` (`ffi_chat_service.dart:5538`/`5543`) MUST NOT appear during a both-connected send — its presence means a side was disconnected at send time and the message was queued, not live-delivered (fix the fixture, don't relax A1).
 
 ## Notes
-- **Multi-instance block**: two live toxees on the real DHT is the `paired_for_e2e` (Fixture C) composition, never validated as test infra — spike contract + acceptance criteria in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`; status stays `blocked on Fixture C spike` until that passes (`UI_TEST_LAYERING.en.md` §6). The echo peer (`peerHarness=echo_*`) is a single non-toxee C2C process and CANNOT stand in for a second group member (playbook §3.7).
+- **Multi-instance block**: two live toxees on the real DHT is the `paired_for_e2e` (Fixture C) composition, never validated as test infra — spike contract + acceptance criteria in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`; status stays `blocked on Fixture C spike` until that passes (`UI_TEST_LAYERING.md` §6). The echo peer (`peerHarness=echo_*`) is a single non-toxee C2C process and CANNOT stand in for a second group member (playbook §3.7).
 - C++ may deliver the same group text twice (conference + group callback) — `_isDuplicateGroupTextMessage` (5s window, `ffi_chat_service.dart:4378`) dedupes; if a doubled bubble shows up, that dedup window is the regression gate, not the send path.
 - Send branches on `FfiChatService._isConnected` at send time (`ffi_chat_service.dart:5478`); don't drive Step 3 until both sidebars show `\nOnline` and the group is joined on both sides, or the live send silently becomes `_queueOfflineGroupText` and A2 never arrives.
 - Current key status: toxee exports `chat_input_text_field`, and UIKit message rows carry `message_list_item:<msgID>` internally. Group conversation rows still largely rely on ref/label targeting, so tap-by-ref remains the practical path for the list-open step.

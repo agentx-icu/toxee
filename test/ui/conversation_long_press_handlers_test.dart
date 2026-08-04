@@ -151,7 +151,7 @@ void main() {
   // verifying the post-frame callback actually fires. That path requires
   // SessionRuntimeCoordinator, Tim2ToxSdkPlatform, and FfiChatService, none
   // of which can be plugged into a pure `flutter test` harness without a
-  // full Tim2Tox FFI build. See `doc/architecture/HYBRID_ARCHITECTURE.en.md`
+  // full Tim2Tox FFI build. See `doc/architecture/HYBRID_ARCHITECTURE.md`
   // §"Startup ordering" for the dependency chain. Tracked for follow-up;
   // for now, this seam-level test catches the most common regression
   // (handler getting dropped or replaced unexpectedly).

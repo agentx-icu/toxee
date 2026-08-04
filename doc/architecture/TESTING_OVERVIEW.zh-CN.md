@@ -203,7 +203,7 @@ CI 回归门禁。把它升入 CI 的路径记录在
   状态向量。轴 1 的权威。
 - [`MCP_UI_TEST_PLAYBOOK.md`](MCP_UI_TEST_PLAYBOOK.md) — L3 的 MCP 路由矩阵、
   no-DDS 启动器契约（如何拿到 `<ws_uri>`）、L3 场景目录。
-- [`../../test/mcp/INDEX.en.md`](../../test/mcp/INDEX.en.md) — **生成的**覆盖索引：
+- [`../../test/mcp/INDEX.md`](../../test/mcp/INDEX.md) — **生成的**覆盖索引：
   每个 S 编号一行，含层级、执行类、可执行产物、状态（由
   `gen_scenario_index.dart` 生成；其新鲜度由 `mcp_harness_smoke.yml` 的
   `--check` 在 CI 中把关）。

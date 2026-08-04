@@ -243,7 +243,7 @@ class HomePage extends StatefulWidget {
   // IndexedStack — so callers couldn't actually hermetic-pump HomePage,
   // they'd just hit the UIKit globals via a different path. Removed
   // 2026-05-28 per HYBRID_ARCHITECTURE Layer 2/3 split (see
-  // doc/architecture/UI_TEST_LAYERING.en.md): tests that need HomePage
+  // doc/architecture/UI_TEST_LAYERING.md): tests that need HomePage
   // belong in `integration_test/` against a host bundle, not in `test/`
   // pumped against a fake binding. If you need finer per-piece control,
   // use `SessionRuntimeCoordinator.debugInitBodyOverride`.

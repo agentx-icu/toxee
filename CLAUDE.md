@@ -84,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File run_toxee_windows.ps1 -RunL3
 
 If `flutter pub get` fails with a `package_config.json` parse error, run `dart tool/bootstrap_deps.dart` (note: no `run`) before retrying — `pubspec_overrides.yaml` must be generated before pub resolution.
 
-Day-to-day development is centered on macOS. iOS/Android builds need extra platform setup (see `doc/operations/BUILD_AND_DEPLOY.en.md`).
+Day-to-day development is centered on macOS. iOS/Android builds need extra platform setup (see `doc/operations/BUILD_AND_DEPLOY.md`).
 
 ## Architecture — the one thing to internalize
 
@@ -105,7 +105,7 @@ In code:
 - `LoginPage` (manual login) goes through the same `AccountService` + `AppBootstrapCoordinator.boot()` path.
 - `HomePage._initAfterSessionReady()` calls `SessionRuntimeCoordinator.ensureInitialized()` again (idempotent) and only then initializes `BinaryReplacementHistoryHook`, UIKit listeners, and the `tencent_cloud_chat_sticker / text_translate / sound_to_text` plugins. `CallServiceManager` registration depends on `Tim2ToxSdkPlatform` already being live.
 
-Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.en.md`. Maintainer constraints: `doc/architecture/MAINTAINER_ARCHITECTURE.en.md`.
+Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.md`. Maintainer constraints: `doc/architecture/MAINTAINER_ARCHITECTURE.md`.
 
 ### Code layout (responsibility, not file tree)
 
@@ -121,7 +121,7 @@ Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.en.md`. Maintaine
 - `lib/models/` — small shared value types (e.g. `AccountSummary`) used across startup, auth, and UI layers.
 - `lib/i18n/`, `lib/l10n/` — app localizations (UIKit has its own delegate; both are registered in `main.dart`).
 - `tool/` — `bootstrap_deps.dart` (the single source of truth for "what must happen before `flutter pub get`"), `check_complexity.dart`, `ci/` helpers used by GitHub Actions.
-- `third_party/` — vendored deps. `tim2tox` and `chat-uikit-flutter` are git submodules; the Tencent Cloud Chat SDK is fetched + patched into `pubspec_overrides.yaml` by the bootstrap tool. Never edit `third_party/` without understanding the patch flow (`doc/operations/PATCH_MAINTENANCE.en.md`).
+- `third_party/` — vendored deps. `tim2tox` and `chat-uikit-flutter` are git submodules; the Tencent Cloud Chat SDK is fetched + patched into `pubspec_overrides.yaml` by the bootstrap tool. Never edit `third_party/` without understanding the patch flow (`doc/operations/PATCH_MAINTENANCE.md`).
 - `doc/` is the canonical documentation tree (architecture, integration, operations, reference). All new docs go here.
 
 ### Logging
