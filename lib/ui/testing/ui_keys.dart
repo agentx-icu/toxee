@@ -1,7 +1,7 @@
 /// Stable identity hints for widgets driven by automated UI tests
 /// (flutter_test, integration_test) and AI agents (marionette MCP).
 ///
-/// See `doc/research/UI_AUTOMATION_ROADMAP.en.md` for the naming convention and
+/// See `tool/mcp_test/REAL_UI_GATES.md` for the naming convention and
 /// when to add new keys. tl;dr: all-lowercase snake_case, screen prefix
 /// + role suffix; only add keys for widgets that automation actually
 /// needs to target reliably.
@@ -20,7 +20,7 @@
 ///   1. Append the constant here, in the right screen section, in
 ///      source-order of the widget tree.
 ///   2. Reference it at the widget call site as `key: UiKeys.fieldName`.
-///   3. Update `doc/research/UI_AUTOMATION_ROADMAP.en.md` if the new key unlocks
+///   3. Update `tool/mcp_test/REAL_UI_GATES.md` if the new key unlocks
 ///      a smoke case.
 library;
 

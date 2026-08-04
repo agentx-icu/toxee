@@ -9,7 +9,7 @@
 
 Scenario ID: **S40**
 Title: 账号密码设置 / 修改 / 解除 → relaunch 验证磁盘加密 + LoginPage 密码门控
-Catalog reference: `doc/architecture/MCP_UI_TEST_PLAYBOOK.en.md` §5e S40 sketch
+Catalog reference: `doc/architecture/MCP_UI_TEST_PLAYBOOK.md` §5e S40 sketch
 Last updated: 2026-05-28
 
 This is **数据安全关键测试** — verifies that toxee's "password protect
@@ -673,7 +673,7 @@ low end of the range.
 
 For a CI-style invocation, the following pseudo-shell encodes
 S40a's happy path. Real implementation would wrap MCP calls in
-the orchestrator skeleton from `doc/architecture/MCP_UI_TEST_PLAYBOOK.en.md` §6.
+the orchestrator skeleton from `doc/architecture/MCP_UI_TEST_PLAYBOOK.md` §6.
 
 ```bash
 # Prerequisites: TOXA, NICK_A, P1, MCP client.

@@ -3,7 +3,7 @@
 **Layer**: L3 (MCP playbook)
 **Fixture vector**: `accounts=2(A,B in separate sandboxes) current(A)=A1 current(B)=B1 autoLogin=on network=online friends=1(paired, both online) history=empty` + staged file on A
 **Harness mode**: peerHarness=none (delivery needs a second toxee, not the echo peer — see Notes)
-**Promotion target**: L3-pinned because delivery confirmation requires a second live toxee receiving over the real Tox DHT (Fixture C, `UI_TEST_LAYERING.en.md` §3/§6).
+**Promotion target**: L3-pinned because delivery confirmation requires a second live toxee receiving over the real Tox DHT (Fixture C, `UI_TEST_LAYERING.md` §3/§6).
 **Covered-by**: `test/ui/chat/media_message_bubbles_real_ui_test.dart` (UI half — the file message renders the real file bubble with filename + formatted size at both mobile and desktop sizes, and a tap drives the real `_openFile()` dispatch; the data-layer send/arrival stays gated by the two-process artifact below)
 **Status**: covered by the two-process Fixture C gate `tool/mcp_test/run_fixture_c_file.sh` (A sends a small file via `l3_send_file` content→temp; asserts a sender-side file message exists with `filePath` basename==fileName and non-empty `mediaKind`; validated live 2026-06-01), AND at the widget layer (L1). `media_message_bubbles_real_ui_test.dart` pumps the real `TencentCloudChatMessage` list with a fixture file message and asserts the real file bubble renders the filename + the formatted size (`getCurrentFileFileSize`, e.g. `10 KB`) at both mobile (400x800) and desktop (1400x900); tapping the bubble drives the real `onTapUp → _openFile()` path, captured at the production `OpenFile.open` boundary via a `@visibleForTesting` seam on the file element widget (so it does not invoke the platform open plugin in the test). (`l3_send_file` writes a sandbox-safe temp source so there's no cross-sandbox source-readability problem.)
 
@@ -32,6 +32,6 @@
 ## Notes
 - Native macOS picker is undriveable by MCP (§7b): `_sendMedia` has no `filePathOverride` seam today (unlike S9's `login_page_controller.dart:340`). Required source change: add `@visibleForTesting filePathOverride` to `_sendMedia` bypassing `pickFiles`, mirroring S9 — until then Step 4 is undriveable.
 - Echo peer is NOT a substitute (§3.7): it echoes c2c text, not file transfers; cannot unblock S21.
-- Multi-instance block: delivery needs a real second toxee on the DHT (`doc/research/MULTI_INSTANCE_SPIKE.en.md`).
+- Multi-instance block: delivery needs a real second toxee on the DHT (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Wanted UiKeys (none today): attach/Photo option key, `conv_<friendId>`, `messageItem_<msgId>`.
 - C2C only — `_sendMedia` rejects groups with `sendingToGroupsNotSupported` (`home_page.dart:583`).

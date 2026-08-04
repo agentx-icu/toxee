@@ -3,7 +3,7 @@
 **Layer**: L3 (MCP playbook)
 **Fixture vector**: `accounts=1 current=A1 autoLogin=on network=any (Offline OK)`
 **Harness mode**: peerHarness=none
-**Promotion target**: L3-pinned for the clipboard leg — the host pasteboard (`pbpaste`) is the only ground truth for the real `Clipboard.setData` write, and OS-clipboard cross-process verification is L3-only per `UI_TEST_LAYERING.en.md` §3. (An L1 could only check a `Clipboard` test-double, not the real OS write.) The id-EXPOSURE half is L1-promotable.
+**Promotion target**: L3-pinned for the clipboard leg — the host pasteboard (`pbpaste`) is the only ground truth for the real `Clipboard.setData` write, and OS-clipboard cross-process verification is L3-only per `UI_TEST_LAYERING.md` §3. (An L1 could only check a `Clipboard` test-double, not the real OS write.) The id-EXPOSURE half is L1-promotable.
 **Status**: covered (data-half gate exists; the real tap + OS clipboard write is L3, verified out-of-band). **S100 adds NO new executable gate — it is an extracted single-control subcase of S31** (the canonical self-id-copy scenario, which already drives this same Settings (V2) button in its Driver); do not count it as incremental coverage. The DATA half — `l3_dump_state.currentAccountToxId` exposes the seeded self id — is proven by `l3_self_id.json` (**S31**). The clipboard leg has NO JSON gate (cross-process) and is verified via `pbpaste`, exactly like S16/S31. This is the **Settings (V2)** entry point; S31 already runs both the Profile (V1) and Settings (V2) copy controls in one session.
 
 ## Precondition

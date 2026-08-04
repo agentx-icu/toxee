@@ -1,40 +1,41 @@
-# 依赖 Bootstrap
-> 语言 / Language: [中文](DEPENDENCY_BOOTSTRAP.md) | [English](DEPENDENCY_BOOTSTRAP.en.md)
+[简体中文](./DEPENDENCY_BOOTSTRAP.zh-CN.md)
 
-本文说明 bootstrap 的精确执行顺序，以及如何从新克隆得到可构建的目录树。
+# Dependency bootstrap
 
-## Bootstrap 顺序
+This document describes the exact bootstrap order and how to get from a fresh clone to a buildable tree.
 
-在 **toxee 仓库根目录** 执行：
+## Bootstrap order
+
+Run from the **toxee repo root**:
 
 ```bash
 dart run tool/bootstrap_deps.dart
 ```
 
-工具按以下顺序执行：
+The tool performs these steps in order:
 
-1. **初始化 submodule** — 对 `third_party/tim2tox` 与 `third_party/chat-uikit-flutter` 执行 `git submodule sync --recursive` 和 `git submodule update --init --recursive`。若仓库尚未注册 submodule（无 gitlink），则根据 `.gitmodules` 中的 URL 克隆到 `third_party/`。
-2. **拉取 SDK（vendor）** — 从 `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` 中的 URL 下载 tencent_cloud_chat_sdk 归档（配置在 tim2tox 仓库），如有 SHA-256 则校验，并解压到 `third_party/tencent_cloud_chat_sdk`。若已存在且版本一致则跳过（使用 `--force` 可强制重新拉取）。
-3. **应用 SDK 补丁** — 调用 tim2tox 的 `dart run tool/apply_sdk_patches.dart --sdk-dir=...`，从 tim2tox 仓库读取 lock 与 patch 系列，对已拉取的 SDK 打补丁。若补丁已应用（由 toxee 的 `tool/vendor_state.json` 记录）则跳过。
-4. **生成 pubspec_overrides.yaml** — 写入 override，使 `tim2tox_dart`、`tencent_cloud_chat_sdk` 及所有 UIKit 包解析到 `third_party/` 下的路径。该文件被 gitignore，每次 bootstrap 都会重新生成。
-5. **随后由你执行** — `flutter pub get`（及任意构建）。构建脚本（`build_all.sh`、`run_toxee.sh` 等）与 CI 会在 `flutter pub get` 前自动执行 bootstrap。
+1. **Initialize submodules** — `git submodule sync --recursive` and `git submodule update --init --recursive` for `third_party/tim2tox` and `third_party/chat-uikit-flutter`. If the repo does not yet have submodules registered (no gitlink entries), it clones those repositories from the URLs in `.gitmodules` into `third_party/`.
+2. **Vendor the SDK** — Downloads the tencent_cloud_chat_sdk archive from the URL in `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` (config lives in tim2tox repo), verifies SHA-256 if present, and unpacks it into `third_party/tencent_cloud_chat_sdk`. Skips if already present and version matches (use `--force` to re-vendor).
+3. **Apply SDK patches** — Calls tim2tox's `dart run tool/apply_sdk_patches.dart --sdk-dir=...`, which reads the lock and patch series from the tim2tox repo and applies patches to the vendored SDK. Skips if patches were already applied (tracked in toxee's `tool/vendor_state.json`).
+4. **Generate pubspec_overrides.yaml** — Writes overrides so that `tim2tox_dart`, `tencent_cloud_chat_sdk`, and all UIKit packages resolve to paths under `third_party/`. This file is gitignored and regenerated on every bootstrap.
+5. **You then run** — `flutter pub get` (and any build). Build scripts (`build_all.sh`, `run_toxee.sh`, etc.) and CI run bootstrap before `flutter pub get` automatically.
 
-## 新克隆的一次性准备
+## One-time setup for a fresh clone
 
 ```bash
 git clone <toxee-repo> toxee
 cd toxee
 dart run tool/bootstrap_deps.dart
 flutter pub get
-./build_all.sh --platform macos --mode debug   # 或 run_toxee.sh 等
+./build_all.sh --platform macos --mode debug   # or run_toxee.sh, etc.
 ```
 
-## 选项
+## Options
 
-- **`--offline-check-only`** — 仅校验 lock 文件、submodule 目录与已拉取的 SDK 是否存在；退出码 0/1。不访问网络、不写入。
-- **`--force`** — 重新拉取 SDK（删除后重新下载/解压）并重新应用补丁。升级 SDK 版本或修改 lock 后使用。
+- **`--offline-check-only`** — Only verify that lock file, submodule dirs, and vendored SDK exist; exit 0/1. No network, no writes.
+- **`--force`** — Re-vendor the SDK (delete and re-download/unpack) and re-apply patches. Use when upgrading the SDK version or after changing the lock file.
 
-## 参见
+## See also
 
-- [DEPENDENCY_LAYOUT.md](DEPENDENCY_LAYOUT.md) — 目标目录布局与旧假设说明。
-- [PATCH_MAINTENANCE.md](PATCH_MAINTENANCE.md) — 所有权归属与 submodule/SDK/补丁升级方式。
+- [DEPENDENCY_LAYOUT.md](DEPENDENCY_LAYOUT.md) — Target directory layout and legacy assumptions.
+- [PATCH_MAINTENANCE.md](PATCH_MAINTENANCE.md) — Who owns what and how to upgrade submodules/SDK/patches.

@@ -26,7 +26,7 @@ import UIKit
 /// Note: PushKit (terminated-app receive) is intentionally NOT implemented
 /// here. Tox is fully P2P with no push relay, so there is no APNs sender that
 /// can wake the app from a terminated state. See
-/// `doc/architecture/MOBILE_BACKGROUND.en.md`.
+/// `doc/architecture/MOBILE_BACKGROUND.md`.
 @objc final class CallKitProvider: NSObject {
   private let provider: CXProvider
   private let callController = CXCallController()

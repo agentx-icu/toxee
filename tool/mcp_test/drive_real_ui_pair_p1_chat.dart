@@ -2,8 +2,8 @@
 part of 'drive_real_ui_pair.dart';
 
 // P1/P2/P3 campaign Batch III — "P1 two-process chat/conv octet" (8 cases,
-// TWO-PROCESS). See tool/mcp_test/REAL_UI_P1P2P3_CAMPAIGN.md (Batch III) and
-// doc/research/REAL_APP_UI_TEST_INVENTORY.md §P1 rows 3/4/5/6/7/13/14/16.
+// TWO-PROCESS). See tool/mcp_test/REAL_UI_GATES.md (Batch III) and
+// tool/mcp_test/REAL_UI_TWO_PROCESS.md §P1 rows 3/4/5/6/7/13/14/16.
 //
 // `sweep_p1_chat` drives BOTH instances on ONE launch. ONE real-UI handshake at
 // the top (Batch-4's `_establishFriendshipForSweep`), then BOTH accounts get the

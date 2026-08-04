@@ -43,7 +43,7 @@ S26's gate: launches a FRESH pair, the driver registers two accounts, B sends a 
 - A9: `official.get_runtime_errors({})` empty vs Step-0 baseline on BOTH sessions
 
 ## Notes
-- L3-pin reason: `pending_applications_` is C++-in-memory only (no on-disk file to inject) → two live toxees mandatory; same constraint S26/S61 record. See `doc/research/MULTI_INSTANCE_SPIKE.en.md`.
+- L3-pin reason: `pending_applications_` is C++-in-memory only (no on-disk file to inject) → two live toxees mandatory; same constraint S26/S61 record. See `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`.
 - Keys verified: `contact_application_item:<userID>` at `tencent_cloud_chat_contact_application_list.dart:227` (GestureDetector, onTap → `gotoApplicationInfoPage`); `contact_application_detail_accept_button:<userID>` at `tencent_cloud_chat_contact_application_info.dart:371-373` (GestureDetector, onTap → `onAcceptApplication`); decline sibling at `:387-389`.
 - Sibling distinction: **S26 accepts INLINE** via `contact_application_accept_button:<userId>` (the row's own accept button, `tencent_cloud_chat_contact_application_list.dart:464-467`) without leaving the list. **S108 opens the row first** (`gotoApplicationInfoPage` → detail page) and accepts via `contact_application_detail_accept_button:<userId>` on the pushed `TencentCloudChatContactApplicationInfo`. Both reach the same `acceptFriend` data-path (run_fixture_c_accept.sh's gate); the UI entry differs.
 - Both detail buttons are `GestureDetector` with `onTap` and NO `Semantics.onTap` → `fmt_tap_widget` may no-op; use marionette key/text tap. Wait ~500ms after the row tap for the push animation (F14).

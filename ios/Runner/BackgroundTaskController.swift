@@ -14,7 +14,7 @@ import UIKit
 /// - `BGAppRefreshTask` is throttled to ~30 sec but runs while the device is
 ///   in normal use, which matches the "keep Tox warm" use case better.
 ///
-/// LIMITATIONS (documented also in doc/architecture/MOBILE_BACKGROUND.en.md):
+/// LIMITATIONS (documented also in doc/architecture/MOBILE_BACKGROUND.md):
 /// - iOS decides scheduling adaptively from user-usage signals. There is no
 ///   way to force it. We submit a request asking for "no earlier than 15
 ///   minutes from now" but the system may delay much longer, or skip entirely.

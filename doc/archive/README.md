@@ -1,10 +1,11 @@
-# 历史与一次性文档归档
+[简体中文](./README.zh-CN.md)
 
-> 语言 / Language: [中文](README.md) | [English](README.en.md)
+# Historical and one-off document archive
 
-本目录存放已完成或仅作留档的文档，不作为当前文档体系的主入口。
 
-- **theme-audit-followup.md** — 主题与配色全面复查报告（单次审计留档）
-- **issue-fixed-chat-window.md** — 聊天窗口无法打开问题修复记录（原根目录 ISSUE_FIXED.md）
+This directory holds completed or archive-only documents. They are not part of the main documentation entry.
 
-若原路径有外链，可在此查阅；长期有效文档见 [doc/README](../README.md)。
+- **theme-audit-followup.md** — Theme and color audit report (one-off)
+- **issue-fixed-chat-window.md** — Chat window not opening fix (formerly root ISSUE_FIXED.md)
+
+If you have external links to the old paths, use these files. For current docs see [doc/README](../README.md).

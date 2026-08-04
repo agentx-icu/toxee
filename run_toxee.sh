@@ -259,7 +259,7 @@ build_flutter() {
   fi
 
   # MCP_BINDING is a debug-only switch for the AI-UI-debug MCP comparison
-  # (see doc/research/MCP_COMPARISON_TEST_PLAN.en.md). Forwarded to flutter build as a
+  # (see tool/mcp_test/REAL_UI_GATES.md). Forwarded to flutter build as a
   # --dart-define so lib/main.dart picks the right binding at startup.
   # Defaults to "skill" (current behavior) when the env var is unset.
   # Whitelist the accepted values and use an array to avoid word-split

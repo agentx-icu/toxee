@@ -24,7 +24,7 @@ If either doesn't exist, **proceed silently**. Don't flag their absence; don't s
 
 ## Relationship to `doc/`
 
-`doc/` is this repo's canonical **prose** documentation tree (architecture, integration, operations, reference) — see the root `CLAUDE.md`. `CONTEXT.md` and `docs/adr/` are the machine-read domain layer the skills consult, and are additive to `doc/`, not a replacement. The deep architectural narrative already lives in `doc/architecture/HYBRID_ARCHITECTURE.en.md` and `doc/architecture/MAINTAINER_ARCHITECTURE.en.md`; read those too when the topic is the hybrid binary-replacement / platform-path split.
+`doc/` is this repo's canonical **prose** documentation tree (architecture, integration, operations, reference) — see the root `CLAUDE.md`. `CONTEXT.md` and `docs/adr/` are the machine-read domain layer the skills consult, and are additive to `doc/`, not a replacement. The deep architectural narrative already lives in `doc/architecture/HYBRID_ARCHITECTURE.md` and `doc/architecture/MAINTAINER_ARCHITECTURE.md`; read those too when the topic is the hybrid binary-replacement / platform-path split.
 
 ## Use the glossary's vocabulary
 

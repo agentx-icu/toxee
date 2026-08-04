@@ -84,7 +84,7 @@ tool/mcp_test/_scratch/
 # state, artifacts/ holds driver screenshots/dumps, and a stray sticker/community
 # plugin writes a CWD-relative community_data.db + sc_*.png screenshots land at
 # the repo root. (echo_peer*.log is also caught by the global *.log rule above,
-# but is listed here for intent.) See doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md §3.7.
+# and is listed here explicitly to document that runtime logs are intentional local state.)
 /community_data.db
 /sc_*.png
 tool/mcp_test/artifacts/

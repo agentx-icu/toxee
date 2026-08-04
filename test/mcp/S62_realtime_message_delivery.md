@@ -3,7 +3,7 @@
 **Layer**: L3 (MCP playbook)
 **Fixture vector**: `paired_for_e2e` = `accounts=2(A/B launched by Fixture C harness with per-instance App Support + SharedPreferences prefix isolation) current(A)=A1 current(B)=B1 autoLogin=on network=online friends=1(already paired, both online) history=seeded`
 **Harness mode**: peerHarness=none
-**Promotion target**: L3-pinned because two live toxees deliver a C2C message over the real Tox DHT — no on-disk seed can stand in for the live `onNativeEvent(type==0)` round-trip, and a second running process is L3-only per `UI_TEST_LAYERING.en.md` §3.
+**Promotion target**: L3-pinned because two live toxees deliver a C2C message over the real Tox DHT — no on-disk seed can stand in for the live `onNativeEvent(type==0)` round-trip, and a second running process is L3-only per `UI_TEST_LAYERING.md` §3.
 **Status**: covered by executable Fixture C state driver
 
 ## Precondition

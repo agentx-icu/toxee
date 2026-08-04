@@ -3,7 +3,7 @@ name: MCP Harness Smoke
 # First CI gate for the MCP / L3 + Fixture C test harness (tool/mcp_test/).
 # Until now its helper-contract regressions ran only on a maintainer's machine,
 # so the harness could silently rot between local runs (see
-# doc/research/L3_MCP_HANDOFF_2026-05-31.md). This job enforces the harness's
+# tool/mcp_test/REAL_UI_TWO_PROCESS.md). This job enforces the harness's
 # HERMETIC contracts on every PR.
 #
 # Deliberately cheap and deterministic: it does NOT launch the app, build the
@@ -25,7 +25,7 @@ name: MCP Harness Smoke
 #
 # Scope honesty: this gates the harness's portable contracts, NOT the live
 # two-process P2P scenarios (which remain local + DHT-dependent). See
-# test/mcp/INDEX.en.md (generated) and doc/research/L3_RUNNER_COVERAGE_MAP.en.md.
+# test/mcp/INDEX.md (generated) and tool/mcp_test/REAL_UI_TWO_PROCESS.md.
 
 on:
   push:
@@ -69,12 +69,12 @@ jobs:
       - name: L3 scenario schema (validate-only)
         run: dart run tool/mcp_test/run_l3_scenarios.dart --validate-only
 
-      # Coverage-index gate: regenerates test/mcp/INDEX.en.md in memory and
+      # Coverage-index gate: regenerates test/mcp/INDEX.md in memory and
       # fails when the committed copy is stale, a scenario's feature points at
       # a missing playbook, a playbook claims covered with no artifacts
       # (anti-fabrication), or a playbook is missing one of the five required
       # header fields (M9b landed 2026-06-03: the header backlog was cleaned in
       # the same change, so header schema is HARD from day one —
-      # doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md §3.3).
+      # tool/mcp_test/REAL_UI_TWO_PROCESS.md §3.3).
       - name: Scenario index check
         run: dart run tool/mcp_test/gen_scenario_index.dart --check --warn-playbook-headers

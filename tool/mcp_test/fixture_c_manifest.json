@@ -1,5 +1,5 @@
 {
-  "_comment": "Machine-readable index of the unified Fixture C / real-UI two-process gates (plan doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md section 3.4). Ordered: reusable paired non-media first, fresh isolated next, media after that, destructive last. Each entry now declares its runner metadata directly: class, base, driver, optional driverArgs, and whether the legacy shell wrapper must stay in the loop. costSecs is a planning hint, not a timeout. The 2proc-ui entry remains in the same manifest and now participates in planning via scenarioCommands instead of being skipped.",
+  "_comment": "Machine-readable index of the unified Fixture C / real-UI two-process gates (plan tool/mcp_test/REAL_UI_TWO_PROCESS.md section 3.4). Ordered: reusable paired non-media first, fresh isolated next, media after that, destructive last. Each entry now declares its runner metadata directly: class, base, driver, optional driverArgs, and whether the legacy shell wrapper must stay in the loop. costSecs is a planning hint, not a timeout. The 2proc-ui entry remains in the same manifest and now participates in planning via scenarioCommands instead of being skipped.",
   "entries": [
     {
       "script": "run_fixture_c_non_media.sh",

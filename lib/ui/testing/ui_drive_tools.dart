@@ -1,5 +1,5 @@
 // UI-drive MCP tools — REAL pointer-event primitives for the real-UI sweep
-// campaign (see tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md, Batch 0).
+// campaign (see tool/mcp_test/REAL_UI_GATES.md).
 //
 // WHY: flutter_skill (the default `skill` binding) only exposes tap / tapAt /
 // enterText / waitForElement / interactiveStructured — it has NO scroll, drag,

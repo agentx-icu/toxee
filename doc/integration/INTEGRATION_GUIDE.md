@@ -1,72 +1,73 @@
-# toxee 集成
-> 语言 / Language: [中文](INTEGRATION_GUIDE.md) | [English](INTEGRATION_GUIDE.en.md)
+[简体中文](./INTEGRATION_GUIDE.zh-CN.md)
+
+# toxee Integration Guide
 
 
-本文档说明如何把 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 集成到 Flutter 应用，包括接口适配器实现、初始化流程和最佳实践。
+This document explains how to integrate [Tim2Tox](https://github.com/agentx-icu/tim2tox) into a Flutter application, including interface adapter implementation, initialization process, and best practices.
 
-## 目录
+## Contents
 
-- [概述](#概述)
-- [快速开始](#快速开始)
-- [接口适配器实现](#接口适配器实现)
-- [初始化流程](#初始化流程)
-- [使用示例](#使用示例)
-- [最佳实践](#最佳实践)
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Interface Adapter Implementation](#interface-adapter-implementation)
+- [Initialization process](#initialization-process)
+- [Usage example](#usage-example)
+- [Best Practice](#best-practices)
 
-## 概述
+## Overview
 
-toxee 展示了如何将 [Tim2Tox](https://github.com/agentx-icu/tim2tox) 集成到 Flutter 应用中。集成过程包括：
+toxee shows how to integrate [Tim2Tox](https://github.com/agentx-icu/tim2tox) into a Flutter app. The integration process includes:
 
-1. **实现接口适配器**: 将 Tim2Tox 的抽象接口映射到客户端的具体实现
-2. **初始化服务**: 创建和初始化 FfiChatService
-3. **设置 SDK Platform**: 将 UIKit SDK 调用路由到 tim2tox
-4. **使用 UIKit 组件**: 正常使用 Tencent Cloud Chat UIKit 组件
+1. **Implement interface adapter**: Map the abstract interface of Tim2Tox to the specific implementation of the client
+2. **Initialization Service**: Create and initialize FfiChatService
+3. **Set up SDK Platform**: Route UIKit SDK calls to tim2tox
+4. **Use UIKit components**: Use Tencent Cloud Chat UIKit components normally
 
-## 快速开始
+## Quick Start
 
-### 最小集成示例
+### Minimal integration example
 
 ```dart
 import 'package:tim2tox_dart/tim2tox_dart.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// 1. 创建接口适配器
+// 1. Create an interface adapter
 final prefs = await SharedPreferences.getInstance();
 final prefsAdapter = SharedPreferencesAdapter(prefs);
 final loggerAdapter = AppLoggerAdapter();
 final bootstrapAdapter = BootstrapNodesAdapter(prefs);
 
-// 2. 创建服务
+// 2. Create a service
 final ffiService = FfiChatService(
   preferencesService: prefsAdapter,
   loggerService: loggerAdapter,
   bootstrapService: bootstrapAdapter,
 );
 
-// 3. 初始化服务
+// 3. Initialize service
 await ffiService.init();
 
-// 4. 设置 SDK Platform
+// 4. Set up SDK Platform
 TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
   ffiService: ffiService,
 );
 
-// 5. 使用 UIKit
-// 现在可以正常使用 Tencent Cloud Chat UIKit 组件
+// 5. Use UIKit
+// The Tencent Cloud Chat UIKit component can now be used normally
 ```
 
-## 接口适配器实现
+## Interface adapter implementation
 
-Tim2Tox 通过接口注入客户端依赖，客户端需要实现以下接口适配器。
+Tim2Tox injects client dependencies through interfaces, and the client needs to implement the following interface adapter.
 
-### 必需接口
+### Required interface
 
 #### ExtendedPreferencesService
 
-偏好设置服务，用于持久化数据。
+Preferences service for persisting data.
 
-**实现示例** (`lib/adapters/shared_prefs_adapter.dart`):
+**Implementation example** (`lib/adapters/shared_prefs_adapter.dart`):
 
 ```dart
 import 'package:tim2tox_dart/interfaces/extended_preferences_service.dart';
@@ -74,41 +75,41 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class SharedPreferencesAdapter implements ExtendedPreferencesService {
   final SharedPreferences _prefs;
-  
+
   SharedPreferencesAdapter(this._prefs);
-  
+
   @override
   Future<String?> getString(String key) async => _prefs.getString(key);
-  
+
   @override
-  Future<bool> setString(String key, String value) async => 
+  Future<bool> setString(String key, String value) async =>
       await _prefs.setString(key, value);
-  
+
   @override
   Future<int?> getInt(String key) async => _prefs.getInt(key);
-  
+
   @override
-  Future<bool> setInt(String key, int value) async => 
+  Future<bool> setInt(String key, int value) async =>
       await _prefs.setInt(key, value);
-  
+
   @override
   Future<bool?> getBool(String key) async => _prefs.getBool(key);
-  
+
   @override
-  Future<bool> setBool(String key, bool value) async => 
+  Future<bool> setBool(String key, bool value) async =>
       await _prefs.setBool(key, value);
-  
+
   @override
-  Future<List<String>?> getStringList(String key) async => 
+  Future<List<String>?> getStringList(String key) async =>
       _prefs.getStringList(key);
-  
+
   @override
-  Future<bool> setStringList(String key, List<String> value) async => 
+  Future<bool> setStringList(String key, List<String> value) async =>
       await _prefs.setStringList(key, value);
-  
+
   @override
   Future<bool> remove(String key) async => await _prefs.remove(key);
-  
+
   @override
   Future<bool> clear() async => await _prefs.clear();
 }
@@ -116,9 +117,9 @@ class SharedPreferencesAdapter implements ExtendedPreferencesService {
 
 #### LoggerService
 
-日志服务，用于输出日志。
+Log service, used to output logs.
 
-**实现示例** (`lib/adapters/logger_adapter.dart`):
+**Implementation Example** (`lib/adapters/logger_adapter.dart`):
 
 ```dart
 import 'package:tim2tox_dart/interfaces/logger_service.dart';
@@ -129,17 +130,17 @@ class AppLoggerAdapter implements LoggerService {
   void log(String message) {
     AppLogger.info(message);
   }
-  
+
   @override
   void logError(String message, Object error, StackTrace stack) {
     AppLogger.logError(message, error, stack);
   }
-  
+
   @override
   void logWarning(String message) {
     AppLogger.warn(message);
   }
-  
+
   @override
   void logDebug(String message) {
     AppLogger.debug(message);
@@ -149,9 +150,9 @@ class AppLoggerAdapter implements LoggerService {
 
 #### BootstrapService
 
-Bootstrap 节点服务，用于 Tox 网络连接。
+Bootstrap node service for Tox network connection.
 
-**实现示例** (`lib/adapters/bootstrap_adapter.dart`):
+**Implementation example** (`lib/adapters/bootstrap_adapter.dart`):
 
 ```dart
 import 'package:shared_preferences/shared_preferences.dart';
@@ -163,9 +164,9 @@ class BootstrapNodesAdapter implements BootstrapService {
   static const _kCurrentBootstrapHost = 'current_bootstrap_host';
   static const _kCurrentBootstrapPort = 'current_bootstrap_port';
   static const _kCurrentBootstrapPubkey = 'current_bootstrap_pubkey';
-  
+
   BootstrapNodesAdapter(this._prefs);
-  
+
   @override
   Future<String?> getBootstrapHost() async {
     return _prefs.getString(_kCurrentBootstrapHost);
@@ -194,13 +195,13 @@ class BootstrapNodesAdapter implements BootstrapService {
 }
 ```
 
-### 可选接口
+### Optional interface
 
 #### EventBusProvider
 
-事件总线提供者，用于组件间通信。
+Event bus provider for inter-component communication.
 
-**实现示例** (`lib/adapters/event_bus_adapter.dart`):
+**Implementation Example** (`lib/adapters/event_bus_adapter.dart`):
 
 ```dart
 import 'package:tim2tox_dart/interfaces/event_bus_provider.dart';
@@ -209,9 +210,9 @@ import 'package:toxee/sdk_fake/fake_event_bus.dart';
 
 class EventBusAdapter implements EventBusProvider {
   final FakeEventBus _eventBus;
-  
+
   EventBusAdapter(this._eventBus);
-  
+
   @override
   EventBus get eventBus => _eventBus;
 }
@@ -219,9 +220,9 @@ class EventBusAdapter implements EventBusProvider {
 
 #### ConversationManagerProvider
 
-会话管理器提供者，用于会话管理。
+Session manager provider for session management.
 
-**实现示例** (`lib/adapters/conversation_manager_adapter.dart`):
+**Implementation example** (`lib/adapters/conversation_manager_adapter.dart`):
 
 ```dart
 import 'package:tim2tox_dart/interfaces/conversation_manager_provider.dart';
@@ -229,21 +230,21 @@ import 'package:toxee/sdk_fake/fake_managers.dart';
 
 class ConversationManagerAdapter implements ConversationManagerProvider {
   final FakeConversationManager _conversationManager;
-  
+
   ConversationManagerAdapter(this._conversationManager);
-  
+
   @override
   ConversationManager get conversationManager => _conversationManager;
 }
 ```
 
-## 初始化流程
+## Initialization process
 
-### 完整初始化示例（简化版，与 toxee 实际启动链不同）
+### Complete initialization example (simplified; differs from toxee’s actual flow)
 
-以下为**独立应用最小示例**，与 toxee 实际流程不同：toxee 中 FfiChatService 由 AccountService.initializeServiceForAccount 或 LoginUseCase 创建并 init/login，通过 `widget.service` 传入 HomePage；Platform 由 SessionRuntimeCoordinator.ensureInitialized() 设置；登录成功后由调用方执行 AppBootstrapCoordinator.boot(service) 再进入 HomePage。实际入口与顺序见 [混合架构](../architecture/HYBRID_ARCHITECTURE.md)、[维护者视角](../architecture/MAINTAINER_ARCHITECTURE.md)。
+The following is a **minimal standalone example**. It does not match toxee’s real flow: in toxee, FfiChatService is created and init/login are done in AccountService.initializeServiceForAccount or LoginUseCase, then passed into HomePage as `widget.service`; Platform is set by SessionRuntimeCoordinator.ensureInitialized(); after login success the caller runs AppBootstrapCoordinator.boot(service) before navigating to HomePage. For the actual entry points and order, see [Hybrid architecture](../architecture/HYBRID_ARCHITECTURE.md) and [Maintainer view](../architecture/MAINTAINER_ARCHITECTURE.md).
 
-在 `lib/ui/home_page.dart` 的 `initState()` 中（仅作参考）：
+In `lib/ui/home_page.dart`'s `initState()` (for reference only):
 
 ```dart
 @override
@@ -254,10 +255,10 @@ void initState() {
 
 Future<void> _initializeTim2Tox() async {
   try {
-    // 1. 初始化 FakeUIKit（这会初始化 conversationManager）
+    // 1. Initialize FakeUIKit (this will initialize conversationManager)
     FakeUIKit.instance.startWithFfi(widget.service);
-    
-    // 2. 创建接口适配器
+
+    // 2. Create interface adapter
     final prefs = await SharedPreferences.getInstance();
     final prefsAdapter = SharedPreferencesAdapter(prefs);
     final loggerAdapter = AppLoggerAdapter();
@@ -266,56 +267,56 @@ Future<void> _initializeTim2Tox() async {
     final conversationManagerAdapter = ConversationManagerAdapter(
       FakeUIKit.instance.conversationManager!,
     );
-    
-    // 3. 创建服务
+
+    // 3. Create services
     final ffiService = FfiChatService(
       preferencesService: prefsAdapter,
       loggerService: loggerAdapter,
       bootstrapService: bootstrapAdapter,
     );
-    
-    // 4. 初始化服务
+
+    // 4. Initialize service
     await ffiService.init();
-    
-    // 5. 设置 SDK Platform
+
+    // 5. Set up SDK Platform
     TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
       ffiService: ffiService,
       eventBusProvider: eventBusAdapter,
       conversationManagerProvider: conversationManagerAdapter,
     );
-    
-    // 6. 监听消息
+
+    // 6. Monitor messages
     ffiService.messages.listen((message) {
-      // 处理接收到的消息
+      // Process received messages
     });
-    
-    // 7. 监听连接状态
+
+    // 7. Monitor connection status
     ffiService.connectionStatusStream.listen((connected) {
-      // 处理连接状态变化
+      // Handle connection status changes
     });
-    
+
   } catch (e) {
     print('Failed to initialize tim2tox: $e');
   }
 }
 ```
 
-### 初始化步骤详解
+### Detailed explanation of initialization steps
 
-#### 步骤 1: 初始化 FakeUIKit
+#### Step 1: Initialize FakeUIKit
 
 ```dart
 FakeUIKit.instance.startWithFfi(widget.service);
 ```
 
-这会初始化：
-- `FakeConversationManager`: 会话管理器
-- `FakeEventBus`: 事件总线
-- 其他 Fake 组件
+This will initialize:
+- `FakeConversationManager`: Session Manager
+- `FakeEventBus`: event bus
+- Other Fake components
 
-#### 步骤 2: 创建接口适配器
+#### Step 2: Create interface adapter
 
-将所有抽象接口映射到具体实现：
+Map all abstract interfaces to concrete implementations:
 
 ```dart
 final prefsAdapter = SharedPreferencesAdapter(prefs);
@@ -327,7 +328,7 @@ final conversationManagerAdapter = ConversationManagerAdapter(
 );
 ```
 
-#### 步骤 3: 创建服务
+#### Step 3: Create the service
 
 ```dart
 final ffiService = FfiChatService(
@@ -337,19 +338,19 @@ final ffiService = FfiChatService(
 );
 ```
 
-#### 步骤 4: 初始化服务
+#### Step 4: Initialize the service
 
 ```dart
 await ffiService.init();
 ```
 
-这会：
-- 加载 FFI 库
-- 初始化 Tox 实例
-- 设置回调
-- 启动消息轮询
+This will:
+- Load FFI library
+- Initialize Tox instance
+- Set callback
+- Start message polling
 
-#### 步骤 5: 设置 SDK Platform
+#### Step 5: Set up SDK Platform
 
 ```dart
 TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
@@ -359,16 +360,16 @@ TencentCloudChatSdkPlatform.instance = Tim2ToxSdkPlatform(
 );
 ```
 
-这会将所有 UIKit SDK 调用路由到 tim2tox。
+This will route all UIKit SDK calls to tim2tox.
 
-## 使用示例
+## Usage example
 
-在 toxee 中，登录与发消息实际经 **FfiChatService** 与 **Fake\*** Provider（AccountService、LoginUseCase、FakeChatMessageProvider、FakeMessageManager）完成；以下为 SDK 原生 API 用法示例，仅供理解接口时参考。
+In toxee, login and sending messages are done via **FfiChatService** and **Fake\*** providers (AccountService, LoginUseCase, FakeChatMessageProvider, FakeMessageManager). The examples below show the SDK’s native API and are for reference only.
 
-### 登录
+### Login
 
 ```dart
-// 通过 UIKit SDK 登录
+// Sign in via UIKit SDK
 final result = await TencentImSDKPlugin.v2TIMManager.login(
   userID: 'user123',
   userSig: 'userSig',
@@ -381,15 +382,15 @@ if (result.code == 0) {
 }
 ```
 
-### 发送消息
+### Send message
 
 ```dart
-// 创建文本消息
+// Create text message
 final message = await TencentImSDKPlugin.v2TIMManager
     .getMessageManager()
     .createTextMessage(text: 'Hello, World!');
 
-// 发送消息
+// Send message
 final result = await TencentImSDKPlugin.v2TIMManager
     .getMessageManager()
     .sendMessage(
@@ -406,10 +407,10 @@ if (result.code == 0) {
 }
 ```
 
-### 接收消息
+### Receive messages
 
 ```dart
-// 添加消息监听
+// Add message listening
 TencentImSDKPlugin.v2TIMManager
     .getMessageManager()
     .addAdvancedMsgListener(
@@ -421,7 +422,7 @@ TencentImSDKPlugin.v2TIMManager
     );
 ```
 
-### 获取好友列表
+### Get friends list
 
 ```dart
 final result = await TencentImSDKPlugin.v2TIMManager
@@ -436,7 +437,7 @@ if (result.code == 0) {
 }
 ```
 
-### 添加好友
+### Add friends
 
 ```dart
 final result = await TencentImSDKPlugin.v2TIMManager
@@ -455,38 +456,38 @@ if (result.code == 0) {
 }
 ```
 
-## 最佳实践
+## Best Practices
 
-### 1. 错误处理
+### 1. Error handling
 
-始终检查 API 调用的返回码：
+Always check the return code of an API call:
 
 ```dart
 final result = await someApiCall();
 if (result.code != 0) {
-  // 处理错误
+  // handling errors
   print('Error: ${result.code} - ${result.desc}');
-  // 显示用户友好的错误消息
+  // Display user-friendly error messages
 }
 ```
 
-### 2. 异步操作
+### 2. Asynchronous operation
 
-所有 SDK 操作都是异步的，使用 `await` 等待结果：
+All SDK operations are asynchronous, use `await` to wait for results:
 
 ```dart
-// 正确
+// correct
 final result = await apiCall();
 
-// 错误
+// mistake
 apiCall().then((result) {
-  // 处理结果
+  // Processing results
 });
 ```
 
-### 3. 监听器管理
+### 3. Listener management
 
-及时移除不再需要的监听器：
+Promptly remove listeners that are no longer needed:
 
 ```dart
 final listener = V2TimAdvancedMsgListener(...);
@@ -494,7 +495,7 @@ TencentImSDKPlugin.v2TIMManager
     .getMessageManager()
     .addAdvancedMsgListener(listener: listener);
 
-// 在不需要时移除
+// Remove when not needed
 @override
 void dispose() {
   TencentImSDKPlugin.v2TIMManager
@@ -504,45 +505,30 @@ void dispose() {
 }
 ```
 
-### 4. 资源清理
+### 4. Resource cleanup
 
-在 toxee 中，账号级别的清理统一由 `AccountService.teardownCurrentSession` 处理 —— 它会调用 `SessionRuntimeCoordinator.disposeRuntime()` 释放 `FakeUIKit`、将 `TencentCloudChatSdkPlatform.instance` 还原为默认的 `MethodChannel` 实现，并清空 UIKit 的 `ChatDataProviderRegistry` / `ChatMessageProviderRegistry`。退出登录、切换账号或应用退出时都应走这条路径，而不是直接调用 `TencentImSDKPlugin.v2TIMManager.logout()`：
+In toxee, account-level teardown is centralized in `AccountService.teardownCurrentSession`, which also drives `SessionRuntimeCoordinator.disposeRuntime()` to disposed `FakeUIKit`, restore `TencentCloudChatSdkPlatform.instance` to the default `MethodChannel` implementation, and clear UIKit `ChatDataProviderRegistry` / `ChatMessageProviderRegistry`. Use this path on logout, account switch, or app exit instead of calling `TencentImSDKPlugin.v2TIMManager.logout()` directly:
 
 ```dart
 import 'package:toxee/util/account_service.dart';
 
 await AccountService.teardownCurrentSession(
   service: ffiService,
-  reEncryptProfile: true,  // 释放内存中的密钥前重新加密磁盘上的 profile
+  reEncryptProfile: true,  // re-encrypt the on-disk profile before discarding the in-memory key
 );
 ```
 
-如果你是在不使用 toxee 适配层的最小集成场景（见本文档最上面的最小示例），同样需要做对应的清理：dispose 自建的 `FfiChatService`，把 `TencentCloudChatSdkPlatform.instance` 重置回 `MethodChannelTencentCloudChatSdkPlatform()`（以便后续 UIKit 调用回落到默认 method-channel 实现），并清除已注册的 Provider。
+If you are integrating Tim2Tox without the toxee adapters (the minimal example at the top of this doc), you still need a matching teardown: dispose your `FfiChatService`, reset `TencentCloudChatSdkPlatform.instance` to `MethodChannelTencentCloudChatSdkPlatform()` (so any later UIKit calls fall back to the method-channel default), and drop your provider registrations.
 
-旧示例仅供独立参考（不再推荐）：
+### 5. Status management
 
-```dart
-@override
-void dispose() {
-  // 登出
-  TencentImSDKPlugin.v2TIMManager.logout();
-  
-  // 反初始化 SDK
-  TencentImSDKPlugin.v2TIMManager.unInitSDK();
-  
-  super.dispose();
-}
-```
-
-### 5. 状态管理
-
-使用 Provider 或其他状态管理方案管理应用状态：
+Use a Provider or other state management solution to manage application state:
 
 ```dart
 class ChatProvider extends ChangeNotifier {
   List<V2TimMessage> _messages = [];
   List<V2TimMessage> get messages => _messages;
-  
+
   void addMessage(V2TimMessage message) {
     _messages.add(message);
     notifyListeners();
@@ -550,28 +536,28 @@ class ChatProvider extends ChangeNotifier {
 }
 ```
 
-### 6. 性能优化
+### 6. Performance optimization
 
-- 使用分页加载大量数据
-- 缓存常用数据
-- 避免频繁的 API 调用
-- 使用 Stream 而不是轮询
+- Use pagination to load large amounts of data
+- Cache frequently used data
+- Avoid frequent API calls
+- Use Stream instead of polling
 
-### 7. 日志记录
+### 7. Logging
 
-启用日志以便调试：
+Enable logging for debugging:
 
 ```dart
-// 在初始化时设置日志级别
+// Set log level on initialization
 TencentImSDKPlugin.v2TIMManager.initSDK(
   sdkAppID: 123456,
   logLevel: LogLevelEnum.V2TIM_LOG_DEBUG,
 );
 ```
 
-## 相关文档
+## Related documents
 
-- [toxee 构建与部署](../operations/BUILD_AND_DEPLOY.md) - 详细构建步骤
-- [故障排除](../TROUBLESHOOTING.md) - 常见问题解答
-- [主 README](../../README.zh-CN.md) - 项目概述
-- [Tim2Tox](https://github.com/agentx-icu/tim2tox) 文档（[本地索引](../../third_party/tim2tox/doc/README.md)）
+- [toxee Build and Deployment](../operations/BUILD_AND_DEPLOY.md) - Detailed build steps
+- [Troubleshooting](../TROUBLESHOOTING.md) - FAQ
+- [Main README](../../README.md) - Project Overview
+- [Tim2Tox](https://github.com/agentx-icu/tim2tox) documentation ([local index](../../third_party/tim2tox/doc/README.md))

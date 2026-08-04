@@ -30,7 +30,7 @@
 - `official.get_runtime_errors({})` returns baseline.
 
 ## Notes
-- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_create_group_item`; otherwise marionette returns `Element matching {key: new_entry_create_group_item} not found` (see F14 in `doc/research/UI_TEST_RUN_FINDINGS.en.md`).
+- After tapping `new_entry_menu_button` (popup-revealed item) wait ~500ms for the menu animation before tapping the popup child `new_entry_create_group_item`; otherwise marionette returns `Element matching {key: new_entry_create_group_item} not found` (see F14 in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
 - Public selector value `'group'` is historically a footgun (was silently PRIVATE in `dart_compat_group.cpp`) — A7 grep on log type string is the regression gate.
 - Auto-pop after success destroys the in-dialog `_createdGroupId` state; Copy ID affordance only renders for one frame. Recommended source fix: don't auto-pop, OR move Copy ID to the conversation header.
 - Between runs: `defaults delete com.toxee.app 'flutter.groups'; defaults delete com.toxee.app 'flutter.quit_groups'` to keep "empty groups" precondition.

@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 2 of the real-UI sweep campaign — "Self profile" (8 cases, single
-// instance, one launch). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// instance, one launch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // Every case drives the REAL self-profile widgets of ONE live instance (A; B is
 // launched-but-idle). The self profile is an OVERLAY: tapping the persistent

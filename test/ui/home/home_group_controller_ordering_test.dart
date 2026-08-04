@@ -1,6 +1,6 @@
 // Ordering invariant test for HomeGroupController.handleGroupChanged.
 //
-// Background: doc/reviews/2026-05-20-home-prefs-split-investigation.md flags
+// Background: doc/architecture/MAINTAINER_ARCHITECTURE.md flags
 // the critical ordering requirement:
 //
 //   clearMessageList → deleteGroupInfoFromJoinedGroupList

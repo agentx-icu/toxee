@@ -1,8 +1,8 @@
-// Generates test/mcp/INDEX.en.md — the single source of truth for the L3 test
+// Generates test/mcp/INDEX.md — the single source of truth for the L3 test
 // coverage map (supersedes the hand-maintained current-state tables in
-// doc/research/L3_RUNNER_COVERAGE_MAP.en.md).
+// tool/mcp_test/REAL_UI_TWO_PROCESS.md).
 //
-// Plan: doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md section 3.3 (task M5).
+// Plan: tool/mcp_test/REAL_UI_TWO_PROCESS.md section 3.3 (task M5).
 //
 // Pure Dart: dart:io + dart:convert only. No VM connection, no third-party deps.
 // Deterministic output (stable ordering, no timestamps) so `--check` is a clean
@@ -14,7 +14,7 @@
 //   3. test/mcp/S*.md                    — playbook headers (canonical block)
 //
 // Modes:
-//   (default)                  (re)write test/mcp/INDEX.en.md
+//   (default)                  (re)write test/mcp/INDEX.md
 //   --check                    regenerate to memory + diff vs committed file;
 //                              non-zero if stale OR on machine-owned invariant
 //                              violations (schema, dangling feature, fabrication)
@@ -37,7 +37,7 @@ import 'dart:io';
 const String _scenariosRel = 'tool/mcp_test/scenarios';
 const String _manifestRel = 'tool/mcp_test/fixture_c_manifest.json';
 const String _playbooksRel = 'test/mcp';
-const String _indexRel = 'test/mcp/INDEX.en.md';
+const String _indexRel = 'test/mcp/INDEX.md';
 
 const String _regenCmd = 'dart run tool/mcp_test/gen_scenario_index.dart';
 
@@ -221,7 +221,7 @@ Future<void> main(List<String> args) async {
   // executable-gate claim) — which is what keeps `--check` green on the
   // committed tree while still catching a fabricated gate (e.g. a Status that
   // says "covered by executable Fixture C gate — run_fixture_c_GHOST.sh" with
-  // no such file). See doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md §3.3.
+  // no such file). See tool/mcp_test/REAL_UI_TWO_PROCESS.md §3.3.
   final Map<int, _Playbook> playbookBySNumber = <int, _Playbook>{
     for (final p in playbooks) p.sNumber: p,
   };
@@ -677,7 +677,7 @@ String _renderIndex({
   );
   b.writeln();
   b.writeln(
-    'Plan: `doc/research/TEST_CASE_ORGANIZATION_PLAN.en.md` §3.3. '
+    'Plan: `tool/mcp_test/REAL_UI_TWO_PROCESS.md` §3.3. '
     'Execution class is derived from each scenario JSON\'s flags:',
   );
   b.writeln(

@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 7 of the real-UI sweep campaign — "Group + conference" (14 cases,
-// MIXED single-instance + two-process). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// MIXED single-instance + two-process). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // `sweep_group2` drives BOTH instances. ONE handshake at the top establishes the
 // A<->B friendship; ONE shared PRIVATE group is created via the REAL add-group

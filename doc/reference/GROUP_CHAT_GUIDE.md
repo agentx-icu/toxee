@@ -1,228 +1,228 @@
-# toxee 群聊功能
-> 语言 / Language: [中文](GROUP_CHAT_GUIDE.md) | [English](GROUP_CHAT_GUIDE.en.md)
+[简体中文](./GROUP_CHAT_GUIDE.zh-CN.md)
+
+# toxee Group Chat Guide
 
 
-本文档详细说明 toxee 中群聊功能的实现、使用方法和关键流程。
+This document details the implementation, usage and key processes of the group chat function in toxee.
 
-## 目录
+## Contents
 
-1. [概述](#概述)
-2. [群聊生命周期](#群聊生命周期)
-3. [核心功能](#核心功能)
-4. [数据持久化](#数据持久化)
-5. [映射关系管理](#映射关系管理)
-6. [常见问题](#常见问题)
-7. [调试指南](#调试指南)
+1. [Overview](#overview)
+2. [Group chat lifecycle](#group-chat-lifecycle)
+3. [Core Function](#core-functions)
+4. [Data persistence](#data-persistence)
+5. [Mapping relationship management](#mapping-relationship-management)
+6. [FAQ](#faq)
+7. [Debugging Guide](#debugging-guide)
 
-## 概述
+## Overview
 
-toxee 使用 Tim2Tox 实现基于 Tox 协议的 P2P 群聊功能。群聊功能完全去中心化，不依赖任何中央服务器。
+toxee uses Tim2Tox to implement the P2P group chat function based on the Tox protocol. The group chat function is completely decentralized and does not rely on any central server.
 
-### 关键概念
+### Key concepts
 
-- **group_id**: 应用层群组标识符，格式为 `tox_<number>`（如 `tox_1`, `tox_2`）
-- **group_number**: Tox 协议层的群组编号，由 Tox 分配
-- **chat_id**: Tox 群组的唯一标识符（32 字节），用于重新加入群组（仅 Group 类型支持）
-- **映射关系**: `group_id` ↔ `group_number` ↔ `chat_id` 之间的映射
-- **groupType**: 群组类型，可以是 `"group"`（新 API）或 `"conference"`（旧 API）
+- **group_id**: Application layer group identifier, in the format of `tox_<number>` (such as `tox_1`, `tox_2`)
+- **group_number**: The group number of the Tox protocol layer, assigned by Tox
+- **chat_id**: Tox group's unique identifier (32 bytes), used to rejoin the group (only supported by Group type)
+- **Mapping relationship**: Mapping between `group_id` ↔ `group_number` ↔ `chat_id`
+- **groupType**: Group type, which can be `"group"` (new API) or `"conference"` (old API)
 
 ### Group vs Conference
 
-toxee 同时支持两种 Tox 群聊类型：
+toxee supports two Tox group chat types at the same time:
 
-#### Group（新 API）
-- **创建方式**: 使用 `tox_group_new` 创建
-- **邀请方式**: 使用 `tox_group_invite_friend` 邀请
-- **加入方式**: 使用 `tox_group_join` 通过 `chat_id` 加入
-- **持久化**: 支持 `chat_id` 持久化，可通过 `chat_id` 重新加入
-- **恢复机制**: Client 重启后通过 `chat_id` 调用 `tox_group_join` 恢复
-- **功能**: 支持群公告（topic）、群昵称（peer name）、成员管理等完整功能
+#### Group (new API)
+- **Creation method**: Create using `tox_group_new`
+- **Invitation method**: Use `tox_group_invite_friend` to invite
+- **Joining Method**: Use `tox_group_join` to join via `chat_id`
+- **Persistence**: Supports `chat_id` persistence and can be rejoined through `chat_id`
+- **Recovery mechanism**: After the Client restarts, call `tox_group_join` to recover via `chat_id`
+- **Function**: Supports complete functions such as group announcement (topic), group nickname (peer name), member management, etc.
 
-#### Conference（旧 API）
-- **创建方式**: 使用 `tox_conference_new` 创建
-- **邀请方式**: 使用 `tox_conference_invite` 邀请（需要是好友）
-- **加入方式**: 使用 `tox_conference_join` 通过 `cookie` 加入
-- **持久化**: 不支持 `chat_id`，依赖 Tox savedata 自动恢复
-- **恢复机制**: Client 重启后从 savedata 自动恢复，需要手动匹配 `conference_number` 到 `group_id`
-- **功能**: 功能相对简单，不支持群公告等高级功能
+#### Conference (old API)
+- **Creation method**: Created using `tox_conference_new`
+- **Invitation method**: Use `tox_conference_invite` to invite (need to be a friend)
+- **Joining Method**: Use `tox_conference_join` to join via `cookie`
+- **Persistence**: Does not support `chat_id`, relies on Tox savedata for automatic recovery
+- **Recovery mechanism**: The Client automatically recovers from savedata after restarting, and needs to manually match `conference_number` to `group_id`
+- **Function**: The function is relatively simple and does not support advanced functions such as group announcements.
 
-**选择建议**：
-- 新群组建议使用 **Group** 类型，功能更完整，恢复更可靠
-- 仅在与使用旧 API 的客户端兼容时才使用 **Conference** 类型
+**Selection Suggestions**:
+- It is recommended to use the **Group** type for new groups, which has more complete functions and more reliable recovery.
+- Only use the **Conference** type when compatible with clients using the old API
 
-## 群聊生命周期
+## Group chat lifecycle
 
-### 1. 创建群组
+### 1. Create a group
 
-**调用路径**：
+**Call path**:
 ```
-UI 层 (add_group_dialog.dart)
+UI layer (add_group_dialog.dart)
   ↓ createGroup(groupType: "group" | "conference")
-Service 层 (ffi_chat_service.dart)
+Service layer (ffi_chat_service.dart)
   ↓ createGroup(name, groupType)
-FFI 层 (tim2tox_ffi.cpp)
+FFI layer (tim2tox_ffi.cpp)
   ↓ tim2tox_ffi_create_group()
-C++ 层 (V2TIMGroupManagerImpl.cpp)
+C++ layer (V2TIMGroupManagerImpl.cpp)
   ↓ V2TIMGroupManagerImpl::CreateGroup()
-  ↓ tox_group_new() 或 tox_conference_new()
+  ↓ tox_group_new() or tox_conference_new()
 ```
 
-**流程**：
-1. 用户在 UI 中选择群组类型（Group 或 Conference）
-2. 生成唯一的 `group_id`（如果未提供）
-3. 根据 `groupType` 调用对应的 API：
-   - **Group**: 调用 `tox_group_new` 创建
-   - **Conference**: 调用 `tox_conference_new` 创建
-4. 获取 `group_number`（或 `conference_number`）
-5. **仅 Group 类型**：获取 `chat_id` 并持久化
-6. 持久化 `groupType` 到存储
-7. 建立 `group_id` → `group_number` 映射
-8. 将 `group_id` 添加到 `_knownGroups`
-9. 触发 `onGroupCreated` 回调，更新 UI
+**Process**:
+1. The user selects the group type (Group or Conference) in the UI
+2. Generate unique `group_id` (if not provided)
+3. Call the corresponding API according to `groupType`:
+   - **Group**: Created by calling `tox_group_new`
+   - **Conference**: Created by calling `tox_conference_new`
+4. Get `group_number` (or `conference_number`)
+5. **Group type only**: Get `chat_id` and persist it
+6. Persist `groupType` to storage
+7. Create `group_id` → `group_number` mapping
+8. Add `group_id` to `_knownGroups`
+9. Trigger the `onGroupCreated` callback and update the UI
 
-**关键代码位置**：
+**Key code location**:
 - Dart: `tim2tox/dart/lib/sdk/tim2tox_sdk_platform.dart:createGroup()`
 - C++: `tim2tox/source/V2TIMManagerImpl.cpp:CreateGroup()`
 - C++: `tim2tox/source/ToxManager.cpp:createGroup()`
 
-### 2. 加入群组
+### 2. Join the group
 
-**调用路径**：
+**Call path**:
 ```
-UI 层
+UI layer
   ↓ joinGroup()
-Service 层 (ffi_chat_service.dart)
+Service layer (ffi_chat_service.dart)
   ↓ joinGroup()
-C++ 层
+C++ layer
   ↓ V2TIMGroupManagerImpl::JoinGroup()
   ↓ ToxManager::joinGroup()
   ↓ tox_group_join()
 ```
 
-**流程**：
-1. 使用 `chat_id` 调用 `tox_group_join`
-2. Tox 异步处理加入请求（需要 DHT 发现 peer）
-3. 成功加入后触发 `onGroupSelfJoin` 回调
-4. 建立映射关系
-5. 持久化 `chat_id`
-6. 更新 `_knownGroups`
+**Process**:
+1. Use `chat_id` to call `tox_group_join`
+2. Tox processes join requests asynchronously (requires DHT to discover peers)
+3. Trigger `onGroupSelfJoin` callback after successful joining
+4. Establish mapping relationship
+5. Persistence `chat_id`
+6. Update `_knownGroups`
 
-**注意事项**：
-- `tox_group_join` 是异步的，需要等待 DHT 发现 peer
-- 如果群组中没有其他在线 peer，加入可能无法完成
-- `onGroupSelfJoin` 回调只有在成功加入后才会触发
+**Note**:
+- `tox_group_join` is asynchronous and needs to wait for DHT to discover the peer
+- If there are no other online peers in the group, joining may not be completed
+- `onGroupSelfJoin` callback will only be triggered after successful joining
 
-### 3. 重新加入历史群组（Client 重启后）
+### 3. Rejoin the historical group (after restarting the Client)
 
-**触发时机**：
-- Client 启动后，Tox 初始化完成（InitSDK）
-- Tox 连接建立且在线状态设置完成后（HandleSelfConnectionStatus）
+**Trigger time**:
+- After the Client is started, Tox initialization is completed (InitSDK)
+- After the Tox connection is established and the online status is set (HandleSelfConnectionStatus)
 
-**调用路径**：
+**Call path**:
 ```
 V2TIMManagerImpl::InitSDK()
   ↓ RejoinKnownGroups()
 V2TIMManagerImpl::HandleSelfConnectionStatus()
-  ↓ (检测到连接建立)
+  ↓ (Connection established detected)
   ↓ RejoinKnownGroups()
 ```
 
-**恢复流程**：
+**Recovery Process**:
 
-#### Group 类型恢复
-1. 从存储读取所有已知群组的 `groupType`
-2. 对于 `groupType == "group"` 的群组：
-   - 从 `SharedPreferences` 读取 `chat_id`
-   - 调用 `tox_group_join(chat_id)` 重新加入
-   - 成功后会触发 `onGroupSelfJoin` 回调重建映射
+#### Group type recovery
+1. Read `groupType` of all known groups from storage
+2. For `groupType == "group"`’s group:
+   - Read `chat_id` from `SharedPreferences`
+   - Call `tox_group_join(chat_id)` to rejoin
+   - After success, the `onGroupSelfJoin` callback will be triggered to rebuild the mapping.
 
-#### Conference 类型恢复
-1. Tox 初始化时，conferences 会从 savedata 自动恢复
-2. 在 `RejoinKnownGroups()` 中：
-   - 查询 `tox_conference_get_chatlist()` 获取已恢复的 conferences
-   - 对于 `groupType == "conference"` 的群组：
-     - 查找未映射的 `conference_number`
-     - 将 `conference_number` 映射到对应的 `group_id`
-     - 重建映射关系
+#### Conference type recovery
+1. When Tox is initialized, conferences will be automatically restored from savedata.
+2. In `RejoinKnownGroups()`:
+   - Query `tox_conference_get_chatlist()` to obtain restored conferences
+   - For `groupType == "conference"`'s group:
+     - Find unmapped `conference_number`
+     - Map `conference_number` to the corresponding `group_id`
+     - Rebuild mapping relationship
 
-**关键点**：
-- Group 类型通过 `chat_id` 主动恢复，更可靠
-- Conference 类型依赖 savedata 自动恢复，需要手动匹配
-- 两种类型的 `groupType` 都会持久化存储
-3. 等待 `onGroupSelfJoin` 回调重建映射关系
-4. 如果群组已不存在或无法连接，回调不会触发
+**Key Points**:
+- Group type is automatically restored through `chat_id`, which is more reliable
+- Conference type relies on savedata for automatic recovery and needs to be manually matched
+- Both types of `groupType` will be stored persistently
+3. Wait for the `onGroupSelfJoin` callback to rebuild the mapping relationship
+4. If the group no longer exists or cannot be connected, the callback will not be triggered.
 
-**关键代码位置**：
+**Key code location**:
 - C++: `tim2tox/source/V2TIMManagerImpl.cpp:RejoinKnownGroups()`
 - C++: `tim2tox/source/V2TIMManagerImpl.cpp:HandleSelfConnectionStatus()`
 
-### 4. 退出群组
+### 4. Exit the group
 
-**调用路径**：
+**Call path**:
 ```
-UI 层 (tencent_cloud_chat_group_profile_body.dart)
+UI layer (tencent_cloud_chat_group_profile_body.dart)
   ↓ handleQuitGroup()
-UIKit SDK 层 (tencent_cloud_chat_group_sdk.dart)
+UIKit SDK layer (tencent_cloud_chat_group_sdk.dart)
   ↓ quitGroup()
-SDK Adapter 层 (tim_manager.dart)
-  ↓ DartQuitGroup() (直接调用 C++ 层)
-C++ 层 (dart_compat_group.cpp)
+SDK Adapter layer (tim_manager.dart)
+  ↓ DartQuitGroup() (directly calling the C++ layer)
+C++ layer (dart_compat_group.cpp)
   ↓ V2TIMGroupManagerImpl::QuitGroup()
   ↓ ToxManager::deleteGroup()
   ↓ tox_group_leave()
-  ↓ DartNotifyGroupQuit() (通知 Dart 层)
-Dart 层 (NativeLibraryManager)
-  ↓ groupQuitNotification 回调
+  ↓ DartNotifyGroupQuit() (notify Dart layer)
+Dart layer (NativeLibraryManager)
+  ↓ groupQuitNotification callback
   ↓ ffiService.cleanupGroupState()
 ```
 
-**流程**：
-1. 查找 `group_id` 到 `group_number` 的映射
-   - 如果映射不存在，尝试通过 `chat_id` 恢复映射
-   - 如果仍找不到，记录警告但继续清理
-2. 调用 `tox_group_leave` 离开 Tox 群组
-3. 清理 C++ 层状态：
-   - 从 `group_id_to_group_number_` 映射中删除
-   - 从 `group_members_` 中删除
-   - 从 `groups_` 和 `group_info_` 中删除
-   - 删除会话缓存
-4. 通知 Dart 层清理状态：
-   - 从 `_knownGroups` 中删除
-   - 添加到 `_quitGroups`
-   - 清除消息历史（内存和持久化）
-   - 清除离线消息队列
-5. 更新 UI：
-   - 从群组列表中删除
-   - 从会话列表中删除
-   - 触发 `FakeGroupDeleted` 事件
+**Process**:
+1. Find the mapping from `group_id` to `group_number`
+   - If the mapping does not exist, try to restore the mapping via `chat_id`
+   - If still not found, log a warning but continue cleaning
+2. Call `tox_group_leave` to leave the Tox group
+3. Clean up the C++ layer state:
+   - Removed from `group_id_to_group_number_` mapping
+   - Removed from `group_members_`
+   - Removed from `groups_` and `group_info_`
+   - Delete session cache
+4. Notify the Dart layer of cleanup status:
+   - Removed from `_knownGroups`
+   - Added to `_quitGroups`
+   - Clear message history (memory and persistence)
+   - Clear offline message queue
+5. Update UI:
+   - Remove from group list
+   - Remove from conversation list
+   - Trigger `FakeGroupDeleted` event
 
-**关键代码位置**：
+**Key code location**:
 - Dart: `tim2tox/dart/lib/service/ffi_chat_service.dart:quitGroup()`
 - Dart: `tim2tox/dart/lib/service/ffi_chat_service.dart:cleanupGroupState()`
 - C++: `tim2tox/source/V2TIMGroupManagerImpl.cpp:QuitGroup()`
 - C++: `tim2tox/ffi/dart_compat_group.cpp:DartNotifyGroupQuit()`
 
-## 核心功能
+## Core functions
 
-### 群组列表管理
+### Group list management
 
-**获取已加入群组列表**：
+**Get the list of joined groups**:
 ```dart
 final groups = await TencentImSDKPlugin.v2TIMManager.getGroupManager().getJoinedGroupList();
 ```
+**Implementation details**:
+1. Get all known groups from `ffiService.knownGroups`
+2. Filter out groups in `_quitGroups`
+3. Get the name and avatar for each group (from `SharedPreferences`)
+4. Return the `V2TimGroupInfo` list
 
-**实现细节**：
-1. 从 `ffiService.knownGroups` 获取所有已知群组
-2. 过滤掉 `_quitGroups` 中的群组
-3. 为每个群组获取名称和头像（从 `SharedPreferences`）
-4. 返回 `V2TimGroupInfo` 列表
-
-**关键代码位置**：
+**Key code location**:
 - Dart: `tim2tox/dart/lib/sdk/tim2tox_sdk_platform.dart:getJoinedGroupList()`
 
-### 群组消息
+### Group message
 
-**发送群组消息**：
+**Send Group Message**:
 ```dart
 final message = await TencentImSDKPlugin.v2TIMManager.getMessageManager().createTextMessage(text: "Hello");
 await TencentImSDKPlugin.v2TIMManager.getMessageManager().sendMessage(
@@ -231,71 +231,69 @@ await TencentImSDKPlugin.v2TIMManager.getMessageManager().sendMessage(
   groupID: groupID,
 );
 ```
+**Receive group messages**:
+- Received through `V2TIMAdvancedMsgListener.onRecvNewMessage` callback
+- Messages are automatically persisted to the local file system
 
-**接收群组消息**：
-- 通过 `V2TIMAdvancedMsgListener.onRecvNewMessage` 回调接收
-- 消息自动持久化到本地文件系统
+### Group member management
 
-### 群组成员管理
-
-**获取群组成员列表**：
+**Get group member list**:
 ```dart
 final members = await TencentImSDKPlugin.v2TIMManager.getGroupManager().getGroupMemberList(
   groupID: groupID,
   filter: GroupMemberFilterTypeEnum.V2TIM_GROUP_MEMBER_FILTER_ALL,
 );
 ```
+**Implementation details**:
+- Get peer list from Tox
+- Convert to `V2TimGroupMemberFullInfo` format
+- Contains member nicknames, roles, online status and other information
 
-**实现细节**：
-- 从 Tox 获取 peer 列表
-- 转换为 `V2TimGroupMemberFullInfo` 格式
-- 包含成员昵称、角色、在线状态等信息
+## Data persistence
 
-## 数据持久化
+### chat_id persistence
 
-### chat_id 持久化
+**Why chat_id is needed**:
+- `group_number` may change on each join
+- `chat_id` is the unique identifier of the group and is used to reliably rejoin the group
+- c-toxcore officially recommends using `chat_id` to rejoin the group
 
-**为什么需要 chat_id**：
-- `group_number` 在每次加入时可能变化
-- `chat_id` 是群组的唯一标识符，用于可靠地重新加入群组
-- c-toxcore 官方推荐使用 `chat_id` 重新加入群组
+**Storage location**:
+- Dart layer: `SharedPreferences`, key is `group_chat_id_<group_id>`
+- C++ layer: memory mapping `g_group_id_to_chat_id`
 
-**存储位置**：
-- Dart 层：`SharedPreferences`，key 为 `group_chat_id_<group_id>`
-- C++ 层：内存映射 `g_group_id_to_chat_id`
+**Storage Timing**:
+1. When creating a group: `CreateGroup()` obtains `chat_id` and stores it immediately
+2. When joining a group: `HandleGroupSelfJoin()` obtains `chat_id` and then stores it
+3. When invited to join: `HandleGroupInvite()` obtains `chat_id` and then stores it
 
-**存储时机**：
-1. 创建群组时：`CreateGroup()` 获取 `chat_id` 后立即存储
-2. 加入群组时：`HandleGroupSelfJoin()` 获取 `chat_id` 后存储
-3. 被邀请加入时：`HandleGroupInvite()` 获取 `chat_id` 后存储
+**Recovery time**:
+1. When Client starts: `ffi_chat_service.init()` reads from `SharedPreferences` and synchronizes to the C++ layer
+2. When rejoining the group: call `tox_group_join` using the stored `chat_id`
 
-**恢复时机**：
-1. Client 启动时：`ffi_chat_service.init()` 从 `SharedPreferences` 读取并同步到 C++ 层
-2. 重新加入群组时：使用存储的 `chat_id` 调用 `tox_group_join`
-
-**关键代码位置**：
+**Key code location**:
 - Dart: `toxee/lib/util/prefs.dart:setGroupChatId()`
 - C++: `tim2tox/ffi/tim2tox_ffi.cpp:tim2tox_ffi_set_group_chat_id()`
 - C++: `tim2tox/source/V2TIMManagerImpl.cpp:HandleGroupSelfJoin()`
 
-### 群组列表持久化
+### Group list persistence
 
-**存储内容**：
-- `_knownGroups`: 已知群组 ID 列表
-- `_quitGroups`: 已退出群组 ID 列表
+**Storage content**:
+- `_knownGroups`: list of known group IDs
+- `_quitGroups`: Exited group ID list
 
-**存储位置**：
-- `SharedPreferences`，key 分别为 `known_groups` 和 `quit_groups`
+**Storage location**:
+- `SharedPreferences`, keys are `known_groups` and `quit_groups` respectively
 
-**恢复时机**：
-- Client 启动时：`ffi_chat_service.init()` 读取并恢复
+**Recovery time**:
+- When Client starts: `ffi_chat_service.init()` read and restore
 
-### 消息历史持久化
+### Message history persistence
 
-**存储位置**：
+**Storage location**:
 - `<appDir>/chat_history/group_<group_id>.json`
 
-**存储格式**：
+**Storage format**:
 ```json
 {
   "conversationId": "group_tox_1",
@@ -309,167 +307,160 @@ final members = await TencentImSDKPlugin.v2TIMManager.getGroupManager().getGroup
   ]
 }
 ```
+**Cleaning time**:
+- When exiting the group: `cleanupGroupState()` deletes the corresponding history file
 
-**清理时机**：
-- 退出群组时：`cleanupGroupState()` 删除对应的历史文件
+## Mapping relationship management
 
-## 映射关系管理
+### Mapping relationship type
 
-### 映射关系类型
+1. **group_id → group_number**: used to call Tox API
+2. **group_number → group_id**: used to handle Tox callbacks
+3. **group_id → chat_id**: used to rejoin the group
+4. **chat_id → group_id**: used to find groups by `chat_id`
 
-1. **group_id → group_number**: 用于调用 Tox API
-2. **group_number → group_id**: 用于处理 Tox 回调
-3. **group_id → chat_id**: 用于重新加入群组
-4. **chat_id → group_id**: 用于通过 `chat_id` 查找群组
+### Establish mapping relationship
 
-### 映射关系建立
+**Normal process**:
+1. When creating/joining a group, the `onGroupSelfJoin` callback is triggered
+2. `HandleGroupSelfJoin()` establishes mapping relationship
+3. Store `chat_id` to persistent storage
 
-**正常流程**：
-1. 创建/加入群组时，`onGroupSelfJoin` 回调触发
-2. `HandleGroupSelfJoin()` 建立映射关系
-3. 存储 `chat_id` 到持久化存储
+**Recovery process (after Client restart)**:
+1. `InitSDK()` Query the existing groups in Tox and manually call `HandleGroupSelfJoin()`
+2. `RejoinKnownGroups()` uses the stored `chat_id` to rejoin the group
+3. The `onGroupSelfJoin` callback is triggered and the mapping relationship is established.
+4. `GetJoinedGroupList()` If the mapping is empty, try to rebuild the mapping through `chat_id`
 
-**恢复流程（Client 重启后）**：
-1. `InitSDK()` 查询 Tox 中已存在的群组，手动调用 `HandleGroupSelfJoin()`
-2. `RejoinKnownGroups()` 使用存储的 `chat_id` 重新加入群组
-3. `onGroupSelfJoin` 回调触发，建立映射关系
-4. `GetJoinedGroupList()` 如果映射为空，尝试通过 `chat_id` 重建映射
+**Recovery Mechanism**:
+- `QuitGroup()` If mapping cannot be found, try to restore via `chat_id`
+- `GetJoinedGroupList()` If the mapping is empty, try to rebuild the mapping from the Dart layer
 
-**恢复机制**：
-- `QuitGroup()` 如果找不到映射，尝试通过 `chat_id` 恢复
-- `GetJoinedGroupList()` 如果映射为空，尝试从 Dart 层重建映射
+### Mapping relationship loss problem
 
-### 映射关系丢失问题
+**Possible reasons**:
+1. After the Client restarts, the Tox group has not been restored from savedata.
+2. The group no longer exists, but `chat_id` is still stored locally
+3. Network problems cause `tox_group_join` to fail
 
-**可能原因**：
-1. Client 重启后，Tox 群组尚未从 savedata 恢复
-2. 群组已不存在，但 `chat_id` 仍存储在本地
-3. 网络问题导致 `tox_group_join` 失败
+**Solution**:
+1. Wait for the Tox connection to be established before rejoining the group
+2. Implement mapping recovery mechanism (implemented)
+3. Regularly clean up invalid `chat_id` (to be implemented)
 
-**解决方案**：
-1. 等待 Tox 连接建立后再重新加入群组
-2. 实现映射恢复机制（已实现）
-3. 定期清理无效的 `chat_id`（待实现）
+## FAQ
 
-## 常见问题
+### 1. After exiting the group, the UI refresh still displays the group
 
-### 1. 退出群组后，UI 刷新仍然显示群组
+**Reason**:
+- Group not deleted from `_knownGroups`
+- The session was not removed from the session list
+- `getJoinedGroupList()` unfiltered `_quitGroups`
 
-**原因**：
-- 群组未从 `_knownGroups` 中删除
-- 会话未从会话列表中删除
-- `getJoinedGroupList()` 未过滤 `_quitGroups`
+**Solution**:
+- Ensure `cleanupGroupState()` is executed correctly
+- Make sure `getJoinedGroupList()` filters for `_quitGroups`
+- Ensure UI layer handles `quitGroup` event correctly
 
-**解决方案**：
-- 确保 `cleanupGroupState()` 正确执行
-- 确保 `getJoinedGroupList()` 过滤 `_quitGroups`
-- 确保 UI 层正确处理 `quitGroup` 事件
+### 2. After the Client is restarted, the group mapping relationship is lost.
 
-### 2. Client 重启后，群组映射关系丢失
+**Reason**:
+- Tox group has not been restored from savedata
+- `onGroupSelfJoin` callback is not triggered (because the group has not actually been joined yet)
 
-**原因**：
-- Tox 群组尚未从 savedata 恢复
-- `onGroupSelfJoin` 回调未触发（因为群组尚未真正加入）
+**Solution**:
+- Rejoin group using `chat_id` (implemented)
+- Wait for Tox connection to be established before rejoining (implemented)
+- Implement mapping recovery mechanism (implemented)
 
-**解决方案**：
-- 使用 `chat_id` 重新加入群组（已实现）
-- 等待 Tox 连接建立后再重新加入（已实现）
-- 实现映射恢复机制（已实现）
+### 3. Failed to rejoin the group
 
-### 3. 重新加入群组失败
+**Reason**:
+- The group no longer exists (all members have left)
+- Network problems prevent DHT from discovering peers
+- `chat_id` is invalid or expired
 
-**原因**：
-- 群组已不存在（所有成员都已退出）
-- 网络问题导致 DHT 无法发现 peer
-- `chat_id` 无效或已过期
+**Solution**:
+- This is normal behavior of the Tox protocol
+- If the group no longer exists, the `onGroupSelfJoin` callback will not trigger
+- You can consider adding a timeout mechanism to regularly clean up invalid `chat_id`
 
-**解决方案**：
-- 这是 Tox 协议的正常行为
-- 如果群组已不存在，`onGroupSelfJoin` 回调不会触发
-- 可以考虑添加超时机制，定期清理无效的 `chat_id`
+### 4. Failed to send group message
 
-### 4. 群组消息发送失败
+**Reason**:
+- Group mapping relationship is lost
+- `group_number` is invalid
+- Tox connection not established
 
-**原因**：
-- 群组映射关系丢失
-- `group_number` 无效
-- Tox 连接未建立
+**Solution**:
+- Ensure that the mapping relationship is established correctly
+- Check Tox connection status
+- Implement message retry mechanism (to be implemented)
 
-**解决方案**：
-- 确保映射关系正确建立
-- 检查 Tox 连接状态
-- 实现消息重试机制（待实现）
+## Debugging Guide
 
-## 调试指南
+### Log keywords
 
-### 日志关键字
-
-**群组创建**：
+**Group Creation**:
 - `CreateGroup: ENTRY`
 - `tox_group_new`
 - `Stored chat_id for group`
 
-**群组加入**：
+**Group Join**:
 - `RejoinKnownGroups: Attempting to rejoin`
 - `tox_group_join`
 - `onGroupSelfJoin`
 
-**群组退出**：
+**Group Exit**:
 - `DartQuitGroup: ENTRY`
 - `tox_group_leave`
 - `cleanupGroupState`
 
-**映射关系**：
+**Mapping relationship**:
 - `HandleGroupSelfJoin`
 - `Rebuilt mapping`
 - `group not found in mappings`
 
-### 检查映射关系
+### Check mapping relationship
 
-**C++ 层**：
+**C++ layer**:
 ```cpp
-// 在 V2TIMManagerImpl 中添加日志
+// Add logs in V2TIMManagerImpl
 V2TIM_LOG(kInfo, "Mapping: group_id_to_group_number_ size=%zu", group_id_to_group_number_.size());
 ```
-
-**Dart 层**：
+**Dart layer**:
 ```dart
 print('[FfiChatService] _knownGroups: ${_knownGroups.toList()}');
 print('[FfiChatService] _quitGroups: ${_quitGroups.toList()}');
 ```
+### Check chat_id storage
 
-### 检查 chat_id 存储
-
-**Dart 层**：
+**Dart layer**:
 ```dart
 final chatId = await Prefs.getGroupChatId(groupId);
 print('[Prefs] chat_id for $groupId: $chatId');
 ```
-
-**C++ 层**：
+**C++ layer**:
 ```cpp
 char stored_chat_id[65];
 bool has_stored = (tim2tox_ffi_get_group_chat_id_from_storage(group_id, stored_chat_id, sizeof(stored_chat_id)) == 1);
 V2TIM_LOG(kInfo, "Stored chat_id for %s: %s", group_id, has_stored ? stored_chat_id : "not found");
 ```
+### Common log modes
 
-### 常见日志模式
-
-**正常流程**：
+**Normal process**:
 ```
 CreateGroup: ENTRY
 tox_group_new: success, group_number=0
 Stored chat_id for group tox_1: ...
 HandleGroupSelfJoin: group_number=0, groupID=tox_1
 ```
-
-**映射恢复**：
+**Map Recovery**:
 ```
 QuitGroup: Group not found in mappings, attempting recovery via stored chat_id
 Rebuilt mapping: groupID=tox_1 <-> group_number=0
 ```
-
-**重新加入**：
+**Rejoin**:
 ```
 RejoinKnownGroups: Attempting to rejoin group tox_1 using chat_id ...
 tox_group_join: success, group_number=0
@@ -477,102 +468,102 @@ onGroupSelfJoin: group_number=0
 HandleGroupSelfJoin: Rebuilt mapping from stored chat_id
 ```
 
-## 问题分析和解决方案
+## Problem analysis and solutions
 
-### 退出群组流程问题
+### Exit group process problem
 
-#### 问题描述
+#### Problem description
 
-退出群组后，UI 刷新后仍然能看到该群组。从日志分析发现以下问题：
+After exiting the group, the group can still be seen after the UI is refreshed. The following issues were found from log analysis:
 
-1. **调用路径问题**：Dart 层的 `ffi_chat_service.quitGroup` 可能没有被调用
-2. **群组映射问题**：群组在映射中找不到，导致无法调用 `tox_group_leave`
-3. **UI 刷新问题**：`getJoinedGroupList` 从 `ffiService.knownGroups` 获取群组列表，但退出群组后，`knownGroups` 没有被正确清理
+1. **Calling path problem**: `ffi_chat_service.quitGroup` in Dart layer may not be called
+2. **Group mapping problem**: The group cannot be found in the mapping, resulting in the inability to call `tox_group_leave`
+3. **UI refresh problem**: `getJoinedGroupList` gets the group list from `ffiService.knownGroups`, but after exiting the group, `knownGroups` is not cleaned up correctly
 
-#### 解决方案
+#### Solution
 
-**已修复**：实现了完整的退出群组流程：
+**Fixed**: Complete group exit process implemented:
 
-1. **C++ 层清理**：
-   - 查找 `group_id` 到 `group_number` 的映射（如果找不到，尝试通过 `chat_id` 恢复）
-   - 调用 `tox_group_leave` 离开 Tox 群组
-   - 清理所有 C++ 层状态（映射、成员、会话缓存）
-   - 通过 `DartNotifyGroupQuit()` 通知 Dart 层
+1. **C++ layer cleaning**:
+   - Find the mapping from `group_id` to `group_number` (if not found, try to restore via `chat_id`)
+   - Call `tox_group_leave` to leave the Tox group
+   - Clean all C++ layer state (maps, members, session cache)
+   - Notify Dart layer via `DartNotifyGroupQuit()`
 
-2. **Dart 层清理**：
-   - 从 `_knownGroups` 中删除
-   - 添加到 `_quitGroups`
-   - 清除消息历史（内存和持久化）
-   - 清除离线消息队列
+2. **Dart layer cleaning**:
+   - Removed from `_knownGroups`
+   - Add to `_quitGroups`
+   - Clear message history (memory and persistence)
+   - Clear offline message queue
 
-3. **映射恢复机制**：
-   - 在 `QuitGroup()` 中，如果找不到映射，尝试通过存储的 `chat_id` 重建映射
-   - 确保即使重启后映射丢失，也能正确退出群组
+3. **Mapping recovery mechanism**:
+   - In `QuitGroup()`, if the mapping is not found, try to rebuild the mapping from the stored `chat_id`
+   - Ensure correct group exit even if mapping is lost after reboot
 
-**关键代码位置**：
+**Key code location**:
 - C++: `tim2tox/source/V2TIMGroupManagerImpl.cpp:QuitGroup()`
 - Dart: `tim2tox/dart/lib/service/ffi_chat_service.dart:cleanupGroupState()`
 
-### 群组映射恢复问题
+### Group mapping recovery problem
 
-#### 问题描述
+#### Problem description
 
-退出群组时，日志显示群组在映射中找不到，导致无法调用 `tox_group_leave`。
+When exiting the group, the log shows that the group is not found in the mapping, preventing `tox_group_leave` from being called.
 
-**根本原因**：
-- `group_id_to_group_number_` 映射存储在 C++ 层的内存中，**不会持久化**
-- Client 重启后，映射丢失
-- 映射的恢复是**延迟的**，只有在调用 `GetGroupMemberList`、`InviteUserToGroup` 或收到 `HandleGroupSelfJoin` 事件时才会重建
+**Root Cause**:
+- `group_id_to_group_number_` mappings are stored in the memory of the C++ layer and are **not persisted**
+- After the Client restarts, the mapping is lost
+- Restoration of the map is **delayed** and will only be rebuilt when `GetGroupMemberList`, `InviteUserToGroup` is called, or a `HandleGroupSelfJoin` event is received
 
-#### 解决方案
+#### Solution
 
-**已实现**：多层映射恢复机制：
+**Implemented**: Multi-layer mapping recovery mechanism:
 
-1. **QuitGroup 中的恢复**：
-   - 如果找不到映射，尝试通过存储的 `chat_id` 重建映射
-   - 参考 `GetGroupMemberList` 中的恢复逻辑
+1. **Recovery in QuitGroup**:
+   - If the mapping is not found, try to rebuild it from the stored `chat_id`
+   - Refer to the recovery logic in `GetGroupMemberList`
 
-2. **GetJoinedGroupList 中的恢复**：
-   - 如果映射为空，尝试从 Dart 层重建所有已知群组的映射
-   - 通过存储的 `chat_id` 在 Tox 中查找对应的群组
-   - 如果找到，重建映射关系
+2. **Recovery in GetJoinedGroupList**:
+   - If the mapping is empty, try to rebuild the mapping for all known groups from the Dart layer
+   - Find the corresponding group in Tox through the stored `chat_id`
+   - If found, reconstruct the mapping relationship
 
-3. **启动时的主动恢复**：
-   - 在 `GetJoinedGroupList` 中，如果发现映射为空，自动为所有已知群组重建映射
-   - 基于存储的 `chat_id`，确保映射正确
+3. **Active recovery at startup**:
+   - In `GetJoinedGroupList`, automatically rebuild mappings for all known groups if mappings are found to be empty
+   - Based on stored `chat_id`, ensure correct mapping
 
-**关键代码位置**：
+**Key code location**:
 - C++: `tim2tox/source/V2TIMGroupManagerImpl.cpp:QuitGroup()`
 - C++: `tim2tox/source/V2TIMGroupManagerImpl.cpp:GetJoinedGroupList()`
 
-### 群组成员功能问题
+### Group membership function issues
 
-#### 问题概述
+#### Problem Overview
 
-在不修改 `chat-uikit-flutter` 的情况下，群成员列表页面和添加成员功能存在以下问题：
+Without modifying `chat-uikit-flutter`, the group member list page and the add member function have the following problems:
 
-1. **空列表显示问题**：当群成员列表为空时，页面显示空白，没有提示信息
-2. **数据同步问题**：
-   - 成员列表不自动更新（只监听角色更新，不监听成员添加/删除）
-   - 添加成员后不更新数据层缓存
-   - 数据层 `addGroupMember` 的限制（如果缓存列表为空，新成员不会被添加）
-3. **用户体验问题**：
-   - 缺少加载状态
-   - 缺少成功反馈
-   - 缺少错误处理
-   - 缺少页面标题
+1. **Empty list display problem**: When the group member list is empty, the page displays blank and there is no prompt message.
+2. **Data synchronization problem**:
+   - The member list is not automatically updated (only listens for role updates, not member addition/deletion)
+   - Data layer cache is not updated after adding members
+   - Limitation of data layer `addGroupMember` (if the cache list is empty, new members will not be added)
+3. **User experience issues**:
+   - Missing loading status
+   - Lack of success feedback
+   - Missing error handling
+   - Missing page title
 
-#### 解决方案
+#### Solution
 
-这些问题主要与 UIKit 的实现有关，toxee 作为示例应用，可以通过以下方式改进：
+These problems are mainly related to the implementation of UIKit. As a sample application, toxee can be improved in the following ways:
 
-1. **自定义群成员列表页面**：实现完整的成员列表显示和添加功能
-2. **数据同步**：确保添加/删除成员后正确更新数据层和 UI
-3. **用户体验**：添加加载状态、成功反馈和错误处理
+1. **Customized group member list page**: implements complete member list display and addition functions
+2. **Data Synchronization**: Ensure that the data layer and UI are updated correctly after adding/removing members
+3. **User Experience**: Add loading status, success feedback and error handling
 
-**注意**：这些问题不影响核心群聊功能，主要是 UI 体验问题。
+**Note**: These issues do not affect the core group chat functionality, they are mainly UI experience issues.
 
-## 相关文档
+## Related documents
 
-- [toxee 架构](../architecture/ARCHITECTURE.md) - 整体架构和恢复机制
-- [实现细节](IMPLEMENTATION_DETAILS.md) - 详细实现说明
+- [toxee Architecture](../architecture/ARCHITECTURE.md) - Overall architecture and recovery mechanism
+- [Implementation details](../architecture/MAINTAINER_ARCHITECTURE.md) - Detailed implementation instructions

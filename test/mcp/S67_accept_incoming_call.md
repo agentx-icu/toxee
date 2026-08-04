@@ -8,7 +8,7 @@
 
 ## Precondition
 - Two toxee instances in separate macOS Containers with distinct `CFBundleIdentifier` (A = `com.toxee.app`, B = `com.toxee.b.app`) so `SharedPreferences` don't clobber.
-- A and B already paired: `Prefs.local_friends_<toxA16>` on A contains normalized toxB, and the mirror holds on B (Fixture C "paired_for_e2e" snapshot, §8 of `doc/architecture/UI_TEST_LAYERING.en.md`).
+- A and B already paired: `Prefs.local_friends_<toxA16>` on A contains normalized toxB, and the mirror holds on B (Fixture C "paired_for_e2e" snapshot, §8 of `doc/architecture/UI_TEST_LAYERING.md`).
 - Both plaintext profiles, `autoLogin=true`, `MCP_BINDING=marionette`.
 - Both reach Online before driving (poll `<nick>\nOnline` ≤60s per side); A's friend-list row for toxB shows online.
 - macOS Microphone permission for BOTH `com.toxee.app` and `com.toxee.b.app` = Granted (mic-capture gate is at the OS audio-capture layer, NOT the Dart permission_handler call — see Notes).

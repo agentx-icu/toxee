@@ -1,23 +1,24 @@
-# 补丁维护
-> 语言 / Language: [中文](PATCH_MAINTENANCE.md) | [English](PATCH_MAINTENANCE.en.md)
+[简体中文](./PATCH_MAINTENANCE.zh-CN.md)
 
-## 所有权
+# Patch maintenance
 
-- **toxee** 拥有 submodule 指针（如 `third_party/tim2tox`、`third_party/chat-uikit-flutter`）及 bootstrap 编排。不对 `chat-uikit-flutter` 打补丁；UIKit 定制以普通提交存在于 fork 中。
-- **tim2tox** 拥有 `tencent_cloud_chat_sdk` 补丁及 SDK lock/应用工具：`tool/tencent_cloud_chat_sdk.lock.json`（版本、归档 URL、可选 SHA-256）与 `tool/apply_sdk_patches.dart`（将补丁系列应用到指定 SDK 目录）。所有仅针对 SDK 的修改存放在 `patches/tencent_cloud_chat_sdk/<version>/` 下，以 `series` 文件及有序的 `.patch` 文件形式存在。
-- **chat-uikit-flutter** 的定制在 fork（`agentx-icu/chat-uikit-flutter`）中维护。在 toxee 中更新 submodule 指针即可使用；UIKit 不做补丁应用。
+## Ownership
 
-## SDK 补丁流程
+- **toxee** owns submodule pointers (e.g. `third_party/tim2tox`, `third_party/chat-uikit-flutter`) and bootstrap orchestration. It does not patch `chat-uikit-flutter`; UIKit customizations live as normal commits in the fork.
+- **tim2tox** owns `tencent_cloud_chat_sdk` patches and the SDK lock/apply tooling: `tool/tencent_cloud_chat_sdk.lock.json` (version, archive URL, optional SHA-256) and `tool/apply_sdk_patches.dart` (applies the patch series to a given SDK dir). All SDK-only changes are stored under `patches/tencent_cloud_chat_sdk/<version>/` as a `series` file plus ordered `.patch` files.
+- **chat-uikit-flutter** customizations are maintained in the fork (`agentx-icu/chat-uikit-flutter`). Consume them by updating the submodule pointer in toxee; no patch application for UIKit.
 
-1. Bootstrap 根据 lock 文件拉取 SDK，并应用来自 `third_party/tim2tox/patches/tencent_cloud_chat_sdk/<version>/` 的补丁系列。
-2. 修改 SDK：在 `third_party/tencent_cloud_chat_sdk` 下编辑文件，然后执行 `tool/refresh_sdk_patch.sh` 将补丁重新生成到 tim2tox 的 patches 目录。在 tim2tox 仓库中提交新增/更新的补丁文件（若 tim2tox 为 submodule 且你提交 submodule 更新，则在 toxee 中提交）。
-3. `tool/refresh_sdk_patch.sh` 仅向 `third_party/tim2tox/patches/tencent_cloud_chat_sdk/` 写入 SDK 补丁；不创建或修改 UIKit 补丁。
+## SDK patch workflow
 
-## 升级检查清单
+1. Bootstrap vendors the SDK from the lock file and applies the patch series from `third_party/tim2tox/patches/tencent_cloud_chat_sdk/<version>/`.
+2. To change the SDK: edit files under `third_party/tencent_cloud_chat_sdk`, then run `tool/refresh_sdk_patch.sh` to regenerate patches into the tim2tox patches directory. Commit the new/updated patch files in the tim2tox repo (or in toxee if tim2tox is a submodule and you commit the submodule update).
+3. `tool/refresh_sdk_patch.sh` writes only SDK patches under `third_party/tim2tox/patches/tencent_cloud_chat_sdk/`; it does not create or modify UIKit patches.
 
-1. 在 `third_party/chat-uikit-flutter` 中更新目标 fork 提交（例如 `git -C third_party/chat-uikit-flutter fetch && git -C third_party/chat-uikit-flutter checkout <commit>`，再在父项目中记录）。
-2. 在 `third_party/tim2tox` 中更新目标 tim2tox 提交。
-3. 若升级 SDK，在 `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` 中更新 SDK 版本与校验和（配置在 tim2tox 仓库）。
-4. 若 SDK 版本或补丁有变更，刷新 `third_party/tim2tox/patches/tencent_cloud_chat_sdk/<version>/` 下的补丁（在 toxee 中运行 `tool/refresh_sdk_patch.sh`，或在 tim2tox 中新增补丁文件并更新 `series`）。
-5. 从头重新执行 bootstrap：`dart run tool/bootstrap_deps.dart --force`。
-6. 重新执行针对性构建验证（例如 `./build_all.sh --platform macos --mode debug`）。
+## Upgrade checklist
+
+1. Update the desired fork commit in `third_party/chat-uikit-flutter` (e.g. `git -C third_party/chat-uikit-flutter fetch && git -C third_party/chat-uikit-flutter checkout <commit>` then record in superproject).
+2. Update the desired tim2tox commit in `third_party/tim2tox`.
+3. Bump SDK version and checksum in `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` if upgrading the SDK (config lives in tim2tox repo).
+4. Refresh SDK patches in `third_party/tim2tox/patches/tencent_cloud_chat_sdk/<version>/` if the SDK version or patches changed (run toxee's `tool/refresh_sdk_patch.sh` or add patch files and update `series` in tim2tox).
+5. Rerun bootstrap from scratch: `dart run tool/bootstrap_deps.dart --force`.
+6. Rerun focused build verification (e.g. `./build_all.sh --platform macos --mode debug`).

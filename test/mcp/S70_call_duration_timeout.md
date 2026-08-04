@@ -30,7 +30,7 @@
 
 ## Notes
 - Two timeout sources map to `'timeout'`: the signaling 30s no-answer (`onInvitationTimeout`, the mechanism here) and the ToxAV ringing `STATE_FINISHED`/`STATE_ERROR` branch (`call_service_manager.dart:639-641`). Both end the OUTGOING ring; A2's record is the load-bearing marker for either.
-- Fixture C: needs a second online toxee that stays silent — see S69 / `doc/research/MULTI_INSTANCE_SPIKE.en.md` (distinct `CFBundleIdentifier`). If B is offline the call auto-cancels in ~800ms as `'cancel'`, NOT `'timeout'` — wrong scenario.
+- Fixture C: needs a second online toxee that stays silent — see S69 / `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` (distinct `CFBundleIdentifier`). If B is offline the call auto-cancels in ~800ms as `'cancel'`, NOT `'timeout'` — wrong scenario.
 - Media spike: the silent leg still opens a ToxAV invite; mic gate + ToxAV lifecycle under automation are unvalidated (playbook §5a, §7b).
 - `[CallStateNotifier] startRinging` (`call_state_notifier.dart:95`) and `[CallServiceManager] _onCallState` (`:623`) are `debugPrint`-gated — debug-only, not release contracts.
 - `chatCallVoiceButton` and `callHangupButton` are now available. Snapshot-ref / label matching remains only as fallback.

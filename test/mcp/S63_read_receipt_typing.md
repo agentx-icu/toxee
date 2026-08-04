@@ -36,5 +36,5 @@
 ## Notes
 - **Primary blocker — neither half is wired today** (this is what makes the scenario `informational only`, independent of multi-instance). Typing: outbound `sendTyping`/`setTyping` has **zero callers** in `lib/` or the Platform layer (no input-field listener), and no UIKit widget consumes `onTyping`/`FakeTypingEvent` to render an indicator — the FFI/event surface exists but is dead. A1/A2 are testable at the tim2tox layer; A3 has no UI to assert against.
 - **Read receipts are explicitly disabled**: `_sendReceipt` returns early under `// TODO: 暂时屏蔽发送已读回执` (`ffi_chat_service.dart:5190-5191`), so the `'read'` receipt never goes over the wire. `onRecvC2CReadReceipt` (`tim2tox_sdk_platform.dart:1946`) only fires for `isReceived` (delivery), not `isRead` — so A4 cannot pass. The 'received' delivery half is the closest live thing.
-- Also blocked on Fixture C — two live toxees on the DHT. See `doc/research/MULTI_INSTANCE_SPIKE.en.md`.
+- Also blocked on Fixture C — two live toxees on the DHT. See `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`.
 - Do not write Driver assertions as if these features exist; promote to `covered` only after both the C++/FFI surface is re-enabled AND a UI consumer + UiKeys land (`chat_message_input_field`, a typing-indicator key, a per-bubble read-marker key).

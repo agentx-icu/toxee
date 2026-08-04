@@ -3,8 +3,8 @@ part of 'drive_real_ui_pair.dart';
 
 // Batch II of the P1/P2/P3 real-UI campaign — "P1 single-instance quintet"
 // (5 cases, single instance: drive only A, B launched-but-idle). WRITTEN,
-// UNRUN (write phase). See tool/mcp_test/REAL_UI_P1P2P3_CAMPAIGN.md (Batch II)
-// and doc/research/REAL_APP_UI_TEST_INVENTORY.md §P1 rows 8–12.
+// UNRUN (write phase). See tool/mcp_test/REAL_UI_GATES.md (Batch II)
+// and tool/mcp_test/REAL_UI_TWO_PROCESS.md §P1 rows 8–12.
 //
 // Cases (sweep order, state-machine reasoning):
 //   1. zh_locale_page_walk        (P1#12) — switch the REAL Settings language

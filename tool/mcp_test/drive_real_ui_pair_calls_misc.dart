@@ -2,7 +2,7 @@
 part of 'drive_real_ui_pair.dart';
 
 // Batch 8 of the real-UI sweep campaign — "Calls + misc" (10 cases, FINAL write
-// batch). See tool/mcp_test/REAL_UI_SWEEP_CAMPAIGN.md.
+// batch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // `sweep_calls_misc` drives BOTH instances. ONE handshake at the top establishes
 // the A<->B friendship; the call cases CHAIN the live call state efficiently

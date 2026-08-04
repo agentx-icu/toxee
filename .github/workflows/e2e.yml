@@ -1,7 +1,7 @@
 name: E2E Smoke (integration_test)
 
 # Opt-in E2E run of the integration_test/ smoke against the toxee Flutter app.
-# Phase 2 of the rollout plan in doc/architecture/E2E_TESTING.en.md.
+# Phase 2 of the rollout plan in doc/architecture/E2E_TESTING.md.
 #
 # Why label-gated:
 #   `flutter test integration_test/` builds a real host platform binary

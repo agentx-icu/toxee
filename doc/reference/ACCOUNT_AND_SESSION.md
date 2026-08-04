@@ -1,101 +1,102 @@
-# toxee 账号与会话
-> 语言 / Language: [中文](ACCOUNT_AND_SESSION.md) | [English](ACCOUNT_AND_SESSION.en.md)
+[简体中文](./ACCOUNT_AND_SESSION.zh-CN.md)
+
+# toxee Account and Session
 
 
-本文档说明 toxee 当前的账号生命周期实现，重点覆盖自动登录、手动登录、注册、切换账号、退出登录、删除账号，以及密码保护 profile 的处理方式。
+This document describes the current account lifecycle implementation of toxee, focusing on automatic login, manual login, registration, switching accounts, logging out, deleting accounts, and how to handle password-protected profiles.
 
-## 1. 角色分工
+## 1. Division of roles
 
-- `AccountService`：统一封装账号初始化、注册、销毁、删除。
-- `_StartupGate`：自动登录入口，负责首屏启动顺序与连接等待。
-- `LoginPage`：已有账号快速登录、新账号入口、登录页删除账号。
-- `AccountSwitcher`：设置页切换账号时复用 `AccountService`。
-- `SettingsPage`：退出登录、导出、删除账号的 UI 入口。
-- `SessionPasswordStore`：只在内存中保存本次会话密码，用于退出时重新加密 `tox_profile.tox`。
+- `AccountService`: Unified encapsulation of account initialization, registration, destruction, and deletion.
+- `_StartupGate`: Automatic login portal, responsible for the first screen startup sequence and connection waiting.
+- `LoginPage`: Quick login for existing accounts, new account entrance, and account deletion on the login page.
+- `AccountSwitcher`: Reuse `AccountService` when switching accounts on the settings page.
+- `SettingsPage`: UI entrance for logging out, exporting, and deleting accounts.
+- `SessionPasswordStore`: Only save the password of this session in memory to re-encrypt `tox_profile.tox` when exiting.
 
-## 2. 账号初始化
+## 2. Account initialization
 
-当前已有账号的主入口是 `AccountService.initializeServiceForAccount(...)`。
+The main entrance for existing accounts is `AccountService.initializeServiceForAccount(...)`.
 
-核心步骤：
+Core steps:
 
-1. 设置当前账号 `toxId`。
-2. 迁移旧目录到按账号隔离的存储结构。
-3. 解析历史消息、离线队列、接收文件目录、头像目录。
-4. 恢复或迁移 `tox_profile.tox`。
-5. 如果账号有密码，先解密 profile，并把密码放入 `SessionPasswordStore`。
-6. 创建 `FfiChatService`，注入 `SharedPreferencesAdapter`、`AppLoggerAdapter`、`BootstrapNodesAdapter`。
-7. 执行 `init(profileDirectory: ...)`、`login(...)`、`updateSelfProfile(...)`。
-8. 按调用方需要决定是否立刻 `startPolling()`。
+1. Set up the current account `toxId`.
+2. Migrate the old directory to a storage structure isolated by account.
+3. Parse historical messages, offline queues, received file directories, and avatar directories.
+4. Restore or migrate `tox_profile.tox`.
+5. If the account has a password, first decrypt the profile and put the password into `SessionPasswordStore`.
+6. Create `FfiChatService` and inject `SharedPreferencesAdapter`, `AppLoggerAdapter`, and `BootstrapNodesAdapter`.
+7. Execute `init(profileContents: ...)`, `login(...)`, `updateSelfProfile(...)`.
+8. Depending on the caller's needs, decide whether to `startPolling()` immediately.
 
-## 3. 启动路径
+## 3. Startup path
 
-### 自动登录
+### Automatic login
 
-`main.dart` 中的 `_StartupGate._decide()` 当前顺序是：
+The current order of `_StartupGate._decide()` in `main.dart` is:
 
-1. 读取自动登录配置与当前账号。
-2. 通过 `AccountService.initializeServiceForAccount(..., startPolling: false)` 恢复账号。
-3. 调用 `FakeUIKit.startWithFfi(service)` 提前启动 UIKit 侧状态。
-4. 调用 `_initTIMManagerSDK()`。
-5. 调用 `service.startPolling()`。
-6. 等待连接成功或超时。
-7. 预加载好友与联系人状态。
-8. 导航到 `HomePage(service)`。
+1. Read the automatic login configuration and current account.
+2. Restore the account through `AccountService.initializeServiceForAccount(..., startPolling: false)`.
+3. Call `FakeUIKit.startWithFfi(service)` to start the UIKit side state in advance.
+4. Call `_initTIMManagerSDK()`.
+5. Call `service.startPolling()`.
+6. Wait for successful connection or timeout.
+7. Preload friend and contact status.
+8. Navigate to `HomePage(service)`.
 
-### 手动登录
+### Manual login
 
-`LoginPage` 中已有账号优先复用 `AccountService.initializeServiceForAccount(...)`。只有历史兼容路径才会手动创建 `FfiChatService` 并执行 `init()`、`login()`、`updateSelfProfile()`、`startPolling()`。
+There is already an account in `LoginPage` and `AccountService.initializeServiceForAccount(...)` will be reused first. Only historical compatible paths will manually create `FfiChatService` and execute `init()`, `login()`, `updateSelfProfile()`, `startPolling()`.
 
-## 4. 注册路径
+## 4. Registration path
 
-`AccountService.registerNewAccount(...)` 当前流程：
+`AccountService.registerNewAccount(...)` current process:
 
-1. 清空当前账号，确保新注册时加载空状态。
-2. 在临时目录初始化 `FfiChatService`，生成新的 `toxId`。
-3. 将临时 profile 目录重命名到正式账号目录。
-4. 更新昵称和状态消息。
-5. 写入账号列表、当前账号和元数据。
-6. 如果设置了密码，先加密再解密 profile 做一次验证，然后按账号隔离目录重新初始化 service。
-7. 最后启动 `startPolling()` 并返回新的 service。
+1. Clear the current account and ensure that the empty state is loaded during new registration.
+2. Initialize `FfiChatService` in the temporary directory and generate a new `toxId`.
+3. Rename the temporary profile directory to the official account directory.
+4. Update nickname and status message.
+5. Write the account list, current account and metadata.
+6. If a password is set, first encrypt and then decrypt the profile for verification, and then reinitialize the service according to the account isolation directory.
+7. Finally start `startPolling()` and return to the new service.
 
-## 5. 切换、退出与删除
+## 5. Switch, exit and delete
 
-### 切换账号
+### Switch account
 
-`AccountSwitcher.switchAccount(...)` 会：
+`AccountSwitcher.switchAccount(...)` will:
 
-1. 调用 `AccountService.teardownCurrentSession(...)` 销毁旧会话。
-2. 校验目标账号密码。
-3. 重新调用 `initializeServiceForAccount(...)` 恢复目标账号。
-4. 导航到新的 `HomePage`。
+1. Call `AccountService.teardownCurrentSession(...)` to destroy the old session.
+2. Verify the target account password.
+3. Recall `initializeServiceForAccount(...)` to restore the target account.
+4. Navigate to the new `HomePage`.
 
-### 退出登录
+### Log out
 
-`SettingsPage._logout()` 会调用 `AccountService.teardownCurrentSession(service: widget.service)`，然后清空当前账号 ID 并返回登录页。
+`SettingsPage._logout()` will call `AccountService.teardownCurrentSession(service: widget.service)`, then clear the current account ID and return to the login page.
 
-### 删除账号
+### Delete account
 
-- 设置页删除：调用 `AccountService.deleteAccountCompletely(...)`，会先 teardown，再清理 prefs、账号列表、profile 目录和账号数据目录。
-- 登录页删除：调用 `AccountService.deleteAccountWithoutService(...)`，因为此时没有运行中的 service。
+- Setting page deletion: calling `AccountService.deleteAccountCompletely(...)` will teardown first, then clean up prefs, account list, profile directory and account data directory.
+- Login page deletion: Call `AccountService.deleteAccountWithoutService(...)` because there is no running service at this time.
 
-## 6. 会话销毁顺序
+## 6. Session destruction sequence
 
-`AccountService.teardownCurrentSession(...)` 当前顺序如下：
+`AccountService.teardownCurrentSession(...)` The current sequence is as follows:
 
 1. `FakeUIKit.instance.dispose()`
-2. 若当前 Platform 是 `Tim2ToxSdkPlatform`，先 `dispose()`，再恢复为默认 `MethodChannelTencentCloudChatSdk`
-3. 清空 `ChatDataProviderRegistry` 与 `ChatMessageProviderRegistry`
-4. 清理 `GroupMemberListDebouncer`、`IrcAppManager` 等静态缓存
+2. If the current Platform is `Tim2ToxSdkPlatform`, first `dispose()`, and then restore to the default `MethodChannelTencentCloudChatSdk`
+3. Clear `ChatDataProviderRegistry` and `ChatMessageProviderRegistry`
+4. Clean up static caches such as `GroupMemberListDebouncer` and `IrcAppManager`
 5. `service.dispose()`
-6. 如果当前会话使用密码，重新加密磁盘上的 `tox_profile.tox`
-7. 清理 `SessionPasswordStore`
+6. If the current session uses a password, re-encrypt `tox_profile.tox` on disk
+7. Clean up `SessionPasswordStore`
 
-这个顺序的关键点是：`FakeUIKit` 必须先于 `Tim2ToxSdkPlatform` 销毁，否则通话桥和 signaling listener 的清理会丢失依赖。
+The key point of this sequence is: `FakeUIKit` must be destroyed before `Tim2ToxSdkPlatform`, otherwise the cleanup of the call bridge and signaling listener will lose dependencies.
 
-## 7. 存储模型
+## 7. Storage model
 
-每个账号都有独立的运行目录：
+Each account has an independent running directory:
 
 - `tox_profile.tox`
 - `chat_history/`
@@ -103,20 +104,20 @@
 - `avatars/`
 - `file_recv/`
 
-这些路径由 `AppPaths` 统一生成，避免多个账号共享同一份历史数据或缓存。
+These paths are generated uniformly by `AppPaths` to prevent multiple accounts from sharing the same historical data or cache.
 
-完整账号备份使用 `.zip` 格式，包含 `tox_profile.tox`、`chat_history/`、`offline_message_queue.json`、`avatars/` 和 `metadata.json`。导出时会把账号目录下的头像路径改写为 `@account_data/...`，并会补齐缺失的 `friend_avatar_path_<friendId>` 元数据（包括 `friend_<id>_avatar_<timestamp>.<ext>` 这类运行期头像文件）。导入时会先校验 `chat_history/` 与 `avatars/` 内的归档路径，拒绝 `../`、绝对路径、Windows drive 前缀或反斜杠路径，确认安全后才写入 profile、历史、离线队列和 scoped prefs。
+Full account backup uses a `.zip` archive containing `tox_profile.tox`, `chat_history/`, `offline_message_queue.json`, `avatars/`, and `metadata.json`. Export rewrites account-local avatar paths to `@account_data/...` and backfills missing `friend_avatar_path_<friendId>` metadata, including runtime files named like `friend_<id>_avatar_<timestamp>.<ext>`. Import preflights archive paths under `chat_history/` and `avatars/`, rejects `../`, absolute paths, Windows drive prefixes, and backslash paths, and only then restores the profile, history, offline queue, and scoped prefs.
 
-## 8. 密码与 profile 加密
+## 8. Password and profile encryption
 
-- 密码哈希保存在持久化配置中，用于校验账号密码。
-- 会话明文密码只放在 `SessionPasswordStore` 内存里，不落盘。
-- 登录时如果发现 profile 已加密，会先解密。
-- 退出登录时如果本次会话有密码，会重新加密 `tox_profile.tox`。
-- 删除账号时不会重新加密，因为 profile 会被直接删除。
+- The password hash is saved in the persistent configuration and used to verify the account password.
+- The session plaintext password is only stored in the `SessionPasswordStore` memory and will not be lost to disk.
+- If the profile is found to be encrypted when logging in, it will be decrypted first.
+- If there is a password for this session when logging out, `tox_profile.tox` will be re-encrypted.
+- There will be no re-encryption when deleting the account, because the profile will be deleted directly.
 
-## 9. 相关文档
+## 9. Related documents
 
-- [architecture/HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)
-- [IMPLEMENTATION_DETAILS.md](IMPLEMENTATION_DETAILS.md)
+- [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)
+- [../architecture/MAINTAINER_ARCHITECTURE.md](../architecture/MAINTAINER_ARCHITECTURE.md)
 - [CALLING_AND_EXTENSIONS.md](CALLING_AND_EXTENSIONS.md)
