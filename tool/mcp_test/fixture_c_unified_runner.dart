@@ -163,6 +163,7 @@ const _validRealUiPlatforms = {'macos', 'ios', 'android', 'windows', 'linux'};
 // "known but not yet wired" (a non-empty entry makes `--real-ui-platform=<name>`
 // fail with the stated reason) without re-introducing scattered special-cases.
 const _unsupportedRealUiPlatforms = <String, String>{};
+const _realUiBuildEnvDefaults = <String, String>{'MCP_BINDING': 'skill'};
 String _realUiPlatform = 'macos';
 
 /// Set to 'tablet' when a `rui-ipad-*` campaign is selected: forced into the
@@ -2562,7 +2563,9 @@ Future<int> _launchRealUiPair({String? restore}) async {
       ['bash', 'run_toxee.sh', '--skip-bootstrap'],
       environment: {
         ...Platform.environment,
-        'MCP_BINDING': 'skill',
+        'MCP_BINDING':
+            Platform.environment['MCP_BINDING'] ??
+            _realUiBuildEnvDefaults['MCP_BINDING']!,
         'TOXEE_L3_TEST': 'true',
         'TOXEE_BUILD_ONLY': '1',
       },
