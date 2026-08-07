@@ -1013,19 +1013,49 @@ void _expectDartSetterSignature(
   );
   expect(typedefBlock, contains('ffi.Pointer<ffi.Void>,'));
 
-  final lookupLine = dartBinding
-      .split('\n')
-      .firstWhere((line) => line.contains('${contract.dartProperty} ='));
   final dartFunctionType =
       'void Function(int, ffi.Pointer<ffi.NativeFunction<${contract.dartCallbackTypedef}>>, ffi.Pointer<ffi.Void>)';
-  expect(lookupLine, contains(dartFunctionType));
+  final assignment = RegExp(
+    r'\b' + RegExp.escape(contract.dartProperty) + r'\s*=',
+  ).firstMatch(dartBinding);
   expect(
-    lookupLine,
+    assignment,
+    isNotNull,
+    reason: '${contract.dartProperty} must exist in tim2tox_ffi.dart',
+  );
+  final assignmentMatch = assignment!;
+  final declarationStart =
+      dartBinding.lastIndexOf(';', assignmentMatch.start) + 1;
+  final declarationEnd = dartBinding.indexOf(';', assignmentMatch.end);
+  expect(
+    declarationEnd,
+    isNonNegative,
+    reason: '${contract.dartProperty} must have a complete field assignment',
+  );
+  final declaration = dartBinding.substring(
+    declarationStart,
+    declarationEnd + 1,
+  );
+  final compactDeclaration = declaration.replaceAll(RegExp(r'\s+'), '');
+  final compactDartFunctionType = dartFunctionType.replaceAll(
+    RegExp(r'\s+'),
+    '',
+  );
+
+  expect(
+    compactDeclaration,
+    contains('$compactDartFunctionType${contract.dartProperty}='),
+  );
+  expect(
+    compactDeclaration,
     contains(
-      'lookupFunction<${contract.dartSetterTypedef}, $dartFunctionType>',
+      'lookupFunction<${contract.dartSetterTypedef},$compactDartFunctionType>',
     ),
   );
-  expect(lookupLine, contains("('${contract.nativeSetter}')"));
+  expect(
+    compactDeclaration,
+    contains("('${contract.nativeSetter}')"),
+  );
 }
 
 String _extractStructBody(String source, String structName) {
