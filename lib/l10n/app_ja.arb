@@ -745,6 +745,13 @@
   "callVideoUnsupportedPlatform": "このプラットフォームではビデオ通話はまだ利用できません（カメラ非対応）。",
   "callAudioInterrupted": "通話中に音声出力が変更されたか、中断されました。",
   "callCalling": "発信中...",
+  "callLeaving": "会議から退出しています...",
+  "callReceivedFrames": "受信フレーム {count}",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "最小化",
   "callReturnToCall": "通話に戻る",
   "callQualityGood": "接続良好",

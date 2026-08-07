@@ -1,6 +1,61 @@
 part of 'home_page.dart';
 
 extension _HomePageBootstrap on _HomePageState {
+  bool _isAvConferenceConversation(V2TimConversation? conversation) {
+    return conversation?.groupType == 'av_conference';
+  }
+
+  String _resolveKnownGroupType(String groupId, {String? fallback}) {
+    final existingType = UikitDataFacade.getGroupInfo(groupId).groupType;
+    if (existingType.isNotEmpty) {
+      return existingType;
+    }
+    if (fallback != null && fallback.isNotEmpty) {
+      return fallback;
+    }
+    if (groupId.startsWith('tox_conf_')) {
+      return GroupType.AVChatRoom;
+    }
+    return GroupType.Work;
+  }
+
+  Widget _buildMessageHeaderActions(
+    BuildContext context, {
+    required MessageHeaderBuilderWidgets widgets,
+    required MessageHeaderBuilderData data,
+  }) {
+    final conversation = data.conversation;
+    final groupId = conversation?.groupID;
+    if (!_isAvConferenceConversation(conversation) ||
+        groupId == null ||
+        groupId.isEmpty) {
+      return widgets.messageHeaderActions;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final manager = FakeUIKit.instance.callServiceManager;
+    final canJoinConference = manager?.isCallingAvailable ?? false;
+    return AvConferenceHeaderAction(
+      enabled: canJoinConference,
+      tooltip: '${l10n.join} ${l10n.audio}',
+      onPressed: !canJoinConference || manager == null
+          ? null
+          : () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  fullscreenDialog: true,
+                  builder: (_) => AvConferenceSessionPage(
+                    controller: AvConferenceSessionController(
+                      groupId: groupId,
+                      displayName: conversation?.showName ?? groupId,
+                      bridge: manager,
+                    ),
+                  ),
+                ),
+              );
+            },
+    );
+  }
+
   void _installContactProfileBuilders() {
     // Only override the delete-button slot: when the user is a friend we
     // render the upstream default widget directly; otherwise we render the
@@ -575,7 +630,7 @@ extension _HomePageBootstrap on _HomePageState {
                     );
                     targetGroupInfo = V2TimGroupInfo(
                       groupID: targetGroupID,
-                      groupType: "Work",
+                      groupType: _resolveKnownGroupType(targetGroupID),
                       groupName: groupName ?? targetGroupID,
                       faceUrl: groupAvatar,
                     );
@@ -675,7 +730,11 @@ extension _HomePageBootstrap on _HomePageState {
               methods: methods,
               widgets: MessageHeaderBuilderWidgets(
                 messageHeaderProfileImage: widgets.messageHeaderProfileImage,
-                messageHeaderActions: widgets.messageHeaderActions,
+                messageHeaderActions: _buildMessageHeaderActions(
+                  context,
+                  widgets: widgets,
+                  data: data,
+                ),
                 messageHeaderMessagesSelectMode:
                     widgets.messageHeaderMessagesSelectMode,
                 messageHeaderInfo: ToxeeMessageHeaderInfo(
@@ -1321,7 +1380,7 @@ extension _HomePageBootstrap on _HomePageState {
               if (!stillCurrent()) return;
               final groupInfo = V2TimGroupInfo(
                 groupID: gid,
-                groupType: "work",
+                groupType: _resolveKnownGroupType(gid),
                 groupName: savedName,
                 faceUrl: savedAvatar,
               );

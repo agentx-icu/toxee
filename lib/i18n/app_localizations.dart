@@ -2572,6 +2572,18 @@ abstract class AppLocalizations {
   /// **'Calling...'**
   String get callCalling;
 
+  /// No description provided for @callLeaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Leaving conference...'**
+  String get callLeaving;
+
+  /// No description provided for @callReceivedFrames.
+  ///
+  /// In en, this message translates to:
+  /// **'Received {count} frames'**
+  String callReceivedFrames(int count);
+
   /// No description provided for @callMinimize.
   ///
   /// In en, this message translates to:

@@ -745,6 +745,13 @@
   "callVideoUnsupportedPlatform": "이 플랫폼에서는 아직 영상 통화를 사용할 수 없습니다(카메라 미지원).",
   "callAudioInterrupted": "통화 중 오디오 출력이 변경되었거나 중단되었습니다.",
   "callCalling": "전화 거는 중...",
+  "callLeaving": "회의를 나가는 중...",
+  "callReceivedFrames": "수신 프레임 {count}",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "최소화",
   "callReturnToCall": "통화로 돌아가기",
   "callQualityGood": "연결 양호",

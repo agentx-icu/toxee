@@ -180,6 +180,7 @@ class CallTopStatusBar extends StatelessWidget {
     this.qualityIndicator,
     this.trailingIcon,
     this.onTrailingPressed,
+    this.trailingActionTooltip,
   });
 
   final String title;
@@ -188,6 +189,7 @@ class CallTopStatusBar extends StatelessWidget {
   final Widget? qualityIndicator;
   final IconData? trailingIcon;
   final VoidCallback? onTrailingPressed;
+  final String? trailingActionTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +240,7 @@ class CallTopStatusBar extends StatelessWidget {
               icon: Icon(trailingIcon, color: _kCallMutedForeground, size: 22),
               onPressed: onTrailingPressed,
               splashRadius: 22,
-              tooltip:
+              tooltip: trailingActionTooltip ??
                   AppLocalizations.of(context)?.callMinimize ?? 'Minimize call',
             ),
         ],

@@ -520,7 +520,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get testNode => 'Send Bootstrap Request';
+  String get testNode => 'Test Node';
 
   @override
   String get deleteAccount => 'Delete Account';
@@ -620,7 +620,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get canOnlySelectTestedNode =>
-      'Send a bootstrap request successfully before selecting this node';
+      'Can only select successfully tested nodes, please test the node first';
 
   @override
   String get switchNode => 'Switch Node';
@@ -823,11 +823,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get nodeNotTestedWarning =>
-      'No bootstrap request has been sent to this node.';
+      'Note: This node has not been tested and may not be connectable.';
 
   @override
   String get nodeTestFailedWarning =>
-      'The bootstrap request failed; this node may be unavailable.';
+      'Note: This node test failed and may not be connectable.';
 
   @override
   String get nicknameTooLong => 'Nickname too long';
@@ -866,10 +866,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get setAsCurrentNode => 'Set as Current Node';
 
   @override
-  String get nodeTestSuccess => 'Bootstrap request sent';
+  String get nodeTestSuccess => 'Node test successful';
 
   @override
-  String get nodeTestFailed => 'Bootstrap request failed';
+  String get nodeTestFailed => 'Node test failed';
 
   @override
   String get nodeTestUnavailableBeforeLogin => 'Test unavailable before login';
@@ -1384,6 +1384,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get callCalling => 'Calling...';
+
+  @override
+  String get callLeaving => 'Leaving conference...';
+
+  @override
+  String callReceivedFrames(int count) {
+    return 'Received $count frames';
+  }
 
   @override
   String get callMinimize => 'Minimize';

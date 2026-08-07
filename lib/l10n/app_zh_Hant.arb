@@ -762,6 +762,13 @@
   "callVideoUnsupportedPlatform": "目前平台暫不支援視訊通話（無攝影機支援）。",
   "callAudioInterrupted": "通話過程中音訊輸出發生變化或被中斷。",
   "callCalling": "撥打中...",
+  "callLeaving": "正在離開會議...",
+  "callReceivedFrames": "已接收 {count} 幀",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "最小化",
   "callReturnToCall": "返回通話",
   "callQualityGood": "連線良好",

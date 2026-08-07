@@ -590,6 +590,13 @@
   "callVideoUnsupportedPlatform": "当前平台暂不支持视频通话（无摄像头支持）。",
   "callAudioInterrupted": "通话过程中音频输出发生变化或被中断。",
   "callCalling": "呼叫中...",
+  "callLeaving": "正在离开会议...",
+  "callReceivedFrames": "已接收 {count} 帧",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "最小化",
   "callReturnToCall": "返回通话",
   "callQualityGood": "连接良好",

@@ -117,6 +117,8 @@ import 'add_group_dialog.dart';
 import 'home/home_group_controller.dart';
 import 'home/home_session_controller.dart';
 import 'home/home_widgets.dart';
+import '../call/av_conference_session_controller.dart';
+import '../call/av_conference_session_page.dart';
 import '../util/ffi_chat_service_account_key.dart';
 import '../util/irc_app_manager.dart';
 import 'applications/irc_channel_dialog.dart';
@@ -2036,6 +2038,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             userID: hasGroup ? null : peerId,
             groupID: hasGroup ? groupId : null,
             showName: hasGroup ? groupId : peerId,
+            groupType: hasGroup
+                ? UikitDataFacade.getGroupInfo(groupId).groupType
+                : null,
             unreadCount: 0,
           )
         : V2TimConversation(
@@ -2052,7 +2057,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 (hasGroup ? groupId : peerId) ??
                 targetConvId,
             faceUrl: target.faceUrl,
-            groupType: target.groupType,
+            groupType: hasGroup
+                ? (() {
+                    final groupType = UikitDataFacade.getGroupInfo(
+                      groupId,
+                    ).groupType;
+                    return groupType.isNotEmpty ? groupType : target?.groupType;
+                  })()
+                : target.groupType,
             unreadCount: target.unreadCount ?? 0,
             lastMessage: target.lastMessage,
             draftText: target.draftText,
