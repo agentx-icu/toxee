@@ -47,6 +47,17 @@ typedef _AvVideoReceiveCallbackNativeForTest =
     );
 typedef _AvBitrateCallbackNativeForTest =
     ffi.Void Function(ffi.Uint32, ffi.Uint32, ffi.Pointer<ffi.Void>);
+typedef _AvConferenceAudioReceiveCallbackNativeForTest =
+    ffi.Void Function(
+      ffi.Pointer<pkgffi.Utf8>,
+      ffi.Uint32,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Int16>,
+      ffi.Size,
+      ffi.Uint8,
+      ffi.Uint32,
+      ffi.Pointer<ffi.Void>,
+    );
 
 void main() {
   group('ToxAVService FFI safety — copyAudioForCallback', () {
@@ -716,6 +727,18 @@ final class _RecordingToxAvFfi implements ffi_lib.Tim2ToxFfi {
   )
   get avSetVideoBitrateCallbackNative => (_, __, ___) {
     callbackSetterCalls.add('video_bitrate');
+  };
+
+  @override
+  void Function(
+    int,
+    ffi.Pointer<
+      ffi.NativeFunction<_AvConferenceAudioReceiveCallbackNativeForTest>
+    >,
+    ffi.Pointer<ffi.Void>,
+  )
+  get avConferenceSetAudioReceiveCallbackNative => (_, __, ___) {
+    callbackSetterCalls.add('conference_audio_receive');
   };
 
   @override
