@@ -25,7 +25,7 @@ toxee 使用 Tim2Tox 实现基于 Tox 协议的 P2P 群聊功能。群聊功能�
 - **group_number**: Tox 协议层的群组编号，由 Tox 分配
 - **chat_id**: Tox 群组的唯一标识符（32 字节），用于重新加入群组（仅 Group 类型支持）
 - **映射关系**: `group_id` ↔ `group_number` ↔ `chat_id` 之间的映射
-- **groupType**: 群组类型，可以是 `"group"`（新 API）或 `"conference"`（旧 API）
+- **groupType**：传输层群组类型，可以是 `"group"`（新 API）或 `"conference"`（旧 API）。应用侧的 `"av_conference"` 标记仅用于 AV Conference 的 UI/会话路由，不是第三种 Tox 传输类型。
 
 ### Group vs Conference
 
@@ -46,6 +46,10 @@ toxee 同时支持两种 Tox 群聊类型：
 - **持久化**: 不支持 `chat_id`，依赖 Tox savedata 自动恢复
 - **恢复机制**: Client 重启后从 savedata 自动恢复，需要手动匹配 `conference_number` 到 `group_id`
 - **功能**: 功能相对简单，不支持群公告等高级功能
+
+#### AV Conference 标记（应用侧）
+- `av_conference` 是应用侧标记，用于路由 AV Conference 的 UI/会话行为。
+- 它不会改变底层 Tox 传输；持久化/原生层群组仍然是 Group 或 Conference。
 
 **选择建议**：
 - 新群组建议使用 **Group** 类型，功能更完整，恢复更可靠

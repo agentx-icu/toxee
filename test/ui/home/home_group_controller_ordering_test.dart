@@ -55,8 +55,7 @@ void main() {
   });
 
   group('handleGroupChanged ordering', () {
-    test(
-        'full order: clearMessageList → deleteGroupInfoFromJoinedGroupList '
+    test('full order: clearMessageList → deleteGroupInfoFromJoinedGroupList '
         '→ unblockConversation → refreshConversations', () async {
       final log = <_Op>[];
       final controller = HomeGroupController(ops: _recorderOps(log: log));
@@ -64,31 +63,33 @@ void main() {
       await controller.handleGroupChanged('tox_group_1');
 
       expect(
-          log,
-          equals([
-            _Op.clearMessageList,
-            _Op.deleteGroupInfoFromJoinedGroupList,
-            _Op.unblockConversation,
-            _Op.refreshConversations,
-          ]));
-    });
-
-    test('clearMessageList runs before deleteGroupInfoFromJoinedGroupList',
-        () async {
-      final log = <_Op>[];
-      final controller = HomeGroupController(ops: _recorderOps(log: log));
-
-      await controller.handleGroupChanged('tox_group_1');
-
-      final clearIdx = log.indexOf(_Op.clearMessageList);
-      final deleteIdx = log.indexOf(_Op.deleteGroupInfoFromJoinedGroupList);
-      expect(clearIdx, isNonNegative);
-      expect(deleteIdx, isNonNegative);
-      expect(clearIdx, lessThan(deleteIdx));
+        log,
+        equals([
+          _Op.clearMessageList,
+          _Op.deleteGroupInfoFromJoinedGroupList,
+          _Op.unblockConversation,
+          _Op.refreshConversations,
+        ]),
+      );
     });
 
     test(
-        'unblockConversation runs before refreshConversations '
+      'clearMessageList runs before deleteGroupInfoFromJoinedGroupList',
+      () async {
+        final log = <_Op>[];
+        final controller = HomeGroupController(ops: _recorderOps(log: log));
+
+        await controller.handleGroupChanged('tox_group_1');
+
+        final clearIdx = log.indexOf(_Op.clearMessageList);
+        final deleteIdx = log.indexOf(_Op.deleteGroupInfoFromJoinedGroupList);
+        expect(clearIdx, isNonNegative);
+        expect(deleteIdx, isNonNegative);
+        expect(clearIdx, lessThan(deleteIdx));
+      },
+    );
+
+    test('unblockConversation runs before refreshConversations '
         '(counteracts quitGroup side-effect)', () async {
       final log = <_Op>[];
       final controller = HomeGroupController(ops: _recorderOps(log: log));
@@ -102,8 +103,7 @@ void main() {
       expect(unblockIdx, lessThan(refreshIdx));
     });
 
-    test(
-        'unblockConversation receives the `group_` prefix '
+    test('unblockConversation receives the `group_` prefix '
         '(FakeChatDataProvider stores it that way)', () async {
       final unblocked = <String>[];
       final ops = GroupSyncOps(
@@ -132,8 +132,11 @@ void main() {
       await controller.handleGroupChanged('tox_group_1');
 
       for (final op in _Op.values) {
-        expect(log.where((e) => e == op).length, equals(1),
-            reason: '$op should be called exactly once');
+        expect(
+          log.where((e) => e == op).length,
+          equals(1),
+          reason: '$op should be called exactly once',
+        );
       }
     });
 
@@ -141,8 +144,10 @@ void main() {
       final log = <_Op>[];
       final controller = HomeGroupController(ops: _recorderOps(log: log));
 
-      await controller.handleGroupChanged('tox_group_2',
-          displayName: 'My Group');
+      await controller.handleGroupChanged(
+        'tox_group_2',
+        displayName: 'My Group',
+      );
 
       expect(await Prefs.getGroupName('tox_group_2'), equals('My Group'));
     });
@@ -155,6 +160,72 @@ void main() {
 
       expect(await Prefs.getGroupName('tox_group_3'), isNull);
     });
+
+    test('latest-name rebuild preserves av_conference group type', () async {
+      const groupId = 'tox_conf_av_1';
+      final rebuiltGroups = <V2TimGroupInfo>[];
+      final existing = V2TimGroupInfo(
+        groupID: groupId,
+        groupType: 'av_conference',
+      );
+      final ops = GroupSyncOps(
+        clearMessageList: (_) {},
+        getGroupListSnapshot: () => <V2TimGroupInfo>[existing],
+        deleteGroupInfoFromJoinedGroupList: (_) {},
+        fetchSdkGroupListSnapshot: () async => <V2TimGroupInfo>[],
+        buildGroupList: (_, __) {},
+        addGroupInfoToJoinedGroupList: rebuiltGroups.add,
+        getKnownGroups: () => <String>{},
+        unblockConversation: (_) {},
+        refreshConversations: () async {},
+        onUpdateTray: () async {},
+      );
+
+      await HomeGroupController(
+        ops: ops,
+      ).handleGroupChanged(groupId, displayName: 'Renamed AV conference');
+
+      expect(rebuiltGroups.single.groupType, 'av_conference');
+    });
+
+    test(
+      'unknown groups fall back to GroupType.Work and tox_conf_ to AVChatRoom',
+      () async {
+        final addedGroups = <V2TimGroupInfo>[];
+        final ops = GroupSyncOps(
+          clearMessageList: (_) {},
+          getGroupListSnapshot: () => <V2TimGroupInfo>[],
+          deleteGroupInfoFromJoinedGroupList: (_) {},
+          fetchSdkGroupListSnapshot: () async => <V2TimGroupInfo>[],
+          buildGroupList: (_, __) {},
+          addGroupInfoToJoinedGroupList: addedGroups.add,
+          getKnownGroups: () => <String>{},
+          unblockConversation: (_) {},
+          refreshConversations: () async {},
+          onUpdateTray: () async {},
+        );
+
+        await HomeGroupController(
+          ops: ops,
+        ).handleGroupChanged('tox_group_unknown');
+        await HomeGroupController(
+          ops: ops,
+        ).handleGroupChanged('tox_conf_legacy');
+
+        expect(
+          addedGroups
+              .firstWhere((group) => group.groupID == 'tox_group_unknown')
+              .groupType,
+          GroupType.Work,
+        );
+        expect(
+          addedGroups
+              .firstWhere((group) => group.groupID == 'tox_conf_legacy')
+              .groupType,
+          GroupType.AVChatRoom,
+        );
+      },
+    );
   });
 
   group('loadPersistedGroupsIntoUIKit', () {
@@ -199,10 +270,8 @@ void main() {
       await expectLater(controller.loadPersistedGroupsIntoUIKit(), completes);
     });
 
-    test(
-        'when allGroups is empty (new account / post-logout), '
-        'stale snapshot groups are NOT merged into buildGroupList',
-        () async {
+    test('when allGroups is empty (new account / post-logout), '
+        'stale snapshot groups are NOT merged into buildGroupList', () async {
       // Simulate a stale UIKit snapshot from the previous account session.
       // The guard in loadPersistedGroupsIntoUIKit at `if (allGroups.isNotEmpty)`
       // must prevent these from being merged when the new account has no
@@ -230,15 +299,50 @@ void main() {
 
       await controller.loadPersistedGroupsIntoUIKit();
 
-      expect(builtLists, isNotEmpty,
-          reason: 'buildGroupList must be called exactly once');
-      expect(builtLists.single, isEmpty,
-          reason:
-              'When allGroups is empty (new account / post-logout), the '
-              'previous account snapshot must NOT be merged into the new '
-              "account's UIKit group list. Removing the `allGroups.isNotEmpty` "
-              'guard would cause stale group_<id> entries from the previous '
-              "account to appear in the new account's conversation list.");
+      expect(
+        builtLists,
+        isNotEmpty,
+        reason: 'buildGroupList must be called exactly once',
+      );
+      expect(
+        builtLists.single,
+        isEmpty,
+        reason:
+            'When allGroups is empty (new account / post-logout), the '
+            'previous account snapshot must NOT be merged into the new '
+            "account's UIKit group list. Removing the `allGroups.isNotEmpty` "
+            'guard would cause stale group_<id> entries from the previous '
+            "account to appear in the new account's conversation list.",
+      );
     });
+
+    test(
+      'persisted group rebuild preserves av_conference group type',
+      () async {
+        const groupId = 'tox_conf_av_2';
+        await Prefs.setGroups(<String>{groupId});
+        final addedGroups = <V2TimGroupInfo>[];
+        final existing = V2TimGroupInfo(
+          groupID: groupId,
+          groupType: 'av_conference',
+        );
+        final ops = GroupSyncOps(
+          clearMessageList: (_) {},
+          getGroupListSnapshot: () => <V2TimGroupInfo>[existing],
+          deleteGroupInfoFromJoinedGroupList: (_) {},
+          fetchSdkGroupListSnapshot: () async => <V2TimGroupInfo>[],
+          buildGroupList: (_, __) {},
+          addGroupInfoToJoinedGroupList: addedGroups.add,
+          getKnownGroups: () => <String>{},
+          unblockConversation: (_) {},
+          refreshConversations: () async {},
+          onUpdateTray: () async {},
+        );
+
+        await HomeGroupController(ops: ops).loadPersistedGroupsIntoUIKit();
+
+        expect(addedGroups.single.groupType, 'av_conference');
+      },
+    );
   });
 }
