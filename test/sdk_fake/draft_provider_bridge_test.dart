@@ -99,7 +99,9 @@ void main() {
 
     expect(FakeUIKit.instance.ensureOwnedMessageProvider(ffi), same(fallback));
     expect(ffi.progressController.hasListener, isTrue);
-    expect(ffi.fileRequestsController.hasListener, isTrue);
+    // Ordinary file requests stay pending until the message UI explicitly
+    // invokes downloadMessage/acceptFileTransferByMsgID.
+    expect(ffi.fileRequestsController.hasListener, isFalse);
     expect(ffi.avatarUpdatedController.hasListener, isTrue);
 
     final conversationDone = Completer<void>();

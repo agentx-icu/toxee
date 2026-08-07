@@ -78,6 +78,96 @@ class _RecordingChatMessageProvider
   }) async {}
 }
 
+class _InspectableChatMessageProvider
+    implements ChatMessageProviderWithSendResult {
+  _InspectableChatMessageProvider(this.ffiService);
+
+  final FfiChatService ffiService;
+  final List<_TextSendCall> calls = <_TextSendCall>[];
+  final List<String?> returnedCloudCustomData = <String?>[];
+  bool throwBeforeConsume = false;
+
+  @override
+  Stream<List<V2TimMessage>> streamFor({String? userID, String? groupID}) =>
+      const Stream<List<V2TimMessage>>.empty();
+
+  Future<List<({String userId, String nickName, String status, bool online})>>
+  getFriendList() async => const [];
+
+  @override
+  Future<void> sendText({
+    String? userID,
+    String? groupID,
+    required String text,
+  }) async {
+    await sendTextWithResult(userID: userID, groupID: groupID, text: text);
+  }
+
+  @override
+  Future<ChatMessageSendResult> sendTextWithResult({
+    String? userID,
+    String? groupID,
+    required String text,
+    String? clientMessageID,
+  }) async {
+    calls.add((
+      userID: userID,
+      groupID: groupID,
+      text: text,
+      clientMessageID: clientMessageID,
+    ));
+    if (throwBeforeConsume) {
+      throwBeforeConsume = false;
+      throw StateError('provider refused to consume armed cloudCustomData');
+    }
+
+    final message = await ffiService.sendTextWithResult(
+      userID ?? '',
+      text,
+      clientMessageID: clientMessageID,
+    );
+    returnedCloudCustomData.add(message.cloudCustomData);
+    return ChatMessageSendResult(
+      messageID: message.msgID!,
+      isPending: message.isPending,
+    );
+  }
+
+  @override
+  Future<void> sendImage({
+    String? userID,
+    String? groupID,
+    required String imagePath,
+    String? imageName,
+  }) async {}
+
+  @override
+  Future<void> sendFile({
+    String? userID,
+    String? groupID,
+    required String filePath,
+    String? fileName,
+  }) async {}
+
+  @override
+  Future<void> deleteMessages({
+    String? userID,
+    String? groupID,
+    required List<String> msgIDs,
+  }) async {}
+}
+
+class _OfflineFfiChatService extends FfiChatService {
+  _OfflineFfiChatService({
+    required super.historyDirectory,
+    required super.queueFilePath,
+  });
+
+  @override
+  Future<List<({String userId, String nickName, String status, bool online})>>
+  getFriendList() async => const [];
+}
+
 class _LegacyChatMessageProvider implements ChatMessageProvider {
   final List<_TextSendCall> calls = <_TextSendCall>[];
 
@@ -141,6 +231,7 @@ V2TimMessage _optimisticMessage({
   V2TimFaceElem? faceElem,
   V2TimLocationElem? locationElem,
   V2TimCustomElem? customElem,
+  String? cloudCustomData,
 }) {
   return V2TimMessage(
     id: messageID,
@@ -153,6 +244,7 @@ V2TimMessage _optimisticMessage({
     customElem: customElem,
     isSelf: true,
     sender: 'test-self',
+    cloudCustomData: cloudCustomData,
   )..status = MessageStatus.V2TIM_MSG_STATUS_SENDING;
 }
 
@@ -342,6 +434,146 @@ void main() {
       },
     );
 
+    test(
+      'arms explicit cloudCustomData once and clears it for the next text or merger send',
+      () async {
+        final armService = _OfflineFfiChatService(
+          historyDirectory: '${env.root.path}/arm-history',
+          queueFilePath: '${env.root.path}/arm-offline_queue.json',
+        );
+        final armProvider = _InspectableChatMessageProvider(armService);
+        final armPlatform = Tim2ToxSdkPlatform(ffiService: armService);
+        final previous = ChatMessageProviderRegistry.provider;
+        ChatMessageProviderRegistry.provider = armProvider;
+        addTearDown(() async {
+          ChatMessageProviderRegistry.provider = previous;
+          armPlatform.dispose();
+          await armService.dispose();
+        });
+
+        const peerID = 'arm-peer';
+        final sendCases =
+            <
+              ({
+                String name,
+                V2TimMessage message,
+                String explicitCloudCustomData,
+                String expectedText,
+              })
+            >[
+              (
+                name: 'text',
+                message: _optimisticMessage(
+                  messageID: 'arm-text-optimistic',
+                  elemType: MessageElemType.V2TIM_ELEM_TYPE_TEXT,
+                  textElem: V2TimTextElem(text: 'plain arm text'),
+                  cloudCustomData:
+                      '{"messageReply":{"messageID":"fallback-text"}}',
+                ),
+                explicitCloudCustomData:
+                    '{"messageReply":{"messageID":"explicit-text"}}',
+                expectedText: 'plain arm text',
+              ),
+              (
+                name: 'merger',
+                message: _optimisticMessage(
+                  messageID: 'arm-merger-optimistic',
+                  elemType: MessageElemType.V2TIM_ELEM_TYPE_MERGER,
+                  mergerElem: V2TimMergerElem(
+                    compatibleText: 'merged arm text',
+                  ),
+                  cloudCustomData:
+                      '{"messageReply":{"messageID":"fallback-merger"}}',
+                ),
+                explicitCloudCustomData:
+                    '{"messageReply":{"messageID":"explicit-merger"}}',
+                expectedText: 'merged arm text',
+              ),
+            ];
+
+        for (final entry in sendCases) {
+          armProvider.calls.clear();
+          armProvider.returnedCloudCustomData.clear();
+          _seedMessage(peerID, entry.message);
+
+          final callback = await armPlatform.sendMessage(
+            id: entry.message.id!,
+            receiver: peerID,
+            groupID: '',
+            cloudCustomData: entry.explicitCloudCustomData,
+          );
+
+          expect(callback.code, 0, reason: entry.name);
+          expect(armProvider.calls, hasLength(1), reason: entry.name);
+          expect(
+            armProvider.calls.single.text,
+            entry.expectedText,
+            reason: entry.name,
+          );
+          expect(
+            armProvider.calls.single.clientMessageID,
+            entry.message.id,
+            reason: entry.name,
+          );
+          expect(armProvider.returnedCloudCustomData, [
+            entry.explicitCloudCustomData,
+          ], reason: entry.name);
+          expect(callback.data, same(entry.message), reason: entry.name);
+          expect(
+            callback.data!.status,
+            MessageStatus.V2TIM_MSG_STATUS_SENDING,
+            reason: entry.name,
+          );
+        }
+
+        armProvider.calls.clear();
+        armProvider.returnedCloudCustomData.clear();
+        armProvider.throwBeforeConsume = true;
+
+        const failedPeerID = 'arm-failed-peer';
+        final failedOptimistic = _optimisticMessage(
+          messageID: 'arm-failed-optimistic',
+          elemType: MessageElemType.V2TIM_ELEM_TYPE_TEXT,
+          textElem: V2TimTextElem(text: 'failed arm text'),
+          cloudCustomData:
+              '{"messageReply":{"messageID":"fallback-after-failure"}}',
+        );
+        _seedMessage(failedPeerID, failedOptimistic);
+
+        final failed = await armPlatform.sendMessage(
+          id: failedOptimistic.id,
+          receiver: failedPeerID,
+          groupID: '',
+          cloudCustomData: '{"messageReply":{"messageID":"explicit-failure"}}',
+        );
+
+        expect(failed.code, -1);
+        expect(armProvider.calls, hasLength(1));
+        expect(armProvider.returnedCloudCustomData, isEmpty);
+
+        const nextPeerID = 'arm-next-peer';
+        const nextFallback = '{"messageReply":{"messageID":"fallback-next"}}';
+        final nextOptimistic = _optimisticMessage(
+          messageID: 'arm-next-optimistic',
+          elemType: MessageElemType.V2TIM_ELEM_TYPE_TEXT,
+          textElem: V2TimTextElem(text: 'next arm text'),
+          cloudCustomData: nextFallback,
+        );
+        _seedMessage(nextPeerID, nextOptimistic);
+
+        final next = await armPlatform.sendMessage(
+          id: nextOptimistic.id,
+          receiver: nextPeerID,
+          groupID: '',
+        );
+
+        expect(next.code, 0);
+        expect(armProvider.calls, hasLength(2));
+        expect(armProvider.returnedCloudCustomData, [nextFallback]);
+        expect(next.data, same(nextOptimistic));
+      },
+    );
+
     test('legacy provider remains source-compatible', () async {
       const peerID = 'legacy-peer';
       const messageID = 'legacy-message-id';
@@ -367,38 +599,34 @@ void main() {
       expect(callback.data!.status, MessageStatus.V2TIM_MSG_STATUS_SEND_SUCC);
     });
 
-    test(
-      'rapid creates across platform instances have distinct IDs',
-      () async {
-        final secondPlatform = Tim2ToxSdkPlatform(ffiService: ffi);
-        addTearDown(secondPlatform.dispose);
-        final creates =
-            <Future<V2TimValueCallback<V2TimMsgCreateInfoResult>>>[];
-        for (var i = 0; i < 64; i++) {
-          creates.add(
-            i.isEven
-                ? platform.createTextMessage(text: 'same rapid text')
-                : secondPlatform.createTextAtMessage(
-                    text: 'same rapid text',
-                    atUserList: const ['peer'],
-                  ),
-          );
-        }
-
-        final callbacks = await Future.wait(creates);
-        final ids = callbacks.map((callback) => callback.data!.id!).toList();
-
-        expect(callbacks.every((callback) => callback.code == 0), isTrue);
-        expect(ids.toSet(), hasLength(ids.length));
-        expect(
-          ids.every((messageID) => MessageIdGenerator.parse(messageID) != null),
-          isTrue,
+    test('rapid creates across platform instances have distinct IDs', () async {
+      final secondPlatform = Tim2ToxSdkPlatform(ffiService: ffi);
+      addTearDown(secondPlatform.dispose);
+      final creates = <Future<V2TimValueCallback<V2TimMsgCreateInfoResult>>>[];
+      for (var i = 0; i < 64; i++) {
+        creates.add(
+          i.isEven
+              ? platform.createTextMessage(text: 'same rapid text')
+              : secondPlatform.createTextAtMessage(
+                  text: 'same rapid text',
+                  atUserList: const ['peer'],
+                ),
         );
-        expect(
-          callbacks.map((callback) => callback.data!.messageInfo!.msgID),
-          ids,
-        );
-      },
-    );
+      }
+
+      final callbacks = await Future.wait(creates);
+      final ids = callbacks.map((callback) => callback.data!.id!).toList();
+
+      expect(callbacks.every((callback) => callback.code == 0), isTrue);
+      expect(ids.toSet(), hasLength(ids.length));
+      expect(
+        ids.every((messageID) => MessageIdGenerator.parse(messageID) != null),
+        isTrue,
+      );
+      expect(
+        callbacks.map((callback) => callback.data!.messageInfo!.msgID),
+        ids,
+      );
+    });
   }, skip: skipReason);
 }

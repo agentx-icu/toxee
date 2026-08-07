@@ -46,6 +46,8 @@ bool _ffiAvailable() {
 
 String _asciiPayload(int length) => 'a' * length;
 
+const int _qtoxFragmentBytes = 1322;
+
 String _emojiBoundaryPayload({required int asciiPrefixBytes}) =>
     '${'a' * asciiPrefixBytes}🙂';
 
@@ -89,7 +91,7 @@ void main() {
     }
 
     test(
-      'rejects C2C online text over 1372 UTF-8 bytes without side effects',
+      'C2C online long text reaches native transport without false success',
       () async {
         const peerId =
             '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -104,14 +106,16 @@ void main() {
         final sub = chat.messages.listen(emitted.add);
         addTearDown(sub.cancel);
 
-        final payload = _asciiPayload(1373);
-        expect(utf8.encode(payload).length, 1373);
+        final payload = _asciiPayload(_qtoxFragmentBytes + 1);
+        expect(utf8.encode(payload).length, _qtoxFragmentBytes + 1);
 
         await expectLater(
           chat.sendTextWithResult(peerId, payload),
-          throwsA(isA<ArgumentError>()),
+          throwsA(isA<StateError>()),
         );
 
+        // Native return 0 must not create a logical send even though the
+        // payload itself is valid and is fragmented below this API.
         expect(chat.historyFor(peerId), isEmpty);
         expect(chat.queueFor(peerId), isEmpty);
         expect(emitted, isEmpty);
@@ -120,7 +124,7 @@ void main() {
     );
 
     test(
-      'rejects C2C offline text over 1372 UTF-8 bytes without side effects',
+      'C2C offline long text stays one logical pending message',
       () async {
         const peerId =
             'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
@@ -135,23 +139,29 @@ void main() {
         final sub = chat.messages.listen(emitted.add);
         addTearDown(sub.cancel);
 
-        final payload = _asciiPayload(1373);
-        expect(utf8.encode(payload).length, 1373);
+        final payload = _asciiPayload(_qtoxFragmentBytes + 1);
+        expect(utf8.encode(payload).length, _qtoxFragmentBytes + 1);
 
-        await expectLater(
-          chat.sendTextWithResult(peerId, payload),
-          throwsA(isA<ArgumentError>()),
-        );
+        final pending = await chat.sendTextWithResult(peerId, payload);
+        await Future<void>.delayed(Duration.zero);
+        final history = chat.historyFor(peerId);
+        final queue = chat.queueFor(peerId);
 
-        expect(chat.historyFor(peerId), isEmpty);
-        expect(chat.queueFor(peerId), isEmpty);
-        expect(emitted, isEmpty);
+        expect(pending.text, payload);
+        expect(pending.isPending, isTrue);
+        expect(history, hasLength(1));
+        expect(queue, hasLength(1));
+        expect(emitted, hasLength(1));
+        expect(history.single.msgID, pending.msgID);
+        expect(queue.single.msgID, pending.msgID);
+        expect(queue.single.text, payload);
+        expect(emitted.single.msgID, pending.msgID);
       },
       skip: skipReason,
     );
 
     test(
-      'rejects group online text over 1372 UTF-8 bytes without side effects',
+      'group online long text reaches native transport without false success',
       () async {
         const groupId = 'validation-group-online';
         final chat = service(friends: const []);
@@ -162,14 +172,16 @@ void main() {
         final sub = chat.messages.listen(emitted.add);
         addTearDown(sub.cancel);
 
-        final payload = _asciiPayload(1373);
-        expect(utf8.encode(payload).length, 1373);
+        final payload = _asciiPayload(_qtoxFragmentBytes + 1);
+        expect(utf8.encode(payload).length, _qtoxFragmentBytes + 1);
 
         await expectLater(
           chat.sendGroupTextWithResult(groupId, payload),
-          throwsA(isA<ArgumentError>()),
+          throwsA(isA<StateError>()),
         );
 
+        // Native return 0 must not create a logical send even though the
+        // payload itself is valid and is fragmented below this API.
         expect(chat.historyFor(groupId), isEmpty);
         expect(chat.queueFor('group:$groupId'), isEmpty);
         expect(emitted, isEmpty);
@@ -178,7 +190,7 @@ void main() {
     );
 
     test(
-      'rejects group offline text over 1372 UTF-8 bytes without side effects',
+      'group offline long text stays one logical pending message',
       () async {
         const groupId = 'validation-group-offline';
         final chat = service(friends: const []);
@@ -189,23 +201,29 @@ void main() {
         final sub = chat.messages.listen(emitted.add);
         addTearDown(sub.cancel);
 
-        final payload = _asciiPayload(1373);
-        expect(utf8.encode(payload).length, 1373);
+        final payload = _asciiPayload(_qtoxFragmentBytes + 1);
+        expect(utf8.encode(payload).length, _qtoxFragmentBytes + 1);
 
-        await expectLater(
-          chat.sendGroupTextWithResult(groupId, payload),
-          throwsA(isA<ArgumentError>()),
-        );
+        final pending = await chat.sendGroupTextWithResult(groupId, payload);
+        await Future<void>.delayed(Duration.zero);
+        final history = chat.historyFor(groupId);
+        final queue = chat.queueFor('group:$groupId');
 
-        expect(chat.historyFor(groupId), isEmpty);
-        expect(chat.queueFor('group:$groupId'), isEmpty);
-        expect(emitted, isEmpty);
+        expect(pending.text, payload);
+        expect(pending.isPending, isTrue);
+        expect(history, hasLength(1));
+        expect(queue, hasLength(1));
+        expect(emitted, hasLength(1));
+        expect(history.single.msgID, pending.msgID);
+        expect(queue.single.msgID, pending.msgID);
+        expect(queue.single.text, payload);
+        expect(emitted.single.msgID, pending.msgID);
       },
       skip: skipReason,
     );
 
     test(
-      'counts emoji payload limits by UTF-8 bytes instead of Dart length',
+      'emoji crossing the 1322-byte boundary reaches native transport',
       () async {
         const peerId =
             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -220,13 +238,19 @@ void main() {
         final sub = chat.messages.listen(emitted.add);
         addTearDown(sub.cancel);
 
-        final payload = _emojiBoundaryPayload(asciiPrefixBytes: 1369);
-        expect(payload.length, lessThan(1372));
-        expect(utf8.encode(payload).length, greaterThan(1372));
+        final payload = _emojiBoundaryPayload(
+          asciiPrefixBytes: _qtoxFragmentBytes - 1,
+        );
+        expect(payload.length, _qtoxFragmentBytes + 1);
+        expect(utf8.encode(payload).length, _qtoxFragmentBytes + 3);
+        expect(
+          utf8.encode(payload.substring(_qtoxFragmentBytes - 1)).length,
+          4,
+        );
 
         await expectLater(
           chat.sendTextWithResult(peerId, payload),
-          throwsA(isA<ArgumentError>()),
+          throwsA(isA<StateError>()),
         );
 
         expect(chat.historyFor(peerId), isEmpty);
