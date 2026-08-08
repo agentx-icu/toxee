@@ -22,22 +22,25 @@ class GroupMemberListWrapper extends StatefulWidget {
   final List<V2TimGroupMemberFullInfo> memberInfoList;
 
   const GroupMemberListWrapper({
-    Key? key,
+    super.key,
     required this.groupInfo,
     required this.memberInfoList,
-  }) : super(key: key);
+  });
 
   @override
   State<StatefulWidget> createState() => GroupMemberListWrapperState();
 }
 
-class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListWrapper> {
+class GroupMemberListWrapperState
+    extends TencentCloudChatState<GroupMemberListWrapper> {
   List<V2TimGroupMemberFullInfo> _currentMemberList = [];
   Map<String, int> _lastMessageTimeMap = {};
   bool _isLoading = true;
   bool _isRefreshing = false; // Prevent duplicate calls
-  bool _hasLoaded = false; // Track if we've already loaded to prevent reloads on widget rebuilds
-  int _emptyRetries = 0; // Bounded re-fetches when a fresh NGC group returns an empty member list
+  bool _hasLoaded =
+      false; // Track if we've already loaded to prevent reloads on widget rebuilds
+  int _emptyRetries =
+      0; // Bounded re-fetches when a fresh NGC group returns an empty member list
 
   void _enrichAvatars(List<V2TimGroupMemberFullInfo> members) {
     final contactList = UikitDataFacade.contactList;
@@ -141,15 +144,17 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
           .where((m) => seen.add(m.userID))
           .toList();
       _enrichAvatars(dedupedList);
-      // Load group history from disk so in-memory cache is populated before building time map
+      // Load group history through FfiChatService so the in-flight work is tracked
+      // by the service fence before we build the time map.
       try {
         final ffi = FakeUIKit.instance.im?.ffi;
         if (ffi != null) {
-          await ffi.messageHistoryPersistence.loadHistory(groupID);
+          await ffi.loadHistory(groupID);
         }
       } catch (e) {
         AppLogger.warn(
-            '[GroupMemberListWrapper] history load failed; time map will be empty: $e');
+          '[GroupMemberListWrapper] history load failed; time map will be empty: $e',
+        );
       }
       if (!mounted || groupID != widget.groupInfo.groupID) return;
       final timeMap = _buildLastMessageTimeMap(groupID);
@@ -169,9 +174,7 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
       if (dedupedList.isEmpty && _emptyRetries < 6) {
         _emptyRetries++;
         Future.delayed(const Duration(milliseconds: 700), () {
-          if (mounted &&
-              !_hasLoaded &&
-              groupID == widget.groupInfo.groupID) {
+          if (mounted && !_hasLoaded && groupID == widget.groupInfo.groupID) {
             unawaited(_refreshMemberList());
           }
         });
@@ -181,7 +184,10 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
       // because only _isRefreshing was reset in the finally. Surface the
       // failure to the empty-state path instead of an infinite shimmer.
       AppLogger.logError(
-          '[GroupMemberListWrapper] member fetch failed for $groupID', e, st);
+        '[GroupMemberListWrapper] member fetch failed for $groupID',
+        e,
+        st,
+      );
     } finally {
       _isRefreshing = false;
       // On any non-success exit (exception or early return because the
@@ -202,10 +208,13 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
       return TencentCloudChatThemeWidget(
         build: (context, colorTheme, textStyle) => Scaffold(
           appBar: AppBar(
-            leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
+            leadingWidth:
+                56 + ResponsiveLayout.responsiveHorizontalPadding(context),
             leading: Padding(
               // EdgeInsetsDirectional so the back-button gutter flips for RTL.
-              padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
+              padding: EdgeInsetsDirectional.only(
+                start: ResponsiveLayout.responsiveHorizontalPadding(context),
+              ),
               child: IconButton(
                 onPressed: () => popDialogIfCurrent(context),
                 icon: const Icon(Icons.arrow_back_ios_rounded),
@@ -229,9 +238,12 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
       return TencentCloudChatThemeWidget(
         build: (context, colorTheme, textStyle) => Scaffold(
           appBar: AppBar(
-            leadingWidth: 56 + ResponsiveLayout.responsiveHorizontalPadding(context),
+            leadingWidth:
+                56 + ResponsiveLayout.responsiveHorizontalPadding(context),
             leading: Padding(
-              padding: EdgeInsetsDirectional.only(start: ResponsiveLayout.responsiveHorizontalPadding(context)),
+              padding: EdgeInsetsDirectional.only(
+                start: ResponsiveLayout.responsiveHorizontalPadding(context),
+              ),
               child: IconButton(
                 onPressed: () => popDialogIfCurrent(context),
                 icon: const Icon(Icons.arrow_back_ios_rounded),
@@ -244,7 +256,8 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
           body: SafeArea(
             child: EmptyStateWidget(
               icon: Icons.group_outlined,
-              title: AppLocalizations.of(context)?.noGroupMembers ??
+              title:
+                  AppLocalizations.of(context)?.noGroupMembers ??
                   'No members yet',
             ),
           ),
@@ -255,7 +268,9 @@ class GroupMemberListWrapperState extends TencentCloudChatState<GroupMemberListW
     // Use the original implementation with refreshed member list
     return TencentCloudChatGroupMemberList(
       groupInfo: widget.groupInfo,
-      memberInfoList: _currentMemberList.isNotEmpty ? _currentMemberList : widget.memberInfoList,
+      memberInfoList: _currentMemberList.isNotEmpty
+          ? _currentMemberList
+          : widget.memberInfoList,
       lastMessageTimeMap: _lastMessageTimeMap,
     );
   }

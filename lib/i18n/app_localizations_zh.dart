@@ -502,7 +502,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get testNode => '发送引导请求';
+  String get testNode => '测试节点';
 
   @override
   String get deleteAccount => '注销账号';
@@ -595,7 +595,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get canOnlySelectOnlineNode => '只能选择在线节点';
 
   @override
-  String get canOnlySelectTestedNode => '选择此节点前，请先成功发送引导请求';
+  String get canOnlySelectTestedNode => '只能选择已测试成功的节点，请先测试节点';
 
   @override
   String get switchNode => '切换节点';
@@ -789,10 +789,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get close => '关闭';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此节点发送引导请求。';
+  String get nodeNotTestedWarning => '注意：此节点尚未测试，可能无法连接。';
 
   @override
-  String get nodeTestFailedWarning => '引导请求发送失败，此节点可能不可用。';
+  String get nodeTestFailedWarning => '注意：此节点测试失败，可能无法连接。';
 
   @override
   String get nicknameTooLong => '昵称过长';
@@ -831,10 +831,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setAsCurrentNode => '设置为当前节点';
 
   @override
-  String get nodeTestSuccess => '引导请求已发送';
+  String get nodeTestSuccess => '节点测试成功';
 
   @override
-  String get nodeTestFailed => '引导请求发送失败';
+  String get nodeTestFailed => '节点测试失败';
 
   @override
   String get nodeTestUnavailableBeforeLogin => '登录前无法测试节点';
@@ -1334,6 +1334,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get callCalling => '呼叫中...';
+
+  @override
+  String get callLeaving => '正在离开会议...';
+
+  @override
+  String callReceivedFrames(int count) {
+    return '已接收 $count 帧';
+  }
 
   @override
   String get callMinimize => '最小化';
@@ -2111,7 +2119,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get testNode => '发送引导请求';
+  String get testNode => '测试节点';
 
   @override
   String get deleteAccount => '注销账号';
@@ -2204,7 +2212,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get canOnlySelectOnlineNode => '只能选择在线节点';
 
   @override
-  String get canOnlySelectTestedNode => '选择此节点前，请先成功发送引导请求';
+  String get canOnlySelectTestedNode => '只能选择已测试成功的节点，请先测试节点';
 
   @override
   String get switchNode => '切换节点';
@@ -2399,10 +2407,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get close => '关闭';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此节点发送引导请求。';
+  String get nodeNotTestedWarning => '注意：此节点尚未测试，可能无法连接。';
 
   @override
-  String get nodeTestFailedWarning => '引导请求发送失败，此节点可能不可用。';
+  String get nodeTestFailedWarning => '注意：此节点测试失败，可能无法连接。';
 
   @override
   String get nicknameTooLong => 'Nickname too long';
@@ -2429,10 +2437,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get setAsCurrentNode => '设置为当前节点';
 
   @override
-  String get nodeTestSuccess => '引导请求已发送';
+  String get nodeTestSuccess => '节点测试成功';
 
   @override
-  String get nodeTestFailed => '引导请求发送失败';
+  String get nodeTestFailed => '节点测试失败';
 
   @override
   String get nodeTestUnavailableBeforeLogin => '登录前无法测试节点';
@@ -2846,6 +2854,14 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get callCalling => '呼叫中...';
+
+  @override
+  String get callLeaving => '正在离开会议...';
+
+  @override
+  String callReceivedFrames(int count) {
+    return '已接收 $count 帧';
+  }
 
   @override
   String get callMinimize => '最小化';
@@ -3473,7 +3489,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String get testNode => '傳送引導請求';
+  String get testNode => '測試節點';
 
   @override
   String get deleteAccount => '註銷帳號';
@@ -3566,7 +3582,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get canOnlySelectOnlineNode => '只能選擇在線節點';
 
   @override
-  String get canOnlySelectTestedNode => '選擇此節點前，請先成功傳送引導請求';
+  String get canOnlySelectTestedNode => '只能選擇已測試成功的節點，請先測試節點';
 
   @override
   String get switchNode => '切換節點';
@@ -3760,10 +3776,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get close => '關閉';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此節點傳送引導請求。';
+  String get nodeNotTestedWarning => '注意：此節點尚未測試，可能無法連接。';
 
   @override
-  String get nodeTestFailedWarning => '引導請求傳送失敗，此節點可能無法使用。';
+  String get nodeTestFailedWarning => '注意：此節點測試失敗，可能無法連接。';
 
   @override
   String get nicknameTooLong => '暱稱過長';
@@ -3790,10 +3806,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get setAsCurrentNode => '設置為當前節點';
 
   @override
-  String get nodeTestSuccess => '引導請求已傳送';
+  String get nodeTestSuccess => '節點測試成功';
 
   @override
-  String get nodeTestFailed => '引導請求傳送失敗';
+  String get nodeTestFailed => '節點測試失敗';
 
   @override
   String get nodeTestUnavailableBeforeLogin => '登入前無法測試節點';
@@ -4207,6 +4223,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get callCalling => '撥打中...';
+
+  @override
+  String get callLeaving => '正在離開會議...';
+
+  @override
+  String callReceivedFrames(int count) {
+    return '已接收 $count 幀';
+  }
 
   @override
   String get callMinimize => '最小化';

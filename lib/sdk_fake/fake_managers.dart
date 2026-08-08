@@ -8,6 +8,7 @@ import 'fake_event_bus.dart';
 import 'fake_models.dart';
 import 'fake_im.dart';
 import 'fake_uikit_core.dart';
+import 'uikit_data_facade.dart';
 import '../util/logger.dart';
 
 /// Friend record shape used by the shared conversation-list builder. Matches the
@@ -44,7 +45,8 @@ typedef ConvBuilderFriend = ({String userId, String nickName, bool online});
 ///   sync read path in `getConversationList()`). When false, Tox is the sole
 ///   authority (used by the steady-state bus-emit path).
 /// - [emitGroupType]: when true, `FakeConversation.groupType` is populated
-///   (`'conference'` for `tox_conf_*`, `'group'` otherwise).
+///   from [getGroupType] when available, otherwise from the legacy toxee
+///   fallback (`'conference'` for `tox_conf_*`, `'group'` otherwise).
 ///
 /// The function does not mutate any of its inputs or call into `Prefs`/`ffi`
 /// outside the read-side helpers. All Prefs reads happen in parallel (batched
@@ -60,6 +62,7 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
   bool mergeLocalFriendsAsOffline = false,
   bool emitGroupType = false,
   int? Function(String groupId)? getGroupActivityMs,
+  String? Function(String groupId)? getGroupType,
 }) async {
   // ---- C2C: build the normalized friend map ----
   final friendMap = <String, ConvBuilderFriend>{};
@@ -159,7 +162,10 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
       isGroup: true,
       isPinned: pinned.contains(groupPinnedKey),
       groupType: emitGroupType
-          ? (gid.startsWith('tox_conf_') ? 'conference' : 'group')
+          ? resolveFakeConversationGroupType(
+              groupId: gid,
+              authoritativeGroupType: getGroupType?.call(gid),
+            )
           : null,
     ));
   }
@@ -273,10 +279,10 @@ class FakeConversationManager {
       sortingMode: sortingMode,
       getUnreadOf: _ffi.getUnreadOf,
       mergeLocalFriendsAsOffline: true,
-      // Sync read path historically did not set groupType — preserve that.
-      emitGroupType: false,
+      emitGroupType: true,
       getGroupActivityMs: (gid) =>
           _ffi.lastMessages[gid]?.timestamp.millisecondsSinceEpoch,
+      getGroupType: (gid) => UikitDataFacade.getGroupInfo(gid).groupType,
     );
     AppLogger.log(
         '[FakeConversationManager] getConversationList: END - Returning ${list.length} conversations (${list.where((c) => !c.isGroup).length} C2C, ${list.where((c) => c.isGroup).length} groups), sort=$sortingMode');
@@ -337,6 +343,10 @@ class FakeConversationManager {
         unreadCount: _ffi.getUnreadOf(gid),
         isGroup: true,
         isPinned: pin,
+        groupType: resolveFakeConversationGroupType(
+          groupId: gid,
+          authoritativeGroupType: UikitDataFacade.getGroupInfo(gid).groupType,
+        ),
       );
       _bus.emit(FakeIM.topicConversation, conv);
       // Trigger conversation list refresh

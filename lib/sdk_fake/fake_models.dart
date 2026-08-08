@@ -1,3 +1,30 @@
+String resolveFakeConversationGroupType({
+  required String groupId,
+  String? authoritativeGroupType,
+  String? existingGroupType,
+}) {
+  for (final candidate in <String?>[
+    authoritativeGroupType,
+    existingGroupType,
+  ]) {
+    final value = candidate?.trim();
+    if (value == null || value.isEmpty) continue;
+    switch (value.toLowerCase()) {
+      case 'av_conference':
+        return 'av_conference';
+      case 'conference':
+      case 'avchatroom':
+        return 'conference';
+      case 'group':
+      case 'work':
+        return 'group';
+      default:
+        return value;
+    }
+  }
+  return groupId.startsWith('tox_conf_') ? 'conference' : 'group';
+}
+
 class FakeConversation {
   FakeConversation({
     required this.conversationID,
@@ -14,7 +41,7 @@ class FakeConversation {
   final int unreadCount;
   final bool isGroup;
   final bool isPinned;
-  final String? groupType; // "group" or "conference", null for c2c
+  final String? groupType;
 }
 
 class FakeMessage {

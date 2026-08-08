@@ -166,31 +166,9 @@ class FakeChatMessageProvider
           }
         }
       });
-      // P1-5 (degraded): auto-accept every large-file request that
-      // FfiChatService emits on `fileRequests`. The default size limit
-      // (currently 30MB) leaves recipients with no way to receive larger
-      // files at all; until a real "tap to download" UI exists, blindly
-      // accepting is strictly better than the file silently sitting in
-      // limbo. A user-driven accept gate (with optional bandwidth/size
-      // confirmation) should replace this.
-      // TODO(P1-5): replace with user-driven accept UI; this auto-accepts
-      // all incoming large files to unblock receivers.
-      _fileRequestsSub = ffi.fileRequests.listen((req) async {
-        try {
-          AppLogger.log(
-            '[FakeMessageProvider] P1-5 auto-accept large file request: size=${req.fileSize}',
-          );
-          await ffi.acceptFileTransfer(
-            req.peerId,
-            req.fileNumber,
-            instanceId: req.instanceId,
-          );
-        } catch (e) {
-          AppLogger.log(
-            '[FakeMessageProvider] P1-5 auto-accept failed: ${e.runtimeType}',
-          );
-        }
-      });
+      // Ordinary file requests remain pending until the message UI invokes
+      // FfiChatService.downloadMessage(). Avatar requests use the dedicated
+      // `avatar_request` path in FfiChatService and never reach this stream.
       // When a friend's avatar is received and saved, invalidate our in-memory cache
       // and re-emit the stream for their conversation so message bubbles update immediately.
       _avatarUpdatedSub = ffi.avatarUpdated.listen((uid) async {

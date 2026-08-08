@@ -1360,6 +1360,13 @@
   "callVideoUnsupportedPlatform": "Video calls aren't available on this platform yet (no camera support).",
   "callAudioInterrupted": "Audio output changed or was interrupted during the call.",
   "callCalling": "Calling...",
+  "callLeaving": "Leaving conference...",
+  "callReceivedFrames": "Received {count} frames",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "Minimize",
   "callReturnToCall": "Return to call",
   "callQualityGood": "Good connection",

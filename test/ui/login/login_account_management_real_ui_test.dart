@@ -209,8 +209,12 @@ void main() {
     messenger.setMockMethodCallHandler(pathProviderChannel, null);
     AppLogger.resetForTesting();
     AppPaths.debugApplicationSupportOverride = null;
-    if (await appSupportRoot.exists()) {
-      await appSupportRoot.delete(recursive: true);
+    try {
+      if (await appSupportRoot.exists()) {
+        await appSupportRoot.delete(recursive: true);
+      }
+    } on FileSystemException {
+      if (await appSupportRoot.exists()) rethrow;
     }
   });
 
@@ -663,7 +667,15 @@ void main() {
         await _tapAndAwait(
           tester,
           trigger: find.byKey(_deleteConfirmButtonKey),
-          isDone: () => find.byType(AlertDialog).evaluate().isEmpty,
+          isDone: () async {
+            final cardGone = find
+                .byKey(UiKeys.loginPageAccountCard(toxId))
+                .evaluate()
+                .isEmpty;
+            final prefsCleared = await Prefs.getAccountByToxId(toxId) == null;
+            final dialogGone = find.byType(AlertDialog).evaluate().isEmpty;
+            return cardGone && prefsCleared && dialogGone;
+          },
         );
 
         expect(

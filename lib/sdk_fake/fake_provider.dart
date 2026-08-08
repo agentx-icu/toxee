@@ -40,6 +40,36 @@ V2TimConversation mergeExternalConversationUpdate({
   refreshed.orderkey ??= existing.orderkey;
   refreshed.unreadCount ??= existing.unreadCount;
   refreshed.isPinned ??= existing.isPinned;
+  final groupId =
+      refreshed.groupID ??
+      existing.groupID ??
+      refreshed.conversationID.replaceFirst('group_', '');
+  final existingGroupType = resolveFakeConversationGroupType(
+    groupId: groupId,
+    authoritativeGroupType: existing.groupType,
+  );
+  final refreshedGroupType = resolveFakeConversationGroupType(
+    groupId: groupId,
+    authoritativeGroupType: refreshed.groupType,
+  );
+  final normalizedExistingGroupType = existingGroupType.trim().toLowerCase();
+  final normalizedRefreshedGroupType = refreshedGroupType.trim().toLowerCase();
+  final preserveExistingGroupType =
+      (normalizedExistingGroupType == 'av_conference' &&
+          normalizedRefreshedGroupType != 'av_conference') ||
+      (normalizedExistingGroupType == 'conference' &&
+          normalizedRefreshedGroupType == 'group') ||
+      (normalizedExistingGroupType == 'public' &&
+          normalizedRefreshedGroupType == 'group') ||
+      (normalizedExistingGroupType == 'meeting' &&
+          normalizedRefreshedGroupType == 'group') ||
+      (normalizedExistingGroupType == 'community' &&
+          normalizedRefreshedGroupType == 'group');
+  if (preserveExistingGroupType) {
+    refreshed.groupType = existing.groupType;
+  } else {
+    refreshed.groupType ??= existing.groupType;
+  }
   refreshed.draftText ??= existing.draftText;
   refreshed.draftTimestamp ??= existing.draftTimestamp;
   return refreshed;
@@ -173,6 +203,7 @@ class FakeChatDataProvider implements ChatDataProvider {
             unreadCount: c.unreadCount,
             isGroup: c.isGroup,
             isPinned: c.isPinned,
+            groupType: c.groupType,
           );
         }
       }
@@ -337,6 +368,9 @@ class FakeChatDataProvider implements ChatDataProvider {
             unreadCount: newConvUnread,
             isGroup: msg.conversationID.startsWith('group_'),
             isPinned: false,
+            groupType: msg.conversationID.startsWith('group_')
+                ? _resolveRebuiltGroupType(peerId)
+                : null,
           );
           _convMap[msg.conversationID] = await _mapConv(newConv);
         }
@@ -363,6 +397,12 @@ class FakeChatDataProvider implements ChatDataProvider {
           unreadCount: unread,
           isGroup: msg.conversationID.startsWith('group_'),
           isPinned: _convMap[msg.conversationID]?.isPinned ?? false,
+          groupType: msg.conversationID.startsWith('group_')
+              ? _resolveRebuiltGroupType(
+                  peerId,
+                  existingGroupType: _convMap[msg.conversationID]?.groupType,
+                )
+              : null,
         );
         // CRITICAL: Pass lastMessage to _mapConv to ensure it's preserved
         // This ensures that failed messages are not overridden by _mapConv's logic
@@ -534,11 +574,28 @@ class FakeChatDataProvider implements ChatDataProvider {
         : ConversationType.V2TIM_C2C;
     if (c.isGroup) {
       conv.groupID = c.conversationID.replaceFirst('group_', '');
-      // Map Tox group type to UIKit GroupType for call button visibility:
-      // "conference" → AVChatRoom (calls not supported), "group" → Work (calls supported)
-      conv.groupType = (c.groupType == 'conference')
-          ? GroupType.AVChatRoom
-          : GroupType.Work;
+      final resolvedGroupType = resolveFakeConversationGroupType(
+        groupId: conv.groupID!,
+        authoritativeGroupType: c.groupType,
+        existingGroupType: UikitDataFacade.getGroupInfo(
+          conv.groupID!,
+        ).groupType,
+      );
+      final normalizedGroupType = resolvedGroupType.trim().toLowerCase();
+      // Preserve av_conference as a distinct app-side type so toxee can bind
+      // its dedicated session UI, while keeping legacy text conferences on the
+      // existing AVChatRoom-shaped branch.
+      conv.groupType = switch (normalizedGroupType) {
+        'av_conference' => 'av_conference',
+        'conference' => GroupType.AVChatRoom,
+        'public' => GroupType.Public,
+        'meeting' => GroupType.Meeting,
+        'avchatroom' => GroupType.AVChatRoom,
+        'community' => GroupType.Community,
+        'work' => GroupType.Work,
+        'group' => GroupType.Work,
+        _ => GroupType.Work,
+      };
     } else {
       conv.userID = c.conversationID.replaceFirst('c2c_', '');
     }
@@ -711,6 +768,14 @@ class FakeChatDataProvider implements ChatDataProvider {
       conv.orderkey = baseTimestamp;
     }
     return conv;
+  }
+
+  String _resolveRebuiltGroupType(String groupId, {String? existingGroupType}) {
+    return resolveFakeConversationGroupType(
+      groupId: groupId,
+      authoritativeGroupType: UikitDataFacade.getGroupInfo(groupId).groupType,
+      existingGroupType: existingGroupType,
+    );
   }
 
   /// Convert ChatMessage to V2TimMessage for use in conversation.lastMessage

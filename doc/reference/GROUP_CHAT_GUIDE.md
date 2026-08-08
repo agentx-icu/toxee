@@ -25,7 +25,7 @@ toxee uses Tim2Tox to implement the P2P group chat function based on the Tox pro
 - **group_number**: The group number of the Tox protocol layer, assigned by Tox
 - **chat_id**: Tox group's unique identifier (32 bytes), used to rejoin the group (only supported by Group type)
 - **Mapping relationship**: Mapping between `group_id` ↔ `group_number` ↔ `chat_id`
-- **groupType**: Group type, which can be `"group"` (new API) or `"conference"` (old API)
+- **groupType**: Transport group type, which can be `"group"` (new API) or `"conference"` (old API). The app-side `"av_conference"` marker is used only for AV-conference UI/session routing; it is not a third Tox transport.
 
 ### Group vs Conference
 
@@ -46,6 +46,10 @@ toxee supports two Tox group chat types at the same time:
 - **Persistence**: Does not support `chat_id`, relies on Tox savedata for automatic recovery
 - **Recovery mechanism**: The Client automatically recovers from savedata after restarting, and needs to manually match `conference_number` to `group_id`
 - **Function**: The function is relatively simple and does not support advanced functions such as group announcements.
+
+#### AV conference marker (app-side)
+- `av_conference` is an app-side marker used to route AV-conference UI/session behavior.
+- It does not change the underlying Tox transport: the persisted/native group remains a Group or Conference.
 
 **Selection Suggestions**:
 - It is recommended to use the **Group** type for new groups, which has more complete functions and more reliable recovery.

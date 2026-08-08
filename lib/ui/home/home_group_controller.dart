@@ -79,10 +79,13 @@ class GroupSyncOps {
       // the spurious quitGroup event (which used to remove the group from Prefs
       // + clear its conversation, then had to be manually counteracted).
       deleteGroupInfoFromJoinedGroupList: (gid) =>
-          UikitDataFacade.deleteGroupInfoFromJoinedGroupList(gid,
-              fireQuitEvent: false),
+          UikitDataFacade.deleteGroupInfoFromJoinedGroupList(
+            gid,
+            fireQuitEvent: false,
+          ),
       fetchSdkGroupListSnapshot: () async {
-        await TencentCloudChat.instance.chatSDKInstance.contactSDK.getGroupList();
+        await TencentCloudChat.instance.chatSDKInstance.contactSDK
+            .getGroupList();
         return List<V2TimGroupInfo>.from(UikitDataFacade.groupList);
       },
       buildGroupList: UikitDataFacade.buildGroupList,
@@ -112,17 +115,28 @@ class HomeGroupController {
 
   final GroupSyncOps _ops;
 
+  String _resolveGroupType(String groupId) {
+    for (final group in _ops.getGroupListSnapshot()) {
+      if (group.groupID == groupId && group.groupType.isNotEmpty) {
+        return group.groupType;
+      }
+    }
+    if (groupId.startsWith('tox_conf_')) {
+      return GroupType.AVChatRoom;
+    }
+    return GroupType.Work;
+  }
+
   /// Handle a group profile or membership change event.
   ///
   /// Preserves the four-step ordering invariant documented at the top of this
   /// file. Verified by `test/ui/home/home_group_controller_ordering_test.dart`.
-  Future<void> handleGroupChanged(
-    String groupId, {
-    String? displayName,
-  }) async {
+  Future<void> handleGroupChanged(String groupId, {String? displayName}) async {
     if (kDebugMode) {
-      debugPrint('[HomeGroupController] handleGroupChanged: '
-          'groupId=$groupId, displayName=$displayName');
+      debugPrint(
+        '[HomeGroupController] handleGroupChanged: '
+        'groupId=$groupId, displayName=$displayName',
+      );
     }
     if (displayName != null && displayName.isNotEmpty) {
       await Prefs.setGroupName(groupId, displayName);
@@ -138,8 +152,10 @@ class HomeGroupController {
     // merge historical groups back in.
     final existingGroups = _ops.getGroupListSnapshot();
     if (kDebugMode) {
-      debugPrint('[HomeGroupController] handleGroupChanged: '
-          'snapshot ${existingGroups.length} existing groups');
+      debugPrint(
+        '[HomeGroupController] handleGroupChanged: '
+        'snapshot ${existingGroups.length} existing groups',
+      );
     }
 
     // ── STEP 2 ──────────────────────────────────────────────────────────
@@ -155,12 +171,16 @@ class HomeGroupController {
     // Refresh the SDK list and merge with the snapshot.
     try {
       if (kDebugMode) {
-        debugPrint('[HomeGroupController] handleGroupChanged: fetchSdkGroupListSnapshot');
+        debugPrint(
+          '[HomeGroupController] handleGroupChanged: fetchSdkGroupListSnapshot',
+        );
       }
       final sdkGroupList = await _ops.fetchSdkGroupListSnapshot();
       if (kDebugMode) {
-        debugPrint('[HomeGroupController] handleGroupChanged: '
-            'SDK returned ${sdkGroupList.length} groups');
+        debugPrint(
+          '[HomeGroupController] handleGroupChanged: '
+          'SDK returned ${sdkGroupList.length} groups',
+        );
       }
 
       final existingGroupsMap = <String, V2TimGroupInfo>{};
@@ -177,14 +197,18 @@ class HomeGroupController {
 
       final mergedGroups = existingGroupsMap.values.toList();
       if (kDebugMode) {
-        debugPrint('[HomeGroupController] handleGroupChanged: '
-            'merged ${mergedGroups.length} groups');
+        debugPrint(
+          '[HomeGroupController] handleGroupChanged: '
+          'merged ${mergedGroups.length} groups',
+        );
       }
       _ops.buildGroupList(mergedGroups, '_handleGroupChanged_merge');
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[HomeGroupController] handleGroupChanged: '
-            'fetchSdkGroupListSnapshot failed: $e');
+        debugPrint(
+          '[HomeGroupController] handleGroupChanged: '
+          'fetchSdkGroupListSnapshot failed: $e',
+        );
       }
     }
 
@@ -194,7 +218,7 @@ class HomeGroupController {
     final savedAvatar = await Prefs.getGroupAvatar(groupId);
     final groupInfo = V2TimGroupInfo(
       groupID: groupId,
-      groupType: 'work',
+      groupType: _resolveGroupType(groupId),
       groupName: resolvedName == groupId ? null : resolvedName,
       faceUrl: savedAvatar,
     );
@@ -220,7 +244,9 @@ class HomeGroupController {
 
     // ── STEP 4 ──────────────────────────────────────────────────────────
     if (kDebugMode) {
-      debugPrint('[HomeGroupController] handleGroupChanged: refreshConversations $groupId');
+      debugPrint(
+        '[HomeGroupController] handleGroupChanged: refreshConversations $groupId',
+      );
     }
     await _ops.refreshConversations();
     await _ops.onUpdateTray();
@@ -235,15 +261,18 @@ class HomeGroupController {
 
       final savedGroups = await Prefs.getGroups();
       final quitGroups = await Prefs.getQuitGroups();
-      final activeGroups =
-          savedGroups.where((g) => !quitGroups.contains(g)).toSet();
+      final activeGroups = savedGroups
+          .where((g) => !quitGroups.contains(g))
+          .toSet();
 
       final knownGroups = _ops.getKnownGroups();
       final allGroups = {...activeGroups, ...knownGroups};
       if (kDebugMode) {
-        debugPrint('[HomeGroupController] loadPersistedGroupsIntoUIKit: '
-            '${allGroups.length} total (saved=${savedGroups.length} '
-            'quit=${quitGroups.length} known=${knownGroups.length})');
+        debugPrint(
+          '[HomeGroupController] loadPersistedGroupsIntoUIKit: '
+          '${allGroups.length} total (saved=${savedGroups.length} '
+          'quit=${quitGroups.length} known=${knownGroups.length})',
+        );
       }
 
       for (final gid in allGroups) {
@@ -251,7 +280,7 @@ class HomeGroupController {
         final savedAvatar = await Prefs.getGroupAvatar(gid);
         final groupInfo = V2TimGroupInfo(
           groupID: gid,
-          groupType: 'work',
+          groupType: _resolveGroupType(gid),
           groupName: displayName == gid ? null : displayName,
           faceUrl: savedAvatar,
         );
@@ -284,9 +313,10 @@ class HomeGroupController {
       await _ops.refreshConversations();
     } catch (e, stackTrace) {
       AppLogger.logError(
-          '[HomeGroupController] loadPersistedGroupsIntoUIKit: error',
-          e,
-          stackTrace);
+        '[HomeGroupController] loadPersistedGroupsIntoUIKit: error',
+        e,
+        stackTrace,
+      );
     }
   }
 }

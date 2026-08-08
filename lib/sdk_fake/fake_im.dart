@@ -5,6 +5,7 @@ import '../util/friend_asset_cleanup.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
 import '../util/logger.dart';
+import 'uikit_data_facade.dart';
 import 'fake_event_bus.dart';
 import 'fake_managers.dart' show buildConversationsFromFriends;
 import 'fake_models.dart';
@@ -408,6 +409,7 @@ class FakeIM {
       emitGroupType: true,
       getGroupActivityMs: (gid) =>
           ffi.lastMessages[gid]?.timestamp.millisecondsSinceEpoch,
+      getGroupType: (gid) => UikitDataFacade.getGroupInfo(gid).groupType,
     );
     for (final conv in convs) {
       bus.emit(topicConversation, conv);

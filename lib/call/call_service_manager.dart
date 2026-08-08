@@ -15,6 +15,8 @@ import '../util/logger.dart';
 import 'call_codec_profile.dart';
 import 'call_media_capabilities.dart';
 import 'call_media_interruption_controller.dart';
+import 'av_conference_session_bridge.dart';
+import 'conference_audio_callback_registry.dart';
 import 'call_video_lifecycle_controller.dart';
 import 'call_quality_estimator.dart';
 import 'call_state_notifier.dart';
@@ -70,7 +72,7 @@ bool shouldOfferSettingsForIncomingCallNotificationFallback(
 /// Native ToxAV calls use inviteIDs of the form `native_av_<friendNumber>`.
 class CallServiceManager
     with WidgetsBindingObserver
-    implements CallOverlayManager {
+    implements CallOverlayManager, AvConferenceSessionBridge {
   final FfiChatService _chatService;
   final CallStateNotifier _callState;
   ToxAVService? _avService;
@@ -96,6 +98,12 @@ class CallServiceManager
   /// of truth for call state.
   final CallKitBridge _callKit = CallKitBridge.instance;
   StreamSubscription<CallKitAction>? _callKitSub;
+  late final ConferenceAudioCallbackRegistry _conferenceAudioCallbacks =
+      ConferenceAudioCallbackRegistry(
+        installNativeCallback: (callback) {
+          _avService?.setConferenceAudioReceiveCallback(callback);
+        },
+      );
 
   /// `callId` last reported to CallKit per Tox inviteID. Whenever we report
   /// an incoming/outgoing call to CallKit, we use the Tox inviteID directly
@@ -424,6 +432,87 @@ class CallServiceManager
   /// availability probe — conservative "calls off" in both cases, so the UI
   /// never offers a call button that would silently no-op.
   bool get isCallingAvailable => _avService?.isAvailable ?? false;
+
+  @override
+  void clearReceiveCallback({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+  }) {
+    _conferenceAudioCallbacks.unregister(groupId, owner);
+  }
+
+  @override
+  Future<bool> disable({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+  }) async {
+    if (!_conferenceAudioCallbacks.isOwner(groupId, owner)) {
+      return false;
+    }
+    if (!_initialized) {
+      return true;
+    }
+    final avService = _avService;
+    if (avService == null || !avService.isAvailable) {
+      return false;
+    }
+    final disabled = await avService.disableConferenceAudio(groupId);
+    if (disabled) {
+      clearReceiveCallback(groupId: groupId, owner: owner);
+    }
+    return disabled;
+  }
+
+  @override
+  Future<bool> enable({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+    required AvConferenceAudioFrameCallback onAudioFrame,
+  }) async {
+    if (!_initialized) {
+      await initialize();
+    }
+    final avService = _avService;
+    if (avService == null || !avService.isAvailable) {
+      return false;
+    }
+    final registered = _conferenceAudioCallbacks.register(
+      groupId,
+      owner,
+      onAudioFrame,
+    );
+    if (!registered) {
+      return false;
+    }
+    var enabled = false;
+    try {
+      enabled = await avService.enableConferenceAudio(groupId);
+      return enabled;
+    } finally {
+      if (!enabled) {
+        clearReceiveCallback(groupId: groupId, owner: owner);
+      }
+    }
+  }
+
+  @override
+  Future<bool> setMuted({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+    required bool muted,
+  }) async {
+    if (!_conferenceAudioCallbacks.isOwner(groupId, owner)) {
+      return false;
+    }
+    if (!_initialized) {
+      await initialize();
+    }
+    final avService = _avService;
+    if (avService == null || !avService.isAvailable) {
+      return false;
+    }
+    return avService.muteConferenceAudio(groupId, muted);
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -1759,6 +1848,7 @@ class CallServiceManager
       await _callAudioPlatform.dispose();
     }());
     _nativeCallFriendNumbers.clear();
+    _conferenceAudioCallbacks.clear();
     _avService?.shutdown();
     _callBridge?.dispose();
     _adapter?.dispose();

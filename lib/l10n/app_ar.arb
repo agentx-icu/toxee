@@ -745,6 +745,13 @@
   "callVideoUnsupportedPlatform": "مكالمات الفيديو غير متاحة على هذه المنصة بعد (لا يوجد دعم للكاميرا).",
   "callAudioInterrupted": "تم تغيير إخراج الصوت أو انقطاعه أثناء المكالمة.",
   "callCalling": "جارٍ الاتصال...",
+  "callLeaving": "جارٍ مغادرة المؤتمر...",
+  "callReceivedFrames": "تم استلام {count} إطارًا",
+  "@callReceivedFrames": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "callMinimize": "تصغير",
   "callReturnToCall": "العودة إلى المكالمة",
   "callQualityGood": "اتصال جيد",

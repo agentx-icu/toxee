@@ -105,6 +105,40 @@ void main() {
           reason: 'tox_conf_* groups are conferences');
     });
 
+    test('authoritative av_conference overrides legacy conference fallback',
+        () async {
+      const avGroupId = 'tox_conf_av_77';
+      const textConferenceId = 'tox_conf_text_78';
+      const normalGroupId = 'tox_group_79';
+
+      final list = await buildConversationsFromFriends(
+        friends: const <ConvBuilderFriend>[],
+        groupIds: const [avGroupId, textConferenceId, normalGroupId],
+        pinned: const <String>{},
+        quitGroups: const <String>{},
+        pendingFriendIds: const <String>{},
+        sortingMode: 'name',
+        getUnreadOf: zeroUnread,
+        emitGroupType: true,
+        getGroupType: (groupId) => switch (groupId) {
+          avGroupId => 'av_conference',
+          textConferenceId => 'AVChatRoom',
+          normalGroupId => 'Work',
+          _ => null,
+        },
+      );
+
+      String typeOf(String groupId) => list
+          .singleWhere(
+            (conversation) => conversation.conversationID == 'group_$groupId',
+          )
+          .groupType!;
+
+      expect(typeOf(avGroupId), 'av_conference');
+      expect(typeOf(textConferenceId), 'conference');
+      expect(typeOf(normalGroupId), 'group');
+    });
+
     test('quit groups are filtered out', () async {
       final list = await buildConversationsFromFriends(
         friends: const <ConvBuilderFriend>[],
