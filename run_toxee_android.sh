@@ -410,7 +410,7 @@ run_android_l3() {
   # service to the host and emits the host-side ws URI in its JSON event
   # stream (app.debugPort -> params.wsUri). nohup keeps the app alive after
   # this script returns (launch-only mode).
-  nohup flutter run -d "$SELECTED_DEVICE_ID" --"$MODE" --machine \
+  nohup flutter run -d "$SELECTED_DEVICE_ID" --"$MODE" --machine --no-pub \
     --dart-define=FLUTTER_BUILD_MODE="$MODE" \
     --dart-define=MCP_BINDING="$MCP_BINDING" \
     --dart-define=TOXEE_L3_TEST="$TOXEE_L3_TEST" \

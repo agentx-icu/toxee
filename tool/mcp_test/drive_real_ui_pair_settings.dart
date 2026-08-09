@@ -41,7 +41,7 @@ Future<void> _openSettings(Inst inst) async {
       await returnToChatsHome(inst, rounds: 3);
     }
     if (round > 0) {
-      if (!inst.isIos) {
+      if (!inst.isMobileShell) {
         try {
           await inst.osaEscape();
         } on DriveError {
@@ -68,7 +68,7 @@ Future<void> _openSettings(Inst inst) async {
     if (!await inst.tapKeyCenter('sidebar_settings_tab')) {
       await inst.tryTapKey('sidebar_settings_tab');
     }
-    if (inst.isIos && !await _settingsTabActive(inst)) {
+    if (inst.isMobileShell && !await _settingsTabActive(inst)) {
       if (!await inst.tapKeyCenter('bottom_nav_settings_tab', timeoutSecs: 4)) {
         await inst.tryTapKey('bottom_nav_settings_tab');
       }
@@ -103,8 +103,10 @@ Future<bool> _settingsIsWide(Inst inst) async {
 }
 
 Future<bool> _openMobileAccountManagement(Inst inst) async {
-  if (!inst.isIos) return true;
-  await _openSettings(inst);
+  if (!inst.isMobileShell) return true;
+  if (!await _openMobileSettingsSection(inst, 'Account Management')) {
+    return false;
+  }
   // Wide iOS (iPad): account-management buttons are inline in the Account card
   // (settings_page_build.dart `_buildAccountActionButtons`) — no drill-in.
   if (await _settingsIsWide(inst)) return true;
@@ -112,16 +114,12 @@ Future<bool> _openMobileAccountManagement(Inst inst) async {
       await inst.waitKey('settings_set_password_button', timeoutSecs: 1)) {
     return true;
   }
-  if (!await _tryTapText(inst, 'Account Management')) {
-    return false;
-  }
-  await Future<void>.delayed(const Duration(milliseconds: 700));
   return await inst.waitKey('settings_logout_button', timeoutSecs: 4) ||
       await inst.waitKey('settings_set_password_button', timeoutSecs: 4);
 }
 
 Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
-  if (!inst.isIos) return false;
+  if (!inst.isMobileShell) return false;
   // Wide iOS (iPad): all sections render inline on the single settings page —
   // just make Settings the active tab; the caller's content-key waitKeys then
   // match the inline widgets. No sub-route push, no back button.
@@ -149,7 +147,19 @@ Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
       await _backFromMobileSettingsSection(inst);
     }
     await _openSettings(inst);
-    if (await _tryTapText(inst, title) &&
+    final sectionKey = switch (title) {
+      'Account Info' => 'settings_mobile_account_info_section',
+      'Account Management' => 'settings_mobile_account_management_section',
+      'Appearance' => 'settings_mobile_appearance_section',
+      'General' => 'settings_mobile_general_section',
+      'Bootstrap Nodes' => 'settings_mobile_bootstrap_section',
+      _ => null,
+    };
+    final tappedByKey =
+        sectionKey != null &&
+        (await inst.tapKeyCenter(sectionKey, timeoutSecs: 4) ||
+            await inst.tryTapKey(sectionKey, retries: 2));
+    if ((tappedByKey || await _tryTapText(inst, title)) &&
         await inst.waitKey(
           'settings_mobile_section_back_button',
           timeoutSecs: 4,
@@ -161,7 +171,7 @@ Future<bool> _openMobileSettingsSection(Inst inst, String title) async {
 }
 
 Future<void> _backFromMobileSettingsSection(Inst inst) async {
-  if (!inst.isIos) return;
+  if (!inst.isMobileShell) return;
   // Wide iOS (iPad): sections are inline — there is no pushed route to pop.
   if (await _settingsIsWide(inst)) return;
   if (!await inst.tapKeyCenter(

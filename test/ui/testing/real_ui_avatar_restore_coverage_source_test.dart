@@ -97,7 +97,7 @@ void main() {
     );
     _expectContains(
       profileDriver,
-      'return failed == 0 && skipped == 0 ? 0 : 1;',
+      'return failed == 0 && unexpectedSkipped == 0 ? 0 : 1;',
       'profile sweep hard-fails skips',
     );
     _expectContains(

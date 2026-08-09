@@ -396,7 +396,12 @@ Future<int> _main(List<String> args) async {
     }
     if (scenario == 'profile_qr_copy') {
       await ensureHome(a, nickA);
-      return await _profileQrCopy(a) ? 0 : 1;
+      final result = await _profileQrCopy(a);
+      return switch (result) {
+        true => 0,
+        false => 1,
+        null => 75,
+      };
     }
     if (scenario == 'profile_avatar_picker_opens') {
       await ensureHome(a, nickA);

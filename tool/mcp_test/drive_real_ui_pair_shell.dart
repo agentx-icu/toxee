@@ -128,8 +128,10 @@ Future<void> ensureHome(
     // to rebuild (the same self-heal the blank-shell recovery uses). The sweep
     // re-marks test post-handshake (idempotent) and unmarks at the end, so an
     // early mark here is consistent.
-    print('[${inst.name}] HomePage did not render after register — '
-        'forceHomeRoot recovery');
+    print(
+      '[${inst.name}] HomePage did not render after register — '
+      'forceHomeRoot recovery',
+    );
     if (await inst.markAccountTest()) {
       try {
         await inst.forceHomeRoot(tab: 'chats');
@@ -650,23 +652,32 @@ Future<bool> _recoverActiveConversation(Inst inst) async {
 }
 
 /// Dismiss the first-run backup wizard if it is up. Driven by KEY so it works on
-/// macOS and the iOS sim alike. Returns true if a wizard was found + dismissed.
-Future<bool> _dismissBackupWizardIfPresent(Inst inst,
-    {int timeoutSecs = 1}) async {
-  if (!await inst.waitKey('firstRunBackupWizard.laterButton',
-      timeoutSecs: timeoutSecs)) {
+/// desktop and mobile alike. Returns true if a wizard was found + dismissed.
+Future<bool> _dismissBackupWizardIfPresent(
+  Inst inst, {
+  int timeoutSecs = 1,
+}) async {
+  if (!await inst.waitKey(
+    'firstRunBackupWizard.laterButton',
+    timeoutSecs: timeoutSecs,
+  )) {
     return false;
   }
   // "I'll do it later" opens a SECOND data-loss confirmation; both buttons are
   // keyed. Tap by key center; fall back to text / a macOS coordinate.
-  if (!await inst.tapKeyCenter('firstRunBackupWizard.laterButton',
-      timeoutSecs: 6)) {
+  if (!await inst.tapKeyCenter(
+    'firstRunBackupWizard.laterButton',
+    timeoutSecs: 6,
+  )) {
     await inst.tapText("I'll do it later");
   }
   await Future<void>.delayed(const Duration(milliseconds: 1000));
-  if (!await inst.tapKeyCenter('firstRunBackupWizard.confirmDismissButton',
-      timeoutSecs: 6)) {
-    if (!await _tryTapText(inst, 'I understand, continue') && !inst.isIos) {
+  if (!await inst.tapKeyCenter(
+    'firstRunBackupWizard.confirmDismissButton',
+    timeoutSecs: 6,
+  )) {
+    if (!await _tryTapText(inst, 'I understand, continue') &&
+        !inst.isMobileShell) {
       await inst.tapAt(894, 520);
     }
   }
@@ -698,7 +709,8 @@ Future<bool> _recoverBlankHomeRoot(Inst inst) async {
   // check every iOS HomePage (and any full-screen wizard the dismissal is still
   // settling) is mis-detected as a "blank shell", which then loops because the
   // l3_force_home_root recovery is refused on a non-test account.
-  final hasBottomNav = inst.isIos &&
+  final hasBottomNav =
+      inst.isMobileShell &&
       (await inst.waitKey('bottom_nav_chats_tab', timeoutSecs: 1) ||
           await inst.waitKey('bottom_nav_contacts_tab', timeoutSecs: 1) ||
           await inst.waitKey('new_entry_menu_button', timeoutSecs: 1));
@@ -742,22 +754,28 @@ Future<bool> _contactsHomeReady(Inst inst, {int timeoutSecs = 1}) async {
     return false;
   }
   // macOS: a "Back" affordance means a pushed sub-route, which disqualifies the
-  // home root. iOS: the mobile home shell renders a back chevron on the Contacts
+  // home root. Mobile: the home shell renders a back chevron on the Contacts
   // tab (semantic label "Back") even at the ROOT, so don't disqualify on it there
   // — it would make _contactsHomeReady never return true on iOS.
-  if (!inst.isIos && await inst.waitText('Back', timeoutSecs: timeoutSecs)) {
+  if (!inst.isMobileShell &&
+      await inst.waitText('Back', timeoutSecs: timeoutSecs)) {
     return false;
   }
   final hasContactsSidebar = await inst.waitKey(
     'sidebar_contacts_tab',
     timeoutSecs: timeoutSecs,
   );
-  // iOS has no sidebar — the home-shell signal is the bottom nav. Without this,
-  // the `hasContactsSidebar && ...` gate below is unsatisfiable on iOS (the
+  // Mobile shells have no sidebar — the home-shell signal is the bottom nav.
+  // Without this, the `hasContactsSidebar && ...` gate below is unsatisfiable
+  // on mobile (the
   // Contacts shell is never recognized → the accept-friend / contacts cases hang).
-  final hasContactsHomeNav = hasContactsSidebar ||
-      (inst.isIos &&
-          await inst.waitKey('bottom_nav_contacts_tab', timeoutSecs: timeoutSecs));
+  final hasContactsHomeNav =
+      hasContactsSidebar ||
+      (inst.isMobileShell &&
+          await inst.waitKey(
+            'bottom_nav_contacts_tab',
+            timeoutSecs: timeoutSecs,
+          ));
   final hasNewEntry = await inst.waitKey(
     'new_entry_menu_button',
     timeoutSecs: timeoutSecs,
@@ -1149,7 +1167,7 @@ Future<bool> _forceHomeRootAndWait(
   required String label,
   required Future<bool> Function() ready,
 }) async {
-  if (inst.navToolsUnavailable) {
+  if (inst.navToolsUnavailable && !inst.isMobileShell) {
     // l3_force_home_root is refused on a freshly-registered (non-test) account;
     // skip the known-dead call so it neither WARN-spams nor burns a recovery
     // round. The UI-landmark recovery below (sidebar taps, Back, escape) and the
@@ -1190,13 +1208,13 @@ Future<bool> _selectChatsTab(Inst inst) async {
       return true;
     }
   }
-  if (inst.isIos && await _tryTapText(inst, 'Chats')) {
+  if (inst.isMobileShell && await _tryTapText(inst, 'Chats')) {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
       return true;
     }
   }
-  if (inst.isIos && await inst.tapKeyCenter('bottom_nav_chats_tab')) {
+  if (inst.isMobileShell && await inst.tapKeyCenter('bottom_nav_chats_tab')) {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
       return true;
@@ -1225,13 +1243,14 @@ Future<bool> _selectContactsTab(Inst inst) async {
       return true;
     }
   }
-  if (inst.isIos && await _tryTapText(inst, 'Contacts')) {
+  if (inst.isMobileShell && await _tryTapText(inst, 'Contacts')) {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
       return true;
     }
   }
-  if (inst.isIos && await inst.tapKeyCenter('bottom_nav_contacts_tab')) {
+  if (inst.isMobileShell &&
+      await inst.tapKeyCenter('bottom_nav_contacts_tab')) {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
       return true;

@@ -29,7 +29,7 @@ Future<int> runAccountConfExtraCase(
   if (primaryToxId.isEmpty) {
     throw DriveError('missing primary toxId for $scenario');
   }
-  final ok = switch (scenario) {
+  final bool? ok = switch (scenario) {
     'settings_switch_account_cancel' => await _aceSettingsSwitchAccountCancel(
       a,
       primaryToxId,
@@ -50,8 +50,18 @@ Future<int> runAccountConfExtraCase(
     ),
     _ => throw ArgumentError('unsupported account/conf extra: $scenario'),
   };
-  print('[pair] ${ok ? 'PASS' : 'FAIL'}: $scenario');
-  return ok ? 0 : 1;
+  print(
+    '[pair] ${ok == null
+        ? 'SKIP'
+        : ok
+        ? 'PASS'
+        : 'FAIL'}: $scenario',
+  );
+  return switch (ok) {
+    true => 0,
+    false => 1,
+    null => 75,
+  };
 }
 
 Future<int> runAccountConfExtraSweep(Inst a, String nickA) async {
@@ -64,9 +74,11 @@ Future<int> runAccountConfExtraSweep(Inst a, String nickA) async {
 
   var passed = 0;
   var failed = 0;
+  var skipped = 0;
+  var unexpectedSkipped = 0;
 
-  Future<void> hard(String name, Future<bool> Function() body) async {
-    var ok = false;
+  Future<void> hard(String name, Future<bool?> Function() body) async {
+    bool? ok;
     try {
       ok = await body();
     } on PermissionBlockedError {
@@ -77,12 +89,22 @@ Future<int> runAccountConfExtraSweep(Inst a, String nickA) async {
     } finally {
       await _aceNormalizePrimary(a, primaryToxId);
     }
-    if (ok) {
+    if (ok == null) {
+      skipped++;
+      final expected = a.isAndroid && name == 'conference_search_result_opens';
+      if (!expected) unexpectedSkipped++;
+      print(
+        '[sweep] sweep_account_conf_extra '
+        '${expected ? 'SKIP(platform-hidden)' : 'UNEXPECTED SKIP'}: $name',
+      );
+    } else if (ok) {
       passed++;
     } else {
       failed++;
     }
-    print('[sweep] sweep_account_conf_extra ${ok ? 'PASS' : 'FAIL'}: $name');
+    if (ok != null) {
+      print('[sweep] sweep_account_conf_extra ${ok ? 'PASS' : 'FAIL'}: $name');
+    }
   }
 
   await hard(
@@ -114,9 +136,9 @@ Future<int> runAccountConfExtraSweep(Inst a, String nickA) async {
   if (!endClean) failed++;
   print(
     '[sweep] sweep_account_conf_extra summary: passed=$passed failed=$failed '
-    'endClean=$endClean',
+    'skipped=$skipped endClean=$endClean',
   );
-  return failed == 0 ? 0 : 1;
+  return failed == 0 && unexpectedSkipped == 0 ? 0 : 1;
 }
 
 Future<bool> _aceNormalizePrimary(Inst inst, String primaryToxId) async {
@@ -187,10 +209,21 @@ Future<bool> _aceSettingsSwitchAccountCancel(
       print('[pair] settings_switch_account_cancel: second account missing');
       return assertedOk;
     }
-    await _openSettings(inst);
     final swapKey = 'settings_account_switch_button:$primaryToxId';
-    if (!await _settingsScrollTo(inst, swapKey)) {
-      print('[pair] settings_switch_account_cancel: swap key not in band');
+    final compactMobile = inst.isMobileShell && !(await _settingsIsWide(inst));
+    if (compactMobile) {
+      if (!await _openMobileAccountManagement(inst)) {
+        print(
+          '[pair] settings_switch_account_cancel: Account Management did not '
+          'open',
+        );
+        return assertedOk;
+      }
+    } else {
+      await _openSettings(inst);
+      if (!await _settingsScrollTo(inst, swapKey)) {
+        print('[pair] settings_switch_account_cancel: swap key not in band');
+      }
     }
     final dialogUp = await _p1OpenDialogViaKey(
       inst,
@@ -294,9 +327,20 @@ Future<bool> _aceSettingsDeleteAccountCancel(
     print('[pair] settings_delete_account_cancel: not on primary account');
     return false;
   }
-  await _openSettings(inst);
-  if (!await _settingsScrollTo(inst, 'settings_delete_account_button')) {
-    print('[pair] settings_delete_account_cancel: delete button not in band');
+  final compactMobile = inst.isMobileShell && !(await _settingsIsWide(inst));
+  if (compactMobile) {
+    if (!await _openMobileAccountManagement(inst)) {
+      print(
+        '[pair] settings_delete_account_cancel: mobile account management '
+        'section did not open',
+      );
+      return false;
+    }
+  } else {
+    await _openSettings(inst);
+    if (!await _settingsScrollTo(inst, 'settings_delete_account_button')) {
+      print('[pair] settings_delete_account_cancel: delete button not in band');
+    }
   }
   final dialogUp = await _p1OpenDialogViaKey(
     inst,
@@ -337,8 +381,10 @@ Future<bool> _aceConferenceProfileIdSurface(Inst inst) async {
     // group_profile_id_text (SelectableText) + group_profile_members_entry
     // (KeyedSubtree) are invisible to flutter_skill — use the element-tree
     // resolver (ui_key_center).
-    final hasId =
-        await inst.waitKeyCenter('group_profile_id_text', timeoutSecs: 8);
+    final hasId = await inst.waitKeyCenter(
+      'group_profile_id_text',
+      timeoutSecs: 8,
+    );
     final hasMembers = await inst.waitKeyCenter(
       'group_profile_members_entry',
       timeoutSecs: 4,
@@ -374,12 +420,15 @@ Future<bool> _aceConferenceProfileSendMessageTile(Inst inst) async {
     )) {
       return false;
     }
-    final chatOpened = await _chatSurfaceReadyForAnyGroup(
-      inst,
-      timeoutSecs: 12,
-      requireGroupId: gid,
-    );
     final headerOk = await _waitChatHeaderTitle(inst, name, timeoutSecs: 8);
+    final chatOpened =
+        headerOk &&
+        await _chatSurfaceReadyForAnyGroup(
+          inst,
+          timeoutSecs: 12,
+          requireGroupId: gid,
+          allowAndroidCompact: inst.isAndroid,
+        );
     await inst.shot('/tmp/ui_ace_conf_send_tile_${inst.name}.png');
     cleanupOk = await _groupLeaveViaProfileConfirm(inst, gid, name);
     print(
@@ -392,7 +441,14 @@ Future<bool> _aceConferenceProfileSendMessageTile(Inst inst) async {
   }
 }
 
-Future<bool> _aceConferenceSearchResultOpens(Inst inst) async {
+Future<bool?> _aceConferenceSearchResultOpens(Inst inst) async {
+  if (inst.isAndroid) {
+    print(
+      '[pair] conference_search_result_opens: SKIP — Android compact shell '
+      'has no desktop master-detail search route',
+    );
+    return null;
+  }
   final name = _aceConfName('SEARCH');
   final gid = await _confCreateDialogSurface(inst, name);
   if (gid.isEmpty) return false;

@@ -50,7 +50,7 @@ void main() {
     ).readAsStringSync();
 
     final liveScenario = RegExp(
-      r"Future<bool> _aeeIrcJoinChannelLoopbackLive[\s\S]*?^}\n",
+      r"Future<bool\??> _aeeIrcJoinChannelLoopbackLive[\s\S]*?^}\n",
       multiLine: true,
     ).firstMatch(driver)?.group(0);
 

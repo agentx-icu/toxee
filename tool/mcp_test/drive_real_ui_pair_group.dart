@@ -61,6 +61,7 @@ Future<bool> _chatSurfaceReadyForAnyGroup(
   Inst inst, {
   int timeoutSecs = 10,
   String? requireGroupId,
+  bool allowAndroidCompact = false,
 }) async {
   final wantConv = requireGroupId == null ? null : 'group_$requireGroupId';
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
@@ -74,7 +75,35 @@ Future<bool> _chatSurfaceReadyForAnyGroup(
     final convOk = wantConv == null
         ? (currentConversation?.startsWith('group_') ?? false)
         : currentConversation == wantConv;
-    if (shellTab == 'chats' && convOk && hasInput) {
+    final compactRouteOk = inst.isAndroid && allowAndroidCompact && hasInput;
+    if (shellTab == 'chats' && hasInput && (convOk || compactRouteOk)) {
+      return true;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  return false;
+}
+
+/// Android compact message routes do not bind HomePage's desktop
+/// `currentConversationId`, and the mobile composer is not exposed through
+/// flutter_skill's interactive key finder. The production L3 response carries
+/// the exact route identity, so use that identity plus an onstage composer as
+/// the readiness contract for this navigation-only helper.
+Future<bool> _openAndroidGroupChatViaL3(
+  Inst inst, {
+  required String groupId,
+}) async {
+  if (!inst.isAndroid) return false;
+  final expectedConversationId = 'group_$groupId';
+  final result = await inst.l3('l3_open_chat', {'groupId': groupId});
+  if (result['ok'] != true ||
+      result['conversationId'] != expectedConversationId) {
+    return false;
+  }
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await _homeShellTab(inst) == 'chats' &&
+        await inst.keyCenter('chat_input_text_field') != null) {
       return true;
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -97,6 +126,10 @@ Future<void> openGroupChat(
     timeoutSecs: 2,
     requireGroupId: groupId,
   )) {
+    return;
+  }
+  if (inst.isMobileShell &&
+      await _openAndroidGroupChatViaL3(inst, groupId: groupId)) {
     return;
   }
   // Opt-in reliable open via the production `_openChat` path (the ungated
@@ -141,7 +174,8 @@ Future<void> openGroupChat(
   // wait again, giving it a moment to connect between attempts.
   for (var attempt = 0; attempt < 3; attempt++) {
     await returnToChatsHome(inst, rounds: 4);
-    var rowOpened = await inst.tryTapKey(conversationKey, retries: 1) ||
+    var rowOpened =
+        await inst.tryTapKey(conversationKey, retries: 1) ||
         await inst.tryTapKey('group_list_tile:$groupId', retries: 1);
     if (!rowOpened) {
       // A FRESHLY-created group/conference has no messages → its sort key is
@@ -152,9 +186,11 @@ Future<void> openGroupChat(
       // until the row is built + onstage, then tap its resolved center. (This is
       // why these cases only fail LATE in a shared launch, once the list has
       // accumulated other rows above the new group.)
-      for (var i = 0;
-          i < 12 && await inst.keyCenter(conversationKey) == null;
-          i++) {
+      for (
+        var i = 0;
+        i < 12 && await inst.keyCenter(conversationKey) == null;
+        i++
+      ) {
         await inst.scrollAtCoords(240, 400, dy: 600);
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
@@ -190,8 +226,10 @@ Future<void> openGroupChat(
     await Future<void>.delayed(const Duration(milliseconds: 800));
   }
   throw lastError ??
-      DriveError('[${inst.name}] failed to open group chat '
-          '(groupId=${_shortId(groupId)} name="$groupName")');
+      DriveError(
+        '[${inst.name}] failed to open group chat '
+        '(groupId=${_shortId(groupId)} name="$groupName")',
+      );
 }
 
 class _CreatedGroup {
@@ -212,7 +250,11 @@ Future<_CreatedGroup> _createGroup(
   if (res['error'] == 'non_test_account') {
     // Fresh / non-test account: l3_create_group is test-gated. Drive the REAL
     // AddGroupDialog instead — the genuinely valuable real-UI create path.
-    return _createGroupViaUI(inst, name, groupType: private ? 'private' : 'public');
+    return _createGroupViaUI(
+      inst,
+      name,
+      groupType: private ? 'private' : 'public',
+    );
   }
   if (res['ok'] != true) {
     throw DriveError('[${inst.name}] l3_create_group failed: $res');
@@ -264,15 +306,16 @@ Future<_CreatedGroup> _createGroupViaUI(
   final before = await _groupConversationCandidates(inst);
   final opened = await inst.l3('l3_open_add_group_dialog');
   if (opened['ok'] != true) {
-    throw DriveError(
-      '[${inst.name}] l3_open_add_group_dialog failed: $opened',
-    );
+    throw DriveError('[${inst.name}] l3_open_add_group_dialog failed: $opened');
   }
   if (!await inst.waitKey('add_group_create_name_input', timeoutSecs: 12)) {
     await inst.shot('/tmp/ui_group_create_noinput_${inst.name}.png');
     throw DriveError(
       '[${inst.name}] real-UI create: AddGroupDialog name input never appeared',
     );
+  }
+  if (inst.isMobileShell) {
+    await _revealDialogKey(inst, 'add_group_create_name_input');
   }
   // Select the group-type segment. Keys live on KeyedSubtree label wrappers so
   // the tap is a single, locale-independent selection (selection is idempotent;
@@ -288,6 +331,9 @@ Future<_CreatedGroup> _createGroupViaUI(
   await Future<void>.delayed(const Duration(milliseconds: 200));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (inst.isMobileShell) {
+    await _revealDialogKey(inst, 'add_group_create_submit_button');
+  }
   await inst.tapKey('add_group_create_submit_button');
   // On success the dialog pops and A's own group surfaces as a fresh type==2
   // conversation titled [name]; resolve it unambiguously by that unique name.
@@ -314,7 +360,9 @@ Future<_CreatedGroup> _createGroupViaUI(
       final r = await inst.l3('l3_group_chat_id', {'groupId': gid});
       if (r['ok'] == true) chatId = r['chatId']?.toString() ?? '';
     } on DriveError catch (e) {
-      print('[${inst.name}] real-UI create: chat-id resolve failed: ${e.message}');
+      print(
+        '[${inst.name}] real-UI create: chat-id resolve failed: ${e.message}',
+      );
     }
   }
   return _CreatedGroup(groupId: gid, chatId: chatId);
@@ -353,9 +401,7 @@ Future<void> _inviteToGroupViaUI(
     'groupId': groupId,
   });
   if (opened['ok'] != true) {
-    throw DriveError(
-      '[${inst.name}] l3_open_group_add_member failed: $opened',
-    );
+    throw DriveError('[${inst.name}] l3_open_group_add_member failed: $opened');
   }
   final itemKey = 'add_member_contact_item:$friendUserId';
   if (!await inst.waitKey(itemKey, timeoutSecs: 12)) {
@@ -387,7 +433,9 @@ Future<void> _setAutoAcceptGroupInvites(Inst inst, bool value) async {
     // Fresh / non-test account: l3_set_setting is test-gated. Use the ungated
     // campaign hook (same Prefs + native ffi sync). Without this the whole
     // "B auto-joins" flow can't even start (codex CRITICAL).
-    res = await inst.l3('l3_set_auto_accept_group_invites', {'value': '$value'});
+    res = await inst.l3('l3_set_auto_accept_group_invites', {
+      'value': '$value',
+    });
   }
   // Hard gate (codex): this is the precondition that lets B accept the PRIVATE
   // invite over the friend link instead of a wrong public DHT join. If it didn't

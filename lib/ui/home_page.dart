@@ -2225,7 +2225,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var gid = groupId.trim();
     if (gid.startsWith('group_')) gid = gid.substring(6);
     if (gid.isEmpty) return false;
-    _popOverlayRoutes();
+    await _popOverlayRoutes();
 
     V2TimGroupInfo groupInfo = UikitDataFacade.getGroupInfo(gid);
     if (groupInfo.groupID.isEmpty) {
@@ -2293,10 +2293,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// overlays and STOPS at the active HomePage — it never disposes HomePage
   /// (which would unregister the L3 invokers) the way a blanket `isFirst`
   /// popUntil did.
-  void _popOverlayRoutes() {
+  Future<void> _popOverlayRoutes() async {
     final navigator = Navigator.maybeOf(context, rootNavigator: true);
     if (navigator == null) return;
-    navigator.popUntil((route) => route is! MaterialPageRoute || route.isFirst);
+    for (var attempt = 0; attempt < 12; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!navigator.mounted) return;
+      try {
+        navigator.popUntil(
+          (route) => route is! MaterialPageRoute || route.isFirst,
+        );
+        return;
+      } on Object catch (e, st) {
+        if (!e.toString().contains('!_debugLocked') || attempt == 11) {
+          AppLogger.logError(
+            '[HomePage] stale group overlay pop skipped',
+            e,
+            st,
+          );
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
   }
 
   Future<bool> _openGroupProfile(String groupId) async {
@@ -2304,7 +2323,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     var gid = groupId.trim();
     if (gid.startsWith('group_')) gid = gid.substring(6);
     if (gid.isEmpty) return false;
-    _popOverlayRoutes();
+    await _popOverlayRoutes();
 
     // Pass ONLY the groupID — the profile route loads its own group info fresh
     // via getGroupsInfo(groupID) (which returns groupID == the local gid, the

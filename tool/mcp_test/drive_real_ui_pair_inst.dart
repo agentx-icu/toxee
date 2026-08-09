@@ -126,10 +126,12 @@ Timer? _simKeepAliveTimer;
 void startSimulatorKeepAlive() {
   _simKeepAliveTimer?.cancel();
   Future<void> bringFront() => _serializeOsa(() async {
-        await Process.run(
-            'osascript', ['-e', 'tell application "Simulator" to activate']);
-        await Future<void>.delayed(const Duration(seconds: 3));
-      });
+    await Process.run('osascript', [
+      '-e',
+      'tell application "Simulator" to activate',
+    ]);
+    await Future<void>.delayed(const Duration(seconds: 3));
+  });
   // Bring the Simulator to the front ONCE. In a mixed run the macOS peer is
   // driven purely via VM-service and never fronts itself, so a single activate
   // keeps the Simulator frontmost for the whole sweep — NO periodic re-activate
@@ -564,9 +566,11 @@ class Inst {
     var r = await l3('l3_force_home_root', {'tab': tab});
     if (r['ok'] != true &&
         r['error'] == 'non_test_account' &&
-        _isHeadlessRealUi) {
-      // Windows headless cannot recover a drifted/blank shell via real-UI nav
-      // (no OS input), so the non-test gate would dead-loop the blank-shell
+        (_isHeadlessRealUi || isMobileShell)) {
+      // Headless and mobile shells cannot reliably recover a drifted/blank shell
+      // via UI navigation
+      // (no OS input, or a compact route can cover the shell), so the non-test gate
+      // would dead-loop the blank-shell
       // recovery (root-caused live: contacts/app-entry pre-handshake cases drift
       // to a blank shell that only l3_force_home_root can pop back). Temporarily
       // grant the seed marker so the recovery can run, then revoke it so the
@@ -1147,6 +1151,11 @@ class Inst {
       // self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
       // non-test app-entry account doesn't silently no-op the gated tool.
       await forceHomeRoot(tab: 'settings');
+      await waitState(
+        (s) => s['homeShellTab'] == 'settings',
+        label: 'homeShellTab==settings',
+        timeoutSecs: 6,
+      );
       return;
     }
     await _osa(
@@ -1155,16 +1164,14 @@ class Inst {
     );
   }
 
-  /// Place [text] on the macOS clipboard via `pbcopy` WITHOUT pasting — for cases
-  /// that then exercise an in-app "Paste" control (e.g. the add-friend paste
-  /// button's `_pasteFromClipboard`) which reads the clipboard itself. Unlike
-  /// [osaPaste] this does NOT send Cmd+V, so the asserted action stays the real
-  /// in-app button.
+  /// Place [text] on the host/device clipboard WITHOUT pasting — for cases that
+  /// then exercise an in-app "Paste" control. Android must use the app-side
+  /// clipboard seam because host `pbcopy` is not visible inside the emulator.
   Future<void> setClipboard(String text) async {
-    if (_isHeadlessRealUi) {
+    if (_isHeadlessRealUi || isAndroid) {
       // Set the clipboard from INSIDE the app (Flutter Clipboard.setData) so the
-      // in-app paste button reads it. A driver-side Set-Clipboard would land in a
-      // different Windows window-station and be invisible to the headless app.
+      // in-app paste button reads it. A host-side clipboard is invisible to a
+      // device/emulator app process.
       await l3('l3_set_clipboard', {'text': text});
       return;
     }

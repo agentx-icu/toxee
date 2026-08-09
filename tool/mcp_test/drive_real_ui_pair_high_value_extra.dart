@@ -281,6 +281,7 @@ Future<bool> _hveAccountMultiAccountStateIsolation(
   var primaryGroupId = '';
   var assertedOk = false;
   var cleanupOk = true;
+  final marked = await inst.markAccountTest();
 
   try {
     if (!await _aceNormalizePrimary(inst, primaryToxId)) {
@@ -310,9 +311,15 @@ Future<bool> _hveAccountMultiAccountStateIsolation(
       primaryConvId,
       timeoutSecs: 10,
     );
-    final primaryActiveBefore =
-        (await _currentConversationId(inst)) == primaryConvId;
+    final primaryActiveBefore = inst.isAndroid
+        ? await _homeShellTab(inst) == 'chats' &&
+              await inst.keyCenter('chat_input_text_field') != null
+        : (await _currentConversationId(inst)) == primaryConvId;
 
+    await returnToChatsHome(inst, rounds: 4);
+    if (inst.isMobileShell) {
+      await inst.osaOpenSettingsShortcut();
+    }
     if ((await _logoutToLoginPage(inst)) != primaryToxId) {
       print(
         '[pair] account_multi_account_state_isolation: primary logout failed',
@@ -399,6 +406,7 @@ Future<bool> _hveAccountMultiAccountStateIsolation(
       await _leaveAllGroups(inst);
       await _waitGroupCandidatesDrained(inst);
     }
+    if (marked) await inst.unmarkAccountTest();
   }
 
   return assertedOk && cleanupOk;
@@ -497,10 +505,12 @@ Future<int> runGroupConfDeepExtraSweep(
   // group_mention, group_message all GREEN). Needs a second physical host.
   // SKIP-with-reason rather than a false FAIL; revisit with a 2-device harness.
   skipped++;
-  print('[sweep] sweep_group_conf_deep_extra SKIP: '
-      'conference_bidirectional_message_lifecycle — legacy-conference '
-      'founder→joiner un-deliverable same-host in deep-sweep context (standalone '
-      'conference_message covers + passes conference delivery)');
+  print(
+    '[sweep] sweep_group_conf_deep_extra SKIP: '
+    'conference_bidirectional_message_lifecycle — legacy-conference '
+    'founder→joiner un-deliverable same-host in deep-sweep context (standalone '
+    'conference_message covers + passes conference delivery)',
+  );
 
   await _gcmeCleanupGroups(a, b);
   final endFriends = await areFriends(a, toxB) && await areFriends(b, toxA);
@@ -665,10 +675,18 @@ Future<bool> _hveConferenceBidirectionalMessageLifecycle(
       // rows — where a real row tap can't reliably reach the unbuilt row. The
       // asserted action here is the MESSAGE lifecycle (send/receive both ways),
       // not the chat-open gesture, so deterministic opening is appropriate.
-      await openGroupChat(b,
-          groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
-      await openGroupChat(a,
-          groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
+      await openGroupChat(
+        b,
+        groupId: est.groupIdB,
+        groupName: est.groupName,
+        viaL3Seam: true,
+      );
+      await openGroupChat(
+        a,
+        groupId: est.groupIdA,
+        groupName: est.groupName,
+        viaL3Seam: true,
+      );
 
       final nonce = DateTime.now().microsecondsSinceEpoch;
       final mA = 'RUIHVCONF-A-$nonce';
@@ -682,28 +700,44 @@ Future<bool> _hveConferenceBidirectionalMessageLifecycle(
       var bGot = false;
       for (var attempt = 0; attempt < 4 && !bGot; attempt++) {
         if (attempt > 0) {
-          await openGroupChat(a,
-              groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
+          await openGroupChat(
+            a,
+            groupId: est.groupIdA,
+            groupName: est.groupName,
+            viaL3Seam: true,
+          );
         }
-        aSent = await sendComposerMessage(a, mA, clearFirst: attempt == 0) ||
-            aSent;
+        aSent =
+            await sendComposerMessage(a, mA, clearFirst: attempt == 0) || aSent;
         bGot = await _waitGroupMessageAnyConversation(b, mA, timeoutSecs: 20);
       }
 
-      await openGroupChat(a,
-          groupId: est.groupIdA, groupName: est.groupName, viaL3Seam: true);
-      await openGroupChat(b,
-          groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
+      await openGroupChat(
+        a,
+        groupId: est.groupIdA,
+        groupName: est.groupName,
+        viaL3Seam: true,
+      );
+      await openGroupChat(
+        b,
+        groupId: est.groupIdB,
+        groupName: est.groupName,
+        viaL3Seam: true,
+      );
       final mB = 'RUIHVCONF-B-$nonce';
       var bSent = false;
       var aGot = false;
       for (var attempt = 0; attempt < 4 && !aGot; attempt++) {
         if (attempt > 0) {
-          await openGroupChat(b,
-              groupId: est.groupIdB, groupName: est.groupName, viaL3Seam: true);
+          await openGroupChat(
+            b,
+            groupId: est.groupIdB,
+            groupName: est.groupName,
+            viaL3Seam: true,
+          );
         }
-        bSent = await sendComposerMessage(b, mB, clearFirst: attempt == 0) ||
-            bSent;
+        bSent =
+            await sendComposerMessage(b, mB, clearFirst: attempt == 0) || bSent;
         aGot = await _waitGroupMessageAnyConversation(a, mB, timeoutSecs: 20);
       }
 
@@ -765,8 +799,7 @@ Future<int> runNativeBoundaryGuardCase(
       await _hveRestoreImportEntryGuard(a, toxA) ? 0 : 1,
     'notification_tap_routes_to_c2c' =>
       await _hveNotificationTapRoutesToC2c(a, toxB) ? 0 : 1,
-    'network_disconnect_guard' =>
-      await _hveNetworkDisconnectGuard(a) ? 0 : 1,
+    'network_disconnect_guard' => await _hveNetworkDisconnectGuard(a) ? 0 : 1,
     'call_permission_denied_guard' =>
       await _hveCallPermissionDeniedGuard(a, toxB) ? 0 : 1,
     'mobile_smoke_playbook_guard' => await _hveSkip(
@@ -929,7 +962,9 @@ Future<bool> _hveNetworkDisconnectGuard(Inst a) async {
     final off = await a.l3('l3_set_connection', {'connected': 'false'});
     forcedOffline = off['ok'] == true;
     if (!forcedOffline) {
-      print('[pair] network_disconnect_guard: l3_set_connection off failed $off');
+      print(
+        '[pair] network_disconnect_guard: l3_set_connection off failed $off',
+      );
       return false;
     }
     await a.foreground();
@@ -937,28 +972,38 @@ Future<bool> _hveNetworkDisconnectGuard(Inst a) async {
       print('[pair] network_disconnect_guard: add-friend dialog did not open');
       return false;
     }
-    final bannerOffline =
-        await a.waitKey('add_friend_offline_banner', timeoutSecs: 8);
+    final bannerOffline = await a.waitKey(
+      'add_friend_offline_banner',
+      timeoutSecs: 8,
+    );
     await a.shot('/tmp/ui_hve_netdisc_offline_${a.name}.png');
     // Restore the connection → the banner must clear (the dialog listens live).
     await a.l3('l3_set_connection', {'connected': 'true'});
     forcedOffline = false;
-    final bannerGone =
-        await a.waitKeyGone('add_friend_offline_banner', timeoutSecs: 8);
+    final bannerGone = await a.waitKeyGone(
+      'add_friend_offline_banner',
+      timeoutSecs: 8,
+    );
     await _closeAddFriendDialog(a);
-    print('[pair] network_disconnect_guard: bannerOffline=$bannerOffline '
-        'bannerGone=$bannerGone (real connection-stream transition, no OS toggle)');
+    print(
+      '[pair] network_disconnect_guard: bannerOffline=$bannerOffline '
+      'bannerGone=$bannerGone (real connection-stream transition, no OS toggle)',
+    );
     return bannerOffline && bannerGone;
   } finally {
     if (forcedOffline) {
       try {
         await a.l3('l3_set_connection', {'connected': 'true'});
-      } on DriveError {/* best-effort restore online */}
+      } on DriveError {
+        /* best-effort restore online */
+      }
     }
     if (marked) {
       try {
         await a.unmarkAccountTest();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
   }
 }
@@ -1054,9 +1099,10 @@ Future<bool> _hveCallPermissionDeniedGuard(Inst a, String toxB) async {
     var offersSettings = false;
     if (raised) {
       offersSettings =
-          ((await a.dumpState())['call'] as Map?)?['lastPermissionNoticeOffersSettings']
-                  as bool? ??
-              false;
+          ((await a.dumpState())['call']
+                  as Map?)?['lastPermissionNoticeOffersSettings']
+              as bool? ??
+          false;
     }
     // The transient SnackBar text is a soft cross-check (may have auto-dismissed).
     final snackbarText = await a.waitText(
@@ -1064,10 +1110,12 @@ Future<bool> _hveCallPermissionDeniedGuard(Inst a, String toxB) async {
       timeoutSecs: 3,
     );
     await a.shot('/tmp/ui_hve_callperm_${a.name}.png');
-    print('[pair] call_permission_denied_guard: raised=$raised '
-        'offersSettings=$offersSettings snackbarText=$snackbarText '
-        '(real preflight denial UI via the forced-permission seam; the macOS OS '
-        'path never reaches this branch)');
+    print(
+      '[pair] call_permission_denied_guard: raised=$raised '
+      'offersSettings=$offersSettings snackbarText=$snackbarText '
+      '(real preflight denial UI via the forced-permission seam; the macOS OS '
+      'path never reaches this branch)',
+    );
     // HARD: the call attempt raised the genuine permission-denied notice with a
     // Settings action (the counter bump proves the real _emitPermissionNotice ran).
     return raised && offersSettings;
@@ -1075,17 +1123,23 @@ Future<bool> _hveCallPermissionDeniedGuard(Inst a, String toxB) async {
     if (armed) {
       try {
         await a.l3('l3_set_call_permission', {'clear': 'true'});
-      } on DriveError {/* best-effort restore real OS path */}
+      } on DriveError {
+        /* best-effort restore real OS path */
+      }
     }
     if (marked) {
       try {
         await a.unmarkAccountTest();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
     // Make sure no call overlay lingers.
     try {
       await returnToChatsHome(a, rounds: 3);
-    } on DriveError {/* best-effort */}
+    } on DriveError {
+      /* best-effort */
+    }
   }
 }
 
@@ -1115,12 +1169,16 @@ Future<bool> _hveNotificationTapRoutesToC2c(Inst a, String toxB) async {
     await returnToChatsHome(a, rounds: 4);
     try {
       await a.clearActiveConversation();
-    } on DriveError {/* best-effort */}
+    } on DriveError {
+      /* best-effort */
+    }
     await Future<void>.delayed(const Duration(milliseconds: 400));
     final before = await _currentConversationId(a);
     if (before == convId) {
-      print('[pair] notification_tap_routes_to_c2c: could not clear the baseline '
-          '(B chat already active)');
+      print(
+        '[pair] notification_tap_routes_to_c2c: could not clear the baseline '
+        '(B chat already active)',
+      );
       return false;
     }
     // Fire the REAL notification-route handler via the seam.
@@ -1140,15 +1198,19 @@ Future<bool> _hveNotificationTapRoutesToC2c(Inst a, String toxB) async {
       routed = cur == convId && tab == 'chats';
     }
     await a.shot('/tmp/ui_hve_notification_tap_${a.name}.png');
-    print('[pair] notification_tap_routes_to_c2c: before="$before" '
-        'convId=$convId routed=$routed (real route handler via the '
-        'onSelectStream seam; OS-banner trigger is not headless-automatable)');
+    print(
+      '[pair] notification_tap_routes_to_c2c: before="$before" '
+      'convId=$convId routed=$routed (real route handler via the '
+      'onSelectStream seam; OS-banner trigger is not headless-automatable)',
+    );
     return routed;
   } finally {
     if (marked) {
       try {
         await a.unmarkAccountTest();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
   }
 }
@@ -1264,7 +1326,9 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: WARN B not online before send');
     }
     if (!await _ensureBoundChat(a, toxB)) {
-      print('[pair] attachment picker: WARN chat bind not verified before send');
+      print(
+        '[pair] attachment picker: WARN chat bind not verified before send',
+      );
     }
     if (!await a.tapKeyAt(buttonKey)) {
       print('[pair] attachment picker: $buttonKey not tappable');
@@ -1359,7 +1423,8 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
     // Windows headless: a coordinate tap (tapKeyAt) does NOT fire the card's
     // InkWell.onTap, so _restoreFromToxFile never runs and no error surfaces.
     // flutter_skill `tap` (tryTapKey) invokes the onTap callback directly.
-    final restoreTapped = restoreCard &&
+    final restoreTapped =
+        restoreCard &&
         (_isWindowsRealUi
             ? await inst.tryTapKey('login_page_restore_from_tox_file')
             : await inst.tapKeyAt('login_page_restore_from_tox_file'));
@@ -1392,4 +1457,3 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
   }
   return ok;
 }
-

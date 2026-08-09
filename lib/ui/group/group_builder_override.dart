@@ -37,6 +37,8 @@ import '../testing/ui_keys.dart';
 class GroupProfileBuilderOverrideHandle {
   GroupProfileBuilderOverrideHandle._();
 
+  static GroupProfileBuilderOverrideHandle? _activeOwner;
+
   bool _restored = false;
 
   static GroupProfileBuilderOverrideHandle capture() {
@@ -80,11 +82,14 @@ class GroupProfileBuilderOverrideHandle {
             groupMemberList: groupMemberList,
           ),
     );
+    _activeOwner = this;
   }
 
   void restore() {
     if (_restored) return;
     _restored = true;
+    if (!identical(_activeOwner, this)) return;
+    _activeOwner = null;
     TencentCloudChatGroupProfileManager.builder.setBuilders();
   }
 }

@@ -232,7 +232,7 @@ launch_android_instance() {
     adb -s "$device_id" reverse "tcp:$IRC_LOOPBACK_PORT" "tcp:$IRC_LOOPBACK_PORT" >/dev/null 2>&1 \
         || echo "launch_android_fixture_c_pair.sh: WARN adb reverse failed on $device_id (IRC loopback may be unreachable)" >&2
 
-    nohup flutter run -d "$device_id" --"$MODE" --machine \
+    nohup flutter run -d "$device_id" --"$MODE" --machine --no-pub \
         --dart-define=FLUTTER_BUILD_MODE="$MODE" \
         --dart-define=MCP_BINDING="$MCP_BINDING" \
         --dart-define=TOXEE_L3_TEST="$TOXEE_L3_TEST" \

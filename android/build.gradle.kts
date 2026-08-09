@@ -26,6 +26,12 @@ fun configureMissingNamespace(project: Project) {
     namespaceSetter.invoke(androidExtension, inferredNamespace)
 }
 
+val flutterIntegrationTestAndroidxPins = mapOf(
+    "androidx.test:runner:1.2+" to "1.2.0",
+    "androidx.test:rules:1.2+" to "1.2.0",
+    "androidx.test.espresso:espresso-core:3.2+" to "3.2.0",
+)
+
 allprojects {
     repositories {
         google()
@@ -44,6 +50,17 @@ subprojects {
 subprojects {
     pluginManager.withPlugin("com.android.library") {
         configureMissingNamespace(project)
+    }
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            val pin = flutterIntegrationTestAndroidxPins[
+                "${requested.group}:${requested.name}:${requested.version}"
+            ]
+            if (pin != null) {
+                useVersion(pin)
+                because("Pin Flutter 3.41.9 integration_test AndroidX versions")
+            }
+        }
     }
     project.evaluationDependsOn(":app")
 }

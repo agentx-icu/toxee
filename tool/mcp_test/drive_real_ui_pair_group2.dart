@@ -89,6 +89,13 @@ Future<bool> _openGroupMemberListPage(Inst inst, String groupId) async {
 /// mute switch un-tappable). Returns whether a profile signature key resolves.
 Future<bool> _openGroupProfileClean(Inst inst, String gid) async {
   await inst.foreground();
+  if (inst.isMobileShell) {
+    try {
+      await inst.forceHomeRoot(tab: 'chats');
+    } on DriveError catch (e) {
+      print('[pair] _openGroupProfileClean: root recovery warn: ${e.message}');
+    }
+  }
   final opened = await inst.l3('l3_open_group_profile', {'groupId': gid});
   if (opened['ok'] != true) {
     print('[pair] _openGroupProfileClean: l3 open failed: $opened');
@@ -121,7 +128,20 @@ Future<({double x, double y})?> _scrollProfileButtonIntoBand(
   for (var i = 0; i < 16; i++) {
     final c = await inst.keyCenter(key);
     if (c != null) lastProbe = c;
+    if (inst.isMobileShell && c != null && c.y >= 80 && c.y <= 880) {
+      return c;
+    }
     if (c != null && c.y >= 80 && c.y <= 798) return c;
+    if (inst.isMobileShell) {
+      try {
+        await inst.dragBy('group_profile_scroll_anchor', dy: -420, steps: 16);
+      } on DriveError catch (e) {
+        print('[pair] _scrollProfileButtonIntoBand: drag warn: ${e.message}');
+        if (e.message.contains('key_not_found')) break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      continue;
+    }
     // Wheel-scroll DOWN at the content column (the resolved x, or window centre)
     // so the event reliably lands on the profile's Scrollable.
     final wheelX = (c?.x ?? 640).clamp(40.0, 1240.0);
@@ -132,8 +152,10 @@ Future<({double x, double y})?> _scrollProfileButtonIntoBand(
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
-  print('[pair] _scrollProfileButtonIntoBand: "$key" never reached band '
-      '(last=$lastProbe)');
+  print(
+    '[pair] _scrollProfileButtonIntoBand: "$key" never reached band '
+    '(last=$lastProbe)',
+  );
   return null;
 }
 
@@ -150,7 +172,11 @@ Future<({double x, double y})?> _scrollProfileButtonIntoBand(
 /// authoritative count can read 2 while the peer's public key isn't enumerable
 /// yet). [gid] is the group id; both group2 call sites + _gcmeVisiblePeerRowKey
 /// open the member-list page first.
-Future<String?> _memberRowKeyFor(Inst inst, String gid, String memberTox) async {
+Future<String?> _memberRowKeyFor(
+  Inst inst,
+  String gid,
+  String memberTox,
+) async {
   final memberPk = _pubkey(memberTox);
   List<String> lastNonSelf = const [];
   for (var attempt = 0; attempt < 8; attempt++) {
@@ -185,11 +211,15 @@ Future<String?> _memberRowKeyFor(Inst inst, String gid, String memberTox) async 
         // GestureDetector row.
         if (await inst.waitKeyCenter(key, timeoutSecs: 3)) return key;
       }
-    } on DriveError catch (_) {/* retry — NGC peer info may still be syncing */}
+    } on DriveError catch (_) {
+      /* retry — NGC peer info may still be syncing */
+    }
     await Future<void>.delayed(const Duration(seconds: 1));
   }
-  print('[pair] _memberRowKeyFor: no row for peer=$memberPk in group=$gid '
-      '(nonSelf=$lastNonSelf)');
+  print(
+    '[pair] _memberRowKeyFor: no row for peer=$memberPk in group=$gid '
+    '(nonSelf=$lastNonSelf)',
+  );
   return null;
 }
 
@@ -229,7 +259,8 @@ Future<bool> _waitChatHeaderTitle(
 }) async {
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
   while (DateTime.now().isBefore(deadline)) {
-    if (await _keyedText(inst, 'chat_header_title_text') == expected) return true;
+    if (await _keyedText(inst, 'chat_header_title_text') == expected)
+      return true;
     // `chat_header_title_text` is a plain Text whose KEY flutter_skill's
     // interactiveStructured does NOT surface (so `_keyedText` returns null even
     // when the header IS rendered). Fall back to a TEXT match for the expected
@@ -279,11 +310,15 @@ Future<bool> _groupCreateCancel(Inst inst) async {
   final before = await _groupConversationCandidates(inst);
   final opened = await inst.l3('l3_open_add_group_dialog');
   if (opened['ok'] != true) {
-    print('[pair] group_create_cancel: l3_open_add_group_dialog failed: $opened');
+    print(
+      '[pair] group_create_cancel: l3_open_add_group_dialog failed: $opened',
+    );
     return false;
   }
-  final dialogUp = await inst.waitKey('add_group_create_name_input',
-      timeoutSecs: 12);
+  final dialogUp = await inst.waitKey(
+    'add_group_create_name_input',
+    timeoutSecs: 12,
+  );
   if (!dialogUp) {
     print('[pair] group_create_cancel: dialog did not open');
     return false;
@@ -303,8 +338,10 @@ Future<bool> _groupCreateCancel(Inst inst) async {
       return false;
     }
   }
-  final closed =
-      await inst.waitKeyGone('add_group_create_name_input', timeoutSecs: 8);
+  final closed = await inst.waitKeyGone(
+    'add_group_create_name_input',
+    timeoutSecs: 8,
+  );
   // No new group conversation should have been created (Cancel != Create).
   await Future<void>.delayed(const Duration(milliseconds: 800));
   final after = await _groupConversationCandidates(inst);
@@ -338,12 +375,18 @@ Future<String> _groupCreateTypeSelectorSurface(Inst inst, String name) async {
     return '';
   }
   // All three keyed type segments must render (the type-selector surface).
-  final hasPublic =
-      await inst.waitKey('add_group_type_public_segment', timeoutSecs: 6);
-  final hasPrivate =
-      await inst.waitKey('add_group_type_private_segment', timeoutSecs: 4);
-  final hasConference =
-      await inst.waitKey('add_group_type_conference_segment', timeoutSecs: 4);
+  final hasPublic = await inst.waitKey(
+    'add_group_type_public_segment',
+    timeoutSecs: 6,
+  );
+  final hasPrivate = await inst.waitKey(
+    'add_group_type_private_segment',
+    timeoutSecs: 4,
+  );
+  final hasConference = await inst.waitKey(
+    'add_group_type_conference_segment',
+    timeoutSecs: 4,
+  );
   print(
     '[pair] group_create_type_selector: segments public=$hasPublic '
     'private=$hasPrivate conference=$hasConference',
@@ -379,8 +422,12 @@ Future<String> _groupCreateTypeSelectorSurface(Inst inst, String name) async {
   }
   await inst.tapKey('add_group_create_submit_button');
   // Resolve A's own new private group by its unique name.
-  final gid = await _waitForJoinedGroup(inst, name, before: before,
-      timeoutSecs: 30);
+  final gid = await _waitForJoinedGroup(
+    inst,
+    name,
+    before: before,
+    timeoutSecs: 30,
+  );
   await inst.shot('/tmp/ui_g2_type_selector_${inst.name}.png');
   if (gid == null) {
     print('[pair] group_create_type_selector: group "$name" did not appear');
@@ -414,17 +461,25 @@ Future<bool> _groupRenameUpdatesHeader(
     return false;
   }
   await inst.tapKeyCenter('group_profile_edit_name_button', timeoutSecs: 8);
-  if (!await inst.waitKeyCenter('group_profile_edit_name_field',
-      timeoutSecs: 10)) {
+  if (!await inst.waitKeyCenter(
+    'group_profile_edit_name_field',
+    timeoutSecs: 10,
+  )) {
     print('[pair] group_rename_updates_header: edit-name dialog did not open');
     return false;
   }
   await inst.focusType('group_profile_edit_name_field', newName);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await inst.tapKeyCenter('group_profile_edit_name_confirm_button',
-      timeoutSecs: 8);
-  final refreshed =
-      await _waitGroupShowName(inst, gid, newName, timeoutSecs: 20);
+  await inst.tapKeyCenter(
+    'group_profile_edit_name_confirm_button',
+    timeoutSecs: 8,
+  );
+  final refreshed = await _waitGroupShowName(
+    inst,
+    gid,
+    newName,
+    timeoutSecs: 20,
+  );
   // Open the chat fresh → assert the OPEN-chat HEADER title actually renders the
   // new name (codex P1: a conversation-LIST row showName check alone would PASS
   // even if the header stayed stale — read the keyed header text widget).
@@ -460,8 +515,10 @@ Future<bool> _groupProfileMembersEntry(
     return false;
   }
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
-  final entryShown =
-      await inst.waitKeyCenter('group_profile_members_entry', timeoutSecs: 6);
+  final entryShown = await inst.waitKeyCenter(
+    'group_profile_members_entry',
+    timeoutSecs: 6,
+  );
   if (!entryShown) {
     print('[pair] group_profile_members_entry: members entry not shown');
     return false;
@@ -477,7 +534,8 @@ Future<bool> _groupProfileMembersEntry(
       (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
   final selfRowKey = 'group_member_list_item:${_pubkey(selfTox)}';
   final selfRowKeyFull = 'group_member_list_item:$selfTox';
-  final memberRow = await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
+  final memberRow =
+      await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
       await inst.waitKeyCenter(selfRowKeyFull, timeoutSecs: 3);
   await inst.shot('/tmp/ui_g2_members_entry_${inst.name}.png');
   // Land back on chats home for the next case.
@@ -577,7 +635,12 @@ Future<bool> _groupProfileClearHistory(
   final convId = 'group_$gid';
   // 1) Seed own group history (own sends land in local group history regardless
   // of peers).
-  await openGroupChat(inst, groupId: gid, groupName: groupName, viaL3Seam: true);
+  await openGroupChat(
+    inst,
+    groupId: gid,
+    groupName: groupName,
+    viaL3Seam: true,
+  );
   var seeded = 0;
   for (var i = 0; i < 3; i++) {
     final text = 'RUIG2Clear-$i-${DateTime.now().microsecondsSinceEpoch}';
@@ -595,17 +658,21 @@ Future<bool> _groupProfileClearHistory(
           'text': text,
         });
         if (r['ok'] == true) seeded++;
-      } on DriveError catch (_) {/* honest fail below if all attempts miss */}
+      } on DriveError catch (_) {
+        /* honest fail below if all attempts miss */
+      }
     }
   }
   await Future<void>.delayed(const Duration(milliseconds: 600));
   final beforeCount =
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
-              ?.toInt() ??
-          0;
+          ?.toInt() ??
+      0;
   if (seeded == 0 || beforeCount == 0) {
-    print('[pair] group_profile_clear_history: failed to seed '
-        '(seeded=$seeded beforeCount=$beforeCount)');
+    print(
+      '[pair] group_profile_clear_history: failed to seed '
+      '(seeded=$seeded beforeCount=$beforeCount)',
+    );
     return false;
   }
   // 2) Open the profile, SCROLL the Clear-History button into the visible
@@ -622,11 +689,15 @@ Future<bool> _groupProfileClearHistory(
   // DeleteButton Column: child0=clear-history, child1=leave), below the fold on
   // an 800px window. WHEEL-scroll it into the visible band (a synthetic touch
   // drag does NOT scroll the desktop profile ListView; the mouse wheel does).
-  final clearCenter =
-      await _scrollProfileButtonIntoBand(inst, 'group_profile_clear_history_button');
+  final clearCenter = await _scrollProfileButtonIntoBand(
+    inst,
+    'group_profile_clear_history_button',
+  );
   if (clearCenter == null) {
-    print('[pair] group_profile_clear_history: clear button never reached '
-        '(below fold)');
+    print(
+      '[pair] group_profile_clear_history: clear button never reached '
+      '(below fold)',
+    );
     return false;
   }
   // Settle, tap, and VERIFY the confirm dialog opened; retry with direct-invoke
@@ -635,15 +706,19 @@ Future<bool> _groupProfileClearHistory(
   for (var attempt = 0; attempt < 3 && !clearDialogUp; attempt++) {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (attempt == 0) {
-      await inst.tapKeyCenter('group_profile_clear_history_button',
-          timeoutSecs: 8);
+      await inst.tapKeyCenter(
+        'group_profile_clear_history_button',
+        timeoutSecs: 8,
+      );
     } else {
       await inst.tryTapKey('group_profile_clear_history_button', retries: 2);
     }
     clearDialogUp = await inst.waitText('Confirm', timeoutSecs: 2);
   }
   if (!clearDialogUp) {
-    print('[pair] group_profile_clear_history: clear confirm dialog never opened');
+    print(
+      '[pair] group_profile_clear_history: clear confirm dialog never opened',
+    );
     return false;
   }
   // The adaptive confirm dialog's Confirm button has NO key; tap the localized
@@ -654,12 +729,16 @@ Future<bool> _groupProfileClearHistory(
     return false;
   }
   // 3) Assert the group history is empty.
-  final emptied = await _waitGroupHistoryCount(inst, convId, (c) => c == 0,
-      timeoutSecs: 15);
+  final emptied = await _waitGroupHistoryCount(
+    inst,
+    convId,
+    (c) => c == 0,
+    timeoutSecs: 15,
+  );
   final afterCount =
       ((await inst.dumpState(conversationId: convId))['messageCount'] as num?)
-              ?.toInt() ??
-          -1;
+          ?.toInt() ??
+      -1;
   await returnToChatsHome(inst, rounds: 4);
   await inst.shot('/tmp/ui_g2_clear_history_${inst.name}.png');
   print(
@@ -694,8 +773,10 @@ Future<bool> _groupAddMemberFullJoin(
     } on DriveError catch (e) {
       // B may already be (partially) in the group → the picker no longer lists
       // them; fall through to the member-count poll rather than failing.
-      print('[pair] group_add_member_full_join: re-invite attempt '
-          '${attempt + 1} threw (${e.message}); polling member count');
+      print(
+        '[pair] group_add_member_full_join: re-invite attempt '
+        '${attempt + 1} threw (${e.message}); polling member count',
+      );
     }
     final deadline = DateTime.now().add(const Duration(seconds: 35));
     while (DateTime.now().isBefore(deadline)) {
@@ -722,18 +803,16 @@ Future<bool> _groupAddMemberFullJoin(
 /// the HONEST assertion is: the drag EXECUTES without error AND the member rows
 /// are STILL rendered afterwards (the list survived the gesture intact). A
 /// low-value-but-cheap surface gate.
-Future<bool> _groupMemberListScroll(
-  Inst a,
-  String gid,
-  String toxB,
-) async {
+Future<bool> _groupMemberListScroll(Inst a, String gid, String toxB) async {
   if (!await _openGroupMemberListPage(a, gid)) {
     print('[pair] group_member_list_scroll: member-list page did not open');
     return false;
   }
   final bRowKey = await _memberRowKeyFor(a, gid, toxB);
   if (bRowKey == null) {
-    print('[pair] group_member_list_scroll: could not resolve B member row key');
+    print(
+      '[pair] group_member_list_scroll: could not resolve B member row key',
+    );
     return false;
   }
   final bRowBefore = await a.waitKeyCenter(bRowKey, timeoutSecs: 8);
@@ -793,7 +872,12 @@ Future<bool> _groupUnreadBadgeTwoProc(
   final sentNonces = <String>[];
   for (var attempt = 0; attempt < 3 && !aGot; attempt++) {
     final mi = 'RUIG2UNREAD-$nonce-$attempt';
-    await openGroupChat(b, groupId: gidB, groupName: groupName, viaL3Seam: true);
+    await openGroupChat(
+      b,
+      groupId: gidB,
+      groupName: groupName,
+      viaL3Seam: true,
+    );
     if (await sendComposerMessage(b, mi)) {
       bSent = true;
       sentNonces.add(mi);
@@ -809,28 +893,38 @@ Future<bool> _groupUnreadBadgeTwoProc(
     }
   }
   if (!bSent || !aGot) {
-    print('[pair] group_unread_badge_two_proc: seed failed '
-        '(bSent=$bSent aGot=$aGot) — same-host NGC delivery missed after 3 tries');
+    print(
+      '[pair] group_unread_badge_two_proc: seed failed '
+      '(bSent=$bSent aGot=$aGot) — same-host NGC delivery missed after 3 tries',
+    );
     return false;
   }
-  final bumped = await _waitConversationUnread(a, convId, (u) => u >= 1,
-      timeoutSecs: 30);
+  final bumped = await _waitConversationUnread(
+    a,
+    convId,
+    (u) => u >= 1,
+    timeoutSecs: 30,
+  );
   if (!bumped) {
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_g2_unread_noseed_A.png');
-    print('[pair] group_unread_badge_two_proc: unread did not bump '
-        '(entry=$entry)');
+    print(
+      '[pair] group_unread_badge_two_proc: unread did not bump '
+      '(entry=$entry)',
+    );
     return false;
   }
   // OPEN the group chat → marks read on open.
   await openGroupChat(a, groupId: gidA, groupName: groupName, viaL3Seam: true);
-  final cleared = await _waitConversationUnread(a, convId, (u) => u == 0,
-      timeoutSecs: 20);
+  final cleared = await _waitConversationUnread(
+    a,
+    convId,
+    (u) => u == 0,
+    timeoutSecs: 20,
+  );
   await returnToChatsHome(a, rounds: 4);
   await a.shot('/tmp/ui_g2_unread_A.png');
-  print(
-    '[pair] group_unread_badge_two_proc: bumped=$bumped cleared=$cleared',
-  );
+  print('[pair] group_unread_badge_two_proc: bumped=$bumped cleared=$cleared');
   return bumped && cleared;
 }
 
@@ -846,16 +940,14 @@ Future<bool> _groupUnreadBadgeTwoProc(
 /// removal to B's knownGroups). Reuses the S37 kick recipe's identity model (NGC
 /// members are keyed by per-group pubkey, which the row key carries) but drives
 /// the REAL desktop kick affordance instead of the l3 kick tool.
-Future<bool> _groupKickMemberUi(
-  Inst a,
-  String gid,
-  String toxB,
-) async {
+Future<bool> _groupKickMemberUi(Inst a, String gid, String toxB) async {
   // Precondition: B is in the group (2 members) — case 77 put B there.
   final before = await _groupMemberCount(a, gid);
   if (before < 2) {
-    print('[pair] group_kick_member_ui: B not in group before kick '
-        '(memberCount=$before)');
+    print(
+      '[pair] group_kick_member_ui: B not in group before kick '
+      '(memberCount=$before)',
+    );
     return false;
   }
   if (!await _openGroupMemberListPage(a, gid)) {
@@ -885,10 +977,15 @@ Future<bool> _groupKickMemberUi(
     // The desktop context menu renders in an Overlay entry that whole-tree
     // waitKey doesn't traverse — use the element-tree resolver (waitKeyCenter),
     // matching the tapKeyCenter below.
-    if (await a.waitKeyCenter('group_member_desktop_kick_item', timeoutSecs: 3)) {
+    if (await a.waitKeyCenter(
+      'group_member_desktop_kick_item',
+      timeoutSecs: 3,
+    )) {
       // Single-fire the kick item (it pops the menu route + runs kickGroupMember).
-      if (await a.tapKeyCenter('group_member_desktop_kick_item',
-          timeoutSecs: 6)) {
+      if (await a.tapKeyCenter(
+        'group_member_desktop_kick_item',
+        timeoutSecs: 6,
+      )) {
         menuKicked = true;
       }
     }
@@ -944,11 +1041,55 @@ Future<bool> _groupLeaveViaProfileConfirm(
   // touch drag does NOT scroll the desktop profile ListView; the mouse wheel
   // does), THEN tap it for a real visible tap that opens the adaptive confirm
   // dialog.
-  final leaveCenter =
-      await _scrollProfileButtonIntoBand(inst, 'group_profile_leave_button');
-  if (leaveCenter == null) {
-    print('[pair] group_leave_via_profile_confirm: leave button never reached '
-        '(below fold)');
+  var leaveCenter = await _scrollProfileButtonIntoBand(
+    inst,
+    'group_profile_leave_button',
+  );
+  if (leaveCenter == null && inst.isMobileShell) {
+    if (await _openGroupProfileClean(inst, gid)) {
+      leaveCenter = await _scrollProfileButtonIntoBand(
+        inst,
+        'group_profile_leave_button',
+      );
+    }
+  }
+  var dialogUp = false;
+  var offscreenLeaveTapped = false;
+  if (leaveCenter == null && inst.isMobileShell) {
+    offscreenLeaveTapped = await inst.tryTapKey(
+      'group_profile_leave_button',
+      retries: 2,
+    );
+    if (offscreenLeaveTapped) {
+      dialogUp =
+          await inst.waitText('Leave the group', timeoutSecs: 3) ||
+          await inst.waitText('Confirm', timeoutSecs: 1);
+    }
+    if (!dialogUp) {
+      try {
+        await inst.tapKey('group_profile_leave_button', retries: 2);
+        offscreenLeaveTapped = true;
+        dialogUp =
+            await inst.waitText('Leave the group', timeoutSecs: 3) ||
+            await inst.waitText('Confirm', timeoutSecs: 1);
+      } on DriveError catch (e) {
+        print(
+          '[pair] group_leave_via_profile_confirm: direct tap warn: '
+          '${e.message}',
+        );
+      }
+    }
+  }
+  if (offscreenLeaveTapped && !dialogUp) {
+    dialogUp =
+        await inst.waitText('Leave the group', timeoutSecs: 3) ||
+        await inst.waitText('Confirm', timeoutSecs: 1);
+  }
+  if (leaveCenter == null && !dialogUp) {
+    print(
+      '[pair] group_leave_via_profile_confirm: leave button never reached '
+      '(below fold)',
+    );
     return false;
   }
   // The leave-button tap can MISS: right after the scroll, tapKeyCenter
@@ -957,7 +1098,6 @@ Future<bool> _groupLeaveViaProfileConfirm(
   // true regardless). Settle, tap, and VERIFY the confirm dialog actually opened
   // ("Leave the group?" title); retry with the direct-invoke tapKey (fires onTap
   // even when the re-resolved bounds are stale).
-  var dialogUp = false;
   for (var attempt = 0; attempt < 3 && !dialogUp; attempt++) {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (attempt == 0) {
@@ -965,12 +1105,15 @@ Future<bool> _groupLeaveViaProfileConfirm(
     } else {
       await inst.tryTapKey('group_profile_leave_button', retries: 2);
     }
-    dialogUp = await inst.waitText('Leave the group', timeoutSecs: 3) ||
+    dialogUp =
+        await inst.waitText('Leave the group', timeoutSecs: 3) ||
         await inst.waitText('Confirm', timeoutSecs: 1);
   }
   await inst.shot('/tmp/ui_g2_leave_dialog_${inst.name}.png');
   if (!dialogUp) {
-    print('[pair] group_leave_via_profile_confirm: leave confirm dialog never opened');
+    print(
+      '[pair] group_leave_via_profile_confirm: leave confirm dialog never opened',
+    );
     return false;
   }
   // The toxee override `_showQuitGroupDialog` primary action is "Confirm" (tried
@@ -1030,7 +1173,10 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
     return '';
   }
   // Select the Conference segment (single-fire, locale-independent key).
-  if (!await inst.waitKey('add_group_type_conference_segment', timeoutSecs: 6)) {
+  if (!await inst.waitKey(
+    'add_group_type_conference_segment',
+    timeoutSecs: 6,
+  )) {
     print('[pair] conf_create_dialog_surface: conference segment absent');
     try {
       await inst.osaEscape();
@@ -1050,11 +1196,17 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
     await _revealDialogKey(inst, 'add_group_create_submit_button');
   }
   await inst.tapKey('add_group_create_submit_button');
-  final gid =
-      await _waitForJoinedGroup(inst, name, before: before, timeoutSecs: 30);
+  final gid = await _waitForJoinedGroup(
+    inst,
+    name,
+    before: before,
+    timeoutSecs: 30,
+  );
   await inst.shot('/tmp/ui_g2_conf_create_${inst.name}.png');
   if (gid == null) {
-    print('[pair] conf_create_dialog_surface: conference "$name" did not appear');
+    print(
+      '[pair] conf_create_dialog_surface: conference "$name" did not appear',
+    );
     return '';
   }
   print(
@@ -1073,16 +1225,23 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
 /// delete) — the conference reuses the same keyed menu items as groups/C2C.
 Future<bool> _confRowMenuSurface(Inst inst, String gid) async {
   await _openConversationMenu(inst, gid);
-  final hasPin = await inst.waitKey('conversation_context_menu_pin_item',
-          timeoutSecs: 8) ||
-      await inst.waitKey('conversation_context_menu_unpin_item',
-          timeoutSecs: 2);
+  final hasPin =
+      await inst.waitKey(
+        'conversation_context_menu_pin_item',
+        timeoutSecs: 8,
+      ) ||
+      await inst.waitKey(
+        'conversation_context_menu_unpin_item',
+        timeoutSecs: 2,
+      );
   final hasMarkRead = await inst.waitKey(
-      'conversation_context_menu_mark_read_item',
-      timeoutSecs: 5);
+    'conversation_context_menu_mark_read_item',
+    timeoutSecs: 5,
+  );
   final hasDelete = await inst.waitKey(
-      'conversation_context_menu_delete_item',
-      timeoutSecs: 5);
+    'conversation_context_menu_delete_item',
+    timeoutSecs: 5,
+  );
   await inst.shot('/tmp/ui_g2_conf_menu_${inst.name}.png');
   await _dismissContextMenu(inst);
   await returnToChatsHome(inst, rounds: 4);
@@ -1111,8 +1270,10 @@ Future<bool> _confMemberListRenders(
     return false;
   }
   // KeyedSubtree — invisible to flutter_skill; use the element-tree resolver.
-  final entryShown =
-      await inst.waitKeyCenter('group_profile_members_entry', timeoutSecs: 6);
+  final entryShown = await inst.waitKeyCenter(
+    'group_profile_members_entry',
+    timeoutSecs: 6,
+  );
   if (!await _openGroupMemberListPage(inst, gid)) {
     print('[pair] conf_member_list_renders: member-list page did not open');
     return false;
@@ -1121,7 +1282,8 @@ Future<bool> _confMemberListRenders(
       (await inst.dumpState())['currentAccountToxId']?.toString() ?? '';
   final selfRowKey = 'group_member_list_item:${_pubkey(selfTox)}';
   final selfRowKeyFull = 'group_member_list_item:$selfTox';
-  final memberRow = await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
+  final memberRow =
+      await inst.waitKeyCenter(selfRowKey, timeoutSecs: 6) ||
       await inst.waitKeyCenter(selfRowKeyFull, timeoutSecs: 3);
   await inst.shot('/tmp/ui_g2_conf_members_${inst.name}.png');
   await returnToChatsHome(inst, rounds: 4);
@@ -1210,8 +1372,14 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
   var bMarked = false;
   try {
     // --- Establish the A<->B friendship (real-UI handshake) once. ---
-    final friended =
-        await _establishFriendshipForSweep(a, b, toxA, toxB, nickA, nickB);
+    final friended = await _establishFriendshipForSweep(
+      a,
+      b,
+      toxA,
+      toxB,
+      nickA,
+      nickB,
+    );
     if (!friended) {
       print('[sweep] sweep_group2: handshake FAILED — no case can run');
       for (final id in allCaseIds) {
@@ -1229,9 +1397,11 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       aMarked = await a.markAccountTest();
       bMarked = await b.markAccountTest();
       if (!(aMarked && bMarked)) {
-        print('[sweep] sweep_group2: WARN markAccountTest incomplete '
-            '(a=$aMarked b=$bMarked) — forceHomeRoot / l3 group-seed tools may '
-            'be refused');
+        print(
+          '[sweep] sweep_group2: WARN markAccountTest incomplete '
+          '(a=$aMarked b=$bMarked) — forceHomeRoot / l3 group-seed tools may '
+          'be refused',
+        );
       }
       // --- 2p prerequisites: full-mesh bootstrap + B auto-accept (seeding
       // infra; the established group exceptions). Wait for the group exts +
@@ -1257,8 +1427,10 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       // 2p cases honestly FAIL on their own member-count gate (no false pass).
       // Re-issues the account-scoped set per round (see the helper).
       if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
-        print('[sweep] sweep_group2: WARN B autoAcceptGroupInvites not yet live '
-            '— 2p cases (77/78/79/81) may need more time');
+        print(
+          '[sweep] sweep_group2: WARN B autoAcceptGroupInvites not yet live '
+          '— 2p cases (77/78/79/81) may need more time',
+        );
       }
 
       final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -1279,8 +1451,10 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       if (sharedGid.isEmpty) {
         // The shared group is the spine of 73/74/76/77/78/79/80/81 — without it
         // they can't run. Mark them failed (honest), still run conference cases.
-        print('[sweep] sweep_group2: shared private group not created — '
-            'group cases 73/74/76/77/78/79/80/81 cannot run');
+        print(
+          '[sweep] sweep_group2: shared private group not created — '
+          'group cases 73/74/76/77/78/79/80/81 cannot run',
+        );
         for (final id in const [
           'group_rename_updates_header',
           'group_profile_members_entry',
@@ -1298,18 +1472,25 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       } else {
         // --- 76: rename → header (the shared group's display name becomes
         // renamedName for all later cases). ---
-        await hard('group_rename_updates_header',
-            () => _groupRenameUpdatesHeader(a, sharedGid, groupName,
-                renamedName));
+        await hard(
+          'group_rename_updates_header',
+          () => _groupRenameUpdatesHeader(a, sharedGid, groupName, renamedName),
+        );
         // --- 73: members entry → member-list page mounts. ---
-        await hard('group_profile_members_entry',
-            () => _groupProfileMembersEntry(a, sharedGid, renamedName));
+        await hard(
+          'group_profile_members_entry',
+          () => _groupProfileMembersEntry(a, sharedGid, renamedName),
+        );
         // --- 80: mute toggle (flip on/off, no crash). ---
-        await hard('group_mute_toggle',
-            () => _groupMuteToggle(a, sharedGid, renamedName));
+        await hard(
+          'group_mute_toggle',
+          () => _groupMuteToggle(a, sharedGid, renamedName),
+        );
         // --- 74: clear-history (seed own sends, clear via profile). ---
-        await hard('group_profile_clear_history',
-            () => _groupProfileClearHistory(a, sharedGid, renamedName));
+        await hard(
+          'group_profile_clear_history',
+          () => _groupProfileClearHistory(a, sharedGid, renamedName),
+        );
 
         // --- 77: add B (full join) — B must be in the shared group BEFORE the
         // member-list / unread / kick cases. ---
@@ -1320,13 +1501,19 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         });
         // Resolve B's own group id (for B-side group sends in the unread case).
         final gidB = bJoined
-            ? await _waitForJoinedGroup(b, renamedName,
-                before: const <String>{}, timeoutSecs: 30)
+            ? await _waitForJoinedGroup(
+                b,
+                renamedName,
+                before: const <String>{},
+                timeoutSecs: 30,
+              )
             : null;
 
         if (!bJoined) {
-          print('[sweep] sweep_group2: B did not join the shared group — '
-              'cases 79/81/78 cannot run');
+          print(
+            '[sweep] sweep_group2: B did not join the shared group — '
+            'cases 79/81/78 cannot run',
+          );
           for (final id in const [
             'group_member_list_scroll',
             'group_unread_badge_two_proc',
@@ -1337,26 +1524,33 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
           }
         } else {
           // --- 79: member-list scroll (2 members; drag executes, list intact). ---
-          await hard('group_member_list_scroll',
-              () => _groupMemberListScroll(a, sharedGid, toxB));
+          await hard(
+            'group_member_list_scroll',
+            () => _groupMemberListScroll(a, sharedGid, toxB),
+          );
           // --- 81: unread badge bump → open clears. ---
           await hard('group_unread_badge_two_proc', () async {
             if (gidB == null) {
-              print('[pair] group_unread_badge_two_proc: B group id unresolved');
+              print(
+                '[pair] group_unread_badge_two_proc: B group id unresolved',
+              );
               return false;
             }
-            return _groupUnreadBadgeTwoProc(
-                a, b, sharedGid, gidB, renamedName);
+            return _groupUnreadBadgeTwoProc(a, b, sharedGid, gidB, renamedName);
           });
           // --- 78: kick B via the desktop member-list UI (destructive). ---
-          await hard('group_kick_member_ui',
-              () => _groupKickMemberUi(a, sharedGid, toxB));
+          await hard(
+            'group_kick_member_ui',
+            () => _groupKickMemberUi(a, sharedGid, toxB),
+          );
         }
 
         // --- 75: leave via profile (LAST group case — destroys the shared
         // group). ---
-        await hard('group_leave_via_profile_confirm',
-            () => _groupLeaveViaProfileConfirm(a, sharedGid, renamedName));
+        await hard(
+          'group_leave_via_profile_confirm',
+          () => _groupLeaveViaProfileConfirm(a, sharedGid, renamedName),
+        );
       }
 
       // --- 82: conference create (SHARED conference). ---
@@ -1366,8 +1560,10 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         return confGid.isNotEmpty;
       });
       if (confGid.isEmpty) {
-        print('[sweep] sweep_group2: shared conference not created — '
-            'cases 83/84 cannot run');
+        print(
+          '[sweep] sweep_group2: shared conference not created — '
+          'cases 83/84 cannot run',
+        );
         for (final id in const [
           'conf_row_menu_surface',
           'conf_member_list_renders',
@@ -1377,11 +1573,15 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         }
       } else {
         // --- 83: conference row menu surface. ---
-        await hard('conf_row_menu_surface',
-            () => _confRowMenuSurface(a, confGid));
+        await hard(
+          'conf_row_menu_surface',
+          () => _confRowMenuSurface(a, confGid),
+        );
         // --- 84: conference member list renders. ---
-        await hard('conf_member_list_renders',
-            () => _confMemberListRenders(a, confGid, confName));
+        await hard(
+          'conf_member_list_renders',
+          () => _confMemberListRenders(a, confGid, confName),
+        );
       }
     }
   } finally {
@@ -1394,22 +1594,28 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
         try {
           await _setAutoAcceptGroupInvites(b, false);
         } on DriveError catch (e) {
-          print('[sweep] sweep_group2 end-clean: restore auto-accept failed: '
-              '${e.message}');
+          print(
+            '[sweep] sweep_group2 end-clean: restore auto-accept failed: '
+            '${e.message}',
+          );
         }
       }
       if (aMarked) {
         try {
           await a.unmarkAccountTest();
         } on DriveError catch (e) {
-          print('[sweep] sweep_group2 end-clean: unmark A failed: ${e.message}');
+          print(
+            '[sweep] sweep_group2 end-clean: unmark A failed: ${e.message}',
+          );
         }
       }
       if (bMarked) {
         try {
           await b.unmarkAccountTest();
         } on DriveError catch (e) {
-          print('[sweep] sweep_group2 end-clean: unmark B failed: ${e.message}');
+          print(
+            '[sweep] sweep_group2 end-clean: unmark B failed: ${e.message}',
+          );
         }
       }
       await returnToChatsHome(a, rounds: 4);
@@ -1437,8 +1643,10 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       // best-effort
     }
     if (!endFriends) {
-      print('[sweep] sweep_group2: end state is NOT friends — failing the sweep '
-          'so the runner does not trust the result-state contract');
+      print(
+        '[sweep] sweep_group2: end state is NOT friends — failing the sweep '
+        'so the runner does not trust the result-state contract',
+      );
     }
   }
   // FAIL if any HARD case failed OR the launch did not reach the registered
@@ -1451,30 +1659,30 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
 // ===========================================================================
 /// Whether [scenario] is one of the 14 Batch-7 group/conference cases.
 bool _isGroup2CaseScenario(String scenario) => const {
-      'group_create_cancel',
-      'group_create_type_selector_surface',
-      'group_rename_updates_header',
-      'group_profile_members_entry',
-      'group_mute_toggle',
-      'group_profile_clear_history',
-      'group_add_member_full_join',
-      'group_member_list_scroll',
-      'group_unread_badge_two_proc',
-      'group_kick_member_ui',
-      'group_leave_via_profile_confirm',
-      'conf_create_dialog_surface',
-      'conf_row_menu_surface',
-      'conf_member_list_renders',
-    }.contains(scenario);
+  'group_create_cancel',
+  'group_create_type_selector_surface',
+  'group_rename_updates_header',
+  'group_profile_members_entry',
+  'group_mute_toggle',
+  'group_profile_clear_history',
+  'group_add_member_full_join',
+  'group_member_list_scroll',
+  'group_unread_badge_two_proc',
+  'group_kick_member_ui',
+  'group_leave_via_profile_confirm',
+  'conf_create_dialog_surface',
+  'conf_row_menu_surface',
+  'conf_member_list_renders',
+}.contains(scenario);
 
 /// 2p cases that need B joined to the group (the rest are single-instance: A
 /// creates + drives its own group, B stays launched-but-idle).
 bool _isGroup2TwoProcessCase(String scenario) => const {
-      'group_add_member_full_join',
-      'group_member_list_scroll',
-      'group_unread_badge_two_proc',
-      'group_kick_member_ui',
-    }.contains(scenario);
+  'group_add_member_full_join',
+  'group_member_list_scroll',
+  'group_unread_badge_two_proc',
+  'group_kick_member_ui',
+}.contains(scenario);
 
 /// Run a single Batch-7 case standalone. The 1i cases need only A + a fresh
 /// private/conference group A creates through the REAL dialog; the 2p cases need
@@ -1496,8 +1704,10 @@ Future<int> runGroup2Case(
     return await _groupCreateCancel(a) ? 0 : 1;
   }
   if (scenario == 'group_create_type_selector_surface') {
-    final gid =
-        await _groupCreateTypeSelectorSurface(a, '$_b7PrivateNamePrefix-$nonce');
+    final gid = await _groupCreateTypeSelectorSurface(
+      a,
+      '$_b7PrivateNamePrefix-$nonce',
+    );
     return gid.isNotEmpty ? 0 : 1;
   }
   if (scenario == 'conf_create_dialog_surface') {
@@ -1509,7 +1719,11 @@ Future<int> runGroup2Case(
   if (scenario == 'conf_row_menu_surface' ||
       scenario == 'conf_member_list_renders') {
     final confName = '$_b7ConfNamePrefix-$nonce';
-    final created = await _createGroupViaUI(a, confName, groupType: 'conference');
+    final created = await _createGroupViaUI(
+      a,
+      confName,
+      groupType: 'conference',
+    );
     if (created.groupId.isEmpty) {
       print('[pair] $scenario: could not create the conference');
       return 1;
@@ -1537,7 +1751,11 @@ Future<int> runGroup2Case(
     switch (scenario) {
       case 'group_rename_updates_header':
         return await _groupRenameUpdatesHeader(
-                a, gid, name, '$_b7PrivateNamePrefix-RENAMED-$nonce')
+              a,
+              gid,
+              name,
+              '$_b7PrivateNamePrefix-RENAMED-$nonce',
+            )
             ? 0
             : 1;
       case 'group_profile_members_entry':
@@ -1656,7 +1874,12 @@ Future<int> runGroup2Case(
         return await _groupMemberListScroll(a, est.groupIdA, toxB) ? 0 : 1;
       case 'group_unread_badge_two_proc':
         return await _groupUnreadBadgeTwoProc(
-                a, b, est.groupIdA, est.groupIdB, est.groupName)
+              a,
+              b,
+              est.groupIdA,
+              est.groupIdB,
+              est.groupName,
+            )
             ? 0
             : 1;
       case 'group_kick_member_ui':

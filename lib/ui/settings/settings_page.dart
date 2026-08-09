@@ -1363,6 +1363,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _logout() async {
+    final homeRoute = ModalRoute.of(context);
+    final navigator = Navigator.of(context, rootNavigator: true);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1388,11 +1390,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (confirmed == true && mounted) {
       unawaited(HapticFeedback.heavyImpact());
+      if (homeRoute != null) {
+        navigator.popUntil(
+          (route) => route.isFirst || identical(route, homeRoute),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
       await _teardownSession(service: widget.service);
       await Prefs.setCurrentAccountToxId(null);
 
       if (!mounted) return;
-      await Navigator.of(context).pushAndRemoveUntil(
+      await navigator.pushAndRemoveUntil(
         AppPageRoute<void>(page: const LoginPage()),
         (route) => false,
       );
@@ -1460,6 +1468,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
 
     Widget sectionTile({
+      required Key key,
       required IconData icon,
       required String title,
       String? subtitle,
@@ -1473,6 +1482,7 @@ class _SettingsPageState extends State<SettingsPage> {
           borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         ),
         child: ListTile(
+          key: key,
           leading: Icon(icon),
           title: Text(title),
           subtitle: subtitle == null ? null : Text(subtitle),
@@ -1522,6 +1532,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           child: ListTile(
+            key: UiKeys.settingsMobileProfileTile,
             contentPadding: const EdgeInsets.all(AppSpacing.md),
             leading: avatar(),
             title: Text(_currentNickname ?? appL10n.profile),
@@ -1532,6 +1543,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         AppSpacing.verticalMd,
         sectionTile(
+          key: UiKeys.settingsMobileAccountInfoSection,
           icon: Icons.badge_outlined,
           title: appL10n.accountInfo,
           onTap: () => _pushMobileSettingsSection(
@@ -1540,6 +1552,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         sectionTile(
+          key: UiKeys.settingsMobileAccountManagementSection,
           icon: Icons.manage_accounts_outlined,
           title: appL10n.accountManagement,
           onTap: () => _pushMobileSettingsSection(
@@ -1548,6 +1561,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         sectionTile(
+          key: UiKeys.settingsMobileAppearanceSection,
           icon: Icons.palette_outlined,
           title: tL10n?.appearance ?? appL10n.appearance,
           onTap: () => _pushMobileSettingsSection(
@@ -1566,6 +1580,7 @@ class _SettingsPageState extends State<SettingsPage> {
         // auto-download size limit — moved off the Appearance page (which now
         // only carries theme + language) so each page stays focused on mobile.
         sectionTile(
+          key: UiKeys.settingsMobileGeneralSection,
           icon: Icons.tune,
           title: appL10n.general,
           onTap: () => _pushMobileSettingsSection(
@@ -1581,6 +1596,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         sectionTile(
+          key: UiKeys.settingsMobileBootstrapSection,
           icon: Icons.hub_outlined,
           title: appL10n.bootstrapNodes,
           onTap: () => _pushMobileSettingsSection(

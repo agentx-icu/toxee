@@ -47,8 +47,14 @@ Future<int> runOptimizedSweep(
 }
 
 Future<int> runSingleAppOptimizedSweep(Inst a, String nickA) {
+  final settingsStep = a.isMobileShell
+      ? _OptimizedStep(
+          'sweep_ios_settings_main',
+          () => runIosSettingsMainSweep(a, nickA),
+        )
+      : _OptimizedStep('sweep_settings2', () => runSettingsSweep2(a, nickA));
   return _runOptimizedSequence('sweep_single_app_optimized', [
-    _OptimizedStep('sweep_settings2', () => runSettingsSweep2(a, nickA)),
+    settingsStep,
     _OptimizedStep('sweep_profile', () => runProfileSweep(a, nickA)),
     _OptimizedStep('sweep_login', () => runLoginSweep(a, nickA)),
     _OptimizedStep('sweep_p1_extra', () => runP1ExtraSweep(a, nickA)),
