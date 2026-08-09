@@ -153,16 +153,57 @@ Map<String, dynamic> readArchiveMetadata(Archive archive) {
     if (decoded is Map<String, dynamic>) return decoded;
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
   } on FormatException catch (e) {
-    throw InvalidBackupFormatException('Backup metadata is malformed: $e');
+    // PRIVACY: do NOT interpolate `$e`. `FormatException.toString()` appends an
+    // excerpt of `source` around `offset` when both are set, and `json.decode`
+    // sets both — so the excerpt would be raw `metadata.json`, which carries the
+    // nickname, the Tox ID and scoped prefs (friend avatar paths). That string
+    // then reaches `flutter_client.log` verbatim via
+    // `AppLogger.logError` -> `_emit(LogLevel.error, 'Error: $error')`
+    // (lib/util/logger.dart:360) — the file users attach to bug reports.
+    // `message` + `offset` are the diagnostic bits; neither quotes the source.
+    throw InvalidBackupFormatException(
+      'Backup metadata is malformed (${e.message} at offset ${e.offset})',
+    );
   }
   throw const InvalidBackupFormatException('Backup metadata is not an object');
 }
 
+/// Reads the `formatVersion` out of backup metadata.
+///
+/// ABSENT vs MALFORMED is the whole point of this function:
+///
+///  * **Absent** (or explicitly `null`) means *legacy v1*. toxee builds that
+///    predate the version field wrote no `formatVersion` at all and their
+///    archives are plaintext, so defaulting to
+///    [fullBackupLegacyFormatVersion] is the documented compatibility contract
+///    (see `full_backup.dart`).
+///  * **Present but not an integer** is not a v1 archive — it is a damaged
+///    v2 one. Degrading it to v1 would make [openFullBackupArchive] hand the
+///    still-encrypted *outer* archive straight back to the importer, which
+///    then finds no `tox_profile.tox` and no `chat_history/` and "restores"
+///    nothing while reporting success. Fail loudly instead.
+///
+/// A JSON number that happens to be encoded as a whole float (`2.0`, which is
+/// what several JSON writers emit for integers) and a numeric string (`"2"`)
+/// are accepted: both are lossless spellings of an integer, and accepting them
+/// still routes the archive to the decryptor rather than silently downgrading
+/// it. Anything else — `"v2"`, `2.5`, `true`, a list — throws.
 int backupFormatVersion(Map<String, dynamic> metadata) {
   final rawVersion = metadata['formatVersion'];
+  if (rawVersion == null) return fullBackupLegacyFormatVersion;
   if (rawVersion is int) return rawVersion;
-  return int.tryParse(rawVersion?.toString() ?? '') ??
-      fullBackupLegacyFormatVersion;
+  if (rawVersion is double &&
+      rawVersion.isFinite &&
+      rawVersion == rawVersion.roundToDouble()) {
+    return rawVersion.toInt();
+  }
+  if (rawVersion is String) {
+    final parsed = int.tryParse(rawVersion.trim());
+    if (parsed != null) return parsed;
+  }
+  throw const InvalidBackupFormatException(
+    'Backup metadata formatVersion is not an integer; the archive is damaged',
+  );
 }
 
 Future<Archive> _decryptEncryptedArchive({
@@ -180,6 +221,25 @@ Future<Archive> _decryptEncryptedArchive({
   if (payloadFile == null) {
     throw const InvalidBackupFormatException(
       'Encrypted full backup payload is missing',
+    );
+  }
+  final rawPayload = payloadFile.content;
+  final cipherText = rawPayload is List<int>
+      ? Uint8List.fromList(rawPayload)
+      : Uint8List(0);
+  // AES-GCM is length preserving, and [encryptFullBackupArchive] refuses to
+  // encrypt an empty zip, so a zero-length payload cannot have been produced by
+  // this exporter: the file was truncated or the entry was replaced. That is
+  // decidable without the password, so report it as damage rather than letting
+  // it fall through to the MAC check and come back as "wrong password".
+  //
+  // A payload that is truncated but still non-empty is NOT decidable here: GCM
+  // ciphertext carries no length field, so every byte length is syntactically
+  // valid and only the MAC rejects it. See the catch block below.
+  if (cipherText.isEmpty) {
+    throw const InvalidBackupFormatException(
+      'Encrypted full backup payload is empty or unreadable; '
+      'the archive is damaged',
     );
   }
 
@@ -216,11 +276,7 @@ Future<Archive> _decryptEncryptedArchive({
     iterations: iterations,
     bits: bits,
   );
-  final secretBox = SecretBox(
-    Uint8List.fromList(payloadFile.content as List<int>),
-    nonce: nonce,
-    mac: Mac(mac),
-  );
+  final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(mac));
 
   try {
     final plaintextZip = await _cipher.decrypt(
@@ -230,8 +286,25 @@ Future<Archive> _decryptEncryptedArchive({
     );
     return ZipDecoder().decodeBytes(plaintextZip);
   } on SecretBoxAuthenticationError catch (_) {
+    // A MAC failure is DELIBERATELY not split into "wrong password" and
+    // "tampered ciphertext". That distinction does not exist at this layer: an
+    // AEAD tag check fails identically for a wrong key, a flipped ciphertext
+    // byte, a truncated payload and a swapped nonce — that indistinguishability
+    // is the design of the primitive, not a gap in this code. Inventing a
+    // separate "tampered" exception here could only ever be a guess, and a
+    // wrong guess ("this backup was tampered with") is worse than a vague one.
+    //
+    // Everything that IS decidable without the key is already rejected above as
+    // InvalidBackupFormatException: wrong salt/nonce/MAC lengths, invalid
+    // base64, downgraded KDF parameters, a renamed/missing/empty payload. So
+    // by the time control reaches here the archive is structurally intact and
+    // "wrong password" is the single most likely cause — which is why the type
+    // stays InvalidBackupPasswordException and the UI keeps prompting for a
+    // password. The message names the other possibility instead of asserting a
+    // cause it cannot know.
     throw const InvalidBackupPasswordException(
-      'Authenticated decryption failed for encrypted full backup',
+      'Authenticated decryption failed for encrypted full backup: the '
+      'password is wrong, or the payload was modified or truncated',
     );
   } on FormatException catch (e) {
     throw InvalidBackupFormatException(
