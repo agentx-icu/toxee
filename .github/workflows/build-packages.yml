@@ -7,7 +7,22 @@ on:
       - master
     tags:
       - "v*"
+  # `pull_request:` used to be bare — no branch filter, no path filter — so every
+  # PR, including documentation-only ones, ran the full 8-job release matrix
+  # (4 of the 5 commits before 2026-08-08 were docs-only). Nothing consumes those
+  # artifacts on a PR either: the `publish` job below is gated on a `v*` tag or
+  # workflow_dispatch. The PR run is still worth keeping as the ONLY signal that
+  # Windows / macOS / Android / iOS still compile, so narrow it rather than drop it.
   pull_request:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - "**/*.md"
+      - "doc/**"
+      - "docs/**"
+      - "screenshot/**"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
       publish_release:
@@ -29,6 +44,14 @@ on:
 permissions:
   contents: read
 
+# Supersede an in-flight run when a PR is pushed again. Deliberately scoped to
+# pull_request only: cancelling a push-to-master or a `v*` tag run would abort a
+# release build midway. Without this, a PR revised 5 times paid for 5 full
+# matrices, ~4 of them already obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -40,6 +63,9 @@ env:
 jobs:
   linux:
     name: Linux ${{ matrix.target.package_arch }}
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 60
     runs-on: ${{ matrix.target.runner }}
     # ARM64 builds are experimental (LUCI_CONTEXT workaround for Flutter fusion
     # repo merge-base on shallow clones; see round-7/round-8 commits). Treat
@@ -186,6 +212,9 @@ jobs:
 
   windows:
     name: Windows ${{ matrix.target.package_arch }}
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 90
     runs-on: ${{ matrix.target.runner }}
     # Windows ARM64 sits on the same Flutter fusion-repo workaround as Linux ARM64;
     # treat it as advisory so a transient diag-only failure doesn't block release.
@@ -388,6 +417,9 @@ jobs:
 
   macos:
     name: macOS ${{ matrix.target.package_arch }}
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 60
     runs-on: ${{ matrix.target.runner }}
     strategy:
       fail-fast: false
@@ -444,6 +476,9 @@ jobs:
 
   android:
     name: Android
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
 
     steps:
@@ -519,6 +554,9 @@ jobs:
 
   ios:
     name: iOS
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 75
     # macos-14 is deprecated and ships Xcode 15.x — drifts vs. macOS desktop
     # job which is on macos-15 / Xcode 16.x. Keep both Apple jobs on the same
     # runner image so SDK paths and Swift ABI line up (F8).
@@ -599,6 +637,9 @@ jobs:
 
   publish:
     name: Publish GitHub Release
+    # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
+    # default, so one hung run burned 360 x the runner multiplier.
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     needs:
       - linux

@@ -33,8 +33,18 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   fixture-c-helper-contracts:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +53,8 @@ jobs:
         with:
           flutter-version: '3.41.9'
           channel: 'stable'
+          # Caches the Flutter SDK download/extract (~2.5 min/job).
+          cache: true
 
       # drive_fixture_c_pair.dart imports only dart:* + package:vm_service, so
       # pub get is enough to compile it for the no-arg usage-code check. The
@@ -63,7 +75,8 @@ jobs:
       - name: Unified Fixture C runner regression (hermetic)
         run: bash tool/mcp_test/fixture_c_unified_runner_regression.sh
 
-      # Schema gate for the 46 L3 scenario JSONs: required suite enum, order/
+      # Schema gate for the L3 scenario JSONs (48 as of 2026-08-08 — the
+      # runner derives the roster, this comment must not be trusted as a count): required suite enum, order/
       # feature/uiDriven types, unique ids. Pure file validation — no app, no
       # VM service (the runner waives the ws_uri arg for this mode).
       - name: L3 scenario schema (validate-only)
@@ -78,3 +91,15 @@ jobs:
       # tool/mcp_test/REAL_UI_TWO_PROCESS.md §3.3).
       - name: Scenario index check
         run: dart run tool/mcp_test/gen_scenario_index.dart --check --warn-playbook-headers
+
+      # ABI gate for the binary-replacement path. Pure text comparison of
+      # ffi/dart_compat_*.cpp + callback_bridge.cpp against the generated Dart
+      # binding — no native build, no app, so it belongs in this hermetic job.
+      #
+      # Catches the three drift classes CLAUDE.md calls out as "ABI is sacred":
+      # arg count, pointer-vs-scalar, AND integer width/signedness (the last of
+      # which the old version of this script did not check at all — it also
+      # hardcoded a maintainer's absolute path and reported "0 mismatches" while
+      # 5 real mismatches and a symbol the SDK actively calls were missing).
+      - name: FFI ABI audit (Dart* vs generated binding)
+        run: python3 tool/mcp_test/abi_audit.py

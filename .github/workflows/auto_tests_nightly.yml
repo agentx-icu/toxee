@@ -6,9 +6,21 @@ name: Tim2Tox Auto Tests (Nightly Wall-Clock)
 # mode hides (real DHT timing, real socket scheduling, real toxav RTP
 # pacing).
 #
-# Scope: phases 1-10, 12-14 (all phases except 11 Network/DHT, which
-# depends on real WAN connectivity we don't pay for in CI). RETRY_COUNT=0
-# so a single flake fails the run and we open a deduped issue.
+# Scope: phases 1-14 — ALL phases, including 11 (Network/DHT) as of 2026-08-08.
+#
+# Phase 11 used to be excluded here and in the PR tier ("depends on real WAN
+# connectivity we don't pay for in CI"), which left DHT bootstrap, reconnect and
+# LAN discovery — the layer toxee is most fragile in — with ZERO automatically
+# triggered coverage: Tier 4 only runs on a `ci:full` label or a release/**
+# push. 126 historical test_results_*.log runs (2026-05-14 .. 2026-08-03,
+# RETRY_COUNT=0) show that exclusion was not justified by stability either:
+# Phase 11 sits at 14/182 = 7.7%, LOWER than eight phases that were already in
+# this nightly run (ToxAV 23.4%, Other 22.7%, GroupExt 15.6%, Conversation
+# 11.9%, Group 10.2%, Conference 8.6%, Message 8.6%, File 7.8%). Two of its
+# seven tests (save_friend 0/28, dht_nodes_response_api 0/26) have never failed.
+# Nightly is the right tier for it: cron cadence, real network acceptable.
+#
+# RETRY_COUNT=0 so a single flake fails the run and we open a deduped issue.
 #
 # Trigger: nightly cron at 02:00 UTC + manual dispatch.
 
@@ -25,9 +37,15 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   auto-tests-wall-clock:
-    name: auto_tests (wall-clock, phases 1-10,12-14)
+    name: auto_tests (wall-clock, phases 1-14)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -83,7 +101,7 @@ jobs:
         working-directory: third_party/tim2tox/auto_tests
         run: flutter pub get
 
-      - name: Run auto_tests (wall-clock, phases 1-10,12-14)
+      - name: Run auto_tests (wall-clock, phases 1-14)
         id: run_tests
         working-directory: third_party/tim2tox/auto_tests
         env:
@@ -92,7 +110,7 @@ jobs:
           SKIP_PUB_GET: 'auto'
         run: |
           chmod +x ./run_tests_ordered.sh
-          ./run_tests_ordered.sh 1-10 12-14
+          ./run_tests_ordered.sh 1-14
 
       - name: Build failure issue body
         if: failure()

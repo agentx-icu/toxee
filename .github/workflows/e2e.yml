@@ -34,6 +34,12 @@ defaults:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e-smoke:
     name: e2e smoke (${{ matrix.os }})

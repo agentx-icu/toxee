@@ -6,8 +6,18 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,6 +26,8 @@ jobs:
         with:
           flutter-version: '3.41.9'
           channel: 'stable'
+          # Caches the Flutter SDK download/extract (~2.5 min/job).
+          cache: true
 
       - name: Bootstrap dependencies
         run: dart run tool/bootstrap_deps.dart
@@ -23,18 +35,47 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # `test` + `integration_test` were never analysed: the command only ever
+      # passed `lib tool`, even though analysis_options.yaml has no `exclude`
+      # block and its strict rules (cancel_subscriptions, close_sinks,
+      # unawaited_futures, …) are exactly as relevant in test code — a leaked
+      # subscription in a widget test is a real bug source. Same strictness as
+      # before (errors only), so this should be a no-op on a tree whose tests
+      # already compile; if it is not, that is a finding, not a regression.
       - name: Flutter analyze (hard gate)
-        run: flutter analyze lib tool --no-fatal-warnings --no-fatal-infos
+        run: flutter analyze lib tool test integration_test --no-fatal-warnings --no-fatal-infos
 
       # Advisory pass: surfaces lint warnings/infos (e.g. prefer_final_locals)
       # without failing CI. Output is informational only — see F12 in the
       # 2026-05-20 batch-6 review for the path toward making this fatal.
+      #
+      # HONEST STATUS (2026-08-08): this has been advisory for ~2.5 months, which
+      # means every rule CLAUDE.md names as a "hard gate" — avoid_print,
+      # unawaited_futures, use_build_context_synchronously, cancel_subscriptions,
+      # close_sinks, always_declare_return_types — is warning/info severity and
+      # therefore CANNOT fail CI today. CLAUDE.md's "Treat lint output as a hard
+      # gate" and this configuration contradict each other.
+      # To close it, mirror what the `test` job below already did successfully:
+      # take a one-time baseline, fix or ignore-comment the existing hits, then
+      # drop `continue-on-error` and the `--no-fatal-*` flags above. That needs a
+      # working Flutter toolchain to enumerate the baseline, so it is left as an
+      # explicit debt rather than a silent one.
       - name: Flutter analyze (advisory, warnings + infos)
         continue-on-error: true
-        run: flutter analyze lib tool
+        run: flutter analyze lib tool test integration_test
 
       - name: Complexity guard
         run: dart run tool/check_complexity.dart
+
+      # Cross-file source contracts that are lint, not tests: "this UiKey string
+      # must appear in the fork widget", "this scenario must be registered in the
+      # driver dispatch table". They used to live in test/ as *_source_test.dart
+      # files that read product source with readAsStringSync and asserted
+      # substrings — zero product code executed, zero coverage contribution, and
+      # two of them declared no test() at all. Moved here so `flutter test`
+      # signal is not diluted; the assertions themselves were ported verbatim.
+      - name: Source contract lint (UI anchors, harness registration)
+        run: python3 tool/check_source_contracts.py
 
   # Separate job so the fast lint/complexity gate above is never blocked by the
   # native build. The unit/widget suite constructs real FfiChatService
@@ -44,6 +85,7 @@ jobs:
   # ("Failed to load dynamic library 'libtim2tox_ffi.so'"). Same build + stage
   # recipe as the E2E workflow.
   test:
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +94,8 @@ jobs:
         with:
           flutter-version: '3.41.9'
           channel: 'stable'
+          # Caches the Flutter SDK download/extract (~2.5 min/job).
+          cache: true
 
       - name: Install Linux native dependencies
         run: |
@@ -76,7 +120,29 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # libtim2tox_ffi is a pure function of (tim2tox submodule SHA, target,
+      # mode, feature flags, toolchain image), so it is safely cacheable. Without
+      # this every PR rebuilt c-toxcore + tim2tox from scratch here AND again in
+      # auto_tests.yml on the same runner OS; tool/ci/build_tim2tox.sh has no
+      # skip-if-built path (it calls ci_reset_dir on the artifacts dir every run)
+      # and a GitHub runner is a fresh machine anyway, so nothing was reused.
+      - name: Resolve tim2tox revision (cache key)
+        id: t2t_rev
+        # Read the SHA the SUPERPROJECT records, not the submodule worktree:
+        # analyze.yml checks out without `submodules: recursive` (it relies on
+        # bootstrap_deps.dart to init them), so this must not depend on the
+        # submodule being present yet.
+        run: echo "sha=$(git rev-parse HEAD:third_party/tim2tox)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache libtim2tox_ffi (linux/debug/toxav)
+        id: cache_native
+        uses: actions/cache@v4
+        with:
+          path: build/native-artifacts/linux
+          key: tim2tox-${{ runner.os }}-${{ runner.arch }}-linux-debug-toxav-${{ steps.t2t_rev.outputs.sha }}-${{ hashFiles('tool/ci/build_tim2tox.sh') }}
+
       - name: Build libtim2tox_ffi (Linux, debug + toxav)
+        if: steps.cache_native.outputs.cache-hit != 'true'
         run: bash tool/ci/build_tim2tox.sh --target linux --mode debug --toxav
 
       - name: Stage libtim2tox_ffi.so for runtime loader
