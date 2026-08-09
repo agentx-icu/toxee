@@ -4,7 +4,7 @@
 **Fixture vector**: `accounts=1 current=A autoLogin=on network=online groups=empty`
 **Harness mode**: peerHarness=none (single-instance real UI)
 **Promotion target**: L3 candidate once post-create dialog persistence is stabilized; adjacent create-half is S32
-**Status**: covered at the widget layer (L1) — **`test/ui/add_group_dialog_test.dart` "S128 create success renders the created-info card with Copy ID button and the new id"** (2026-06-08, PASالС). The created-info card (Copy ID button `add_group_copy_id_button` + the new group id as a SelectableText) renders only while `_createdGroupId != null`, and `_createGroup` auto-pops the dialog on success — so the test mounts `AddGroupDialog` DIRECTLY (not via showDialog) so the pop is a no-op and the card stays mounted, then asserts the Copy ID button + id render after a stubbed create. The clipboard-value-equals-the-chats-row half is two-process and not asserted here.
+**Status**: covered at the widget layer (L1) — **`test/ui/add_group_dialog_test.dart` "S128 create success renders the created-info card with Copy ID button and the new id"** (2026-06-08, PASS). The created-info card (Copy ID button `add_group_copy_id_button` + the new group id as a SelectableText) renders only while `_createdGroupId != null`, and `_createGroup` auto-pops the dialog on success — so the test mounts `AddGroupDialog` DIRECTLY (not via showDialog) so the pop is a no-op and the card stays mounted, then asserts the Copy ID button + id render after a stubbed create. The clipboard-value-equals-the-chats-row half is two-process and not asserted here.
 
 ## Precondition
 - One signed-in account A is Online.

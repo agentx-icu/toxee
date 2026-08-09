@@ -22,7 +22,7 @@
 3. **Do NOT open the peer's conversation** (opening marks it read and suppresses the unread). Cause an inbound: send a nonce text to the echo peer via `l3_send_text` and let it echo back; OR on paired B send `l3_send_text(userId: toxA, ...)`.
 4. Poll `l3_dump_state.totalUnreadCount` ≤90s until it increments to N≥1; also read `conversations[]` and confirm the matching `conversations[].unreadCount` is the same N (`l3_debug_tools.dart:2909`).
 5. (macOS) poll the log ≤2s for `[BadgeService] badge written: <N>` (200ms debounce + microtask hop).
-6. `l3_mark_read(userId: <peer>)` (opens/marks the conversation read, `l3_debug_tools.dart:1055`).
+6. `l3_mark_read(userId: <peer>)` — marks the conversation read WITHOUT opening it, via the real product path `getConversationManager().cleanConversationUnreadMessageCount` → `Tim2ToxSdkPlatform` → `FfiChatService.markConversationRead` (`l3_debug_tools.dart:3047-3053`). It does NOT call `setActivePeer`, so `activePeerId` is unchanged and later inbound for that peer still counts as unread (which is exactly what the badge scenarios measure).
 7. Poll `l3_dump_state.totalUnreadCount` ≤5s until it drops to 0; (macOS) poll log for `[BadgeService] badge written: 0`.
 
 ## Assertions
@@ -36,5 +36,5 @@
 - OS pixel is OUT of scope: `AppBadgePlus.updateBadge` paints the real dock/launcher count, but no MCP surface reads the rendered NSDockTile/taskbar pixel. The runner-checkable signal is the in-process COUNT (`totalUnreadCount`) + the `badge written: N` log; do not claim the visual badge is verified.
 - Platform gating: Linux/Windows skip A3/A4 LOG lines — `_platformPlausible` is false there (`badge_service.dart:62-65`), so `BadgeService` no-ops and writes no log. The `totalUnreadCount` COUNT assertions (A1/A2/A4) still hold on every platform.
 - Echo vs paired: echo (`peerHarness=echo_live`) is the cheaper inbound source (single binary, no second toxee); paired B is heavier but exercises a real human-style send. Either bumps `totalUnreadCount` identically.
-- `l3_mark_read` zeroes the in-memory unread synchronously but the persisted lastView barrier write is unawaited (`l3_debug_tools.dart:1048-1055`) — so A4's in-memory `totalUnreadCount==0` is authoritative immediately, but a kill+reload variant would need a settle buffer (the S19 discipline).
+- `l3_mark_read` AWAITS the persisted lastView barrier write (`Tim2ToxSdkPlatform.cleanConversationUnreadMessageCount` awaits `FfiChatService.markConversationRead`, `tim2tox_sdk_platform.dart:4423-4450`), then fires `onConversationUnreadCleared` to refresh the list. So both A4's in-memory `totalUnreadCount==0` AND a kill+reload variant are safe without a settle buffer — the barrier is on disk before the tool returns. (An older note here claimed the barrier write was unawaited; that described the previous `setActivePeer`-based implementation and is STALE.)
 - Multi-message variant: send K distinct inbound nonces before opening → assert `totalUnreadCount == K`, then mark-read → 0. The 200ms debounce means the badge may only log the final K, not each intermediate — assert the COUNT settles at K, not the count of `badge written` lines.

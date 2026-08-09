@@ -2,15 +2,16 @@
   "id": "L3-recvopt-mute-toggle",
   "suite": "settings",
   "feature": ["S83"],
-  "description": "S83 mute conversation (recvOpt setting half, hermetic): drive l3_set_c2c_recv_opt on the seeded echo-peer conversation and prove recvOpt round-trips through l3_dump_state.conversations[].recvOpt (0=receive -> 2=block/mute -> 0). recvOpt 2 is the exact field _shouldSuppress reads to suppress notifications. The first step waits for the conversation list to hydrate; ends restored to 0 so the fixture self-cleans. Hermetic — no echo round-trip; the OS-banner-absence half stays the two-process run_fixture_c_mute.sh. Maps to S83 (setting half).",
+  "description": "S83 mute conversation (recvOpt setting half, hermetic): drive l3_set_c2c_recv_opt on the seeded echo-peer conversation and prove recvOpt round-trips through l3_dump_state.conversations[].recvOpt (0=receive -> 2=mute -> 0). As of 2026-08 the tool no longer writes Prefs / the conversation cache itself: it calls the REAL getMessageManager().setC2CReceiveMessageOpt (the same SDK boundary the friend-profile Do-Not-Disturb switch hits) -> native DartSetC2CReceiveMessageOpt -> OnConversationChanged push -> C2CRecvOptCache -> _mapConv. So conversations[].recvOpt is now a PRODUCT projection, not the value the tool just wrote — the write and the read are different code, and an ABI/push regression fails this gate instead of hiding. recvOpt 2 is the exact value _shouldSuppress reads to suppress notifications (via C2CRecvOptCache.isMuted, with the conversation-list recvOpt as fallback). The first step waits for the conversation list to hydrate; ends restored to 0 so the fixture self-cleans. Hermetic — no echo round-trip; the OS-banner-absence half stays the two-process run_fixture_c_mute.sh. Maps to S83 (setting half).",
   "requiresEchoPeer": false,
   "target": "3116CBE0974181B6EC4B32555413655B42C7456A93C6AF98A23E95127B587244",
   "steps": [
     { "action": "wait_for", "predicate": "state_contains", "field": "conversations", "contains": "3116CBE0974181B6", "timeoutSecs": 20 },
     { "action": "wait_for", "predicate": "state_not_contains", "field": "conversations", "notContains": "recvOpt: 2", "timeoutSecs": 5 },
     { "action": "set_recv_opt", "opt": 2 },
-    { "action": "wait_for", "predicate": "state_contains", "field": "conversations", "contains": "recvOpt: 2", "timeoutSecs": 10 },
-    { "action": "set_recv_opt", "opt": 0 }
+    { "action": "wait_for", "predicate": "state_contains", "field": "conversations", "contains": "recvOpt: 2", "timeoutSecs": 20 },
+    { "action": "set_recv_opt", "opt": 0 },
+    { "action": "wait_for", "predicate": "state_not_contains", "field": "conversations", "notContains": "recvOpt: 2", "timeoutSecs": 20 }
   ],
   "assertions": [
     { "type": "state", "field": "conversations", "notContains": "recvOpt: 2" }

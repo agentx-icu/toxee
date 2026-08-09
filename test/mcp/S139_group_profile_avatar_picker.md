@@ -4,7 +4,7 @@
 **Fixture vector**: `accounts=1 current=A autoLogin=on network=online groups=[gidG] files=[image]`
 **Harness mode**: peerHarness=none (single-instance real UI)
 **Promotion target**: L3 candidate once the desktop file-picker surface is automatable in the current harness; adjacent single-chat sibling is S79
-**Status**: covered at the widget layer (L1) — **`test/ui/chat_core_real_ui_test.dart` "S139 group profile avatar override renders a tappable picker surface"** (2026-06-08, PASالС). Mounts the toxee `groupProfileAvatarBuilder` and asserts the local-pick camera badge (`Icons.camera_alt_outlined`) + the tappable GestureDetector render (the real FilePicker is not fired — it needs the plugin + per-account paths). Mirrors the conference analog `test/ui/conference/conference_profile_real_ui_test.dart`. The two-process profile route stays harness-unreachable (see S136).
+**Status**: covered at the widget layer (L1) — **`test/ui/chat_core_real_ui_test.dart` "S139 group profile avatar override renders a tappable picker surface"** (2026-06-08, PASS). Mounts the toxee `groupProfileAvatarBuilder` and asserts the local-pick camera badge (`Icons.camera_alt_outlined`) + the tappable GestureDetector render (the real FilePicker is not fired — it needs the plugin + per-account paths). Mirrors the conference analog `test/ui/conference/conference_profile_real_ui_test.dart`. The two-process profile route stays harness-unreachable (see S136).
 
 ## Precondition
 - Group `<gidG>` profile is open.
