@@ -1,4 +1,5 @@
-import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart' as contact_pkg;
+import 'package:tencent_cloud_chat_contact/tencent_cloud_chat_contact.dart'
+    as contact_pkg;
 
 // Re-export the app-bar-name override so callers in `home_page.dart` (and
 // its `part of` files) only need to import this single override module.
@@ -18,18 +19,24 @@ export 'contact_app_bar_name_override.dart';
 class ContactBuilderOverrideHandle {
   ContactBuilderOverrideHandle._();
 
+  static ContactBuilderOverrideHandle? _activeOwner;
+
   bool _restored = false;
 
   /// Captures the override scope. Call this before
   /// [contact_pkg.TencentCloudChatContactManager.builder.setBuilders].
   static ContactBuilderOverrideHandle capture() {
-    return ContactBuilderOverrideHandle._();
+    final handle = ContactBuilderOverrideHandle._();
+    _activeOwner = handle;
+    return handle;
   }
 
   /// Restores the upstream defaults. Idempotent.
   void restore() {
     if (_restored) return;
     _restored = true;
+    if (!identical(_activeOwner, this)) return;
+    _activeOwner = null;
     contact_pkg.TencentCloudChatContactManager.builder.setBuilders();
   }
 }
