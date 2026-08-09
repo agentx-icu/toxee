@@ -139,7 +139,11 @@ Future<bool> _waitFriendOnline(
 /// Contacts tab after a fresh handshake; the bind sometimes doesn't land), and
 /// the fork composer's userID only refreshes once currentConversation actually
 /// switches — so a media send right after an unverified bind silently no-ops.
-Future<bool> _ensureBoundChat(Inst inst, String peerTox, {int tries = 4}) async {
+Future<bool> _ensureBoundChat(
+  Inst inst,
+  String peerTox, {
+  int tries = 4,
+}) async {
   final convId = _c2cConvId(peerTox);
   for (var i = 0; i < tries; i++) {
     await inst.openChatViaL3(userId: _pubkey(peerTox));
@@ -161,7 +165,7 @@ Future<bool> _ensureChatOpen(Inst inst, String tox) async {
   if (await _chatSurfaceReady(inst, convId, timeoutSecs: 2)) {
     return true;
   }
-  // iOS Simulator: prefer the LIGHT, deterministic l3_open_chat nav seam FIRST.
+  // Mobile shells: prefer the LIGHT, deterministic l3_open_chat nav seam FIRST.
   // The heavy real-UI open (conversation-list row tap → forceHomeRoot(contacts)
   // → ensureContactsShell → contacts-profile → seam) churns navigation for ~4s+,
   // and under sustained two-process sim driving that repeated churn destabilizes
@@ -170,7 +174,7 @@ Future<bool> _ensureChatOpen(Inst inst, String tox) async {
   // real widget gesture), and l3_open_chat IS the production `_openChat` path, so
   // preferring it loses no realism. Desktop keeps the heavy-first path (no churn
   // death there, and the row-tap open is its own assertion).
-  if (inst.isIos) {
+  if (inst.isMobileShell) {
     await inst.openChatViaL3(userId: _pubkey(tox));
     if (await _chatSurfaceReady(inst, convId, timeoutSecs: 8)) {
       return true;
@@ -225,8 +229,13 @@ Future<String?> _ownMessageId(Inst inst, String tox, String text) async {
 }
 
 /// Poll until a message whose text == [text] exists in the C2C chat with [tox].
-Future<bool> _waitC2cMessageText(Inst inst, String tox, String text,
-    {bool? isSelf, int timeoutSecs = 60}) async {
+Future<bool> _waitC2cMessageText(
+  Inst inst,
+  String tox,
+  String text, {
+  bool? isSelf,
+  int timeoutSecs = 60,
+}) async {
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
   // Poll SPACING scales with the wait: a long receive-verify (up to 60s for
   // relay delivery) polled every 500ms hammers a backgrounded iOS sim with
@@ -238,9 +247,11 @@ Future<bool> _waitC2cMessageText(Inst inst, String tox, String text,
   final intervalMs = timeoutSecs >= 15 ? 2500 : 500;
   while (DateTime.now().isBefore(deadline)) {
     final msgs = await _c2cMessages(inst, tox);
-    if (msgs.any((m) =>
-        m['text']?.toString() == text &&
-        (isSelf == null || m['isSelf'] == isSelf))) {
+    if (msgs.any(
+      (m) =>
+          m['text']?.toString() == text &&
+          (isSelf == null || m['isSelf'] == isSelf),
+    )) {
       return true;
     }
     await Future<void>.delayed(Duration(milliseconds: intervalMs));
@@ -340,129 +351,139 @@ Future<int> runProbeRestyleDiag(Inst a) async {
   await ensureHome(a, 'ProbeAlice', requireHomeMenu: false);
   final marked = await a.markAccountTest();
   try {
-  final ws = await a.windowSize();
-  print('PROBE marked=$marked windowSize=$ws');
-  const peer =
-      'A1B2C3D4E5F60718293041526374859617283940516273849506A1B2C3D4E5F6';
-  final seed = await a.l3('l3_seed_friend', {
-    'userId': peer,
-    'nickname': 'ProbeBob',
-  });
-  print('PROBE seed ok=${seed['ok']}');
-  await a.l3('l3_inject_c2c_text', {
-    'userId': peer,
-    'text': 'PROBE-SELF-MSG',
-    'isSelf': 'true',
-  });
-  await a.l3('l3_inject_c2c_text', {
-    'userId': peer,
-    'text': 'PROBE-PEER-MSG',
-    'isSelf': 'false',
-  });
-  final open = await a.l3('l3_open_chat', {'userId': peer});
-  print('PROBE open ok=${open['ok']}');
-  await Future<void>.delayed(const Duration(seconds: 3));
-  final convRaw = await a.l3('ui_key_center', {
-    'key': 'conversation_list_item:c2c_$peer',
-  });
-  print('PROBE convKeyCenter=$convRaw');
-  final msgs = await _c2cMessages(a, peer);
-  print('PROBE msgCount=${msgs.length}');
-  final width = ws?.w.toDouble() ?? 1280.0;
-  for (final m in msgs) {
-    final id = (m['msgID'] ?? m['id'] ?? '').toString();
-    final isSelf = m['isSelf'];
-    final rowKey = 'message_list_item:$id';
-    final rowRaw = await a.l3('ui_key_center', {'key': rowKey});
-    final rc = await a.keyCenter(rowKey);
-    print('PROBE row isSelf=$isSelf rowCenter=$rowRaw');
-    if (rc == null) continue;
-    // Scan absolute x positions across the chat pane at the row's y; report which
-    // opens the message menu (i.e. where the bubble Listener.onPointerDown is).
-    final xs = <double>[
-      rc.x,
-      rc.x * 1.24,
-      rc.x * 1.5,
-      width - 60,
-      width - 120,
-      width - 200,
-      rc.x * 0.6,
-      width * 0.5,
-      450,
-      550,
-    ];
-    for (final x in xs) {
-      if (x <= 0 || x >= width) continue;
-      try {
-        await a.secondaryTapAt(x, rc.y);
-      } on DriveError catch (e) {
-        print('PROBE   secTap x=${x.toStringAsFixed(0)} ERR=${e.message}');
-        continue;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      final opened =
-          await a.waitKeyCenter('message_menu_item:copy', timeoutSecs: 1) ||
-          await a.waitKeyCenter('message_menu_item:delete', timeoutSecs: 1);
-      print('PROBE   secTap x=${x.toStringAsFixed(0)} y=${rc.y.toStringAsFixed(0)} '
-          'menuOpened=$opened');
-      if (opened) {
-        await _dismissMessageMenu(a);
-        break;
+    final ws = await a.windowSize();
+    print('PROBE marked=$marked windowSize=$ws');
+    const peer =
+        'A1B2C3D4E5F60718293041526374859617283940516273849506A1B2C3D4E5F6';
+    final seed = await a.l3('l3_seed_friend', {
+      'userId': peer,
+      'nickname': 'ProbeBob',
+    });
+    print('PROBE seed ok=${seed['ok']}');
+    await a.l3('l3_inject_c2c_text', {
+      'userId': peer,
+      'text': 'PROBE-SELF-MSG',
+      'isSelf': 'true',
+    });
+    await a.l3('l3_inject_c2c_text', {
+      'userId': peer,
+      'text': 'PROBE-PEER-MSG',
+      'isSelf': 'false',
+    });
+    final open = await a.l3('l3_open_chat', {'userId': peer});
+    print('PROBE open ok=${open['ok']}');
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final convRaw = await a.l3('ui_key_center', {
+      'key': 'conversation_list_item:c2c_$peer',
+    });
+    print('PROBE convKeyCenter=$convRaw');
+    final msgs = await _c2cMessages(a, peer);
+    print('PROBE msgCount=${msgs.length}');
+    final width = ws?.w.toDouble() ?? 1280.0;
+    for (final m in msgs) {
+      final id = (m['msgID'] ?? m['id'] ?? '').toString();
+      final isSelf = m['isSelf'];
+      final rowKey = 'message_list_item:$id';
+      final rowRaw = await a.l3('ui_key_center', {'key': rowKey});
+      final rc = await a.keyCenter(rowKey);
+      print('PROBE row isSelf=$isSelf rowCenter=$rowRaw');
+      if (rc == null) continue;
+      // Scan absolute x positions across the chat pane at the row's y; report which
+      // opens the message menu (i.e. where the bubble Listener.onPointerDown is).
+      final xs = <double>[
+        rc.x,
+        rc.x * 1.24,
+        rc.x * 1.5,
+        width - 60,
+        width - 120,
+        width - 200,
+        rc.x * 0.6,
+        width * 0.5,
+        450,
+        550,
+      ];
+      for (final x in xs) {
+        if (x <= 0 || x >= width) continue;
+        try {
+          await a.secondaryTapAt(x, rc.y);
+        } on DriveError catch (e) {
+          print('PROBE   secTap x=${x.toStringAsFixed(0)} ERR=${e.message}');
+          continue;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final opened =
+            await a.waitKeyCenter('message_menu_item:copy', timeoutSecs: 1) ||
+            await a.waitKeyCenter('message_menu_item:delete', timeoutSecs: 1);
+        print(
+          'PROBE   secTap x=${x.toStringAsFixed(0)} y=${rc.y.toStringAsFixed(0)} '
+          'menuOpened=$opened',
+        );
+        if (opened) {
+          await _dismissMessageMenu(a);
+          break;
+        }
       }
     }
-  }
-  // ATTACHMENT diagnostic: confirm whether the desktop file button actually
-  // sends (codex hypothesis: userID==null reaches _sendMedia → silent skip).
-  await a.l3('l3_open_chat', {'userId': peer});
-  await Future<void>.delayed(const Duration(seconds: 1));
-  final src = File(_portableTmp('/tmp/probe_attach.txt'));
-  await src.writeAsString('PROBE-ATTACH-FILE');
-  final ov = await a.l3('l3_set_attachment_pick_path', {'path': src.path});
-  print('PROBE attach override ok=${ov['ok']}');
-  final beforeIds = {
-    for (final m in await _c2cMessages(a, peer)) (m['msgID'] ?? m['id']).toString(),
-  };
-  final tapOk = await a.tapKeyAt('message_attachment_file_button');
-  print('PROBE attach fileButton tapKeyAt=$tapOk');
-  await Future<void>.delayed(const Duration(seconds: 3));
-  final afterMsgs = await _c2cMessages(a, peer);
-  final newFile = afterMsgs
-      .where((m) =>
-          !beforeIds.contains((m['msgID'] ?? m['id']).toString()) &&
-          m['mediaKind']?.toString() == 'file')
-      .length;
-  print('PROBE attach newFileMsgs=$newFile totalBefore=${beforeIds.length} '
-      'totalAfter=${afterMsgs.length}');
-  await a.l3('l3_set_attachment_pick_path', {'path': ''});
+    // ATTACHMENT diagnostic: confirm whether the desktop file button actually
+    // sends (codex hypothesis: userID==null reaches _sendMedia → silent skip).
+    await a.l3('l3_open_chat', {'userId': peer});
+    await Future<void>.delayed(const Duration(seconds: 1));
+    final src = File(_portableTmp('/tmp/probe_attach.txt'));
+    await src.writeAsString('PROBE-ATTACH-FILE');
+    final ov = await a.l3('l3_set_attachment_pick_path', {'path': src.path});
+    print('PROBE attach override ok=${ov['ok']}');
+    final beforeIds = {
+      for (final m in await _c2cMessages(a, peer))
+        (m['msgID'] ?? m['id']).toString(),
+    };
+    final tapOk = await a.tapKeyAt('message_attachment_file_button');
+    print('PROBE attach fileButton tapKeyAt=$tapOk');
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final afterMsgs = await _c2cMessages(a, peer);
+    final newFile = afterMsgs
+        .where(
+          (m) =>
+              !beforeIds.contains((m['msgID'] ?? m['id']).toString()) &&
+              m['mediaKind']?.toString() == 'file',
+        )
+        .length;
+    print(
+      'PROBE attach newFileMsgs=$newFile totalBefore=${beforeIds.length} '
+      'totalAfter=${afterMsgs.length}',
+    );
+    await a.l3('l3_set_attachment_pick_path', {'path': ''});
 
-  // SEARCH diagnostic: open global search, type the peer prefix, tap the conv
-  // result, report whether currentConversation became the target (opened).
-  // pop any open chat profile / overlay first so the shortcut isn't swallowed
-  await a.l3('l3_pop_to_root', {});
-  await Future<void>.delayed(const Duration(milliseconds: 600));
-  var searchOpen = false;
-  for (var i = 0; i < 4 && !searchOpen; i++) {
-    await a.foreground();
-    await a.osaSearchShortcut();
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    searchOpen = await a.waitKey('message_search_field', timeoutSecs: 3);
-  }
-  print('PROBE search opened=$searchOpen');
-  if (searchOpen) {
-    await a.focusType('message_search_field', peer.substring(0, 6));
-    await Future<void>.delayed(const Duration(milliseconds: 1600));
-    const convResultKey = 'search_result_conversation:c2c_$peer';
-    final resRaw = await a.l3('ui_key_center', {'key': convResultKey});
-    print('PROBE search resultKey=$resRaw');
-    final tapped = await a.tapKeyCenter(convResultKey, timeoutSecs: 5) ||
-        await a.tryTapKey(convResultKey, retries: 2);
-    await Future<void>.delayed(const Duration(seconds: 2));
-    final cur = await a.dumpState();
-    print('PROBE search tapped=$tapped afterTap currentConversation='
-        '${cur['currentConversation']} homeShellTab=${cur['homeShellTab']}');
-  }
-  await a.shot('/tmp/probe_restyle_A.png');
-  return 0;
+    // SEARCH diagnostic: open global search, type the peer prefix, tap the conv
+    // result, report whether currentConversation became the target (opened).
+    // pop any open chat profile / overlay first so the shortcut isn't swallowed
+    await a.l3('l3_pop_to_root', {});
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    var searchOpen = false;
+    for (var i = 0; i < 4 && !searchOpen; i++) {
+      await a.foreground();
+      await a.osaSearchShortcut();
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      searchOpen = await a.waitKey('message_search_field', timeoutSecs: 3);
+    }
+    print('PROBE search opened=$searchOpen');
+    if (searchOpen) {
+      await a.focusType('message_search_field', peer.substring(0, 6));
+      await Future<void>.delayed(const Duration(milliseconds: 1600));
+      const convResultKey = 'search_result_conversation:c2c_$peer';
+      final resRaw = await a.l3('ui_key_center', {'key': convResultKey});
+      print('PROBE search resultKey=$resRaw');
+      final tapped =
+          await a.tapKeyCenter(convResultKey, timeoutSecs: 5) ||
+          await a.tryTapKey(convResultKey, retries: 2);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      final cur = await a.dumpState();
+      print(
+        'PROBE search tapped=$tapped afterTap currentConversation='
+        '${cur['currentConversation']} homeShellTab=${cur['homeShellTab']}',
+      );
+    }
+    await a.shot('/tmp/probe_restyle_A.png');
+    return 0;
   } finally {
     // codex: the account-test marker authorizes the broad gated L3 surface — always
     // revoke it (and clear any attachment override) even if the probe throws.
@@ -528,8 +549,10 @@ Future<bool> _chatOpenFromRow(Inst inst, String tox) async {
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     ready = await _chatSurfaceReady(inst, convId, timeoutSecs: 6);
   }
-  final headerShown =
-      await inst.waitKey('message_header_profile_avatar', timeoutSecs: 6);
+  final headerShown = await inst.waitKey(
+    'message_header_profile_avatar',
+    timeoutSecs: 6,
+  );
   await inst.shot('/tmp/ui_chat_open_${inst.name}.png');
   print('[pair] chat_open_from_row: ready=$ready headerShown=$headerShown');
   return ready && headerShown;
@@ -542,7 +565,12 @@ Future<bool> _chatOpenFromRow(Inst inst, String tox) async {
 /// `_handleKeyEvent` maps Shift/Alt/Ctrl/Meta+Enter → insert `\n`, return
 /// `handled` = no send), then a plain Enter sends. Assert the delivered bubble
 /// contains BOTH lines (a `\n`-joined body) and B receives it.
-Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async {
+Future<bool> _chatMultilineSend(
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   if (!await _ensureChatOpen(a, toxB)) {
     print('[pair] chat_multiline_send: A could not open the chat');
     return false;
@@ -573,16 +601,29 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
         continue;
       }
       await a.l3('l3_composer_send', {'text': expected});
-      aHasBoth = await _waitC2cMessageText(a, toxB, expected,
-          isSelf: true, timeoutSecs: 6);
+      aHasBoth = await _waitC2cMessageText(
+        a,
+        toxB,
+        expected,
+        isSelf: true,
+        timeoutSecs: 6,
+      );
     }
-    final bReceived = aHasBoth &&
-        await _waitC2cMessageText(b, toxA, expected,
-            isSelf: false, timeoutSecs: 60);
+    final bReceived =
+        aHasBoth &&
+        await _waitC2cMessageText(
+          b,
+          toxA,
+          expected,
+          isSelf: false,
+          timeoutSecs: 60,
+        );
     await a.shot('/tmp/ui_chat_multiline_A.png');
-    print('[pair] chat_multiline_send: expected='
-        '"${expected.replaceAll('\n', '\\n')}" '
-        'aHasBoth=$aHasBoth bReceived=$bReceived');
+    print(
+      '[pair] chat_multiline_send: expected='
+      '"${expected.replaceAll('\n', '\\n')}" '
+      'aHasBoth=$aHasBoth bReceived=$bReceived',
+    );
     return aHasBoth && bReceived;
   }
   // Focus the composer, type line1, Shift+Enter (newline), type line2, Enter.
@@ -613,8 +654,13 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
       await Future<void>.delayed(const Duration(milliseconds: 400));
       await a.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));
-      if (await _waitC2cMessageText(a, toxB, expected,
-          isSelf: true, timeoutSecs: 3)) {
+      if (await _waitC2cMessageText(
+        a,
+        toxB,
+        expected,
+        isSelf: true,
+        timeoutSecs: 3,
+      )) {
         sent = true;
         break;
       }
@@ -622,13 +668,25 @@ Future<bool> _chatMultilineSend(Inst a, Inst b, String toxA, String toxB) async 
     if (sent) break;
     await _ensureChatOpen(a, toxB);
   }
-  final aHasBoth =
-      await _waitC2cMessageText(a, toxB, expected, isSelf: true, timeoutSecs: 8);
-  final bReceived =
-      await _waitC2cMessageText(b, toxA, expected, isSelf: false, timeoutSecs: 60);
+  final aHasBoth = await _waitC2cMessageText(
+    a,
+    toxB,
+    expected,
+    isSelf: true,
+    timeoutSecs: 8,
+  );
+  final bReceived = await _waitC2cMessageText(
+    b,
+    toxA,
+    expected,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   await a.shot('/tmp/ui_chat_multiline_A.png');
-  print('[pair] chat_multiline_send: expected="${expected.replaceAll('\n', '\\n')}" '
-      'aHasBoth=$aHasBoth bReceived=$bReceived');
+  print(
+    '[pair] chat_multiline_send: expected="${expected.replaceAll('\n', '\\n')}" '
+    'aHasBoth=$aHasBoth bReceived=$bReceived',
+  );
   return aHasBoth && bReceived;
 }
 
@@ -652,13 +710,25 @@ Future<bool> _chatLongTextSend(Inst a, Inst b, String toxA, String toxB) async {
     print('[pair] chat_long_text_send: A failed to send the long message');
     return false;
   }
-  final aHas =
-      await _waitC2cMessageText(a, toxB, text, isSelf: true, timeoutSecs: 8);
-  final bReceived =
-      await _waitC2cMessageText(b, toxA, text, isSelf: false, timeoutSecs: 60);
+  final aHas = await _waitC2cMessageText(
+    a,
+    toxB,
+    text,
+    isSelf: true,
+    timeoutSecs: 8,
+  );
+  final bReceived = await _waitC2cMessageText(
+    b,
+    toxA,
+    text,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   await a.shot('/tmp/ui_chat_long_A.png');
-  print('[pair] chat_long_text_send: len=${text.length} aHas=$aHas '
-      'bReceived=$bReceived');
+  print(
+    '[pair] chat_long_text_send: len=${text.length} aHas=$aHas '
+    'bReceived=$bReceived',
+  );
   return aHas && bReceived;
 }
 
@@ -678,7 +748,12 @@ Future<bool> _chatLongTextSend(Inst a, Inst b, String toxA, String toxB) async {
 /// `sticker_panel_button` mounts + opens) is asserted separately as a HARD
 /// signal that the emoji affordance is reachable. (A coordinate tap on a grid
 /// cell is logged best-effort.)
-Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) async {
+Future<bool> _chatEmojiInsertSend(
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   if (!await _ensureChatOpen(a, toxB)) {
     print('[pair] chat_emoji_insert_send: A could not open the chat');
     return false;
@@ -690,12 +765,17 @@ Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) asyn
   // trigger is `emoji_panel_button` (input_mobile.dart) and the panel mounts
   // INLINE below the composer as `mobile_sticker_panel` (fork key) — not the
   // desktop `desktop_sticker_panel` overlay.
-  final trigger = a.isMobileShell ? 'emoji_panel_button' : 'sticker_panel_button';
-  final panelKey =
-      a.isMobileShell ? 'mobile_sticker_panel' : 'desktop_sticker_panel';
+  final trigger = a.isMobileShell
+      ? 'emoji_panel_button'
+      : 'sticker_panel_button';
+  final panelKey = a.isMobileShell
+      ? 'mobile_sticker_panel'
+      : 'desktop_sticker_panel';
   if (!await a.waitKey(trigger, timeoutSecs: 6)) {
-    print('[pair] chat_emoji_insert_send: sticker panel button absent '
-        '(trigger=$trigger)');
+    print(
+      '[pair] chat_emoji_insert_send: sticker panel button absent '
+      '(trigger=$trigger)',
+    );
     return false;
   }
   await a.tapKeyCenter(trigger, timeoutSecs: 6);
@@ -713,8 +793,10 @@ Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) asyn
   }
   await Future<void>.delayed(const Duration(milliseconds: 400));
   if (!panelOpened) {
-    print('[pair] chat_emoji_insert_send: panel did not open after the tap '
-        '(panelKey=$panelKey)');
+    print(
+      '[pair] chat_emoji_insert_send: panel did not open after the tap '
+      '(panelKey=$panelKey)',
+    );
     return false;
   }
   // 2) Send a message carrying an emoji token (the same `[xxx]` form the panel
@@ -725,13 +807,25 @@ Future<bool> _chatEmojiInsertSend(Inst a, Inst b, String toxA, String toxB) asyn
     print('[pair] chat_emoji_insert_send: A failed to send the emoji message');
     return false;
   }
-  final aHas =
-      await _waitC2cMessageText(a, toxB, text, isSelf: true, timeoutSecs: 8);
-  final bReceived =
-      await _waitC2cMessageText(b, toxA, text, isSelf: false, timeoutSecs: 60);
+  final aHas = await _waitC2cMessageText(
+    a,
+    toxB,
+    text,
+    isSelf: true,
+    timeoutSecs: 8,
+  );
+  final bReceived = await _waitC2cMessageText(
+    b,
+    toxA,
+    text,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   await a.shot('/tmp/ui_chat_emoji_A.png');
-  print('[pair] chat_emoji_insert_send: panelOpened=$panelOpened aHas=$aHas '
-      'bReceived=$bReceived');
+  print(
+    '[pair] chat_emoji_insert_send: panelOpened=$panelOpened aHas=$aHas '
+    'bReceived=$bReceived',
+  );
   // HARD: the real panel OPENED (overlay key) AND the emoji-token message path
   // round-trips both ways.
   return panelOpened && aHas && bReceived;
@@ -759,12 +853,17 @@ Future<bool> _chatStickerPanelSend(Inst a, String toxB) async {
   await a.foreground();
   // MOBILE (iOS/Android): the trigger is `emoji_panel_button` and the panel
   // mounts inline as `mobile_sticker_panel` (fork key) — see the emoji case.
-  final trigger = a.isMobileShell ? 'emoji_panel_button' : 'sticker_panel_button';
-  final panelKey =
-      a.isMobileShell ? 'mobile_sticker_panel' : 'desktop_sticker_panel';
+  final trigger = a.isMobileShell
+      ? 'emoji_panel_button'
+      : 'sticker_panel_button';
+  final panelKey = a.isMobileShell
+      ? 'mobile_sticker_panel'
+      : 'desktop_sticker_panel';
   if (!await a.waitKey(trigger, timeoutSecs: 6)) {
-    print('[pair] chat_sticker_panel_send: sticker panel button absent '
-        '(trigger=$trigger)');
+    print(
+      '[pair] chat_sticker_panel_send: sticker panel button absent '
+      '(trigger=$trigger)',
+    );
     return false;
   }
   await a.tapKeyCenter(trigger, timeoutSecs: 6);
@@ -793,9 +892,11 @@ Future<bool> _chatStickerPanelSend(Inst a, String toxB) async {
     await a.tapAt(_composerX, _composerY);
   }
   await Future<void>.delayed(const Duration(milliseconds: 400));
-  print('[pair] chat_sticker_panel_send: panelOpened=$panelOpened '
-      '(face SEND needs a keyed face cell — fork rebuild flagged; hermetic L1 '
-      'covers the send path)');
+  print(
+    '[pair] chat_sticker_panel_send: panelOpened=$panelOpened '
+    '(face SEND needs a keyed face cell — fork rebuild flagged; hermetic L1 '
+    'covers the send path)',
+  );
   return panelOpened;
 }
 
@@ -820,13 +921,24 @@ Future<bool> _chatMsgMenuSurface(Inst a, String toxB) async {
     print('[pair] chat_msg_menu_surface: real message menu did not open');
     return false;
   }
-  final hasCopy = await a.waitKeyCenter('message_menu_item:copy', timeoutSecs: 4);
-  final hasForward = await a.waitKeyCenter('message_menu_item:forward', timeoutSecs: 4);
-  final hasDelete = await a.waitKeyCenter('message_menu_item:delete', timeoutSecs: 4);
+  final hasCopy = await a.waitKeyCenter(
+    'message_menu_item:copy',
+    timeoutSecs: 4,
+  );
+  final hasForward = await a.waitKeyCenter(
+    'message_menu_item:forward',
+    timeoutSecs: 4,
+  );
+  final hasDelete = await a.waitKeyCenter(
+    'message_menu_item:delete',
+    timeoutSecs: 4,
+  );
   await a.shot('/tmp/ui_chat_menu_surface_A.png');
   await _dismissMessageMenu(a);
-  print('[pair] chat_msg_menu_surface: copy=$hasCopy forward=$hasForward '
-      'delete=$hasDelete');
+  print(
+    '[pair] chat_msg_menu_surface: copy=$hasCopy forward=$hasForward '
+    'delete=$hasDelete',
+  );
   return hasCopy && hasForward && hasDelete;
 }
 
@@ -840,7 +952,9 @@ Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
   final text = 'RUIB6COPY-$nonce';
   final msgId = await _sendAndIdentify(a, toxB, text);
   if (msgId == null) {
-    print('[pair] chat_copy_message_clipboard: could not send/identify message');
+    print(
+      '[pair] chat_copy_message_clipboard: could not send/identify message',
+    );
     return false;
   }
   // Pre-clear the clipboard to a sentinel so a stale value can't false-pass.
@@ -877,10 +991,11 @@ Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
 /// crash the whole sweep).
 Future<String> _pbpaste() async {
   if (Platform.isWindows) {
-    final r = await Process.run(
-      'powershell',
-      const ['-NoProfile', '-Command', 'Get-Clipboard -Raw'],
-    );
+    final r = await Process.run('powershell', const [
+      '-NoProfile',
+      '-Command',
+      'Get-Clipboard -Raw',
+    ]);
     return (r.stdout as String?)?.replaceAll('\r', '').trimRight() ?? '';
   }
   final r = await Process.run('pbpaste', const []);
@@ -890,7 +1005,10 @@ Future<String> _pbpaste() async {
 /// Seed the OS clipboard (sentinel pre-clear): `pbcopy` on macOS, `clip` on
 /// Windows.
 Future<void> _pbcopy(String text) async {
-  final p = await Process.start(Platform.isWindows ? 'clip' : 'pbcopy', const []);
+  final p = await Process.start(
+    Platform.isWindows ? 'clip' : 'pbcopy',
+    const [],
+  );
   p.stdin.write(text);
   await p.stdin.close();
   await p.exitCode;
@@ -934,8 +1052,10 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
     }
     marked = await a.markAccountTest();
     if (!marked) {
-      print('[pair] chat_reply_quote_roundtrip: SKIP — could not test-mark for '
-          'the inbound-custom seam');
+      print(
+        '[pair] chat_reply_quote_roundtrip: SKIP — could not test-mark for '
+        'the inbound-custom seam',
+      );
       return null;
     }
     final nonce = DateTime.now().microsecondsSinceEpoch;
@@ -954,7 +1074,8 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
     for (var i = 0; i < 20 && customMsgId == null; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       for (final m in await _c2cMessages(a, toxB)) {
-        final blob = '${m['customData'] ?? ''}${m['cloudCustomData'] ?? ''}'
+        final blob =
+            '${m['customData'] ?? ''}${m['cloudCustomData'] ?? ''}'
             '${m['text'] ?? ''}';
         if (m['isSelf'] != true && blob.contains(data)) {
           customMsgId = (m['msgID'] ?? m['id'])?.toString();
@@ -963,7 +1084,9 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
       }
     }
     if (customMsgId == null || customMsgId.isEmpty) {
-      print('[pair] chat_reply_quote_roundtrip: injected custom bubble not found');
+      print(
+        '[pair] chat_reply_quote_roundtrip: injected custom bubble not found',
+      );
       return false;
     }
     // Open the REAL message menu on the custom bubble → the Reply item IS present
@@ -972,19 +1095,25 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
       print('[pair] chat_reply_quote_roundtrip: message menu did not open');
       return false;
     }
-    final replyPresent =
-        await a.waitKeyCenter('message_menu_item:reply', timeoutSecs: 4);
+    final replyPresent = await a.waitKeyCenter(
+      'message_menu_item:reply',
+      timeoutSecs: 4,
+    );
     if (!replyPresent) {
       await _dismissMessageMenu(a);
-      print('[pair] chat_reply_quote_roundtrip: reply item absent on custom bubble');
+      print(
+        '[pair] chat_reply_quote_roundtrip: reply item absent on custom bubble',
+      );
       return false;
     }
     if (!await a.tapKeyCenter('message_menu_item:reply', timeoutSecs: 4)) {
       await a.tryTapKey('message_menu_item:reply');
     }
     // The real composer quote banner mounts (keyed).
-    final bannerShown =
-        await a.waitKey('message_input_reply_container', timeoutSecs: 6);
+    final bannerShown = await a.waitKey(
+      'message_input_reply_container',
+      timeoutSecs: 6,
+    );
     // Send the reply through the real composer. clearFirst:false is REQUIRED —
     // the composer clears the reply quote banner on a Backspace-when-empty
     // (`clearRepliedMessage`), and osaClear sends exactly that Backspace, which
@@ -1009,9 +1138,11 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
       }
     }
     await a.shot('/tmp/ui_chat_reply_${a.name}.png');
-    print('[pair] chat_reply_quote_roundtrip: customMsgId=$customMsgId '
-        'replyPresent=$replyPresent bannerShown=$bannerShown sent=$sent '
-        'replyRoundTrip=$replyRoundTrip');
+    print(
+      '[pair] chat_reply_quote_roundtrip: customMsgId=$customMsgId '
+      'replyPresent=$replyPresent bannerShown=$bannerShown sent=$sent '
+      'replyRoundTrip=$replyRoundTrip',
+    );
     return replyPresent && bannerShown && sent && replyRoundTrip;
   } on DriveError catch (e) {
     print('[pair] chat_reply_quote_roundtrip: FAIL — ${e.message}');
@@ -1020,7 +1151,9 @@ Future<bool?> _chatReplyQuoteRoundtrip(Inst a, String toxB) async {
     if (marked) {
       try {
         await a.unmarkAccountTest();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
   }
 }
@@ -1047,9 +1180,10 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
   // Count this text BEFORE forwarding. _sendAndIdentify may leave a duplicate
   // seed bubble (its retry), so the forward must INCREASE the count — a fixed
   // `>= 2` check could false-pass on the duplicate seeds alone (codex).
-  final preCount = (await _c2cMessages(a, toxB))
-      .where((m) => m['text']?.toString() == text)
-      .length;
+  final preCount = (await _c2cMessages(
+    a,
+    toxB,
+  )).where((m) => m['text']?.toString() == text).length;
   if (!await _openMessageMenuReal(a, msgId)) {
     print('[pair] chat_forward_to_other_conv: real message menu did not open');
     return false;
@@ -1065,8 +1199,7 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
     return false;
   }
   // The REAL forward picker mounts: header "Forward Individually".
-  final pickerShown =
-      await a.waitText('Forward Individually', timeoutSecs: 8);
+  final pickerShown = await a.waitText('Forward Individually', timeoutSecs: 8);
   if (!pickerShown) {
     await a.shot('/tmp/ui_chat_fwd_nopicker_A.png');
     print('[pair] chat_forward_to_other_conv: forward picker did not mount');
@@ -1082,12 +1215,16 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
   // is the friend's PUBKEY (the 64-hex prefix — the same id the conversationID
   // `c2c_<pubkey>` uses), NOT the full 76-hex tox id. Try the pubkey first, then
   // the full id as a fallback.
-  final targetTapped = await a.tapKeyCenter(
-          'forward_picker_item:${_pubkey(toxB)}',
-          timeoutSecs: 6) ||
+  final targetTapped =
+      await a.tapKeyCenter(
+        'forward_picker_item:${_pubkey(toxB)}',
+        timeoutSecs: 6,
+      ) ||
       await a.tryTapKey('forward_picker_item:${_pubkey(toxB)}') ||
-      await a.tapKeyCenter('forward_picker_item:${toxB.trim()}',
-          timeoutSecs: 3) ||
+      await a.tapKeyCenter(
+        'forward_picker_item:${toxB.trim()}',
+        timeoutSecs: 3,
+      ) ||
       await a.tryTapKey('forward_picker_item:${toxB.trim()}');
   await Future<void>.delayed(const Duration(milliseconds: 600));
   // The picker's Send button carries a stable key (forward_picker_send_button) —
@@ -1096,27 +1233,30 @@ Future<bool> _chatForwardToOtherConv(Inst a, String toxB, String nickB) async {
   // the picker was up). Keep the text tap as a last-resort fallback.
   final sendTapped =
       await a.tapKeyCenter('forward_picker_send_button', timeoutSecs: 6) ||
-          await a.tryTapKey('forward_picker_send_button') ||
-          await _tryTapText(a, 'Send');
+      await a.tryTapKey('forward_picker_send_button') ||
+      await _tryTapText(a, 'Send');
   await Future<void>.delayed(const Duration(milliseconds: 800));
   // sendForwardIndividuallyMessage defers the send ~100ms; the picker dismisses.
-  final pickerGone =
-      await a.waitTextGone('Forward Individually', timeoutSecs: 6);
+  final pickerGone = await a.waitTextGone(
+    'Forward Individually',
+    timeoutSecs: 6,
+  );
   // A forwarded copy of the text lands in the conversation (count of that text
   // becomes ≥2: the original + the forwarded copy).
   var forwardedCount = 0;
   for (var i = 0; i < 16; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final msgs = await _c2cMessages(a, toxB);
-    forwardedCount =
-        msgs.where((m) => m['text']?.toString() == text).length;
+    forwardedCount = msgs.where((m) => m['text']?.toString() == text).length;
     if (forwardedCount > preCount) break;
   }
   await a.shot('/tmp/ui_chat_forward_A.png');
-  print('[pair] chat_forward_to_other_conv: target="$nickB" '
-      'pickerShown=$pickerShown targetTapped=$targetTapped '
-      'sendTapped=$sendTapped pickerGone=$pickerGone '
-      'preCount=$preCount forwardedCount=$forwardedCount');
+  print(
+    '[pair] chat_forward_to_other_conv: target="$nickB" '
+    'pickerShown=$pickerShown targetTapped=$targetTapped '
+    'sendTapped=$sendTapped pickerGone=$pickerGone '
+    'preCount=$preCount forwardedCount=$forwardedCount',
+  );
   // HARD: the real picker surfaced + dismissed after Send AND the forwarded copy
   // INCREASED the count of that text (forward send fired through the real
   // picker), not merely a duplicate seed left by the send-retry.
@@ -1177,11 +1317,14 @@ Future<bool> _chatDeleteMessageGone(Inst a, String toxB) async {
   await returnToChatsHome(a, rounds: 4);
   await _ensureChatOpen(a, toxB);
   final msgsAfterReopen = await _c2cMessages(a, toxB);
-  final goneAfterReopen =
-      !msgsAfterReopen.any((m) => m['msgID']?.toString() == msgId);
+  final goneAfterReopen = !msgsAfterReopen.any(
+    (m) => m['msgID']?.toString() == msgId,
+  );
   await a.shot('/tmp/ui_chat_delete_A.png');
-  print('[pair] chat_delete_message_gone: goneAfterDelete=$goneAfterDelete '
-      'goneAfterReopen=$goneAfterReopen');
+  print(
+    '[pair] chat_delete_message_gone: goneAfterDelete=$goneAfterDelete '
+    'goneAfterReopen=$goneAfterReopen',
+  );
   return goneAfterDelete && goneAfterReopen;
 }
 
@@ -1204,19 +1347,28 @@ Future<bool> _chatDeleteMessageGone(Inst a, String toxB) async {
 /// coverage (message_history_load_more_real_ui_test.dart); the real-UI seam is
 /// proven on the desktop platforms.
 Future<bool?> _chatHistoryScrollLoadMore(
-    Inst a, Inst b, String toxA, String toxB,
-    {required String earliestText, required String earliestId}) async {
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB, {
+  required String earliestText,
+  required String earliestId,
+}) async {
   if (a.isMobileShell) {
-    print('[pair] chat_history_scroll_load_more: SKIP — mobile message list '
-        'keeps seeded rows mounted (keepAlive), so the row-mount baseline '
-        'cannot prove scroll-paging here; L1 covers the paging logic and the '
-        'desktop 2-proc case covers the real-UI seam');
+    print(
+      '[pair] chat_history_scroll_load_more: SKIP — mobile message list '
+      'keeps seeded rows mounted (keepAlive), so the row-mount baseline '
+      'cannot prove scroll-paging here; L1 covers the paging logic and the '
+      'desktop 2-proc case covers the real-UI seam',
+    );
     return null;
   }
   final convId = _c2cConvId(toxB);
   if (earliestId.isEmpty) {
-    print('[pair] chat_history_scroll_load_more: earliest message id unknown '
-        '(seed failed?)');
+    print(
+      '[pair] chat_history_scroll_load_more: earliest message id unknown '
+      '(seed failed?)',
+    );
     return false;
   }
   final earliestRowKey = 'message_list_item:$earliestId';
@@ -1232,9 +1384,11 @@ Future<bool?> _chatHistoryScrollLoadMore(
   // should produce > 1 page), surfaced as a hard FAIL, not a vacuous pass.
   if (await a.waitKey(earliestRowKey, timeoutSecs: 2)) {
     await a.shot('/tmp/ui_chat_loadmore_vacuous_A.png');
-    print('[pair] chat_history_scroll_load_more: earliest row already rendered '
-        'on open — history too short to prove load-more (seed produced < 1 '
-        'page?); failing rather than passing vacuously');
+    print(
+      '[pair] chat_history_scroll_load_more: earliest row already rendered '
+      'on open — history too short to prove load-more (seed produced < 1 '
+      'page?); failing rather than passing vacuously',
+    );
     return false;
   }
   // Scroll the RENDERED message list up via a VIEWPORT COORDINATE (codex P1.4:
@@ -1249,8 +1403,9 @@ Future<bool?> _chatHistoryScrollLoadMore(
   // scroll).
   final composer = await a.keyCenter('chat_input_text_field');
   final scrollX = composer?.x ?? 640;
-  final scrollY =
-      composer != null ? (composer.y - 300).clamp(80.0, composer.y) : 330.0;
+  final scrollY = composer != null
+      ? (composer.y - 300).clamp(80.0, composer.y)
+      : 330.0;
   var earliestRowRendered = false;
   for (var step = 0; step < 24 && !earliestRowRendered; step++) {
     try {
@@ -1262,9 +1417,11 @@ Future<bool?> _chatHistoryScrollLoadMore(
     earliestRowRendered = await a.waitKey(earliestRowKey, timeoutSecs: 1);
   }
   await a.shot('/tmp/ui_chat_loadmore_A.png');
-  print('[pair] chat_history_scroll_load_more: earliestText="$earliestText" '
-      'earliestId=$earliestId earliestRowRendered=$earliestRowRendered '
-      '(convId=$convId)');
+  print(
+    '[pair] chat_history_scroll_load_more: earliestText="$earliestText" '
+    'earliestId=$earliestId earliestRowRendered=$earliestRowRendered '
+    '(convId=$convId)',
+  );
   // HARD: the earliest seeded message's ROW became rendered ONLY after scrolling
   // up (the baseline proved it wasn't rendered on open) — i.e. the older page
   // was genuinely scroll-loaded into the real list.
@@ -1284,8 +1441,13 @@ Future<bool?> _chatHistoryScrollLoadMore(
 /// the inbound IS delivered AND the scrolled-up older row is STILL rendered
 /// after the inbound (no forced jump) AND A stayed in the chat.
 Future<bool> _chatInboundWhileScrolledUp(
-    Inst a, Inst b, String toxA, String toxB,
-    {required String earliestText, required String earliestId}) async {
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB, {
+  required String earliestText,
+  required String earliestId,
+}) async {
   if (earliestId.isEmpty) {
     print('[pair] chat_inbound_while_scrolled_up: earliest id unknown');
     return false;
@@ -1318,8 +1480,10 @@ Future<bool> _chatInboundWhileScrolledUp(
     scrolledUp = await a.waitKey(earliestRowKey, timeoutSecs: 1);
   }
   if (!scrolledUp) {
-    print('[pair] chat_inbound_while_scrolled_up: could not scroll the older '
-        'row into view (history too short?)');
+    print(
+      '[pair] chat_inbound_while_scrolled_up: could not scroll the older '
+      'row into view (history too short?)',
+    );
     return false;
   }
   final activeBefore = await _currentConversationId(a);
@@ -1329,12 +1493,19 @@ Future<bool> _chatInboundWhileScrolledUp(
   await b.foreground();
   await openChat(b, toxA);
   if (!await sendComposerMessage(b, inbound)) {
-    print('[pair] chat_inbound_while_scrolled_up: B failed to send the inbound');
+    print(
+      '[pair] chat_inbound_while_scrolled_up: B failed to send the inbound',
+    );
     return false;
   }
   // The inbound is delivered to A (persisted) while A stays in the chat.
-  final delivered = await _waitC2cMessageText(a, toxB, inbound,
-      isSelf: false, timeoutSecs: 60);
+  final delivered = await _waitC2cMessageText(
+    a,
+    toxB,
+    inbound,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   await a.foreground();
   // NO FORCED JUMP: the scrolled-up older row is STILL rendered after the
   // inbound. A jump-to-bottom would scroll it out of the viewport (un-mount).
@@ -1347,12 +1518,14 @@ Future<bool> _chatInboundWhileScrolledUp(
     }
   }
   final activeAfter = await _currentConversationId(a);
-  final stayedInChat = activeAfter == activeBefore &&
-      activeAfter == _c2cConvId(toxB);
+  final stayedInChat =
+      activeAfter == activeBefore && activeAfter == _c2cConvId(toxB);
   await a.shot('/tmp/ui_chat_inbound_scrolled_A.png');
-  print('[pair] chat_inbound_while_scrolled_up: delivered=$delivered '
-      'scrolledUp=$scrolledUp stillScrolledUp=$stillScrolledUp '
-      'stayedInChat=$stayedInChat (earliest=$earliestText)');
+  print(
+    '[pair] chat_inbound_while_scrolled_up: delivered=$delivered '
+    'scrolledUp=$scrolledUp stillScrolledUp=$stillScrolledUp '
+    'stayedInChat=$stayedInChat (earliest=$earliestText)',
+  );
   // HARD: inbound delivered AND no forced jump (the older row stayed rendered)
   // AND A stayed in the chat. The keyless "new messages" chip is not gated.
   return delivered && stillScrolledUp && stayedInChat;
@@ -1403,12 +1576,14 @@ Future<bool?> _chatOfflinePendingThenDeliver(Inst a, String toxB) async {
     if (await _ensureChatOpen(a, toxB)) {
       final msgs = await _c2cMessages(a, toxB);
       final anyPending = msgs.any((m) => m['isPending'] == true);
-      print('[pair] chat_offline_pending_then_deliver: SKIP — the pending→deliver '
-          'flip requires stopping/relaunching peer B (forbidden under this reused '
-          'sweep launch). The real-UI pending→deliver lifecycle IS now driven+'
-          'asserted by offline_pending_relaunch in rui-p1-relaunch, which owns the '
-          'peer process control. anyPendingNow=$anyPending (surface only — the '
-          'asserted flip lives in that dedicated launch)');
+      print(
+        '[pair] chat_offline_pending_then_deliver: SKIP — the pending→deliver '
+        'flip requires stopping/relaunching peer B (forbidden under this reused '
+        'sweep launch). The real-UI pending→deliver lifecycle IS now driven+'
+        'asserted by offline_pending_relaunch in rui-p1-relaunch, which owns the '
+        'peer process control. anyPendingNow=$anyPending (surface only — the '
+        'asserted flip lives in that dedicated launch)',
+      );
     }
   } on DriveError catch (e) {
     print('[pair] chat_offline_pending_then_deliver: SKIP — ${e.message}');
@@ -1427,7 +1602,11 @@ Future<bool?> _chatOfflinePendingThenDeliver(Inst a, String toxB) async {
 /// logged best-effort (the image's tappable GestureDetector mounts only after an
 /// async load — not driveable at the widget layer per the hermetic test).
 Future<bool> _chatImageBubbleOpenPreview(
-    Inst a, Inst b, String toxA, String toxB) async {
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   // Smallest valid 1x1 PNG (so the bubble's Image.file decodes).
   const pngB64 =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
@@ -1441,8 +1620,10 @@ Future<bool> _chatImageBubbleOpenPreview(
     'fileName': fileName,
   });
   if (sent['ok'] != true) {
-    print('[pair] chat_image_bubble_open_preview: l3_send_file (B→A) failed: '
-        '$sent — image seeding unavailable (test-account marker?)');
+    print(
+      '[pair] chat_image_bubble_open_preview: l3_send_file (B→A) failed: '
+      '$sent — image seeding unavailable (test-account marker?)',
+    );
     return false;
   }
   // A's real image bubble renders: an inbound message with mediaKind 'image'
@@ -1462,14 +1643,18 @@ Future<bool> _chatImageBubbleOpenPreview(
   }
   if (imageMsgId == null) {
     await a.shot('/tmp/ui_chat_image_noimg_A.png');
-    print('[pair] chat_image_bubble_open_preview: no inbound image message in '
-        'A\'s dump');
+    print(
+      '[pair] chat_image_bubble_open_preview: no inbound image message in '
+      'A\'s dump',
+    );
     return false;
   }
   // Open the chat so the image bubble renders on-screen.
   await _ensureChatOpen(a, toxB);
-  final rowRendered =
-      await a.waitKey('message_list_item:$imageMsgId', timeoutSecs: 10);
+  final rowRendered = await a.waitKey(
+    'message_list_item:$imageMsgId',
+    timeoutSecs: 10,
+  );
   // Best-effort preview open (coordinate tap on the bubble center; not gated).
   try {
     await a.tapKeyCenter('message_list_item:$imageMsgId', timeoutSecs: 4);
@@ -1479,8 +1664,10 @@ Future<bool> _chatImageBubbleOpenPreview(
   }
   await a.shot('/tmp/ui_chat_image_A.png');
   await returnToChatsHome(a, rounds: 4);
-  print('[pair] chat_image_bubble_open_preview: imageMsgId=$imageMsgId '
-      'rowRendered=$rowRendered (preview-open is best-effort, not gated)');
+  print(
+    '[pair] chat_image_bubble_open_preview: imageMsgId=$imageMsgId '
+    'rowRendered=$rowRendered (preview-open is best-effort, not gated)',
+  );
   // HARD: the inbound image message exists (mediaKind image) AND its bubble row
   // renders in the real list.
   return rowRendered;
@@ -1496,7 +1683,11 @@ Future<bool> _chatImageBubbleOpenPreview(
 /// bubble row renders; the tap is dispatched (best-effort — the open routes to
 /// the OS, not assertable headless).
 Future<bool> _chatFileBubblePresentOpen(
-    Inst a, Inst b, String toxA, String toxB) async {
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   // A tiny binary payload (12 bytes), base64-encoded.
   const binB64 = 'UlVJQjZGSUxFREFUQQ=='; // "RUIB6FILEDATA"
   final nonce = DateTime.now().microsecondsSinceEpoch % 100000;
@@ -1507,8 +1698,10 @@ Future<bool> _chatFileBubblePresentOpen(
     'fileName': fileName,
   });
   if (sent['ok'] != true) {
-    print('[pair] chat_file_bubble_present_open: l3_send_file (B→A) failed: '
-        '$sent — file seeding unavailable (test-account marker?)');
+    print(
+      '[pair] chat_file_bubble_present_open: l3_send_file (B→A) failed: '
+      '$sent — file seeding unavailable (test-account marker?)',
+    );
     return false;
   }
   // A's real file bubble: an inbound message with mediaKind 'file' + the name.
@@ -1526,13 +1719,17 @@ Future<bool> _chatFileBubblePresentOpen(
   }
   if (fileMsgId == null) {
     await a.shot('/tmp/ui_chat_file_nofile_A.png');
-    print('[pair] chat_file_bubble_present_open: no inbound file message in '
-        'A\'s dump (fileName=$fileName)');
+    print(
+      '[pair] chat_file_bubble_present_open: no inbound file message in '
+      'A\'s dump (fileName=$fileName)',
+    );
     return false;
   }
   await _ensureChatOpen(a, toxB);
-  final rowRendered =
-      await a.waitKey('message_list_item:$fileMsgId', timeoutSecs: 10);
+  final rowRendered = await a.waitKey(
+    'message_list_item:$fileMsgId',
+    timeoutSecs: 10,
+  );
   // The file bubble draws the name WITHOUT its extension, and TRUNCATED to
   // 8 chars + "..." when the base name exceeds 10 (fork
   // tencent_cloud_chat_message_file.dart `fileNameWidget`). Assert on what is
@@ -1553,8 +1750,10 @@ Future<bool> _chatFileBubblePresentOpen(
   }
   await a.shot('/tmp/ui_chat_file_A.png');
   await returnToChatsHome(a, rounds: 4);
-  print('[pair] chat_file_bubble_present_open: fileMsgId=$fileMsgId '
-      'rowRendered=$rowRendered nameShown=$nameShown (tap-open best-effort)');
+  print(
+    '[pair] chat_file_bubble_present_open: fileMsgId=$fileMsgId '
+    'rowRendered=$rowRendered nameShown=$nameShown (tap-open best-effort)',
+  );
   // HARD: the inbound file bubble renders with its filename.
   return rowRendered && nameShown;
 }
@@ -1574,7 +1773,11 @@ class _SeededHistory {
 /// history. Returns the EARLIEST seeded text + its msgID as seen on A (the
 /// case-65 load-more target), or null on failure.
 Future<_SeededHistory?> _seedChatHistory(
-    Inst a, Inst b, String toxA, String toxB) async {
+  Inst a,
+  Inst b,
+  String toxA,
+  String toxB,
+) async {
   final nonce = DateTime.now().microsecondsSinceEpoch % 1000000;
   String? earliest;
   await _ensureChatOpen(a, toxB);
@@ -1641,8 +1844,10 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
     print('[sweep] sweep_chat: missing tox ids (A=$toxA B=$toxB)');
     return 1;
   }
-  print('[sweep] sweep_chat: A=${_shortId(toxA)} ($nickA) '
-      'B=${_shortId(toxB)} ($nickB)');
+  print(
+    '[sweep] sweep_chat: A=${_shortId(toxA)} ($nickA) '
+    'B=${_shortId(toxB)} ($nickB)',
+  );
 
   var passed = 0;
   var failed = 0;
@@ -1701,11 +1906,19 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
   }
 
   try {
-    final friended =
-        await _establishFriendshipForSweep(a, b, toxA, toxB, nickA, nickB);
+    final friended = await _establishFriendshipForSweep(
+      a,
+      b,
+      toxA,
+      toxB,
+      nickA,
+      nickB,
+    );
     if (!friended) {
-      print('[sweep] sweep_chat: handshake FAILED — no case can run; '
-          'marking them failed');
+      print(
+        '[sweep] sweep_chat: handshake FAILED — no case can run; '
+        'marking them failed',
+      );
       for (final id in const [
         'chat_open_from_row',
         'chat_long_text_send',
@@ -1741,8 +1954,10 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       // header GATING ANSWER.
       final aMarked = await a.markAccountTest();
       final bMarked = await b.markAccountTest();
-      print('[sweep] sweep_chat: marked test accounts aMarked=$aMarked '
-          'bMarked=$bMarked (unblocks l3 SEEDING for 69/70)');
+      print(
+        '[sweep] sweep_chat: marked test accounts aMarked=$aMarked '
+        'bMarked=$bMarked (unblocks l3 SEEDING for 69/70)',
+      );
 
       // GATE: the FRIEND LINK must be LIVE before the first delivery-asserting
       // case. A seeded friendship only proves the friend LIST entry; the actual
@@ -1760,26 +1975,41 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       await hard('chat_open_from_row', () => _chatOpenFromRow(a, toxB));
       // 57 long-text (before 56 so the multiline newline doesn't poison it).
       await hard(
-          'chat_long_text_send', () => _chatLongTextSend(a, b, toxA, toxB));
+        'chat_long_text_send',
+        () => _chatLongTextSend(a, b, toxA, toxB),
+      );
       // 56 multiline send (Shift+Enter newline).
       await hard(
-          'chat_multiline_send', () => _chatMultilineSend(a, b, toxA, toxB));
+        'chat_multiline_send',
+        () => _chatMultilineSend(a, b, toxA, toxB),
+      );
       // 58 emoji panel insert + send.
       await hard(
-          'chat_emoji_insert_send', () => _chatEmojiInsertSend(a, b, toxA, toxB));
+        'chat_emoji_insert_send',
+        () => _chatEmojiInsertSend(a, b, toxA, toxB),
+      );
       // 59 sticker panel surface.
-      await hard('chat_sticker_panel_send', () => _chatStickerPanelSend(a, toxB));
+      await hard(
+        'chat_sticker_panel_send',
+        () => _chatStickerPanelSend(a, toxB),
+      );
       // 60 message menu surface (own bubble).
       await hard('chat_msg_menu_surface', () => _chatMsgMenuSurface(a, toxB));
       // 61 copy message → clipboard.
-      await hard('chat_copy_message_clipboard',
-          () => _chatCopyMessageClipboard(a, toxB));
+      await hard(
+        'chat_copy_message_clipboard',
+        () => _chatCopyMessageClipboard(a, toxB),
+      );
       // 62 reply/quote round-trip (SKIP — no driveable C2C reply surface).
-      await skip('chat_reply_quote_roundtrip',
-          () => _chatReplyQuoteRoundtrip(a, toxB));
+      await skip(
+        'chat_reply_quote_roundtrip',
+        () => _chatReplyQuoteRoundtrip(a, toxB),
+      );
       // 63 forward to other conversation.
-      await hard('chat_forward_to_other_conv',
-          () => _chatForwardToOtherConv(a, toxB, nickB));
+      await hard(
+        'chat_forward_to_other_conv',
+        () => _chatForwardToOtherConv(a, toxB, nickB),
+      );
 
       // Seed ~24-message history (serves 65 + 66).
       final seeded = await _seedChatHistory(a, b, toxA, toxB);
@@ -1787,29 +2017,53 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       final earliestId = seeded?.earliestId ?? '';
       // 65 history scroll load-more (SKIP on mobile shells — see the case doc).
       await skip(
-          'chat_history_scroll_load_more',
-          () => _chatHistoryScrollLoadMore(a, b, toxA, toxB,
-              earliestText: earliestText, earliestId: earliestId));
+        'chat_history_scroll_load_more',
+        () => _chatHistoryScrollLoadMore(
+          a,
+          b,
+          toxA,
+          toxB,
+          earliestText: earliestText,
+          earliestId: earliestId,
+        ),
+      );
       // 66 inbound while scrolled up.
       await hard(
-          'chat_inbound_while_scrolled_up',
-          () => _chatInboundWhileScrolledUp(a, b, toxA, toxB,
-              earliestText: earliestText, earliestId: earliestId));
+        'chat_inbound_while_scrolled_up',
+        () => _chatInboundWhileScrolledUp(
+          a,
+          b,
+          toxA,
+          toxB,
+          earliestText: earliestText,
+          earliestId: earliestId,
+        ),
+      );
       // 67 header opens friend profile.
       await hard(
-          'chat_header_opens_profile', () => _chatHeaderOpensProfile(a, toxB));
+        'chat_header_opens_profile',
+        () => _chatHeaderOpensProfile(a, toxB),
+      );
       // 64 delete message (after the menu cases that needed a bubble).
       await hard(
-          'chat_delete_message_gone', () => _chatDeleteMessageGone(a, toxB));
+        'chat_delete_message_gone',
+        () => _chatDeleteMessageGone(a, toxB),
+      );
       // 68 offline-pending-then-deliver (SKIP — un-seedable on a reused launch).
-      await skip('chat_offline_pending_then_deliver',
-          () => _chatOfflinePendingThenDeliver(a, toxB));
+      await skip(
+        'chat_offline_pending_then_deliver',
+        () => _chatOfflinePendingThenDeliver(a, toxB),
+      );
       // 69 image bubble renders + preview (best-effort).
-      await hard('chat_image_bubble_open_preview',
-          () => _chatImageBubbleOpenPreview(a, b, toxA, toxB));
+      await hard(
+        'chat_image_bubble_open_preview',
+        () => _chatImageBubbleOpenPreview(a, b, toxA, toxB),
+      );
       // 70 file bubble present + open.
-      await hard('chat_file_bubble_present_open',
-          () => _chatFileBubblePresentOpen(a, b, toxA, toxB));
+      await hard(
+        'chat_file_bubble_present_open',
+        () => _chatFileBubblePresentOpen(a, b, toxA, toxB),
+      );
     }
   } finally {
     // END-STATE GUARD: the registered result is FRIENDS with the C2C
@@ -1822,14 +2076,19 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       // hidden seed-marker grant left behind for a reused launch (codex P1).
       final aUnmarked = await a.unmarkAccountTest();
       final bUnmarked = await b.unmarkAccountTest();
-      print('[sweep] sweep_chat end-clean: unmarked test accounts '
-          'aUnmarked=$aUnmarked bUnmarked=$bUnmarked');
+      print(
+        '[sweep] sweep_chat end-clean: unmarked test accounts '
+        'aUnmarked=$aUnmarked bUnmarked=$bUnmarked',
+      );
       await returnToChatsHome(a, rounds: 4);
       await b.foreground();
       await returnToChatsHome(b, rounds: 4);
       if (await areFriends(a, toxB)) {
-        await _seedConvRow(a, toxB,
-            text: 'RuiB6EndSeed-${DateTime.now().microsecondsSinceEpoch}');
+        await _seedConvRow(
+          a,
+          toxB,
+          text: 'RuiB6EndSeed-${DateTime.now().microsecondsSinceEpoch}',
+        );
       }
     } on PermissionBlockedError catch (e) {
       print('[sweep] sweep_chat end-clean: BLOCKED (${e.message})');
@@ -1843,8 +2102,10 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
     } on DriveError {
       endFriends = false;
     }
-    print('[sweep] sweep_chat RESULTS: $passed PASS / $failed FAIL / $skipped '
-        'SKIP ($results) | endFriends=$endFriends');
+    print(
+      '[sweep] sweep_chat RESULTS: $passed PASS / $failed FAIL / $skipped '
+      'SKIP ($results) | endFriends=$endFriends',
+    );
     try {
       await a.shot('/tmp/ui_chat_sweep_A.png');
       await b.foreground();
@@ -1853,8 +2114,10 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       // best-effort
     }
     if (!endFriends) {
-      print('[sweep] sweep_chat: end state is NOT friends-with-row — failing '
-          'the sweep so the runner does not trust the result-state contract');
+      print(
+        '[sweep] sweep_chat: end state is NOT friends-with-row — failing '
+        'the sweep so the runner does not trust the result-state contract',
+      );
     }
   }
   return (failed == 0 && endFriends) ? 0 : 1;

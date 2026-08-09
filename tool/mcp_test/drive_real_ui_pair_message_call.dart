@@ -406,11 +406,11 @@ Future<void> openChat(
   // heavy no-row fallback is replaced. Desktop keeps the full real flow.
   if (!inst.isIos &&
       await _openChatViaContactsProfile(
-    inst,
-    fullId: fullId,
-    friendPubkey: friendPubkey,
-    ready: ready,
-  )) {
+        inst,
+        fullId: fullId,
+        friendPubkey: friendPubkey,
+        ready: ready,
+      )) {
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     return;
   }
@@ -565,13 +565,12 @@ Future<bool> _chatSurfaceReady(
   while (DateTime.now().isBefore(deadline)) {
     final shellTab = await _homeShellTab(inst);
     final currentConversation = await _currentConversationId(inst);
-    final hasInput = await inst.waitKey(
-      'chat_input_text_field',
-      timeoutSecs: 1,
-    );
-    if (shellTab == 'chats' &&
-        currentConversation == conversationId &&
-        hasInput) {
+    final hasInput = inst.isAndroid
+        ? await inst.keyCenter('chat_input_text_field') != null
+        : await inst.waitKey('chat_input_text_field', timeoutSecs: 1);
+    final conversationReady =
+        currentConversation == conversationId || (inst.isAndroid && hasInput);
+    if (shellTab == 'chats' && conversationReady && hasInput) {
       return true;
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -629,7 +628,11 @@ Future<bool> sendComposerMessage(
   // also covers a cross-host macOS-host + Linux-peer-B pair. Android is
   // excluded here (it keeps the mobile real-send-button path below).
   if (_isWindowsRealUi || inst.isLinux) {
-    return _sendComposerMessageHeadlessDesktop(inst, text, clearFirst: clearFirst);
+    return _sendComposerMessageHeadlessDesktop(
+      inst,
+      text,
+      clearFirst: clearFirst,
+    );
   }
   // iOS Simulator: System Events keystrokes (osaClear/osaPaste/osaReturn) cannot
   // reach the sim, and the mobile composer has a real tappable send button. Type
