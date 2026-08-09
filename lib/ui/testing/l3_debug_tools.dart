@@ -70,6 +70,7 @@ import '../../call/permission_helper.dart';
 import '../../navigation/app_navigation.dart';
 import '../../notifications/notification_service.dart';
 import '../profile/profile_avatar_picker.dart';
+import '../../sdk_fake/c2c_recv_opt_cache.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/account_service.dart';
@@ -2987,9 +2988,15 @@ MCPCallEntry _l3OpenConversationMenuEntry() => MCPCallEntry.tool(
   ),
 );
 
-/// Mark a C2C conversation read: advances the per-conversation lastView
-/// barrier so `getC2CUnreadCount` (surfaced as `unreadCount` in l3_dump_state)
-/// drops to 0. Lets a scenario assert unread>0 → mark-read → unread==0 (S19).
+/// Mark a C2C conversation read through the REAL product path: the same
+/// `cleanConversationUnreadMessageCount` call the conversation-row context menu
+/// dispatches (`HomePage._dispatchConversationMenuAction` case `'mark_read'`),
+/// which `TencentCloudChatSdkPlatform.isPlatformRouted` routes into
+/// `Tim2ToxSdkPlatform.cleanConversationUnreadMessageCount` →
+/// `FfiChatService.markConversationRead` (awaited barrier + `isRead` flags) →
+/// `onConversationUnreadCleared` (conversation-list + badge refresh hook).
+/// `getC2CUnreadCount` (surfaced as `unreadCount` in l3_dump_state) then drops
+/// to 0, so a scenario can assert unread>0 → mark-read → unread==0 (S19).
 /// Test/seed account only; C2C only.
 MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
   handler: (request) async {
@@ -3029,14 +3036,47 @@ MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
     );
     if (groupReject != null) return groupReject;
     try {
-      // Marking a conversation read in the real app == opening it (making
-      // it the active conversation): `setActivePeer` zeroes the in-memory
-      // unread counter synchronously AND fire-and-forget advances the
-      // persisted lastView barrier. Mirror that exact path rather than
-      // inventing a new API. The in-memory zero is synchronous, so the
-      // unread read below reflects the result immediately (a kill+reload
-      // assertion could still race the unawaited barrier save).
-      ffi.setActivePeer(userId);
+      // REAL PRODUCT PATH (self-证 closure fix, 2026-08).
+      //
+      // WAS: `ffi.setActivePeer(userId)` — a COMPLETELY DIFFERENT function from
+      // the one "mark as read" runs. It masked the count via
+      // `FfiChatService._activePeerId` (`getC2CUnreadCount` short-circuits to 0
+      // for the active peer) and only fire-and-forgot the persisted barrier, so
+      // the gate went green without ever exercising
+      // `cleanConversationUnreadMessageCount`. It also POISONED the session
+      // (activePeerId changed → later inbound messages for that peer stopped
+      // counting as unread, which is exactly what the badge scenarios measure).
+      //
+      // NOW: the same entry point the conversation-row menu item dispatches
+      // (`HomePage._dispatchConversationMenuAction`) →
+      // `Tim2ToxSdkPlatform.cleanConversationUnreadMessageCount` →
+      // `FfiChatService.markConversationRead` (AWAITED: anchors the lastView
+      // barrier to the max message timestamp, flags every current non-self
+      // message `isRead`, saves history) → `onConversationUnreadCleared`.
+      // The conversation is NOT made active, matching the real semantics
+      // ("marked read without opening"), and because the barrier write is
+      // awaited a kill+reload assertion no longer races it.
+      final res = await TencentImSDKPlugin.v2TIMManager
+          .getConversationManager()
+          .cleanConversationUnreadMessageCount(
+            conversationID: 'c2c_$userId',
+            cleanTimestamp: 0,
+            cleanSequence: 0,
+          );
+      if (res.code != 0) {
+        AppLogger.info(
+          '[L3] l3_mark_read: SDK returned ${res.code}: ${res.desc}',
+        );
+        return MCPCallResult(
+          message: 'l3_mark_read: SDK returned ${res.code}: ${res.desc}',
+          parameters: {
+            'ok': false,
+            'error': 'sdk_error',
+            'code': res.code,
+            'detail': res.desc,
+          },
+        );
+      }
       final unread = ffi.getC2CUnreadCount(userId);
       AppLogger.info('[L3] l3_mark_read: $userId → unread=$unread');
       return MCPCallResult(
@@ -3054,14 +3094,16 @@ MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
   definition: MCPToolDefinition(
     name: 'l3_mark_read',
     description:
-        'L3 TEST ONLY: mark a C2C conversation read by OPENING it '
-        '(sets it as the active conversation — same path the real app uses '
-        'when you open a chat; side effects: changes activePeerId + '
-        'suppresses its notifications). Zeroes the in-memory unreadCount '
-        'synchronously; the persisted lastView barrier write is best-effort '
-        '(unawaited), so unreadCount is authoritative for an immediate '
-        'in-memory assertion but a kill+reload assertion may race. Targets '
-        'userId/conversationId, or the active conversation.',
+        'L3 TEST ONLY: mark a C2C conversation read through the REAL '
+        'production path — the same '
+        'getConversationManager().cleanConversationUnreadMessageCount the '
+        'conversation-row "Mark as read" menu item dispatches (routed into '
+        'Tim2ToxSdkPlatform → FfiChatService.markConversationRead → the '
+        'onConversationUnreadCleared refresh hook). Does NOT open the '
+        'conversation and does NOT change activePeerId. The lastView barrier '
+        'write is AWAITED, so both the immediate unreadCount assertion and a '
+        'kill+reload assertion are safe. Targets userId/conversationId, or '
+        'the active conversation.',
     inputSchema: ObjectSchema(
       properties: {
         'userId': StringSchema(description: 'Target Tox ID (64/76 hex).'),
@@ -3307,11 +3349,19 @@ MCPCallEntry _l3SetBlockedEntry() => MCPCallEntry.tool(
   ),
 );
 
-/// S30/H5: set or CLEAR a friend's user-edited remark/alias via
-/// `Prefs.setFriendRemark` (account-scoped — the SAME store the profile/settings
-/// edit path writes; distinct from the Tox nickName). An empty remark clears it.
-/// Read back via `l3_dump_state.friends[].remark`. MUTATING — test/seed account
-/// only, C2C only.
+/// S30/H5: set or CLEAR a friend's user-edited remark/alias through the REAL
+/// product path — `getFriendshipManager().setFriendInfo(userID:, friendRemark:)`,
+/// the exact SDK boundary the friend-profile remark dialog confirm hits
+/// (`TencentCloudChatUserProfileContentState._onChangeFriendRemark` →
+/// `contactSDK.setFriendInfo`). `isPlatformRouted` routes it into
+/// `Tim2ToxSdkPlatform.setFriendInfo` →
+/// `ExtendedPreferencesService.setFriendRemark` (the adapter's account-scoped
+/// `_prefixKey`). An empty remark clears it (the adapter removes the key).
+/// Read back via `l3_dump_state.friends[].remark`, which reads through the
+/// OTHER key implementation (`Prefs.getFriendRemark` / `Prefs._scopedKey`) — so
+/// the round-trip now cross-checks the two independent scoping builders instead
+/// of writing and reading the same one. MUTATING — test/seed account only,
+/// C2C only.
 MCPCallEntry _l3SetFriendRemarkEntry() => MCPCallEntry.tool(
   handler: (request) async {
     if (!await _activeAccountIsTest()) {
@@ -3351,7 +3401,46 @@ MCPCallEntry _l3SetFriendRemarkEntry() => MCPCallEntry.tool(
     // The remark is intentionally allowed to be empty (that CLEARS it).
     final remark = (request['remark'] ?? '').toString();
     try {
-      await Prefs.setFriendRemark(userId, remark);
+      // REAL PRODUCT PATH (self-证 closure fix, 2026-08).
+      //
+      // WAS: `Prefs.setFriendRemark(userId, remark)` — a direct write to the
+      // toxee-side prefs store, bypassing the SDK entirely. Since
+      // `l3_dump_state` reads back with `Prefs.getFriendRemark`, write and read
+      // were the SAME implementation: the gate stayed green no matter what the
+      // product did. It could not observe (a) a broken `setFriendInfo` platform
+      // route, nor (b) drift between the two independent account-scoping key
+      // builders — `Prefs._scopedKey` (writer, then) vs
+      // `SharedPreferencesAdapter._prefixKey` (what the product actually
+      // writes through `ExtendedPreferencesService.setFriendRemark`).
+      //
+      // NOW: drive the same SDK boundary the profile remark dialog uses. The
+      // dump's `Prefs.getFriendRemark` read is therefore a genuine
+      // cross-implementation assertion of the two key builders' agreement.
+      // (Note: `Tim2ToxSdkPlatform.setFriendInfo` returns code!=0 when no
+      // preferences service is attached, so a silently-dropped remark now
+      // fails loudly here instead of being invisible.)
+      final res = await TencentImSDKPlugin.v2TIMManager
+          .getFriendshipManager()
+          .setFriendInfo(userID: userId, friendRemark: remark);
+      if (res.code != 0) {
+        AppLogger.info(
+          '[L3] l3_set_friend_remark: SDK returned ${res.code}: ${res.desc}',
+        );
+        return MCPCallResult(
+          message: 'l3_set_friend_remark: SDK returned ${res.code}: '
+              '${res.desc}',
+          parameters: {
+            'ok': false,
+            'error': 'sdk_error',
+            'code': res.code,
+            'detail': res.desc,
+          },
+        );
+      }
+      // The profile dialog only refreshes its own local state; the contact
+      // list picks the remark up on its next rebuild. Force that rebuild here
+      // so the tool stays synchronous for the caller (this is a READ refresh,
+      // not a second write of the remark).
       await FakeUIKit.instance.im?.refreshContacts();
       AppLogger.info(
         '[L3] l3_set_friend_remark MUTATED $userId remark='
@@ -3373,9 +3462,12 @@ MCPCallEntry _l3SetFriendRemarkEntry() => MCPCallEntry.tool(
     name: 'l3_set_friend_remark',
     description:
         'L3 TEST ONLY (test/seed account, MUTATING, C2C only): set or CLEAR a '
-        "friend's user-edited remark/alias via Prefs.setFriendRemark "
-        '(account-scoped). An empty remark clears it. userId accepts a bare or '
-        'c2c_ id, or defaults to the active conversation. Read back via '
+        "friend's user-edited remark/alias through the REAL SDK path "
+        '(getFriendshipManager().setFriendInfo — the same boundary the friend-'
+        'profile remark dialog hits; routed to Tim2ToxSdkPlatform.setFriendInfo '
+        '→ ExtendedPreferencesService.setFriendRemark, account-scoped). An '
+        'empty remark clears it. userId accepts a bare or c2c_ id, or defaults '
+        'to the active conversation. Read back via '
         'l3_dump_state.friends[].remark.',
     inputSchema: ObjectSchema(
       properties: {
@@ -4331,15 +4423,31 @@ MCPCallEntry _l3SimulateNotificationTapEntry() => MCPCallEntry.tool(
   ),
 );
 
-/// S83 (codex-vetted approach 2026-06-01): mute/unmute a C2C conversation by
-/// setting its per-peer receive option (0=receive, 1=no-notify, 2=block). The
-/// notification listener's `_shouldSuppress` reads `recvOpt` from the UIKit
-/// conversation CACHE (`UikitDataFacade.conversationList[i].recvOpt`,
-/// notification_message_listener.dart:224) — which is hydrated from Prefs only
-/// at conversation-refresh time. So this writes `Prefs.setC2CReceiveMessageOpt`
-/// (persistence + what the converter reads) AND mutates the cached
-/// conversation's `recvOpt` in place (the exact value the converter would
-/// produce) + notifies, so the suppression input is live immediately.
+/// S83: mute/unmute a C2C conversation by setting its per-peer receive option
+/// (0=receive, 1=not-receive, 2=receive-but-don't-notify == "mute") through the
+/// REAL product path.
+///
+/// User path this mirrors: friend-profile Do-Not-Disturb `Switch` →
+/// `TencentCloudChatUserProfileStateButtonState._setC2CReceiveOpt` →
+/// `contactSDK.setC2CReceiveMessageOpt` →
+/// `getMessageManager().setC2CReceiveMessageOpt` → (non-web) `TIMMessageManager`
+/// → the binary-replacement binding `DartSetC2CReceiveMessageOpt` →
+/// `V2TIMMessageManagerImpl::SetC2CReceiveMessageOpt`, which updates the native
+/// in-memory opt map and calls `UpdateC2CReceiveOptAndNotify` so
+/// `OnConversationChanged` carries the new `recvOpt` back to Dart. The
+/// `FakeChatDataProvider` conversation listener then projects it into
+/// `C2CRecvOptCache` (synchronous runtime authority read by `_mapConv` and by
+/// `NotificationMessageListener._shouldSuppress`) and persists it to Prefs.
+///
+/// WAS (the self-证 closure this replaces): the tool wrote
+/// `Prefs.setC2CReceiveMessageOpt` and hand-mutated
+/// `UikitDataFacade.conversationList[i].recvOpt`, while the gate read `recvOpt`
+/// back out of that same conversation list — product code never ran. Worse, it
+/// never touched `C2CRecvOptCache`, so the next ~5s `_mapConv` rebuild
+/// overwrote the hand-written 2 with the cache's 0: the "mute" it set was
+/// transient AND self-asserting, and the `DartSetC2CReceiveMessageOpt` 2-vs-3
+/// arg ABI drift (SIGSEGV) that this tool was supposed to gate went unnoticed.
+///
 /// `recvOpt` is surfaced in `l3_dump_state.conversations[]`. MUTATING, C2C-only,
 /// test/seed account.
 MCPCallEntry _l3SetC2CRecvOptEntry() => MCPCallEntry.tool(
@@ -4388,28 +4496,80 @@ MCPCallEntry _l3SetC2CRecvOptEntry() => MCPCallEntry.tool(
       );
     }
     try {
-      final toxId = (await Prefs.getCurrentAccountToxId()) ?? '';
-      await Prefs.setC2CReceiveMessageOpt(
-        userId,
-        opt,
-        toxId.isEmpty ? null : toxId,
-      );
-      // _shouldSuppress reads recvOpt from the UIKit conversation cache, not
-      // Prefs — mutate the cached entry in place so suppression is live now.
       final wantPk = toToxPublicKey(userId);
-      var cacheMatched = 0;
+      // Prefer the id EXACTLY as the UIKit conversation list spells it (that is
+      // what the friend-profile switch passes, and the native
+      // `UpdateC2CReceiveOptAndNotify` cached-row lookup is a case-sensitive
+      // `"c2c_" + uid` string compare). Fall back to the caller's id truncated
+      // to the 64-char public key.
+      var sdkUserId = normalizeToxId(userId);
       for (final c in UikitDataFacade.conversationList) {
         final cid = c.conversationID;
         final bare = cid.startsWith('c2c_') ? cid.substring(4) : cid;
         if (c.type == 1 && toToxPublicKey(bare) == wantPk) {
-          c.recvOpt = opt;
-          cacheMatched++;
+          sdkUserId = normalizeToxId(c.userID ?? bare);
+          break;
         }
       }
-      UikitDataFacade.notifyCurrentConversation();
+
+      // REAL PRODUCT PATH — see the doc comment above. This is the same SDK
+      // boundary the friend-profile Do-Not-Disturb switch calls; everything
+      // downstream (native opt map, OnConversationChanged push, C2CRecvOptCache
+      // projection, Prefs persistence, _mapConv, _shouldSuppress) is product
+      // code. Nothing is written to Prefs or to the conversation cache here.
+      final res = await TencentImSDKPlugin.v2TIMManager
+          .getMessageManager()
+          .setC2CReceiveMessageOpt(
+            userIDList: [sdkUserId],
+            opt: ReceiveMsgOptEnum.values[opt],
+          );
+      if (res.code != 0) {
+        AppLogger.info(
+          '[L3] l3_set_c2c_recv_opt: SDK returned ${res.code}: ${res.desc}',
+        );
+        return MCPCallResult(
+          message: 'l3_set_c2c_recv_opt: SDK returned ${res.code}: '
+              '${res.desc}',
+          parameters: {
+            'ok': false,
+            'error': 'sdk_error',
+            'code': res.code,
+            'detail': res.desc,
+            'cacheMatched': 0,
+          },
+        );
+      }
+
+      // OBSERVE (do not write) the propagation: the native OnConversationChanged
+      // push is asynchronous, and the conversation-list emit behind it is
+      // debounced, so poll briefly for the product's own projections to settle.
+      // `cacheOpt` is the C2CRecvOptCache value `_shouldSuppress` and `_mapConv`
+      // read; `cacheMatched` counts the UIKit conversation rows that now carry
+      // the new recvOpt (the shape `drive_fixture_c_mute.dart` asserts >= 1 on —
+      // it used to be a count of rows this tool had just written, now it is a
+      // count of rows the PRODUCT propagated to).
+      var cacheOpt = 0;
+      var cacheMatched = 0;
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (true) {
+        cacheOpt = C2CRecvOptCache.optFor(userId);
+        cacheMatched = 0;
+        for (final c in UikitDataFacade.conversationList) {
+          final cid = c.conversationID;
+          final bare = cid.startsWith('c2c_') ? cid.substring(4) : cid;
+          if (c.type == 1 &&
+              toToxPublicKey(bare) == wantPk &&
+              (c.recvOpt ?? 0) == opt) {
+            cacheMatched++;
+          }
+        }
+        if (cacheOpt == opt && cacheMatched > 0) break;
+        if (!DateTime.now().isBefore(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
       AppLogger.info(
-        '[L3] l3_set_c2c_recv_opt MUTATED $userId opt=$opt '
-        '(cacheMatched=$cacheMatched)',
+        '[L3] l3_set_c2c_recv_opt $userId opt=$opt via real SDK path '
+        '(cacheOpt=$cacheOpt cacheMatched=$cacheMatched)',
       );
       return MCPCallResult(
         message: 'recv opt set: $userId=$opt',
@@ -4417,7 +4577,13 @@ MCPCallEntry _l3SetC2CRecvOptEntry() => MCPCallEntry.tool(
           'ok': true,
           'userId': userId,
           'opt': opt,
+          // Propagation observations — `ok` stays tied to the SDK result (the
+          // product contract); a propagation failure surfaces here and in the
+          // scenario's l3_dump_state.conversations[].recvOpt assertion rather
+          // than being papered over by a local write.
+          'cacheOpt': cacheOpt,
           'cacheMatched': cacheMatched,
+          'propagated': cacheOpt == opt && cacheMatched > 0,
         },
       );
     } catch (e, st) {
@@ -4436,11 +4602,16 @@ MCPCallEntry _l3SetC2CRecvOptEntry() => MCPCallEntry.tool(
     name: 'l3_set_c2c_recv_opt',
     description:
         'L3 TEST ONLY (test/seed account, MUTATING, C2C-only): set a C2C '
-        "conversation's receive option (0=receive, 1=no-notify, 2=block/mute) "
-        'so the notification listener suppresses inbound banners. Writes Prefs '
-        'AND updates the UIKit conversation cache that _shouldSuppress reads. '
-        'recvOpt is exposed in l3_dump_state.conversations[]. Targets '
-        'userId/conversationId, or the active conversation.',
+        "conversation's receive option (0=receive, 1=not-receive, 2=mute) "
+        'through the REAL SDK path — getMessageManager().'
+        'setC2CReceiveMessageOpt, the same boundary the friend-profile '
+        'Do-Not-Disturb switch hits (native DartSetC2CReceiveMessageOpt → '
+        'OnConversationChanged → C2CRecvOptCache + Prefs). This tool writes '
+        'NOTHING to Prefs or the conversation cache itself; it returns '
+        'cacheOpt/cacheMatched/propagated as OBSERVATIONS of how far the '
+        "product's own push got (bounded 5s poll). recvOpt is exposed in "
+        'l3_dump_state.conversations[]. Targets userId/conversationId, or the '
+        'active conversation.',
     inputSchema: ObjectSchema(
       properties: {
         'userId': StringSchema(description: 'Target Tox ID (64/76 hex).'),
@@ -6786,10 +6957,26 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
             'unreadCount': c.unreadCount,
             'lastMessageText': c.lastMessage?.textElem?.text,
             'isPinned': c.isPinned,
-            // recvOpt (0=receive, 1=no-notify, 2=block/mute) — the exact field
-            // _shouldSuppress reads (notification_message_listener.dart:224).
-            // S83 sets it via l3_set_c2c_recv_opt and asserts it here.
+            // recvOpt (0=receive, 1=not-receive, 2=mute) — the exact field
+            // `_shouldSuppress` falls back to. Populated by the PRODUCT:
+            // `_mapConv` reads `C2CRecvOptCache` for C2C (and Prefs for
+            // groups), and the native `OnConversationChanged` recvOpt push
+            // merges into the same row. `l3_set_c2c_recv_opt` drives the real
+            // SDK path and never writes this field, so S83 asserting it here
+            // is a genuine end-to-end check.
             'recvOpt': c.recvOpt,
+            // The synchronous runtime AUTHORITY behind the C2C value above
+            // (`C2CRecvOptCache`, the projection of the native receive-opt map
+            // that `NotificationMessageListener._shouldSuppress` consults
+            // FIRST). Surfaced separately so a mute gate can distinguish
+            // "the native push never arrived" from "it arrived but the
+            // debounced conversation-list rebuild hasn't run yet". null for
+            // groups (they persist their DND in Prefs, not this cache).
+            'recvOptCache': c.type == 1
+                ? C2CRecvOptCache.optFor(
+                    c.userID ?? c.conversationID.replaceFirst('c2c_', ''),
+                  )
+                : null,
           },
       ];
       // Exact-membership companion to `conversations` (a list of maps, which the
@@ -7025,7 +7212,10 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         'ircChannels, ircServer, ircPort, ircUseSasl, ircChannelGroups), and '
         'the sidebar conversation list '
         '(conversations: conversationID/type/showName/unreadCount/'
-        'lastMessageText/isPinned — UI-live, poll before asserting; '
+        'lastMessageText/isPinned/recvOpt/recvOptCache — UI-live, poll before '
+        'asserting; recvOptCache is the C2CRecvOptCache runtime authority the '
+        'notification suppressor reads, recvOpt the conversation-row '
+        'projection of it; '
         'conversationIds is the flat id list for exact membership checks) PLUS, '
         'for the given '
         'conversationId/userId (or the active conversation), the persisted '
