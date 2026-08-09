@@ -241,6 +241,14 @@ void registerL3HomeShellSnapshotReader(L3HomeShellSnapshotReader? fn) {
 L3HomeShellSnapshotReader? get currentL3HomeShellSnapshotReader =>
     _l3HomeShellSnapshotReader;
 
+L3OpenAddGroupDialogInvoker? get currentL3OpenAddGroupDialogInvoker =>
+    _l3OpenAddGroupDialogInvoker;
+
+L3OpenGroupProfileInvoker? get currentL3OpenGroupProfileInvoker =>
+    _l3OpenGroupProfileInvoker;
+
+L3PopToRootInvoker? get currentL3PopToRootInvoker => _l3PopToRootInvoker;
+
 /// S79: avatar-pick override path (mirrors the export-save override). When set,
 /// the avatar image picker is bypassed and this fixed path is returned, so the
 /// native NSOpenPanel never blocks a headless L3 run.
@@ -2454,6 +2462,10 @@ MCPCallEntry _l3ForceHomeRootEntry() => MCPCallEntry.tool(
         request['tab']?.toString().trim().toLowerCase() ?? 'chats';
     currentService.setActivePeer(null);
     UikitDataFacade.currentConversation = null;
+    final popToRoot = _l3PopToRootInvoker;
+    if (popToRoot != null) {
+      await popToRoot();
+    }
     final shellApplier = _l3HomeShellApplier;
     if (shellApplier != null) {
       await shellApplier(targetTab);

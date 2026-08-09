@@ -1,5 +1,7 @@
 part of 'home_page.dart';
 
+Object? _activeConversationBuilderOwner;
+
 extension _HomePageBootstrap on _HomePageState {
   bool _isAvConferenceConversation(V2TimConversation? conversation) {
     return conversation?.groupType == 'av_conference';
@@ -895,6 +897,8 @@ extension _HomePageBootstrap on _HomePageState {
           },
     );
 
+    final conversationBuilderOwner = Object();
+    _activeConversationBuilderOwner = conversationBuilderOwner;
     conv_pkg.TencentCloudChatConversationManager.builder.setBuilders(
       conversationItemContentBuilder: (conversation) => KeyedSubtree(
         key: UiKeys.conversationListTile(conversation.conversationID),
@@ -903,9 +907,15 @@ extension _HomePageBootstrap on _HomePageState {
         ),
       ),
     );
-    _bag.add(
-      () => conv_pkg.TencentCloudChatConversationManager.builder.setBuilders(),
-    );
+    _bag.add(() {
+      if (identical(
+        _activeConversationBuilderOwner,
+        conversationBuilderOwner,
+      )) {
+        _activeConversationBuilderOwner = null;
+        conv_pkg.TencentCloudChatConversationManager.builder.setBuilders();
+      }
+    });
 
     final eventHandlers =
         conv_pkg.TencentCloudChatConversationManager.eventHandlers;
@@ -1158,13 +1168,21 @@ extension _HomePageBootstrap on _HomePageState {
       return true;
     });
     _bag.add(() => registerL3OpenAddFriendDialogInvoker(null));
-    registerL3OpenAddGroupDialogInvoker(() async {
+    final openAddGroupDialogInvoker = () async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the add-friend invoker above.
       unawaited(_showAddGroupDialog());
       return true;
+    };
+    registerL3OpenAddGroupDialogInvoker(openAddGroupDialogInvoker);
+    _bag.add(() {
+      if (identical(
+        currentL3OpenAddGroupDialogInvoker,
+        openAddGroupDialogInvoker,
+      )) {
+        registerL3OpenAddGroupDialogInvoker(null);
+      }
     });
-    _bag.add(() => registerL3OpenAddGroupDialogInvoker(null));
     registerL3OpenChatInvoker(({String? userId, String? groupId}) async {
       if (!mounted) return false;
       // _openChat is now layout-aware: on a compact (bottom-nav/phone) layout it
@@ -1204,8 +1222,16 @@ extension _HomePageBootstrap on _HomePageState {
       return true;
     });
     _bag.add(() => registerL3OpenSelfProfileInvoker(null));
-    registerL3PopToRootInvoker(() async {
-      if (!mounted) return false;
+    final homeRoute = ModalRoute.of(context);
+    final navigator = Navigator.of(context);
+    final popToRootInvoker = () async {
+      if (!mounted ||
+          homeRoute == null ||
+          !navigator.mounted ||
+          !homeRoute.isActive) {
+        return false;
+      }
+      if (homeRoute.isCurrent) return true;
       // Pop every route/dialog above HomePage (mobile message + profile routes,
       // desktop modals) so the screenshot pipeline re-navigates from a known
       // root on every layout. No-op on desktop when nothing is pushed.
@@ -1220,13 +1246,33 @@ extension _HomePageBootstrap on _HomePageState {
       // is HomePage's route; popUntil stops at whichever of (homeRoute, first)
       // it reaches first from the top, so dialogs/sub-routes above HomePage are
       // dismissed but HomePage survives.
-      final homeRoute = ModalRoute.of(context);
-      Navigator.of(
-        context,
-      ).popUntil((route) => route.isFirst || identical(route, homeRoute));
-      return true;
+      for (var attempt = 0; attempt < 12; attempt++) {
+        await WidgetsBinding.instance.endOfFrame;
+        try {
+          navigator.popUntil(
+            (route) => route.isFirst || identical(route, homeRoute),
+          );
+          return true;
+        } on Object catch (e, st) {
+          if (!e.toString().contains('!_debugLocked') || attempt == 11) {
+            AppLogger.logError(
+              '[HomePage] l3 pop-to-root skipped during navigator teardown',
+              e,
+              st,
+            );
+            return false;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      return false;
+    };
+    registerL3PopToRootInvoker(popToRootInvoker);
+    _bag.add(() {
+      if (identical(currentL3PopToRootInvoker, popToRootInvoker)) {
+        registerL3PopToRootInvoker(null);
+      }
     });
-    _bag.add(() => registerL3PopToRootInvoker(null));
     registerL3OpenGlobalSearchInvoker(() async {
       if (!mounted) return false;
       // The global search overlay is pushed onto the desktop master-detail
@@ -1259,13 +1305,21 @@ extension _HomePageBootstrap on _HomePageState {
       return _openGroupMemberList(groupId);
     });
     _bag.add(() => registerL3OpenGroupMemberListInvoker(null));
-    registerL3OpenGroupProfileInvoker((groupId) async {
+    final openGroupProfileInvoker = (String groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract: PUSH the clean group-profile page (after
       // popping stale routes) and return as soon as it is on screen.
       return _openGroupProfile(groupId);
+    };
+    registerL3OpenGroupProfileInvoker(openGroupProfileInvoker);
+    _bag.add(() {
+      if (identical(
+        currentL3OpenGroupProfileInvoker,
+        openGroupProfileInvoker,
+      )) {
+        registerL3OpenGroupProfileInvoker(null);
+      }
     });
-    _bag.add(() => registerL3OpenGroupProfileInvoker(null));
     registerL3OpenConversationMenuInvoker((conversationId, {action}) async {
       if (!mounted) return false;
       // Resolve the conversation from the live UIKit list (the same source the
