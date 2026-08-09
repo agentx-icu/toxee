@@ -16,19 +16,47 @@
 
 ## 1. Inventory (current reality)
 
+> **⚠ This table is hand-written and has no CI guard.** It went stale on
+> 9 of 11 rows between 2026-06 and 2026-08 without anything failing.
+> [`test/mcp/INDEX.md`](../../test/mcp/INDEX.md) is the **generated**
+> counterpart — produced by `tool/mcp_test/gen_scenario_index.dart` from
+> the scenario JSONs, `fixture_c_manifest.json`, and the playbook
+> headers, with its freshness enforced by
+> `gen_scenario_index.dart --check` in `mcp_harness_smoke.yml`. **Prefer
+> `INDEX.md` for anything per-scenario.** The table below is a
+> one-screen orientation map; if a number here disagrees with a
+> generator or with `ls`, the generator wins. Counts verified
+> 2026-08-07 by the "how to re-verify" commands in the note underneath.
+
 | # | Surface | Where | Count | Runs via | In CI? |
 |---|---------|-------|-------|----------|--------|
-| 1 | Unit + widget tests (L1) | `test/` (excl. `test/mcp/`) | 122 files (87 tracked, 35 new; ignored junk excluded) | `flutter test` | analyze.yml, every PR |
-| 2 | Real-UI WidgetTester gates (L1) | `test/ui/chat_core_real_ui_test.dart` | 6 gates | `flutter test` | analyze.yml |
-| 3 | Anchor/key source tests (L1) | `test/ui/testing/`, `test/ui/contact/`, … | 17 files (anchor/key/L3-debug) | `flutter test` | analyze.yml |
+| 1 | Unit + widget tests (L1) | `test/` (excl. `test/mcp/`) | 255 `*_test.dart` files (+ ~3 shared helper `.dart`) | `flutter test` | analyze.yml, every PR |
+| 2 | Real-UI WidgetTester gates (L1) | `test/ui/chat_core_real_ui_test.dart` | 18 `testWidgets` gates | `flutter test` | analyze.yml |
+| 3 | Anchor/key source tests (L1) | `test/ui/testing/`, `test/ui/contact/` | 25 files (11 + 14; anchor/key/L3-debug/real-UI) | `flutter test` | analyze.yml |
 | 4 | Host-bundle lifecycle (L2) | `integration_test/` | 6 Dart files (5 runnable `_test.dart` tagged `needs-native` + 1 harness) | per-file `flutter test -d <os>` | e2e.yml, opt-in `ci:e2e` |
-| 5 | L3 runner gates (data layer) | `tool/mcp_test/scenarios/*.json` | 46 (40 blocking, 6 nonBlocking) | `run_l3_scenarios.dart` against a live debug app | no (local) |
-| 6 | Two-process Fixture C / unified runner | `tool/mcp_test/fixture_c_unified_runner.dart`, `fixture_c_manifest.json`, `drive_fixture_c_*.dart` + legacy `.sh` | 1 unified runner / 27 Dart drivers / 28 legacy shell wrappers | `dart run tool/mcp_test/fixture_c_unified_runner.dart ...` (legacy shell entrypoints delegate to it) | no (local); contracts via mcp_harness_smoke.yml |
-| 7 | Two-process real-UI scenarios | `tool/mcp_test/drive_real_ui_pair.dart` (planned by the unified runner through the manifest) | 8 codified scenarios + an 88-entry reusable campaign catalog (handshake / handshake_detail / decline / message / message_burst / custom_message / call_voice / call_reject) | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]` or direct driver + osascript | no (local, macOS) |
+| 5 | L3 runner gates (data layer) | `tool/mcp_test/scenarios/*.json` | 48 (42 blocking, 6 nonBlocking) | `run_l3_scenarios.dart` against a live debug app | no (local) |
+| 6 | Two-process Fixture C / unified runner | `tool/mcp_test/fixture_c_unified_runner.dart`, `fixture_c_manifest.json`, `drive_fixture_c_*.dart` + legacy `.sh` | 1 unified runner / **29 manifest entries** (28 `2proc-l3` + 1 `2proc-ui`) / 27 `drive_fixture_c_*.dart` drivers / 28 manifest-referenced `run_fixture_c_*.sh` (29 on disk, incl. the `run_fixture_c_suite.sh` wrapper) | `dart run tool/mcp_test/fixture_c_unified_runner.dart ...` (legacy shell entrypoints delegate to it) | no (local); contracts via mcp_harness_smoke.yml |
+| 7 | Two-process real-UI scenarios | `tool/mcp_test/drive_real_ui_pair.dart` (planned by the unified runner through the manifest) | **211 registered scenario names** (atomic cases + `sweep_*` chains) grouped into **96 named campaigns** | `fixture_c_unified_runner.dart --class=2proc-ui [--real-ui-scenario=<name> \| --real-ui-campaign=<name>]`; discover exact names with `--list-real-ui-campaigns` | no (local) |
 | 8 | Single-instance UI script driver | `tool/mcp_test/drive_export_account.dart` | 1 | script | no (local) |
 | 9 | Harness self-checks | `fixture_c_helpers_regression.sh`, `fixture_c_unified_runner_regression.sh`, `echo_peer_{contract_smoke,drift_check,helpers_regression}.sh` | 5 scripts | per-script | `fixture_c_helpers_regression.sh` in mcp_harness_smoke.yml; the rest local |
-| 10 | L3 playbooks (specs) | `test/mcp/S*.md` | 118 (S1–S125, gaps) | agent-driven | n/a (specs) |
+| 10 | L3 playbooks (specs) | `test/mcp/S*.md` | **178** (S2–S185; gaps at S1/S6/S7/S41/S42/S50/S73) — see [`INDEX.md`](../../test/mcp/INDEX.md), which is generated and CI-checked | agent-driven | n/a (specs) |
 | 11 | Protocol tiers (out of scope) | `third_party/tim2tox/auto_tests` | 14 phases | `run_tests_ordered.sh` | auto_tests*.yml tiers 1–4 |
+
+**How to re-verify** (no dart/flutter needed for most of it):
+
+```bash
+find test -name '*_test.dart' -not -path 'test/mcp/*' | wc -l   # row 1
+grep -c 'testWidgets(' test/ui/chat_core_real_ui_test.dart      # row 2
+ls tool/mcp_test/scenarios/*.json | wc -l                       # row 5 total
+ls tool/mcp_test/drive_fixture_c_*.dart | wc -l                 # row 6
+dart run tool/mcp_test/fixture_c_unified_runner.dart --list-real-ui-campaigns  # row 7
+ls test/mcp/S*.md | wc -l                                       # row 10
+```
+
+Rows 5 and 7 also have machine-readable sources: the L3 execution class
+is *derived* from each scenario JSON's `uiDriven` / `requiresEchoPeer`
+flags (never hand-assigned), and the campaign catalog is a Dart map, so
+`--list-real-ui-campaigns` is the only correct answer for row 7.
 
 ## 2. Canonical taxonomy: two orthogonal axes
 
@@ -61,15 +89,17 @@ hand-maintained in a central table.
 | `ci-hermetic` | `flutter test`, no native lib, every PR | all of `test/` incl. real-UI WidgetTester + anchor tests |
 | `ci-host-bundle` | real host binary + `libtim2tox_ffi`, opt-in label | `integration_test/` (6) |
 | `harness-contract` | hermetic contract checks of the harness itself; sub-field `ci: true\|false` | `fixture_c_helpers_regression.sh` (ci: true); `echo_peer_contract_smoke.sh`, `echo_peer_drift_check.sh`, `echo_peer_helpers_regression.sh` (ci: false) |
-| `l3-gate` | single instance, live app, `l3_*` debug tools, no peer | 35 scenario JSONs |
+| `l3-gate` | single instance, live app, `l3_*` debug tools, no peer | 37 scenario JSONs |
 | `l3-gate-echo` | single instance + echo peer (live DHT) | 7 scenario JSONs (`requiresEchoPeer`) |
 | `l3-ui-single` | single instance, drives REAL widgets (marionette/skill taps or script) | 4 `l3_settings_*_tap` JSONs (nonBlocking) + `drive_export_account.dart` + S96–S125 campaign playbooks |
 | `2proc-l3` | two toxee processes, planned by the unified runner and driven via `l3_*` tools | all data-layer Fixture C manifest entries (legacy `run_fixture_c_*.sh` compatibility entrypoints ultimately delegate to the unified runner) |
 | `2proc-ui` | two toxee processes, REAL widgets + osascript | the manifest-backed `drive_real_ui_pair.dart` scenarios and named campaigns (participates in the same planning / dry-run system via the unified runner) |
 | `manual-playbook` | L3-pinned, agent-driven only (OS dialogs, media HW, kill+relaunch) | remaining `S*.md` |
 
-(35 + 7 + 4 = 46 scenario JSONs. Classes are derived from JSON flags, so
-these rosters are never hand-counted again.)
+(37 + 7 + 4 = 48 scenario JSONs as of 2026-08-07. Classes are **derived
+from JSON flags** — `uiDriven` → `l3-ui-single`, else `requiresEchoPeer`
+→ `l3-gate-echo`, else `l3-gate` — so re-derive rather than trusting
+these three numbers; the same derivation drives `test/mcp/INDEX.md`.)
 
 Mapping to the commonly-requested categories:
 
@@ -104,10 +134,11 @@ an existing friendship. Today the default reusable batch runs as one stateful
 launch with internal friendship resets between incompatible friend-request
 branches; focused replays can either preserve that live chain or restore
 `paired_for_e2e` when a scenario needs an already-friended pair.
-Today the discoverable catalog has 88 built-in campaigns. Use
-`--list-real-ui-campaigns` as the only exact source for current names and
-counts; this document records scheduling semantics and the recommended run
-strategy rather than hand-maintaining the full list. Current buckets:
+Today the discoverable catalog has **96** built-in campaigns (over 211
+registered real-UI scenario names). Use `--list-real-ui-campaigns` as the
+only exact source for current names and counts; this document records
+scheduling semantics and the recommended run strategy rather than
+hand-maintaining the full list. Current buckets:
 
 - `rui-optimized-*`: the preferred broad real-app bundles. They keep one app
   pair alive and reuse prepared accounts, friendships, and open surfaces to
@@ -196,7 +227,7 @@ Notes:
 | `harness-contract` (ci: true) | **Yes**, hermetic | `mcp_harness_smoke.yml` (`fixture_c_helpers_regression.sh`) |
 | `harness-contract` (ci: false) | No (local) | echo-peer contract/drift/regression scripts |
 | `l3-gate`, `l3-gate-echo`, `l3-ui-single` | **No** (local gate) | `run_l3_scenarios.dart` against a live app |
-| `2proc-l3`, `2proc-ui` | **No** (local, macOS) | `fixture_c_unified_runner.dart` (direct `drive_real_ui_pair.dart` still available when needed) |
+| `2proc-l3`, `2proc-ui` | **No** (local) | `fixture_c_unified_runner.dart` with `--real-ui-platform=macos\|ios\|android\|windows` (+ a Linux pair launcher); direct `drive_real_ui_pair.dart` still available. Android `paired_for_e2e` restore is implemented but awaiting its first live two-emulator run. |
 | `manual-playbook` | n/a (specs) | `test/mcp/S*.md` |
 
 Additionally, `mcp_harness_smoke.yml` runs the hermetic harness-validation
@@ -219,12 +250,16 @@ cover the mobile input/menu variants** (`..._input_mobile.dart` and the
 mobile call/notification surfaces, via the vendored UIKit fork) — shared-Dart
 gates run identically on the mobile widget tree.
 
-The honest gap is the **live-instance classes** (`l3-*`, `2proc-*`): they
-are **desktop-host-only today**. They drive a real desktop debug build via a
-VM-service URI and osascript, none of which exists on a phone. Mobile
-runtime automation (driving the real app on iOS/Android, including native
-OS dialogs) is a **Patrol / E2E roadmap item**, not covered by the current
-L3 harness. See the end-to-end strategy in
+The honest gap in the **live-instance classes** (`l3-*`, `2proc-*`) is
+narrower than it was: the harness is no longer desktop-only. The
+hermetic `--class=l3-gate` partition runs unchanged on all five
+platforms (per-platform launchers write the ws URI; see `CLAUDE.md`),
+and `--real-ui-platform=ios|android` two-process launchers exist. What
+is still missing: the **Android `paired_for_e2e` first live
+two-emulator validation run**, and **native OS dialogs on mobile**
+(permission sheets, share sheets, system pickers), which no VM-service
+extension can reach — that remains a **Patrol / E2E roadmap item**. See
+the end-to-end strategy in
 [`E2E_TESTING.md`](E2E_TESTING.md) (Patrol for mobile native dialogs)
 and the roadmap in
 [`../../tool/mcp_test/REAL_UI_GATES.md`](../../tool/mcp_test/REAL_UI_GATES.md).

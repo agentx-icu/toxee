@@ -2,7 +2,8 @@
 
 # UI Test Layering — toxee
 
-**Status**: source of truth as of 2026-05-28.
+**Status**: source of truth as of 2026-05-28; §4/§5/§6/§7/§8 fact-refreshed
+2026-08-07 (the Fixture C spike passed — §6 no longer gates anything).
 **Supersedes**: the "Track 1 / Track 2" split in earlier drafts of
 `../../tool/mcp_test/REAL_UI_GATES.md` and the "shell + raw VM URI + marionette/arenukvern"
 routing fragments in `doc/architecture/MCP_UI_TEST_PLAYBOOK.md` (those docs now point here).
@@ -20,7 +21,7 @@ three layers, not two.
 |---|---|---|---|---|
 | **L1 — Widget / seam** | `test/` | `TestWidgetsFlutterBinding` + mocked channels | Pure Dart, mocked platform channels, stub `FfiChatService`, stub `StartupSessionUseCase` | Single-screen flows behind a constructor seam: dialog state machines, form validation, button-enabled gating, sidebar key plumbing, individual use-case classes. |
 | **L2 — Host-bundle / lifecycle** | `integration_test/` (tag `needs-native`) | Real host binary with `libtim2tox_ffi` loaded | Real Flutter engine, real native lib, real Hive, real `path_provider`, real `SharedPreferences`, real `SessionRuntimeCoordinator`. **No live DHT network** — friend state must be pre-seeded on disk. | Whole-app lifecycle flows: cold start → LoginPage → HomePage; account switch; profile-edit-then-switch; password lifecycle; theme/locale persistence across restart; window-bounds restore. |
-| **L3 — MCP playbook** | `test/mcp/Snn_*.md` (driven by an AI agent over MCP) | Real standalone bundle, no DDS, no harness | Everything L2 has PLUS live Tox DHT, real microphone/camera, multi-instance, native file picker, OS notification, drag-and-drop. | Things L2 can't deterministically pin down: live-network handshakes, voice/video paths, OS-permission gates, multi-instance interop (gated by the Fixture C spike, see §6). |
+| **L3 — MCP playbook** | `test/mcp/Snn_*.md` (driven by an AI agent over MCP) | Real standalone bundle, no DDS, no harness | Everything L2 has PLUS live Tox DHT, real microphone/camera, multi-instance, native file picker, OS notification, drag-and-drop. | Things L2 can't deterministically pin down: live-network handshakes, voice/video paths, OS-permission gates, multi-instance interop (Fixture C — the spike has landed, see §6). |
 
 The layers are **nested**, not parallel. A test belongs in the
 **lowest** layer that can express it. If a flow can be driven by
@@ -72,7 +73,7 @@ The decision is purely about dependencies, not "is it a user flow".
 | Real `window_manager` window | L2 (macOS) or L3 |
 | Real platform channels for `tencent_cloud_chat_*` plugins | L2 or L3 |
 | Live Tox DHT handshake | L3 only |
-| A second running toxee process | L3 only (gated by spike, §6) |
+| A second running toxee process | L3 only (Fixture C harness, §6) |
 | Native file picker | L3 only |
 | Microphone / camera / OS notification permission | L3 only |
 | OS clipboard cross-process verification | L3 only |
@@ -106,19 +107,36 @@ only be detected over the live DHT, say), the playbook stays heavy
 but must call out the L3-pin reason in its `Notes` section so
 maintainers don't expect the L1/L2 conversion later.
 
-### Open promotion backlog (3 in flight, 2026-05-28)
+### Promotion backlog — the original 3 have all landed (2026-05-29)
 
-These three protocol invocations are mid-flight: each found a bug,
-each has a fix candidate, **none has a landed L2 regression test
-yet**. They appear here as worked examples of the protocol's own
-gaps — until column "Promotion landed?" reads a PR number, the
-playbook on the right stays heavy.
+The three protocol invocations that this section used to track as
+"in flight" now all have a landed regression test. They stay here as
+worked examples of the protocol running end-to-end.
 
-| Bug | Found by | Minimal deps | Promotion landed? | Owner | Target |
-|---|---|---|---|---|---|
-| `initializeServiceForAccount` doesn't reset global `nickname/statusMessage/avatarPath` Prefs on switch | S3 (MCP playbook, user manual repro) | Real Hive + real `Prefs` + stub `FfiChatService` (L2) | pending — issue TBD | TBD | TBD |
-| `showSelfProfile.onSave` doesn't mirror nickname into `account_list` | codex review #2 + S8 | Same as above (L2) | pending — issue TBD | TBD | TBD |
-| Password handling: `SessionPasswordStore` drift + post-remove re-encrypt + autoLogin failure paths | S40 (MCP playbook research) | Real Hive + real Tox encryption + real `Prefs` (L2; L3 if encryption needs FFI rebuild) | pending — issue TBD | TBD | TBD |
+| Bug | Found by | Regression test | Status |
+|---|---|---|---|
+| `initializeServiceForAccount` doesn't reset global `nickname/statusMessage/avatarPath` Prefs on switch | S3 (MCP playbook, user manual repro) | `test/account_switch_resets_global_prefs_test.dart` | landed — asserts post-switch nickname/status/current-toxId globals are B's, and that A's avatar path does not leak |
+| `showSelfProfile.onSave` doesn't mirror nickname into `account_list` | codex review #2 + S8 | `test/ui/profile_edit_persists_to_account_list_test.dart` | landed — drives the real `showSelfProfile` → `ProfilePage._handleSave` → `onSave` closure and asserts the `account_list` mirror |
+| Password handling: `SessionPasswordStore` drift + post-remove re-encrypt + autoLogin failure paths | S40 (MCP playbook research) | `test/account_password_lifecycle_test.dart` | landed — one group per bug (store keyed under the canonical toxId; remove-password leaves the profile plaintext; encrypted profile + autoLogin routes to `StartupShowLogin`). Skips only when the FFI dylib is unloadable. |
+
+**Honest deviation from the protocol: all three landed at L1, not L2.**
+The protocol says "real `libtim2tox_ffi` ⇒ L2 (`integration_test/`)",
+and all three were scoped as L2 candidates above. In practice two of
+them (`account_switch_resets_global_prefs`, `account_password_lifecycle`)
+use a **third shape the L1/L2 definitions don't name**: they `dlopen`
+the real `libtim2tox_ffi` and run real `init`/`login`/Tox encryption,
+but they never pump `TencentCloudChatMaterialApp`, so they never touch
+the Hive `_getLocale` bootstrap that forced the L2 split in the first
+place. That makes them runnable under plain `flutter test` with an
+`_ffiAvailable()` skip-guard instead of a `needs-native` host bundle.
+The third (`profile_edit_persists_to_account_list`) is a pure widget
+test with a stub `FfiChatService` — genuinely L1.
+
+The operative rule is therefore narrower than §1's table suggests:
+**"real FFI" alone does not force L2 — "pumps the full host
+MaterialApp" does.** Until §1 is re-cut, treat "real FFI + no
+MaterialApp pump" as an L1 sub-shape and say so in the test header
+(all three do).
 
 **Protocol rule.** The bug-fix PR description MUST contain a
 `Promotion decision:` checklist with the layer + regression-test PR#
@@ -130,14 +148,19 @@ thin and uses the promotion protocol when it earns a bug.
 
 ## 5. Heavy playbook list (and thin-spec rule)
 
-We retain **three** heavy playbooks today, all earned a bug:
+We retain **three** heavy playbooks today, all earned a bug (they are
+also the only three `test/mcp/S*.md` files over 100 lines):
 
 - `test/mcp/S3_account_switch.md` — the 2026-05-28 regression
 - `test/mcp/S8_profile_edit.md` — codex review #2 sibling bug
 - `test/mcp/S40_set_password.md` — three independent password bugs
 
-All other playbooks (37 of them as of 2026-05-28) use the **thin spec
-template** in §7. Codex's specific guidance, which we adopt:
+All other playbooks (**175** of the 178 that exist as of 2026-08-07;
+numbering runs S2–S185 with gaps) use the **thin spec template** in §7.
+Don't hand-maintain that count anywhere else — `test/mcp/INDEX.md` is
+generated from the playbook headers and its freshness is CI-gated by
+`gen_scenario_index.dart --check`. Codex's specific guidance, which we
+adopt:
 
 > 保留 5-10 个高价值 scenario 用这种重模板，其他场景降成薄规格，
 > 只保留 precondition/driver/assertions。把"Required source changes /
@@ -155,22 +178,63 @@ When a thin playbook earns a bug, choose:
 - Bug is L3-pinned → upgrade the playbook to heavy and add a `Notes`
   section explaining the L3-pin reason.
 
-## 6. Fixture C (multi-instance) is gated on a spike
+## 6. Fixture C (multi-instance) — the spike passed; it is shipped harness
 
-The "two toxees on one machine" pattern that S46/S47/S59 and the
-S61-S70 multi-instance block depend on has **never been validated
-end-to-end as test infrastructure**. The 2026-05-28 codex review:
+**Superseded 2026-08-07.** This section used to say that "two toxees on
+one machine" had *never been validated end-to-end as test
+infrastructure*, and that all multi-instance scenarios were therefore
+tracked as `backlog`, not `covered`. That is no longer true, and the
+old wording was the upstream source of ~20 stale
+`blocked on Fixture C spike` rows downstream. The 2026-05-28 codex
+review that demanded the spike:
 
 > 多实例 E2E 目前仍是战略假设，不是已验证基础设施 […]. 这里应该先做
 > 一个唯一目标的 spike：只证明 C 能稳定跑 launch A + launch B + add
 > friend + ping/pong + teardown. 这个 spike 不过，后面所有基于 C 的
 > catalog 都应降级成 backlog.
 
-Spike requirements + acceptance criteria are in
-`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`. **Until that spike passes,
-all multi-instance scenarios are tracked as `backlog`, not `covered`.**
-They keep their thin specs (so the desired flow is recorded), but
-the playbook header reads `Status: blocked on Fixture C spike`.
+The spike passed and grew into a real harness. Current state:
+
+- **29 manifest entries** in `tool/mcp_test/fixture_c_manifest.json`
+  (28 `2proc-l3` + 1 `2proc-ui`), each naming its base fixture, driver,
+  cost, and media/destructive flags.
+- **28 per-scenario `run_fixture_c_*.sh` wrappers** referenced by the
+  manifest (plus `run_fixture_c_suite.sh` = 29 shell files on disk) and
+  **27 `drive_fixture_c_*.dart` drivers**; the `2proc-ui` entry is
+  driven by `drive_real_ui_pair.dart` instead of a shell wrapper.
+- All of it is planned and executed through the single
+  `tool/mcp_test/fixture_c_unified_runner.dart` entrypoint; the shell
+  wrappers are compatibility shims.
+- **Pair launchers exist for all five platforms**:
+  `launch_fixture_c_pair.sh` (macOS), `launch_ios_fixture_c_pair.sh`,
+  `launch_android_fixture_c_pair.sh`, `launch_linux_fixture_c_pair.sh`,
+  `launch_windows_fixture_c_pair.ps1` (+ `launch_mixed_macos_ios_pair.sh`).
+- Most multi-instance playbooks that used to read
+  `Status: blocked on Fixture C spike` now read
+  `covered by executable Fixture C gate … validated live 2026-06-01`.
+  `test/mcp/INDEX.md` is the generated, CI-gated truth for per-scenario
+  status — read it, don't trust a hand-written table.
+
+**Residual gaps (honest).** "The harness exists" is not "every platform
+is live-green":
+
+- **Android `paired_for_e2e` restore has never had its first live
+  two-emulator validation run.** The implementation is there (the
+  runner's old planning-time Android reject was removed 2026-07-12; the
+  snapshot is streamed into the debug app's sandbox via
+  `adb exec-in run-as com.toxee.app tar -x`), but per
+  `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` §"platform" table: *do not
+  report friendship scenarios as android-green until that run lands.*
+- Live two-process runs are a **local point-in-time gate**, not CI. No
+  `2proc-*` class runs in CI today.
+- A handful of scenarios stay genuinely non-green for reasons that were
+  never about the spike: S47/S81 (native NGC invite-delivery timing),
+  S63 (read receipts need a tim2tox msgID round-trip), S37 role-change
+  (unwired), S79-adjacent native-picker seams, and anything gated on an
+  OS TCC grant (mic/camera/notification).
+
+Harness contract, per-platform launcher details, and the restore
+semantics are in `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`.
 
 ## 7. Thin playbook template
 
@@ -181,7 +245,7 @@ the playbook header reads `Status: blocked on Fixture C spike`.
 **Fixture vector**: `accounts=1 current=A1 autoLogin=on network=online window=default`
 **Harness mode**: peerHarness=<none|echo_seeded|echo_live>
 **Promotion target**: L2 if [conditions met] | L3-pinned because [reason]
-**Status**: covered | blocked on Fixture C spike | blocked on media spike | informational only
+**Status**: covered | covered by executable Fixture C gate <script> | partial (<what's missing>) | informational only
 
 ## Precondition
 - One bullet per state-vector axis that matters.
@@ -201,12 +265,15 @@ the playbook header reads `Status: blocked on Fixture C spike`.
   this playbook ever earned one.
 ```
 
-`blocked on media spike` covers the voice/video entries (S65-S70) that
-depend on mic/camera permission under automation + the ToxAV call
-lifecycle (the separate media spike referenced in
-`doc/architecture/MCP_UI_TEST_PLAYBOOK.md` §5a). A scenario blocked by more than
-one spike combines them, e.g. `blocked on Fixture C spike + media spike`
-(needs both a second toxee and the media stack).
+The old `blocked on Fixture C spike` / `blocked on media spike` status
+values are **retired** (§6). The voice/video entries S65–S70, S74–S78
+all have executable Fixture C call gates today
+(`run_fixture_c_call.sh`, `run_fixture_c_missed_call.sh`,
+`run_fixture_c_voice_msg.sh`, `run_fixture_c_network_drop.sh`); what
+remains for them is an OS TCC mic/camera grant, which belongs in the
+`Notes` section as a live precondition, not in the `Status` header.
+If a scenario genuinely cannot run, say `partial (…)` and name the
+concrete missing thing.
 
 If a playbook can't be expressed in this template, that's a signal
 it's actually doing investigation work — either promote it to heavy
@@ -248,7 +315,9 @@ For three pre-seeded common compositions, `tool/mcp_test/fixtures/`
   (replaces the old "Fixture B")
 - `paired_for_e2e` — `accounts=2 current=A1 friends=1 sessionPwd=none`
   + a paired profile staged for a second toxee process (replaces the
-  old "Fixture C"; **blocked on the multi-instance spike**)
+  old "Fixture C"). **Shipped**, not blocked: restore is wired on all
+  five platforms via the pair launchers, with the Android first-live
+  two-emulator validation still outstanding (§6).
 
 The named compositions are convenience wrappers over the vector
 language, not a replacement for it.
@@ -285,14 +354,15 @@ peerHarness     none | echo_seeded | echo_live      external process / fixture c
   offline-queue reconnect against a genuine Tox endpoint.
 
 **Echo peer modes are NOT a substitute for Fixture C.** Full Fixture C
-(`paired_for_e2e`, two toxee processes on one host) remains **blocked
-on the multi-instance spike** in
+(`paired_for_e2e`, two toxee processes on one host) is a different
+harness and now a **shipped** one — see §6 and
 [`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`](../../tool/mcp_test/REAL_UI_TWO_PROCESS.md).
 The echo peer is a single non-toxee process speaking Tox protocol;
-it unblocks single-instance scenarios that need a real peer to talk to,
-but it does **not** unblock any scenario that requires two toxees
-(S46/S47/S59, S61-S70). Those stay `Status: blocked on Fixture C
-spike` regardless of echo peer availability.
+from toxee's perspective it is one external peer, so it can stand in
+for AddFriend / echo-arrival / reconnect flows but never for a
+scenario that genuinely needs two toxees (S46/S47/S59, S61–S70).
+Route those through the unified runner's `2proc-*` classes, not the
+echo peer.
 
 ## 9. What to read next
 
@@ -300,7 +370,12 @@ spike` regardless of echo peer availability.
   no-DDS launcher contract, and the L3 scenario catalog.
 - `../../tool/mcp_test/REAL_UI_GATES.md` — current L1/L2/L3 test
   inventory and the next L2 conversions to land.
-- `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` — spike contract for
-  Fixture C (multi-instance) work.
+- `../../test/mcp/INDEX.md` — the **generated** per-scenario coverage
+  index (layer, execution class, executable artifacts, status).
+  CI-gated for freshness by `gen_scenario_index.dart --check`. This is
+  the authority for "is Snn covered?"; no hand-written table is.
+- `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` — the Fixture C
+  (multi-instance) harness contract: launchers, restore semantics,
+  per-platform status.
 - `../../tool/mcp_test/REAL_UI_GATES.md` — why L3 must
   launch via standalone bundle, not `flutter run`.

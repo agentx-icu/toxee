@@ -126,6 +126,66 @@ Effort notation: **CC** = a Claude-Code-assisted working day (~30-60 min focused
 
 ---
 
+## Originated from the `doc/research/` archival sweep 2026-08-07
+
+Carried over from `doc/research/UI_AUTOMATION_ROADMAP.en.md` before it was archived to
+[`doc/research/archive/UI_AUTOMATION_ROADMAP.md`](doc/research/archive/UI_AUTOMATION_ROADMAP.md).
+Every other item in that doc's backlog was re-verified against the tree on 2026-08-07 and
+found **already resolved** (`l3_delete_friend`, `cleanConversationUnreadMessageCount`,
+`l3_clear_group_history`, `UiKeys.groupMemberActionRoleButton`, the `messageAttachment*`
+anchors, the fork's `emoji_panel_button` / `sticker_panel_button`, and the S96–S125 L1
+promotion now recorded in `tool/mcp_test/REAL_UI_GATES.md`). Only the four below survive.
+
+### 12. Desktop chat composer has no tappable Send affordance (`UiKeys.chatSendButton` unattached)
+
+- **What:** `UiKeys.chatSendButton` (`Key('chat_send_button')`, `lib/ui/testing/ui_keys.dart:525`) is declared but never attached on desktop — UIKit's desktop input sends on Enter only, so there is no widget to key. Either add a real Send button to the desktop composer in the `chat-uikit-flutter` fork and attach the key at the `messageInputBuilder` override (`lib/ui/home_page_bootstrap.dart`), or formally retire the desktop half of the key and keep the Enter-only contract documented.
+- **Why:** Every real-UI desktop send currently goes through `enterText` + a synthetic `\n`. That is a second code path from what a mouse user does, and it is the reason the key carries a "do NOT tap this on desktop" caveat comment. It is also a genuine UX question: desktop IMs normally offer a click-to-send button.
+- **Pros:** Removes the last "declared but unusable" anchor; makes desktop send drivable the same way mobile is; likely a small product win for mouse-first users.
+- **Cons:** Adding a button is a fork change to `third_party/chat-uikit-flutter/`, which means patch-maintenance cost (`doc/operations/PATCH_MAINTENANCE.md`) and coordination with any in-flight fork work.
+- **Mobile parity:** Mobile is already covered — the key wraps the input row containing the send icon, and `l3_composer_set_text` (`lib/ui/testing/l3_debug_tools.dart:1709`) exists precisely so the ExtendedTextField composer reveals the send button for a real tap. This TODO is desktop-only.
+- **Context:** `doc/research/archive/UI_AUTOMATION_ROADMAP.md` §"2026-06-03 — UI-control scenario batch (S96–S125)", S120.
+- **Effort:** S–M (~1–2 CC days, most of it fork + patch plumbing).
+- **Priority:** P3 (test-ergonomics; the Enter path works and is documented).
+- **Depends on / blocked by:** Fork coordination if the button is added.
+
+### 13. Group add-member picker rows are still text/semantic-driven
+
+- **What:** The group invite flow has keys for the entry (`groupAddMemberButton`), the confirm action (`groupMemberInviteConfirmButton`) and the inbound accept (`groupInviteAcceptButton(<gid>)`), but **not** for the individual candidate rows inside the member picker. Add a per-candidate `ValueKey` (shape: `group_invite_candidate:<userId>`, matching the existing dynamic-row convention locked by `test/ui/testing/ui_keys_dynamic_rows_test.dart`).
+- **Why:** `group_add_member_picker` and the `rui-group-conf-member-extra` sweep currently select candidates by visible text, which breaks under localisation, remark names, and duplicate nicknames.
+- **Pros:** Makes the one remaining unkeyed step of a fully-keyed flow deterministic; small and mechanical.
+- **Cons:** The picker widget lives in the UIKit fork, so same patch-maintenance cost as #12.
+- **Mobile parity:** The key would live in shared Dart in the fork widget, so mobile is covered by the same change.
+- **Context:** `doc/research/archive/UI_AUTOMATION_ROADMAP.md` §"Remaining backlog after this sync", "Group invite flow" row.
+- **Effort:** XS–S (~0.5 CC day).
+- **Priority:** P3.
+- **Depends on / blocked by:** Fork coordination.
+
+### 14. S119 conversation removal is not gateable
+
+- **What:** There is no `l3_*` tool that removes a conversation, and none can be written honestly today: the conversation list is derived from the friend list, so the row-level "Delete" only clears history and the row reappears. Either give conversations an independent hidden/removed state in `FfiChatService` + `MessageHistoryPersistence` so removal is a real, persistable operation, or close S119 as a documented non-gate.
+- **Why:** `S119_conversation_row_delete_menu_confirm` can assert the dialog and the history clear but not the user-visible promise ("this conversation goes away"). Leaving it half-gated is the kind of green-washing the working agreement forbids.
+- **Pros:** Turns a permanently-yellow scenario into either a real gate or an explicit, reasoned skip. The hidden-conversation state is also a genuine product feature (users expect "delete chat" to stick).
+- **Cons:** The honest fix is a Tim2Tox-side data-model change (conversation visibility independent of friendship), not a test change. Touches `third_party/tim2tox/dart/`.
+- **Mobile parity:** Shared Dart — the fix and the gate would cover mobile automatically.
+- **Context:** `doc/research/archive/UI_AUTOMATION_ROADMAP.md` §"2026-06-03 — UI-control scenario batch (S96–S125)", S119; scenario spec `test/mcp/S119_conversation_row_delete_menu_confirm.md`.
+- **Effort:** M (~2–4 CC days for the data-model half; XS if closed as a documented non-gate).
+- **Priority:** P2 if treated as a product gap; P3 if only a test concern.
+- **Depends on / blocked by:** Product decision on whether "delete conversation" should persist.
+
+### 15. Deeper message-bubble internals and custom menu options remain unkeyed
+
+- **What:** `tool/mcp_test/REAL_UI_GATES.md` records that built-in context-menu items are keyed (`message_menu_item:<action>`) but `additionalMessageMenuOptions` are deliberately left unkeyed to avoid duplicate sibling keys, and message-bubble internals (media sub-elements, read-receipt affordances, quote/reply bodies) have no anchors. Decide a uniqueness scheme for custom options (e.g. `message_menu_item:custom:<label-hash>`) and add bubble-internal anchors where a real-UI gate needs them.
+- **Why:** This is the last fork-heavy surface where L3 playbooks still fall back to labels or semantic refs, and it is what keeps several chat-core cases at L1 WidgetTester only.
+- **Pros:** Would let the chat-core real-UI cases assert bubble content precisely instead of by visible text.
+- **Cons:** Largest of the four — deep fork surface, and the duplicate-key hazard is real (that is why it was skipped). Low marginal value while `REAL_UI_GATES.md`'s 14 WidgetTester gates already cover the flows in CI.
+- **Mobile parity:** Fork-side shared Dart; the desktop and mobile menu builders both consume the same keys, so one change covers both (the existing `message_menu_item:<action>` key was landed for MOBILE **and** DESKTOP for exactly this reason).
+- **Context:** `doc/research/archive/UI_AUTOMATION_ROADMAP.md` §"Still intentionally out of scope"; `tool/mcp_test/REAL_UI_GATES.md`.
+- **Effort:** M–L (~3–5 CC days).
+- **Priority:** P3.
+- **Depends on / blocked by:** Fork coordination; only worth doing behind a concrete gate that needs it.
+
+---
+
 ## Format note
 
 When adding new TODOs from future review sessions, keep this structure: numbered, with originating skill + date in the section heading. Promote a TODO by moving it to a feature branch + opening a PR; delete it from this file in the PR.

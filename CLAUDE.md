@@ -35,7 +35,7 @@ flutter pub get
 
 # Lint / static analysis (matches CI in .github/workflows/analyze.yml)
 flutter analyze lib tool --no-fatal-warnings --no-fatal-infos
-dart run tool/check_complexity.dart   # warns on files in lib/ > 500 LOC
+dart run tool/check_complexity.dart   # HARD GATE: exit 1 on lib/ + tool/ files > 500 LOC that aren't baselined (or that grew past their baseline pin)
 
 # Tests
 flutter test
@@ -49,20 +49,32 @@ flutter test integration_test/ --exclude-tags=needs-native  # Same but skip smok
 (cd third_party/tim2tox/auto_tests && RUN_VIRTUAL=1 ./run_tests_ordered.sh 1,3,12 14)
 ```
 
-### L3 single-process MCP suite — same 46 specs on all five platforms
+### L3 single-process MCP suite — the same `l3-gate` partition on all five platforms
 
 `tool/mcp_test/run_l3_scenarios.dart` is platform-agnostic: it attaches to ANY
 reachable Dart VM service whose app was built with `--dart-define=TOXEE_L3_TEST=true`.
 The per-platform launchers below build with that define, expose the VM service,
 and write the ws URI to `build/vm_service_uri.txt`; the runner then attaches
-**unchanged**. `--class=l3-gate` selects the hermetic (no-echo-peer) partition
-that runs identically everywhere. Each launcher runs in its own OS context
-(desktop builds are local to that OS; Android/iOS attach from a host with the
-device).
+**unchanged**. Each launcher runs in its own OS context (desktop builds are
+local to that OS; Android/iOS attach from a host with the device).
+
+**Don't conflate the total with the partition.** There are **48** scenario
+JSONs under `tool/mcp_test/scenarios/` today, split into three execution
+classes *derived from each JSON's flags* (`uiDriven` → `l3-ui-single`, else
+`requiresEchoPeer` → `l3-gate-echo`, else `l3-gate`): **37 `l3-gate` + 7
+`l3-gate-echo` + 4 `l3-ui-single`**. Only `--class=l3-gate` — the hermetic,
+no-echo-peer partition — is what runs identically on all five platforms; the
+echo-peer and UI-tap partitions have extra preconditions. Re-derive rather
+than trusting these numbers (`ls tool/mcp_test/scenarios/*.json`), and use
+the generated, CI-checked `test/mcp/INDEX.md` for per-scenario coverage.
 
 ```bash
 # macOS (reference): build+launch writes build/vm_service_uri.txt, then attach.
-MCP_BINDING=marionette ./run_toxee.sh        # in another shell / TOXEE_BUILD_ONLY=1 to build only
+# MCP_BINDING=skill is the current binding (additive; provides the
+# ext.flutter.flutter_skill.* real-widget driving API). It must be set
+# EXPLICITLY: run_toxee.sh only adds --dart-define=TOXEE_L3_TEST=true when
+# MCP_BINDING is non-empty, so a bare ./run_toxee.sh has no l3_* tools.
+MCP_BINDING=skill ./run_toxee.sh             # in another shell / TOXEE_BUILD_ONLY=1 to build only
 dart run tool/mcp_test/run_l3_scenarios.dart "$(cat build/vm_service_uri.txt)" --class=l3-gate
 
 # Linux (run ON the Linux box) — one-shot: launch, run the hermetic suite, tear down.
@@ -131,7 +143,7 @@ Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.md`. Maintainer c
 ## Constraints worth remembering
 
 - **`flutter analyze`** is configured with strict lints in `analysis_options.yaml` (`avoid_print`, `unawaited_futures`, `use_build_context_synchronously`, `cancel_subscriptions`, `close_sinks`, `always_declare_return_types`, etc.). Treat lint output as a hard gate.
-- **Complexity guard**: `tool/check_complexity.dart` warns when any `lib/**.dart` exceeds 500 LOC. It currently only warns, but the long-term direction is enforcement; don't add huge new files.
+- **Complexity guard**: `tool/check_complexity.dart` is a **hard gate**, not a warning, and it scans **both `lib/` and `tool/`** (`tool/` added 2026-08-07). Two ways to fail with `exit(1)`: (a) a `.dart` file over 500 LOC that is **not** in `tool/.complexity_baseline.txt`; (b) a baselined file that **grew past its pin** — the baseline is a `path:lines` **ratchet**, not an amnesty (71 entries as of 2026-08-07: 35 under `lib/`, 36 under `tool/`). Shrinking is fine and prints a re-pin nudge. Generated files (`lib/i18n/app_localizations*.dart`, `*.g.dart`, `*.freezed.dart`) are exempt by path pattern, not by baseline. `--write-baseline` re-pins/prunes and is for deliberate splits — not for silencing a new offender.
 - **Message history ownership**: history is persisted on the Dart side (`FfiChatService` / `MessageHistoryPersistence`). Both binary-replacement and Platform paths must not both write or both emit callbacks for the same event — `BinaryReplacementHistoryHook` mediates this.
 - **`startPolling` is explicit**: nothing on the native side will pump file requests, connection status, or ToxAV events until `FfiChatService.startPolling()` is called after login. Don't move it earlier or later without checking `AppBootstrapCoordinator.boot()`.
 - **Singleton flow**: toxee uses Tim2Tox's default singleton model. Multi-instance support exists for Tim2Tox auto tests, not for clients — don't design around it.

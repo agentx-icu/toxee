@@ -44,9 +44,34 @@ that thin L1/L2 regressions don't.
 
 ## 2. MCP routing matrix
 
+> **Which binding? `skill` — not `marionette`.** `MCP_BINDING` accepts
+> `skill | marionette | stock` (`run_toxee.sh` whitelist; `lib/main.dart`
+> defaults to `skill`). **`skill` is the current recommendation and what
+> every non-macOS launcher hardcodes** (`run_toxee_linux.sh`,
+> `run_toxee_android.sh`, `launch_toxee_ios_instance.sh`,
+> `launch_*_fixture_c_pair.sh` all default to `MCP_BINDING=skill`): it is
+> *additive* — it layers `ext.flutter.flutter_skill.{tap,enterText,
+> pressKey,tapAt,waitForElement,interactiveStructured,getWidgetTree,
+> screenshot}` on the stock binding, which is the full real-widget
+> driving API the L3 runner and the two-process drivers use.
+> `marionette` **replaces** `WidgetsFlutterBinding` and
+> [`REAL_UI_TWO_PROCESS.md` §"The driving channel"](../../tool/mcp_test/REAL_UI_TWO_PROCESS.md)
+> reports it hanging at startup. Use it only if you specifically need
+> marionette's own MCP tools, and expect to debug the hang.
+>
+> **You must still set `MCP_BINDING` explicitly on macOS.** `run_toxee.sh`
+> only appends `--dart-define=TOXEE_L3_TEST=true` **inside** the
+> `if [[ -n "${MCP_BINDING:-}" ]]` branch, so a bare `./run_toxee.sh`
+> builds *without* the `ext.mcp.toolkit.l3_*` tool surface. The canonical
+> macOS L3 launch is therefore **`MCP_BINDING=skill ./run_toxee.sh`**.
+> (Historical note: this document and `CLAUDE.md` previously said
+> `MCP_BINDING=marionette`; that was the 2026-05-28 F7 routing, before
+> `flutter_skill` existed. Both are updated as of 2026-08-07.)
+
 | Operation | Tool | Why |
 |---|---|---|
-| Launch app under test | shell (`MCP_BINDING=marionette ./run_toxee.sh`) — **NOT official MCP** | official MCP uses `flutter run` which interposes DDS; DDS rejects marionette/arenukvern WebSocket upgrades. The script also sets `FLUTTER_ENGINE_SWITCHES`/`FLUTTER_ENGINE_SWITCH_*` env vars so the Dart engine announces a bare auth-code-free VM URI on stdout (see `run_toxee.sh:336-355` + F5 in `../../tool/mcp_test/REAL_UI_GATES.md`). |
+| Launch app under test | shell (`MCP_BINDING=skill ./run_toxee.sh`) — **NOT official MCP** | official MCP uses `flutter run` which interposes DDS; DDS rejects the marionette/arenukvern WebSocket upgrade and swallows the bare VM URI. The script also sets `FLUTTER_ENGINE_SWITCHES`/`FLUTTER_ENGINE_SWITCH_*` env vars so the Dart engine announces a bare auth-code-free VM URI on stdout (see `run_toxee.sh` + F5 in `../../tool/mcp_test/REAL_UI_GATES.md`). |
+| **Drive real widgets** (tap / type / key / wait) | `ext.flutter.flutter_skill.*` over raw `vm_service.callServiceExtension` | The `skill` binding's own API — by `ValueKey`, visible text, or coordinates. This is what `drive_real_ui_pair.dart` and `run_l3_scenarios.dart` use. `tool/mcp_test/_scratch/skill_call.dart <ws> <ext.method> '<json>'` is the one-shot probe. |
 | Find VM service URI | `cat build/vm_service_uri.txt` | `run_toxee.sh:392-410` tees the engine's stdout/stderr into `build/toxee_stdio.log`, greps the announcement line, normalises the URI to `ws://…/ws`, and writes it to `build/vm_service_uri.txt`. The URI does **NOT** appear in `flutter_client.log` — the engine prints it to stdout (not stderr), and `AppLogger`'s probe in `logging_bootstrap.dart:45` truncates `flutter_client.log` with `FileMode.write` (F2 + F5 corrected the earlier "grep flutter_client.log" recipe). |
 | Connect | `marionette.connect` + `arenukvern.fmt_connect_debug_app` (both, on raw VM URI ending in `/ws`) | Use both: marionette for synthetic gestures, arenukvern for semantic snapshot + screenshots |
 | Take screenshot | `arenukvern.fmt_get_screenshots` (mode=`flutter_layer`, compress=true) | Works in any binding mode; `flutter_layer` avoids macOS screen-recording permission. Marionette's `take_screenshots` also works. |
@@ -58,7 +83,7 @@ that thin L1/L2 regressions don't.
 | Read recent print/log output | `arenukvern.fmt_get_recent_logs` OR tail `logs/app_*.log` | Marionette's `get_logs` is broken ("Server error"). |
 | Read runtime errors | `official.get_runtime_errors` + tail logs | Note: official only catches `FlutterError.onError` exceptions, NOT errors rendered into the widget tree as text. |
 | Coord → source location | `arenukvern.fmt_inspect_widget_at_point(x, y)` | Unique to arenukvern. Returns `file:line` for the widget at that point. |
-| Hot reload | **No official hot reload support in L3.** The L3 canonical session launches the standalone bundle directly (no `flutter run`), so there is no DDS for `official.hot_reload` to attach to. For dev iteration use `flutter run` in a separate session — that's not L3. See `../../tool/mcp_test/REAL_UI_GATES.md` + `../../tool/mcp_test/REAL_UI_GATES.md`. |
+| Hot reload | **none** | **No official hot reload support in L3.** The L3 canonical session launches the standalone bundle directly (no `flutter run`), so there is no DDS for `official.hot_reload` to attach to. For dev iteration use `flutter run` in a separate session — that's not L3. See `../../tool/mcp_test/REAL_UI_GATES.md`. |
 | Stop app | `kill <pid>` of the Toxee binary (NOT the bash wrapper) | Killing the script's bash subshell leaves the Toxee binary orphaned to launchd. |
 
 ## 3. Pre-flight: getting toxee into a test-ready state
@@ -67,12 +92,14 @@ that thin L1/L2 regressions don't.
 # (a) Clean up any orphan Toxee processes from prior runs.
 ps -ef | grep "Debug/Toxee.app" | grep -v grep | awk '{print $2}' | xargs -r kill
 
-# (b) Build with marionette binding so real-gesture tap is available
-#     (mcp_toolkit's binding is always layered on top in kDebugMode).
-MCP_BINDING=marionette ./run_toxee.sh   # this also bundles native dylibs
+# (b) Build with the skill binding (additive; gives ext.flutter.flutter_skill.*
+#     real-widget driving) AND — because run_toxee.sh only defines
+#     TOXEE_L3_TEST when MCP_BINDING is set — the ext.mcp.toolkit.l3_* tools.
+#     mcp_toolkit's extensions are always layered on top in kDebugMode.
+MCP_BINDING=skill ./run_toxee.sh   # this also bundles native dylibs
 ```
 
-After `MCP_BINDING=marionette ./run_toxee.sh` launches the standalone bundle
+After `MCP_BINDING=skill ./run_toxee.sh` launches the standalone bundle
 (≤30s on M-series), the script prints the canonical VM URI to stdout AND
 writes it to `build/vm_service_uri.txt`. Grab it:
 
@@ -91,10 +118,14 @@ marionette.connect(uri="$URI")
 ### 3.5 Working routing — empirically validated 2026-05-28
 
 The four sequential steps below were run end-to-end against toxee on
-2026-05-28 (F7 in `../../tool/mcp_test/REAL_UI_GATES.md`). They are
-the canonical L3 entry, not aspirational:
+2026-05-28 (F7 in `../../tool/mcp_test/REAL_UI_GATES.md`). The
+**launch + URI-extraction half (steps 1-2) is still the canonical L3
+entry**; steps 3-4 are the marionette-specific tail, which the
+`flutter_skill` driving API (§2) has since superseded — swap
+`MCP_BINDING=marionette` for `MCP_BINDING=skill` and drive via
+`ext.flutter.flutter_skill.*`:
 
-1. `MCP_BINDING=marionette ./run_toxee.sh` — sets
+1. `MCP_BINDING=skill ./run_toxee.sh` — sets
    `FLUTTER_ENGINE_SWITCHES=2` + `FLUTTER_ENGINE_SWITCH_1=vm-service-port=0`
    + `FLUTTER_ENGINE_SWITCH_2=disable-service-auth-codes` (the canonical
    engine-switch mechanism on macOS desktop — argv goes to
@@ -124,8 +155,7 @@ the test. For tests that need a specific account preloaded: copy a known
 ### 3.6 Echo peer helper
 
 Some L3 scenarios need a real Tox endpoint to talk to without paying
-the cost of standing up a second toxee process (which is blocked on
-the multi-instance spike — see §3.7 and §5h). The **echo peer** is a
+the cost of standing up a second toxee process (see §3.7). The **echo peer** is a
 single-binary, non-toxee Tox node that auto-accepts friend requests
 and auto-echoes any c2c text message back to its sender. That is
 enough to drive AddFriend, message-send, offline-queue, and
@@ -179,8 +209,12 @@ and is orthogonal to the §4 state vector.
 
 Fixture C (`paired_for_e2e`) is a **two-toxee-process** model: two
 full toxee binaries on the same host with paired profiles, exchanging
-messages over the local DHT. That model is **blocked on the
-multi-instance spike** (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
+messages over the local DHT. That model is **shipped harness** today —
+29 manifest entries, 27 `drive_fixture_c_*.dart` drivers, and pair
+launchers for all five platforms, all planned through
+`tool/mcp_test/fixture_c_unified_runner.dart`
+(`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`; see
+[`UI_TEST_LAYERING.md` §6](UI_TEST_LAYERING.md#6-fixture-c-multi-instance--the-spike-passed-it-is-shipped-harness)).
 
 The echo peer is a **single non-toxee process** that speaks Tox
 protocol. From toxee's perspective it is one external peer; the
@@ -191,8 +225,8 @@ Concretely:
 
 - Scenarios that genuinely need two toxees on one host (S46/S47/S59
   and the S61-S70 multi-instance block in §5a) **cannot** use the
-  echo peer. They remain `Status: blocked on Fixture C spike` until
-  the multi-instance spike lands.
+  echo peer. Route them through the unified runner's `2proc-l3` /
+  `2proc-ui` classes instead.
 - Scenarios that only need a real peer endpoint to AddFriend / echo
   back / reconnect against (e.g. live-DHT smokes) CAN use
   `peerHarness=echo_live` and unblock today.
@@ -202,7 +236,7 @@ Concretely:
 
 If you find yourself reaching for the echo peer to drive a
 two-toxee-only flow, stop — that is a sign the scenario actually
-needs Fixture C and should stay blocked.
+needs Fixture C, which is available.
 
 ## 4. Fixtures — state vectors
 
@@ -236,11 +270,16 @@ Three named **convenience snapshots** wrap common vectors:
   (formerly "Fixture B")
 - `paired_for_e2e` — `accounts=2 current=A1 friends=1 sessionPwd=none`
   + a paired profile staged for a second toxee process (formerly
-  "Fixture C"; **blocked on the multi-instance spike — see §5h**)
+  "Fixture C"). **Available**: restore is wired on all five platforms
+  through the pair launchers; the unified runner stages it for you
+  (`--base=paired_for_e2e`). The Android path is implemented but has
+  not had its first live two-emulator validation run — don't call
+  friendship scenarios android-green yet.
 
 Pre-staged snapshots will live under `tool/mcp_test/fixtures/`. Until
 that toolchain lands, hand-stage by editing
-`~/Library/Containers/com.toxee.app/Data/...` directly.
+`~/Library/Containers/com.toxee.app/Data/...` directly, or let
+`tool/mcp_test/restore_fixture_c_pair.sh` do it.
 
 **Why this changed.** Codex's 2026-05-28 review:
 
@@ -249,11 +288,35 @@ that toolchain lands, hand-stage by editing
 > /autoLogin/网络/窗口/会话密码/历史数据"几个维度, 再落成可还原的
 > seed snapshot. 否则 73 个场景最后会被 cross-test interference 吃掉.
 
+("73 个场景" was the 2026-05-28 catalog size. As of 2026-08-07 there
+are **178** playbooks, numbered S2–S185 with gaps — the argument only
+got stronger.)
+
 The named snapshots cover ~80% of scenarios so the muscle-memory of
 "set up Fixture A and go" still works; the vector language is the
 fallback for the 20% that escape.
 
 ## 5. Scenario catalog
+
+> **⚠ Coverage authority is [`test/mcp/INDEX.md`](../../test/mcp/INDEX.md), not this section.**
+> `INDEX.md` is **generated** by `tool/mcp_test/gen_scenario_index.dart`
+> from three sources of truth (the scenario JSONs, `fixture_c_manifest.json`,
+> and each playbook's own `**Status**` header) and its freshness is
+> CI-gated by `gen_scenario_index.dart --check` in
+> `.github/workflows/mcp_harness_smoke.yml`. The tables below are
+> **hand-written routing notes** — they record *why* a scenario is
+> L3-pinned and which MCP tools drive it. They are not, and cannot be,
+> a coverage claim.
+>
+> Concretely, as of 2026-08-07 the tables below cover only **S2–S125**,
+> while the catalog runs **S2–S185 (178 playbooks, gaps at S1/S6/S7/
+> S41/S42/S50/S73)**. The whole **S126–S185 group + conference block**
+> has no row here at all, and four rows below (S1, S6, S7, S73) are
+> **ghosts** — the playbook file was never written or has been deleted.
+> Deliberate decision: rather than hand-transcribe 60 more rows that
+> will drift again within a month, this section stays scoped to the
+> original L3-pin rationale set and defers everything else to the
+> generated index. If you need "is Snn covered?", read `INDEX.md`.
 
 This catalog is **L3-only**: every entry here describes a flow whose
 minimum dependency set includes at least one of `{ live Tox DHT, two
@@ -276,47 +339,61 @@ assertions; this catalog holds the routing.
 | S25 | Send offline → queue → reconnect → delivered | `test/mcp/S25_offline_queue.md` | Live DHT delivery confirmation |
 | S31 | Self-ID copy → OS clipboard | `test/mcp/S31_self_id_copy.md` | Cross-process clipboard verification |
 | S43 | Export account → native save dialog | `test/mcp/S43_export_account.md` | Native save dialog |
-| S46 | Auto-accept friend request toggle | `test/mcp/S46_auto_accept_friend_toggle.md` | Multi-instance — blocked on Fixture C spike |
+| S46 | Auto-accept friend request toggle | `test/mcp/S46_auto_accept_friend_toggle.md` | Multi-instance — executable gate `run_fixture_c_autoaccept_friend.sh` (live 2026-06-01) |
 | S47 | Auto-accept group invite toggle | `test/mcp/S47_auto_accept_group_toggle.md` | Multi-instance + native invite-delivery / knownGroups propagation residual; invite send is no longer stubbed |
 | S58 | Window lifecycle (minimize/restore) | `test/mcp/S58_window_lifecycle.md` | OS window-server interaction; macOS-specific |
-| S59 | Notification permission revoke/regrant | `test/mcp/S59_notification_permission.md` | OS permission gate + multi-instance trigger |
-| S61 | Friend handshake (two processes) | `test/mcp/S61_friend_handshake.md` | Multi-instance — blocked on Fixture C spike |
-| S62 | Real-time message delivery (two processes) | `test/mcp/S62_realtime_message_delivery.md` | Multi-instance — blocked on Fixture C spike |
-| S63 | Read receipt / typing indicator | `test/mcp/S63_read_receipt_typing.md` | Multi-instance + Tim2Tox event surface (typing/receipts unwired today — informational only) |
-| S64 | Concurrent send (two processes) | `test/mcp/S64_concurrent_send.md` | Multi-instance — blocked on Fixture C spike |
+| S59 | Notification permission revoke/regrant | `test/mcp/S59_notification_permission.md` | Only the OS TCC **grant** is irreducible; the deny→no-banner / allow→banner CONSEQUENCE is L1 (`test/notifications/notification_permission_gate_test.dart`, 2026-06-08) |
+| S61 | Friend handshake (two processes) | `test/mcp/S61_friend_handshake.md` | Multi-instance — executable Fixture C state driver `run_fixture_c_non_media.sh` (UI accept surface is S26) |
+| S62 | Real-time message delivery (two processes) | `test/mcp/S62_realtime_message_delivery.md` | Multi-instance — executable Fixture C state driver `run_fixture_c_non_media.sh` |
+| S63 | Read receipt / typing indicator | `test/mcp/S63_read_receipt_typing.md` | **Partial.** Typing leg gated by `run_fixture_c_typing.sh` (live). Read receipts send but don't land: the receipt references a msgID that doesn't correlate across instances — needs a tim2tox msgID round-trip fix |
+| S64 | Concurrent send (two processes) | `test/mcp/S64_concurrent_send.md` | Multi-instance — executable gate `run_fixture_c_concurrent.sh` (no-loss / no-dup / ordering; live 2026-06-01) |
 | S65 | Initiate voice call | `test/mcp/S65_initiate_voice_call.md` | OS mic permission + media stack — executable Fixture C gate exists; TCC remains the live precondition |
 | S66 | Initiate video call | `test/mcp/S66_initiate_video_call.md` | OS camera/mic permission + media stack — executable Fixture C gate exists; TCC remains the live precondition |
 | S67 | Accept incoming call | `test/mcp/S67_accept_incoming_call.md` | Multi-instance + media stack — executable Fixture C gate exists |
 | S68 | Decline incoming call | `test/mcp/S68_decline_incoming_call.md` | Multi-instance + media stack — executable Fixture C gate exists |
-| S69 | Call mid-ring rejection by network drop | `test/mcp/S69_call_network_drop.md` | Multi-instance + media stack |
-| S70 | Call duration timeout | `test/mcp/S70_call_duration_timeout.md` | Live DHT + media stack |
+| S69 | Call mid-ring rejection by network drop | `test/mcp/S69_call_network_drop.md` | Multi-instance + media stack — executable gate `run_fixture_c_network_drop.sh` (8s reconnect grace; live 2026-06-01) |
+| S70 | Call duration timeout | `test/mcp/S70_call_duration_timeout.md` | Reclassified 2026-06-08: the product has **no** duration auto-end, and that invariant is now L1 (`test/call/call_duration_no_timeout_test.dart`, `fakeAsync`). Real timeouts live in S77 (unanswered ring) and S69 (network drop) |
 | S13 | Resend a failed / queued outbound message | `test/mcp/S13_resend_failed_message.md` | Live DHT delivery confirmation (auto-drain on reconnect + tap-to-resend on SEND_FAIL) |
 | S16 | Copy message text → OS clipboard | `test/mcp/S16_copy_message_text.md` | Cross-process clipboard verification (`pbpaste`) |
-| S21 | Send a file/image attachment | `test/mcp/S21_send_file_attachment.md` | Native file picker + live DHT transfer — blocked on Fixture C spike |
-| S24 | Receive an (auto-accepted) incoming file | `test/mcp/S24_accept_incoming_file.md` | Multi-instance + DHT transfer — blocked on Fixture C spike (manual-accept UI is an unbuilt TODO) |
-| S34 | Group message send/receive (two processes) | `test/mcp/S34_group_message_two_process.md` | Multi-instance — blocked on Fixture C spike |
+| S21 | Send a file/image attachment | `test/mcp/S21_send_file_attachment.md` | Native file picker + live DHT transfer — sender half gated by `run_fixture_c_file.sh` (live 2026-06-01); bubble render/open also L1 |
+| S24 | Receive an (auto-accepted) incoming file | `test/mcp/S24_accept_incoming_file.md` | Multi-instance + DHT transfer — receiver half gated by `run_fixture_c_file.sh` (live 2026-06-01); explicit manual-accept (`l3_accept_file`) is still a TODO |
+| S34 | Group message send/receive (two processes) | `test/mcp/S34_group_message_two_process.md` | Multi-instance — executable gate `run_fixture_c_group.sh` (public NGC join by chat-id + A↔B roundtrip; live 2026-06-01) |
 | S37 | Group member moderation (kick / role) | `test/mcp/S37_group_member_moderation.md` | Multi-instance + moderation surface — kick path has an executable Fixture C gate; role-change remains unwired |
-| S51 | Friend online/offline presence indicator | `test/mcp/S51_friend_presence_indicator.md` | Multi-instance + live presence events — blocked on Fixture C spike |
-| S52 | Self profile change propagates to a friend | `test/mcp/S52_self_profile_propagation.md` | Multi-instance + profile broadcast over DHT — blocked on Fixture C spike |
-| S53 | Notification tap → opens the conversation | `test/mcp/S53_notification_tap_opens_conversation.md` | OS notification interaction + multi-instance trigger — blocked on Fixture C spike |
-| S54 | Friend request custom message round-trip | `test/mcp/S54_friend_request_custom_message.md` | Multi-instance + live DHT friend-request delivery — blocked on Fixture C spike |
+| S51 | Friend online/offline presence indicator | `test/mcp/S51_friend_presence_indicator.md` | Multi-instance + live presence events — executable gate `run_fixture_c_presence.sh` (online → stop B → relaunch; live 2026-06-01) |
+| S52 | Self profile change propagates to a friend | `test/mcp/S52_self_profile_propagation.md` | Multi-instance + profile broadcast over DHT — executable gates `run_fixture_c_self_profile.sh` (nickname) + `run_fixture_c_avatar.sh` (avatar); live 2026-06-01 |
+| S53 | Notification tap → opens the conversation | `test/mcp/S53_notification_tap_opens_conversation.md` | OS notification interaction — the routing half is gated by `run_fixture_c_notification_tap.sh` (live 2026-06-01); the OS banner POST + real OS tap stay OS-gated |
+| S54 | Friend request custom message round-trip | `test/mcp/S54_friend_request_custom_message.md` | Multi-instance + live DHT friend-request delivery — executable gate `run_fixture_c_custom_message.sh` (live 2026-06-01) |
 | S74 | In-call microphone mute / unmute | `test/mcp/S74_in_call_mute_toggle.md` | ToxAV media stack + connected call — executable Fixture C gate exists |
 | S75 | In-call camera (video) toggle | `test/mcp/S75_in_call_camera_toggle.md` | Camera permission + ToxAV media stack + connected call — executable Fixture C gate exists |
 | S76 | Hang up an active call | `test/mcp/S76_in_call_hangup.md` | ToxAV media stack + connected call — executable Fixture C gate exists |
-| S77 | Missed incoming call → record + notification | `test/mcp/S77_missed_incoming_call.md` | Multi-instance + media stack + OS notification — blocked on Fixture C spike + media spike |
-| S78 | Record + send a voice message | `test/mcp/S78_voice_message_record_send.md` | Mic capture + live DHT delivery — blocked on Fixture C spike + media spike |
-| S79 | Set self avatar via native image picker | `test/mcp/S79_set_avatar_native_picker.md` | Native image picker — **informational only** (no test-override seam on `pickAndPersistAvatar` yet; flow is undriveable until one lands) |
+| S77 | Missed incoming call → record + notification | `test/mcp/S77_missed_incoming_call.md` | Multi-instance + media stack — executable gate `run_fixture_c_missed_call.sh` (live 2026-06-01). NOTE: ToxAV has no ring auto-timeout, so "missed" is realized by caller-cancel |
+| S78 | Record + send a voice message | `test/mcp/S78_voice_message_record_send.md` | Mic capture + live DHT delivery — executable gate `run_fixture_c_voice_msg.sh` (live 2026-06-01); the mobile record-UI half is additionally L1 with the `record` MethodChannel stubbed |
+| S79 | Set self avatar via native image picker | `test/mcp/S79_set_avatar_native_picker.md` | Native image picker — executable gate `run_fixture_c_avatar_picker.sh` (`l3_pick_avatar` bypasses NSOpenPanel via an override seam and runs the REAL `pickAndPersistAvatar`; live 2026-06-01) |
 | S80 | Add a friend by scanning a QR code | `test/mcp/S80_add_friend_by_qr_scan.md` | OS camera permission + QR parse (mobile only — desktop has no scanner) |
 | S81 | Invite a friend to a group (two processes) | `test/mcp/S81_invite_friend_to_group.md` | Multi-instance — invite send is no longer stubbed; residual native delivery / propagation timing remains |
 | S82 | Custom / failover DHT bootstrap node → connect | `test/mcp/S82_custom_bootstrap_node.md` | Live DHT bootstrap (single client, no peer) |
-| S83 | Mute a conversation → notification suppressed | `test/mcp/S83_mute_conversation_notifications.md` | OS notification suppression + multi-instance trigger — blocked on Fixture C spike |
+| S83 | Mute a conversation → notification suppressed | `test/mcp/S83_mute_conversation_notifications.md` | OS notification suppression — mute STATE gated by `run_fixture_c_mute.sh` (live 2026-06-01); the suppression DECISION is L1 (`test/ui/notification_mute_suppression_test.dart`, 2026-06-08). Only the OS-banner-absence proof stays OS-gated |
 
-The still-blocked multi-instance subset is narrower now: S46, S59,
-and the per-row scenarios whose catalog entry still explicitly says
-`blocked on Fixture C spike`. The call cluster is no longer uniformly
-blocked: several entries above now have executable Fixture C gates,
-while their remaining caveats are real TCC/media environment concerns
-rather than missing control anchors or a missing driver.
+**No row above is "blocked on the Fixture C spike" any more** (updated
+2026-08-07). That status value is retired — the spike passed and became
+the shipped two-process harness
+([`UI_TEST_LAYERING.md` §6](UI_TEST_LAYERING.md#6-fixture-c-multi-instance--the-spike-passed-it-is-shipped-harness)).
+Every multi-instance row now names its executable
+`run_fixture_c_*.sh` gate. What genuinely remains is a much shorter,
+different list, and none of it is about missing test infrastructure:
+
+- **OS-gated**: TCC mic/camera grants (S65/S66/S74/S75), the OS
+  notification banner POST and real OS tap (S53/S59), OS-level banner
+  absence (S83). These need a one-time manual/`tccutil` grant on the
+  host, not a harness.
+- **Product gaps**: S63 read receipts (msgID doesn't round-trip),
+  S37 role-change (unwired), S47/S81 native NGC invite-delivery timing.
+- **Platform**: Android `paired_for_e2e` restore is implemented but has
+  never had its first live two-emulator run — don't call friendship
+  scenarios android-green yet.
+
+Per-scenario truth is in [`test/mcp/INDEX.md`](../../test/mcp/INDEX.md)
+and each playbook's own `**Status**` header.
 
 ### 5b. Moved to L2 backlog
 
@@ -327,14 +404,22 @@ L2 candidates. The heavy investigation memos under `test/mcp/Snn_*.md`
 that remain are the three earned heavies plus the thin specs the L2
 work hasn't displaced yet.
 
+> **Four rows below are ghosts.** `test/mcp/S1_*.md`, `S6_*.md`,
+> `S7_*.md`, and `S73_*.md` **do not exist** (the playbook numbering
+> also skips S41/S42/S50). They are kept as "L2 candidate — see
+> roadmap" placeholders only so the S-numbers aren't silently reused;
+> they are not covered and never had a spec. Verify with
+> `ls test/mcp/S*.md` or [`INDEX.md`](../../test/mcp/INDEX.md), which
+> lists only the 178 playbooks that actually exist.
+
 | ID | Title | Pointer |
 |---|---|---|
-| S1 | Cold start → LoginPage renders | L2 candidate — see roadmap |
-| S3 | Account switch | `test/mcp/S3_account_switch.md` (heavy; L2 promotion pending) |
+| S1 | Cold start → LoginPage renders | ghost — no playbook file; L2 candidate, see roadmap |
+| S3 | Account switch | `test/mcp/S3_account_switch.md` (heavy) — **promotion landed**: `test/account_switch_resets_global_prefs_test.dart` |
 | S4 | Register new account → HomePage | L2 candidate — see roadmap |
-| S6 | Sidebar tab switching | L2 candidate — see roadmap |
-| S7 | Settings: theme toggle | L2 candidate — see roadmap |
-| S8 | Profile edit roundtrip | `test/mcp/S8_profile_edit.md` (heavy; L2 promotion pending) |
+| S6 | Sidebar tab switching | ghost — no playbook file; L2 candidate, see roadmap |
+| S7 | Settings: theme toggle | ghost — no playbook file; L2 candidate, see roadmap |
+| S8 | Profile edit roundtrip | `test/mcp/S8_profile_edit.md` (heavy) — **promotion landed**: `test/ui/profile_edit_persists_to_account_list_test.dart` |
 | S11 | Open a conversation from chat list | `test/mcp/S11_open_conversation.md` (thin) |
 | S12 | Send a text message | `test/mcp/S12_send_text_message.md` (thin) |
 | S14 | Message history persistence across relaunch | `test/mcp/S14_message_history_persistence.md` (thin) |
@@ -356,7 +441,7 @@ work hasn't displaced yet.
 | S36 | Group member list | `test/mcp/S36_group_member_list.md` (thin) |
 | S38 | Language switch (zh/en/ja/ko/ar) | `test/mcp/S38_language_switch.md` (thin) |
 | S39 | Auto-login toggle | `test/mcp/S39_auto_login_toggle.md` (thin) |
-| S40 | Set account password (encrypt) | `test/mcp/S40_set_password.md` (heavy; L2 promotion pending) |
+| S40 | Set account password (encrypt) | `test/mcp/S40_set_password.md` (heavy) — **promotion landed**: `test/account_password_lifecycle_test.dart` (one group per bug) |
 | S44 | Logout | `test/mcp/S44_logout.md` (thin) |
 | S45 | Delete account | `test/mcp/S45_delete_account.md` (thin) |
 | S48 | Conversation list search | `test/mcp/S48_conversation_list_search.md` (thin) |
@@ -367,17 +452,18 @@ work hasn't displaced yet.
 | S60 | Responsive layout | `test/mcp/S60_responsive_layout.md` (thin) |
 | S71 | Import-then-auto-switch (single host) | `test/mcp/S71_import_then_switch.md` (thin) |
 | S72 | Multi-account state isolation (single host) | `test/mcp/S72_multi_account_isolation.md` (thin) |
-| S73 | Logout + re-login restores state | L2 candidate — see roadmap |
+| S73 | Logout + re-login restores state | ghost — no playbook file; L2 candidate, see roadmap |
 
 S71/S72/S73 are explicitly NOT multi-instance — they cover the
 single-host multi-account portability work and belong in L2. See
-[`MULTI_INSTANCE_SPIKE.md`](../../tool/mcp_test/REAL_UI_TWO_PROCESS.md) §6.
+[`REAL_UI_TWO_PROCESS.md`](../../tool/mcp_test/REAL_UI_TWO_PROCESS.md) §6.
+(S73 has no playbook file; only S71 and S72 exist.)
 
 ### 5c. UI-control coverage batch — S96–S125 (added 2026-06-03)
 
 30 scenarios that each drive ONE already-landed `UiKeys` control via real
 taps/inputs (the plan
-[`tool/mcp_test/REAL_UI_GATES.md2026-06-03-ui-automation-coverage-expansion.md`](../../tool/mcp_test/REAL_UI_GATES.md)).
+[`docs/plans/2026-06-03-ui-automation-coverage-expansion.md`](../../docs/plans/2026-06-03-ui-automation-coverage-expansion.md)).
 Unlike §5a, this batch is **mixed-disposition**: many are single-instance
 surfaces that are **L1 WidgetTester candidates** (the proven executable form per
 [`tool/mcp_test/REAL_UI_GATES.md`](../../tool/mcp_test/REAL_UI_GATES.md)), not pure
@@ -424,8 +510,18 @@ proven data-half (`l3_*_toggle` / `l3_session_settings`) is what passes today.
 
 ## 6b. Required ValueKey additions
 
-Most of the above scenarios assume new UiKey constants that don't exist
-yet. Add to `lib/ui/testing/ui_keys.dart` as you implement each scenario.
+> **Stale-by-construction, and scoped to S11–S70.** This table was
+> written when `ui_keys.dart` was nearly empty; it holds ~150
+> `static const` keys today, and many names below were landed under a
+> different spelling (e.g. `chatInputTextField`, not
+> `messageInputField`). There are **no rows here for S71+**, i.e. none
+> of the S96–S125 control batch (§5c names those keys inline) and none
+> of the S126–S185 group/conference block. Treat this as a historical
+> wish-list; **`lib/ui/testing/ui_keys.dart` is the only authority for
+> which keys exist**, and each playbook's `Driver` section names the
+> keys it actually uses.
+
+Add to `lib/ui/testing/ui_keys.dart` as you implement each scenario.
 The high-priority ones:
 
 | Scenario block | Keys to add |
@@ -451,6 +547,15 @@ screen in `ui_keys.dart`.
 > mobile input layout.
 
 ## 7b. MCP limitations cheat sheet (what you can NOT drive)
+
+> The "Affected scenarios" column only enumerates **S9–S66**; it was
+> never extended past S70. The *limitations* themselves are still
+> accurate and still apply to every later scenario that touches the
+> same surface — read the left column, not the S-numbers. Several
+> entries have since been softened by debug-only seams (the file
+> picker is overridable via `l3_pick_avatar` /
+> `run_fixture_c_avatar_picker.sh`; the notification tap is injectable
+> via `l3_simulate_notification_tap`).
 
 | Limitation | Affected scenarios | Workaround |
 |---|---|---|
@@ -496,7 +601,7 @@ timeouts.
 
 | Pain | Workaround |
 |---|---|
-| VM service URI not in `flutter_client.log` (engine prints it to stdout, AppLogger truncates the file with `FileMode.write`) | `MCP_BINDING=marionette ./run_toxee.sh` tees engine stdio to `build/toxee_stdio.log` and writes the normalised URI to `build/vm_service_uri.txt`. Wait ≤30s after launch, then `URI=$(cat build/vm_service_uri.txt)`. See F2 + F5 in `../../tool/mcp_test/REAL_UI_GATES.md`. |
+| VM service URI not in `flutter_client.log` (engine prints it to stdout, AppLogger truncates the file with `FileMode.write`) | `MCP_BINDING=skill ./run_toxee.sh` tees engine stdio to `build/toxee_stdio.log` and writes the normalised URI to `build/vm_service_uri.txt`. Wait ≤30s after launch, then `URI=$(cat build/vm_service_uri.txt)`. See F2 + F5 in `../../tool/mcp_test/REAL_UI_GATES.md`. |
 | DDS interposes when launched via `flutter run` (blocks marionette + arenukvern WebSocket upgrade) | Always launch via standalone bundle (`./run_toxee.sh`), never `flutter run` for MCP-driven tests. |
 | Hive boot can deadlock under hermetic `TestWidgetsFlutterBinding` (proven on 2026-05-28 startup smoke move) | Don't try to hermetic-ize app-level smokes. Use `integration_test/` with `needs-native` tag OR run real binary via MCP. |
 | Tox DHT bootstrap is 5-30s | All `wait until online` assertions need timeouts of ≥60s. Don't sleep — poll `semantic_snapshot` for the state change. |
@@ -549,11 +654,19 @@ bugs into 300-line investigation memos.
    build + VM URI extraction in a single script that prints
    `URI=ws://…/ws` on stdout.
 2. `tool/mcp_test/fixtures/single_signed_in/` and `two_saved_none_signed_in/`
-   — pre-staged disk states for the two L3-usable convenience
-   snapshots from §4. `paired_for_e2e/` waits on the Fixture C spike.
-3. **L2 regression tests for the three earned heavies** (S3, S8, S40).
-   Each is the next concrete promotion candidate per §9 — landing
-   them lets the playbooks slim down and proves the protocol works.
-4. The Fixture C spike at
-   `../../tool/mcp_test/REAL_UI_TWO_PROCESS.md` so the multi-instance
-   entries in §5a can either unblock or get formally demoted.
+   — pre-staged disk states for the two single-instance convenience
+   snapshots from §4. (`paired_for_e2e` is already staged for you by
+   the pair launchers / `restore_fixture_c_pair.sh`.)
+3. ~~L2 regression tests for the three earned heavies (S3, S8, S40).~~
+   **Done 2026-05-29** — see the promotion table in
+   [`UI_TEST_LAYERING.md` §4](UI_TEST_LAYERING.md#4-promotion-protocol).
+   All three landed at L1 rather than L2; that deviation is documented
+   there. The playbooks have not yet been slimmed to repro pointers.
+4. ~~The Fixture C spike.~~ **Done** — it became the shipped
+   two-process harness (`../../tool/mcp_test/REAL_UI_TWO_PROCESS.md`).
+   Remaining follow-up: the first live **two-emulator Android**
+   `paired_for_e2e` validation run.
+5. Re-cut §5a/§5b/§5c or delete them in favour of
+   [`test/mcp/INDEX.md`](../../test/mcp/INDEX.md). They stop at S125
+   while the catalog runs to S185, and they carry four ghost rows
+   (S1/S6/S7/S73). The generated index has no such drift.
