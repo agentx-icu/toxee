@@ -29,11 +29,22 @@ Future<void> _openGroupProfile(Inst inst) async {
   }
 
   if (await anyKey()) return;
-  await inst.tapKey('message_header_profile_avatar');
+  if (await inst.keyCenter('message_header_profile_avatar') != null) {
+    await inst.tapKeyCenter('message_header_profile_avatar', timeoutSecs: 8);
+  } else {
+    await inst.tapKey('message_header_profile_avatar');
+  }
   final deadline = DateTime.now().add(const Duration(seconds: 15));
   while (DateTime.now().isBefore(deadline)) {
     if (await anyKey()) return;
     await Future<void>.delayed(const Duration(milliseconds: 400));
+  }
+  if (await inst.tryTapKey('message_header_profile_avatar', retries: 2)) {
+    final retryDeadline = DateTime.now().add(const Duration(seconds: 8));
+    while (DateTime.now().isBefore(retryDeadline)) {
+      if (await anyKey()) return;
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
   }
   // If we reach here the keyed override body did not appear. ROOT CAUSE
   // (codex-found 2026-06-12, FIXED in the fork): the pushed
@@ -96,7 +107,10 @@ Future<int> runGroupProfileOpen(Inst inst, String nick) async {
   await _openGroupProfile(inst);
   // group_profile_id_text is a non-interactive SelectableText — flutter_skill's
   // waitForElement can't see it; use the element-tree resolver.
-  final hasId = await inst.waitKeyCenter('group_profile_id_text', timeoutSecs: 5);
+  final hasId = await inst.waitKeyCenter(
+    'group_profile_id_text',
+    timeoutSecs: 5,
+  );
   final hasMembers = await inst.waitKey(
     'group_profile_members_entry',
     timeoutSecs: 5,
@@ -132,15 +146,19 @@ Future<int> runGroupRename(Inst inst, String nick) async {
   // (tapKey misses them, so the rename never applied) — use the element-tree
   // resolver (tapKeyCenter), verified live to make the rename actually take.
   await inst.tapKeyCenter('group_profile_edit_name_button', timeoutSecs: 8);
-  if (!await inst.waitKeyCenter('group_profile_edit_name_field',
-      timeoutSecs: 10)) {
+  if (!await inst.waitKeyCenter(
+    'group_profile_edit_name_field',
+    timeoutSecs: 10,
+  )) {
     await inst.shot('/tmp/ui_group_rename_nodialog_${inst.name}.png');
     throw DriveError('[${inst.name}] group edit-name dialog did not open');
   }
   await inst.focusType('group_profile_edit_name_field', newName);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await inst.tapKeyCenter('group_profile_edit_name_confirm_button',
-      timeoutSecs: 8);
+  await inst.tapKeyCenter(
+    'group_profile_edit_name_confirm_button',
+    timeoutSecs: 8,
+  );
   final refreshed = await _waitGroupShowName(
     inst,
     created.groupId,
@@ -667,7 +685,9 @@ Future<int> runGroupMemberList(
         timeoutSecs: 5,
       );
     } on DriveError catch (e) {
-      print('[${a.name}] member-list UI-surface best-effort skipped: ${e.message}');
+      print(
+        '[${a.name}] member-list UI-surface best-effort skipped: ${e.message}',
+      );
     }
 
     await a.shot('/tmp/ui_group_member_list_A.png');
