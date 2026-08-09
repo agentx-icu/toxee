@@ -192,12 +192,20 @@ Future<bool> _p1WaitAccountReady(
 /// the UI is in Chinese). Single-fire taps (a tab re-select is harmless, but
 /// tapKeyCenter keeps the discipline uniform).
 Future<bool> _p1SelectHomeTab(Inst inst, String tabKey, String tabName) async {
+  final targetKey = inst.isMobileShell
+      ? switch (tabName) {
+          'chats' => 'bottom_nav_chats_tab',
+          'contacts' => 'bottom_nav_contacts_tab',
+          'settings' => 'bottom_nav_settings_tab',
+          _ => tabKey,
+        }
+      : tabKey;
   for (var round = 0; round < 5; round++) {
     await inst.foreground();
     final st = await inst.dumpState();
     if (st['homeShellTab']?.toString() == tabName) return true;
-    if (!await inst.tapKeyCenter(tabKey, timeoutSecs: 4)) {
-      await inst.tryTapKey(tabKey);
+    if (!await inst.tapKeyCenter(targetKey, timeoutSecs: 4)) {
+      await inst.tryTapKey(targetKey);
     }
     for (var i = 0; i < 5; i++) {
       if ((await inst.dumpState())['homeShellTab']?.toString() == tabName) {
@@ -207,6 +215,26 @@ Future<bool> _p1SelectHomeTab(Inst inst, String tabKey, String tabName) async {
     }
   }
   return false;
+}
+
+Future<bool> _p1OpenLanguageSettings(Inst inst) async {
+  if (inst.isMobileShell && !await _settingsIsWide(inst)) {
+    return _openMobileSettingsSection(inst, 'Appearance');
+  }
+  await _openSettings(inst);
+  return true;
+}
+
+Future<void> _p1LeaveLanguageSettings(Inst inst) async {
+  if (inst.isMobileShell && !await _settingsIsWide(inst)) {
+    try {
+      await _backFromMobileSettingsSection(inst);
+    } on DriveError catch (e) {
+      print(
+        '[pair] p1 locale: leaving Appearance best-effort failed: ${e.message}',
+      );
+    }
+  }
 }
 
 /// Revert the app locale to English using ONLY locale-independent anchors
@@ -227,7 +255,7 @@ Future<bool> _p1RevertLocaleToEnglish(Inst inst) async {
       print('[pair] p1 locale-revert: no session — cannot reach Settings');
       return false;
     }
-    await _openSettings(inst);
+    if (!await _p1OpenLanguageSettings(inst)) return false;
     for (var attempt = 0; attempt < 4; attempt++) {
       // Anchor the selector in the upper band so the option rows that expand
       // BELOW it are inside the visible viewport (batch-1 lesson: a below-fold
@@ -284,7 +312,7 @@ Future<bool> _p1RevertLocaleToEnglish(Inst inst) async {
 /// cannot poison later EN-text assertions (batch-1 lesson).
 Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
   try {
-    await _openSettings(inst);
+    if (!await _p1OpenLanguageSettings(inst)) return false;
     // --- Switch to 简体中文 (batch-1 settings_locale_zh_roundtrip recipe:
     // single-fire the label-only expander row, then the keyed option). ---
     await _scrollKeyIntoBand(
@@ -325,6 +353,7 @@ Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
       print('[pair] zh_locale_page_walk: languageCode never became zh_Hans');
       return false;
     }
+    await _p1LeaveLanguageSettings(inst);
 
     // --- (a) settings surface: the Appearance section header reads 外观. ---
     await inst.foreground();
@@ -365,6 +394,7 @@ Future<bool> _p1ZhLocalePageWalk(Inst inst) async {
 
     // --- (e) revert to English via keys, then assert the EN label is back. ---
     final reverted = await _p1RevertLocaleToEnglish(inst);
+    await _p1LeaveLanguageSettings(inst);
     await _openSettings(inst);
     final enBack =
         await inst.waitText('Appearance', timeoutSecs: 6) ||
@@ -470,8 +500,8 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
   // OPEN-chat header title renders the new name (keyed header text — the
   // cheap header check, batch-7 rename precedent).
   final renamed = await _waitGroupShowName(inst, gid, newName, timeoutSecs: 20);
-  await returnToChatsHome(inst, rounds: 4);
-  await openGroupChat(inst, groupId: gid, groupName: newName, viaL3Seam: true);
+  await inst.tapAt(28, 52);
+  await Future<void>.delayed(const Duration(milliseconds: 700));
   final headerOk = await _waitChatHeaderTitle(inst, newName, timeoutSecs: 12);
   await inst.shot('/tmp/ui_p1_conf_rename_${inst.name}.png');
   // 3. Leave via the real profile leave button + Confirm label; the row must
@@ -541,13 +571,23 @@ Future<bool> _p1SettingsSwitchAccountEntry(
   // single-fire it after scrolling onstage; only fall back to `tapKey` when
   // the bounds cannot resolve (below-fold direct-invoke fires exactly once —
   // the `_openSetPasswordDialog` precedent).
-  await _openSettings(inst);
   final swapKey = 'settings_account_switch_button:$primaryToxId';
-  if (!await _settingsScrollTo(inst, swapKey)) {
-    print(
-      '[pair] settings_switch_account_entry: swap button not brought '
-      'onstage (continuing — tapKey fallback may still reach it)',
-    );
+  final compactMobile = inst.isMobileShell && !(await _settingsIsWide(inst));
+  if (compactMobile) {
+    if (!await _openMobileAccountManagement(inst)) {
+      print(
+        '[pair] settings_switch_account_entry: Account Management did not open',
+      );
+      return false;
+    }
+  } else {
+    await _openSettings(inst);
+    if (!await _settingsScrollTo(inst, swapKey)) {
+      print(
+        '[pair] settings_switch_account_entry: swap button not brought '
+        'onstage (continuing — tapKey fallback may still reach it)',
+      );
+    }
   }
   final dialogUp = await _p1OpenDialogViaKey(
     inst,
@@ -786,12 +826,23 @@ Future<bool> _p1AccountDeleteFullFlow(
   }
   // 2. Settings → Delete Account (keyed opener; single-fire when onstage,
   // tapKey only as the below-fold fallback — direct invoke fires once).
-  await _openSettings(inst);
-  if (!await _settingsScrollTo(inst, 'settings_delete_account_button')) {
-    print(
-      '[pair] account_delete_full_flow: delete button not brought '
-      'onstage (continuing — tapKey fallback may still reach it)',
-    );
+  final compactMobile = inst.isMobileShell && !(await _settingsIsWide(inst));
+  if (compactMobile) {
+    if (!await _openMobileAccountManagement(inst)) {
+      print(
+        '[pair] account_delete_full_flow: mobile account management '
+        'section did not open',
+      );
+      return false;
+    }
+  } else {
+    await _openSettings(inst);
+    if (!await _settingsScrollTo(inst, 'settings_delete_account_button')) {
+      print(
+        '[pair] account_delete_full_flow: delete button not brought '
+        'onstage (continuing — tapKey fallback may still reach it)',
+      );
+    }
   }
   final dialogUp = await _p1OpenDialogViaKey(
     inst,
