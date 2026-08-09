@@ -1,3 +1,14 @@
+// WHAT THIS IS: a source-text contract over Swift, not a behaviour test.
+// See the header of `test/android_call_audio_channel_source_test.dart` for the
+// full rationale — same shape, same trade-off.
+//
+// Short version: it greps `ios/Runner/CallAudioChannel.swift`, so it executes
+// zero product Dart and is brittle to reformatting. It is kept because the
+// invariants it pins (per-call route choices cleared on deactivate, proximity
+// monitoring disabled, `shouldResume` propagated) live in Swift that
+// `flutter test` cannot run, and iOS mobile parity is mandatory in this repo.
+// The authoritative check is the on-device call campaign in `tool/mcp_test`.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

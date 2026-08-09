@@ -48,7 +48,13 @@ void main() {
 
   testWidgets('register flow boots the returned session before navigation',
       (tester) async {
-    if (!_ffiAvailable()) return;
+    // Defence in depth behind the `skip: !_ffiAvailable()` below. A bare
+    // `return` here would report a silent PASS if the two ever disagreed, so
+    // report a real SKIP instead.
+    if (!_ffiAvailable()) {
+      markTestSkipped('libtim2tox_ffi is not loadable in this environment');
+      return;
+    }
     await _initEmptyPrefs();
     final service = _StubFfiChatService();
     var bootCalls = 0;

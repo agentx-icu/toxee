@@ -613,7 +613,13 @@ void main() {
     testWidgets(
       'successful login tears the session down when injected boot fails',
       (tester) async {
-        if (!_ffiAvailable()) return;
+        // Defence in depth behind the `skip: !_ffiAvailable()` below. A bare
+        // `return` here would report a silent PASS if the two ever disagreed,
+        // so report a real SKIP instead.
+        if (!_ffiAvailable()) {
+          markTestSkipped('libtim2tox_ffi is not loadable in this environment');
+          return;
+        }
         await _initPrefsWithSavedAccount(nickname: 'Alice', toxId: 'A' * 64);
         final service = _StubFfiChatService();
         final tornDown = <FfiChatService>[];

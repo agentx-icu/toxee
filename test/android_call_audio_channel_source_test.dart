@@ -1,3 +1,21 @@
+// WHAT THIS IS: a source-text contract over Kotlin, not a behaviour test.
+//
+// It asserts on the raw text of `android/app/.../CallAudioChannel.kt`. No
+// product Dart runs, so it contributes nothing to coverage, and a rename or a
+// reformat of the Kotlin can turn it red without any behaviour changing.
+//
+// WHY IT IS STILL HERE (2026-08-07 audit): the assertions guard shipped
+// *native* code — route persistence, Bluetooth SCO teardown, proximity wake
+// locks, duckable focus loss — that a Dart unit test cannot execute at all
+// (there is no Kotlin under `flutter test`). The real verification is the
+// on-device call scenarios in `tool/mcp_test`; this is the cheap early warning
+// that a refactor silently dropped one of those fixes. Sibling greps that only
+// looked at harness scripts were moved out to
+// `tool/check_source_contracts.py`; these were kept in `test/` because
+// `flutter test` is currently their only automated gate.
+//
+// If you extend this file: prefer adding an instrumented Android test instead.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

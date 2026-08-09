@@ -2,9 +2,9 @@
 //
 // **Why this file is in `integration_test/` (not `test/`):**
 // On 2026-05-28 this was briefly moved to `test/startup_smoke_test.dart`
-// under codex's RANK 1 advice that "tests using TestWidgetsFlutterBinding +
-// mock channels are widget tests, not integration tests, and don't need the
-// host bundle". The structure agreed but the practice didn't: when actually
+// under codex's RANK 1 advice that "tests using a widget-style harness + mock
+// channels are widget tests, not integration tests, and don't need the host
+// bundle". The structure agreed but the practice didn't: when actually
 // run via `flutter test` from the `test/` location, the test hangs on
 // `TencentCloudChatMaterialApp`'s `_getLocale` FutureBuilder. The future
 // inside calls `TencentCloudChat.instance.cache.init(...)` which initializes
@@ -67,6 +67,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/i18n/app_localizations.dart';
@@ -155,7 +156,7 @@ Future<_SmokeHarness> _installPluginStubs() async {
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   late _SmokeHarness harness;
 

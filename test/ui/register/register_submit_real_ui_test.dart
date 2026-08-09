@@ -296,7 +296,13 @@ void main() {
     'valid submit invokes registerAccount with the entered values then boots, '
     'shows the backup wizard, and navigates IN ORDER',
     (tester) async {
-      if (!_ffiAvailable()) return;
+      // Defence in depth behind the `skip: !_ffiAvailable()` below. A bare
+      // `return` here would report a silent PASS if the two ever disagreed, so
+      // report a real SKIP instead.
+      if (!_ffiAvailable()) {
+        markTestSkipped('libtim2tox_ffi is not loadable in this environment');
+        return;
+      }
       await _initEmptyPrefs();
       await tester.binding.setSurfaceSize(const Size(1280, 1200));
       addTearDown(() => tester.binding.setSurfaceSize(null));
