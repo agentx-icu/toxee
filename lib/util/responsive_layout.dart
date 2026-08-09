@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 
 /// Responsive layout utility class
@@ -57,9 +57,34 @@ class ResponsiveLayout {
   // Layout-capacity checks (shouldShow*) below use `size.width` because they
   // care about available width.
 
+  /// Test-only override for [_isDesktopPlatform].
+  ///
+  /// Why this exists: `_isDesktopPlatform` reads `dart:io` `Platform.*`, which
+  /// `debugDefaultTargetPlatformOverride` does NOT affect. `flutter test` runs
+  /// on the host OS (macOS/Linux in this project's CI), so without an override
+  /// `isMobile`, `isLargePhone`, `isTablet`, `isTabletPortrait` and
+  /// `isTabletLandscape` all return **false** in every widget test and
+  /// `isDesktop` returns **true** — no matter what viewport the test sets.
+  ///
+  /// That made every phone/tablet branch behind those checks unreachable from
+  /// `flutter test`, including the dialog sizing in `add_friend_dialog.dart` /
+  /// `add_group_dialog.dart`, the login/register max-width clamps, the
+  /// `bootstrap_settings_section.dart` axis switch, and the 72pt compact rail
+  /// (`responsiveSidebarWidth` -> `isCompactRail`). 27 files under `lib/` call
+  /// into this class; the width-only helpers (`shouldShowBottomNav`,
+  /// `shouldShowMasterDetail`) were the only testable part.
+  ///
+  /// Set it in `setUp` and null it in `tearDown` — it is process-global.
+  /// Mirrors the `debugIsMobile` callback the vendored UIKit fork already uses
+  /// in `tencent_cloud_chat_message_input_mobile.dart` for the same reason.
+  @visibleForTesting
+  static bool Function()? debugIsDesktopPlatformOverride;
+
   /// True when running on a desktop OS. Web is excluded because Flutter web
   /// running on a desktop browser still relies on window width for layout.
   static bool _isDesktopPlatform() {
+    final override = debugIsDesktopPlatformOverride;
+    if (override != null) return override();
     if (kIsWeb) return false; // avoid touching Platform.* on web
     return Platform.isMacOS || Platform.isWindows || Platform.isLinux;
   }
@@ -201,11 +226,20 @@ class ResponsiveLayout {
   }
 
   /// Get responsive sidebar width
-  /// Mobile / large-phone (bottom-nav tier): 0 (uses bottom nav). Tablet: 72
-  /// (compact icon-only rail — labels are hidden below this width). Desktop:
-  /// 200 — enough for the icon plus the longest label ("Applications") in the
-  /// default `titleMedium` size without ellipsis. Was 180, which clipped
-  /// "Applications" by ~17px (RenderFlex overflow).
+  ///
+  /// - **0** whenever [shouldShowBottomNav] is true, i.e. viewport width <
+  ///   [largePhoneBreakpoint] (720). Covers portrait phones and tablets in a
+  ///   narrow window.
+  /// - **200** for [isDesktop] — which is desktop OS *and tablets* (see the
+  ///   [isDesktop] doc: tablets deliberately take the desktop layout in every
+  ///   orientation). 200 is enough for the icon plus the longest label
+  ///   ("Applications") in the default `titleMedium` size without ellipsis.
+  ///   Was 180, which clipped "Applications" by ~17px (RenderFlex overflow).
+  /// - **72** (compact icon-only rail — labels are hidden at this width) for
+  ///   the remainder: NOT tablets. The only tier that actually lands here is a
+  ///   **landscape phone** — `shortestSide < 600` makes [isDesktop] false while
+  ///   `width >= 720` suppresses the bottom nav. Examples: 844×390, 892×412.
+  ///   A tablet can never reach 72 because [isDesktop] is true for it.
   // Sidebar visibility and bottom-nav visibility are controlled by the same
   // check (`shouldShowBottomNav`) so the two never disagree (e.g. landscape
   // large-phones used to get a sidebar AND a bottom nav).
@@ -214,10 +248,15 @@ class ResponsiveLayout {
     return isDesktop(context) ? 200.0 : 72.0;
   }
 
-  /// True when the rail is the compact icon-only tier (tablet width). Below
-  /// this the sidebar shows icons only (with tooltips) rather than icon+label,
-  /// because the 72px rail cannot fit a text label. Single source of truth so
-  /// the sidebar items and avatar stay in sync.
+  /// True when the rail is the compact icon-only tier, i.e.
+  /// [responsiveSidebarWidth] resolved to 72. In practice that means a
+  /// **landscape phone** (`shortestSide < 600` so not [isDesktop], `width >=
+  /// 720` so no bottom nav) — tablets and desktop get the 200pt labelled rail,
+  /// portrait phones get a bottom nav and no rail at all.
+  ///
+  /// At this width the sidebar shows icons only (with tooltips) rather than
+  /// icon+label, because the 72px rail cannot fit a text label. Single source
+  /// of truth so the sidebar items and avatar stay in sync.
   static bool isCompactRail(BuildContext context) {
     final width = responsiveSidebarWidth(context);
     return width > 0 && width <= 72.0;
