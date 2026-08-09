@@ -285,6 +285,23 @@ class Prefs {
     await p.setStringList(key, peers.toList());
   }
 
+  /// STATUS (audited 2026-08-08): **no production consumer**. A repo-wide
+  /// search over `lib/`, `third_party/tim2tox/dart`, and
+  /// `third_party/chat-uikit-flutter` finds no caller other than the
+  /// `IFriendPrefs` / [PrefsImpl] pass-throughs (which are themselves
+  /// uncalled). The mute the product actually honours is the per-peer
+  /// `recvOpt` family ([getC2CReceiveMessageOpt] / [getGroupReceiveMessageOpt]),
+  /// projected through `C2CRecvOptCache` into
+  /// `NotificationMessageListener._shouldSuppress`.
+  ///
+  /// KEPT DELIBERATELY, not dead-code-removed: the `muted_peers` key is still
+  /// listed in [clearAccountData] / [clearAccountDataAfterPasswordRemoved], so
+  /// this family is the only typed accessor for pre-existing on-disk state.
+  /// Deleting it is safe only once (a) `_kMuted` stays in both teardown key
+  /// lists, (b) `IFriendPrefs.getMuted` / `setMuted` and their [PrefsImpl]
+  /// overrides go with it, and (c) `test/util/prefs_do_not_disturb_test.dart`
+  /// is retired. Until then treat it as read-only legacy surface: do not build
+  /// new features on it, use the `recvOpt` family instead.
   static Future<Set<String>> getMuted() async {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return <String>{};
@@ -293,6 +310,7 @@ class Prefs {
     return p.getStringList(key)?.toSet() ?? <String>{};
   }
 
+  /// See [getMuted] for the "no production consumer" status note.
   static Future<void> setMuted(Set<String> peers) async {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
@@ -1112,19 +1130,40 @@ class Prefs {
     }
   }
 
-  // Do not disturb storage
+  // Do not disturb storage.
+  //
+  // STATUS (audited 2026-08-08): **no production consumer**, same as
+  // [getMuted] / [setMuted] — see that doc comment for the keep-vs-delete
+  // rationale and the deletion prerequisites. The live per-peer mute is the
+  // `recvOpt` family further down this file.
   static String _doNotDisturbKey(String friendId) => 'do_not_disturb_$friendId';
 
+  /// Per-friend do-not-disturb flag for the ACTIVE account.
+  ///
+  /// Returns `false` when no account is active: without one, [_scopedKey]
+  /// degrades to the bare `do_not_disturb_<friendId>` key, which every account
+  /// would then share. Guarded to match [getMuted] rather than silently
+  /// reading a cross-account slot.
   static Future<bool> getDoNotDisturb(String friendId) async {
-    final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return false;
+    final p = await _getPrefs();
     final key = _scopedKey(_doNotDisturbKey(friendId), current);
     return p.getBool(key) ?? false;
   }
 
+  /// Persist the per-friend do-not-disturb flag for the ACTIVE account.
+  ///
+  /// No-ops when no account is active. Previously this fell through to the
+  /// UNSCOPED `do_not_disturb_<friendId>` key, which was both cross-account
+  /// visible AND permanently un-collectable: every teardown path
+  /// ([clearScopedKeysForAccount], [clearAccountData]) matches on the
+  /// `_<first16>` suffix, so a pre-login write leaked forever. Dropping the
+  /// write mirrors [setMuted].
   static Future<void> setDoNotDisturb(String friendId, bool value) async {
-    final p = await _getPrefs();
     final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return;
+    final p = await _getPrefs();
     final key = _scopedKey(_doNotDisturbKey(friendId), current);
     await p.setBool(key, value);
   }
@@ -1170,32 +1209,54 @@ class Prefs {
     await setBlackList(blackList, userToxId);
   }
 
-  // Per-peer C2C receive option (Do Not Disturb), account-scoped. Mirrors
-  // the key shape used by SharedPreferencesAdapter — uses the 16-char Tox-ID
-  // prefix `_scopedKey` style so both the platform write path and the UI
-  // read path land on the same SharedPreferences key.
-  static String _c2cRecvOptKey(String userID, String? userToxId) {
-    final prefix = (userToxId != null && userToxId.length >= 16)
-        ? userToxId.substring(0, 16)
-        : userToxId;
-    return scopedPrefsKey('c2c_recv_opt_$userID', prefix);
+  // Per-peer C2C receive option (Do Not Disturb), account-scoped. Delegates to
+  // the SHARED builder in `prefs/scoped_key.dart` so this and
+  // `SharedPreferencesAdapter` cannot drift: they are two addressers of one
+  // on-disk slot (see that file's header for the id-representation contract).
+  static String _c2cRecvOptKey(String userID, String? userToxId) =>
+      c2cRecvOptPrefsKey(userID, scopedPrefsAccountPrefix(userToxId));
+
+  /// Resolve the account scope for a recvOpt key.
+  ///
+  /// Returns the explicit [userToxId] when the caller supplied one, otherwise
+  /// the active account, otherwise `null`. Callers MUST treat `null` as "skip
+  /// the read/write": with a null prefix [scopedPrefsKey] returns the bare
+  /// `c2c_recv_opt_<id>` / `group_recv_opt_<id>` key, which (a) is shared by
+  /// every local account and (b) survives account deletion, because both
+  /// [clearScopedKeysForAccount] and [clearAccountData] sweep on the
+  /// `_<first16>` suffix. Falling back to the active account keeps the
+  /// argument optional (the tim2tox `ExtendedPreferencesService` signature it
+  /// mirrors makes it optional) without ever minting that global slot.
+  static Future<String?> _recvOptScope(String? userToxId) async {
+    if (userToxId != null && userToxId.isNotEmpty) return userToxId;
+    final current = await getCurrentAccountToxId();
+    if (current == null || current.isEmpty) return null;
+    return current;
   }
 
+  /// Per-peer C2C receive option; `0` when unset or when there is no account
+  /// to scope the lookup to. See [_recvOptScope].
   static Future<int> getC2CReceiveMessageOpt(
     String userID, [
     String? userToxId,
   ]) async {
+    final scope = await _recvOptScope(userToxId);
+    if (scope == null) return 0;
     final p = await _getPrefs();
-    return p.getInt(_c2cRecvOptKey(userID, userToxId)) ?? 0;
+    return p.getInt(_c2cRecvOptKey(userID, scope)) ?? 0;
   }
 
+  /// Persist a per-peer C2C receive option. `opt == 0` removes the entry.
+  /// No-ops when no account scope can be resolved — see [_recvOptScope].
   static Future<void> setC2CReceiveMessageOpt(
     String userID,
     int opt, [
     String? userToxId,
   ]) async {
+    final scope = await _recvOptScope(userToxId);
+    if (scope == null) return;
     final p = await _getPrefs();
-    final key = _c2cRecvOptKey(userID, userToxId);
+    final key = _c2cRecvOptKey(userID, scope);
     if (opt == 0) {
       await p.remove(key);
     } else {
@@ -1208,29 +1269,33 @@ class Prefs {
   // C2C key above. Projected into the conversation recvOpt (so the notification
   // suppressor mutes it) and into V2TimGroupInfo.recvOpt (so the group-profile
   // DND switch reflects the persisted state on reopen). opt: 0=receive,
-  // 2=not-notify (mute).
-  static String _groupRecvOptKey(String groupID, String? userToxId) {
-    final prefix = (userToxId != null && userToxId.length >= 16)
-        ? userToxId.substring(0, 16)
-        : userToxId;
-    return scopedPrefsKey('group_recv_opt_$groupID', prefix);
-  }
+  // 2=not-notify (mute). Shares the builder with `SharedPreferencesAdapter`.
+  static String _groupRecvOptKey(String groupID, String? userToxId) =>
+      groupRecvOptPrefsKey(groupID, scopedPrefsAccountPrefix(userToxId));
 
+  /// Per-group receive option; `0` when unset or when there is no account to
+  /// scope the lookup to. See [_recvOptScope].
   static Future<int> getGroupReceiveMessageOpt(
     String groupID, [
     String? userToxId,
   ]) async {
+    final scope = await _recvOptScope(userToxId);
+    if (scope == null) return 0;
     final p = await _getPrefs();
-    return p.getInt(_groupRecvOptKey(groupID, userToxId)) ?? 0;
+    return p.getInt(_groupRecvOptKey(groupID, scope)) ?? 0;
   }
 
+  /// Persist a per-group receive option. `opt == 0` removes the entry.
+  /// No-ops when no account scope can be resolved — see [_recvOptScope].
   static Future<void> setGroupReceiveMessageOpt(
     String groupID,
     int opt, [
     String? userToxId,
   ]) async {
+    final scope = await _recvOptScope(userToxId);
+    if (scope == null) return;
     final p = await _getPrefs();
-    final key = _groupRecvOptKey(groupID, userToxId);
+    final key = _groupRecvOptKey(groupID, scope);
     if (opt == 0) {
       await p.remove(key);
     } else {

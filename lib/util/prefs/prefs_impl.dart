@@ -3,7 +3,20 @@ import '../prefs.dart';
 import 'prefs_interfaces.dart';
 
 /// Single implementation of all Prefs interfaces, delegating to [Prefs] static methods.
-/// Use [PrefsImpl.global] for production. Pass [SharedPreferences] in tests to inject.
+///
+/// STATUS (audited 2026-08-07): **unfinished migration — currently dead code.**
+/// Nothing under `lib/`, `test/`, `integration_test/` or `tool/` constructs
+/// [PrefsImpl] or references [PrefsImpl.global]; every callsite still goes
+/// through the static [Prefs] facade. The file is kept (not deleted) because
+/// it is the declared migration target: see the class doc on [Prefs] in
+/// `lib/util/prefs.dart` and TODOS.md item 7 ("`Prefs` god class — split into
+/// focused services"), which names this file as the seam that split lands on.
+///
+/// Do NOT treat this as a working abstraction: it has no injection point (the
+/// doc line below about passing `SharedPreferences` in tests was never
+/// implemented — the constructor takes no arguments and everything re-delegates
+/// to the static cache inside [Prefs]). Either finish TODOS.md item 7 or delete
+/// this file together with `prefs_interfaces.dart`.
 class PrefsImpl implements ICorePrefs, IFriendPrefs, IUIPrefs, INotificationPrefs {
   PrefsImpl();
 
