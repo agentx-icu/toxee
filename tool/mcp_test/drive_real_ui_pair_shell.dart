@@ -677,7 +677,7 @@ Future<bool> _dismissBackupWizardIfPresent(
     timeoutSecs: 6,
   )) {
     if (!await _tryTapText(inst, 'I understand, continue') &&
-        !inst.isMobileShell) {
+        inst.platform == 'macos') {
       await inst.tapAt(894, 520);
     }
   }

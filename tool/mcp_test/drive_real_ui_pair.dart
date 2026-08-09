@@ -158,6 +158,13 @@ import 'local_irc_server.dart';
 //                   product gaps / L3-pinned surfaces.
 //   p3             — P1/P2/P3-campaign Batch VIII (P3 writable subset):
 //                   parametric C2C burst perf with advisory timing threshold.
+//   mobile_shell   — FORM-FACTOR cases: mobile-only controls (bottom nav, the
+//                   mobile composer send button, the long-press message menu)
+//                   and the tablet-only master-detail split + per-form-factor
+//                   dialog width tier. Every case SKIPs (75) when the running
+//                   layout tier does not have the surface, and none of them
+//                   uses the osa* keystroke path (a silent no-op on iOS/
+//                   Android).
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_shell.dart';
 part 'drive_real_ui_pair_friends.dart';
@@ -189,6 +196,17 @@ part 'drive_real_ui_pair_p2_verify.dart';
 part 'drive_real_ui_pair_p3.dart';
 part 'drive_real_ui_pair_app_entry_extra.dart';
 part 'drive_real_ui_pair_group_mention.dart';
+part 'drive_real_ui_pair_mobile_shell.dart';
+
+/// The ONLY scenarios allowed to fall through the dispatch chain in [_main] and
+/// run the shared add-friend/handshake flow at the bottom of this file. Any
+/// other name reaching that point is a typo or a stale reference and is rejected
+/// with usage code 64 instead of silently reporting a handshake PASS.
+const _genericHandshakeScenarios = <String>{
+  'handshake',
+  'handshake_detail',
+  'decline',
+};
 
 Future<void> main(List<String> args) async {
   exitCode = await HttpOverrides.runWithHttpOverrides(
@@ -910,6 +928,20 @@ Future<int> _main(List<String> args) async {
     if (_isGroupMentionCaseScenario(scenario)) {
       return await runGroupMentionCase(a, b, nickA, nickB, scenario);
     }
+    // Form-factor (mobile shell / tablet layout) cases. The sweeps establish
+    // their own A<->B friendship for the cases that need a real C2C chat; the
+    // A-only cases (bottom nav, dialog tier) skip that cost. Every case is
+    // layout-tier gated at runtime and SKIPs (75) rather than pretending to
+    // cover a surface the running shell does not render.
+    if (scenario == 'sweep_mobile_shell') {
+      return await runMobileShellSweep(a, b, nickA, nickB);
+    }
+    if (scenario == 'sweep_tablet_layout') {
+      return await runTabletLayoutSweep(a, b, nickA, nickB);
+    }
+    if (_isMobileShellCaseScenario(scenario)) {
+      return await runMobileShellCase(a, b, nickA, nickB, scenario);
+    }
     // Focused account-management + conference expansion sweep. Single-instance
     // by design; B stays idle.
     if (scenario == 'sweep_account_conf_extra') {
@@ -1077,6 +1109,23 @@ Future<int> _main(List<String> args) async {
     if (scenario == 'call_reject') {
       return await runCallReject(a, b, nickA, nickB);
     }
+
+    // Fall-through guard. Every branch above RETURNS, so anything reaching here
+    // runs the generic add-friend/handshake flow below — which only three
+    // scenarios actually want. Without this reject, a MISTYPED or REMOVED
+    // scenario name silently executed a plain handshake and exited 0, i.e. a
+    // green result for a case that never ran. Usage error -> 64 (same code as
+    // the argument-count check in this file).
+    if (!_genericHandshakeScenarios.contains(scenario)) {
+      print(
+        '[pair] usage: unknown scenario "$scenario" (no dispatch branch; it '
+        'would otherwise have run the generic handshake flow and reported '
+        'PASS). Known fall-through scenarios: '
+        '${_genericHandshakeScenarios.join(', ')}.',
+      );
+      return 64;
+    }
+
     if (!bootRestored) {
       final needsNoFriendFlow =
           scenario == 'handshake' ||

@@ -61,7 +61,10 @@
 //                    suite, class, order, echo?, uiDriven?, blocking?, feature)
 //                    after applying the same load/sort/filter pipeline; exit 0.
 //   --validate-only  validate ALL scenario JSONs (unique non-empty id; suite
-//                    present and in the enum; order int when present; feature an
+//                    present and in the enum; order int when present;
+//                    ASSERTIONS present and NON-EMPTY — a scenario with an
+//                    empty/missing assertion list is an unconditional PASS that
+//                    verifies nothing; feature an
 //                    array of "S<digits>" strings when present; uiDriven bool
 //                    when present); print every violation; exit non-zero if any.
 //
@@ -1309,9 +1312,11 @@ void _printList(List<_Scenario> selected) {
 
 /// --validate-only: validate ALL scenario JSONs (no VM connection). Checks:
 /// unique non-empty id; suite present and in the enum; order int when present;
-/// feature an array of "S<digits>" strings when present; uiDriven bool when
-/// present. Prints every violation; returns 1 if any (else 0). Also re-uses the
-/// load-time JSON/id/suite checks via [_loadScenarios].
+/// **assertions present and non-empty** (a scenario with no assertions is an
+/// unconditional PASS in [_runScenario]); feature an array of "S<digits>"
+/// strings when present; uiDriven bool when present. Prints every violation;
+/// returns 1 if any (else 0). Also re-uses the load-time JSON/id/suite checks
+/// via [_loadScenarios].
 int _runValidateOnly(String path) {
   final violations = <String>[];
   final loaded = _loadScenarios(path);
@@ -1347,6 +1352,31 @@ int _runValidateOnly(String path) {
       violations.add(
         '$where: "uiDriven" must be a bool when present, got '
         '${s['uiDriven']} (${s['uiDriven'].runtimeType})',
+      );
+    }
+    // assertions: REQUIRED, and must be a non-empty array.
+    //
+    // _runScenario iterates `s['assertions'] as List? ?? const []`, so a
+    // scenario with no assertions runs its steps and then unconditionally
+    // returns PASS — it verifies NOTHING while counting toward the green
+    // total. All 48 scenario JSONs happen to carry assertions today, but
+    // nothing enforced it; this closes that structural gap. (`teardown`-only
+    // or setup-only scenarios do not exist in this suite by design: a scenario
+    // that asserts nothing belongs in a `steps` list of another scenario.)
+    final assertions = s['assertions'];
+    if (assertions == null) {
+      violations.add(
+        '$where: "assertions" is required — a scenario without assertions '
+        'always PASSes without verifying anything',
+      );
+    } else if (assertions is! List) {
+      violations.add(
+        '$where: "assertions" must be an array, got ${assertions.runtimeType}',
+      );
+    } else if (assertions.isEmpty) {
+      violations.add(
+        '$where: "assertions" must not be empty — an empty assertion list '
+        'makes the scenario an unconditional PASS',
       );
     }
     // feature: array of "S<digits>" strings when present.

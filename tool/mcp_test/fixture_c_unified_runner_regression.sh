@@ -783,6 +783,242 @@ else
     fail "--validate-only exits 0" "$(cat "$TMP_ROOT/validate.out")"
 fi
 
+# ---------------------------------------------------------------------------
+# Scenario-name drift check (pure text analysis; needs no dart, no Toxee).
+#
+# `_validRealUiScenarios` in fixture_c_unified_runner.dart is a SECOND,
+# hand-maintained copy of the scenario names that drive_real_ui_pair*.dart
+# actually dispatches on. Nothing linked the two, so the sets agreeing was pure
+# luck. Two failure modes this catches:
+#
+#   * runner-only name  -> `--real-ui-scenario=<name>` is accepted, the driver
+#     has no branch for it, and (before the fall-through reject in
+#     drive_real_ui_pair.dart) it silently ran a plain handshake and passed.
+#   * unexpected driver-only name -> a scenario exists but is unreachable from
+#     the runner. A small set of these is INTENTIONAL (internal utilities,
+#     probes, cross-host cases, and the settings_* singles that only run inside
+#     settings_sweep); they are allowlisted below and must be updated
+#     deliberately, which is exactly the review moment this check exists for.
+# ---------------------------------------------------------------------------
+if ! command -v python3 >/dev/null 2>&1; then
+    fail "real-UI scenario-name drift check" "python3 is required"
+else
+    DRIFT_OUT="$TMP_ROOT/scenario_drift.out"
+    set +e
+    MCP_DIR="$MCP_DIR" python3 - >"$DRIFT_OUT" 2>&1 <<'PY'
+import glob
+import os
+import re
+import sys
+
+mcp = os.environ["MCP_DIR"]
+
+# Driver-only scenario names that are deliberately NOT exposed through the
+# runner's --real-ui-scenario surface. Keep this list SHORT and justified.
+ALLOWED_DRIVER_ONLY = {
+    # Internal runner utility, invoked by name from the runner's own reset step.
+    "reset_friendship",
+    # Live diagnostics / probes driven by hand, not part of any campaign.
+    "probe_home_root",
+    "probe_restyle_diag",
+    # Cross-host (two physical machines) cases driven by their own launcher.
+    "xhost_group_join",
+    "xhost_conference",
+    "xhost_call",
+    # Individual settings cases; the runner exposes the sweep, not the singles.
+    "settings_sweep",
+    "settings_copy_id",
+    "settings_autologin",
+    "settings_notification",
+    "settings_export_chooser",
+    "settings_password",
+    "settings_logout_relogin",
+    "settings_logout_double_fire",
+}
+
+
+def read(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def strip_line_comments(src):
+    return "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("//")
+    )
+
+
+def brace_body(text, open_index):
+    depth = 0
+    for i in range(open_index, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_index + 1 : i]
+    return ""
+
+
+def quoted(text):
+    return set(re.findall(r"'([A-Za-z0-9_]+)'", text))
+
+
+sources = {
+    path: strip_line_comments(read(path))
+    for path in glob.glob(os.path.join(mcp, "drive_real_ui_pair*.dart"))
+}
+dispatch_path = os.path.join(mcp, "drive_real_ui_pair.dart")
+dispatch = sources[dispatch_path]
+
+# 1) Direct `scenario == '<name>'` branches in the dispatch chain.
+driver = set(re.findall(r"scenario == '([A-Za-z0-9_]+)'", dispatch))
+
+# 2) `_isXxxCaseScenario(scenario)` predicates -> their backing name set,
+#    either an inline `const {...}.contains(scenario)` or `_someSet.contains(...)`.
+predicates = sorted(
+    name[: -len("(scenario)")]
+    for name in set(re.findall(r"_is[A-Za-z0-9]+\(scenario\)", dispatch))
+)
+unresolved = []
+for predicate in predicates:
+    resolved = None
+    for text in sources.values():
+        match = re.search(
+            r"bool\s+" + re.escape(predicate) + r"\(String\s+\w+\)\s*=>\s*(.*?);",
+            text,
+            re.S,
+        )
+        if not match:
+            continue
+        body = match.group(1)
+        stripped = body.lstrip()
+        if "contains" in body and (
+            stripped.startswith("const") or stripped.startswith("{")
+        ):
+            open_index = text.index("{", match.start(1))
+            resolved = quoted(brace_body(text, open_index))
+            break
+        var_match = re.match(r"\s*(_[A-Za-z0-9]+)\.contains", body)
+        if var_match:
+            var = var_match.group(1)
+            for other in sources.values():
+                decl = re.search(
+                    r"(?:const|final)\s+" + re.escape(var) + r"\s*=\s*(?:<String>)?\{",
+                    other,
+                )
+                if decl:
+                    open_index = other.index("{", decl.start())
+                    resolved = quoted(brace_body(other, open_index))
+                    break
+            break
+        break
+    if resolved is None:
+        unresolved.append(predicate)
+    else:
+        driver |= resolved
+
+runner_src = strip_line_comments(read(os.path.join(mcp, "fixture_c_unified_runner.dart")))
+decl = re.search(r"const _validRealUiScenarios = \{", runner_src)
+if not decl:
+    print("could not locate _validRealUiScenarios in fixture_c_unified_runner.dart")
+    sys.exit(1)
+valid = quoted(brace_body(runner_src, runner_src.index("{", decl.start())))
+
+problems = []
+if unresolved:
+    problems.append(
+        "could not resolve dispatch predicate(s): " + ", ".join(unresolved)
+    )
+if not driver or not valid:
+    problems.append("extraction produced an empty set (parser drift?)")
+
+runner_only = sorted(valid - driver)
+if runner_only:
+    problems.append(
+        "runner accepts scenario(s) the driver never dispatches: "
+        + ", ".join(runner_only)
+    )
+
+driver_only = sorted(driver - valid - ALLOWED_DRIVER_ONLY)
+if driver_only:
+    problems.append(
+        "driver dispatches scenario(s) the runner cannot select "
+        "(add to _validRealUiScenarios or to ALLOWED_DRIVER_ONLY here): "
+        + ", ".join(driver_only)
+    )
+
+stale = sorted(ALLOWED_DRIVER_ONLY - driver)
+if stale:
+    problems.append(
+        "ALLOWED_DRIVER_ONLY lists name(s) the driver no longer dispatches: "
+        + ", ".join(stale)
+    )
+
+if problems:
+    for problem in problems:
+        print(problem)
+    sys.exit(1)
+
+print(
+    "driver dispatch names=%d runner _validRealUiScenarios=%d "
+    "(allowlisted driver-only=%d)"
+    % (len(driver), len(valid), len(ALLOWED_DRIVER_ONLY))
+)
+PY
+    DRIFT_CODE=$?
+    set -e
+    if [[ "$DRIFT_CODE" -eq 0 ]]; then
+        pass "real-UI scenario names match between runner and driver dispatch"
+    else
+        fail "real-UI scenario names match between runner and driver dispatch" \
+            "$(cat "$DRIFT_OUT")"
+    fi
+fi
+
+# The driver must REJECT a scenario name that has no dispatch branch instead of
+# letting it fall through to the generic add-friend/handshake flow and exiting 0.
+# Asserted at the SOURCE level: actually invoking the driver requires two live
+# VM services, which this hermetic script must never need.
+DRIVER_SRC="$MCP_DIR/drive_real_ui_pair.dart"
+if grep -q 'const _genericHandshakeScenarios = <String>{' "$DRIVER_SRC" \
+    && grep -q '!_genericHandshakeScenarios.contains(scenario)' "$DRIVER_SRC" \
+    && grep -A 8 '!_genericHandshakeScenarios.contains(scenario)' "$DRIVER_SRC" \
+        | grep -q 'return 64;'; then
+    pass "drive_real_ui_pair.dart guards the generic handshake fall-through (usage 64)"
+else
+    fail "drive_real_ui_pair.dart guards the generic handshake fall-through (usage 64)" \
+        "expected an _genericHandshakeScenarios reject returning 64 in $DRIVER_SRC"
+fi
+
+# The runner must keep the SKIP / flaky accountability surface: a counted SKIP
+# list, a first-attempt-failure list, and the two opt-in gates. Without these a
+# chain that skips (or silently retries) every scenario still reports green.
+if grep -q '_realUiSkippedScenarios' "$RUNNER" \
+    && grep -q '_realUiFirstAttemptFailures' "$RUNNER" \
+    && grep -q "'--fail-on-skip'" "$RUNNER" \
+    && grep -q "'--fail-on-flaky'" "$RUNNER"; then
+    pass "runner keeps the real-UI SKIP/flaky tallies and --fail-on-skip/--fail-on-flaky gates"
+else
+    fail "runner keeps the real-UI SKIP/flaky tallies and --fail-on-skip/--fail-on-flaky gates" \
+        "expected _realUiSkippedScenarios/_realUiFirstAttemptFailures + both flags in $RUNNER"
+fi
+
+# `--fail-on-skip` / `--fail-on-flaky` must be accepted arguments (the runner
+# rejects unknown arguments with 64), and must not disturb hermetic planning.
+set +e
+run_runner --plan-json --class=2proc-ui --fail-on-skip --fail-on-flaky \
+    >"$TMP_ROOT/fail_on_skip_plan.json" 2>"$TMP_ROOT/fail_on_skip.err"
+FAIL_ON_SKIP_CODE=$?
+set -e
+if [[ "$FAIL_ON_SKIP_CODE" -eq 0 ]] \
+    && jq -e '.groups[0].mode == "real-ui"' "$TMP_ROOT/fail_on_skip_plan.json" >/dev/null; then
+    pass "--fail-on-skip/--fail-on-flaky are accepted and leave planning unchanged"
+else
+    fail "--fail-on-skip/--fail-on-flaky are accepted and leave planning unchanged" \
+        "got $FAIL_ON_SKIP_CODE: $(cat "$TMP_ROOT/fail_on_skip.err" 2>/dev/null)"
+fi
+
 echo
 if (( FAIL_COUNT == 0 )); then
     printf 'Unified Fixture C runner regressions: PASS (%d checks)\n' "$PASS_COUNT"

@@ -98,8 +98,11 @@ Behavior to know:
   accepted handshake (`handshake` / `handshake_detail`) or restores
   `paired_for_e2e` for a focused replay.
 - `--real-ui-campaign=...` expands named merged batches of compatible
-  scenarios. The current discoverable catalog has 88 built-in campaigns. Treat
-  `--list-real-ui-campaigns` as the exact source of truth for names and counts.
+  scenarios. The current discoverable catalog has 100 built-in campaigns
+  (verified 2026-08-08 by brace-balanced parse of `_realUiCampaigns` in
+  `fixture_c_unified_runner.dart`; it read 96 before the form-factor campaigns
+  below, 88 before that). Treat `--list-real-ui-campaigns` as the exact source
+  of truth for names and counts.
 - The current catalog is organized around these scheduling buckets:
   - `rui-optimized-*`: preferred broad local dogfood bundles that keep one app
     pair alive and cover as many real controls as possible in a single launch.
@@ -161,6 +164,11 @@ Behavior to know:
     `add_bootstrap_node`'s `tox_add_tcp_relay` probe already tries).
     `stop_android_fixture_c_pair.sh` clears the props (they persist to reboot)
     and removes the tunnels.
+  - **form-factor coverage vs. reuse** — until the `sweep_mobile_shell` /
+    `sweep_tablet_layout` additions (below) every `rui-ios-*` / `rui-ipad-*`
+    campaign only RE-RAN the desktop sweeps on a smaller screen. That is layout
+    REUSE, not layout COVERAGE. See "Form-factor scenarios" below for what is
+    now exclusive to each shell.
   - **ipad** — same `ios` platform + launchers: selecting a `rui-ipad-*`
     campaign makes the runner force `TOXEE_IOS_DEVICE_TYPE=tablet` into the
     pair-launch env, so both instances boot on iPad simulators and the shared
@@ -258,6 +266,117 @@ Behavior to know:
    exists (`tencent_cloud_chat_contact_tab.dart:47/111`) but `tap{key}` can't land
    it; tapping the **"New Contacts"** label works. *(Fork fix candidate: move the
    key onto the tappable row; needs a rebuild — driver uses the text fallback.)*
+7. **On iOS/Android the whole `osa*` surface is a SILENT NO-OP — never build a
+   mobile case on it.** `Inst._osa` opens with
+   `if (isIos || _isHeadlessRealUi) return;`, and of the ~90 `osa*` call sites
+   only `focusType` has an iOS branch. So on a Simulator/device
+   `osaReturn` (Enter-to-send), `osaEscape`, `osaClear` (Cmd+A+Delete),
+   `osaPaste`, `osaType`, the Cmd+Ctrl shortcuts and `resizeWindow` all return
+   without doing anything, and the surrounding case still reports PASS — a case
+   that "ran" but asserted nothing. The usable mobile input paths are the
+   synthetic `flutter_skill` ones (`tap`/`tapAt`/`tapKeyCenter`/`enterText`/
+   `waitKey`/`waitText`/`getWidgetTree`/`screenshot`), the ungated `ui_*`
+   pointer tools (`ui_key_center`/`ui_long_press`/`ui_drag`/`ui_scroll_at`), and
+   the `l3_*` seams (`l3_composer_set_text`, `l3_composer_send`,
+   `l3_open_add_group_dialog`, …). Anything that genuinely cannot be driven must
+   be an explicit SKIP (exit 75), not a silently-green pass.
+
+## Form-factor scenarios (mobile-shell / tablet-layout exclusives)
+
+`tool/mcp_test/drive_real_ui_pair_mobile_shell.dart` holds the first scenarios
+that touch controls existing ONLY on one form factor. Two sweeps chain them on a
+single pair launch; every case is also individually dispatchable.
+
+Layout tier is detected from LIVE signals, never from the platform name (a
+landscape phone is wider than a portrait tablet):
+
+- phone / bottom-nav tier — `home_bottom_nav` resolves via `ui_key_center`
+  (`ResponsiveLayout.shouldShowBottomNav`, width < 720pt).
+- master-detail tier — dump field `homeShellShouldShowMasterDetail` (>= 800pt;
+  both iPad orientations and desktop).
+
+| Scenario | Real control driven | Hard assertion | SKIP (75) when |
+|---|---|---|---|
+| `mobile_bottom_nav_tab_switch` | the four `bottom_nav_*_tab` items (a different widget + callback from the desktop `sidebar_*_tab`) | dump `homeShellTab` flips chats→contacts→applications→settings→chats (the IndexedStack keeps every tab MOUNTED, so a `waitForElement` probe would false-pass) | no bottom nav in this layout tier |
+| `mobile_composer_send_button_reveals` | the mobile composer's `chat_send_button` (the desktop composer has NO send affordance at all) | the button MOUNTS on non-empty text and UNMOUNTS when cleared (`_onTextChanged` → `_showSendButton`) | `l3_composer_set_text` reports `no_composer` — i.e. this shell renders the desktop composer |
+| `mobile_composer_send_delivers` | same button, two-process | B receives the exact text; the send path used is printed (`sendPath=real_button` or `l3_seam`) | same as above |
+| `mobile_message_long_press_menu` | REAL long-press (`ui_long_press`, 800 ms) on the message bubble — the mobile twin of the desktop right-click | the overlay's `message_menu_item:copy` + `:delete` mount | not a mobile platform, or not the compact shell (desktop opens the same menu by right-click → `chat_msg_menu_surface`) |
+| `tablet_master_detail_row_opens_chat` | conversation ROW tap in the left pane | the chat binds (`currentConversation`) AND the composer's centre x sits well RIGHT of the row's centre x — the two-pane signature a phone's full-screen push collapses to ~0 | shell is not master-detail |
+| `dialog_width_form_factor_tier` | real Add-Contact / Add-Group dialogs opened from the "+" popup | the per-form-factor width cap: the id field ↔ paste-button span is >= 200pt on tablet/desktop and <= 190pt on a phone | ambiguous form factor on a mobile platform (see below) |
+
+Design notes that matter if you extend this file:
+
+- **No absolute screen size is readable on iOS.** `l3_window_state` is
+  `window_manager` (desktop) + test-account gated, and osascript cannot see the
+  Simulator. Both geometric cases are therefore SELF-CALIBRATING: they compare
+  two on-screen anchors resolved through `ui_key_center` instead of measuring
+  against the viewport.
+- **`dialog_width_form_factor_tier` mirrors the DIALOG's own branching, not the
+  shell's.** `_dialogMaxWidth` keys off `ResponsiveLayout.isDesktop`, which is
+  platform-driven (true on every desktop OS at any window width) and also true
+  for tablets; the shell tiers are pure width checks. Mapping shell→dialog
+  directly would red a narrowed desktop window. A LANDSCAPE phone (wide shell,
+  mobile dialog cap) is the one unresolvable case and is an explicit SKIP — the
+  launchers never rotate a simulator, so the wired campaigns cannot hit it.
+- **`mobile_composer_send_delivers` gates on DELIVERY, not on the tap.** A
+  synthetic tap on `chat_send_button` is a live-diagnosed unreliable gesture on a
+  compact phone (see `_sendComposerMessageIos`); the case tries the real button
+  three times, then falls back to `l3_composer_send`, which invokes the SAME
+  production `_submitTextMessage` the button's `onTap` calls, and always prints
+  which path delivered. A permanently-red case would only pollute the pass rate;
+  a silent fallback would hide a regression — printing the path does neither.
+
+Campaign wiring (startup-reuse policy: atomic case + a sweep that reuses one
+launch):
+
+- `--real-ui-campaign=rui-mobile-shell` — the phone-shell sweep alone.
+- `rui-ios-main` now ends with `sweep_mobile_shell` (the phone bundle).
+- `--real-ui-campaign=rui-ipad-layout` — the tablet sweep alone (forces iPad
+  simulators like every other `rui-ipad-*`).
+- `rui-ipad-main` now ends with `sweep_tablet_layout`.
+- `rui-android-mobile-shell` / `rui-android-main` exist for parity and require
+  `--real-ui-platform=android` (the name does not force it — only the
+  `rui-ipad-*` device-type override does).
+- `sweep_mobile_shell` is deliberately NOT in the `rui-ipad-*` campaigns and
+  `sweep_tablet_layout` not in the iPhone ones: on the wrong form factor every
+  case would SKIP and only inflate the skip tally.
+- Both sweeps declare `required=no-friend` / `result=friends` and establish (or
+  REUSE) the A<->B friendship themselves, so they need no `paired_for_e2e`
+  restore — which also keeps them runnable on Android, whose restore path is
+  implemented but not yet live-validated.
+
+**Verification status (be precise about this):** these scenarios were authored
+offline and are **NOT EXECUTION-VERIFIED** — no dart/flutter toolchain was
+available where they were written, so nothing here has been run against a live
+pair. The name/registry contracts ARE machine-checked
+(`fixture_c_unified_runner_regression.sh`: scenario-name drift, the
+fall-through guard, the SKIP/flaky tallies), and the geometry thresholds are
+derived from the widget source (`add_friend_dialog.dart` /
+`add_group_dialog.dart` caps, `AppSpacing.xl/lg` paddings), not measured.
+Android additionally has **never reached the business layer** in this harness
+(no `pair.json` under `tool/mcp_test/.android_runtime`; the logs stop at EGL),
+so `rui-android-*` must not be reported as passing until a two-emulator run
+lands.
+
+### Still not covered on mobile (deliberate, with reasons)
+
+- **Mobile voice message (hold-to-record mic).** The mic affordance is a
+  `Listener(onPointerDown/onPointerUp)` with no ValueKey and no L3 seam, and it
+  needs a real microphone permission grant on the device. `ui_long_press` could
+  synthesize the hold, but nothing in the tree can be targeted by key and the
+  recorded artefact cannot be asserted — left uncovered rather than faked.
+- **Mobile attachment/photo sheet.** Ends in an OS picker (the same seam the
+  `rui-native-boundary-guards` sweep already documents as a SKIP on desktop);
+  the mobile picker has no L3 path-injection equivalent.
+- **Swipe actions / pull-to-refresh on the conversation list.** `ui_drag` can
+  synthesize the gesture, but toxee's conversation row exposes no keyed swipe
+  affordance to assert against, so a "gesture ran" check would assert nothing.
+- **Bottom-nav re-tap scroll-to-top.** The handler exists
+  (`TencentCloudChatConversationController.scrollToTop`) but there is no
+  scroll-offset signal in `l3_dump_state`, so the effect is unobservable.
+- **Landscape / rotation behaviour.** No launcher rotates a simulator and there
+  is no in-app orientation seam; rotating would also require re-deriving the
+  dialog-tier expectations (see the ambiguity note above).
 
 ## Direct driver (low-level / debugging)
 
@@ -372,7 +491,7 @@ Representative catalog buckets:
 - `all-*`: end-to-end smoke bundles such as `all-current` and `all-expanded`.
 
 That "codified" claim is about manifest/planner/dry-run semantics and the
-discoverable scheduler catalog. It does **not** mean all 42 campaign branches
+discoverable scheduler catalog. It does **not** mean all 100 campaign branches
 have already been repeatedly dogfooded live. Today the continued live
 confidence is:
 

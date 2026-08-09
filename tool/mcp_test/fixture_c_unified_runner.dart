@@ -17,7 +17,7 @@ usage: fixture_c_unified_runner.dart [--tier=non-media|media|all]
        [--real-ui-campaign=<name>[,<name>]] [--include-destructive]
        [--real-ui-platform=macos|ios|android|windows|linux]
        [--list|--plan-json|--dry-run|--validate-only]
-       [--list-real-ui-campaigns]
+       [--list-real-ui-campaigns] [--fail-on-skip] [--fail-on-flaky]
 
 Hermetic modes:
   --list               print filtered manifest entries
@@ -27,6 +27,14 @@ Hermetic modes:
 
 Live execution:
   (no mode flags)      execute the grouped plan
+
+Accountability gates (both OFF by default; a live run always PRINTS the
+real-UI summary of passed / skipped / flaky scenarios):
+  --fail-on-skip       exit 1 when any real-UI scenario returned SKIP (75).
+                       A skipped scenario asserted NOTHING, so an all-SKIP
+                       chain must not be reported as green.
+  --fail-on-flaky      exit 1 when a real-UI scenario failed its first attempt
+                       and only passed after the automatic fresh-launch retry.
 
 Real-UI helpers:
   --real-ui-scenario=handshake,message
@@ -177,6 +185,35 @@ String? _forcedIosDeviceType;
 /// the runner does not tally a SKIP as a PASS. EX_NOPERM-adjacent; arbitrary but
 /// reserved here.
 const _realUiSkipExitCode = 75;
+
+// ---------------------------------------------------------------------------
+// Real-UI outcome tallies (accountability for the final summary).
+//
+// Two mechanisms used to make a green run meaningless:
+//   1. A SKIP was `continue`d with a single stdout line and NO counter, so a
+//      chain whose every scenario skipped still exited 0 and read as a pass.
+//   2. Every scenario got a silent second attempt (see [_maxRealUiAttempts]),
+//      and a first-attempt failure that later passed left no trace at all — a
+//      50%-flaky scenario reported pure green ~75% of the time.
+// These lists make both visible in the end-of-run summary; `--fail-on-skip` /
+// `--fail-on-flaky` turn them into hard gates (both default OFF so existing
+// callers keep their current exit-code semantics).
+// ---------------------------------------------------------------------------
+
+/// Real-UI scenarios that returned [_realUiSkipExitCode].
+final List<String> _realUiSkippedScenarios = <String>[];
+
+/// `"<scenario> (rc=<first-attempt exit code>)"` for every scenario whose FIRST
+/// attempt failed, whether or not a retry later rescued it.
+final List<String> _realUiFirstAttemptFailures = <String>[];
+
+/// Subset of [_realUiFirstAttemptFailures] that PASSED on a retry — i.e. the
+/// scenarios whose green result is only true on the second look.
+final List<String> _realUiFlakyScenarios = <String>[];
+
+/// Real-UI scenarios that passed (on any attempt).
+final List<String> _realUiPassedScenarios = <String>[];
+
 const _validRealUiScenarios = {
   'handshake',
   'message',
@@ -471,6 +508,24 @@ const _validRealUiScenarios = {
   // message_burst_perf; ar_rtl_smoke runs as a hermetic Flutter test.
   'sweep_p3_writable',
   'message_burst_perf',
+  // FORM-FACTOR cases (mobile shell / tablet layout). These are the first
+  // scenarios that drive controls which exist ONLY on the mobile shell (bottom
+  // navigation, the mobile composer send button, the long-press message menu)
+  // or assert the tablet-only master-detail split — the `rui-ios-*`/`rui-ipad-*`
+  // campaigns before them only RE-RAN the desktop sweeps on a smaller screen.
+  // Each case detects its layout tier from live signals (`home_bottom_nav`
+  // onstage / `homeShellShouldShowMasterDetail`) and SKIPs (exit 75) when the
+  // running shell has no such surface, so the same scenario list is safe to
+  // point at any platform. sweep_mobile_shell chains the phone cases on one
+  // launch; sweep_tablet_layout chains the wide-layout ones.
+  'sweep_mobile_shell',
+  'sweep_tablet_layout',
+  'mobile_bottom_nav_tab_switch',
+  'mobile_composer_send_button_reveals',
+  'mobile_composer_send_delivers',
+  'mobile_message_long_press_menu',
+  'tablet_master_detail_row_opens_chat',
+  'dialog_width_form_factor_tier',
 };
 const _realUiCampaigns = <String, List<String>>{
   // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
@@ -558,11 +613,18 @@ const _realUiCampaigns = <String, List<String>>{
   // on the macOS-only restored Fixture C pair.
   'rui-ios-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
   'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
+  // PHONE-shell exclusive controls (bottom nav, mobile composer send button,
+  // long-press message menu) + the compact dialog-width tier. Deliberately NOT
+  // in the rui-ipad-* campaigns: on a tablet every case would SKIP (the wide
+  // shell renders the sidebar rail and the desktop composer), which would only
+  // inflate the skip tally.
+  'rui-mobile-shell': ['sweep_mobile_shell'],
   'rui-ios-main': [
     'sweep_login',
     'sweep_ios_settings_main',
     'sweep_chat',
     'sweep_group2',
+    'sweep_mobile_shell',
   ],
   // iPad true-App coverage: the SAME sweeps as the iPhone campaigns — the
   // sweeps already branch on the wide/tablet layout at runtime
@@ -572,11 +634,27 @@ const _realUiCampaigns = <String, List<String>>{
   // pair.sh then matches *iPad* simulators). Requires --real-ui-platform=ios.
   'rui-ipad-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
   'rui-ipad-chat-main': ['sweep_chat', 'sweep_group2'],
+  // TABLET-exclusive layout behaviour the shared sweeps never assert: the
+  // master-detail row->right-pane binding and the wide dialog-width tier.
+  // (Forces iPad simulators like every other rui-ipad-* campaign.)
+  'rui-ipad-layout': ['sweep_tablet_layout'],
   'rui-ipad-main': [
     'sweep_login',
     'sweep_ios_settings_main',
     'sweep_chat',
     'sweep_group2',
+    'sweep_tablet_layout',
+  ],
+  // Android true-App bundles. Same platform-agnostic sweeps; select with
+  // `--real-ui-platform=android` (the campaign name does not force it — only
+  // the rui-ipad-* device-type override does). UNVALIDATED: the Android pair
+  // has never reached the business layer in this harness, so treat a green
+  // result here as unproven until a two-emulator run lands.
+  'rui-android-mobile-shell': ['sweep_mobile_shell'],
+  'rui-android-main': [
+    'sweep_login',
+    'sweep_chat',
+    'sweep_mobile_shell',
   ],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
@@ -880,10 +958,74 @@ Future<int> _run(List<String> args) async {
   }
 
   try {
-    return await _executePlan(plan);
+    final rc = await _executePlan(plan);
+    return _finishRealUiRun(rc, opts);
   } catch (e, st) {
     stderr.writeln('[unified] execution failed: $e\n$st');
+    _printRealUiSummary();
     return 1;
+  }
+}
+
+/// Print the real-UI accountability summary and apply the opt-in SKIP / flaky
+/// gates. Called on every live-execution exit path so a run can never end
+/// without the reader being told what was skipped or retried.
+int _finishRealUiRun(int rc, _Options opts) {
+  _printRealUiSummary();
+  if (rc != 0) {
+    return rc;
+  }
+  if (opts.failOnSkip && _realUiSkippedScenarios.isNotEmpty) {
+    stderr.writeln(
+      '[unified] FAIL (--fail-on-skip): '
+      '${_realUiSkippedScenarios.length} real-UI scenario(s) skipped: '
+      '${_realUiSkippedScenarios.join(', ')}',
+    );
+    return 1;
+  }
+  if (opts.failOnFlaky && _realUiFlakyScenarios.isNotEmpty) {
+    stderr.writeln(
+      '[unified] FAIL (--fail-on-flaky): '
+      '${_realUiFlakyScenarios.length} real-UI scenario(s) only passed on a '
+      'retry: ${_realUiFlakyScenarios.join(', ')}',
+    );
+    return 1;
+  }
+  return 0;
+}
+
+void _printRealUiSummary() {
+  final touched =
+      _realUiPassedScenarios.length +
+      _realUiSkippedScenarios.length +
+      _realUiFirstAttemptFailures.length;
+  if (touched == 0) {
+    // No real-UI scenario ran (pure Fixture C / l3 invocation) — stay quiet.
+    return;
+  }
+  stdout.writeln(
+    '[unified] real-UI summary: passed=${_realUiPassedScenarios.length} '
+    'skipped=${_realUiSkippedScenarios.length} '
+    'flaky=${_realUiFlakyScenarios.length} '
+    'first-attempt-failures=${_realUiFirstAttemptFailures.length}',
+  );
+  if (_realUiSkippedScenarios.isNotEmpty) {
+    stdout.writeln(
+      '[unified] real-UI SKIPPED (asserted nothing): '
+      '${_realUiSkippedScenarios.join(', ')}',
+    );
+  }
+  if (_realUiFirstAttemptFailures.isNotEmpty) {
+    stdout.writeln(
+      '[unified] real-UI FIRST-ATTEMPT FAILURES: '
+      '${_realUiFirstAttemptFailures.join(', ')}',
+    );
+  }
+  if (_realUiFlakyScenarios.isNotEmpty) {
+    stdout.writeln(
+      '[unified] real-UI FLAKY (green only after a retry): '
+      '${_realUiFlakyScenarios.join(', ')}',
+    );
   }
 }
 
@@ -902,6 +1044,8 @@ class _Options {
     required this.realUiScenarios,
     required this.realUiCampaigns,
     required this.realUiPlatform,
+    required this.failOnSkip,
+    required this.failOnFlaky,
     this.error,
   });
 
@@ -918,6 +1062,14 @@ class _Options {
   final List<String> realUiScenarios;
   final List<String> realUiCampaigns;
   final String realUiPlatform;
+
+  /// Opt-in gate: exit non-zero when any real-UI scenario SKIPped. Default OFF
+  /// so every existing caller keeps its current exit-code contract; CI chains
+  /// that must not silently degrade into "0 assertions executed" pass it.
+  final bool failOnSkip;
+
+  /// Opt-in gate: exit non-zero when a real-UI scenario only passed on a retry.
+  final bool failOnFlaky;
   final String? error;
 
   static _Options parse(List<String> args) {
@@ -929,6 +1081,8 @@ class _Options {
     var validateOnly = false;
     var showUsage = false;
     var listRealUiCampaigns = false;
+    var failOnSkip = false;
+    var failOnFlaky = false;
     final classFilter = <String>{};
     final idFilter = <String>{};
     final realUiScenarios = <String>[];
@@ -947,6 +1101,10 @@ class _Options {
         dryRun = true;
       } else if (arg == '--validate-only') {
         validateOnly = true;
+      } else if (arg == '--fail-on-skip') {
+        failOnSkip = true;
+      } else if (arg == '--fail-on-flaky') {
+        failOnFlaky = true;
       } else if (arg.startsWith('--tier=')) {
         tier = arg.substring('--tier='.length);
       } else if (arg.startsWith('--class=')) {
@@ -1016,6 +1174,8 @@ class _Options {
       realUiScenarios: realUiScenarios,
       realUiCampaigns: realUiCampaigns,
       realUiPlatform: realUiPlatform,
+      failOnSkip: failOnSkip,
+      failOnFlaky: failOnFlaky,
       error: error,
     );
   }
@@ -1789,6 +1949,19 @@ String _requiredRealUiState(String scenario) {
     case 'sweep_p2_verify':
     // P1/P2/P3 Batch VIII — sweep_p3_writable runs its OWN handshake.
     case 'sweep_p3_writable':
+    // Form-factor cases: each sweep (and each friendship-dependent case)
+    // establishes the A<->B friendship ITSELF and reuses an existing one, so a
+    // fresh no-friend pair launch is enough and no paired_for_e2e restore is
+    // required — which also keeps them runnable on Android, whose restore path
+    // is implemented but not yet live-validated.
+    case 'sweep_mobile_shell':
+    case 'sweep_tablet_layout':
+    case 'mobile_bottom_nav_tab_switch':
+    case 'mobile_composer_send_button_reveals':
+    case 'mobile_composer_send_delivers':
+    case 'mobile_message_long_press_menu':
+    case 'tablet_master_detail_row_opens_chat':
+    case 'dialog_width_form_factor_tier':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -1944,6 +2117,15 @@ String _resultRealUiState(String scenario) {
     // P1/P2/P3 Batch VIII — burst perf keeps the existing friendship.
     case 'sweep_p3_writable':
     case 'message_burst_perf':
+    // Form-factor sweeps + their friendship-dependent cases END FRIENDS: they
+    // establish the A<->B relationship once and never delete it (they send a
+    // message, open the menu, or bind the master-detail pane).
+    case 'sweep_mobile_shell':
+    case 'sweep_tablet_layout':
+    case 'mobile_composer_send_button_reveals':
+    case 'mobile_composer_send_delivers':
+    case 'mobile_message_long_press_menu':
+    case 'tablet_master_detail_row_opens_chat':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
     case 'relaunch_history_autologin':
@@ -2071,6 +2253,10 @@ String _resultRealUiState(String scenario) {
     case 'mobile_smoke_playbook_guard':
     // A-only optimized bundle leaves the pair friendship state untouched.
     case 'sweep_single_app_optimized':
+    // Form-factor cases that drive A ONLY (the bottom-nav tab walk and the
+    // dialog width tier) never form or delete a friendship.
+    case 'mobile_bottom_nav_tab_switch':
+    case 'dialog_width_form_factor_tier':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -2399,10 +2585,21 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
       // on without updating pairState (the scenario did nothing). Without this,
       // a SKIP returning 0 would be tallied upstream as a PASS.
       if (rc == _realUiSkipExitCode) {
+        // Counted (not just logged) so the end-of-run summary can name it and
+        // `--fail-on-skip` can gate on it. A skipped scenario asserted NOTHING.
+        _realUiSkippedScenarios.add(scenario);
         stdout.writeln(
           '[unified] SKIP real-ui scenario "$scenario" (surface n/a)',
         );
         continue;
+      }
+      // Record the FIRST-attempt failure before any retry can erase it from the
+      // report. The retry itself is kept (a live P2P handshake genuinely races),
+      // but a scenario that only passes on the second try is now named in the
+      // summary as flaky instead of being indistinguishable from a clean pass.
+      final firstAttemptRc = rc;
+      if (rc != 0) {
+        _realUiFirstAttemptFailures.add('$scenario (rc=$firstAttemptRc)');
       }
       if (rc != 0 && resetApplied) {
         rc = await _retryRealUiScenarioFromFreshLaunch(
@@ -2431,9 +2628,33 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
           attempts: _maxRealUiAttempts(requiredState) - 1,
         );
       }
+      if (rc == 78) {
+        return rc;
+      }
+      // A retry can also come back as a SKIP (the fresh launch discovered the
+      // surface is unavailable). Tally it as a SKIP rather than letting the
+      // `rc != 0` return below report it as a hard failure.
+      if (rc == _realUiSkipExitCode) {
+        _realUiSkippedScenarios.add(scenario);
+        stdout.writeln(
+          '[unified] SKIP real-ui scenario "$scenario" '
+          '(surface n/a, after retry)',
+        );
+        continue;
+      }
       if (rc != 0) {
         return rc;
       }
+      if (firstAttemptRc != 0) {
+        _realUiFlakyScenarios.add(
+          '$scenario (first attempt rc=$firstAttemptRc)',
+        );
+        stdout.writeln(
+          '[unified] FLAKY real-ui scenario "$scenario": failed with '
+          'rc=$firstAttemptRc, passed on retry',
+        );
+      }
+      _realUiPassedScenarios.add(scenario);
       pairState = _resultRealUiState(scenario);
       pairNeedsRestoreBoot = false;
       previousScenario = scenario;
@@ -2446,14 +2667,24 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
   }
 }
 
+/// Total attempts (initial + retries) allowed for a real-UI scenario.
+///
+/// The old shape (`if no-friend -> 2; if friends -> 2; return 1`) LOOKED like a
+/// selective retry policy but the trailing `return 1` was dead code:
+/// [_requiredRealUiState] only ever returns [_realUiStateNoFriend] or
+/// [_realUiStateFriends] and throws for anything else, so every scenario always
+/// got a free second attempt whose first failure vanished from the report. The
+/// retry is deliberately kept (live P2P handshakes race), but it is now recorded
+/// — see [_realUiFirstAttemptFailures] / [_realUiFlakyScenarios] — and the
+/// unreachable fallback is replaced by an explicit assertion so a future third
+/// state fails loudly instead of silently losing its retry.
 int _maxRealUiAttempts(String requiredState) {
-  if (requiredState == _realUiStateNoFriend) {
-    return 2;
+  switch (requiredState) {
+    case _realUiStateNoFriend:
+    case _realUiStateFriends:
+      return 2;
   }
-  if (requiredState == _realUiStateFriends) {
-    return 2;
-  }
-  return 1;
+  throw ArgumentError('unknown real-UI required state: $requiredState');
 }
 
 Future<int> _retryRealUiScenarioFromFreshLaunch({

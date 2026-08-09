@@ -65,7 +65,10 @@ part of 'drive_real_ui_pair.dart';
 //          (ffi_chat_service.dart:893-906 — read barrier + local isRead, no
 //          _sendReceipt). sendMessageReadReceipts fires only for GROUPS with
 //          needReadReceipt (separate_data :916-927). markC2CMessageAsRead has
-//          NO UI-path caller. l3_mark_read calls setActivePeer (local-only).
+//          NO UI-path caller. l3_mark_read now drives that SAME
+//          cleanConversationUnreadMessageCount path (it used to call
+//          setActivePeer, a different function) — still local-only, so the
+//          conclusion below is unchanged: no read receipt reaches the peer.
 //      (b) Even the receipt MATCHING cannot correlate: receipts carry the
 //          RECEIVER's locally generated msgID (`${ms}_${seq}_${from}`,
 //          ffi_chat_service.dart:1774-1777) and `_handleReceipt` requires an

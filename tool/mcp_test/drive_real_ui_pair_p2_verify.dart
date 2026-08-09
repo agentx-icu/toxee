@@ -3,6 +3,12 @@ part of 'drive_real_ui_pair.dart';
 
 const _p2VerifyCases = {'paste_image_into_composer'};
 
+/// Mirrors the runner's `_realUiSkipExitCode == 75`; redeclared here so this
+/// part file does not depend on the runner. Returned when a P2-verify case has
+/// NO surface on the current platform — a SKIP, which must never be conflated
+/// with a FAIL (see [_p2vPasteImageIntoComposer]).
+const _realUiSkipExitCodeP2Verify = 75;
+
 bool _isP2VerifyCaseScenario(String scenario) =>
     _p2VerifyCases.contains(scenario);
 
@@ -35,7 +41,11 @@ Future<int> runP2VerifyCase(
     if (!friended) return 1;
   }
 
-  final ok = switch (scenario) {
+  // Tri-state: null = SKIP (no surface on this platform) -> exit 75, true =
+  // PASS -> 0, false = FAIL -> 1. Previously the platform guard returned false,
+  // so every non-macOS/Windows run reported a permanent FAIL for a case that
+  // simply cannot exist there.
+  final bool? ok = switch (scenario) {
     'paste_image_into_composer' => await _p2vPasteImageIntoComposer(
       a,
       b,
@@ -44,6 +54,10 @@ Future<int> runP2VerifyCase(
     ),
     _ => throw ArgumentError('unsupported P2 verify case: $scenario'),
   };
+  if (ok == null) {
+    print('[pair] SKIP: $scenario (surface unavailable on this platform)');
+    return _realUiSkipExitCodeP2Verify;
+  }
   print('[pair] ${ok ? 'PASS' : 'FAIL'}: $scenario');
   return ok ? 0 : 1;
 }
@@ -68,20 +82,27 @@ Future<int> runP2VerifySweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var passed = 0;
   var failed = 0;
-  const skipped = 0;
+  // `skipped` was a `const 0` — the sweep literally could not report a skip, so
+  // the platform guard's `false` was counted as a real failure. It is a live
+  // counter now, and an all-skipped sweep exits 75 (SKIP) instead of 0 (a green
+  // report for zero executed assertions).
+  var skipped = 0;
   // Windows now stages the image through the production paste handler via the
   // l3_paste_image fork hook (the OS clipboard + Ctrl+V remain undrivable
   // headless, but the same sendImageOnDesktop path runs), so the case is no
   // longer skipped — it runs on both platforms.
   try {
     final ok = await _p2vPasteImageIntoComposer(a, b, toxA, toxB);
-    if (ok) {
+    if (ok == null) {
+      skipped++;
+    } else if (ok) {
       passed++;
     } else {
       failed++;
     }
     print(
-      '[sweep] sweep_p2_verify ${ok ? 'PASS' : 'FAIL'}: '
+      '[sweep] sweep_p2_verify '
+      '${ok == null ? 'SKIP' : (ok ? 'PASS' : 'FAIL')}: '
       'paste_image_into_composer',
     );
   } on Object catch (e, st) {
@@ -94,21 +115,44 @@ Future<int> runP2VerifySweep(Inst a, Inst b, String nickA, String nickB) async {
       'skipped=$skipped');
   await returnToChatsHome(a, rounds: 4);
   await returnToChatsHome(b, rounds: 4);
-  return failed == 0 ? 0 : 1;
+  if (failed > 0) return 1;
+  // Nothing actually ran -> SKIP, not PASS.
+  if (passed == 0 && skipped > 0) return _realUiSkipExitCodeP2Verify;
+  return 0;
 }
 
 /// P2#6 — put a real PNG image on the macOS clipboard, focus the real desktop
 /// composer, drive Cmd+V through the production RawKeyEvent paste handler, and
 /// confirm the real desktop image-send popup.
-Future<bool> _p2vPasteImageIntoComposer(
+///
+/// Tri-state result: `null` = SKIP (no desktop clipboard/paste surface on this
+/// platform), `true` = PASS, `false` = FAIL.
+Future<bool?> _p2vPasteImageIntoComposer(
   Inst a,
   Inst b,
   String toxA,
   String toxB,
 ) async {
-  if (!Platform.isMacOS && !_isWindowsRealUi) {
-    print('[pair] paste_image_into_composer: macOS/Windows clipboard seeding only');
-    return false;
+  // Platform gate. The case needs a DESKTOP clipboard/paste surface: macOS (the
+  // host seeds the real clipboard via osascript and drives a real Cmd+V) or the
+  // Windows real-UI platform (l3_paste_image stages through the same production
+  // sendImageOnDesktop handler). iOS / Android / Linux peers have no such
+  // surface at all.
+  //
+  // This used to `return false` here, which callers reported as a FAIL — a
+  // permanent, unfixable red that constantly depressed the Linux/Android/iOS
+  // pass rate for a case that simply cannot run there. It is a SKIP.
+  // The check is now TARGET-aware too: `Platform.isMacOS` describes the DRIVER
+  // HOST, and the iOS/Android launchers drive from a macOS host, so the old
+  // host-only check let those platforms fall through into the osascript path.
+  final hasDesktopPasteSurface =
+      (Platform.isMacOS && a.platform == 'macos') || _isWindowsRealUi;
+  if (!hasDesktopPasteSurface) {
+    print(
+      '[pair] paste_image_into_composer: SKIP — no desktop clipboard/paste '
+      'surface for peer platform "${a.platform}" (macOS/Windows only)',
+    );
+    return null;
   }
   if (!await _ensureChatOpen(a, toxB)) {
     return false;

@@ -12,10 +12,22 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'dart:async';
+import 'dart:io';
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
-Future<int> main(List<String> args) async {
+// The Dart VM DISCARDS whatever `main` returns — the process exit code comes
+// only from the global `exitCode` or from `exit()`. This file used to declare
+// `Future<int> main(...)`, so every `return 64` / `return 1` below was a no-op
+// and the process always exited 0. `run_fixture_c_call.sh` runs under
+// `set -euo pipefail`, so a 0 exit made it unconditionally print "PASS" —
+// S65/S66/S67/S68/S74/S75/S76 could never fail. Route through `exitCode`, the
+// same idiom the other 26 drive_fixture_c_*.dart drivers use.
+Future<void> main(List<String> args) async {
+  exitCode = await _main(args);
+}
+
+Future<int> _main(List<String> args) async {
   if (args.length < 2) {
     print(
       'usage: drive_fixture_c_call.dart <ws_uri_A> <ws_uri_B> '
