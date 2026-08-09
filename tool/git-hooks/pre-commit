@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# pre-commit hook — refuse to commit secret-bearing test fixtures.
+#
+# tool/mcp_test/check_no_secrets_staged.sh has existed (and been complete) for a
+# while, but nothing ever invoked it: `git grep check_no_secrets_staged` returned
+# only the script itself, tool/git-hooks/ held just `pre-push`, and
+# tool/install_git_hooks.sh only sets core.hooksPath. So the guard against
+# committing Tox `.tox` profile blobs (which contain PRIVATE KEYS) and the
+# paired_for_e2e / echo-peer fixture trees was dead. This wires it up.
+#
+# The checker reads the staged index (`git diff --cached`), so pre-commit is the
+# correct hook — at pre-push time there is nothing staged to inspect.
+#
+# Bypass intentionally with `git commit --no-verify`.
+#
+# Compatible with bash 3.2 (macOS default).
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+CHECKER="$ROOT/tool/mcp_test/check_no_secrets_staged.sh"
+
+if [ ! -f "$CHECKER" ]; then
+  echo "pre-commit: $CHECKER missing; skipping staged-secret check." >&2
+  exit 0
+fi
+
+# Invoked via `bash` rather than executed directly: this repo is routinely
+# checked out on share/VM mounts that drop the execute bit (which is also why
+# such clones want `git config core.filemode false`).
+if ! bash "$CHECKER"; then
+  echo "pre-commit: refusing to commit — see the offending paths above." >&2
+  echo "pre-commit: override with 'git commit --no-verify' if you are certain." >&2
+  exit 1
+fi
+
+exit 0
