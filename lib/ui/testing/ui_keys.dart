@@ -207,6 +207,24 @@ class UiKeys {
   static const Key settingsMobileSectionBackButton = Key(
     'settings_mobile_section_back_button',
   );
+  static const Key settingsMobileProfileTile = Key(
+    'settings_mobile_profile_tile',
+  );
+  static const Key settingsMobileAccountInfoSection = Key(
+    'settings_mobile_account_info_section',
+  );
+  static const Key settingsMobileAccountManagementSection = Key(
+    'settings_mobile_account_management_section',
+  );
+  static const Key settingsMobileAppearanceSection = Key(
+    'settings_mobile_appearance_section',
+  );
+  static const Key settingsMobileGeneralSection = Key(
+    'settings_mobile_general_section',
+  );
+  static const Key settingsMobileBootstrapSection = Key(
+    'settings_mobile_bootstrap_section',
+  );
   static const Key settingsExportAccountButton = Key(
     'settings_export_account_button',
   );
