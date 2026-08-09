@@ -31,6 +31,34 @@ import '../util/tox_utils.dart';
 /// re-pushes into the native map so the SDK / toggle reflect the persisted mute
 /// after a restart). Prefs is persistence only — runtime reads come from here, so
 /// `_mapConv` never treats Prefs as an alternate source of truth.
+///
+/// ID REPRESENTATION (two different normalisations, on purpose):
+///   * The in-memory key is [toToxPublicKey] — lower-cased, first 64 chars — so
+///     a 76-char address and a 64-char public key share one runtime bucket.
+///   * The DURABLE key handed to `Prefs.*C2CReceiveMessageOpt` is
+///     [normalizeToxId] (first 64 chars, CASE PRESERVED). It has to be, because
+///     the platform paths address the same SharedPreferences entry from the raw
+///     id: `Tim2ToxSdkPlatform.setC2CReceiveMessageOpt` (WRITE) and
+///     `tim2tox_sdk_platform_converters._mapConv` (READ, keyed on
+///     `conversationID.replaceFirst('c2c_', '')`) both go through
+///     `SharedPreferencesAdapter`, which embeds the id verbatim. Truncating
+///     here matches them byte-for-byte; lower-casing here would silently
+///     address a different entry.
+///
+/// Why case is NOT normalised anywhere (audited 2026-08-08): every id producer
+/// feeding these keys emits UPPERCASE hex — `%02X` in
+/// `V2TIMFriendshipManagerImpl` (friend userIDs),
+/// `V2TIMConversationManagerImpl` (the `c2c_<pubkey>` conversation ID), and
+/// `ToxUtil.h` / `ToxUtils.h`. The `%02x` sites in the C++ tree encode
+/// custom-elem payload bytes, DHT node public keys, and an internal group
+/// chat-id compared with `strncasecmp`; none of them ever surfaces as a
+/// `userID` or `groupID` here. There is no case split to repair, so folding
+/// case would only orphan every existing entry and force a needless migration.
+/// The key builders themselves are shared between the two Dart addressers —
+/// see `c2cRecvOptPrefsKey` / `groupRecvOptPrefsKey` in
+/// `lib/util/prefs/scoped_key.dart`. Note tim2tox never builds these key
+/// strings; it only calls the injected `ExtendedPreferencesService`, so the
+/// on-disk shape is owned entirely by toxee.
 class C2CRecvOptCache {
   C2CRecvOptCache._();
 
@@ -45,6 +73,22 @@ class C2CRecvOptCache {
   static final Set<String> _repushPending = {};
 
   static String _pk(String userID) => toToxPublicKey(userID);
+
+  /// Durable-store id for [userID] — see the class doc: 64-char truncation
+  /// with the case left alone, matching how every other reader/writer of the
+  /// `c2c_recv_opt_*` key derives it.
+  static String _prefsId(String userID) => normalizeToxId(userID);
+
+  /// The pre-normalisation representation, when it differs from [_prefsId].
+  ///
+  /// Builds before this normalisation existed persisted straight through
+  /// whatever the caller passed, so a caller that hands us a full 76-char Tox
+  /// address may still have an entry parked under that longer key. Returns
+  /// null when there is nothing extra to look at.
+  static String? _legacyPrefsId(String userID, String prefsId) {
+    final raw = userID.trim();
+    return raw == prefsId ? null : raw;
+  }
 
   /// Current opt for [userID] (0 = receive, 1 = no-notify, 2 = mute). Synchronous.
   static int optFor(String userID) {
@@ -70,7 +114,16 @@ class C2CRecvOptCache {
       String userID, int opt, String? selfToxId) async {
     if (userID.isEmpty) return;
     _cache[_pk(userID)] = opt;
-    await Prefs.setC2CReceiveMessageOpt(userID, opt, selfToxId);
+    final id = _prefsId(userID);
+    await Prefs.setC2CReceiveMessageOpt(id, opt, selfToxId);
+    final legacy = _legacyPrefsId(userID, id);
+    if (legacy != null) {
+      // Drop any entry an older build parked under the un-truncated id.
+      // Without this an un-mute (which only removes `id`) would leave the
+      // stale non-zero value behind and hydration would resurrect the mute on
+      // the next launch.
+      await Prefs.setC2CReceiveMessageOpt(legacy, 0, selfToxId);
+    }
   }
 
   /// True if the projection already has an entry for [userID] (hydrated or
@@ -103,7 +156,24 @@ class C2CRecvOptCache {
   /// hydration paths retry later. Returns the opt.
   static Future<int> hydrateFromPrefs(String userID, String? selfToxId) async {
     if (userID.isEmpty) return 0;
-    final opt = await Prefs.getC2CReceiveMessageOpt(userID, selfToxId);
+    final id = _prefsId(userID);
+    var opt = await Prefs.getC2CReceiveMessageOpt(id, selfToxId);
+    if (opt == 0) {
+      final legacy = _legacyPrefsId(userID, id);
+      if (legacy != null) {
+        final legacyOpt =
+            await Prefs.getC2CReceiveMessageOpt(legacy, selfToxId);
+        if (legacyOpt != 0) {
+          // Adopt AND migrate: the platform read path
+          // (tim2tox_sdk_platform_converters) only ever looks at the truncated
+          // id, so leaving the value under the long key would keep the mute
+          // invisible to V2TimConversation.recvOpt.
+          opt = legacyOpt;
+          await Prefs.setC2CReceiveMessageOpt(id, legacyOpt, selfToxId);
+          await Prefs.setC2CReceiveMessageOpt(legacy, 0, selfToxId);
+        }
+      }
+    }
     final pk = _pk(userID);
     _cache[pk] = opt;
     if (opt != 0 && opt < ReceiveMsgOptEnum.values.length) {
@@ -132,8 +202,14 @@ class C2CRecvOptCache {
     return opt;
   }
 
+  /// Reset ALL static state. `_repushPending` has to go too: it is the other
+  /// half of [needsHydration], so a leftover entry would make a peer look like
+  /// it still needs hydrating in a later test that never hydrated it.
   @visibleForTesting
-  static void debugClear() => _cache.clear();
+  static void debugClear() {
+    _cache.clear();
+    _repushPending.clear();
+  }
 
   @visibleForTesting
   static Map<String, int> debugSnapshot() => Map.unmodifiable(_cache);
