@@ -12,7 +12,7 @@ bool _isP1ExtraCaseScenario(String scenario) =>
 
 Future<int> runP1ExtraCase(Inst a, String nickA, String scenario) async {
   await ensureHome(a, nickA);
-  var ok = false;
+  bool? ok;
   try {
     ok = switch (scenario) {
       'ar_rtl_page_walk' => await _p1eArRtlPageWalk(a),
@@ -23,17 +23,29 @@ Future<int> runP1ExtraCase(Inst a, String nickA, String scenario) async {
   } finally {
     await _p1eNormalize(a);
   }
-  print('[pair] ${ok ? 'PASS' : 'FAIL'}: $scenario');
-  return ok ? 0 : 1;
+  print(
+    '[pair] ${ok == null
+        ? 'SKIP'
+        : ok
+        ? 'PASS'
+        : 'FAIL'}: $scenario',
+  );
+  return switch (ok) {
+    true => 0,
+    false => 1,
+    null => 75,
+  };
 }
 
 Future<int> runP1ExtraSweep(Inst a, String nickA) async {
   await ensureHome(a, nickA);
   var passed = 0;
   var failed = 0;
+  var skipped = 0;
+  var unexpectedSkipped = 0;
 
-  Future<void> hard(String name, Future<bool> Function() body) async {
-    var ok = false;
+  Future<void> hard(String name, Future<bool?> Function() body) async {
+    bool? ok;
     try {
       ok = await body();
     } on PermissionBlockedError {
@@ -45,12 +57,21 @@ Future<int> runP1ExtraSweep(Inst a, String nickA) async {
     } finally {
       await _p1eNormalize(a);
     }
-    if (ok) {
+    if (ok == null) {
+      skipped++;
+      final expected =
+          name == 'keyboard_global_search_shortcut' && a.isMobileShell;
+      if (!expected) unexpectedSkipped++;
+      print(
+        '[sweep] sweep_p1_extra ${expected ? 'SKIP(platform-hidden)' : 'SKIP(unexpected)'}: $name',
+      );
+    } else if (ok) {
       passed++;
+      print('[sweep] sweep_p1_extra PASS: $name');
     } else {
       failed++;
+      print('[sweep] sweep_p1_extra FAIL: $name');
     }
-    print('[sweep] sweep_p1_extra ${ok ? 'PASS' : 'FAIL'}: $name');
   }
 
   await hard('ar_rtl_page_walk', () => _p1eArRtlPageWalk(a));
@@ -63,9 +84,9 @@ Future<int> runP1ExtraSweep(Inst a, String nickA) async {
   if (!endClean) failed++;
   print(
     '[sweep] sweep_p1_extra summary: passed=$passed failed=$failed '
-    'endClean=$endClean',
+    'skipped=$skipped endClean=$endClean',
   );
-  return failed == 0 ? 0 : 1;
+  return failed == 0 && unexpectedSkipped == 0 ? 0 : 1;
 }
 
 Future<bool> _p1eNormalize(Inst inst) async {
@@ -99,7 +120,7 @@ Future<bool> _p1eNormalize(Inst inst) async {
 /// case proves the real App shell can be driven into and out of Arabic.
 Future<bool> _p1eArRtlPageWalk(Inst inst) async {
   try {
-    await _openSettings(inst);
+    if (!await _p1OpenLanguageSettings(inst)) return false;
     await _scrollKeyIntoBand(
       inst,
       'settings_language_selector',
@@ -141,6 +162,7 @@ Future<bool> _p1eArRtlPageWalk(Inst inst) async {
       print('[pair] ar_rtl_page_walk: languageCode never became ar');
       return false;
     }
+    await _p1LeaveLanguageSettings(inst);
 
     await inst.foreground();
     final settingsAr =
@@ -162,6 +184,7 @@ Future<bool> _p1eArRtlPageWalk(Inst inst) async {
     await inst.shot('/tmp/ui_p1_extra_ar_rtl_${inst.name}.png');
 
     final reverted = await _p1RevertLocaleToEnglish(inst);
+    await _p1LeaveLanguageSettings(inst);
     await _openSettings(inst);
     final enBack =
         await inst.waitText('Appearance', timeoutSecs: 6) ||
@@ -196,7 +219,14 @@ Future<bool> _p1eArRtlPageWalk(Inst inst) async {
 /// type a no-hit query using the already-autofocused field, assert the real
 /// empty state, and record whether Escape alone dismissed the route. Cleanup may
 /// fall back to the keyed normalizer, but the asserted search path is keyboard.
-Future<bool> _p1eKeyboardGlobalSearchShortcut(Inst inst) async {
+Future<bool?> _p1eKeyboardGlobalSearchShortcut(Inst inst) async {
+  if (inst.isMobileShell) {
+    print(
+      '[pair] keyboard_global_search_shortcut: SKIP — desktop OS shortcut '
+      'is not constructible on a mobile shell',
+    );
+    return null;
+  }
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
   try {
