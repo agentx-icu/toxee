@@ -42,6 +42,19 @@ Future<bool> _openSelfProfile(Inst inst) async {
   for (var round = 0; round < 4; round++) {
     await inst.foreground();
     if (await inst.waitKey('profile_edit_toggle', timeoutSecs: 2)) return true;
+    if (inst.isMobileShell && !await _settingsIsWide(inst)) {
+      await _openSettings(inst);
+      final profileTileKey = 'settings_mobile_profile_tile';
+      final tappedByKey =
+          await inst.tapKeyCenter(profileTileKey, timeoutSecs: 4) ||
+          await inst.tryTapKey(profileTileKey, retries: 2);
+      if ((tappedByKey || await _tryTapText(inst, 'Profile')) &&
+          await inst.waitKey('profile_edit_toggle', timeoutSecs: 6)) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      continue;
+    }
     // The sidebar avatar lives in the persistent left rail on every home tab.
     // SINGLE-FIRE it (one coordinate tapAt): flutter_skill's `tap` double-fires
     // (synthetic pointer + a direct _tryInvokeCallback), and `_openProfile` →
@@ -361,7 +374,11 @@ Future<bool> _profileCopyToxIdSnackbar(Inst inst) async {
 /// in the live app (unlike a widget test), so we wait for it. On desktop the
 /// production `enableCopy` gate is true; on Android/iOS/Linux it is hidden — so
 /// this case is desktop-only by construction (the harness host is macOS).
-Future<bool> _profileQrCopy(Inst inst) async {
+Future<bool?> _profileQrCopy(Inst inst) async {
+  if (inst.isMobileShell || inst.isLinux) {
+    print('[pair] profile_qr_copy: SKIP — platform hides QR copy control');
+    return null;
+  }
   if (!await _openSelfProfile(inst)) {
     print('[pair] profile_qr_copy: overlay did not open');
     return false;
@@ -516,7 +533,8 @@ Future<void> _normalizeProfileBetweenCases(Inst inst) async {
 }
 
 /// sweep_profile — Batch 2: chain all 8 self-profile cases on ONE launch. Cases
-/// 13–18 are HARD gates; cases 19/20 drive the real avatar control with
+/// 13–17 are HARD gates; QR copy (18) is an expected platform SKIP where the
+/// production control is hidden. Cases 19/20 drive the real avatar control with
 /// deterministic fixed picker-path input and may SKIP only if the account cannot
 /// be test-marked. Order: open (13) → edit toggle roundtrip (14) → nickname
 /// edit+restore (15) → status edit+restore (16) → copy toxid (17) → QR copy (18)
@@ -567,10 +585,15 @@ Future<int> runProfileSweep(Inst inst, String nick) async {
       () => _profileAvatarSelectDefaultApplies(inst),
     ),
   ];
+  final expectedSkipReasons = <String, String>{
+    if (inst.isMobileShell || inst.isLinux)
+      'profile_qr_copy': 'platform-hidden',
+  };
 
   var passed = 0;
   var failed = 0;
   var skipped = 0;
+  var unexpectedSkipped = 0;
   for (final entry in cases) {
     bool? ok;
     String? failDetail;
@@ -584,7 +607,13 @@ Future<int> runProfileSweep(Inst inst, String nick) async {
     }
     if (ok == null) {
       skipped++;
-      print('[sweep] ${entry.key}: SKIP(test-account-mark-unavailable)');
+      final reason = expectedSkipReasons[entry.key];
+      if (reason == null) {
+        unexpectedSkipped++;
+        print('[sweep] ${entry.key}: SKIP(test-account-mark-unavailable)');
+      } else {
+        print('[sweep] ${entry.key}: SKIP($reason)');
+      }
     } else if (ok) {
       passed++;
       print('[sweep] ${entry.key}: PASS');
@@ -604,5 +633,5 @@ Future<int> runProfileSweep(Inst inst, String nick) async {
     '$skipped SKIP (${cases.length} total)',
   );
   await inst.shot('/tmp/ui_profile_sweep_${inst.name}.png');
-  return failed == 0 && skipped == 0 ? 0 : 1;
+  return failed == 0 && unexpectedSkipped == 0 ? 0 : 1;
 }

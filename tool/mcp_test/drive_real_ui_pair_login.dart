@@ -69,7 +69,7 @@ Future<String> _logoutToLoginPage(Inst inst) async {
     print('[pair] logout: no current toxId');
     return '';
   }
-  if (inst.isIos) {
+  if (inst.isMobileShell) {
     if (!await _openMobileAccountManagement(inst)) {
       print('[pair] logout: Account Management section did not open');
       return '';
@@ -83,7 +83,8 @@ Future<String> _logoutToLoginPage(Inst inst) async {
   // lands on nothing and the confirm dialog never opens ("logout: confirm
   // dialog did not open"). Scroll it into the visible band first, then
   // center-tap its resolved position (tryTapKey fallback).
-  if (!inst.isIos && !await _settingsScrollTo(inst, 'settings_logout_button')) {
+  if (!inst.isMobileShell &&
+      !await _settingsScrollTo(inst, 'settings_logout_button')) {
     print('[pair] logout: logout button not in band');
   }
   if (!await inst.tapKeyCenter('settings_logout_button', timeoutSecs: 6)) {
@@ -119,7 +120,7 @@ Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
   // platform-independent — a slower target just needs more attempts — so retry
   // the real card tap, and treat currentAccountToxId == toxId as success even if
   // the ready poll lagged.
-  final attempts = (_isWindowsRealUi || inst.isIos) ? 3 : 1;
+  final attempts = (_isWindowsRealUi || inst.isMobileShell) ? 3 : 1;
   for (var attempt = 0; attempt < attempts; attempt++) {
     final ok = await _quickLoginNoPasswordOnce(inst, toxId);
     if (ok) return true;
@@ -541,7 +542,7 @@ Future<bool> _registerPasswordStrengthFlips(Inst inst) async {
 /// direct off-screen `_tryInvokeCallback` fires exactly once). Returns whether
 /// the dialog's keyed field appeared.
 Future<bool> _openSetPasswordDialog(Inst inst) async {
-  if (inst.isIos) {
+  if (inst.isMobileShell) {
     if (!await _openMobileAccountManagement(inst)) {
       print('[pair] set_password: Account Management section did not open');
       return false;
@@ -549,7 +550,7 @@ Future<bool> _openSetPasswordDialog(Inst inst) async {
   } else {
     await _openSettings(inst);
   }
-  final onScreen = inst.isIos
+  final onScreen = inst.isMobileShell
       ? await inst.waitKey('settings_set_password_button', timeoutSecs: 4)
       : await _settingsScrollTo(inst, 'settings_set_password_button');
   if (onScreen) {
