@@ -20,24 +20,29 @@ import 'testing/ui_keys.dart';
 // TOX_MAX_FRIEND_REQUEST_LENGTH — used for both inline counter and validation.
 const int _kMaxFriendRequestLength = 921;
 
-// Per-form-factor dialog widths. The wider tablet/desktop caps let the long
-// Tox ID and the multi-line request message breathe instead of wrapping into
-// a tall, narrow column.
+// Per-form-factor dialog widths. The wider desktop cap lets the long Tox ID
+// and the multi-line request message breathe instead of wrapping into a tall,
+// narrow column.
+//
+// There are only TWO tiers here, by design. `ResponsiveLayout.isDesktop`
+// returns true for tablets as well (see its doc: "product direction: tablets
+// use the DESKTOP layout in every orientation"), so a tablet takes the desktop
+// branch. Earlier revisions had extra `isTabletLandscape` / `isTablet` branches
+// below the `isDesktop` check with a narrower 640 cap; they were unreachable
+// and are removed. If a narrower tablet dialog is ever wanted, that is a
+// product decision that must move the tablet checks ABOVE `isDesktop` and
+// update `test/ui/tablet/tablet_add_dialog_sizing_real_ui_test.dart`, which
+// pins the current desktop-cap behaviour on iPad viewports.
 const double _kMobileMaxDialogWidth = 480;
-const double _kTabletMaxDialogWidth = 640;
 const double _kDesktopMaxDialogWidth = 720;
 
 double _dialogMaxWidth(BuildContext context) {
   final w = MediaQuery.sizeOf(context).width;
+  // Desktop OS, tablet (any orientation), and wide web windows.
   if (ResponsiveLayout.isDesktop(context)) {
     return (w - 64).clamp(280.0, _kDesktopMaxDialogWidth);
   }
-  if (ResponsiveLayout.isTabletLandscape(context)) {
-    return (w - 48).clamp(280.0, _kDesktopMaxDialogWidth);
-  }
-  if (ResponsiveLayout.isTablet(context)) {
-    return (w - 48).clamp(280.0, _kTabletMaxDialogWidth);
-  }
+  // Phones and large phones (bottom-nav tier).
   return (w - 32).clamp(280.0, _kMobileMaxDialogWidth);
 }
 

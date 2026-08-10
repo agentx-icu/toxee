@@ -518,7 +518,12 @@ Future<int> runGroupConfDeepExtraSweep(
     '[sweep] sweep_group_conf_deep_extra summary: passed=$passed '
     'failed=$failed skipped=$skipped endFriends=$endFriends',
   );
-  return failed == 0 && endFriends ? 0 : 1;
+  // Same fix as sweep_native_boundary_guards: `skipped` never reached the exit
+  // code. endFriends stays a hard failure (it is a state-contract violation for
+  // whatever runs next), but an all-skipped run reports SKIP, not PASS.
+  if (failed > 0 || !endFriends) return 1;
+  if (passed == 0 && skipped > 0) return _realUiSkipExitCodeHighValue;
+  return 0;
 }
 
 Future<bool> _hveGroupMemberRoleReopenSurface(
@@ -930,7 +935,13 @@ Future<int> runNativeBoundaryGuardSweep(
     'failed=$failed skipped=$skipped results=$results '
     'endClean=$endClean endFriends=$endFriends',
   );
-  return failed == 0 ? 0 : 1;
+  // `skipped` was tallied and printed but never reached the exit code, so this
+  // sweep returned 0 — a full PASS to the unified runner — even when every one
+  // of its cases skipped. A sweep that asserted nothing must not look green:
+  // report SKIP (75) when nothing actually passed.
+  if (failed > 0) return 1;
+  if (passed == 0 && skipped > 0) return _realUiSkipExitCodeHighValue;
+  return 0;
 }
 
 Future<int> _hveSkip(String name, String reason) async {

@@ -43,9 +43,10 @@ Builds on S11 (open-conversation gesture) and S14 (restart-disk discipline). Loc
 - Negative grep post-Step-10: any `badge written: 1`/`2`/`3` (off-by-one or full bounce-back regression)
 
 ## Notes
-- The real "mark as read" path is `setActivePeer` → `markConversationViewed` (which `saveHistory`s synchronously when `updated==true`). UIKit's context-menu `cleanConversationUnreadMessageCount` is a Tim2Tox no-op today (`tim2tox_sdk_platform.dart:4209-4223`); context-menu variant should be marked expected-fail.
-- The toxee-owned context menu row now exposes `conversation_context_menu_mark_read_item`; the anchor is usable for UI automation, but the underlying Tim2Tox context-menu action is still the documented no-op/expected-fail path.
-- The toxee-owned conversation context menu now ships `UiKeys.conversationContextMenuMarkReadItem` as an anchor for that menu row, but the key only anchors discovery; it does not change the Tim2Tox no-op status above.
+- This scenario's "mark as read" is the OPEN-CONVERSATION path: `setActivePeer` → `markConversationViewed` (which `saveHistory`s synchronously when `updated==true`) and additionally sets `_activePeerId`, so later inbound for that peer stops counting as unread while it stays open.
+- There is a SECOND, distinct mark-read path — UIKit's conversation-row context-menu item → `cleanConversationUnreadMessageCount`. It is **no longer a no-op**: `Tim2ToxSdkPlatform` awaits `FfiChatService.markConversationRead` (`tim2tox_sdk_platform.dart:4423-4450` → `ffi_chat_service.dart:1315-1328`), which advances the same persisted read barrier and flags messages `isRead` but does NOT change `_activePeerId`. Any older note in this playbook calling it "a Tim2Tox no-op / expected-fail" is STALE. That path is S118's subject (group sibling: S133).
+- The toxee-owned context menu row exposes `UiKeys.conversationContextMenuMarkReadItem` (`conversation_context_menu_mark_read_item`) as the UI anchor for that second path; S19 itself does not tap it.
+- `l3_mark_read` drives the context-menu path (not `setActivePeer`), so it is the headless equivalent of S118, not of S19's Step-5 row tap.
 - `markConversationViewed` is `unawaited` in `setActivePeer`; in-memory `_unreadByPeer[id]=0` is sync, disk write follows ≤50ms — add 500ms buffer before SIGKILL for paranoia.
 - BadgeService debounce 200ms + same-value coalesce — only one `badge written: 0` per debounce window even if multiple emits queued.
 - Phone breakpoint (<720pt) hides sidebar; phone-S19 variant re-anchors A1+A5 on `bottomNavChatsUnreadBadge`.

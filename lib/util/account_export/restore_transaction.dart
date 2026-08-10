@@ -28,6 +28,59 @@ enum FullBackupRestoreFailurePoint {
   afterAccountRegistryVisible,
 }
 
+/// Which of the four directories a restore has to claim was already occupied.
+enum RestoreDestinationKind {
+  /// `<profileStorageRoot>/p_<prefix>` — the committed profile directory.
+  profileFinal,
+
+  /// `<appSupport>/account_data/<prefix>` — the committed account data root.
+  accountDataFinal,
+
+  /// The `.full_backup_restore_profile_*` staging sibling of [profileFinal].
+  profileStage,
+
+  /// The `.full_backup_restore_data_*` staging sibling of [accountDataFinal].
+  accountDataStage,
+}
+
+/// Thrown when a full-backup restore would have to overwrite a directory that
+/// already exists (pre-flight) or that appeared between pre-flight and the
+/// commit rename (TOCTOU defence in depth).
+///
+/// PRIVACY — read this before "improving" the message by adding the path back.
+/// All four destinations are derived from the account's own identity:
+/// `AppPaths.getProfileDirectoryForToxId` and `AppPaths.getAccountDataRoot`
+/// name them `p_<first 16 hex chars of the Tox ID>` / `account_data/<same
+/// prefix>`, and [_RestorePaths.resolve] reuses that prefix for the staging
+/// directories. Interpolating one publishes the account's public-key prefix
+/// *and* the absolute application-support layout (which contains the OS user
+/// name on desktop). It would not stay local either: an aborted restore
+/// propagates out of [FullBackupRestoreTransaction.restore] to handlers that
+/// call `AppLogger.logError(..., error)`, which writes `Error: $error`
+/// verbatim into `flutter_client.log` — the file users attach to bug reports.
+/// This is the same leak class as the redacted `UnsafeBackupPathException` in
+/// `backup_path_safety.dart`; both are pinned by
+/// `test/util/account_privacy_boundary_source_test.dart`.
+///
+/// [kind] is kept because it is the only thing a maintainer cannot re-derive
+/// from the code, and it distinguishes all four collision sites. No path
+/// fingerprint is carried: unlike an attacker-chosen archive entry name, these
+/// paths are fully determined by (application-support root, own Tox ID prefix,
+/// transaction id), so a digest of one would add no triage signal.
+///
+/// Extends [StateError] on purpose. Every other restore abort in this file is a
+/// `StateError` and callers/tests catch it as one
+/// (`test/account_export/full_backup_restore_transaction_test.dart` asserts
+/// `isA<StateError>()`), so redacting the message must not change which
+/// handlers fire.
+final class RestoreDestinationExistsError extends StateError {
+  RestoreDestinationExistsError(this.kind)
+    : super('Restore destination already exists (kind=${kind.name})');
+
+  /// Which destination was occupied.
+  final RestoreDestinationKind kind;
+}
+
 final class FullBackupRestoreCrashSimulation implements Exception {
   const FullBackupRestoreCrashSimulation(this.point);
 
@@ -205,7 +258,11 @@ abstract final class FullBackupRestoreTransaction {
       );
 
       if (input.toxProfile != null) {
-        await _renameDirectory(paths.profileStageDir, paths.profileFinalDir);
+        await _renameDirectory(
+          paths.profileStageDir,
+          paths.profileFinalDir,
+          destinationKind: RestoreDestinationKind.profileFinal,
+        );
       }
       journal = journal.copyWith(
         state: RestoreTransactionState.profileCommitted,
@@ -218,6 +275,7 @@ abstract final class FullBackupRestoreTransaction {
       await _renameDirectory(
         paths.accountDataStageDir,
         paths.accountDataFinalDir,
+        destinationKind: RestoreDestinationKind.accountDataFinal,
       );
       journal = journal.copyWith(
         state: RestoreTransactionState.accountDataCommitted,
@@ -299,14 +357,20 @@ abstract final class FullBackupRestoreTransaction {
     if ((await Prefs.exportScopedPrefsForAccount(toxId)).isNotEmpty) {
       throw StateError('Account scoped preferences already exist');
     }
-    for (final path in <String>[
-      paths.profileFinalDir,
-      paths.accountDataFinalDir,
-      paths.profileStageDir,
-      paths.accountDataStageDir,
+    for (final destination in <({RestoreDestinationKind kind, String dir})>[
+      (kind: RestoreDestinationKind.profileFinal, dir: paths.profileFinalDir),
+      (
+        kind: RestoreDestinationKind.accountDataFinal,
+        dir: paths.accountDataFinalDir,
+      ),
+      (kind: RestoreDestinationKind.profileStage, dir: paths.profileStageDir),
+      (
+        kind: RestoreDestinationKind.accountDataStage,
+        dir: paths.accountDataStageDir,
+      ),
     ]) {
-      if (await Directory(path).exists()) {
-        throw StateError('Restore destination already exists: $path');
+      if (await Directory(destination.dir).exists()) {
+        throw RestoreDestinationExistsError(destination.kind);
       }
     }
   }
@@ -407,13 +471,14 @@ abstract final class FullBackupRestoreTransaction {
 
   static Future<void> _renameDirectory(
     String source,
-    String destination,
-  ) async {
+    String destination, {
+    required RestoreDestinationKind destinationKind,
+  }) async {
     // Atomicity is per root only: staging lives under this destination's
     // parent so this rename is same-filesystem, while cross-root consistency is
     // provided by the durable journal and recovery path.
     if (await Directory(destination).exists()) {
-      throw StateError('Restore destination already exists: $destination');
+      throw RestoreDestinationExistsError(destinationKind);
     }
     await Directory(p.dirname(destination)).create(recursive: true);
     await Directory(source).rename(destination);

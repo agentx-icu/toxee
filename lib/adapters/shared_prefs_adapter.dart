@@ -50,26 +50,17 @@ class SharedPreferencesAdapter
       userToxId != null && userToxId.isNotEmpty
       ? 'black_list_$userToxId'
       : 'black_list';
-  // Per-peer C2C receive option (DND). Account-scoped via the standard
-  // 16-char Tox-ID prefix (matches `Prefs._scopedKey` convention used by
-  // `group_member_namecard`, drafts, pin/mute, etc.). The blacklist key
+  // Per-peer C2C / per-group receive option (DND). Account-scoped via the
+  // standard 16-char Tox-ID prefix (matches `Prefs._scopedKey` convention used
+  // by `group_member_namecard`, drafts, pin/mute, etc.). The blacklist key
   // (`_blackListKey`) uses a full-toxId scheme for legacy reasons; for new
   // keys we follow the 16-char prefix style.
-  static String _c2cRecvOptKey(String userID, String? userToxId) {
-    final prefix = (userToxId != null && userToxId.length >= 16)
-        ? userToxId.substring(0, 16)
-        : userToxId;
-    return scopedPrefsKey('c2c_recv_opt_$userID', prefix);
-  }
-
-  // Group recv-opt key — same scoped format as the C2C key above + Prefs, so
-  // both the static Prefs path and this adapter read/write the same entry.
-  static String _groupRecvOptKey(String groupID, String? userToxId) {
-    final prefix = (userToxId != null && userToxId.length >= 16)
-        ? userToxId.substring(0, 16)
-        : userToxId;
-    return scopedPrefsKey('group_recv_opt_$groupID', prefix);
-  }
+  //
+  // Both builders live in `util/prefs/scoped_key.dart` and are SHARED with
+  // `Prefs._c2cRecvOptKey` / `Prefs._groupRecvOptKey`: this adapter is the
+  // tim2tox platform write path and `Prefs` is a UI read path, and they
+  // address one on-disk slot. Two copies of the same string concatenation is
+  // how that parity silently broke before.
 
   SharedPreferencesAdapter(
     this._prefs, {
@@ -626,13 +617,76 @@ class SharedPreferencesAdapter
     await setBlackList(blackList, userToxId);
   }
 
+  /// Resolve the account scope for a recvOpt key, or null when there is none.
+  ///
+  /// Ladder — deliberately the same shape as `Prefs._recvOptScope`, so the two
+  /// addressers of this slot also agree on WHEN they address it:
+  ///   1. the explicit [userToxId] the caller supplied (tim2tox passes
+  ///      `ffiService.selfId`), truncated to the 16-char scope prefix;
+  ///   2. else this adapter's own [_accountPrefix] — the adapter IS constructed
+  ///      per account (`AccountService._createAccountScopedService`) or has the
+  ///      prefix injected post-login (`LoginUseCase` / `StartupSessionUseCase`),
+  ///      so that field is this layer's equivalent of "the active account";
+  ///   3. else null → the caller must SKIP the read/write.
+  ///
+  /// Why null must not fall through to the bare key: with an empty prefix
+  /// [scopedPrefsKey] returns `c2c_recv_opt_<id>` / `group_recv_opt_<id>`,
+  /// which (a) every local account reads and writes, and (b) NO teardown path
+  /// can ever collect — `Prefs.clearScopedKeysForAccount`,
+  /// `Prefs.clearAccountData` and this class's own [clear] all sweep on the
+  /// `_<first16>` suffix. `ffiService.selfId` is the empty string before login,
+  /// so this branch is reachable (`tim2tox_sdk_platform_converters._mapConv`
+  /// and `getGroupsInfo` pass it through unguarded).
+  ///
+  /// Refusing loses at most a pre-login mute — which the platform write path
+  /// already refuses anyway (`Tim2ToxSdkPlatform.setC2CReceiveMessageOpt`
+  /// returns code -1 when `selfId.isEmpty`). Writing the global slot instead
+  /// silently mutes a peer for every other account, i.e. missed messages with
+  /// no visible cause. Same asymmetry [clear] already resolves the same way.
+  ///
+  /// KNOWN SEPARATE DEFECT (not fixed here — it is a cross-repo change):
+  /// `FfiChatService.selfId` is NOT the Tox identity. It is
+  /// `V2TIMManagerImpl::GetLoginUser()`, i.e. `login_user_alias_`, i.e. the
+  /// `userID` toxee passes to `login()` — always the literal
+  /// `'FlutterUIKitClient'` (`AccountService`, `LoginUseCase`,
+  /// `StartupSessionUseCase`). So every tim2tox call site that hands us
+  /// `ffiService.selfId` as the scope (`Tim2ToxSdkPlatform.setC2CReceiveMessageOpt`
+  /// / `setGroupReceiveMessageOpt` / `getGroupsInfo`, and
+  /// `tim2tox_sdk_platform_converters._mapConv`) is really scoping on
+  /// `FlutterUIKitClie` — one slot shared by every local account, and one that
+  /// `Prefs.clearScopedKeysForAccount` (which sweeps the real 16-char Tox
+  /// prefix) cannot collect. Step 1 of the ladder cannot second-guess that
+  /// without breaking byte-parity with `Prefs._recvOptScope`; the real fix is
+  /// for those tim2tox call sites to pass `getSelfToxId()` instead, which has
+  /// to land in the tim2tox repo first.
+  String? _recvOptScope(String? userToxId) {
+    final explicit = scopedPrefsAccountPrefix(userToxId);
+    if (explicit != null) return explicit;
+    final prefix = _accountPrefix;
+    if (prefix != null && prefix.isNotEmpty) {
+      // Already truncated by every construction site; re-truncate so a caller
+      // that injected a full toxId still produces the canonical key.
+      return scopedPrefsAccountPrefix(prefix);
+    }
+    return null;
+  }
+
+  void _warnUnscopedRecvOpt(String what, String id) {
+    AppLogger.warn(
+      '[SharedPrefsAdapter] skipped $what for "$id" — no account scope '
+      '(neither an explicit userToxId nor an accountPrefix); refusing to '
+      'write a cross-account, un-collectable unscoped key',
+    );
+  }
+
   @override
   Future<int> getC2CReceiveMessageOpt(
     String userID, [
     String? userToxId,
   ]) async {
-    final key = _c2cRecvOptKey(userID, userToxId);
-    return _prefs.getInt(key) ?? 0;
+    final scope = _recvOptScope(userToxId);
+    if (scope == null) return 0;
+    return _prefs.getInt(c2cRecvOptPrefsKey(userID, scope)) ?? 0;
   }
 
   @override
@@ -641,7 +695,12 @@ class SharedPreferencesAdapter
     int opt, [
     String? userToxId,
   ]) async {
-    final key = _c2cRecvOptKey(userID, userToxId);
+    final scope = _recvOptScope(userToxId);
+    if (scope == null) {
+      _warnUnscopedRecvOpt('setC2CReceiveMessageOpt', userID);
+      return;
+    }
+    final key = c2cRecvOptPrefsKey(userID, scope);
     if (opt == 0) {
       await _prefs.remove(key);
     } else {
@@ -654,8 +713,9 @@ class SharedPreferencesAdapter
     String groupID, [
     String? userToxId,
   ]) async {
-    final key = _groupRecvOptKey(groupID, userToxId);
-    return _prefs.getInt(key) ?? 0;
+    final scope = _recvOptScope(userToxId);
+    if (scope == null) return 0;
+    return _prefs.getInt(groupRecvOptPrefsKey(groupID, scope)) ?? 0;
   }
 
   @override
@@ -664,7 +724,12 @@ class SharedPreferencesAdapter
     int opt, [
     String? userToxId,
   ]) async {
-    final key = _groupRecvOptKey(groupID, userToxId);
+    final scope = _recvOptScope(userToxId);
+    if (scope == null) {
+      _warnUnscopedRecvOpt('setGroupReceiveMessageOpt', groupID);
+      return;
+    }
+    final key = groupRecvOptPrefsKey(groupID, scope);
     if (opt == 0) {
       await _prefs.remove(key);
     } else {

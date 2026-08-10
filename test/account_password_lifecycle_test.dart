@@ -11,11 +11,15 @@
 //     (account_service.dart:275) keys the store under the post-backfill
 //     `activeToxId`. This group locks that fix.
 //
-//   Bug 2 — post-remove re-encrypt  [FIX NOT LANDED — S40d gap]
-//   Bug 3 — autoLogin + encrypted profile  [FIX NOT LANDED]
-//     Encoded below as `skip`-marked desired-behavior tests so the intent is
-//     recorded and they flip to active the moment the fix lands. They are NOT
-//     green today because the fixes do not exist; a green test would be a lie.
+//   Bug 2 — post-remove re-encrypt  [FIX LANDED]
+//   Bug 3 — autoLogin + encrypted profile  [FIX LANDED]
+//     Both fixes have shipped; the groups below are active regression locks,
+//     not aspirational specs. (This header said "FIX NOT LANDED … a green test
+//     would be a lie" until 2026-08-08, contradicting the group titles a few
+//     dozen lines down — which already read "(FIX LANDED)". The only `skip:`
+//     markers remaining in this file are _ffiAvailable() guards for the real
+//     libtim2tox_ffi dylib, NOT feature-gap markers: CI builds and stages that
+//     dylib, so these run for real on every PR.)
 //
 // Layer: like test/account_switch_resets_global_prefs_test.dart this needs the
 // real libtim2tox_ffi dylib (Tox encryption + profile load) but pumps no

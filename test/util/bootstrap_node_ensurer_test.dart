@@ -41,6 +41,22 @@ bool _ffiAvailable() {
   }
 }
 
+/// Returns `true` when the calling test must stop because libtim2tox_ffi is not
+/// loadable here, after reporting a real SKIP.
+///
+/// Every case below used to open with a bare `if (!_ffiAvailable()) return;`,
+/// which reported a silent **PASS** on any machine where the native library had
+/// not been built — a green run that had asserted nothing. `markTestSkipped`
+/// makes the gap visible in the test report instead.
+bool _skipWithoutFfi() {
+  if (_ffiAvailable()) return false;
+  markTestSkipped(
+    'libtim2tox_ffi is not loadable in this environment — build it with '
+    './build_all.sh to exercise the bootstrap-node paths',
+  );
+  return true;
+}
+
 BootstrapNode _node(String ip, {String status = 'ONLINE'}) => BootstrapNode(
   ipv4: ip,
   port: 33445,
@@ -64,7 +80,7 @@ void main() {
 
   test('fresh auto-mode account applies built-in fallback nodes and seeds prefs '
       'with no network', () async {
-    if (!_ffiAvailable()) return; // needs libtim2tox_ffi (built in CI)
+    if (_skipWithoutFfi()) return; // needs libtim2tox_ffi (built in CI)
     await _resetPrefs();
     // Background live refresh returns nothing so the assertion is deterministic
     // — we are testing the synchronous first-run fallback path here.
@@ -85,7 +101,7 @@ void main() {
   test(
     'auto mode applies at most maxAutoNodes nodes from the live list',
     () async {
-      if (!_ffiAvailable()) return;
+      if (_skipWithoutFfi()) return;
       await _resetPrefs();
       // A saved node exists, so ensureForSession skips the fallback seed and goes
       // straight to the (background) live refresh — exercised deterministically
@@ -101,7 +117,7 @@ void main() {
   );
 
   test('manual mode applies only the saved node and never fetches', () async {
-    if (!_ffiAvailable()) return;
+    if (_skipWithoutFfi()) return;
     await _resetPrefs();
     await Prefs.setBootstrapNodeMode('manual');
     await Prefs.setCurrentBootstrapNode('manual.example', 12345, 'B' * 64);
@@ -117,7 +133,7 @@ void main() {
   });
 
   test('refreshIfDisconnected is a no-op when already connected', () async {
-    if (!_ffiAvailable()) return;
+    if (_skipWithoutFfi()) return;
     await _resetPrefs();
     BootstrapNodeEnsurer.debugNodeFetcher = () async =>
         throw StateError('must not fetch when connected');
@@ -130,7 +146,7 @@ void main() {
 
   test('auto mode falls back to status-agnostic nodes when the API flags all '
       'OFFLINE', () async {
-    if (!_ffiAvailable()) return;
+    if (_skipWithoutFfi()) return;
     await _resetPrefs();
     // API reachable, valid nodes, but every one marked OFFLINE (stale status).
     // Regression guard for the gap Codex flagged: filtering strictly on ONLINE
@@ -150,7 +166,7 @@ void main() {
   });
 
   test('auto mode applies an IPv6-only node with its raw host', () async {
-    if (!_ffiAvailable()) return;
+    if (_skipWithoutFfi()) return;
     await _resetPrefs();
     await Prefs.setCurrentBootstrapNode('seed.example', 33445, 'B' * 64);
     BootstrapNodeEnsurer.debugNodeFetcher = () async => [

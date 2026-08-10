@@ -8,7 +8,7 @@
 **Covered-by**: `test/ui/startup/upgrade_required_screen_real_ui_test.dart` (widget-layer L1: renders the real `UpgradeRequiredScreen`; the "Update" button drives its production handler via the canonical `onUpdate` ctor seam over `_openReleasesPage`).
 
 ## Precondition
-- A crafted SharedPreferences store where the global schema key `prefs_schema_version` holds an int GREATER than `currentGlobalPrefsVersion` (currently **2**, `prefs_upgrader.dart:7` / key `prefs_schema_version`, `prefs_upgrader.dart:21`). Pre-write e.g. `99`.
+- A crafted SharedPreferences store where the global schema key `prefs_schema_version` holds an int GREATER than `currentGlobalPrefsVersion` (currently **3**, `prefs_upgrader.dart` `currentGlobalPrefsVersion` / key `prefs_schema_version`). Pre-write e.g. `99`.
 - This is injected by the fixture, NOT `l3_set_setting` (which has no schema-version key — it rejects anything outside its narrow allow-list, `l3_debug_tools.dart:1307-1321`). On macOS write it into the app's defaults domain BEFORE launch, honoring the `TOXEE_SHARED_PREFS_PREFIX` env prefix if the harness sets one (`prefs_bootstrap.dart:16-23`): `defaults write com.toxee.app <prefix>prefs_schema_version -int 99` (the SharedPreferences key is the raw prefix + `prefs_schema_version`), then `killall cfprefsd`.
 - `network=offline` is fine — the screen renders before any login/DHT; the only outbound action is the releases-page `launchUrl` on a button tap (`upgrade_required_screen.dart:133-144`).
 - Locale pinned to `en` so `upgradeRequiredTitle` / `update` literals are stable.
@@ -31,5 +31,5 @@
 ## Notes
 - **L3-pin reason**: needs a crafted Prefs fixture (a storage version newer than the app), which the runner's normal seeded account never has — the seed always writes the current schema. This scenario is the inverse of every other S-spec: the precondition is a deliberately-corrupt-looking store.
 - Only the GLOBAL version triggers the screen. Per-account migrations (`runAccountMigrations`, `prefs_upgrader.dart:86`) run later at login and do NOT throw this exception — bumping `account_prefs_version_<prefix>` will not show the upgrade screen. Use the global `prefs_schema_version` key.
-- Reset between runs: `defaults delete com.toxee.app <prefix>prefs_schema_version` (or set it back to `2`); `killall cfprefsd`. Leaving `99` in place keeps the app permanently on the upgrade screen.
+- Reset between runs: `defaults delete com.toxee.app <prefix>prefs_schema_version` (or set it back to `currentGlobalPrefsVersion`, currently `3`); `killall cfprefsd`. Leaving `99` in place keeps the app permanently on the upgrade screen.
 - The releases URL is hardcoded (`_kReleasesUrl = https://github.com/agentx-icu/toxee/releases`, `upgrade_required_screen.dart:13`) precisely because the app is behind its own data file and a server fetch would be racy — A4's button tap is best verified by the `launchUrl returned false` log path (`upgrade_required_screen.dart:139`) under a headless CI with no browser, not by a real navigation.

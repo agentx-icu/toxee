@@ -11,6 +11,7 @@ import 'app_paths.dart';
 import 'logger.dart';
 import 'prefs.dart';
 import 'prefs/scoped_key.dart';
+import 'prefs_upgrader.dart';
 
 /// One-shot migration for accounts that historically stored the V2TIM login
 /// `userId` placeholder (`'FlutterUIKitClient'`) as if it were the user's Tox
@@ -287,6 +288,43 @@ class PlaceholderAccountMigration {
                   'account will appear "password-protected" but '
                   'verification will mismatch. Manual cleanup of '
                   'secure-storage / legacy prefs keys required.');
+            }
+          },
+        ));
+      }
+
+      // Step 3c: blacklist. `black_list_<toxId>` is scoped by the FULL id (see
+      // `Prefs._blackListKey` / `SharedPreferencesAdapter._blackListKey`), NOT
+      // by the 16-char prefix, so Step 3's `endsWith('_$_placeholderPrefix')`
+      // scan does not see it and the list would be stranded once the account
+      // is re-keyed to its real Tox ID. Previously that went unnoticed because
+      // tim2tox ALSO read the list under the placeholder (it passed the login
+      // alias `FfiChatService.selfId` as the scope regardless of the account's
+      // id); now that it passes the real Tox ID, leaving this behind would
+      // silently UNBLOCK everyone the user had blocked.
+      final blackListMove = await PrefsUpgrader.migrateBlackListScope(
+        prefs,
+        fromToxId: placeholderToxId,
+        toToxId: realToxId,
+      );
+      if (blackListMove == null) {
+        AppLogger.warn('[PlaceholderAccountMigration] blacklist: the store '
+            'refused the write to the real Tox ID scope; nothing changed');
+        throw _MigrationAborted('blacklist migration failed');
+      }
+      if (blackListMove.moved) {
+        rollbacks.add(_RollbackOp(
+          label: 'undo blacklist migration',
+          run: () async {
+            if (!await PrefsUpgrader.rollbackBlackListScope(
+                prefs, blackListMove)) {
+              AppLogger.logError(
+                  '[PlaceholderAccountMigration] Rollback: the blacklist could '
+                  'not be fully restored to the placeholder scope. The blocked '
+                  'list may now live under the real Tox ID while account_list / '
+                  'pointer were rolled back to the placeholder — the user would '
+                  'see an empty Blocked Users list until the next successful '
+                  'migration. Manual cleanup of `black_list_*` may be required.');
             }
           },
         ));

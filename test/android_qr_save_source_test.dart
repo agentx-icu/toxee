@@ -1,3 +1,14 @@
+// WHAT THIS IS: a source-text contract over Kotlin, not a behaviour test.
+// See the header of `test/android_call_audio_channel_source_test.dart` for the
+// full rationale.
+//
+// Short version: it greps `android/app/.../MainActivity.kt` for the legacy
+// (API <= 28) WRITE_EXTERNAL_STORAGE permission dance around QR gallery saves.
+// That path only exists in Kotlin and only runs on a pre-Android-10 device, so
+// it can be neither executed nor rendered from `flutter test`; the grep is the
+// only automated guard we have that the permission request and the
+// resume-after-grant bookkeeping were not deleted.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

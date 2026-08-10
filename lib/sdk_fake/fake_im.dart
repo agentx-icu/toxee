@@ -9,6 +9,7 @@ import 'uikit_data_facade.dart';
 import 'fake_event_bus.dart';
 import 'fake_managers.dart' show buildConversationsFromFriends;
 import 'fake_models.dart';
+import 'uikit_data_facade.dart';
 
 class FakeIM {
   FakeIM(this.ffi, this.bus);
@@ -34,9 +35,12 @@ class FakeIM {
   final Map<String, bool> _typingPrev = {};
   Set<String> _previousFriendIds = {};
   Set<String> _previousGroupIds = {};
-  List<FakeUser>? _previousContactList; // Cache previous contact list for deduplication
-  bool _emitContactsRunning = false; // Reentrant guard: prevents concurrent _emitContactsWithFriends
-  bool _toxFriendListReceived = false; // True once Tox has returned a non-empty friend list
+  List<FakeUser>?
+  _previousContactList; // Cache previous contact list for deduplication
+  bool _emitContactsRunning =
+      false; // Reentrant guard: prevents concurrent _emitContactsWithFriends
+  bool _toxFriendListReceived =
+      false; // True once Tox has returned a non-empty friend list
   bool _disposed = false;
 
   // Cold-start grace window. After we restore the friend list from Prefs
@@ -78,10 +82,12 @@ class FakeIM {
   void registerPendingFriendAdd(String userId, {Duration? ttlOverride}) {
     final normalized = normalizeToxId(userId);
     if (normalized.isEmpty) return;
-    _pendingFriendAdds[normalized] =
-        DateTime.now().add(ttlOverride ?? _kPendingFriendAddTtl);
+    _pendingFriendAdds[normalized] = DateTime.now().add(
+      ttlOverride ?? _kPendingFriendAddTtl,
+    );
     AppLogger.log(
-        '[FakeIM] registerPendingFriendAdd: $normalized (now=${_pendingFriendAdds.length} pending)');
+      '[FakeIM] registerPendingFriendAdd: $normalized (now=${_pendingFriendAdds.length} pending)',
+    );
   }
 
   /// Returns the currently-live (non-expired) pending friend IDs. Used by the
@@ -149,58 +155,84 @@ class FakeIM {
     // cleanup has to happen client-side. Subscribing here means *any* path
     // that ends in a topicFriendDeleted emit (manual delete, account switch,
     // remote-side removal) triggers the cleanup.
-    _friendDeletedSub =
-        bus.on<FakeFriendDeleted>(topicFriendDeleted).listen((evt) {
-      final id = evt.userID;
-      if (id.isEmpty) return;
-      unawaited(_runGuarded('friendDeleted→cleanupAssets',
-          () => FriendAssetCleanup.deleteAllAssetsFor(id)));
-    }, onError: (e, st) {
-      AppLogger.logError('[FakeIM] topicFriendDeleted stream error', e, st);
-    });
+    _friendDeletedSub = bus
+        .on<FakeFriendDeleted>(topicFriendDeleted)
+        .listen(
+          (evt) {
+            final id = evt.userID;
+            if (id.isEmpty) return;
+            unawaited(
+              _runGuarded(
+                'friendDeleted→cleanupAssets',
+                () => FriendAssetCleanup.deleteAllAssetsFor(id),
+              ),
+            );
+          },
+          onError: (e, st) {
+            AppLogger.logError(
+              '[FakeIM] topicFriendDeleted stream error',
+              e,
+              st,
+            );
+          },
+        );
     // When a friend's avatar is received and saved, refresh conversations and contact list so the UI updates
-    _avatarUpdatedSub = ffi.avatarUpdated.listen((uid) {
-      if (_disposed) return;
-      unawaited(_runGuarded('avatarUpdated→refresh', () async {
-        await _refreshConversations();
-        await _emitContacts();
-      }));
-    }, onError: (e, st) {
-      AppLogger.logError('[FakeIM] ffi.avatarUpdated stream error', e, st);
-    });
+    _avatarUpdatedSub = ffi.avatarUpdated.listen(
+      (uid) {
+        if (_disposed) return;
+        unawaited(
+          _runGuarded('avatarUpdated→refresh', () async {
+            await _refreshConversations();
+            await _emitContacts();
+          }),
+        );
+      },
+      onError: (e, st) {
+        AppLogger.logError('[FakeIM] ffi.avatarUpdated stream error', e, st);
+      },
+    );
     // When a friend's nickname changes, refresh conversations so the UI updates
-    _nicknameUpdatedSub = ffi.nicknameUpdated.listen((uid) {
-      if (_disposed) return;
-      unawaited(_runGuarded('nicknameUpdated→refresh', _refreshConversations));
-    }, onError: (e, st) {
-      AppLogger.logError('[FakeIM] ffi.nicknameUpdated stream error', e, st);
-    });
+    _nicknameUpdatedSub = ffi.nicknameUpdated.listen(
+      (uid) {
+        if (_disposed) return;
+        unawaited(
+          _runGuarded('nicknameUpdated→refresh', _refreshConversations),
+        );
+      },
+      onError: (e, st) {
+        AppLogger.logError('[FakeIM] ffi.nicknameUpdated stream error', e, st);
+      },
+    );
     // One-shot startup init: wait 500ms for Tox to bootstrap, then do a
     // retry loop to seed conversations + history as soon as the friend
     // list is non-empty. Cold-start grace handles the case where Tox is
     // still loading after the retries exhaust.
     _startupInitTimer?.cancel();
     _startupInitTimer = Timer(const Duration(milliseconds: 500), () {
-      unawaited(_runGuarded('startupInit', () async {
-        int retries = 0;
-        const maxRetries = 5;
-        int retryDelay = 200;
-        while (retries < maxRetries) {
-          if (_disposed) return;
-          final friends = await ffi.getFriendList();
-          if (_disposed) return;
-          if (friends.isNotEmpty || retries >= maxRetries - 1) {
-            unawaited(_runGuarded('startupInit→refreshConv', _refreshConversations));
-            unawaited(_runGuarded('startupInit→emitContacts', _emitContacts));
+      unawaited(
+        _runGuarded('startupInit', () async {
+          int retries = 0;
+          const maxRetries = 5;
+          int retryDelay = 200;
+          while (retries < maxRetries) {
             if (_disposed) return;
-            await _runGuarded('startupInit→seedHistory', _seedHistory);
-            break;
+            final friends = await ffi.getFriendList();
+            if (_disposed) return;
+            if (friends.isNotEmpty || retries >= maxRetries - 1) {
+              unawaited(
+                _runGuarded('startupInit→refreshConv', _refreshConversations),
+              );
+              unawaited(_runGuarded('startupInit→emitContacts', _emitContacts));
+              if (_disposed) return;
+              await _runGuarded('startupInit→seedHistory', _seedHistory);
+              break;
+            }
+            retries++;
+            await Future.delayed(Duration(milliseconds: retryDelay));
+            retryDelay = (retryDelay * 2).clamp(200, 3200);
           }
-          retries++;
-          await Future.delayed(Duration(milliseconds: retryDelay));
-          retryDelay = (retryDelay * 2).clamp(200, 3200);
-        }
-      }));
+        }),
+      );
     });
 
     // Single steady-state poller. Previously we ran three overlapping timers
@@ -213,102 +245,111 @@ class FakeIM {
     // messages) handle the latency-sensitive cases.
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      unawaited(_runGuarded('steadyRefresh', () async {
-        final friends = await ffi.getFriendList();
-        await _refreshConversationsWithFriends(friends);
-        await _emitContactsWithFriends(friends);
-        await _emitFriendAppsWithFriends(friends);
-        await _scanTyping();
-      }));
+      unawaited(
+        _runGuarded('steadyRefresh', () async {
+          final friends = await ffi.getFriendList();
+          await _refreshConversationsWithFriends(friends);
+          await _emitContactsWithFriends(friends);
+          await _emitFriendAppsWithFriends(friends);
+          await _scanTyping();
+        }),
+      );
     });
     // Also emit contacts immediately after friend operations to ensure UI updates
     // This is handled by the periodic timer, but we can also trigger it manually if needed
     // Listen messages
     // Track conversationID for self messages by checking which peer's history contains the message
-    _messagesSub = ffi.messages.listen((m) {
-      if (_disposed) return;
-      // Debug: log file messages to track where they come from
-      if (m.filePath != null || m.mediaKind != null) {
-        AppLogger.log(
-          '[FakeIM] Received media message from ffi.messages stream: mediaKind=${m.mediaKind}, isPending=${m.isPending}',
-        );
-      }
-      String? convId;
-      if (m.groupId != null) {
-        // Group message
-        convId = 'group_${m.groupId}';
-      } else if (m.isSelf) {
-        // Self-sent C2C message: first try to find the conversation from message history.
-        // This is critical for forward messages, which should be added to the target conversation,
-        // not the current active conversation (activePeerId).
-        if (m.msgID != null) {
-          final result = ffi.findUserIDAndGroupIDFromMsgID(m.msgID!);
-          final targetUserID = result.$1;
-          if (targetUserID != null && targetUserID != ffi.selfId) {
-            convId = 'c2c_$targetUserID';
-          }
+    _messagesSub = ffi.messages.listen(
+      (m) {
+        if (_disposed) return;
+        // Debug: log file messages to track where they come from
+        if (m.filePath != null || m.mediaKind != null) {
+          AppLogger.log(
+            '[FakeIM] Received media message from ffi.messages stream: mediaKind=${m.mediaKind}, isPending=${m.isPending}',
+          );
         }
-        // Fallbacks if not found in history: activePeerId, then most recent peer.
-        // We refuse to emit a self-conversation (`c2c_${selfId}`) because there
-        // is no such chat in the product — doing so creates a ghost entry in
-        // the conversation list. If we can't resolve a target, drop the
-        // immediate emit; the conversation refresh below will pick the message
-        // up from history on the next cycle.
-        if (convId == null) {
-          if (ffi.activePeerId != null && ffi.activePeerId != ffi.selfId) {
-            convId = 'c2c_${ffi.activePeerId}';
-          } else {
-            final recentPeer = ffi.lastMessages.keys
-                .firstWhere((k) => k != ffi.selfId, orElse: () => '');
-            if (recentPeer.isNotEmpty) {
-              convId = 'c2c_$recentPeer';
+        String? convId;
+        if (m.groupId != null) {
+          // Group message
+          convId = 'group_${m.groupId}';
+        } else if (m.isSelf) {
+          // Self-sent C2C message: first try to find the conversation from message history.
+          // This is critical for forward messages, which should be added to the target conversation,
+          // not the current active conversation (activePeerId).
+          if (m.msgID != null) {
+            final result = ffi.findUserIDAndGroupIDFromMsgID(m.msgID!);
+            final targetUserID = result.$1;
+            if (targetUserID != null && targetUserID != ffi.selfId) {
+              convId = 'c2c_$targetUserID';
             }
           }
+          // Fallbacks if not found in history: activePeerId, then most recent peer.
+          // We refuse to emit a self-conversation (`c2c_${selfId}`) because there
+          // is no such chat in the product — doing so creates a ghost entry in
+          // the conversation list. If we can't resolve a target, drop the
+          // immediate emit; the conversation refresh below will pick the message
+          // up from history on the next cycle.
+          if (convId == null) {
+            if (ffi.activePeerId != null && ffi.activePeerId != ffi.selfId) {
+              convId = 'c2c_${ffi.activePeerId}';
+            } else {
+              final recentPeer = ffi.lastMessages.keys.firstWhere(
+                (k) => k != ffi.selfId,
+                orElse: () => '',
+              );
+              if (recentPeer.isNotEmpty) {
+                convId = 'c2c_$recentPeer';
+              }
+            }
+          }
+        } else {
+          // Received message: sender is the peer.
+          // Normalize friend ID to ensure consistent conversationID
+          // (matches FfiChatService normalization when saving history).
+          final fromUserId = m.fromUserId;
+          final normalizedFrom = fromUserId.length > 64
+              ? fromUserId.substring(0, 64).trim()
+              : fromUserId.trim();
+          // Drop self-echo: a "received" message from selfId is malformed and
+          // would land in a ghost self-conversation.
+          if (normalizedFrom.isNotEmpty && normalizedFrom != ffi.selfId) {
+            convId = 'c2c_$normalizedFrom';
+          }
         }
-      } else {
-        // Received message: sender is the peer.
-        // Normalize friend ID to ensure consistent conversationID
-        // (matches FfiChatService normalization when saving history).
-        final fromUserId = m.fromUserId;
-        final normalizedFrom = fromUserId.length > 64
-            ? fromUserId.substring(0, 64).trim()
-            : fromUserId.trim();
-        // Drop self-echo: a "received" message from selfId is malformed and
-        // would land in a ghost self-conversation.
-        if (normalizedFrom.isNotEmpty && normalizedFrom != ffi.selfId) {
-          convId = 'c2c_$normalizedFrom';
-        }
-      }
 
-      if (convId == null) {
-        AppLogger.log(
-          '[FakeIM] dropping unroutable message emit: isSelf=${m.isSelf}, hasGroup=${m.groupId != null} (history refresh will recover)',
-        );
-      } else {
-        final msg = FakeMessage(
-          msgID: m.msgID ?? '${m.timestamp.millisecondsSinceEpoch}_${m.fromUserId}',
-          conversationID: convId,
-          fromUser: m.fromUserId,
-          text: m.text,
-          timestampMs: m.timestamp.millisecondsSinceEpoch,
-          filePath: m.filePath,
-          fileName: m.fileName,
-          fileSize: m.fileSize,
-          mediaKind: m.mediaKind,
-          cloudCustomData: m.cloudCustomData,
-          isPending: m.isPending,
-          isReceived: m.isReceived,
-          isRead: m.isRead,
-        );
-        bus.emit(topicMessage, msg);
-      }
-      _emitUnreadTotal();
-      // Always refresh the conversation list so the latest message preview is
-      // accurate, even if we dropped the bus emit above.
-      unawaited(_runGuarded('messages→refreshConv', _refreshConversations));
-    }, onError: (e, st) {
-      AppLogger.logError('[FakeIM] ffi.messages stream error', e, st);
-    });
+        if (convId == null) {
+          AppLogger.log(
+            '[FakeIM] dropping unroutable message emit: isSelf=${m.isSelf}, hasGroup=${m.groupId != null} (history refresh will recover)',
+          );
+        } else {
+          final msg = FakeMessage(
+            msgID:
+                m.msgID ??
+                '${m.timestamp.millisecondsSinceEpoch}_${m.fromUserId}',
+            conversationID: convId,
+            fromUser: m.fromUserId,
+            text: m.text,
+            timestampMs: m.timestamp.millisecondsSinceEpoch,
+            filePath: m.filePath,
+            fileName: m.fileName,
+            fileSize: m.fileSize,
+            mediaKind: m.mediaKind,
+            cloudCustomData: m.cloudCustomData,
+            isPending: m.isPending,
+            isReceived: m.isReceived,
+            isRead: m.isRead,
+          );
+          bus.emit(topicMessage, msg);
+        }
+        _emitUnreadTotal();
+        // Always refresh the conversation list so the latest message preview is
+        // accurate, even if we dropped the bus emit above.
+        unawaited(_runGuarded('messages→refreshConv', _refreshConversations));
+      },
+      onError: (e, st) {
+        AppLogger.logError('[FakeIM] ffi.messages stream error', e, st);
+      },
+    );
   }
 
   void dispose() {
@@ -341,12 +382,12 @@ class FakeIM {
   }
 
   Future<void> _refreshConversationsWithFriends(
-      List<({String userId, String nickName, String status, bool online})> friends) async {
+    List<({String userId, String nickName, String status, bool online})>
+    friends,
+  ) async {
     // `pinned` stores **normalized** keys: bare normalized userID for C2C and
     // 'group_${normalizedGid}' for groups (see FakeConversationManager.setPinned).
-    final pinned = (await Prefs.getPinned())
-        .where((s) => s.isNotEmpty)
-        .toSet();
+    final pinned = (await Prefs.getPinned()).where((s) => s.isNotEmpty).toSet();
     // Pending friend applications (we sent, peer hasn't accepted yet): hide
     // from conversation list until they appear in the friend list.
     final pendingApps = await ffi.getFriendApplications();
@@ -359,8 +400,7 @@ class FakeIM {
     // startup. The sync `getConversationList()` path does NOT merge (it trusts
     // the live `knownGroups`), so this merge lives here, not in the builder.
     final persistedGroups = await Prefs.getGroups();
-    final mergedGroupCandidates =
-        {...ffi.knownGroups, ...persistedGroups};
+    final mergedGroupCandidates = {...ffi.knownGroups, ...persistedGroups};
     final currentGroupIds = mergedGroupCandidates
         .where((g) => !quitGroups.contains(g))
         .toSet();
@@ -428,7 +468,9 @@ class FakeIM {
   }
 
   Future<void> _emitContactsWithFriends(
-      List<({String userId, String nickName, String status, bool online})> friends) async {
+    List<({String userId, String nickName, String status, bool online})>
+    friends,
+  ) async {
     // Reentrant guard: multiple timers (startup poll, 5s refresh, onlineStatusChanged)
     // can call this concurrently. Without this guard, a concurrent call may read stale
     // Prefs data (before another call finishes writing the deletion) and re-emit the
@@ -443,11 +485,15 @@ class FakeIM {
   }
 
   Future<void> _emitContactsWithFriendsImpl(
-      List<({String userId, String nickName, String status, bool online})> friends) async {
+    List<({String userId, String nickName, String status, bool online})>
+    friends,
+  ) async {
     // Always merge with locally persisted friends to ensure all friends are shown
     // This is important after client restart when Tox hasn't fully restored friends yet
     final localFriends = await Prefs.getLocalFriends();
-    final normalizedLocalFriends = localFriends.map((uid) => normalizeToxId(uid)).toSet();
+    final normalizedLocalFriends = localFriends
+        .map((uid) => normalizeToxId(uid))
+        .toSet();
     final pendingApplications = await ffi.getFriendApplications();
     final normalizedPendingApplicationIds = pendingApplications
         .map((app) => normalizeToxId(app.userId))
@@ -457,22 +503,26 @@ class FakeIM {
     // If friend list is empty and Tox hasn't returned friends yet,
     // try to restore from local persistence (cold-start fallback).
     // Once Tox has returned a non-empty list, we trust Tox exclusively.
-    if (friends.isEmpty && !_toxFriendListReceived && normalizedLocalFriends.isNotEmpty) {
+    if (friends.isEmpty &&
+        !_toxFriendListReceived &&
+        normalizedLocalFriends.isNotEmpty) {
       // Create FakeUser list from local persisted friend IDs
       // These friends will be marked as offline since we don't have online status yet
       // Load nickname and status from cache for restored friends
-      final restoredList = await Future.wait(normalizedLocalFriends.map((uid) async {
-        final cachedNick = await Prefs.getFriendNickname(uid);
-        final cachedStatus = await Prefs.getFriendStatusMessage(uid);
-        final cachedAvatar = await Prefs.getFriendAvatarPath(uid);
-        return FakeUser(
-          userID: uid,
-          nickName: cachedNick ?? '',
-          status: cachedStatus ?? '',
-          online: false,
-          faceUrl: cachedAvatar,
-        );
-      }));
+      final restoredList = await Future.wait(
+        normalizedLocalFriends.map((uid) async {
+          final cachedNick = await Prefs.getFriendNickname(uid);
+          final cachedStatus = await Prefs.getFriendStatusMessage(uid);
+          final cachedAvatar = await Prefs.getFriendAvatarPath(uid);
+          return FakeUser(
+            userID: uid,
+            nickName: cachedNick ?? '',
+            status: cachedStatus ?? '',
+            online: false,
+            faceUrl: cachedAvatar,
+          );
+        }),
+      );
       // Check if restored list is different from previous
       bool hasChanged = false;
       if (_previousContactList == null) {
@@ -498,7 +548,7 @@ class FakeIM {
           }
         }
       }
-      
+
       if (hasChanged) {
         bus.emit(topicContacts, restoredList);
         _previousContactList = List.from(restoredList);
@@ -516,7 +566,8 @@ class FakeIM {
     // Deletion must be detected against Tox state (the source of truth), NOT the merged
     // set that includes local persistence — otherwise local persistence re-adds the deleted
     // friend into the merged set, making the difference empty and preventing detection.
-    _toxFriendListReceived = true; // Tox returned a non-empty list; trust it from now on
+    _toxFriendListReceived =
+        true; // Tox returned a non-empty list; trust it from now on
     final friendMap = <String, FakeUser>{};
     final toxFriendIds = <String>{};
     // X9: snapshot pending adds before we touch the Tox set; entries that
@@ -525,13 +576,11 @@ class FakeIM {
     // Parallel-fetch avatar paths instead of N sequential awaits. With ~100
     // friends this collapses the loop from N microtasks to a single batch.
     final normalizedTox = friends
-        .map((f) => (
-              normalized: normalizeToxId(f.userId),
-              source: f,
-            ))
+        .map((f) => (normalized: normalizeToxId(f.userId), source: f))
         .toList();
     final toxAvatars = await Future.wait(
-        normalizedTox.map((e) => Prefs.getFriendAvatarPath(e.normalized)));
+      normalizedTox.map((e) => Prefs.getFriendAvatarPath(e.normalized)),
+    );
     for (int i = 0; i < normalizedTox.length; i++) {
       final normalizedId = normalizedTox[i].normalized;
       final f = normalizedTox[i].source;
@@ -553,13 +602,15 @@ class FakeIM {
     final livePending = _livePendingFriendAdds();
     if (pendingBefore.isNotEmpty || livePending.isNotEmpty) {
       AppLogger.log(
-          '[FakeIM] X9 pending friend adds: before=${pendingBefore.length} live=${livePending.length}');
+        '[FakeIM] X9 pending friend adds: before=${pendingBefore.length} live=${livePending.length}',
+      );
     }
 
     // Compute the diff between what we previously believed the friend list
     // was and what Tox returned now.
-    final visibleToxFriendIds =
-        toxFriendIds.difference(normalizedPendingApplicationIds);
+    final visibleToxFriendIds = toxFriendIds.difference(
+      normalizedPendingApplicationIds,
+    );
     final missingFromTox = _previousFriendIds.isNotEmpty
         ? _previousFriendIds.difference(visibleToxFriendIds)
         : <String>{};
@@ -568,7 +619,8 @@ class FakeIM {
     // few seconds after restore. During that window, do NOT treat
     // "previously known, not in Tox yet" as deletion — render those friends
     // from Prefs cache instead so they don't disappear from the UI.
-    final inColdStartGrace = _coldStartRestoreAt != null &&
+    final inColdStartGrace =
+        _coldStartRestoreAt != null &&
         DateTime.now().difference(_coldStartRestoreAt!) < _kColdStartGrace;
     // X9: a friend that's currently pending (recent accept/add, Tox not yet
     // confirmed) must NOT be flagged for deletion. Removing it would emit
@@ -585,20 +637,22 @@ class FakeIM {
       final toHydrate = missingFromTox
           .where((pendingId) => !friendMap.containsKey(pendingId))
           .toList();
-      final hydrated = await Future.wait(toHydrate.map((pendingId) async {
-        final results = await Future.wait([
-          Prefs.getFriendNickname(pendingId),
-          Prefs.getFriendStatusMessage(pendingId),
-          Prefs.getFriendAvatarPath(pendingId),
-        ]);
-        return FakeUser(
-          userID: pendingId,
-          nickName: results[0] ?? '',
-          status: results[1] ?? '',
-          online: false,
-          faceUrl: results[2],
-        );
-      }));
+      final hydrated = await Future.wait(
+        toHydrate.map((pendingId) async {
+          final results = await Future.wait([
+            Prefs.getFriendNickname(pendingId),
+            Prefs.getFriendStatusMessage(pendingId),
+            Prefs.getFriendAvatarPath(pendingId),
+          ]);
+          return FakeUser(
+            userID: pendingId,
+            nickName: results[0] ?? '',
+            status: results[1] ?? '',
+            online: false,
+            faceUrl: results[2],
+          );
+        }),
+      );
       for (final user in hydrated) {
         friendMap[user.userID] = user;
       }
@@ -646,10 +700,10 @@ class FakeIM {
     // "previously known, missing now" (they would otherwise become a
     // false-positive deletion the moment they expire).
     _previousFriendIds = authoritativeIds;
-    
+
     // Emit merged list only if it actually changed
     final list = friendMap.values.toList();
-    
+
     // Check if the contact list has actually changed
     bool hasChanged = false;
     if (_previousContactList == null) {
@@ -665,7 +719,7 @@ class FakeIM {
         for (final user in _previousContactList!) {
           previousMap[user.userID] = user;
         }
-        
+
         // Check if any user has changed
         for (final user in list) {
           final previous = previousMap[user.userID];
@@ -688,7 +742,9 @@ class FakeIM {
 
     // Only emit if data actually changed
     if (hasChanged) {
-      AppLogger.log('[FakeIM] _emitContacts: emitting ${list.length} friends: ${list.map((u) => u.userID.substring(0, 8)).toList()}');
+      AppLogger.log(
+        '[FakeIM] _emitContacts: emitting ${list.length} friends: ${list.map((u) => u.userID.substring(0, 8)).toList()}',
+      );
       bus.emit(topicContacts, list);
       _previousContactList = List.from(list); // Save a copy for next comparison
     }
@@ -704,7 +760,8 @@ class FakeIM {
   /// Useful for late subscribers that missed the initial bus emit (e.g. home_page
   /// initialising after FakeIM already emitted contacts during startup).
   Future<void> forceRefreshContacts() async {
-    _previousContactList = null; // reset change-detection cache so the emit is not suppressed
+    _previousContactList =
+        null; // reset change-detection cache so the emit is not suppressed
     await _emitContacts();
   }
 
@@ -713,17 +770,21 @@ class FakeIM {
   List<FakeUser>? get lastContactList => _previousContactList;
 
   Future<void> _emitFriendAppsWithFriends(
-      List<({String userId, String nickName, String status, bool online})> friends) async {
+    List<({String userId, String nickName, String status, bool online})>
+    friends,
+  ) async {
     final apps = await ffi.getFriendApplications();
     final seededNicks = ffi.seededApplicationNicknames;
     final friendIds = friends.map((f) => f.userId).toSet();
     final out = apps
         .where((a) => !friendIds.contains(a.userId))
-        .map((a) => FakeFriendApplication(
-              userID: a.userId,
-              wording: a.wording,
-              nickName: seededNicks[a.userId],
-            ))
+        .map(
+          (a) => FakeFriendApplication(
+            userID: a.userId,
+            wording: a.wording,
+            nickName: seededNicks[a.userId],
+          ),
+        )
         .toList();
     bus.emit(topicFriendApps, out);
   }
@@ -734,7 +795,9 @@ class FakeIM {
       final hist = ffi.getHistory(f.userId);
       for (final h in hist) {
         final msg = FakeMessage(
-          msgID: h.msgID ?? '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
+          msgID:
+              h.msgID ??
+              '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
           conversationID: 'c2c_${f.userId}',
           fromUser: h.fromUserId,
           text: h.text,
@@ -754,7 +817,9 @@ class FakeIM {
       final hist = ffi.getHistory(gid);
       for (final h in hist) {
         final msg = FakeMessage(
-          msgID: h.msgID ?? '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
+          msgID:
+              h.msgID ??
+              '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
           conversationID: 'group_$gid',
           fromUser: h.fromUserId,
           text: h.text,
@@ -798,7 +863,14 @@ class FakeIM {
       final prev = _typingPrev[f.userId];
       if (prev == null || prev != on) {
         _typingPrev[f.userId] = on;
-        bus.emit(topicTyping, FakeTypingEvent(conversationID: 'c2c_${f.userId}', fromUser: f.userId, on: on));
+        bus.emit(
+          topicTyping,
+          FakeTypingEvent(
+            conversationID: 'c2c_${f.userId}',
+            fromUser: f.userId,
+            on: on,
+          ),
+        );
       }
     }
   }

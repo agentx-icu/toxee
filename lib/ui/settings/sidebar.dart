@@ -400,7 +400,8 @@ class _UserAvatarState extends State<_UserAvatar> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Compact (tablet, 72px) rail: show the avatar only, centered; the
+    // Compact 72px rail (landscape phone — NOT tablet; tablets are `isDesktop`
+    // and get the 200pt labelled rail): show the avatar only, centered; the
     // nickname/status column is hidden (there is no room for it) and the
     // existing Tooltip already surfaces the nickname on hover.
     final compact = ResponsiveLayout.isCompactRail(context);
@@ -579,8 +580,9 @@ class _SidebarItemState extends State<_SidebarItem> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final disableAnims = MediaQuery.disableAnimationsOf(context);
-    // Compact (tablet, 72px) rail: icon-only, label hidden + surfaced as a
-    // tooltip. Wide rail: icon + ellipsised label.
+    // Compact 72px rail (landscape phone — NOT tablet; tablets are `isDesktop`
+    // and get the 200pt labelled rail): icon-only, label hidden + surfaced as
+    // a tooltip. Wide rail: icon + ellipsised label.
     final compact = ResponsiveLayout.isCompactRail(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {
@@ -807,8 +809,9 @@ class _ContactSidebarItemState extends State<_ContactSidebarItem> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    // Compact (tablet, 72px) rail: icon-only, label hidden + surfaced as a
-    // tooltip. Wide rail: icon + ellipsised label.
+    // Compact 72px rail (landscape phone — NOT tablet; tablets are `isDesktop`
+    // and get the 200pt labelled rail): icon-only, label hidden + surfaced as
+    // a tooltip. Wide rail: icon + ellipsised label.
     final compact = ResponsiveLayout.isCompactRail(context);
     return TencentCloudChatThemeWidget(
       build: (context, colorTheme, textStyle) {

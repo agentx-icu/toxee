@@ -1,5 +1,22 @@
 import 'dart:ui';
 
+// STATUS (audited 2026-08-07): UNFINISHED MIGRATION — currently dead code.
+//
+// The four interfaces below have exactly one implementor (`PrefsImpl` in
+// `prefs_impl.dart`) and zero consumers: no production code, test, or tool
+// declares a dependency on `ICorePrefs` / `IFriendPrefs` / `IUIPrefs` /
+// `INotificationPrefs`. Every real callsite still uses the static `Prefs`
+// facade in `lib/util/prefs.dart`.
+//
+// Kept rather than deleted because `lib/util/prefs.dart` advertises these
+// interfaces as the migration target for new code, and TODOS.md item 7
+// ("`Prefs` god class — split into focused services") plans the split around
+// them. Note the conflicting guidance in `lib/util/feature_flags.dart`, which
+// warns against adding app-scoped state here on the grounds that this file is
+// "the Tim2Tox bridge boundary" — it is not; the Tim2Tox preference bridge is
+// `lib/adapters/shared_prefs_adapter.dart`. Resolve that contradiction before
+// investing in this seam.
+
 /// Core/network-related preferences (bootstrap, server id, LAN).
 abstract class ICorePrefs {
   Future<String?> getServerId();

@@ -28,14 +28,16 @@
 // the fix the first subscription was cancelled on dispose, so the re-mount is
 // clean.
 //
-// One `testWidgets` (not two): a host-bundle file under `-d macos` uses
-// LiveTestWidgetsFlutterBinding, which asserts in postTest across multiple
-// `testWidgets` — so the mount→dispose→remount sequence lives inside one test.
+// One `testWidgets` (not two): this host-bundle file uses
+// IntegrationTestWidgetsFlutterBinding so its result is reported through the
+// integration-test device protocol; mount→dispose→remount remains one complete
+// regression sequence.
 @Tags(['needs-native'])
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/util/locale_controller.dart';
 import 'package:toxee/util/theme_controller.dart';
@@ -43,7 +45,7 @@ import 'package:toxee/util/theme_controller.dart';
 import 'login_page_states_harness.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   late LoginStatesHarness harness;
 

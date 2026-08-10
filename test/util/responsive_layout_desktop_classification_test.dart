@@ -25,11 +25,20 @@ import 'package:toxee/util/responsive_layout.dart';
 ///  - `responsiveSidebarWidth`, which is composed from the above.
 ///  - `responsiveBottomNavHeight`, mirror of `shouldShowBottomNav`.
 ///
-/// The mobile/tablet `shortestSide` branches in `isMobile` / `isTablet` are
-/// exercised by integration tests on real devices and by the per-platform CI
-/// jobs in `.github/workflows/`. Doing it here would require either:
-///   (a) injecting a platform-detection seam into `ResponsiveLayout` (worth
-///       considering — see the note at the bottom of this file), or
+/// UPDATE 2026-08-08 — option (a) below shipped. `ResponsiveLayout` now exposes
+/// `@visibleForTesting static bool Function()? debugIsDesktopPlatformOverride`,
+/// and the mobile / large-phone / tablet tiers (plus `isTabletPortrait`,
+/// `isTabletLandscape`, `isCompactRail`, and a `isDesktop == false` case) are
+/// covered in the companion file
+/// `test/util/responsive_layout_device_tiers_test.dart`.
+///
+/// This file deliberately does NOT set that override: it keeps covering the
+/// un-overridden host path, so the two files together pin both sides of the
+/// platform check. Everything below therefore still describes real behaviour on
+/// a desktop CI host.
+///
+/// Historical note — the two options originally listed here:
+///   (a) injecting a platform-detection seam into `ResponsiveLayout` — DONE,
 ///   (b) running the test under `flutter test --platform chrome`, which then
 ///       flips `kIsWeb = true` and lets the size fallback drive `isDesktop`.
 

@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 import 'package:tencent_cloud_chat_common/widgets/material_app.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/util/locale_controller.dart';
@@ -15,7 +16,7 @@ import 'package:toxee/util/theme_controller.dart';
 import 'login_page_states_harness.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   late LoginStatesHarness harness;
 

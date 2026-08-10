@@ -43,6 +43,7 @@ import '../pairing/pairing_host_page.dart';
 import '../testing/l3_debug_tools.dart';
 
 part 'settings_page_widgets.dart';
+part 'settings_page_mobile_widgets.dart';
 part 'settings_page_build.dart';
 
 /// Test seam for the logout teardown step. Production binds this to
@@ -193,6 +194,8 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _autoLogin = true; // Auto-login setting
+  final ValueNotifier<bool> _autoLoginNotifier = ValueNotifier<bool>(true);
+  int _autoLoginGeneration = 0;
   String? _currentNickname; // Current user nickname
   String? _avatarPath; // Current user avatar path
   StreamSubscription<String>? _avatarUpdatedSubscription;
@@ -277,6 +280,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _avatarUpdatedSubscription?.cancel();
     _lastLoginTimeUpdateTimer?.cancel();
+    _autoLoginNotifier.dispose();
     super.dispose();
   }
 
@@ -290,30 +294,34 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadAutoLogin() async {
+    final generation = _autoLoginGeneration;
     final toxId =
         _currentAccountToxId ??
         await Prefs.getCurrentAccountToxId() ??
         widget.service.accountKey;
     if (toxId.isNotEmpty) {
       final enabled = await Prefs.getAutoLogin(toxId);
-      if (mounted) {
+      if (mounted && generation == _autoLoginGeneration) {
         setState(() {
           _autoLogin = enabled;
+          _autoLoginNotifier.value = enabled;
         });
       }
     }
   }
 
   Future<void> _setAutoLogin(bool value) async {
+    final generation = ++_autoLoginGeneration;
     final toxId =
         _currentAccountToxId ??
         await Prefs.getCurrentAccountToxId() ??
         widget.service.accountKey;
     if (toxId.isNotEmpty) {
       await Prefs.setAutoLogin(value, toxId);
-      if (mounted) {
+      if (mounted && generation == _autoLoginGeneration) {
         setState(() {
           _autoLogin = value;
+          _autoLoginNotifier.value = value;
         });
       }
     }
@@ -1439,29 +1447,6 @@ class _SettingsPageState extends State<SettingsPage> {
     await _loadAvatarPath();
   }
 
-  void _pushMobileSettingsSection(String title, Widget child) {
-    Navigator.of(context).push<void>(
-      AppPageRoute<void>(
-        page: Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              key: UiKeys.settingsMobileSectionBackButton,
-              icon: const Icon(Icons.arrow_back_ios_new),
-              onPressed: () => Navigator.of(context).maybePop(),
-            ),
-            title: Text(title),
-          ),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              children: [child],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildMobileSettingsIndex(BuildContext context, dynamic colorTheme) {
     final appL10n = AppLocalizations.of(context)!;
     final tL10n = TencentCloudChatLocalizations.of(context);
@@ -1608,123 +1593,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildMobileAccountInfoCard(BuildContext context, dynamic colorTheme) {
-    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
-    final toxId = _currentAccountToxId ?? widget.service.accountKey;
-    Future<void> copyToxId() async {
-      await Clipboard.setData(ClipboardData(text: toxId));
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context)!.idCopiedToClipboard),
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: outlineVariant),
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SectionHeader(title: AppLocalizations.of(context)!.accountInfo),
-            AppSpacing.verticalMd,
-            Text(
-              AppLocalizations.of(context)!.userId,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: colorTheme.secondaryTextColor,
-              ),
-            ),
-            AppSpacing.verticalXs,
-            GestureDetector(
-              onLongPress: copyToxId,
-              child: Directionality(
-                textDirection: TextDirection.ltr,
-                child: SelectableText(
-                  toxId,
-                  key: UiKeys.settingsCopyToxIdButton,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontFamily: 'monospace',
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-            ),
-            AppSpacing.verticalMd,
-            _HoverableSettingsRow(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          AppLocalizations.of(context)!.autoLogin,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        AppSpacing.verticalXs,
-                        Text(
-                          AppLocalizations.of(context)!.autoLoginDesc,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorTheme.secondaryTextColor),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    key: UiKeys.settingsAutoLoginSwitch,
-                    value: _autoLogin,
-                    onChanged: (value) => _setAutoLogin(value),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: AppSpacing.xl),
-            _HoverableSettingsRow(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          AppLocalizations.of(
-                            context,
-                          )!.autoAcceptFriendRequests,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        AppSpacing.verticalXs,
-                        Text(
-                          AppLocalizations.of(
-                            context,
-                          )!.autoAcceptFriendRequestsDesc,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorTheme.secondaryTextColor),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    value: widget.autoAcceptFriends,
-                    onChanged: widget.onAutoAcceptFriendsChanged,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

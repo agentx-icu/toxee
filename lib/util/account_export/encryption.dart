@@ -20,6 +20,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart' as pkgffi;
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
+import 'exceptions.dart';
 import 'ffi_constants.dart';
 
 /// Encrypts [plaintext] with [password] using Tox's `tox_pass_encrypt`
@@ -160,7 +161,8 @@ Future<void> encryptProfileFile(String profileFilePath, String password) async {
   if (password.isEmpty) return;
   final file = File(profileFilePath);
   if (!await file.exists()) {
-    throw Exception('Profile file not found: $profileFilePath');
+    // PRIVACY: no path in the message — see ProfileFileMissingException.
+    throw const ProfileFileMissingException(ProfileCryptoOperation.encrypt);
   }
   final plainData = await file.readAsBytes();
   if (plainData.isEmpty) throw Exception('Profile file is empty');
@@ -204,7 +206,8 @@ Future<void> decryptProfileFile(String profileFilePath, String password) async {
   if (password.isEmpty) throw ArgumentError('Password required to decrypt');
   final file = File(profileFilePath);
   if (!await file.exists()) {
-    throw Exception('Profile file not found: $profileFilePath');
+    // PRIVACY: no path in the message — see ProfileFileMissingException.
+    throw const ProfileFileMissingException(ProfileCryptoOperation.decrypt);
   }
   final fileData = await file.readAsBytes();
   if (fileData.isEmpty) throw Exception('Profile file is empty');

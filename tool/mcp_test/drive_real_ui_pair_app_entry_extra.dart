@@ -572,7 +572,16 @@ Future<bool?> _aeeIrcJoinChannelLoopbackLive(Inst inst) async {
       'stateContains=$stateContains joined=$joined channel=$channel '
       'server=${server.host}:${server.port}',
     );
-    return tileShown && stateContains;
+    // `joined` is the ONLY signal that the REAL connect path ran: it means the
+    // loopback IRC server actually received a JOIN, i.e. IrcAppManager.addChannel
+    // -> service.connectIrcChannel dlopen'd libirc_client and opened a socket.
+    // tileShown/stateContains are pure Dart/Prefs and stay true even where
+    // libirc_client is not built (Windows/Android), so leaving `joined` out of
+    // the verdict made this case report PASS on exactly the platforms
+    // REAL_UI_TWO_PROCESS.md says must NOT report it as passing. (The sibling
+    // `_aeeIrcJoinChannelRealControls` deliberately does NOT gate on a socket —
+    // it sets the L3 localAddOverride and is the portable Dart/Prefs proof.)
+    return tileShown && stateContains && joined.contains('JOIN $channel');
   } finally {
     if (marked) {
       try {

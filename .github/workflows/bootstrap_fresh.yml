@@ -6,8 +6,18 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   bootstrap-fresh:
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -25,6 +35,10 @@ jobs:
         with:
           flutter-version: '3.41.9'
           channel: 'stable'
+          # Caches the Flutter SDK download/extract (~2.5 min/job). Does NOT
+          # cache pub deps or the vendored Tencent SDK, so bootstrap_fresh's
+          # `--force` re-vendor still exercises the real from-scratch path.
+          cache: true
 
       - name: Bootstrap dependencies (force re-vendor)
         run: dart run tool/bootstrap_deps.dart --force

@@ -20,13 +20,35 @@ import 'logger.dart';
 /// **Dedup**: identical `(apiName, code)` pairs are suppressed inside a 3s
 /// window so a burst of failed sends doesn't carpet the screen. The window is
 /// per-key (not global) so distinct error types are still allowed through.
+///
+/// **Why this uses `AppSnackBar.showErrorOnBuilder` and not
+/// `AppSnackBar.showError`** (`lib/ui/widgets/app_snackbar.dart`):
+/// `showError` takes a [BuildContext] and resolves its target with
+/// `ScaffoldMessenger.of(context)`, i.e. an ANCESTOR lookup for
+/// `_ScaffoldMessengerScope`. A `ScaffoldMessenger` publishes that scope to its
+/// DESCENDANTS, so the only context this class can reach without a widget —
+/// `scaffoldMessengerKey.currentState!.context` — can never resolve its own
+/// messenger. In production the key is handed to `MaterialApp`
+/// (`lib/main.dart`), where that messenger is the root one with no ancestor
+/// messenger at all, so the lookup failed outright and the toast never
+/// appeared. The `...On` entry points exist precisely so we can hand
+/// `AppSnackBar` the messenger we already hold.
+///
+/// The `Builder` variant is used because [_humanize] reads
+/// `AppLocalizations.of(context)`: that has to resolve at the DISPLAY site, not
+/// from whatever context this class can reach. See `AppSnackBar`'s class doc
+/// for why display-site resolution is the invariant.
 class SendFailureNotifier {
   SendFailureNotifier._();
 
-  /// Module-wide ScaffoldMessenger key wired in `main.dart`. Optional —
-  /// callers fall back to the nearest `ScaffoldMessenger.of(context)` if it is
-  /// null, but having the global key lets non-widget code (e.g. SDK callbacks)
-  /// raise toasts without a [BuildContext] in hand.
+  /// Module-wide ScaffoldMessenger key wired into `MaterialApp` in
+  /// `main.dart`. It is what lets non-widget code (e.g. SDK callbacks) raise a
+  /// toast without a [BuildContext] in hand. When it is not attached — before
+  /// the app is up, or after teardown — the failure is logged and dropped.
+  ///
+  /// The messenger it points at must have at least one descendant `Scaffold`,
+  /// otherwise `showSnackBar` has nothing to present in. That holds for every
+  /// app screen (login and home are both Scaffolds).
   static final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
@@ -39,6 +61,15 @@ class SendFailureNotifier {
 
   static final Map<String, DateTime> _lastShown = <String, DateTime>{};
 
+  /// Key on the coloured surface inside the toast. Lets tests assert that the
+  /// error colours are resolved from the app's theme at the display site rather
+  /// than from a themeless context.
+  ///
+  /// Re-exported from `AppSnackBar` — which now owns the styling — so this
+  /// module's tests do not have to know where the surface is built.
+  @visibleForTesting
+  static const Key toastSurfaceKey = AppSnackBar.toastSurfaceKey;
+
   /// Handle an SDK failure callback. Only `apiName == 'sendMessage'` is
   /// surfaced as a snackbar today; other api failures continue to be logged
   /// by the SDK trigger itself.
@@ -47,10 +78,9 @@ class SendFailureNotifier {
       return;
     }
     final messengerState = scaffoldMessengerKey.currentState;
-    final context = messengerState?.context;
-    if (context == null) {
+    if (messengerState == null) {
       AppLogger.warn(
-          '[SendFailureNotifier] sendMessage failed (code=$code) but no scaffoldMessenger context available; suppressing toast');
+          '[SendFailureNotifier] sendMessage failed (code=$code) but no scaffoldMessenger is mounted; suppressing toast');
       return;
     }
 
@@ -64,8 +94,13 @@ class SendFailureNotifier {
     }
     _lastShown[dedupKey] = now;
 
-    final message = _humanize(context, code, desc);
-    AppSnackBar.showError(context, message);
+    // `AppSnackBar` does the `hideCurrentSnackBar()` itself: without it a
+    // second (non-deduped) failure would sit in the messenger queue behind the
+    // 4s error toast instead of replacing it.
+    AppSnackBar.showErrorOnBuilder(
+      messengerState,
+      (context) => _humanize(context, code, desc),
+    );
   }
 
   /// Reset dedup state. Intended for tests and account-switch cleanup.

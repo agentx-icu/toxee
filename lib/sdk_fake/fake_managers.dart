@@ -44,9 +44,10 @@ typedef ConvBuilderFriend = ({String userId, String nickName, bool online});
 ///   the Tox friend list are added with `online: false` (used by the cold-start
 ///   sync read path in `getConversationList()`). When false, Tox is the sole
 ///   authority (used by the steady-state bus-emit path).
-/// - [emitGroupType]: when true, `FakeConversation.groupType` is populated
-///   from [getGroupType] when available, otherwise from the legacy toxee
-///   fallback (`'conference'` for `tox_conf_*`, `'group'` otherwise).
+/// - [emitGroupType]: when true, `FakeConversation.groupType` is populated via
+///   the canonical resolver so `Public` / `Meeting` / `AVChatRoom` /
+///   `Community` survive sparse refreshes, while `group` / `conference` remain
+///   the fallback shapes when no authoritative type is available.
 ///
 /// The function does not mutate any of its inputs or call into `Prefs`/`ffi`
 /// outside the read-side helpers. All Prefs reads happen in parallel (batched
@@ -68,8 +69,11 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
   final friendMap = <String, ConvBuilderFriend>{};
   for (final f in friends) {
     final normalized = normalizeToxId(f.userId);
-    friendMap[normalized] =
-        (userId: normalized, nickName: f.nickName, online: f.online);
+    friendMap[normalized] = (
+      userId: normalized,
+      nickName: f.nickName,
+      online: f.online,
+    );
   }
 
   // Optionally merge in locally-persisted friends not yet in the Tox list, so
@@ -92,8 +96,7 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
   // newly-accepted friend (in the friend list AND still in pending apps) is
   // emitted instead of suppressed.
   final normalizedFriendIds = friendMap.keys.toSet();
-  final normalizedPendingIds =
-      pendingFriendIds.map(normalizeToxId).toSet();
+  final normalizedPendingIds = pendingFriendIds.map(normalizeToxId).toSet();
 
   // Filter pending-but-not-yet-accepted friends.
   final emitFriends = friendMap.values.where((f) {
@@ -107,13 +110,15 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
 
   // Parallel-fetch avatar + activity for each friend so N friends collapse to
   // one batch round-trip instead of 2N sequential awaits.
-  final c2cMeta = await Future.wait(emitFriends.map((f) async {
-    final res = await Future.wait<Object?>([
-      Prefs.getFriendAvatarPath(f.userId),
-      Prefs.getFriendActivity(f.userId),
-    ]);
-    return (avatar: res[0] as String?, activity: res[1] as DateTime?);
-  }));
+  final c2cMeta = await Future.wait(
+    emitFriends.map((f) async {
+      final res = await Future.wait<Object?>([
+        Prefs.getFriendAvatarPath(f.userId),
+        Prefs.getFriendActivity(f.userId),
+      ]);
+      return (avatar: res[0] as String?, activity: res[1] as DateTime?);
+    }),
+  );
 
   final list = <FakeConversation>[];
   final activityByC2cId = <String, DateTime?>{};
@@ -121,26 +126,32 @@ Future<List<FakeConversation>> buildConversationsFromFriends({
     final f = emitFriends[i];
     final normalizedUserId = normalizeToxId(f.userId);
     activityByC2cId['c2c_${f.userId}'] = c2cMeta[i].activity;
-    list.add(FakeConversation(
-      conversationID: 'c2c_${f.userId}',
-      title: f.nickName.isNotEmpty ? f.nickName : f.userId,
-      faceUrl: c2cMeta[i].avatar,
-      unreadCount: getUnreadOf(f.userId),
-      isGroup: false,
-      isPinned: pinned.contains(normalizedUserId),
-    ));
+    list.add(
+      FakeConversation(
+        conversationID: 'c2c_${f.userId}',
+        title: f.nickName.isNotEmpty ? f.nickName : f.userId,
+        faceUrl: c2cMeta[i].avatar,
+        unreadCount: getUnreadOf(f.userId),
+        isGroup: false,
+        isPinned: pinned.contains(normalizedUserId),
+      ),
+    );
   }
 
   // ---- Groups: dedupe candidate set, drop quit groups, batch-fetch metadata.
-  final emitGroups =
-      groupIds.toSet().where((g) => !quitGroups.contains(g)).toList();
-  final groupMeta = await Future.wait(emitGroups.map((gid) async {
-    final res = await Future.wait<Object?>([
-      Prefs.resolveGroupDisplayName(gid),
-      Prefs.getGroupAvatar(gid),
-    ]);
-    return (name: res[0] as String, avatar: res[1] as String?);
-  }));
+  final emitGroups = groupIds
+      .toSet()
+      .where((g) => !quitGroups.contains(g))
+      .toList();
+  final groupMeta = await Future.wait(
+    emitGroups.map((gid) async {
+      final res = await Future.wait<Object?>([
+        Prefs.resolveGroupDisplayName(gid),
+        Prefs.getGroupAvatar(gid),
+      ]);
+      return (name: res[0] as String, avatar: res[1] as String?);
+    }),
+  );
   // Activity timestamps for groups: previously hard-coded to 0 in the
   // sort, which pinned every group below every C2C in activity mode
   // regardless of recency. Now sourced from the caller-provided lookup
@@ -246,13 +257,12 @@ class FakeConversationManager {
     AppLogger.debug('[FakeConversationManager] getConversationList: START');
     final friends = await _ffi.getFriendList();
     AppLogger.debug(
-        '[FakeConversationManager] getConversationList: Retrieved ${friends.length} friends from FFI');
+      '[FakeConversationManager] getConversationList: Retrieved ${friends.length} friends from FFI',
+    );
     // pinned contains normalized IDs (for C2C) or 'group_${normalizedGid}'
     // (for groups). Filter empty strings from legacy/corrupted data and cache
     // the result so the sync setPinned() path sees the latest set.
-    final pinned = (await Prefs.getPinned())
-        .where((s) => s.isNotEmpty)
-        .toSet();
+    final pinned = (await Prefs.getPinned()).where((s) => s.isNotEmpty).toSet();
     _pinned = pinned;
 
     // Pending friend applications (requests we sent, peer hasn't accepted yet)
@@ -285,19 +295,22 @@ class FakeConversationManager {
       getGroupType: (gid) => UikitDataFacade.getGroupInfo(gid).groupType,
     );
     AppLogger.log(
-        '[FakeConversationManager] getConversationList: END - Returning ${list.length} conversations (${list.where((c) => !c.isGroup).length} C2C, ${list.where((c) => c.isGroup).length} groups), sort=$sortingMode');
+      '[FakeConversationManager] getConversationList: END - Returning ${list.length} conversations (${list.where((c) => !c.isGroup).length} C2C, ${list.where((c) => c.isGroup).length} groups), sort=$sortingMode',
+    );
     return list;
   }
 
   Future<void> setPinned(String conversationID, bool pin) async {
     AppLogger.debug(
-        '[FakeConversationManager] setPinned: START - conversationID=$conversationID, pin=$pin');
+      '[FakeConversationManager] setPinned: START - conversationID=$conversationID, pin=$pin',
+    );
     // Validate conversationID - reject empty or invalid IDs
     if (conversationID.isEmpty ||
         conversationID == 'c2c_' ||
         conversationID == 'group_') {
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Invalid conversationID, returning early');
+        '[FakeConversationManager] setPinned: Invalid conversationID, returning early',
+      );
       return;
     }
 
@@ -309,29 +322,34 @@ class FakeConversationManager {
       // Validate group ID
       if (gid.isEmpty) {
         AppLogger.debug(
-            '[FakeConversationManager] setPinned: Empty group ID, returning early');
+          '[FakeConversationManager] setPinned: Empty group ID, returning early',
+        );
         return;
       }
       // For groups, use 'group_${normalizedGid}' format to match getConversationList
       final normalizedGid = normalizeToxId(gid);
       normalizedStoreKey = 'group_$normalizedGid';
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Group - gid=$gid, normalizedGid=$normalizedGid, normalizedStoreKey=$normalizedStoreKey');
+        '[FakeConversationManager] setPinned: Group - gid=$gid, normalizedGid=$normalizedGid, normalizedStoreKey=$normalizedStoreKey',
+      );
 
       final next = {..._pinned};
       if (pin) {
         next.add(normalizedStoreKey);
         AppLogger.debug(
-            '[FakeConversationManager] setPinned: Adding to pinned set, new size=${next.length}');
+          '[FakeConversationManager] setPinned: Adding to pinned set, new size=${next.length}',
+        );
       } else {
         next.remove(normalizedStoreKey);
         AppLogger.debug(
-            '[FakeConversationManager] setPinned: Removing from pinned set, new size=${next.length}');
+          '[FakeConversationManager] setPinned: Removing from pinned set, new size=${next.length}',
+        );
       }
       _pinned = next;
       await Prefs.setPinned(next.where((s) => s.isNotEmpty).toSet());
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Saved to Prefs, pinned set: ${next.toList()}');
+        '[FakeConversationManager] setPinned: Saved to Prefs, pinned set: ${next.toList()}',
+      );
 
       // Resolve display name with the same precedence as the rest of the
       // app: alias > canonical name > gid.
@@ -361,7 +379,8 @@ class FakeConversationManager {
     // Validate storeKey - reject empty keys
     if (storeKey.isEmpty) {
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Empty storeKey, returning early');
+        '[FakeConversationManager] setPinned: Empty storeKey, returning early',
+      );
       return;
     }
 
@@ -369,22 +388,26 @@ class FakeConversationManager {
     // which uses normalized IDs when checking pinned.contains()
     normalizedStoreKey = normalizeToxId(storeKey);
     AppLogger.debug(
-        '[FakeConversationManager] setPinned: C2C - storeKey=$storeKey, normalizedStoreKey=$normalizedStoreKey');
+      '[FakeConversationManager] setPinned: C2C - storeKey=$storeKey, normalizedStoreKey=$normalizedStoreKey',
+    );
 
     final next = {..._pinned};
     if (pin) {
       next.add(normalizedStoreKey);
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Adding to pinned set, new size=${next.length}');
+        '[FakeConversationManager] setPinned: Adding to pinned set, new size=${next.length}',
+      );
     } else {
       next.remove(normalizedStoreKey);
       AppLogger.debug(
-          '[FakeConversationManager] setPinned: Removing from pinned set, new size=${next.length}');
+        '[FakeConversationManager] setPinned: Removing from pinned set, new size=${next.length}',
+      );
     }
     _pinned = next;
     await Prefs.setPinned(next.where((s) => s.isNotEmpty).toSet());
     AppLogger.debug(
-        '[FakeConversationManager] setPinned: Saved to Prefs, pinned set: ${next.toList()}');
+      '[FakeConversationManager] setPinned: Saved to Prefs, pinned set: ${next.toList()}',
+    );
     // Use normalizedStoreKey for consistency
     final id = normalizedStoreKey;
     // Validate user ID
@@ -420,12 +443,14 @@ class FakeConversationManager {
   /// action and lives behind a different UI path.
   Future<void> deleteConversation(String conversationID) async {
     AppLogger.debug(
-        '[FakeConversationManager] deleteConversation: START - conversationID=$conversationID');
+      '[FakeConversationManager] deleteConversation: START - conversationID=$conversationID',
+    );
     if (conversationID.isEmpty ||
         conversationID == 'c2c_' ||
         conversationID == 'group_') {
       AppLogger.debug(
-          '[FakeConversationManager] deleteConversation: invalid conversationID, returning');
+        '[FakeConversationManager] deleteConversation: invalid conversationID, returning',
+      );
       return;
     }
 
@@ -436,9 +461,10 @@ class FakeConversationManager {
         await _ffi.clearGroupHistory(gid);
       } catch (e, st) {
         AppLogger.logError(
-            '[FakeConversationManager] deleteConversation: clearGroupHistory failed',
-            e,
-            st);
+          '[FakeConversationManager] deleteConversation: clearGroupHistory failed',
+          e,
+          st,
+        );
       }
       final pinnedKey = 'group_${normalizeToxId(gid)}';
       if (_pinned.remove(pinnedKey)) {
@@ -454,9 +480,10 @@ class FakeConversationManager {
         await _ffi.clearC2CHistory(normalizedId);
       } catch (e, st) {
         AppLogger.logError(
-            '[FakeConversationManager] deleteConversation: clearC2CHistory failed',
-            e,
-            st);
+          '[FakeConversationManager] deleteConversation: clearC2CHistory failed',
+          e,
+          st,
+        );
       }
       if (_pinned.remove(normalizedId)) {
         await Prefs.setPinned(_pinned.where((s) => s.isNotEmpty).toSet());
@@ -468,7 +495,8 @@ class FakeConversationManager {
     await FakeUIKit.instance.im?.refreshConversations();
     FakeUIKit.instance.messageProvider?.clearMessageBuffer(conversationID);
     AppLogger.debug(
-        '[FakeConversationManager] deleteConversation: DONE - conversationID=$conversationID');
+      '[FakeConversationManager] deleteConversation: DONE - conversationID=$conversationID',
+    );
   }
 
   void dispose() {
@@ -535,11 +563,14 @@ class FakeMessageManager {
     final key = normalizeToxId(userID);
     _localMessages.putIfAbsent(key, () => <FakeMessage>[]).add(msg);
     AppLogger.log(
-        '[FakeMessageManager] addLocalMessage: total=${_localMessages[key]!.length}');
+      '[FakeMessageManager] addLocalMessage: total=${_localMessages[key]!.length}',
+    );
   }
 
-  Future<List<FakeMessage>> getHistory(String conversationID,
-      {int count = 50}) async {
+  Future<List<FakeMessage>> getHistory(
+    String conversationID, {
+    int count = 50,
+  }) async {
     String id;
     if (conversationID.startsWith('c2c_')) {
       id = conversationID.substring(4);
@@ -554,26 +585,30 @@ class FakeMessageManager {
     AppLogger.log('[FakeMessageManager] getHistory called');
     final hist = _ffi.getHistory(id);
     AppLogger.log(
-        '[FakeMessageManager] getHistory returned ${hist.length} messages');
+      '[FakeMessageManager] getHistory returned ${hist.length} messages',
+    );
     // Sort by timestamp ascending (oldest first, newest last) - UIKit pattern
     // DO NOT reverse here! UIKit's reverse ListView will handle the display order
     final sorted = hist
-        .map((h) => FakeMessage(
-              msgID: h.msgID ??
-                  '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
-              conversationID: conversationID,
-              fromUser: h.fromUserId,
-              text: h.text,
-              timestampMs: h.timestamp.millisecondsSinceEpoch,
-              filePath: h.filePath,
-              fileName: h.fileName, // Pass original file name
-              fileSize: h.fileSize,
-              mediaKind: h.mediaKind,
-              cloudCustomData: h.cloudCustomData,
-              isPending: h.isPending,
-              isReceived: h.isReceived,
-              isRead: h.isRead,
-            ))
+        .map(
+          (h) => FakeMessage(
+            msgID:
+                h.msgID ??
+                '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
+            conversationID: conversationID,
+            fromUser: h.fromUserId,
+            text: h.text,
+            timestampMs: h.timestamp.millisecondsSinceEpoch,
+            filePath: h.filePath,
+            fileName: h.fileName, // Pass original file name
+            fileSize: h.fileSize,
+            mediaKind: h.mediaKind,
+            cloudCustomData: h.cloudCustomData,
+            isPending: h.isPending,
+            isReceived: h.isReceived,
+            isRead: h.isRead,
+          ),
+        )
         .toList();
 
     // Merge in locally generated messages (e.g. call records) for this user
@@ -581,7 +616,8 @@ class FakeMessageManager {
     final localMsgs = _localMessages[normalizedId];
     if (localMsgs != null && localMsgs.isNotEmpty) {
       AppLogger.log(
-          '[FakeMessageManager] getHistory: merging ${localMsgs.length} local messages');
+        '[FakeMessageManager] getHistory: merging ${localMsgs.length} local messages',
+      );
       sorted.addAll(localMsgs);
     }
 
@@ -645,7 +681,7 @@ class FakeMessageManager {
   Future<void> sendFile(String conversationID, String filePath) async {
     if (conversationID.startsWith('c2c_')) {
       final uid = conversationID.substring(4);
-      Prefs.setFriendActivity(uid, DateTime.now());
+      await Prefs.setFriendActivity(uid, DateTime.now());
       await _ffi.sendFile(uid, filePath);
       // Note: Local echo will be emitted by FfiChatService.sendFile via ffi.messages stream
       // No need to emit here to avoid duplicates
@@ -668,8 +704,11 @@ class FakeMessageManager {
 
   /// Send message read receipts
   /// This is called by UIKit when messages are viewed
-  Future<void> sendMessageReadReceipts(List<String> msgIDList,
-      {String? userID, String? groupID}) async {
+  Future<void> sendMessageReadReceipts(
+    List<String> msgIDList, {
+    String? userID,
+    String? groupID,
+  }) async {
     try {
       if (groupID != null) {
         // For group messages, send read receipt to the group
@@ -731,10 +770,10 @@ class FakeContactManager {
     _appsSub = _bus
         .on<List<FakeFriendApplication>>(FakeIM.topicFriendApps)
         .listen((list) {
-      for (final l in _listeners) {
-        l.onFriendApps?.call(list);
-      }
-    });
+          for (final l in _listeners) {
+            l.onFriendApps?.call(list);
+          }
+        });
   }
 
   void addListener(FakeContactListener l) {
@@ -744,11 +783,14 @@ class FakeContactManager {
   Future<List<FakeUser>> getFriendList() async {
     final friends = await _ffi.getFriendList();
     return friends
-        .map((f) => FakeUser(
+        .map(
+          (f) => FakeUser(
             userID: f.userId,
             nickName: f.nickName,
             status: f.status,
-            online: f.online))
+            online: f.online,
+          ),
+        )
         .toList();
   }
 

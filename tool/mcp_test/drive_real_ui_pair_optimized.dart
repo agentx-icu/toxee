@@ -10,6 +10,13 @@ part of 'drive_real_ui_pair.dart';
 // failure; these bundles are for broad regression coverage once the pieces are
 // healthy.
 
+// SKIP exit code, matching the three-state driver contract (0 PASS / 1 FAIL /
+// 75 SKIP). Declared per-part to match the existing convention in this library
+// (_realUiSkipExitCodeHighValue, _realUiSkipExitCodeP2Verify,
+// _realUiSkipExitCodeForBatch8) — worth collapsing into one shared constant,
+// but that is a separate cleanup across four files.
+const _realUiSkipExitCodeOptimized = 75;
+
 const _optimizedSweepScenarios = {
   'sweep_single_app_optimized',
   'sweep_c2c_optimized',
@@ -160,6 +167,7 @@ Future<int> _runOptimizedSequence(
 ) async {
   var passed = 0;
   var failed = 0;
+  var skipped = 0;
   final results = <String, String>{};
 
   for (final step in steps) {
@@ -170,6 +178,14 @@ Future<int> _runOptimizedSequence(
         passed++;
         results[step.name] = 'PASS';
         print('[sweep] $label PASS ${step.name}');
+      } else if (code == _realUiSkipExitCodeOptimized) {
+        // A child sweep that could not construct its environment reports SKIP
+        // (75), the same three-state contract the individual drivers use.
+        // Counting it as FAIL(75) here would turn an honest "not runnable"
+        // into a red build; counting it as PASS would hide it. Track it.
+        skipped++;
+        results[step.name] = 'SKIP';
+        print('[sweep] $label SKIP ${step.name}');
       } else {
         failed++;
         results[step.name] = 'FAIL($code)';
@@ -186,9 +202,14 @@ Future<int> _runOptimizedSequence(
   }
 
   print(
-    '[sweep] $label summary: passed=$passed failed=$failed results=$results',
+    '[sweep] $label summary: passed=$passed failed=$failed skipped=$skipped '
+    'results=$results',
   );
-  return failed == 0 ? 0 : 1;
+  if (failed > 0) return 1;
+  // Every child skipped => this bundle asserted nothing. Propagate SKIP rather
+  // than reporting a green run.
+  if (passed == 0 && skipped > 0) return _realUiSkipExitCodeOptimized;
+  return 0;
 }
 
 final class _OptimizedStep {

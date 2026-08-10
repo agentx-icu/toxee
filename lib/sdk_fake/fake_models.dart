@@ -15,6 +15,10 @@ String resolveFakeConversationGroupType({
       case 'conference':
       case 'avchatroom':
         return 'conference';
+      case 'public':
+      case 'meeting':
+      case 'community':
+        return value.toLowerCase();
       case 'group':
       case 'work':
         return 'group';
@@ -56,7 +60,8 @@ class FakeMessage {
     this.fileSize,
     this.mediaKind,
     this.cloudCustomData,
-    this.isPending = false, // true if message is pending (offline, not sent yet)
+    this.isPending =
+        false, // true if message is pending (offline, not sent yet)
     this.isReceived = false, // true if message has been received by peer
     this.isRead = false, // true if message has been read by peer
   });
@@ -66,7 +71,8 @@ class FakeMessage {
   final String text;
   final int timestampMs;
   final String? filePath;
-  final String? fileName; // original file name (for received files, to avoid showing id-prefixed names)
+  final String?
+  fileName; // original file name (for received files, to avoid showing id-prefixed names)
   final int? fileSize;
   final String? mediaKind; // image/video/audio/file
   final String? cloudCustomData;
@@ -76,7 +82,13 @@ class FakeMessage {
 }
 
 class FakeUser {
-  FakeUser({required this.userID, required this.nickName, this.faceUrl, this.online = false, this.status = ''});
+  FakeUser({
+    required this.userID,
+    required this.nickName,
+    this.faceUrl,
+    this.online = false,
+    this.status = '',
+  });
   final String userID;
   final String nickName;
   final String? faceUrl;
@@ -85,7 +97,11 @@ class FakeUser {
 }
 
 class FakeTypingEvent {
-  FakeTypingEvent({required this.conversationID, required this.fromUser, required this.on});
+  FakeTypingEvent({
+    required this.conversationID,
+    required this.fromUser,
+    required this.on,
+  });
   final String conversationID;
   final String fromUser;
   final bool on;
@@ -119,5 +135,3 @@ class FakeGroupDeleted {
   FakeGroupDeleted({required this.groupID});
   final String groupID;
 }
-
-
