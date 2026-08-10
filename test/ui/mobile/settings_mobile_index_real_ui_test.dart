@@ -229,7 +229,7 @@ void main() {
       );
 
       await tester.ensureVisible(switchFinder);
-      await tester.pump();
+      await settleSettings(tester);
       await tester.tap(switchFinder);
       await settleSettings(tester);
 
