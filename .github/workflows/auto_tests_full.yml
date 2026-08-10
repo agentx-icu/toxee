@@ -72,7 +72,8 @@ jobs:
             libsodium-dev \
             libopus-dev \
             libvpx-dev \
-            libsqlite3-dev
+            libsqlite3-dev \
+            ripgrep
 
       - name: Install macOS native dependencies
         if: runner.os == 'macOS'
@@ -80,7 +81,7 @@ jobs:
           # cmake, pkg-config, ninja typically pre-installed on macos-14;
           # `brew install` is idempotent so re-running is cheap.
           brew update
-          brew install libsodium opus libvpx cmake ninja pkg-config
+          brew install libsodium opus libvpx cmake ninja pkg-config ripgrep
 
       - name: Bootstrap dependencies
         run: dart run tool/bootstrap_deps.dart

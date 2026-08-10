@@ -72,7 +72,8 @@ jobs:
             libsodium-dev \
             libopus-dev \
             libvpx-dev \
-            libsqlite3-dev
+            libsqlite3-dev \
+            ripgrep
 
       - name: Bootstrap dependencies
         run: dart run tool/bootstrap_deps.dart
