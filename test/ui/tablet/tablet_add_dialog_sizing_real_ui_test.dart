@@ -296,8 +296,10 @@ void main() {
     if (!_ffiAvailable()) return false;
     service = _StubFfiChatService();
     addTearDown(service.disposeStub);
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(_harness(service));
     await tester.pumpAndSettle();
     return true;
@@ -639,7 +641,7 @@ void main() {
         expect(_appDialogMaxWidth(tester), 720.0);
 
         // Grow by one logical pixel: the device leaves the tablet tier.
-        await tester.binding.setSurfaceSize(const Size(1400, 1024));
+        tester.view.physicalSize = const Size(1400, 1024);
         await tester.pumpAndSettle();
 
         expect(

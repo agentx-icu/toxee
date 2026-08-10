@@ -244,8 +244,10 @@ void main() {
     if (!_ffiAvailable()) return false;
     service = _RailHarnessService();
     addTearDown(service.disposeStub);
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(_app(service));
     await _settle(tester);
     return true;
@@ -403,56 +405,57 @@ void main() {
   // assertions above their meaning.
   // -------------------------------------------------------------------------
   group('landscape large phone 892x412 (compact-rail control case)', () {
-    testWidgets('rail collapses to 72pt, icon-only with tooltips, and still taps', (
-      WidgetTester tester,
-    ) async {
-      if (!await boot(tester, const Size(892, 412))) {
-        markTestSkipped('libtim2tox_ffi is not loadable in this environment');
-        return;
-      }
+    testWidgets(
+      'rail collapses to 72pt, icon-only with tooltips, and still taps',
+      (WidgetTester tester) async {
+        if (!await boot(tester, const Size(892, 412))) {
+          markTestSkipped('libtim2tox_ffi is not loadable in this environment');
+          return;
+        }
 
-      expect(
-        ResponsiveLayout.isTablet(_railContext),
-        isFalse,
-        reason: 'shortestSide 412 < mobileBreakpoint (600)',
-      );
-      expect(
-        ResponsiveLayout.isDesktop(_railContext),
-        isFalse,
-        reason: 'not a desktop OS, not a tablet, and width 892 < 1024',
-      );
-      expect(ResponsiveLayout.isCompactRail(_railContext), isTrue);
-      expect(
-        railWidth(tester),
-        72.0,
-        reason: 'this is the one tier that renders the icon-only rail',
-      );
+        expect(
+          ResponsiveLayout.isTablet(_railContext),
+          isFalse,
+          reason: 'shortestSide 412 < mobileBreakpoint (600)',
+        );
+        expect(
+          ResponsiveLayout.isDesktop(_railContext),
+          isFalse,
+          reason: 'not a desktop OS, not a tablet, and width 892 < 1024',
+        );
+        expect(ResponsiveLayout.isCompactRail(_railContext), isTrue);
+        expect(
+          railWidth(tester),
+          72.0,
+          reason: 'this is the one tier that renders the icon-only rail',
+        );
 
-      // Compact tier: labels are gone, tooltips take their place.
-      expect(
-        _itemLabel(UiKeys.sidebarChats),
-        findsNothing,
-        reason: 'the 72pt rail has no room for an inline label',
-      );
-      expect(
-        _itemTooltip(UiKeys.sidebarChats),
-        findsOneWidget,
-        reason: 'the hidden label must stay discoverable as a tooltip',
-      );
-      expect(_itemLabel(UiKeys.sidebarSettings), findsNothing);
-      expect(
-        find.descendant(
-          of: find.byKey(UiKeys.sidebarUserAvatar),
-          matching: find.text(_nickname),
-        ),
-        findsNothing,
-        reason: 'the compact avatar block drops the nickname column',
-      );
+        // Compact tier: labels are gone, tooltips take their place.
+        expect(
+          _itemLabel(UiKeys.sidebarChats),
+          findsNothing,
+          reason: 'the 72pt rail has no room for an inline label',
+        );
+        expect(
+          _itemTooltip(UiKeys.sidebarChats),
+          findsOneWidget,
+          reason: 'the hidden label must stay discoverable as a tooltip',
+        );
+        expect(_itemLabel(UiKeys.sidebarSettings), findsNothing);
+        expect(
+          find.descendant(
+            of: find.byKey(UiKeys.sidebarUserAvatar),
+            matching: find.text(_nickname),
+          ),
+          findsNothing,
+          reason: 'the compact avatar block drops the nickname column',
+        );
 
-      // REAL CONTROL: the icon-only item is still a working tab button.
-      await tester.tap(find.byKey(UiKeys.sidebarSettings));
-      await tester.pump();
-      expect(_tappedIndices, <int>[3]);
-    });
+        // REAL CONTROL: the icon-only item is still a working tab button.
+        await tester.tap(find.byKey(UiKeys.sidebarSettings));
+        await tester.pump();
+        expect(_tappedIndices, <int>[3]);
+      },
+    );
   });
 }
