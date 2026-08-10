@@ -5,7 +5,7 @@ name: Tim2Tox Auto Tests (PR)
 # feedback. Wall-clock + real-network coverage lives in the nightly and
 # full-matrix workflows.
 #
-# Scope: phases 1-10, 12-14. ~30 min wall-time budget.
+# Scope: phases 1-10, 12-14. ~90 min wall-time budget.
 #   - Phase 5  (ToxAV)        included now that build_tim2tox.sh ships TOXAV=ON via --toxav.
 #   - Phase 9  (conference)   INCLUDED as of 2026-08-08. It was excluded as a
 #     "known flake under CI clock", but 126 historical test_results_*.log runs
@@ -43,7 +43,9 @@ jobs:
   auto-tests-virtual:
     name: auto_tests (virtual, phases 1-10,12-14)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The PR partition needs the same 90-minute budget as nightly to finish
+    # without being cancelled by the job timeout.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
