@@ -208,7 +208,7 @@
   "refresh": "تحديث",
   "retry": "إعادة المحاولة",
   "lastPing": "آخر ping: منذ {seconds} ثانية",
-  "testNode": "اختبار العقدة",
+  "testNode": "إرسال طلب تمهيد",
   "deleteAccount": "حذف الحساب",
   "deleteAccountConfirmMessage": "سيتم حذف حسابك وجميع البيانات نهائياً ولا يمكن استردادها. يرجى المتابعة بحذر.",
   "delete": "حذف",
@@ -238,7 +238,7 @@
   "online": "ONLINE",
   "offline": "OFFLINE",
   "canOnlySelectOnlineNode": "يمكن اختيار العقد المتصلة فقط",
-  "canOnlySelectTestedNode": "يمكن اختيار العقد التي تم اختبارها بنجاح فقط، يرجى اختبار العقدة أولاً",
+  "canOnlySelectTestedNode": "أرسل طلب تمهيد بنجاح قبل اختيار هذه العقدة",
   "switchNode": "تبديل العقدة",
   "switchNodeConfirm": "هل أنت متأكد من أنك تريد التبديل إلى العقدة {node}؟ يلزم إعادة الاتصال بعد التبديل.",
   "nodeSwitched": "تم تبديل العقدة، جاري إعادة الاتصال...",
@@ -249,9 +249,12 @@
   "nodePort": "المنفذ",
   "nodePublicKey": "المفتاح العام",
   "setAsCurrentNode": "تعيين كعقدة حالية",
-  "nodeTestSuccess": "نجح اختبار العقدة",
-  "nodeTestFailed": "فشل اختبار العقدة",
-  "nodeTestUnavailableBeforeLogin": "لا يمكن اختبار العقدة قبل تسجيل الدخول",
+  "nodeTestSuccess": "تم إرسال طلب التمهيد",
+  "nodeTestFailed": "فشل إرسال طلب التمهيد",
+  "nodeTestUnavailableBeforeLogin": "لا يمكن إرسال طلب تمهيد قبل تسجيل الدخول",
+  "@nodeTestUnavailableBeforeLogin": {
+    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
+  },
   "failedToStartBootstrapService": "فشل بدء خدمة الإقلاع",
   "invalidNodeInfo": "يرجى إدخال معلومات عقدة صالحة (الخادم والمنفذ والمفتاح العام)",
   "nodeSetSuccess": "تم تعيين العقدة كعقدة حالية بنجاح",
@@ -564,11 +567,11 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "ملاحظة: لم يتم اختبار هذه العقدة وقد لا تكون قابلة للاتصال.",
+  "nodeNotTestedWarning": "لم يتم إرسال طلب تمهيد إلى هذه العقدة بعد.",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "ملاحظة: فشل اختبار هذه العقدة وقد لا تكون قابلة للاتصال.",
+  "nodeTestFailedWarning": "فشل طلب التمهيد؛ قد لا تكون هذه العقدة متاحة.",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },

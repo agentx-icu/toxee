@@ -29,6 +29,9 @@ STOP_SH="$MCP_DIR/stop_echo_peer.sh"
 JSON_FILE="$MCP_DIR/echo_peer.json"
 LOCK_DIR="$MCP_DIR/.echo_peer.lock"
 PEER_BIN_DEFAULT="$MCP_DIR/echo_peer_src/build/echo_peer"
+PROTOCOL_TEST_BIN="$MCP_DIR/echo_peer_src/build/echo_peer_protocol_test"
+DRIFT_SH="$MCP_DIR/echo_peer_drift_check.sh"
+TMP_DRIFT_ROOT=""
 
 # -------------- TTY-aware colors -------------------------------------------
 if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
@@ -100,20 +103,24 @@ count_live_peers() {
 }
 
 cleanup_all() {
+    if [[ -n "$TMP_DRIFT_ROOT" ]]; then
+        rm -rf "$TMP_DRIFT_ROOT"
+    fi
     reset_workspace
 }
 trap cleanup_all EXIT
 
 # -------------- Pre-flight -------------------------------------------------
 echo "Echo peer helpers regression"
-echo "  ensure:  $ENSURE_SH"
-echo "  stop:    $STOP_SH"
-echo "  peer:    $PEER_BIN_DEFAULT"
+echo "  ensure status: configured"
+echo "  stop status: configured"
+echo "  peer status: configured"
 echo
 
-[[ -x "$ENSURE_SH" ]] || { fail "preflight" "missing $ENSURE_SH"; exit 1; }
-[[ -x "$STOP_SH"   ]] || { fail "preflight" "missing $STOP_SH"; exit 1; }
-[[ -x "$PEER_BIN_DEFAULT" ]] || { fail "preflight" "missing $PEER_BIN_DEFAULT (run build first)"; exit 1; }
+[[ -x "$ENSURE_SH" ]] || { fail "preflight" "ensure status=missing"; exit 1; }
+[[ -x "$STOP_SH"   ]] || { fail "preflight" "stop status=missing"; exit 1; }
+[[ -x "$PEER_BIN_DEFAULT" ]] || { fail "preflight" "peer status=missing"; exit 1; }
+[[ -x "$PROTOCOL_TEST_BIN" ]] || { fail "preflight" "protocol_test status=missing"; exit 1; }
 
 reset_workspace
 
@@ -301,7 +308,7 @@ fi
 
 # Expect: lock dir released — verify the next ensure does not block.
 if [[ -d "$LOCK_DIR" ]]; then
-    R2_REASONS+=("lock dir $LOCK_DIR is still present after ensure exit")
+    R2_REASONS+=("lock_released=false")
 fi
 
 # Belt-and-suspenders: try acquiring + releasing the lock with mkdir directly.
@@ -317,7 +324,8 @@ if (( ${#R2_REASONS[@]} == 0 )); then
 else
     fail "regression#2: ensure-timeout-reaps-fake-peer" \
          "$(printf '%s; ' "${R2_REASONS[@]}")"
-    note "stderr: $(tail -n 3 "$ENSURE_ERR" 2>/dev/null | tr '\n' ' ')"
+    R2_STDERR_LINE_COUNT="$(wc -l < "$ENSURE_ERR" | tr -d ' ')"
+    note "stderr_line_count=$R2_STDERR_LINE_COUNT"
 fi
 
 rm -f "$ENSURE_OUT" "$ENSURE_ERR" "$FAKE_BIN"
@@ -356,13 +364,13 @@ if (( ensure_rc != 0 )); then
     R3_REASONS+=("ensure exited rc=$ensure_rc on stale json (expected recovery + rc=0)")
 fi
 if [[ ! -f "$JSON_FILE" ]]; then
-    R3_REASONS+=("ensure did not rewrite $JSON_FILE")
+    R3_REASONS+=("state_record_rewritten=false")
 else
     fresh_pid="$(/usr/bin/python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("pid",""))' "$JSON_FILE" 2>/dev/null || true)"
     if [[ -z "$fresh_pid" || "$fresh_pid" == "999999" ]]; then
-      R3_REASONS+=("json still stale after ensure (pid=$fresh_pid)")
+      R3_REASONS+=("state_record_fresh=false")
     elif ! kill -0 "$fresh_pid" 2>/dev/null; then
-      R3_REASONS+=("ensure wrote pid=$fresh_pid but process is not alive")
+      R3_REASONS+=("recorded_process_alive=false")
     fi
 fi
 
@@ -372,12 +380,116 @@ if (( ${#R3_REASONS[@]} == 0 )); then
 else
     fail "regression#3: stale-json-recovers" \
          "$(printf '%s; ' "${R3_REASONS[@]}")"
-    note "stdout: $(tail -n 3 "$R3_OUT" 2>/dev/null | tr '\n' ' ')"
-    note "stderr: $(tail -n 3 "$R3_ERR" 2>/dev/null | tr '\n' ' ')"
+    R3_STDOUT_LINE_COUNT="$(wc -l < "$R3_OUT" | tr -d ' ')"
+    R3_STDERR_LINE_COUNT="$(wc -l < "$R3_ERR" | tr -d ' ')"
+    note "stdout_line_count=$R3_STDOUT_LINE_COUNT stderr_line_count=$R3_STDERR_LINE_COUNT"
 fi
 
 rm -f "$R3_OUT" "$R3_ERR"
 reset_workspace
+
+# -------------- Regression #4: C-FFI text/application framing --------------
+set +e
+R4_OUTPUT="$($PROTOCOL_TEST_BIN 2>&1)"
+R4_RC=$?
+set -e
+if (( R4_RC == 0 )); then
+    pass "regression#4: C-FFI protocol framing"
+    note "$R4_OUTPUT"
+else
+    fail "regression#4: C-FFI protocol framing" "$R4_OUTPUT"
+fi
+
+# -------------- Regression #5: drift guard rejects injected violations ------
+TMP_DRIFT_ROOT="$(mktemp -d -t echo_peer_drift.XXXXXX)"
+cleanup_drift() {
+    rm -rf "$TMP_DRIFT_ROOT"
+    TMP_DRIFT_ROOT=""
+}
+
+DRIFT_SOURCE_DIR="$TMP_DRIFT_ROOT/echo_peer_src"
+cp -R "$MCP_DIR/echo_peer_src" "$DRIFT_SOURCE_DIR"
+
+R5_REASONS=()
+
+run_drift_check() {
+    local source_dir="$1"
+    local peer_bin="$2"
+    local protocol_test_bin="$3"
+    ECHO_PEER_SOURCE_DIR="$source_dir" \
+        ECHO_PEER_BIN="$peer_bin" \
+        ECHO_PEER_PROTOCOL_TEST_BIN="$protocol_test_bin" \
+        "$DRIFT_SH" >/dev/null 2>&1
+}
+
+set +e
+run_drift_check "$DRIFT_SOURCE_DIR" "$PEER_BIN_DEFAULT" "$PROTOCOL_TEST_BIN"
+R5_RC=$?
+set -e
+if (( R5_RC != 0 )); then
+    R5_REASONS+=("canonical boundary check failed")
+fi
+
+expect_drift_failure() {
+    local name="$1"
+    local source_dir="$2"
+    local peer_bin="$3"
+    local protocol_test_bin="$4"
+    set +e
+    run_drift_check "$source_dir" "$peer_bin" "$protocol_test_bin"
+    local result=$?
+    set -e
+    if (( result == 0 )); then
+        R5_REASONS+=("$name was not rejected")
+    fi
+}
+
+expect_drift_failure \
+    "missing_echo_peer" \
+    "$DRIFT_SOURCE_DIR" \
+    "$TMP_DRIFT_ROOT/missing_echo_peer" \
+    "$PROTOCOL_TEST_BIN"
+expect_drift_failure \
+    "missing_protocol_test" \
+    "$DRIFT_SOURCE_DIR" \
+    "$PEER_BIN_DEFAULT" \
+    "$TMP_DRIFT_ROOT/missing_protocol_test"
+
+expect_drift_rejection() {
+    local name="$1"
+    local file="$2"
+    local injection="$3"
+    local case_dir="$TMP_DRIFT_ROOT/$name"
+    cp -R "$DRIFT_SOURCE_DIR" "$case_dir"
+    printf '\n%s\n' "$injection" >> "$case_dir/$file"
+    set +e
+    run_drift_check "$case_dir" "$PEER_BIN_DEFAULT" "$PROTOCOL_TEST_BIN"
+    local result=$?
+    set -e
+    if (( result == 0 )); then
+        R5_REASONS+=("$name was not rejected")
+    fi
+}
+
+expect_drift_rejection "v2tim" "echo_peer.cpp" \
+    '// regression injection: V2TIMManager'
+expect_drift_rejection "tox_manager" "echo_peer.cpp" \
+    '// regression injection: ToxManager'
+expect_drift_rejection "tox_api" "echo_peer.cpp" \
+    '// regression injection: tox_friend_get_public_key('
+expect_drift_rejection "alternate_include" "CMakeLists.txt" \
+    'target_include_directories(echo_peer PRIVATE "${TIM2TOX_ROOT}/include")'
+expect_drift_rejection "alternate_link" "CMakeLists.txt" \
+    'target_link_libraries(echo_peer PRIVATE tim2tox)'
+
+cleanup_drift
+
+if (( ${#R5_REASONS[@]} == 0 )); then
+    pass "regression#5: drift-guard canonical and isolated negative cases"
+else
+    fail "regression#5: drift-guard rejects injected direct-core and link/include violations" \
+         "$(printf '%s; ' "${R5_REASONS[@]}")"
+fi
 
 # -------------- Summary -----------------------------------------------------
 echo

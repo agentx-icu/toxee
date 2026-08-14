@@ -460,7 +460,7 @@ class UiKeys {
       Key('contact_application_detail_accept_button:$userId');
   static Key contactApplicationDetailDeclineButton(String userId) =>
       Key('contact_application_detail_decline_button:$userId');
-
+  static const Key contactDetailBack = Key('contact_detail_back');
   // Presence affordances.
   static Key conversationItemOnlineDot(String conversationId) =>
       Key('conversation_item_online_dot:$conversationId');

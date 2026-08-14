@@ -87,21 +87,17 @@ part of 'drive_real_ui_pair.dart';
 //    lands in A's `group_<gid>` conversation (dump). Same-host NGC join is the
 //    flakiest piece of batch 7 and nothing here needs it.
 //
-// 4. DRAFT (draft_restore_on_conv_switch) — NO draft mechanism on this path;
-//    NEGATIVE product-gap gate:
-//    - The DESKTOP input has ZERO draft code (grep draft in
-//      tencent_cloud_chat_message_input/desktop/ → none); only the MOBILE input
-//      saves (`_updateDraft` → controller.setDraft, input_mobile.dart:435-448).
-//    - Even the mobile save dead-ends: Tim2ToxSdkPlatform.setConversationDraft
-//      is a STUB ("For now, just return success", tim2tox_sdk_platform.dart
-//      :4200-4210) — nothing is stored, so conversation.draftText is never
-//      non-null and the restore half (input_container.dart:76-77,
-//      home_page.dart:1779) can never fire.
-//    - toxee's message-widget builder doesn't even pass draftText
-//      (home_page_bootstrap.dart:192-200) and keys the widget per conversation,
-//      so composer STATE is disposed on switch. Gate: typed-but-unsent text
-//      does NOT survive a real switch-away/switch-back (with a positive
-//      control proving the type+Enter path works).
+// 4. DRAFT (draft_restore_on_conv_switch) — POSITIVE contract gate. The draft
+//    path is real and shared by BOTH platforms:
+//    - DESKTOP and MOBILE inputs each drive a
+//      `TencentCloudChatMessageDraftCoordinator` (`updateContext()` /
+//      `loadDraft()` / `saveDraft()` / `sendAndClear()`), so this is shared-fork
+//      Dart and mobile parity comes for free.
+//    - The coordinator persists through the durable `ChatDraftProvider`, so the
+//      draft outlives the per-conversation widget key disposing composer STATE.
+//    Gate: typed-but-unsent text DOES survive a real switch-away/switch-back,
+//    proven by Return on the restored composer sending the probe text (with
+//    positive controls before and after proving type+Enter itself works).
 //
 // 5. TYPING (typing_indicator_render) — NO UI surface AND no production sender;
 //    DOUBLE-NEGATIVE product-gap gate:
@@ -702,17 +698,22 @@ Future<bool> _p1cForwardToGroupTarget(
 }
 
 // ===========================================================================
-// case p1c-4 — draft_restore_on_conv_switch (P1#6) — NEGATIVE product-gap pin
+// case p1c-4 — draft_restore_on_conv_switch (P1#6) — POSITIVE contract gate
 // ===========================================================================
-/// Pins the verified CURRENT behavior: composer text typed-but-unsent does NOT
-/// survive a real conversation switch (desktop input never saves drafts; the
-/// platform setConversationDraft is a stub; the per-conversation widget key
-/// disposes composer state on switch). Sequence: positive CONTROL (type +
-/// Enter sends — proves the typing path), then type a probe WITHOUT sending,
-/// switch to the GROUP conversation via real row tap, switch back, press
-/// Enter → the probe must NOT have been sent (no message with the probe text
-/// appears). If a draft mechanism ever lands, the restored text would be SENT
-/// by that Enter and this case FAILS loudly — flip it to the positive gate.
+/// Gates the real draft contract: composer text typed-but-unsent DOES survive a
+/// real conversation switch. Both composers (desktop + mobile inputs) drive a
+/// `TencentCloudChatMessageDraftCoordinator` through the durable
+/// `ChatDraftProvider`, so the draft is saved on edit and reloaded when the
+/// conversation context changes back.
+///
+/// Sequence: positive CONTROL (type + Enter sends — proves the typing path),
+/// type a probe WITHOUT sending, switch to the GROUP conversation via a real
+/// row tap, switch back, press Enter → the RESTORED probe must be SENT. The
+/// observable is the sent message itself, driven through real widgets: no
+/// persistence poke, no fixed sleep standing in for the contract. A POST-control
+/// bracket keeps a transient focus/typing failure from reading as "draft lost".
+/// (Was a NEGATIVE pin asserting the opposite — it described code that no
+/// longer exists, so it gated the bug in place.)
 Future<bool> _p1cDraftRestoreOnConvSwitch(
   Inst a,
   String toxB,
@@ -734,7 +735,7 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
   if (!await sendComposerMessage(a, control)) {
     print(
       '[pair] draft_restore_on_conv_switch: control send failed — the '
-      'typing path is broken, a negative probe would be meaningless',
+      'typing path is broken, the draft probe would be meaningless',
     );
     return false;
   }
@@ -743,20 +744,20 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
     print('[pair] draft_restore_on_conv_switch: could not type the probe');
     return false;
   }
-  // Real switch away (group row tap) and back (C2C row tap).
+  // Real switch away (group row tap) and back (C2C row tap) — the switch back
+  // is what makes the coordinator reload the saved draft into the composer.
   await openGroupChat(a, groupId: gid, groupName: groupName);
   await openChat(a, toxB);
-  // If any draft text had been restored, this Return would send it.
   await _p1cComposerReturn(a);
-  // Bounded wait, then assert the probe text was NEVER sent.
+  // This Return sends the RESTORED draft; bounded wait for it to land.
   var probeSent = false;
   for (var i = 0; i < 10 && !probeSent; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 600));
     final msgs = await _c2cMessages(a, toxB);
     probeSent = msgs.any((m) => m['text']?.toString() == probe);
   }
-  // Defensive normalization: clear any leftover composer content so a future
-  // draft mechanism (gate-fail scenario) can't poison later cases.
+  // Defensive normalization: clear any leftover composer content so a FAILED
+  // restore (probe still sitting unsent) can't poison later cases.
   try {
     await a.tapAt(_composerX, _composerY);
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -765,19 +766,18 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
     // best-effort
   }
   // POST-control (codex P2 bracket): the same type+Enter mechanics must STILL
-  // send right after the negative observation — so a transient focus/typing
-  // failure around the probe can't masquerade as "draft not restored".
+  // send right after the observation — so a transient focus/typing failure
+  // around the probe can't masquerade as "draft not restored".
   final postControl = 'RUIP1DRAFTCTL2-$nonce';
   final postControlSent = await sendComposerMessage(a, postControl);
   await a.shot('/tmp/ui_p1c_draft_A.png');
   print(
-    '[pair] draft_restore_on_conv_switch: NEGATIVE-PIN controlSent=true '
-    'probeSent=$probeSent (expect false — desktop input has no draft save; '
-    'Tim2ToxSdkPlatform.setConversationDraft is a stub; mobile-side saves '
-    'dead-end at the same stub) postControlSent=$postControlSent (typing '
-    'bracket). Flip to a positive gate when drafts land',
+    '[pair] draft_restore_on_conv_switch: POSITIVE-GATE controlSent=true '
+    'probeSent=$probeSent (expect true — the draft coordinator saves on edit '
+    'and reloads on conversation-context change, so the switch-back composer '
+    'holds the probe and Return sends it) postControlSent=$postControlSent',
   );
-  return !probeSent && postControlSent;
+  return probeSent && postControlSent;
 }
 
 // ===========================================================================
@@ -1423,7 +1423,7 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
         'forward_to_group_target',
         () => _p1cForwardToGroupTarget(a, toxB, gid, groupName),
       );
-      // 4 — draft NEGATIVE pin (real switch via the group row).
+      // 4 — draft POSITIVE gate (real switch via the group row).
       await hard(
         'draft_restore_on_conv_switch',
         () => _p1cDraftRestoreOnConvSwitch(a, toxB, gid, groupName),

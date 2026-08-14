@@ -86,22 +86,7 @@ Future<void> ensureHome(
     }
     return;
   }
-  // Handle the sc_load_account_fail.png "Startup Failed" page (and similar
-  // non-Home startup exceptions) before assuming the register page is showing.
-  await recoverStartupExceptions(inst);
-  print('[${inst.name}] registering "$nickname" via real UI...');
-  await inst.tapText('Register new account');
-  await Future<void>.delayed(const Duration(seconds: 2)); // route transition
-  await inst.focusType('register_page_nickname_field', nickname);
-  await Future<void>.delayed(const Duration(milliseconds: 400));
-  await inst.tapKey('register_page_register_button');
-  // Boot can take several seconds; keep foreground so frames pump.
-  await inst.foreground();
-  await inst.waitState(
-    (s) => s['sessionReady'] == true,
-    timeoutSecs: 60,
-    label: 'sessionReady',
-  );
+  await _registerRealUiAccount(inst, nickname);
   // First-run backup wizard blocks navigation; dismiss it. "I'll do it later"
   // opens a SECOND data-loss confirmation; BOTH buttons are keyed
   // (firstRunBackupWizard.laterButton / .confirmDismissButton), so drive them by
@@ -187,6 +172,7 @@ Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
     if (await _popCoveringRouteViaBackChevron(inst)) {
       continue;
     }
+    if (await inst.tryTapContactDetailBack()) continue;
     if (await inst.waitText('Back', timeoutSecs: 1)) {
       await inst.tapText('Back');
     } else if (!await _selectChatsTab(inst)) {
@@ -257,9 +243,6 @@ Future<void> ensureContactsShell(Inst inst, {int rounds = 4}) async {
     // then resolves to the OFFSTAGE copy behind the profile (root-caused live:
     // case 42 tapped an offstage block switch → "could not block"; case 43's
     // search field resolved at x=-310 off-screen → filter never applied). The
-    // "<" back-affordance tap (28,72) is the proven pop (Back-text/Escape don't
-    // pop this route); no-op when no profile is showing. `l3_force_home_root`
-    // can't help here — it's refused on the restored non-test accounts.
     await _dismissFriendProfileToUnderlying(inst);
     if (await _contactsHomeReady(inst, timeoutSecs: 2)) {
       return;
@@ -284,6 +267,7 @@ Future<void> ensureContactsShell(Inst inst, {int rounds = 4}) async {
     if (await _popCoveringRouteViaBackChevron(inst)) {
       continue;
     }
+    if (await inst.tryTapContactDetailBack()) continue;
     if (await _selectContactsTab(inst)) {
       continue;
     }
@@ -373,6 +357,7 @@ Future<void> ensureNewEntryShell(Inst inst, {int rounds = 4}) async {
     )) {
       return;
     }
+    if (await inst.tryTapContactDetailBack()) continue;
     if (await _tryTapText(inst, 'Back')) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       continue;

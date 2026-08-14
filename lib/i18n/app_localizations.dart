@@ -1048,10 +1048,10 @@ abstract class AppLocalizations {
   /// **'Last ping: {seconds}s ago'**
   String lastPing(String seconds);
 
-  /// Button text to test current bootstrap node
+  /// Button text to send a bootstrap request to the current node
   ///
   /// In en, this message translates to:
-  /// **'Test Node'**
+  /// **'Send Bootstrap Request'**
   String get testNode;
 
   /// Button text for account deletion
@@ -1228,10 +1228,10 @@ abstract class AppLocalizations {
   /// **'Can only select online nodes'**
   String get canOnlySelectOnlineNode;
 
-  /// Error message when trying to select untested node
+  /// Error message requiring local acceptance of a bootstrap request before selecting a node
   ///
   /// In en, this message translates to:
-  /// **'Can only select successfully tested nodes, please test the node first'**
+  /// **'Send a bootstrap request successfully before selecting this node'**
   String get canOnlySelectTestedNode;
 
   /// Title for node switch confirmation dialog
@@ -1576,16 +1576,16 @@ abstract class AppLocalizations {
   /// **'Close'**
   String get close;
 
-  /// Warning message when selecting untested node
+  /// Warning message when no bootstrap request has been sent to the node
   ///
   /// In en, this message translates to:
-  /// **'Note: This node has not been tested and may not be connectable.'**
+  /// **'No bootstrap request has been sent to this node.'**
   String get nodeNotTestedWarning;
 
-  /// Warning message when selecting failed node
+  /// Warning message when local submission of a bootstrap request failed
   ///
   /// In en, this message translates to:
-  /// **'Note: This node test failed and may not be connectable.'**
+  /// **'The bootstrap request failed; this node may be unavailable.'**
   String get nodeTestFailedWarning;
 
   /// Error message when nickname is too long
@@ -1660,22 +1660,22 @@ abstract class AppLocalizations {
   /// **'Set as Current Node'**
   String get setAsCurrentNode;
 
-  /// Message shown when node test succeeds
+  /// Message shown when a bootstrap request is accepted locally for submission
   ///
   /// In en, this message translates to:
-  /// **'Node test successful'**
+  /// **'Bootstrap request sent'**
   String get nodeTestSuccess;
 
-  /// Message shown when node test fails
+  /// Message shown when local submission of a bootstrap request fails
   ///
   /// In en, this message translates to:
-  /// **'Node test failed'**
+  /// **'Bootstrap request failed'**
   String get nodeTestFailed;
 
-  /// Message shown when node test cannot run before login (no live FFI session)
+  /// Message shown when a bootstrap request cannot be sent before login (no live FFI session)
   ///
   /// In en, this message translates to:
-  /// **'Test unavailable before login'**
+  /// **'Cannot send a bootstrap request before login'**
   String get nodeTestUnavailableBeforeLogin;
 
   /// Snackbar text shown when starting the local LAN bootstrap service fails

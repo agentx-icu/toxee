@@ -48,6 +48,77 @@ run_non_media_alias() {
     (cd "$REPO_ROOT" && bash tool/mcp_test/run_fixture_c_non_media.sh "$@")
 }
 
+REAL_DART_BIN="$(command -v dart)"
+FAKE_BIN="$TMP_ROOT/fake_bin"
+mkdir -p "$FAKE_BIN"
+cat >"$FAKE_BIN/bash" <<'FAKE_BASH'
+#!/bin/bash
+set -euo pipefail
+printf 'bash:%s restore=%s\n' "${1:-}" "${TOXEE_FIXTURE_C_RESTORE:-}" >>"$FAKE_LOG"
+case "${1:-}" in
+    tool/mcp_test/launch_linux_fixture_c_pair.sh)
+        if [[ "${FAKE_FAIL_RESTORED_LAUNCH:-0}" == "1" && -n "${TOXEE_FIXTURE_C_RESTORE:-}" ]]; then
+            exit 42
+        fi
+        mkdir -p build/linux_runtime
+        cat >build/linux_runtime/pair.json <<JSON
+{
+  "format_version": 1,
+  "instances": {
+    "A": {"ws_uri": "ws://fake-a/ws", "pid": 111, "nickname": "FakeAlice"},
+    "B": {"ws_uri": "ws://fake-b/ws", "pid": 222, "nickname": "FakeBob"}
+  },
+  "fixture_restore": {
+    "mode": "${TOXEE_FIXTURE_C_RESTORE:-}",
+    "report": null,
+    "restored": null
+  }
+}
+JSON
+        ;;
+    tool/mcp_test/stop_linux_fixture_c_pair.sh)
+        ;;
+    *)
+        exec /bin/bash "$@"
+        ;;
+esac
+FAKE_BASH
+cat >"$FAKE_BIN/dart" <<'FAKE_DART'
+#!/bin/bash
+set -euo pipefail
+if [[ "${1:-}" == "run" && "${2:-}" == "tool/mcp_test/fixture_c_unified_runner.dart" ]]; then
+    exec "$REAL_DART" "$@"
+fi
+if [[ "${1:-}" == "run" && "${2:-}" == "tool/mcp_test/drive_real_ui_pair.dart" ]]; then
+    printf 'dart:%s\n' "$*" >>"$FAKE_LOG"
+    attempts=0
+    if [[ -f "$FAKE_DRIVER_ATTEMPTS" ]]; then
+        attempts="$(<"$FAKE_DRIVER_ATTEMPTS")"
+    fi
+    attempts=$((attempts + 1))
+    printf '%s' "$attempts" >"$FAKE_DRIVER_ATTEMPTS"
+    if [[ "${FAKE_DRIVER_FAIL_FIRST:-0}" == "1" && "$attempts" == "1" ]]; then
+        exit 1
+    fi
+    exit 0
+fi
+exec "$REAL_DART" "$@"
+FAKE_DART
+chmod +x "$FAKE_BIN/bash" "$FAKE_BIN/dart"
+
+run_runner_with_fake_processes() {
+    local fake_log="$1"
+    local fake_attempts="$2"
+    shift 2
+    (cd "$REPO_ROOT" && PATH="$FAKE_BIN:$PATH" \
+        REAL_DART="$REAL_DART_BIN" \
+        FAKE_LOG="$fake_log" \
+        FAKE_DRIVER_ATTEMPTS="$fake_attempts" \
+        FAKE_DRIVER_FAIL_FIRST="${FAKE_DRIVER_FAIL_FIRST:-0}" \
+        FAKE_FAIL_RESTORED_LAUNCH="${FAKE_FAIL_RESTORED_LAUNCH:-0}" \
+        dart run tool/mcp_test/fixture_c_unified_runner.dart "$@")
+}
+
 echo "Unified Fixture C runner regressions"
 echo "  runner: $RUNNER"
 echo
@@ -500,6 +571,60 @@ if run_runner --dry-run --class=2proc-ui --real-ui-scenario=custom_message \
 else
     fail "custom_message dry-run exits 0" \
         "$(cat "$TMP_ROOT/real_ui_custom.err" "$REAL_UI_CUSTOM_DRY" 2>/dev/null)"
+fi
+
+MISSING_PAIR_MANIFEST="$TMP_ROOT/missing_pair_manifest.json"
+cat >"$MISSING_PAIR_MANIFEST" <<'JSON'
+{
+  "fixture_name": "paired_for_e2e",
+  "format_version": 1,
+  "instances": {
+    "A": {"fixture_dir": "definitely_missing_paired_for_e2e_A"},
+    "B": {"fixture_dir": "definitely_missing_paired_for_e2e_B"}
+  },
+  "supported_platforms": ["linux"]
+}
+JSON
+MISSING_PAIR_LOG="$TMP_ROOT/missing_pair_fake.log"
+set +e
+TOXEE_FIXTURE_C_MANIFEST="$MISSING_PAIR_MANIFEST" \
+    FAKE_FAIL_RESTORED_LAUNCH=1 \
+    run_runner_with_fake_processes "$MISSING_PAIR_LOG" "$TMP_ROOT/missing_pair_attempts" \
+    --class=2proc-ui --real-ui-platform=linux --real-ui-scenario=message \
+    >"$TMP_ROOT/missing_pair.out" 2>"$TMP_ROOT/missing_pair.err"
+MISSING_PAIR_CODE=$?
+set -e
+if [[ "$MISSING_PAIR_CODE" -eq 66 ]] \
+    && grep -q '\[unified\] paired_for_e2e restore preflight failed' "$TMP_ROOT/missing_pair.err" \
+    && grep -q 'tool/mcp_test/fixtures/definitely_missing_paired_for_e2e_A' "$TMP_ROOT/missing_pair.err" \
+    && grep -q 'tool/mcp_test/fixtures/definitely_missing_paired_for_e2e_B' "$TMP_ROOT/missing_pair.err" \
+    && ! grep -q "$TMP_ROOT" "$TMP_ROOT/missing_pair.err" \
+    && ! grep -q 'launch_linux_fixture_c_pair.sh' "$MISSING_PAIR_LOG" 2>/dev/null; then
+    pass "missing paired_for_e2e source trees fail before any real-UI launch"
+else
+    fail "missing paired_for_e2e source trees fail before any real-UI launch" \
+        "code=$MISSING_PAIR_CODE err=$(cat "$TMP_ROOT/missing_pair.err" 2>/dev/null) log=$(cat "$MISSING_PAIR_LOG" 2>/dev/null)"
+fi
+
+NO_FRIEND_RETRY_LOG="$TMP_ROOT/no_friend_retry_fake.log"
+set +e
+FAKE_DRIVER_FAIL_FIRST=1 \
+    run_runner_with_fake_processes "$NO_FRIEND_RETRY_LOG" "$TMP_ROOT/no_friend_retry_attempts" \
+    --class=2proc-ui --real-ui-platform=linux --real-ui-scenario=custom_message \
+    >"$TMP_ROOT/no_friend_retry.out" 2>"$TMP_ROOT/no_friend_retry.err"
+NO_FRIEND_RETRY_CODE=$?
+set -e
+NO_FRIEND_FRESH_LAUNCHES="$(grep -c '^bash:tool/mcp_test/launch_linux_fixture_c_pair.sh restore=$' "$NO_FRIEND_RETRY_LOG" || true)"
+NO_FRIEND_DRIVER_RUNS="$(grep -c '^dart:run tool/mcp_test/drive_real_ui_pair.dart custom_message ' "$NO_FRIEND_RETRY_LOG" || true)"
+if [[ "$NO_FRIEND_RETRY_CODE" -eq 0 \
+    && "$NO_FRIEND_FRESH_LAUNCHES" -eq 2 \
+    && "$NO_FRIEND_DRIVER_RUNS" -eq 2 ]] \
+    && grep -q 'retrying fresh (attempt 1/1)' "$TMP_ROOT/no_friend_retry.out" \
+    && ! grep -q 'restore=paired_for_e2e' "$NO_FRIEND_RETRY_LOG"; then
+    pass "no-friend real-UI retry relaunches fresh without paired restore"
+else
+    fail "no-friend real-UI retry relaunches fresh without paired restore" \
+        "code=$NO_FRIEND_RETRY_CODE launches=$NO_FRIEND_FRESH_LAUNCHES drivers=$NO_FRIEND_DRIVER_RUNS out=$(cat "$TMP_ROOT/no_friend_retry.out" 2>/dev/null) err=$(cat "$TMP_ROOT/no_friend_retry.err" 2>/dev/null) log=$(cat "$NO_FRIEND_RETRY_LOG" 2>/dev/null)"
 fi
 
 SHELL_RECOVERY_SELFTEST="$TMP_ROOT/shell_recovery_selftest.out"

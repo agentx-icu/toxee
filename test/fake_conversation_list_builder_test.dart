@@ -256,6 +256,44 @@ void main() {
           equals(['c2c_$b', 'c2c_$a', 'c2c_$c']));
     });
 
+    test('group unread is looked up under the same key the badge is shown on',
+        () async {
+      // The list emits `group_<normalizedGid>` as the conversationID but asks
+      // the unread hook with the id it was handed. Those two must resolve to
+      // ONE key: when the writer (FfiChatService.incrementGroupUnread) and this
+      // reader disagree about shape, the badge silently reads 0 while the
+      // total still counts the C2C entries — the `C2C=2 / group=0 / total=2`
+      // symptom. Recording the exact ids asked for pins that contract here, at
+      // the aggregation boundary.
+      const gid =
+          'DEADBEEF00112233445566778899AABBDEADBEEF00112233445566778899AABB';
+      final askedFor = <String>[];
+      final list = await buildConversationsFromFriends(
+        friends: const <ConvBuilderFriend>[],
+        groupIds: const [gid],
+        pinned: const <String>{},
+        quitGroups: const <String>{},
+        pendingFriendIds: const <String>{},
+        sortingMode: 'name',
+        getUnreadOf: (id) {
+          askedFor.add(id);
+          return 3;
+        },
+      );
+
+      expect(list, hasLength(1));
+      expect(list.first.conversationID, 'group_$gid');
+      expect(list.first.unreadCount, 3);
+      expect(askedFor, hasLength(1));
+      expect(
+        askedFor.single.replaceFirst(RegExp('^group_'), ''),
+        gid,
+        reason: 'the unread hook must be asked with an id that normalizes to '
+            'the same group key the conversationID is built from, otherwise '
+            'the writer and reader address different buckets',
+      );
+    });
+
     test('normalizes 76-char Tox addresses to the 64-char pubkey', () async {
       const pubkey =
           '8888888888888888888888888888888888888888888888888888888888888888';

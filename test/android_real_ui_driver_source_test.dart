@@ -536,16 +536,50 @@ void main() {
     );
     expect(settingsShortcut, contains('waitState'));
     expect(settingsShortcut, contains("s['homeShellTab'] == 'settings'"));
-    expect(instSource, contains('(_isHeadlessRealUi || isMobileShell)'));
+    expect(instSource, contains('navToolsUnavailable = true'));
+    final focusTypeStart = instSource.indexOf('Future<bool> focusType');
+    final focusTypeEnd = instSource.indexOf(
+      'Future<void> focusTypeSynthetic',
+      focusTypeStart,
+    );
+    final focusType = instSource.substring(focusTypeStart, focusTypeEnd);
+    expect(focusType, contains("getTextValue', {'key': key}"));
+    expect(focusType, contains("enterText', {'key': key, 'text': text}"));
 
     final shellSource = File(
       'tool/mcp_test/drive_real_ui_pair_shell.dart',
     ).readAsStringSync();
     expect(shellSource, contains('navToolsUnavailable && !inst.isMobileShell'));
+    expect(shellSource, contains('inst.tryTapContactDetailBack()'));
+    expect(
+      shellSource.indexOf('inst.tryTapContactDetailBack()'),
+      lessThan(shellSource.indexOf("_tryTapText(inst, 'Back')")),
+    );
+
+    final forceHomeStart = instSource.indexOf('Future<void> forceHomeRoot');
+    final forceHomeEnd = instSource.indexOf(
+      'Future<bool> openAddFriendDialogViaL3',
+      forceHomeStart,
+    );
+    final forceHome = instSource.substring(forceHomeStart, forceHomeEnd);
+    expect(forceHome, contains("r['error'] == 'non_test_account'"));
+    expect(forceHome, contains('final marked = await markAccountTest()'));
+    expect(forceHome, contains('if (marked) await unmarkAccountTest()'));
+    expect(forceHome, contains('navToolsUnavailable = true'));
 
     final l3Tools = File(
       'lib/ui/testing/l3_debug_tools.dart',
     ).readAsStringSync();
+    final composerSetStart = l3Tools.indexOf(
+      'MCPCallEntry _l3ComposerSetTextEntry',
+    );
+    final composerSetEnd = l3Tools.indexOf(
+      'MCPCallEntry _l3RegisterAccountEntry',
+      composerSetStart,
+    );
+    final composerSet = l3Tools.substring(composerSetStart, composerSetEnd);
+    expect(composerSet, contains('debugRealUiDesktopComposerSetText'));
+    expect(composerSet, contains('debugRealUiMobileComposerSetText'));
     final forceRootStart = l3Tools.indexOf(
       'MCPCallEntry _l3ForceHomeRootEntry',
     );

@@ -69,29 +69,48 @@ Future<String> _logoutToLoginPage(Inst inst) async {
     print('[pair] logout: no current toxId');
     return '';
   }
-  if (inst.isMobileShell) {
-    if (!await _openMobileAccountManagement(inst)) {
-      print('[pair] logout: Account Management section did not open');
-      return '';
+  // ONE opener tap is not enough: the settings ListView can still be settling
+  // when the tap lands, the tap is swallowed, and a single-attempt logout
+  // returns '' with the session still LIVE. That silent survival is what
+  // stranded the three register cases on HomePage ("RegisterPage did not open")
+  // inside a full sweep while each passed in isolation. Re-drive the WHOLE
+  // navigation (settings / mobile Account Management -> scroll -> opener tap)
+  // per attempt, and re-check for an already-open dialog BEFORE re-tapping so a
+  // merely LAGGY first tap is never double-fired into the blank-screen hazard.
+  var confirmOpen = false;
+  for (var attempt = 0; attempt < 3 && !confirmOpen; attempt++) {
+    if (await inst.waitKey('settings_logout_confirm_button', timeoutSecs: 1)) {
+      confirmOpen = true;
+      break;
     }
-  } else {
-    await _openSettings(inst);
+    await inst.foreground();
+    if (inst.isMobileShell) {
+      if (!await _openMobileAccountManagement(inst)) {
+        print('[pair] logout: Account Management section did not open');
+        continue;
+      }
+    } else {
+      await _openSettings(inst);
+    }
+    // The logout opener is BELOW the fold of the settings ListView
+    // (_openSettings leaves the list scrolled to the TOP). A bare tapKey is
+    // flaky: beyond flutter_skill's cacheExtent the button isn't built, so the
+    // tap lands on nothing. Scroll it into the visible band first, then
+    // center-tap its resolved position (tryTapKey fallback).
+    if (!inst.isMobileShell &&
+        !await _settingsScrollTo(inst, 'settings_logout_button')) {
+      print('[pair] logout: logout button not in band');
+    }
+    if (!await inst.tapKeyCenter('settings_logout_button', timeoutSecs: 6)) {
+      await inst.tryTapKey('settings_logout_button');
+    }
+    confirmOpen = await inst.waitKey(
+      'settings_logout_confirm_button',
+      timeoutSecs: 8,
+    );
   }
-  // The logout opener is BELOW the fold of the settings ListView (_openSettings
-  // leaves the list scrolled to the TOP). A bare tapKey is flaky: when the
-  // button sits beyond flutter_skill's cacheExtent it isn't built, so the tap
-  // lands on nothing and the confirm dialog never opens ("logout: confirm
-  // dialog did not open"). Scroll it into the visible band first, then
-  // center-tap its resolved position (tryTapKey fallback).
-  if (!inst.isMobileShell &&
-      !await _settingsScrollTo(inst, 'settings_logout_button')) {
-    print('[pair] logout: logout button not in band');
-  }
-  if (!await inst.tapKeyCenter('settings_logout_button', timeoutSecs: 6)) {
-    await inst.tryTapKey('settings_logout_button');
-  }
-  if (!await inst.waitKey('settings_logout_confirm_button', timeoutSecs: 8)) {
-    print('[pair] logout: confirm dialog did not open');
+  if (!confirmOpen) {
+    print('[pair] logout: confirm dialog did not open (3 attempts)');
     return '';
   }
   if (!await inst.tapKeyCenter('settings_logout_confirm_button')) {
@@ -350,10 +369,19 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
     } on Object catch (e) {
       print('[pair] login_restore_entry_opens: clear override failed: $e');
     }
-    // Land back on the LoginPage for the next cases.
+    // Land back on the LoginPage for the next cases. Say so LOUDLY when it does
+    // not happen: this teardown failing is what makes the three downstream
+    // register cases fail, and an unannounced failure here reads as a bug in
+    // THOSE cases instead of in this one's teardown. (`_openRegisterPage` also
+    // recovers, so this is a diagnosis aid, not the only guard.)
     try {
       if ((await inst.dumpState())['sessionReady'] == true) {
-        await _logoutToLoginPage(inst);
+        if ((await _logoutToLoginPage(inst)).isEmpty) {
+          print(
+            '[pair] login_restore_entry_opens: TEARDOWN logout failed — the '
+            'next cases start on HomePage instead of the LoginPage',
+          );
+        }
       }
     } on Object catch (e) {
       print('[pair] login_restore_entry_opens: final logout failed: $e');
@@ -368,12 +396,26 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
 }
 
 /// Open the RegisterPage from the LoginPage (idempotent: returns true if already
-/// on it). Foregrounds + retries the Register CTA a few rounds.
+/// on it). Foregrounds, logs out a still-live session, retries the Register CTA.
 Future<bool> _openRegisterPage(Inst inst) async {
   for (var round = 0; round < 4; round++) {
     await inst.foreground();
     if (await inst.waitKey('register_page_nickname_field', timeoutSecs: 2)) {
       return true;
+    }
+    // PRECONDITION RECOVERY: the Register CTA only exists on the LoginPage, so a
+    // still-live session means the PREVIOUS case's teardown logout silently
+    // failed. Recovering here (rather than reporting "RegisterPage did not
+    // open") is what keeps these cases independent inside the shared-launch
+    // sweep — the same reason the sweep reuses one app instance at all.
+    if ((await inst.dumpState())['sessionReady'] == true) {
+      if ((await _logoutToLoginPage(inst)).isEmpty) {
+        print(
+          '[pair] register: session still live and logout recovery failed '
+          '(round ${round + 1})',
+        );
+      }
+      continue;
     }
     if (await _tryTapText(inst, 'Register new account')) {
       if (await inst.waitKey('register_page_nickname_field', timeoutSecs: 6)) {

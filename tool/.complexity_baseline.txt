@@ -97,12 +97,12 @@ tool/mcp_test/drive_real_ui_pair_contacts.dart:1664
 tool/mcp_test/drive_real_ui_pair_conv.dart:1017
 tool/mcp_test/drive_real_ui_pair_friends.dart:521
 tool/mcp_test/drive_real_ui_pair_group.dart:996
-tool/mcp_test/drive_real_ui_pair_group2.dart:1908
+tool/mcp_test/drive_real_ui_pair_group2.dart:1950
 tool/mcp_test/drive_real_ui_pair_group_menu.dart:607
 tool/mcp_test/drive_real_ui_pair_group_profile.dart:738
 tool/mcp_test/drive_real_ui_pair_high_value_extra.dart:1470
 tool/mcp_test/drive_real_ui_pair_inst.dart:1289
-tool/mcp_test/drive_real_ui_pair_login.dart:1258
+tool/mcp_test/drive_real_ui_pair_login.dart:1300
 tool/mcp_test/drive_real_ui_pair_message_call.dart:810
 tool/mcp_test/drive_real_ui_pair_p1_chat.dart:1606
 tool/mcp_test/drive_real_ui_pair_p1_relaunch.dart:846

@@ -8,14 +8,15 @@
 // of filters, and asserts pagination is unchanged.
 //
 // FFI dependency: `Tim2ToxSdkPlatform`'s constructor requires a real
-// `FfiChatService`, which opens the tim2tox FFI library. Skipped when the
-// library is not loadable in this environment.
+// `FfiChatService`, which opens the tim2tox FFI library. History reads use
+// Dart persistence directly and do not require init, login, or polling.
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
+import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
@@ -32,49 +33,63 @@ bool _ffiAvailable() {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setNativeLibraryName('tim2tox_ffi');
   final ffiAvailable = _ffiAvailable();
-  // Even with the FFI library loadable, getHistoryMessageListV2 returns
-  // code=-1 unless the FfiChatService has gone through init+login. Setting
-  // that up in a unit test is non-trivial (requires native Tox bootstrap
-  // and identity, not just FFI symbol resolution). Skip until we have a
-  // proper fixture; the P4 sort-once fix itself is exercised by manual
-  // testing and the existing account_export_roundtrip_test verifies the
-  // surrounding history round-trip.
-  // TODO(perf-pr4): build a service fixture (or use Tim2ToxInstance from
-  // auto_tests) that lets us call getHistoryMessageListV2 against a seeded
-  // history without booting Tox.
+  final previousCustomCallbackHandler =
+      NativeLibraryManager.customCallbackHandler;
   final skipReason = ffiAvailable
-      ? 'requires fully-initialized FfiChatService (login+identity); '
-          'see TODO in this file'
+      ? null
       : 'tim2tox FFI library not loadable in this environment';
 
   group('Tim2ToxSdkPlatform.getHistoryMessageListV2 — P4 sort-once',
       skip: skipReason, () {
-    late Directory tempRoot;
-    late MessageHistoryPersistence persistence;
-    late FfiChatService service;
-    late Tim2ToxSdkPlatform platform;
+    Directory? tempRoot;
+    MessageHistoryPersistence? persistence;
+    FfiChatService? service;
+    Tim2ToxSdkPlatform? platform;
 
     // Use a 64-char hex peer id so the normalizer treats it as a C2C id.
     const peerId =
         'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     setUp(() async {
-      tempRoot = await Directory.systemTemp
+      final root = await Directory.systemTemp
           .createTemp('tim2tox_get_history_pagination_');
-      persistence = MessageHistoryPersistence(
-          historyDirectory: p.join(tempRoot.path, 'history'));
-      service = FfiChatService(messageHistoryPersistence: persistence);
-      platform = Tim2ToxSdkPlatform(ffiService: service);
+      tempRoot = root;
+      final historyPersistence = MessageHistoryPersistence(
+          historyDirectory: p.join(root.path, 'history'));
+      persistence = historyPersistence;
+      final ffiService =
+          FfiChatService(messageHistoryPersistence: historyPersistence);
+      service = ffiService;
+      platform = Tim2ToxSdkPlatform(ffiService: ffiService);
     });
 
     tearDown(() async {
-      try {
-        await tempRoot.delete(recursive: true);
-      } catch (_) {}
+      platform?.dispose();
+      NativeLibraryManager.customCallbackHandler =
+          previousCustomCallbackHandler;
+      final ffiService = service;
+      if (ffiService != null) {
+        await ffiService.dispose();
+      } else {
+        final historyPersistence = persistence;
+        if (historyPersistence != null) {
+          await historyPersistence.dispose();
+        }
+      }
+      final root = tempRoot;
+      if (root != null && await root.exists()) {
+        await root.delete(recursive: true);
+      }
+      tempRoot = null;
+      persistence = null;
+      service = null;
+      platform = null;
     });
 
-    ChatMessage _msg(int i, {String? kind}) {
+    ChatMessage msg(int i, {String? kind}) {
       // Spread messages 1s apart so timestamps are stable.
       final ts = DateTime.fromMillisecondsSinceEpoch(1700000000000 + i * 1000);
       return ChatMessage(
@@ -87,12 +102,23 @@ void main() {
       );
     }
 
+    Future<void> seedHistory(List<ChatMessage> messages) async {
+      final historyPersistence = persistence!;
+      await historyPersistence.saveHistory(peerId, messages);
+      historyPersistence.clearAllCached();
+      final reloaded = await historyPersistence.loadHistory(peerId);
+      expect(
+        reloaded.map((message) => message.msgID),
+        messages.map((message) => message.msgID),
+      );
+    }
+
     test('page 1 with count=5 returns the 5 newest messages descending',
         () async {
-      final messages = List.generate(20, (i) => _msg(i));
-      persistence.setCachedHistory(peerId, messages);
+      final messages = List.generate(20, (i) => msg(i));
+      await seedHistory(messages);
 
-      final res = await platform.getHistoryMessageListV2(
+      final res = await platform!.getHistoryMessageListV2(
         userID: peerId,
         count: 5,
       );
@@ -110,17 +136,17 @@ void main() {
     test(
         'pages stitched together with lastMsgID cover every message exactly '
         'once', () async {
-      final messages = List.generate(13, (i) => _msg(i));
-      persistence.setCachedHistory(peerId, messages);
+      final messages = List.generate(13, (i) => msg(i));
+      await seedHistory(messages);
 
-      final firstPage = await platform.getHistoryMessageListV2(
+      final firstPage = await platform!.getHistoryMessageListV2(
         userID: peerId,
         count: 5,
       );
       expect(firstPage.code, 0);
       expect(firstPage.data!.messageList.length, 5);
 
-      final secondPage = await platform.getHistoryMessageListV2(
+      final secondPage = await platform!.getHistoryMessageListV2(
         userID: peerId,
         count: 5,
         lastMsgID: firstPage.data!.messageList.last.msgID,
@@ -128,7 +154,7 @@ void main() {
       expect(secondPage.code, 0);
       expect(secondPage.data!.messageList.length, 5);
 
-      final thirdPage = await platform.getHistoryMessageListV2(
+      final thirdPage = await platform!.getHistoryMessageListV2(
         userID: peerId,
         count: 5,
         lastMsgID: secondPage.data!.messageList.last.msgID,
@@ -136,6 +162,19 @@ void main() {
       expect(thirdPage.code, 0);
       expect(thirdPage.data!.messageList.length, 3);
       expect(thirdPage.data!.isFinished, isTrue);
+
+      expect(
+        firstPage.data!.messageList.map((message) => message.msgID).toList(),
+        ['msgid_12', 'msgid_11', 'msgid_10', 'msgid_9', 'msgid_8'],
+      );
+      expect(
+        secondPage.data!.messageList.map((message) => message.msgID).toList(),
+        ['msgid_7', 'msgid_6', 'msgid_5', 'msgid_4', 'msgid_3'],
+      );
+      expect(
+        thirdPage.data!.messageList.map((message) => message.msgID).toList(),
+        ['msgid_2', 'msgid_1', 'msgid_0'],
+      );
 
       final ids = <String?>{
         ...firstPage.data!.messageList.map((m) => m.msgID),
@@ -152,15 +191,15 @@ void main() {
         () async {
       // Mix of text and image; assert image-only page is sorted newest first.
       final messages = <ChatMessage>[
-        _msg(0, kind: 'image'),
-        _msg(1),
-        _msg(2, kind: 'image'),
-        _msg(3),
-        _msg(4, kind: 'image'),
+        msg(0, kind: 'image'),
+        msg(1),
+        msg(2, kind: 'image'),
+        msg(3),
+        msg(4, kind: 'image'),
       ];
-      persistence.setCachedHistory(peerId, messages);
+      await seedHistory(messages);
 
-      final res = await platform.getHistoryMessageListV2(
+      final res = await platform!.getHistoryMessageListV2(
         userID: peerId,
         count: 10,
         messageTypeList: [MessageElemType.V2TIM_ELEM_TYPE_IMAGE],

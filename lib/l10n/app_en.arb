@@ -342,7 +342,7 @@
       }
     }
   },
-  "testNode": "Test node",
+  "testNode": "Send Bootstrap Request",
   "deleteAccount": "Delete Account",
   "@deleteAccount": {
     "description": "Button text for account deletion"
@@ -396,9 +396,8 @@
   "autoDownloadSizeLimitSet": "Auto download size limit set to",
   "invalidSizeLimit": "Invalid size limit, please enter a number between 1 and 10000",
   "save": "Save",
-  "testNode": "Test Node",
   "@testNode": {
-    "description": "Button text to test current bootstrap node"
+    "description": "Button text to send a bootstrap request to the current node"
   },
   "routeSelection": "Route Selection",
   "@routeSelection": {
@@ -416,9 +415,9 @@
   "@canOnlySelectOnlineNode": {
     "description": "Error message when trying to select offline node"
   },
-  "canOnlySelectTestedNode": "Can only select successfully tested nodes, please test the node first",
+  "canOnlySelectTestedNode": "Send a bootstrap request successfully before selecting this node",
   "@canOnlySelectTestedNode": {
-    "description": "Error message when trying to select untested node"
+    "description": "Error message requiring local acceptance of a bootstrap request before selecting a node"
   },
   "switchNode": "Switch Node",
   "@switchNode": {
@@ -701,13 +700,13 @@
   "@close": {
     "description": "Button text to close dialog"
   },
-  "nodeNotTestedWarning": "Note: This node has not been tested and may not be connectable.",
+  "nodeNotTestedWarning": "No bootstrap request has been sent to this node.",
   "@nodeNotTestedWarning": {
-    "description": "Warning message when selecting untested node"
+    "description": "Warning message when no bootstrap request has been sent to the node"
   },
-  "nodeTestFailedWarning": "Note: This node test failed and may not be connectable.",
+  "nodeTestFailedWarning": "The bootstrap request failed; this node may be unavailable.",
   "@nodeTestFailedWarning": {
-    "description": "Warning message when selecting failed node"
+    "description": "Warning message when local submission of a bootstrap request failed"
   },
   "nicknameTooLong": "Nickname too long",
   "@nicknameTooLong": {
@@ -757,17 +756,17 @@
   "@setAsCurrentNode": {
     "description": "Button text to set manually entered node as current"
   },
-  "nodeTestSuccess": "Node test successful",
+  "nodeTestSuccess": "Bootstrap request sent",
   "@nodeTestSuccess": {
-    "description": "Message shown when node test succeeds"
+    "description": "Message shown when a bootstrap request is accepted locally for submission"
   },
-  "nodeTestFailed": "Node test failed",
+  "nodeTestFailed": "Bootstrap request failed",
   "@nodeTestFailed": {
-    "description": "Message shown when node test fails"
+    "description": "Message shown when local submission of a bootstrap request fails"
   },
-  "nodeTestUnavailableBeforeLogin": "Test unavailable before login",
+  "nodeTestUnavailableBeforeLogin": "Cannot send a bootstrap request before login",
   "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when node test cannot run before login (no live FFI session)"
+    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
   },
   "failedToStartBootstrapService": "Failed to start bootstrap service",
   "@failedToStartBootstrapService": {

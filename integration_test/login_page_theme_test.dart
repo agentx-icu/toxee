@@ -35,17 +35,19 @@ void main() {
     }
   });
 
-  testWidgets('seeded theme_mode=dark is applied at the app level',
-      (WidgetTester tester) async {
+  testWidgets('seeded theme_mode=dark is applied at the app level', (
+    WidgetTester tester,
+  ) async {
     // No `self_nickname` — startup stays on StartupShowLogin → LoginPage.
-    await seedPrefsAndControllers(<String, Object>{
-      'theme_mode': 'dark',
-    });
+    await seedPrefsAndControllers(<String, Object>{'theme_mode': 'dark'});
 
     await pumpToLogin(tester);
 
-    expect(tester.takeException(), isNull,
-        reason: 'startup chain must complete without uncaught exceptions');
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'startup chain must complete without uncaught exceptions',
+    );
     expect(find.byType(LoginPage), findsOneWidget);
 
     // The seeded pref flows: Prefs → AppTheme.initFromPrefs() →
@@ -58,18 +60,27 @@ void main() {
     // pref stops driving the theme leaves this at the tearDown/default
     // `ThemeMode.system`, so this fails even on a dark-mode host runner (where
     // the brightness check below would otherwise pass for the wrong reason).
-    expect(AppTheme.mode.value, ThemeMode.dark,
-        reason: 'seeded theme_mode=dark must drive AppTheme.mode, '
-            'independent of host system brightness');
+    expect(
+      AppTheme.mode.value,
+      ThemeMode.dark,
+      reason:
+          'seeded theme_mode=dark must drive AppTheme.mode, '
+          'independent of host system brightness',
+    );
 
     // PRIMARY assertion — the root MaterialApp must receive ThemeMode.dark.
     // Confirms AppTheme.mode actually flows through to the widget tree rather
     // than only the notifier holding the right value.
     final TencentCloudChatMaterialApp app = tester.widget(
-        find.byType(TencentCloudChatMaterialApp));
-    expect(app.themeMode, ThemeMode.dark,
-        reason: 'root TencentCloudChatMaterialApp must adopt ThemeMode.dark '
-            'from the seeded pref');
+      find.byType(TencentCloudChatMaterialApp),
+    );
+    expect(
+      app.themeMode,
+      ThemeMode.dark,
+      reason:
+          'root TencentCloudChatMaterialApp must adopt ThemeMode.dark '
+          'from the seeded pref',
+    );
 
     // SECONDARY assertion — the effective Theme at the LoginPage subtree is
     // dark. Robust to how the dark ThemeData is constructed, but on its own it
@@ -77,9 +88,13 @@ void main() {
     // which is why the two assertions above are the real gate.
     // `tester.element` is read inline (not stashed across an await) to keep
     // clear of use_build_context_synchronously.
-    final Brightness brightness =
-        Theme.of(tester.element(find.byType(LoginPage))).brightness;
-    expect(brightness, Brightness.dark,
-        reason: 'theme_mode=dark must resolve to a dark Theme at LoginPage');
+    final Brightness brightness = Theme.of(
+      tester.element(find.byType(LoginPage)),
+    ).brightness;
+    expect(
+      brightness,
+      Brightness.dark,
+      reason: 'theme_mode=dark must resolve to a dark Theme at LoginPage',
+    );
   });
 }

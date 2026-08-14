@@ -43,8 +43,7 @@ void main() {
     }
   });
 
-  testWidgets(
-      'saved-account card renders from real SharedPreferences-backed '
+  testWidgets('saved-account card renders from real SharedPreferences-backed '
       'account_list (global nickname unset)', (WidgetTester tester) async {
     const savedNickname = 'SavedUser';
     // 76-char Tox ID (64-char public key + 8-char nospam + 4-char checksum),
@@ -58,26 +57,38 @@ void main() {
     // toxId the primary key). NO `self_nickname` key — the saved account lives
     // only in account_list, so startup stays on StartupShowLogin.
     await seedPrefsAndControllers(<String, Object>{
-      'account_list': '[{"toxId":"$toxId","nickname":"$savedNickname",'
+      'account_list':
+          '[{"toxId":"$toxId","nickname":"$savedNickname",'
           '"statusMessage":"","autoLogin":"true"}]',
     });
 
     await pumpToLogin(tester);
 
-    expect(tester.takeException(), isNull,
-        reason: 'startup chain must complete without uncaught exceptions');
-    expect(find.byType(LoginPage), findsOneWidget,
-        reason: 'StartupShowLogin must resolve to a LoginPage render');
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'startup chain must complete without uncaught exceptions',
+    );
+    expect(
+      find.byType(LoginPage),
+      findsOneWidget,
+      reason: 'StartupShowLogin must resolve to a LoginPage render',
+    );
 
     // The saved-accounts header renders only when the list is non-empty, and
     // each card shows `account['nickname']` in a Text widget
     // (lib/ui/login_page.dart ~L903-910). Asserting both proves the real
     // SharedPreferences-backed account_list → LoginPage card pipeline.
     final l10nEn = await AppLocalizations.delegate.load(const Locale('en'));
-    expect(find.text(l10nEn.savedAccounts), findsOneWidget,
-        reason:
-            'a non-empty account_list must render the saved-accounts header');
-    expect(find.text(savedNickname), findsOneWidget,
-        reason: 'the seeded account nickname must appear on its login card');
+    expect(
+      find.text(l10nEn.savedAccounts),
+      findsOneWidget,
+      reason: 'a non-empty account_list must render the saved-accounts header',
+    );
+    expect(
+      find.text(savedNickname),
+      findsOneWidget,
+      reason: 'the seeded account nickname must appear on its login card',
+    );
   });
 }

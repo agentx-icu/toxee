@@ -91,16 +91,14 @@ void main() {
   // url_launcher (auto-mode link tap) + any HapticFeedback go through
   // SystemChannels.platform; swallow it so nothing throws under the binding.
   setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized()
-        .defaultBinaryMessenger
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger
         .setMockMethodCallHandler(
           SystemChannels.platform,
           (call) async => null,
         );
   });
   tearDownAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized()
-        .defaultBinaryMessenger
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
@@ -289,46 +287,45 @@ void main() {
       );
     });
 
-    testWidgets(
-      'Test with valid fields but no service shows '
-      '"test unavailable before login" and keeps result null',
-      (tester) async {
-        await enterManualMode(tester);
+    testWidgets('Test with valid fields but no service shows '
+        '"test unavailable before login" and keeps result null', (
+      tester,
+    ) async {
+      await enterManualMode(tester);
 
-        await tester.enterText(
-          find.byKey(UiKeys.manualNodeHostField),
-          'node.example.com',
-        );
-        await tester.enterText(find.byKey(UiKeys.manualNodePortField), '33445');
-        await tester.enterText(
-          find.byKey(UiKeys.manualNodePubkeyField),
-          _validPubkey,
-        );
-        await tester.pump();
+      await tester.enterText(
+        find.byKey(UiKeys.manualNodeHostField),
+        'node.example.com',
+      );
+      await tester.enterText(find.byKey(UiKeys.manualNodePortField), '33445');
+      await tester.enterText(
+        find.byKey(UiKeys.manualNodePubkeyField),
+        _validPubkey,
+      );
+      await tester.pump();
 
-        await tester.tap(find.byKey(UiKeys.manualNodeTestButton));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byKey(UiKeys.manualNodeTestButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-        // service: null → no real probe; the section refuses to fake a result.
-        expect(
-          find.text('Test unavailable before login'),
-          findsOneWidget,
-          reason:
-              'Pre-login the section declines to TCP-probe a UDP port and '
-              'tells the user the test is unavailable',
-        );
-        // Because the result stays null, the "Set as Current Node" button
-        // (gated on a successful test) must NOT appear.
-        expect(
-          find.text('Set as Current Node'),
-          findsNothing,
-          reason:
-              'Without a successful test there is no node to promote; the '
-              'set-as-current affordance is correctly absent pre-login',
-        );
-      },
-    );
+      // service: null → no real probe; the section refuses to fake a result.
+      expect(
+        find.text('Cannot send a bootstrap request before login'),
+        findsOneWidget,
+        reason:
+            'Pre-login the section declines to TCP-probe a UDP port and '
+            'tells the user the test is unavailable',
+      );
+      // Because the result stays null, the "Set as Current Node" button
+      // (gated on a successful test) must NOT appear.
+      expect(
+        find.text('Set as Current Node'),
+        findsNothing,
+        reason:
+            'Without a successful test there is no node to promote; the '
+            'set-as-current affordance is correctly absent pre-login',
+      );
+    });
   });
 
   // ----------------------------------------------------------------------
@@ -343,7 +340,11 @@ void main() {
       // path is unreachable (needs a live test success), so this validates the
       // observable side of that handler directly.
       await _initPrefs({'bootstrap_node_mode': 'manual'});
-      await Prefs.setCurrentBootstrapNode('seed.tox.example', 33445, _validPubkey);
+      await Prefs.setCurrentBootstrapNode(
+        'seed.tox.example',
+        33445,
+        _validPubkey,
+      );
       await _pumpSettled(tester);
 
       expect(
@@ -372,7 +373,11 @@ void main() {
       // Unmount first so the second pump constructs a fresh State whose
       // initState re-reads the now-updated Prefs (an identical-tree re-pump
       // would reuse the same Element/State and skip initState).
-      await Prefs.setCurrentBootstrapNode('second.example', 44455, _validPubkey);
+      await Prefs.setCurrentBootstrapNode(
+        'second.example',
+        44455,
+        _validPubkey,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       await _pumpSettled(tester);

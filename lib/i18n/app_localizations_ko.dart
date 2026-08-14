@@ -505,7 +505,7 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get testNode => '노드 테스트';
+  String get testNode => '부트스트랩 요청 보내기';
 
   @override
   String get deleteAccount => '계정 삭제';
@@ -602,8 +602,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get canOnlySelectOnlineNode => '온라인 노드만 선택할 수 있습니다';
 
   @override
-  String get canOnlySelectTestedNode =>
-      '테스트에 성공한 노드만 선택할 수 있습니다. 먼저 노드를 테스트하세요';
+  String get canOnlySelectTestedNode => '이 노드를 선택하기 전에 부트스트랩 요청을 보내세요';
 
   @override
   String get switchNode => '노드 전환';
@@ -800,10 +799,11 @@ class AppLocalizationsKo extends AppLocalizations {
   String get close => '닫기';
 
   @override
-  String get nodeNotTestedWarning => '참고: 이 노드는 테스트되지 않았으며 연결할 수 없을 수 있습니다.';
+  String get nodeNotTestedWarning => '이 노드에 아직 부트스트랩 요청을 보내지 않았습니다.';
 
   @override
-  String get nodeTestFailedWarning => '참고: 이 노드 테스트가 실패했으며 연결할 수 없을 수 있습니다.';
+  String get nodeTestFailedWarning =>
+      '부트스트랩 요청 전송에 실패했습니다. 이 노드를 사용할 수 없을 수 있습니다.';
 
   @override
   String get nicknameTooLong => '닉네임이 너무 깁니다';
@@ -842,13 +842,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get setAsCurrentNode => '현재 노드로 설정';
 
   @override
-  String get nodeTestSuccess => '노드 테스트 성공';
+  String get nodeTestSuccess => '부트스트랩 요청을 보냈습니다';
 
   @override
-  String get nodeTestFailed => '노드 테스트 실패';
+  String get nodeTestFailed => '부트스트랩 요청 전송 실패';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => '로그인 전에는 테스트할 수 없습니다';
+  String get nodeTestUnavailableBeforeLogin => '로그인 전에는 부트스트랩 요청을 보낼 수 없습니다';
 
   @override
   String get failedToStartBootstrapService => '부트스트랩 서비스 시작에 실패했습니다';

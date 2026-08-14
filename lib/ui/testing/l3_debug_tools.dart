@@ -1685,22 +1685,20 @@ MCPCallEntry _l3SetClipboardEntry() => MCPCallEntry.tool(
   ),
 );
 
-/// L3 real-UI seam: populate the MOBILE chat composer's text through its
-/// controller. The mobile composer is an ExtendedTextField that does NOT pick
+/// L3 real-UI seam: populate the mounted chat composer's text through its
+/// controller. The composer is an ExtendedTextField that does NOT reliably pick
 /// up flutter_skill's synthetic `enterText` (so its onChanged never fires and
-/// `chat_send_button` never appears). The mounted input registers
-/// `debugRealUiMobileComposerSetText` (debug builds); calling it fires the
-/// controller listener → reveals the send button → the driver then taps it for
-/// a REAL send. iOS/Android only — the desktop composer is keystroke-driven.
+/// the mobile `chat_send_button` may not appear). The mounted input registers a
+/// debug setter; the driver still triggers the real Return/send-button action.
 MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
   handler: (request) async {
     final text = request['text']?.toString() ?? '';
-    final setter = debugRealUiMobileComposerSetText;
+    final setter =
+        debugRealUiDesktopComposerSetText ?? debugRealUiMobileComposerSetText;
     if (setter == null) {
       return MCPCallResult(
         message:
-            'l3_composer_set_text: no mobile composer mounted '
-            '(open a chat first; desktop uses keystrokes)',
+            'l3_composer_set_text: no composer mounted (open a chat first)',
         parameters: {'ok': false, 'error': 'no_composer'},
       );
     }
@@ -1716,10 +1714,10 @@ MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
   definition: MCPToolDefinition(
     name: 'l3_composer_set_text',
     description:
-        'L3 TEST ONLY (mobile): set the open chat composer text via its '
-        'controller so the send button appears, enabling a real chat_send_button '
-        'tap. Synthetic enterText cannot drive the ExtendedTextField composer. '
-        'No-op error if no mobile composer is mounted.',
+        'L3 TEST ONLY: set the open chat composer text via its controller, then '
+        'let the driver trigger the real Return/send-button action. Synthetic '
+        'enterText cannot reliably drive the ExtendedTextField composer. No-op '
+        'error if no composer is mounted.',
     inputSchema: ObjectSchema(
       properties: {'text': StringSchema(description: 'Composer text to set.')},
       required: ['text'],
@@ -3427,7 +3425,8 @@ MCPCallEntry _l3SetFriendRemarkEntry() => MCPCallEntry.tool(
           '[L3] l3_set_friend_remark: SDK returned ${res.code}: ${res.desc}',
         );
         return MCPCallResult(
-          message: 'l3_set_friend_remark: SDK returned ${res.code}: '
+          message:
+              'l3_set_friend_remark: SDK returned ${res.code}: '
               '${res.desc}',
           parameters: {
             'ok': false,
@@ -4528,7 +4527,8 @@ MCPCallEntry _l3SetC2CRecvOptEntry() => MCPCallEntry.tool(
           '[L3] l3_set_c2c_recv_opt: SDK returned ${res.code}: ${res.desc}',
         );
         return MCPCallResult(
-          message: 'l3_set_c2c_recv_opt: SDK returned ${res.code}: '
+          message:
+              'l3_set_c2c_recv_opt: SDK returned ${res.code}: '
               '${res.desc}',
           parameters: {
             'ok': false,

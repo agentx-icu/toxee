@@ -785,12 +785,27 @@ Future<bool> _groupAddMemberFullJoin(
       await Future<void>.delayed(const Duration(seconds: 1));
     }
   }
-  await a.shot('/tmp/ui_g2_add_member_A.png');
-  await b.foreground();
-  await b.shot('/tmp/ui_g2_add_member_B.png');
+  // Evidence capture must not decide the verdict. The verdict is `memberCount`,
+  // which is already settled above; a screenshot that times out (observed as
+  // `B: ext.flutter.flutter_skill.screenshot timed out after 45s (app isolate
+  // unresponsive)`) was failing this case — and with it the four downstream
+  // group cases — even when B had joined. Still logged, so a wedged peer stays
+  // visible instead of being swallowed.
+  var shotsOk = true;
+  try {
+    await a.shot('/tmp/ui_g2_add_member_A.png');
+    await b.foreground();
+    await b.shot('/tmp/ui_g2_add_member_B.png');
+  } on DriveError catch (e) {
+    shotsOk = false;
+    print(
+      '[pair] group_add_member_full_join: evidence screenshot failed '
+      '(${e.message}) — verdict still comes from memberCount',
+    );
+  }
   print(
     '[pair] group_add_member_full_join: A memberCount=$memberCount '
-    '(gid=${_shortId(gid)})',
+    'shots=$shotsOk (gid=${_shortId(gid)})',
   );
   return memberCount >= 2;
 }
@@ -1494,6 +1509,14 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
 
         // --- 77: add B (full join) — B must be in the shared group BEFORE the
         // member-list / unread / kick cases. ---
+        // Snapshot B's groups BEFORE the join, like every other
+        // `_waitForJoinedGroup` call site. Passing an empty set (as this one
+        // did) makes the fresh-candidate fallback require B to hold exactly ONE
+        // group — false by this point in the sweep — and the name match cannot
+        // cover for it because A renamed the group in case 72 while B keeps the
+        // original name. `gidB` was therefore null on EVERY run and
+        // `group_unread_badge_two_proc` failed as "B group id unresolved".
+        final bGroupsBeforeJoin = await _groupConversationCandidates(b);
         var bJoined = false;
         await hard('group_add_member_full_join', () async {
           bJoined = await _groupAddMemberFullJoin(a, b, sharedGid, toxB);
@@ -1504,7 +1527,7 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
             ? await _waitForJoinedGroup(
                 b,
                 renamedName,
-                before: const <String>{},
+                before: bGroupsBeforeJoin,
                 timeoutSecs: 30,
               )
             : null;
@@ -1531,8 +1554,27 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
           // --- 81: unread badge bump → open clears. ---
           await hard('group_unread_badge_two_proc', () async {
             if (gidB == null) {
+              // "unresolved" alone says nothing: it cannot distinguish "B never
+              // got the group" from "B has it under a different name" from "B
+              // has several and the fallback stayed ambiguous". Dump the three
+              // inputs the resolver actually used so the next run is a
+              // diagnosis instead of another guess.
+              final nowCandidates = await _groupConversationCandidates(b);
+              final names = <String>[];
+              for (final c
+                  in ((await b.dumpState())['conversations'] as List?) ??
+                      const []) {
+                if (c is Map && c['type'] == 2) {
+                  names.add(
+                    '${c['conversationID']}="${c['showName']}"',
+                  );
+                }
+              }
               print(
-                '[pair] group_unread_badge_two_proc: B group id unresolved',
+                '[pair] group_unread_badge_two_proc: B group id unresolved '
+                '(wantName="$renamedName" beforeJoin=$bGroupsBeforeJoin '
+                'now=$nowCandidates fresh=${nowCandidates.difference(bGroupsBeforeJoin)} '
+                'bGroupConvs=$names)',
               );
               return false;
             }

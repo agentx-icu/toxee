@@ -181,7 +181,7 @@ SPEC CHECKSUMS:
   screen_retriever: 4f97c103641aab8ce183fa5af3b87029df167936
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  tencent_cloud_chat_sdk: d41185e8f07fafff699e9a2a52c9a94801405d99
+  tencent_cloud_chat_sdk: bf914a5bc9662dfc41e35421eba9cc7ca753c054
   tray_manager: a104b5c81b578d83f3c3d0f40a997c8b10810166
   TXIMSDK_Plus_Mac: ccaafbe51cb825c311eceb98790729268cc47264
   url_launcher_macos: 0fba8ddabfc33ce0a9afe7c5fef5aab3d8d2d673

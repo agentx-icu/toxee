@@ -208,7 +208,7 @@
   "refresh": "更新",
   "retry": "再試行",
   "lastPing": "最後のping: {seconds}秒前",
-  "testNode": "ノードをテスト",
+  "testNode": "ブートストラップ要求を送信",
   "deleteAccount": "アカウント削除",
   "deleteAccountConfirmMessage": "アカウントとすべてのデータは永久に削除され、復元できません。慎重に操作してください。",
   "delete": "削除",
@@ -238,7 +238,7 @@
   "online": "ONLINE",
   "offline": "OFFLINE",
   "canOnlySelectOnlineNode": "オンラインノードのみ選択できます",
-  "canOnlySelectTestedNode": "テストに成功したノードのみ選択できます。まずノードをテストしてください",
+  "canOnlySelectTestedNode": "このノードを選択する前に、ブートストラップ要求を送信してください",
   "switchNode": "ノードを切り替え",
   "switchNodeConfirm": "ノード {node} に切り替えますか？切り替え後、再接続が必要です。",
   "nodeSwitched": "ノードが切り替えられました。再接続中...",
@@ -249,9 +249,12 @@
   "nodePort": "ポート",
   "nodePublicKey": "公開鍵",
   "setAsCurrentNode": "現在のノードとして設定",
-  "nodeTestSuccess": "ノードテスト成功",
-  "nodeTestFailed": "ノードテスト失敗",
-  "nodeTestUnavailableBeforeLogin": "ログイン前はテストできません",
+  "nodeTestSuccess": "ブートストラップ要求を送信しました",
+  "nodeTestFailed": "ブートストラップ要求の送信に失敗しました",
+  "nodeTestUnavailableBeforeLogin": "ログイン前はブートストラップ要求を送信できません",
+  "@nodeTestUnavailableBeforeLogin": {
+    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
+  },
   "failedToStartBootstrapService": "ブートストラップサービスの起動に失敗しました",
   "invalidNodeInfo": "有効なノード情報（ホスト、ポート、公開鍵）を入力してください",
   "nodeSetSuccess": "ノードが現在のノードとして正常に設定されました",
@@ -564,11 +567,11 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "注意: このノードはテストされていません。接続できない可能性があります。",
+  "nodeNotTestedWarning": "このノードにはまだブートストラップ要求を送信していません。",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "注意: このノードのテストに失敗しました。接続できない可能性があります。",
+  "nodeTestFailedWarning": "ブートストラップ要求の送信に失敗しました。このノードは利用できない可能性があります。",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },
