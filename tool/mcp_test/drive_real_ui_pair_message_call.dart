@@ -656,17 +656,14 @@ Future<bool> sendComposerMessage(
     // tap inside the desktop composer.
     await inst.waitKey('chat_input_text_field', timeoutSecs: 8);
     await Future<void>.delayed(const Duration(milliseconds: 400));
-    await inst.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(inst);
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    if (clearFirst) {
-      await inst.osaClear();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    }
-    await inst.osaPaste(text);
-    await Future<void>.delayed(const Duration(milliseconds: 800));
+    await _setDesktopComposerText(inst, text, clearFirst: clearFirst);
+    final directSend = await _sendComposerViaProductionSeam(inst, text);
+    if (directSend == true) return true;
     for (var attempt = 0; attempt < 6; attempt++) {
       await inst.foreground();
-      await inst.tapAt(_composerX, _composerY); // ensure keyboard focus
+      await _tapDesktopComposer(inst);
       await Future<void>.delayed(const Duration(milliseconds: 450));
       await inst.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));

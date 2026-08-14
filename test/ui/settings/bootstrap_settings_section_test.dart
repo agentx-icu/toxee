@@ -477,7 +477,10 @@ void main() {
 
       expect(manager.startCalls, 0);
       expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
-      expect(find.text('Test unavailable before login'), findsOneWidget);
+      expect(
+        find.text('Cannot send a bootstrap request before login'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('false live LAN apply rolls back manager and staged snapshot', (
@@ -733,10 +736,7 @@ void main() {
         );
         await Prefs.setLanBootstrapServiceRunning(true);
         final events = <String>[];
-        final manager = _RecordingLanManager(
-          events: events,
-          stopResult: false,
-        );
+        final manager = _RecordingLanManager(events: events, stopResult: false);
         final service = _RecordingFfiChatService(events: events);
         await _pumpSettled(
           tester,

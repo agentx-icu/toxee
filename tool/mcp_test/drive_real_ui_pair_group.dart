@@ -1,35 +1,6 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
-Future<bool> _sendAndWait(
-  Inst sender,
-  Inst receiver,
-  String receiverPubkey,
-  String text, {
-  int timeoutSecs = 60,
-}) async {
-  for (var attempt = 0; attempt < 2; attempt++) {
-    await openChat(sender, receiverPubkey);
-    final sent = await sendComposerMessage(sender, text);
-    final received = await _waitLastMessage(
-      receiver,
-      text,
-      timeoutSecs: timeoutSecs,
-    );
-    if (sent && received) return true;
-    print(
-      '[pair] WARN sendAndWait retry for "$text" '
-      '(attempt ${attempt + 1}/2 sent=$sent recv=$received '
-      'senderConv=${await _currentConversationId(sender)} '
-      'receiverLast=${await _lastMessage(receiver)})',
-    );
-    await sender.shot('/tmp/send_fail_${sender.name}_${attempt + 1}.png');
-    await receiver.foreground();
-    await receiver.shot('/tmp/send_fail_${receiver.name}_${attempt + 1}.png');
-  }
-  return false;
-}
-
 Future<Set<String>> _groupConversationCandidates(Inst inst) async {
   final state = await inst.dumpState();
   final candidates = <String>{};
@@ -624,19 +595,6 @@ Future<bool> _waitGroupMessageAnyConversation(
   return false;
 }
 
-Future<bool> _waitLastMessage(
-  Inst inst,
-  String text, {
-  int timeoutSecs = 60,
-}) async {
-  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
-  while (DateTime.now().isBefore(deadline)) {
-    if (await _lastMessage(inst) == text) return true;
-    await Future<void>.delayed(const Duration(seconds: 1));
-  }
-  return false;
-}
-
 /// S62/S64: bidirectional message delivery driven through the REAL composer
 /// across two processes. Assumes A and B are already friends.
 Future<int> runMessage(
@@ -662,11 +620,23 @@ Future<int> runMessage(
   final m2 = 'RUITEST-BtoA-$stamp';
 
   final aOk = await _sendAndWait(a, b, bobPk, m1, timeoutSecs: 60);
-  final bGot = await _waitLastMessage(b, m1, timeoutSecs: 2);
+  final bGot = await _waitC2cMessageText(
+    b,
+    alicePk,
+    m1,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   print('[pair] A->B sent=$aOk received=$bGot ("$m1")');
 
   final bOk = await _sendAndWait(b, a, alicePk, m2, timeoutSecs: 60);
-  final aGot = await _waitLastMessage(a, m2, timeoutSecs: 2);
+  final aGot = await _waitC2cMessageText(
+    a,
+    bobPk,
+    m2,
+    isSelf: false,
+    timeoutSecs: 60,
+  );
   print('[pair] B->A sent=$bOk received=$aGot ("$m2")');
 
   await a.shot('/tmp/ui_message_A.png');

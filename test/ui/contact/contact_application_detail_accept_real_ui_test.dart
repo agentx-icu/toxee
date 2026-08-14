@@ -38,6 +38,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_application_info.dart';
+import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_leading.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 
@@ -172,6 +173,19 @@ void main() {
           reason: 'the result view replaces the accept button');
       expect(find.byKey(declineKey), findsNothing,
           reason: 'the result view replaces the decline button');
+    },
+  );
+
+  testWidgets(
+    'S108: the detail back affordance exposes a stable keyed target',
+    (tester) async {
+      await tester.pumpWidget(_app(const TencentCloudChatContactLeading()));
+      await tester.pump();
+
+      expect(
+        find.byKey(UiKeys.contactDetailBack),
+        findsOneWidget,
+      );
     },
   );
 }

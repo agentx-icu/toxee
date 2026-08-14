@@ -1,6 +1,164 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
+Future<void> _registerRealUiAccount(Inst inst, String nickname) async {
+  await recoverStartupExceptions(inst);
+  print('[${inst.name}] registering "$nickname" via real UI...');
+  await inst.tapText('Register new account');
+  await Future<void>.delayed(const Duration(seconds: 2));
+  var nicknameCommitted = await inst.focusType(
+    'register_page_nickname_field',
+    nickname,
+  );
+  if (!nicknameCommitted) {
+    nicknameCommitted = await inst.focusType(
+      'register_page_nickname_field',
+      nickname,
+    );
+  }
+  if (!nicknameCommitted) {
+    throw DriveError('[${inst.name}] nickname input did not commit');
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 400));
+  await inst.tapKey('register_page_register_button');
+  await inst.foreground();
+  await inst.waitState(
+    (s) => s['sessionReady'] == true,
+    timeoutSecs: 60,
+    label: 'sessionReady',
+  );
+}
+
+Future<void> _tapDesktopComposer(Inst inst) async {
+  if (!await inst.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) {
+    await inst.tapAt(_composerX, _composerY);
+  }
+}
+
+Future<void> _setDesktopComposerText(
+  Inst inst,
+  String text, {
+  required bool clearFirst,
+}) async {
+  final setText = await inst.l3('l3_composer_set_text', {'text': text});
+  if (setText['ok'] == true) {
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    return;
+  }
+  if (clearFirst) {
+    await inst.osaClear();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  await inst.osaPaste(text);
+  await Future<void>.delayed(const Duration(milliseconds: 800));
+}
+
+Future<bool?> _sendComposerViaProductionSeam(Inst inst, String text) async {
+  final directSend = await inst.l3('l3_composer_send');
+  if (directSend['ok'] != true) return null;
+  for (var check = 0; check < 10; check++) {
+    if (await _anyConversationLastMessageIs(inst, text)) return true;
+    await Future<void>.delayed(const Duration(seconds: 1));
+  }
+  return false;
+}
+
+Future<bool> _sendAndWait(
+  Inst sender,
+  Inst receiver,
+  String receiverPubkey,
+  String text, {
+  int timeoutSecs = 60,
+}) async {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    await openChat(sender, receiverPubkey);
+    final targetConversation = 'c2c_${_pubkey(receiverPubkey)}';
+    if (!await _chatSurfaceReady(sender, targetConversation, timeoutSecs: 10)) {
+      print(
+        '[pair] sendAndWait: target chat not ready '
+        '(target=$targetConversation current=${await _currentConversationId(sender)})',
+      );
+      continue;
+    }
+    final sent = await sendComposerMessage(sender, text);
+    final senderCommitted = await _waitC2cMessageText(
+      sender,
+      receiverPubkey,
+      text,
+      isSelf: true,
+      timeoutSecs: timeoutSecs,
+    );
+    if (sent && senderCommitted) return true;
+    print(
+      '[pair] WARN sendAndWait retry for "$text" '
+      '(attempt ${attempt + 1}/2 sent=$sent local=$senderCommitted '
+      'senderConv=${await _currentConversationId(sender)} '
+      'receiverLast=${await _lastMessage(receiver)})',
+    );
+    await sender.shot('/tmp/send_fail_${sender.name}_${attempt + 1}.png');
+    await receiver.foreground();
+    await receiver.shot('/tmp/send_fail_${receiver.name}_${attempt + 1}.png');
+  }
+  return false;
+}
+
+Future<int> runMessageBurst(Inst a, Inst b, String nickA, String nickB) async {
+  await ensureHome(a, nickA);
+  await ensureHome(b, nickB);
+  final toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
+  final toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
+  if (!await areFriends(a, toxB) || !await areFriends(b, toxA)) {
+    print('[pair] message_burst requires an existing friendship');
+    return 1;
+  }
+  final bobPk = _pubkey(toxB);
+  final alicePk = _pubkey(toxA);
+  final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final aMsgs = [
+    'RUIBURST-A1-$nonce',
+    'RUIBURST-A2-$nonce',
+    'RUIBURST-A3-$nonce',
+  ];
+  final bMsgs = [
+    'RUIBURST-B1-$nonce',
+    'RUIBURST-B2-$nonce',
+    'RUIBURST-B3-$nonce',
+  ];
+
+  for (var i = 0; i < aMsgs.length; i++) {
+    final aOk = await _sendAndWait(a, b, bobPk, aMsgs[i], timeoutSecs: 60);
+    final bGot = await _waitC2cMessageText(
+      b,
+      alicePk,
+      aMsgs[i],
+      isSelf: false,
+      timeoutSecs: 60,
+    );
+    if (!aOk || !bGot) {
+      print('[pair] FAIL: burst A->$i did not converge');
+      return 1;
+    }
+    final bOk = await _sendAndWait(b, a, alicePk, bMsgs[i], timeoutSecs: 60);
+    final aGot = await _waitC2cMessageText(
+      a,
+      bobPk,
+      bMsgs[i],
+      isSelf: false,
+      timeoutSecs: 60,
+    );
+    if (!bOk || !aGot) {
+      print('[pair] FAIL: burst B->$i did not converge');
+      return 1;
+    }
+  }
+
+  await a.shot('/tmp/ui_message_burst_A.png');
+  await b.foreground();
+  await b.shot('/tmp/ui_message_burst_B.png');
+  print('[pair] PASS: alternating real-UI burst converged both directions');
+  return 0;
+}
+
 // Optimized real-UI bundles.
 //
 // These do NOT introduce new UI assertions. They compose already-registered

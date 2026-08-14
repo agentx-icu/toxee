@@ -68,16 +68,17 @@ import 'package:toxee/util/locale_controller.dart';
 import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/theme_controller.dart';
 
+import 'host_bundle_test_support.dart';
+
 /// Per-test temp dir + plugin-channel stubs. Returned as a record so teardown
 /// can clear the handlers without a stateful helper class. Mirrors
 /// `app_smoke_test.dart`'s harness; kept here (not shared with app_smoke) so
 /// neither file has to touch the other.
-typedef LoginStatesHarness = ({
-  Directory root,
-  void Function() teardown,
-});
+typedef LoginStatesHarness = ({Directory root, void Function() teardown});
 
 Future<LoginStatesHarness> installPluginStubs() async {
+  await ensureHostBundleWindowManagerInitialized();
+
   final root = await Directory.systemTemp.createTemp('toxee_login_states_');
   final appSupport = Directory(p.join(root.path, 'app_support'));
   final downloads = Directory(p.join(root.path, 'downloads'));
@@ -94,8 +95,9 @@ Future<LoginStatesHarness> installPluginStubs() async {
   // that calls `getApplicationDocumentsDirectory()` (e.g. Hive used by
   // TencentCloudChatMaterialApp.cache.init) lands inside the sandbox.
   const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
-  messenger.setMockMethodCallHandler(pathProviderChannel,
-      (MethodCall call) async {
+  messenger.setMockMethodCallHandler(pathProviderChannel, (
+    MethodCall call,
+  ) async {
     switch (call.method) {
       case 'getApplicationSupportDirectory':
       case 'getApplicationDocumentsDirectory':
@@ -113,10 +115,12 @@ Future<LoginStatesHarness> installPluginStubs() async {
 
   // flutter_secure_storage: not reached on the StartupShowLogin path, but a
   // no-op handler keeps the report clean if a future change touches it.
-  const secureStorageChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
-  messenger.setMockMethodCallHandler(secureStorageChannel,
-      (MethodCall call) async {
+  const secureStorageChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+  messenger.setMockMethodCallHandler(secureStorageChannel, (
+    MethodCall call,
+  ) async {
     switch (call.method) {
       case 'read':
       case 'readAll':
@@ -133,11 +137,16 @@ Future<LoginStatesHarness> installPluginStubs() async {
   // against transitive touches in the MaterialApp builder.
   const audioplayersChannel = MethodChannel('xyz.luan/audioplayers');
   messenger.setMockMethodCallHandler(
-      audioplayersChannel, (MethodCall call) async => null);
-  const audioplayersGlobalChannel =
-      MethodChannel('xyz.luan/audioplayers.global');
+    audioplayersChannel,
+    (MethodCall call) async => null,
+  );
+  const audioplayersGlobalChannel = MethodChannel(
+    'xyz.luan/audioplayers.global',
+  );
   messenger.setMockMethodCallHandler(
-      audioplayersGlobalChannel, (MethodCall call) async => null);
+    audioplayersGlobalChannel,
+    (MethodCall call) async => null,
+  );
 
   void teardown() {
     messenger.setMockMethodCallHandler(pathProviderChannel, null);

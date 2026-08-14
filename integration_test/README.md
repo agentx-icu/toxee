@@ -16,6 +16,15 @@ binary.
 |---|---|
 | `app_smoke_test.dart` | Cold-start chain. Wants to be hermetic but `TencentCloudChatMaterialApp._getLocale` → `TencentCloudChat.instance.cache.init` (Hive) hangs when run from `test/` because Hive needs more than path_provider channel mocks to bootstrap. Host build supplies the rest. |
 
+Host-bundle harnesses that mount `EchoUIKitApp` directly call
+`host_bundle_test_support.dart` before installing channel stubs. These tests
+bypass `main()` / `AppBootstrap` / `DesktopShellBootstrap`, so desktop hosts
+must initialize the real `window_manager` plugin themselves. Otherwise the
+second frame's `DesktopWindowFrame.isMaximized` call reaches the macOS Swift
+`WindowManager.mainWindow` force-unwrap before initialization and SIGTRAPs.
+The helper calls `ensureInitialized()` on macOS, Windows, and Linux and is a
+no-op on mobile.
+
 ## Move history (2026-05-28)
 
 1. **Initial audit** flagged this test as "should be in `test/`" — it uses

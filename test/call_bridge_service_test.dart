@@ -136,6 +136,183 @@ void main() {
     expect(bridge.getCallInfo('invite-1'), isNull);
   });
 
+  test('replacement outgoing call clears a stale tracked media leg', () async {
+    final sdk = _FakeSdkPlatform()..inviteIDs.add('invite-2');
+    final av = _FakeAvBackend();
+    final bridge = CallBridgeService(sdk, av);
+    final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+    adapter.isCallIdle = () => true;
+
+    expect(
+      await adapter.handleCall(type: TYPE_AUDIO, userids: const ['friend-1']),
+      isTrue,
+    );
+    final endsBeforeReplacement = av.endedFriendNumbers.length;
+    expect(endsBeforeReplacement, 0);
+    expect(
+      await adapter.handleCall(type: TYPE_AUDIO, userids: const ['friend-1']),
+      isTrue,
+    );
+
+    expect(av.endedFriendNumbers.length, greaterThan(endsBeforeReplacement));
+    expect(bridge.getCallInfo('invite-1'), isNull);
+    expect(bridge.getCallInfo('invite-2'), isNotNull);
+  });
+
+  test(
+    'out-of-order duplicate setup cannot replace the newer invite',
+    () async {
+      final sdk = _FakeSdkPlatform();
+      final firstInvite = Completer<V2TimValueCallback<String>>();
+      final secondInvite = Completer<V2TimValueCallback<String>>();
+      sdk.inviteCompleters.addAll([firstInvite, secondInvite]);
+      final av = _FakeAvBackend();
+      final bridge = CallBridgeService(sdk, av);
+      final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+
+      final first = adapter.handleCall(
+        type: TYPE_AUDIO,
+        userids: const ['friend-1'],
+      );
+      final second = adapter.handleCall(
+        type: TYPE_AUDIO,
+        userids: const ['friend-1'],
+      );
+      secondInvite.complete(
+        V2TimValueCallback<String>(code: 0, desc: 'ok', data: 'invite-2'),
+      );
+      expect(await second, isTrue);
+      firstInvite.complete(
+        V2TimValueCallback<String>(code: 0, desc: 'ok', data: 'invite-1'),
+      );
+
+      expect(await first, isFalse);
+      expect(sdk.cancelledInviteIds, contains('invite-1'));
+      expect(bridge.getCallInfo('invite-1'), isNull);
+      expect(bridge.getCallInfo('invite-2'), isNotNull);
+    },
+  );
+
+  test(
+    'replacement teardown continuation cannot overwrite a newer call',
+    () async {
+      final sdk = _FakeSdkPlatform()
+        ..inviteIDs.addAll(['invite-2', 'invite-3']);
+      final av = _FakeAvBackend();
+      final bridge = CallBridgeService(sdk, av);
+      final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+      adapter.isCallIdle = () => true;
+
+      expect(
+        await adapter.handleCall(type: TYPE_AUDIO, userids: const ['friend-1']),
+        isTrue,
+      );
+      Future<bool>? newest;
+      var launchedNewest = false;
+      bridge.onCallStateChanged = (inviteID, state, {endReason}) {
+        if (!launchedNewest &&
+            inviteID == 'invite-1' &&
+            state == CallState.ended) {
+          launchedNewest = true;
+          newest = adapter.handleCall(
+            type: TYPE_AUDIO,
+            userids: const ['friend-1'],
+          );
+        }
+      };
+
+      final staleReplacement = adapter.handleCall(
+        type: TYPE_AUDIO,
+        userids: const ['friend-1'],
+      );
+      expect(await staleReplacement, isFalse);
+      expect(await newest, isTrue);
+      expect(sdk.cancelledInviteIds, contains('invite-2'));
+      expect(bridge.getCallInfo('invite-2'), isNull);
+      expect(bridge.getCallInfo('invite-3'), isNotNull);
+    },
+  );
+
+  test('stale startCall completion cannot claim a newer call', () async {
+    final sdk = _FakeSdkPlatform()..inviteIDs.add('invite-2');
+    final av = _FakeAvBackend();
+    final firstStart = Completer<bool>();
+    final secondStart = Completer<bool>();
+    av.startCompleters.addAll([firstStart, secondStart]);
+    final firstStartCalled = Completer<void>();
+    final secondStartCalled = Completer<void>();
+    av.startCallSignals.addAll([firstStartCalled, secondStartCalled]);
+    final bridge = CallBridgeService(sdk, av);
+    final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+    adapter.isCallIdle = () => true;
+
+    final first = adapter.handleCall(
+      type: TYPE_AUDIO,
+      userids: const ['friend-1'],
+    );
+    await firstStartCalled.future;
+    final second = adapter.handleCall(
+      type: TYPE_AUDIO,
+      userids: const ['friend-1'],
+    );
+    firstStart.complete(true);
+    expect(await first, isFalse);
+    await secondStartCalled.future;
+    secondStart.complete(true);
+    expect(await second, isTrue);
+    expect(av.endedFriendNumbers, const [7]);
+    expect(bridge.getCallInfo('invite-1'), isNull);
+    expect(bridge.getCallInfo('invite-2'), isNotNull);
+  });
+
+  test('stale failed start cleans up before replacement start', () async {
+    final sdk = _FakeSdkPlatform()..inviteIDs.add('invite-2');
+    final av = _FakeAvBackend();
+    final firstStart = Completer<bool>();
+    final secondStart = Completer<bool>();
+    av.startCompleters.addAll([firstStart, secondStart]);
+    final firstStartCalled = Completer<void>();
+    final secondStartCalled = Completer<void>();
+    av.startCallSignals.addAll([firstStartCalled, secondStartCalled]);
+    final bridge = CallBridgeService(sdk, av);
+    final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+
+    final first = adapter.handleCall(
+      type: TYPE_AUDIO,
+      userids: const ['friend-1'],
+    );
+    await firstStartCalled.future;
+    final second = adapter.handleCall(
+      type: TYPE_AUDIO,
+      userids: const ['friend-1'],
+    );
+    firstStart.complete(false);
+
+    expect(await first, isFalse);
+    await secondStartCalled.future;
+    secondStart.complete(true);
+    expect(await second, isTrue);
+    expect(sdk.cancelledInviteIds, contains('invite-1'));
+    expect(bridge.getCallInfo('invite-1'), isNull);
+    expect(bridge.getCallInfo('invite-2'), isNotNull);
+  });
+
+  test('native start exception cleans up its owned invite', () async {
+    final sdk = _FakeSdkPlatform();
+    final av = _FakeAvBackend()
+      ..startOutcomes.add(_ThrowingOutcome(StateError('start failed')));
+    final bridge = CallBridgeService(sdk, av);
+    final adapter = await TUICallKitAdapter.initialize(sdk, av, bridge);
+    final handled = await adapter.handleCall(
+      type: TYPE_AUDIO,
+      userids: const ['friend-1'],
+    );
+
+    expect(handled, isFalse);
+    expect(sdk.cancelledInviteIds, const ['invite-1']);
+    expect(bridge.getCallInfo('invite-1'), isNull);
+  });
+
   group('onCallSetupFailed surfacing (failures must not be silent)', () {
     Future<(bool, List<CallSetupFailureReason>)> runCall({
       required _FakeSdkPlatform sdk,
@@ -650,6 +827,108 @@ void main() {
   });
 
   group('bounded hidden teardown cleanup', () {
+    test('replacement waits for a pending friend AV teardown', () {
+      fakeAsync((asyncZone) {
+        final sdk = _FakeSdkPlatform()..inviteIDs.add('invite-2');
+        final av = _FakeAvBackend()..endOutcomes.addAll(const [false, true]);
+        final bridge = CallBridgeService(sdk, av);
+        final adapter = _expectFutureValue(
+          asyncZone,
+          TUICallKitAdapter.initialize(sdk, av, bridge),
+        );
+        adapter.isCallIdle = () => true;
+
+        expect(
+          _expectFutureValue(
+            asyncZone,
+            adapter.handleCall(type: TYPE_AUDIO, userids: const ['friend-1']),
+          ),
+          isTrue,
+        );
+        _expectFutureValue(asyncZone, bridge.endCall('invite-1'));
+        expect(av.endedFriendNumbers, const [7]);
+        expect(asyncZone.nonPeriodicTimerCount, greaterThan(0));
+
+        final replacement = adapter.handleCall(
+          type: TYPE_AUDIO,
+          userids: const ['friend-1'],
+        );
+        asyncZone.flushMicrotasks();
+        expect(av.startedFriendNumbers, const [7]);
+
+        _drainTeardownRetryBudget(asyncZone);
+        expect(av.endedFriendNumbers, const [7, 7]);
+        expect(_expectFutureValue(asyncZone, replacement), isTrue);
+        expect(av.startedFriendNumbers, const [7, 7]);
+      });
+    });
+
+    test('incoming answer waits for a pending friend AV teardown', () {
+      fakeAsync((asyncZone) {
+        final sdk = _FakeSdkPlatform();
+        final av = _FakeAvBackend()..endOutcomes.addAll(const [false, true]);
+        final bridge = CallBridgeService(sdk, av);
+        bridge.registerOutgoingCall(
+          inviteID: 'invite-old-av',
+          inviter: 'self',
+          invitee: 'friend-1',
+          data: '{}',
+          friendNumber: 7,
+        );
+        bridge.markAvLegStarted('invite-old-av');
+        _expectFutureValue(asyncZone, bridge.endCall('invite-old-av'));
+        expect(av.endedFriendNumbers, const [7]);
+
+        _receiveIncomingInvite(sdk, inviteID: 'invite-incoming-fence');
+        final accept = bridge.acceptInvitation('invite-incoming-fence');
+        asyncZone.flushMicrotasks();
+        expect(
+          av.answeredFriendNumbers,
+          isEmpty,
+          reason: 'incoming answer must wait for old AV teardown retries',
+        );
+
+        _drainTeardownRetryBudget(asyncZone);
+        expect(av.endedFriendNumbers, const [7, 7]);
+        expect(_expectFutureValue(asyncZone, accept), isTrue);
+        expect(av.answeredFriendNumbers, const [7]);
+      });
+    });
+
+    test('awaited AV teardown waits through bounded retry terminal state', () {
+      fakeAsync((asyncZone) {
+        final sdk = _FakeSdkPlatform();
+        final av = _FakeAvBackend()..endOutcomes.addAll(const [false, true]);
+        final bridge = CallBridgeService(sdk, av);
+        bridge.registerOutgoingCall(
+          inviteID: 'invite-await-av',
+          inviter: 'self',
+          invitee: 'friend-1',
+          data: '{}',
+          friendNumber: 7,
+        );
+        bridge.markAvLegStarted('invite-await-av');
+
+        final teardown = bridge.endAvLegAndWaitForTeardown(
+          'invite-await-av',
+          7,
+        );
+        asyncZone.flushMicrotasks();
+        expect(av.endedFriendNumbers, const [7]);
+        expect(asyncZone.nonPeriodicTimerCount, greaterThan(0));
+
+        var completed = false;
+        teardown.then((_) => completed = true);
+        asyncZone.flushMicrotasks();
+        expect(completed, isFalse);
+
+        _drainTeardownRetryBudget(asyncZone);
+        expect(av.endedFriendNumbers, const [7, 7]);
+        expect(completed, isTrue);
+        expect(asyncZone.nonPeriodicTimerCount, 0);
+      });
+    });
+
     test('rejectInvitation hides ringing call while SDK reject result-code '
         'failure retries to bounded success', () {
       fakeAsync((asyncZone) {
@@ -1187,8 +1466,10 @@ class _FakeSdkPlatform extends TencentCloudChatSdkPlatform {
   final List<String> rejectedInviteIds = <String>[];
   final List<Object> cancelOutcomes = <Object>[];
   final List<Object> rejectOutcomes = <Object>[];
+  final List<Completer<V2TimValueCallback<String>>> inviteCompleters = [];
   Completer<V2TimCallback>? acceptCompleter;
   int inviteCallCount = 0;
+  final List<String> inviteIDs = <String>['invite-1'];
   int acceptCallCount = 0;
   int inviteCode = 0;
   int acceptCode = 0;
@@ -1220,6 +1501,9 @@ class _FakeSdkPlatform extends TencentCloudChatSdkPlatform {
     offlinePushInfo,
   }) async {
     inviteCallCount++;
+    if (inviteCompleters.isNotEmpty) {
+      return inviteCompleters.removeAt(0).future;
+    }
     if (inviteCode != 0) {
       return V2TimValueCallback<String>(
         code: inviteCode,
@@ -1227,7 +1511,10 @@ class _FakeSdkPlatform extends TencentCloudChatSdkPlatform {
         data: null,
       );
     }
-    return V2TimValueCallback<String>(code: 0, desc: 'ok', data: 'invite-1');
+    final id = inviteCallCount <= inviteIDs.length
+        ? inviteIDs[inviteCallCount - 1]
+        : 'invite-$inviteCallCount';
+    return V2TimValueCallback<String>(code: 0, desc: 'ok', data: id);
   }
 
   @override
@@ -1268,6 +1555,9 @@ class _FakeAvBackend implements CallAvBackend {
   final List<int> answeredFriendNumbers = <int>[];
   final List<int> startedFriendNumbers = <int>[];
   final List<Object> endOutcomes = <Object>[];
+  final List<Object> startOutcomes = <Object>[];
+  final List<Completer<bool>> startCompleters = <Completer<bool>>[];
+  final List<Completer<void>> startCallSignals = <Completer<void>>[];
   Completer<bool>? answerCompleter;
   Completer<bool>? startCompleter;
   int friendNumber = 7;
@@ -1324,6 +1614,18 @@ class _FakeAvBackend implements CallAvBackend {
     int videoBitRate = 5000,
   }) async {
     startedFriendNumbers.add(friendNumber);
+    if (startCallSignals.isNotEmpty) {
+      final signal = startCallSignals.removeAt(0);
+      if (!signal.isCompleted) signal.complete();
+    }
+    if (startCompleters.isNotEmpty) {
+      return startCompleters.removeAt(0).future;
+    }
+    if (startOutcomes.isNotEmpty) {
+      final outcome = startOutcomes.removeAt(0);
+      if (outcome is _ThrowingOutcome) throw outcome.error;
+      return outcome as bool;
+    }
     final completer = startCompleter;
     if (completer != null) {
       return completer.future;

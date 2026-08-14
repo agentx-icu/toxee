@@ -9,6 +9,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+part 'fixture_c_restore_preflight.dart';
 
 const _usage = '''
 usage: fixture_c_unified_runner.dart [--tier=non-media|media|all]
@@ -61,7 +62,6 @@ Platform support (all five have A/B real-UI pair launchers wired in):
   library (bundled on macOS); irc_join_channel_real_controls is pure-Dart and
   portable. See tool/mcp_test/REAL_UI_TWO_PROCESS.md.
 ''';
-
 const _manifestPath = 'tool/mcp_test/fixture_c_manifest.json';
 const _pairManifest = 'tool/mcp_test/fixtures/paired_for_e2e_manifest.json';
 const _macosPairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
@@ -651,11 +651,7 @@ const _realUiCampaigns = <String, List<String>>{
   // has never reached the business layer in this harness, so treat a green
   // result here as unproven until a two-emulator run lands.
   'rui-android-mobile-shell': ['sweep_mobile_shell'],
-  'rui-android-main': [
-    'sweep_login',
-    'sweep_chat',
-    'sweep_mobile_shell',
-  ],
+  'rui-android-main': ['sweep_login', 'sweep_chat', 'sweep_mobile_shell'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -2766,6 +2762,8 @@ Future<int> _executeInternalRealUiReset() async {
 }
 
 Future<int> _launchPair({String? restore, bool tcpOnly = false}) async {
+  final preflightRc = _preflightPairedFixtureRestore(restore);
+  if (preflightRc != null) return preflightRc;
   final env = <String, String>{
     ...Platform.environment,
     if (restore != null && restore.isNotEmpty)
@@ -2785,6 +2783,8 @@ Future<void> _bestEffortStopPair() async {
 }
 
 Future<int> _launchRealUiPair({String? restore}) async {
+  final preflightRc = _preflightPairedFixtureRestore(restore);
+  if (preflightRc != null) return preflightRc;
   final cfg = _realUiConfig;
   if (cfg.prebuildOnHost) {
     // macOS only: build the debug Toxee.app once via run_toxee.sh before the

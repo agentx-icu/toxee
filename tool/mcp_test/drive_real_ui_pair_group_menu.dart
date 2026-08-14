@@ -250,7 +250,10 @@ Future<int> runGroupMenuMarkRead(Inst inst, String nick) async {
     timeoutSecs: 8,
   );
   if (hasMarkRead) {
-    await inst.tryTapKey('conversation_context_menu_mark_read_item', retries: 2);
+    await inst.tryTapKey(
+      'conversation_context_menu_mark_read_item',
+      retries: 2,
+    );
   }
   await _dismissContextMenu(inst);
 
@@ -519,7 +522,9 @@ Future<int> runGroupClearPreservesPin(
     await _dispatchConversationAction(a, est.groupIdA, 'pin');
     if (!await _waitConversationPinned(a, convId, true)) {
       await a.shot('/tmp/ui_group_clrpin_nopin_A.png');
-      print('[pair] FAIL: group clear-preserves-pin — initial pin did not take');
+      print(
+        '[pair] FAIL: group clear-preserves-pin — initial pin did not take',
+      );
       return 1;
     }
     final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -559,49 +564,4 @@ Future<int> runGroupClearPreservesPin(
       } on DriveError catch (_) {}
     }
   }
-}
-
-Future<int> runMessageBurst(Inst a, Inst b, String nickA, String nickB) async {
-  await ensureHome(a, nickA);
-  await ensureHome(b, nickB);
-  final toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
-  final toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
-  if (!await areFriends(a, toxB) || !await areFriends(b, toxA)) {
-    print('[pair] message_burst requires an existing friendship');
-    return 1;
-  }
-  final bobPk = _pubkey(toxB);
-  final alicePk = _pubkey(toxA);
-  final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final aMsgs = [
-    'RUIBURST-A1-$nonce',
-    'RUIBURST-A2-$nonce',
-    'RUIBURST-A3-$nonce',
-  ];
-  final bMsgs = [
-    'RUIBURST-B1-$nonce',
-    'RUIBURST-B2-$nonce',
-    'RUIBURST-B3-$nonce',
-  ];
-
-  for (var i = 0; i < aMsgs.length; i++) {
-    final aOk = await _sendAndWait(a, b, bobPk, aMsgs[i], timeoutSecs: 60);
-    final bGot = await _waitLastMessage(b, aMsgs[i], timeoutSecs: 2);
-    if (!aOk || !bGot) {
-      print('[pair] FAIL: burst A->$i did not converge');
-      return 1;
-    }
-    final bOk = await _sendAndWait(b, a, alicePk, bMsgs[i], timeoutSecs: 60);
-    final aGot = await _waitLastMessage(a, bMsgs[i], timeoutSecs: 2);
-    if (!bOk || !aGot) {
-      print('[pair] FAIL: burst B->$i did not converge');
-      return 1;
-    }
-  }
-
-  await a.shot('/tmp/ui_message_burst_A.png');
-  await b.foreground();
-  await b.shot('/tmp/ui_message_burst_B.png');
-  print('[pair] PASS: alternating real-UI burst converged both directions');
-  return 0;
 }

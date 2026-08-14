@@ -35,17 +35,19 @@ void main() {
     }
   });
 
-  testWidgets('seeded language_code=ar is applied at the app level',
-      (WidgetTester tester) async {
+  testWidgets('seeded language_code=ar is applied at the app level', (
+    WidgetTester tester,
+  ) async {
     // No `self_nickname` — startup stays on StartupShowLogin → LoginPage.
-    await seedPrefsAndControllers(<String, Object>{
-      'language_code': 'ar',
-    });
+    await seedPrefsAndControllers(<String, Object>{'language_code': 'ar'});
 
     await pumpToLogin(tester);
 
-    expect(tester.takeException(), isNull,
-        reason: 'startup chain must complete without uncaught exceptions');
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'startup chain must complete without uncaught exceptions',
+    );
     expect(find.byType(LoginPage), findsOneWidget);
 
     // The seeded pref flows: Prefs → AppLocale.initFromPrefs() →
@@ -59,11 +61,16 @@ void main() {
     // `tester.element` lookup is read inline rather than stashed in a var.
     final l10nAr = await AppLocalizations.delegate.load(const Locale('ar'));
     expect(
-        Localizations.localeOf(tester.element(find.byType(LoginPage)))
-            .languageCode,
-        'ar',
-        reason: 'language_code=ar must resolve the app locale to Arabic');
-    expect(find.text(l10nAr.registerNewAccount), findsOneWidget,
-        reason: 'LoginPage must render its register CTA in Arabic');
+      Localizations.localeOf(
+        tester.element(find.byType(LoginPage)),
+      ).languageCode,
+      'ar',
+      reason: 'language_code=ar must resolve the app locale to Arabic',
+    );
+    expect(
+      find.text(l10nAr.registerNewAccount),
+      findsOneWidget,
+      reason: 'LoginPage must render its register CTA in Arabic',
+    );
   });
 }

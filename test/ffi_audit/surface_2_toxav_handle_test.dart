@@ -581,11 +581,7 @@ void main() {
           : ffiIterateBody.substring(0, avIterateCall.start);
       final postIterateDrainSource = avIterateCall == null
           ? ''
-          : _postIterateDrainSource(
-              ffiSource,
-              ffiIterateBody,
-              avIterateCall.end,
-            );
+          : _postIterateDrainSource(ffiIterateBody, avIterateCall.end);
 
       for (final contract in _bitrateCallbackContracts) {
         final lambdaBody = _extractNativeLambdaBody(
@@ -1052,10 +1048,7 @@ void _expectDartSetterSignature(
       'lookupFunction<${contract.dartSetterTypedef},$compactDartFunctionType>',
     ),
   );
-  expect(
-    compactDeclaration,
-    contains("('${contract.nativeSetter}')"),
-  );
+  expect(compactDeclaration, contains("('${contract.nativeSetter}')"));
 }
 
 String _extractStructBody(String source, String structName) {
@@ -1417,90 +1410,23 @@ void _expectBitrateDrainAfterIterate(
   _BitrateCallbackContract contract,
   List<String> issues,
 ) {
-  if (!_containsCallbackFieldReference(drainSource, contract.callbackField) ||
-      !_containsCallbackFieldReference(drainSource, contract.userDataField)) {
+  if (!RegExp(
+    r'\bDrainAVBitrateEvents\s*\(\s*instance_id\s*\)\s*;',
+  ).hasMatch(drainSource)) {
     issues.add(
       '${contract.label}: tim2tox_ffi_av_iterate must drain queued bitrate '
-      'events after av_mgr->iterate() and reference ${contract.callbackField} '
-      'with ${contract.userDataField}.',
+      'events after av_mgr->iterate() by calling DrainAVBitrateEvents('
+      'instance_id).',
     );
     return;
-  }
-
-  final callbackSnapshot = _localSnapshotFromCallbackStorage(
-    drainSource,
-    contract.callbackField,
-  );
-  final userDataSnapshot = _localSnapshotFromCallbackStorage(
-    drainSource,
-    contract.userDataField,
-  );
-  if (callbackSnapshot == null || userDataSnapshot == null) {
-    issues.add(
-      '${contract.label}: drain must snapshot callback and user_data from '
-      'g_instance_av_callbacks before invoking Dart.',
-    );
-    return;
-  }
-  if (!_isInsideAvCallbackMutexScope(drainSource, callbackSnapshot.index) ||
-      !_isInsideAvCallbackMutexScope(drainSource, userDataSnapshot.index)) {
-    issues.add(
-      '${contract.label}: callback/context snapshots must happen under '
-      'g_av_callbacks_mutex.',
-    );
-  }
-
-  final invocationIndex = _indexOfInvocationWithArgument(
-    drainSource,
-    callbackSnapshot.variableName,
-    userDataSnapshot.variableName,
-  );
-  if (invocationIndex < 0) {
-    issues.add(
-      '${contract.label}: drain must invoke the local callback snapshot with '
-      'the matching local user_data snapshot.',
-    );
-  } else if (_isInsideAvCallbackMutexScope(drainSource, invocationIndex)) {
-    issues.add(
-      '${contract.label}: Dart callback invocation must happen outside '
-      'g_av_callbacks_mutex.',
-    );
   }
 }
 
 String _postIterateDrainSource(
-  String ffiSource,
   String ffiIterateBody,
   int afterIterateCallIndex,
 ) {
-  final afterIterate = ffiIterateBody.substring(afterIterateCallIndex);
-  final helperName = _firstDrainHelperName(afterIterate);
-  if (helperName == null) return afterIterate;
-  return '$afterIterate\n${_extractNativeFunctionBody(ffiSource, helperName)}';
-}
-
-String? _firstDrainHelperName(String source) {
-  final callPattern = RegExp(r'\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;');
-  for (final match in callPattern.allMatches(source)) {
-    final name = match.group(1)!;
-    if (_looksLikeDrainHelperName(name)) return name;
-  }
-  return null;
-}
-
-bool _looksLikeDrainHelperName(String name) {
-  final lower = name.toLowerCase();
-  final hasDrainVerb =
-      lower.contains('drain') ||
-      lower.contains('flush') ||
-      lower.contains('dispatch') ||
-      lower.contains('deliver') ||
-      lower.contains('process');
-  final hasAvBitrateScope =
-      lower.contains('bitrate') ||
-      lower.contains('bit_rate') ||
-      lower.contains('av');
-  return hasDrainVerb && hasAvBitrateScope;
+  return ffiIterateBody.substring(afterIterateCallIndex);
 }
 
 bool _containsDeferredEventWrite(String source) {
@@ -1528,20 +1454,6 @@ RegExpMatch? _firstCallbackFieldInvocation(
   return RegExp(
     r'\b' + RegExp.escape(callbackField) + r'\s*\(',
   ).firstMatch(source);
-}
-
-_LocalAssignment? _localSnapshotFromCallbackStorage(
-  String source,
-  String fieldName,
-) {
-  final match = RegExp(
-    r'^\s*(?:(?:const\s+)?auto\s+|tim2tox_[A-Za-z_]+_callback_t\s+|void\s*\*\s*)?([A-Za-z_]\w*)\s*=\s*[A-Za-z_]\w*(?:->|\.)second\s*\.\s*' +
-        RegExp.escape(fieldName) +
-        r'\s*;',
-    multiLine: true,
-  ).firstMatch(source);
-  if (match == null) return null;
-  return _LocalAssignment(variableName: match.group(1)!, index: match.start);
 }
 
 RegExpMatch? _firstUvCompactionBufferUse(String source) {

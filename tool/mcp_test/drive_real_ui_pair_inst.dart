@@ -564,18 +564,9 @@ class Inst {
 
   Future<void> forceHomeRoot({String tab = 'chats'}) async {
     var r = await l3('l3_force_home_root', {'tab': tab});
-    if (r['ok'] != true &&
-        r['error'] == 'non_test_account' &&
-        (_isHeadlessRealUi || isMobileShell)) {
-      // Headless and mobile shells cannot reliably recover a drifted/blank shell
-      // via UI navigation
-      // (no OS input, or a compact route can cover the shell), so the non-test gate
-      // would dead-loop the blank-shell
-      // recovery (root-caused live: contacts/app-entry pre-handshake cases drift
-      // to a blank shell that only l3_force_home_root can pop back). Temporarily
-      // grant the seed marker so the recovery can run, then revoke it so the
-      // sweep's privilege state is unchanged. Navigation-stability ONLY — no
-      // asserted action depends on this transient grant.
+    if (r['ok'] != true && r['error'] == 'non_test_account') {
+      // Fresh real-UI accounts stay product accounts; mark only this recovery
+      // call so the product gate remains intact.
       final marked = await markAccountTest();
       try {
         r = await l3('l3_force_home_root', {'tab': tab});
@@ -587,6 +578,12 @@ class Inst {
       if (r['error'] == 'non_test_account') navToolsUnavailable = true;
       throw DriveError('[$name] l3_force_home_root failed: $r');
     }
+  }
+
+  Future<bool> tryTapContactDetailBack() async {
+    final tapped = await tryTapKey('contact_detail_back', retries: 2);
+    if (tapped) await Future<void>.delayed(const Duration(milliseconds: 900));
+    return tapped;
   }
 
   Future<bool> openAddFriendDialogViaL3() async {
@@ -700,7 +697,7 @@ class Inst {
   /// `tap`) to avoid focus thrash; falls back to `tapKey` if the field has no
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
-  Future<void> focusType(String key, String text) async {
+  Future<bool> focusType(String key, String text) async {
     if (isIos || _isHeadlessRealUi || _mixedMacosIos) {
       // iOS: System Events can't reach the sim. Windows: no host osascript.
       // Mixed macOS peer: avoid osascript entirely so the Simulator stays
@@ -710,7 +707,7 @@ class Inst {
       // SIGSEGV on synthetic input — is never driven through focusType (it uses
       // l3_composer_send).
       await focusTypeSynthetic(key, text);
-      return;
+      return true;
     }
     await foreground();
     if (!await tapKeyCenter(key)) {
@@ -730,10 +727,18 @@ class Inst {
     if (text.isEmpty) {
       // osaClear already emptied the field; a paste of "" is a no-op.
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      return;
+      return true;
     }
     await osaPaste(text);
     await Future<void>.delayed(const Duration(milliseconds: 150));
+    final pasted = (await skill('getTextValue', {'key': key}))['value'];
+    if (pasted == text) return true;
+    // A VM pointer can focus Flutter without making the macOS window's native
+    // text input first responder. The keyed fallback updates the same real
+    // EditableTextState directly, avoiding the system-channel fallback.
+    final entered = await skill('enterText', {'key': key, 'text': text});
+    final current = (await skill('getTextValue', {'key': key}))['value'];
+    return entered['success'] == true && current == text;
   }
 
   /// Legacy synthetic-enterText focus+type, kept for the rare case a caller
@@ -1034,6 +1039,11 @@ class Inst {
     }
   }
 
+  Future<void> _osaForProcess(String action) => _osa(
+    'tell application "System Events" to tell '
+    '(first process whose unix id is $pid) to $action',
+  );
+
   Future<void> osaType(String text) async {
     if (_isHeadlessRealUi) {
       // Synthetic text entry — sets the focused EditableText's value in one shot
@@ -1046,7 +1056,7 @@ class Inst {
     // verbatim rather than breaking the script. `!`, `@`, `.`, `-`, digits and
     // letters need no escaping inside an AppleScript string.
     final escaped = text.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    await _osa('tell application "System Events" to keystroke "$escaped"');
+    await _osaForProcess('keystroke "$escaped"');
   }
 
   /// Place [text] on the macOS clipboard (via `pbcopy`) and paste it into the
@@ -1069,9 +1079,7 @@ class Inst {
     }
     // Brief settle so the pasteboard write is visible to the paste.
     await Future<void>.delayed(const Duration(milliseconds: 120));
-    await _osa(
-      'tell application "System Events" to keystroke "v" using command down',
-    );
+    await _osaForProcess('keystroke "v" using command down');
   }
 
   Future<void> osaReturn() async {
@@ -1084,7 +1092,7 @@ class Inst {
       await l3('l3_composer_send');
       return;
     }
-    await _osa('tell application "System Events" to key code 36');
+    await _osaForProcess('key code 36');
   }
 
   /// Shift+Enter — the desktop composer maps Shift/Alt/Ctrl/Meta+Enter to
@@ -1098,9 +1106,7 @@ class Inst {
       // No-op here so the surrounding flow doesn't error.
       return;
     }
-    await _osa(
-      'tell application "System Events" to key code 36 using shift down',
-    );
+    await _osaForProcess('key code 36 using shift down');
   }
 
   Future<void> osaEscape() async {
@@ -1110,7 +1116,7 @@ class Inst {
       await l3('l3_pop_to_root');
       return;
     }
-    await _osa('tell application "System Events" to key code 53');
+    await _osaForProcess('key code 53');
   }
 
   /// Send Cmd+Ctrl+F — the global conversation-search shortcut
@@ -1122,10 +1128,7 @@ class Inst {
       await l3('l3_open_global_search');
       return;
     }
-    await _osa(
-      'tell application "System Events" to keystroke "f" using '
-      '{command down, control down}',
-    );
+    await _osaForProcess('keystroke "f" using {command down, control down}');
   }
 
   /// Send Cmd+Ctrl+N — the "new conversation" shortcut (`_NewConversationIntent`
@@ -1136,10 +1139,7 @@ class Inst {
       await l3('l3_open_add_friend_dialog');
       return;
     }
-    await _osa(
-      'tell application "System Events" to keystroke "n" using '
-      '{command down, control down}',
-    );
+    await _osaForProcess('keystroke "n" using {command down, control down}');
   }
 
   /// Send Cmd+Ctrl+, — the "open settings" shortcut (`_OpenSettingsIntent` in
@@ -1158,10 +1158,7 @@ class Inst {
       );
       return;
     }
-    await _osa(
-      'tell application "System Events" to keystroke "," using '
-      '{command down, control down}',
-    );
+    await _osaForProcess('keystroke "," using {command down, control down}');
   }
 
   /// Place [text] on the host/device clipboard WITHOUT pasting — for cases that
@@ -1193,10 +1190,8 @@ class Inst {
       await skill('enterText', {'text': ''});
       return;
     }
-    await _osa(
-      'tell application "System Events" to keystroke "a" using command down',
-    );
-    await _osa('tell application "System Events" to key code 51');
+    await _osaForProcess('keystroke "a" using command down');
+    await _osaForProcess('key code 51');
   }
 
   Future<bool> waitKey(String key, {int timeoutSecs = 25}) async {

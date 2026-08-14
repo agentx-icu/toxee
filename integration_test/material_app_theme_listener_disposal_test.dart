@@ -28,10 +28,10 @@
 // the fix the first subscription was cancelled on dispose, so the re-mount is
 // clean.
 //
-// One `testWidgets` (not two): this host-bundle file uses
-// IntegrationTestWidgetsFlutterBinding so its result is reported through the
-// integration-test device protocol; mount→dispose→remount remains one complete
-// regression sequence.
+// One `testWidgets` (not two): under `-d macos`, this host-bundle test uses
+// IntegrationTestWidgetsFlutterBinding, which reports through the host
+// integration-test device protocol; the mount→dispose→remount sequence stays
+// inside one test.
 @Tags(['needs-native'])
 library;
 
@@ -65,30 +65,42 @@ void main() {
   });
 
   testWidgets(
-      're-mounting the app does not trip the prior (disposed) MaterialApp '
-      'theme listener', (WidgetTester tester) async {
-    await seedPrefsAndControllers(<String, Object>{});
+    're-mounting the app does not trip the prior (disposed) MaterialApp '
+    'theme listener',
+    (WidgetTester tester) async {
+      await seedPrefsAndControllers(<String, Object>{});
 
-    // Mount #1 — subscribes to the global TencentCloudChatTheme event bus.
-    await pumpToLogin(tester);
-    expect(find.byType(LoginPage), findsOneWidget,
-        reason: 'sanity: first mount reaches LoginPage');
+      // Mount #1 — subscribes to the global TencentCloudChatTheme event bus.
+      await pumpToLogin(tester);
+      expect(
+        find.byType(LoginPage),
+        findsOneWidget,
+        reason: 'sanity: first mount reaches LoginPage',
+      );
 
-    // Dispose mount #1 (its State.dispose runs → with the fix, cancels the
-    // theme subscription).
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump();
+      // Dispose mount #1 (its State.dispose runs → with the fix, cancels the
+      // theme subscription).
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
 
-    // Mount #2 — its TencentCloudChatTheme.init fires the theme event. Pre-fix,
-    // mount #1's leaked subscriber received it and called setState() after
-    // dispose; the fix makes this a no-op.
-    await pumpToLogin(tester);
-    expect(find.byType(LoginPage), findsOneWidget,
-        reason: 'second mount reaches LoginPage');
+      // Mount #2 — its TencentCloudChatTheme.init fires the theme event. Pre-fix,
+      // mount #1's leaked subscriber received it and called setState() after
+      // dispose; the fix makes this a no-op.
+      await pumpToLogin(tester);
+      expect(
+        find.byType(LoginPage),
+        findsOneWidget,
+        reason: 'second mount reaches LoginPage',
+      );
 
-    expect(tester.takeException(), isNull,
-        reason: 'a disposed MaterialApp theme listener must not call setState '
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'a disposed MaterialApp theme listener must not call setState '
             'when a later app mount re-inits the theme (the leak this fix '
-            'closes)');
-  });
+            'closes)',
+      );
+    },
+  );
 }

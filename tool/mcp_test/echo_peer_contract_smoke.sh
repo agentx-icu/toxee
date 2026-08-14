@@ -11,15 +11,16 @@
 #      produces the same Tox hex address.
 #   5. Teardown discipline — SIGTERM stops the peer within 5s; no zombies
 #      left under `pgrep -f echo_peer_src/build/echo_peer`.
-#   6. Format contract recording — writes tool/mcp_test/echo_peer_contract.json
+#   6. Format contract recording — writes build/mcp_test/echo_peer_contract.json
 #      with the observed id_length, id emit format, stream, and timings.
+#   7. Tracked contract immutability — source-state checksum remains unchanged.
 #
 # Assertions 3 (AddFriend handshake) and 4 (echo arrival) are DEFERRED to a
 # follow-up phase that will wire up `MCP_BINDING=marionette ./run_toxee.sh`
 # + the AddFriend dialog driving. They need toxee + marionette running, which
 # is a separate orchestration concern.
 #
-# Exit 0 iff all 4 toxee-independent assertions PASS. Exit 1 on any FAIL.
+# Exit 0 iff all 5 toxee-independent assertions PASS. Exit 1 on any FAIL.
 #
 # Reference: /tmp/codex_round7/echo_peer_v2.3.md "Phase 1 — Contract smoke".
 set -euo pipefail
@@ -27,7 +28,8 @@ set -euo pipefail
 # -------------- Configuration ----------------------------------------------
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PEER_BIN="${ECHO_PEER_BIN:-$REPO_ROOT/tool/mcp_test/echo_peer_src/build/echo_peer}"
-CONTRACT_OUT="$REPO_ROOT/tool/mcp_test/echo_peer_contract.json"
+CONTRACT_OUT="${ECHO_PEER_CONTRACT_OUT:-$REPO_ROOT/build/mcp_test/echo_peer_contract.json}"
+TRACKED_CONTRACT="$REPO_ROOT/tool/mcp_test/echo_peer_contract.json"
 
 ID_PREFIX='ECHO_PEER_TOX_ID:'
 ID_EMIT_LINE_FORMAT="${ID_PREFIX} <id>"
@@ -57,7 +59,7 @@ fi
 
 PASS_COUNT=0
 FAIL_COUNT=0
-TOTAL_ASSERTIONS=4
+TOTAL_ASSERTIONS=5
 
 declare -a PASS_NAMES=()
 declare -a FAIL_NAMES=()
@@ -93,6 +95,7 @@ RUN1_STDERR="$TMP_ROOT/run1.stderr.log"
 RUN2_STDOUT="$TMP_ROOT/run2.stdout.log"
 RUN2_STDERR="$TMP_ROOT/run2.stderr.log"
 BASELINE_PIDS=""
+CONTRACT_TMP=""
 
 cleanup() {
     # Always best-effort kill anything we spawned. We tag children with the
@@ -100,19 +103,44 @@ cleanup() {
     if [[ -n "${PEER_PID:-}" ]] && kill -0 "$PEER_PID" 2>/dev/null; then
         kill -KILL "$PEER_PID" 2>/dev/null || true
     fi
+    if [[ -n "$CONTRACT_TMP" ]]; then
+        rm -f "$CONTRACT_TMP"
+    fi
     rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT
 
+CONTRACT_PARENT="$(dirname "$CONTRACT_OUT")"
+if ! mkdir -p "$CONTRACT_PARENT" 2>/dev/null; then
+    fail "preflight" "contract_output_parent status=create_failed"
+    exit 1
+fi
+if ! CONTRACT_PARENT="$(cd "$CONTRACT_PARENT" 2>/dev/null && pwd -P)"; then
+    fail "preflight" "contract_output_parent status=unavailable"
+    exit 1
+fi
+CONTRACT_OUT="$CONTRACT_PARENT/$(basename "$CONTRACT_OUT")"
+TRACKED_PARENT="$(cd "$(dirname "$TRACKED_CONTRACT")" && pwd -P)"
+TRACKED_CONTRACT="$TRACKED_PARENT/$(basename "$TRACKED_CONTRACT")"
+if [[ "$CONTRACT_OUT" == "$TRACKED_CONTRACT" ]]; then
+    fail "preflight" "contract_output status=tracked_path_rejected"
+    exit 1
+fi
+if [[ ! -f "$TRACKED_CONTRACT" ]]; then
+    fail "preflight" "tracked_contract status=missing"
+    exit 1
+fi
+TRACKED_CONTRACT_CHECKSUM_BEFORE="$(shasum -a 256 "$TRACKED_CONTRACT" | cut -d ' ' -f1)"
+
 # -------------- Pre-flight --------------------------------------------------
 echo "Echo peer contract smoke"
-echo "  binary:      $PEER_BIN"
-echo "  state dir:   $STATE_DIR"
-echo "  contract:    $CONTRACT_OUT"
+echo "  binary status: configured"
+echo "  state isolation: enabled"
+echo "  contract output: external"
 echo
 
 if [[ ! -x "$PEER_BIN" ]]; then
-    fail "preflight" "echo_peer binary not found or not executable: $PEER_BIN"
+    fail "preflight" "echo_peer_binary status=missing_or_not_executable"
     echo
     printf 'Contract smoke: %sFAIL (preflight)%s\n' "${C_RED}" "${C_RST}"
     exit 1
@@ -230,7 +258,7 @@ PY
 # -------------- Assertion 1: state directory honored -----------------------
 RUN1_START_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 launch_peer "$STATE_DIR" "$RUN1_STDOUT" "$RUN1_STDERR"
-note "launched peer (pid=$PEER_PID) into $STATE_DIR"
+note "peer_launch status=started"
 
 ID_EMIT_MS="$(wait_for_id_line "$RUN1_STDOUT" "$ID_WAIT_SECS")" || true
 if [[ "$ID_EMIT_MS" == "-1" ]]; then
@@ -238,14 +266,14 @@ if [[ "$ID_EMIT_MS" == "-1" ]]; then
     if grep -q "^${ID_PREFIX}" "$RUN1_STDERR" 2>/dev/null; then
         fail "1. state_directory_honored" \
              "CONTRACT REGRESSION: '${ID_PREFIX}' arrived on STDERR, not STDOUT. Tail of stderr:"
-        tail -n 20 "$RUN1_STDERR" | sed 's/^/        /'
+        tail -n 20 "$RUN1_STDERR" | sed -E "s|^${ID_PREFIX}.*|${ID_PREFIX} <redacted>|; s/^/        /"
     else
         fail "1. state_directory_honored" \
              "no '${ID_PREFIX}' line in ${ID_WAIT_SECS}s on either stream; tail of stdout / stderr:"
         echo "        --- stdout ---"
-        tail -n 20 "$RUN1_STDOUT" | sed 's/^/        /'
+        tail -n 20 "$RUN1_STDOUT" | sed -E "s|^${ID_PREFIX}.*|${ID_PREFIX} <redacted>|; s/^/        /"
         echo "        --- stderr ---"
-        tail -n 20 "$RUN1_STDERR" | sed 's/^/        /'
+        tail -n 20 "$RUN1_STDERR" | sed -E "s|^${ID_PREFIX}.*|${ID_PREFIX} <redacted>|; s/^/        /"
     fi
     exit 1
 fi
@@ -261,15 +289,17 @@ ID_EMIT_STREAM="stdout"
 PEER_ID_V1="$(extract_id "$RUN1_STDOUT")"
 ID_LENGTH="${#PEER_ID_V1}"
 
-# Confirm at least one file landed in $STATE_DIR/
 STATE_FILE_COUNT="$(find "$STATE_DIR" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
-if [[ "$STATE_FILE_COUNT" -ge 1 ]]; then
+if [[ ! "$PEER_ID_V1" =~ ^[[:xdigit:]]{76}$ ]]; then
+    fail "1. state_directory_honored" \
+         "identity status=invalid length=$ID_LENGTH"
+elif [[ "$STATE_FILE_COUNT" -ge 1 ]]; then
     pass "1. state_directory_honored"
-    note "${STATE_FILE_COUNT} files/dirs created under $STATE_DIR"
+    note "state_entry_count=${STATE_FILE_COUNT}"
     note "id length: ${ID_LENGTH} chars (emit took ${ID_EMIT_MS}ms)"
 else
     fail "1. state_directory_honored" \
-         "no files under $STATE_DIR after ID emission"
+         "state_entry_count=0 after_identity_emit=true"
 fi
 
 STATE_DIR_FIRST_WRITE_MS="$(state_dir_first_write_ms "$STATE_DIR" "$RUN1_START_MS")"
@@ -291,8 +321,9 @@ else
         # Defensive sweep: SIGKILL only the new residuals we introduced.
         # shellcheck disable=SC2086
         kill -KILL $STRAGGLERS 2>/dev/null || true
+        STRAGGLER_COUNT="$(printf '%s\n' "$STRAGGLERS" | wc -l | tr -d ' ')"
         fail "5. teardown_discipline" \
-             "new residual peer pid(s): $STRAGGLERS (killed)"
+             "residual_peer_count=$STRAGGLER_COUNT killed=true"
     else
         pass "5. teardown_discipline"
         note "exited in ${TEARDOWN_MS}ms; no zombies"
@@ -301,7 +332,7 @@ fi
 
 # -------------- Assertion 2: ID stability across restart -------------------
 launch_peer "$STATE_DIR" "$RUN2_STDOUT" "$RUN2_STDERR"
-note "relaunched peer (pid=$PEER_PID) with SAME state dir"
+note "peer_relaunch status=started same_state=true"
 ID_EMIT_MS_V2="$(wait_for_id_line "$RUN2_STDOUT" "$ID_WAIT_SECS")" || true
 if [[ "$ID_EMIT_MS_V2" == "-1" ]]; then
     if grep -q "^${ID_PREFIX}" "$RUN2_STDERR" 2>/dev/null; then
@@ -310,7 +341,7 @@ if [[ "$ID_EMIT_MS_V2" == "-1" ]]; then
     else
         fail "2. id_stability_across_restart" \
              "second run never emitted ${ID_PREFIX} on either stream; tail of stdout:"
-        tail -n 20 "$RUN2_STDOUT" | sed 's/^/        /'
+        tail -n 20 "$RUN2_STDOUT" | sed -E "s|^${ID_PREFIX}.*|${ID_PREFIX} <redacted>|; s/^/        /"
     fi
 elif grep -q "^${ID_PREFIX}" "$RUN2_STDERR" 2>/dev/null; then
     fail "2. id_stability_across_restart" \
@@ -319,10 +350,10 @@ else
     PEER_ID_V2="$(extract_id "$RUN2_STDOUT")"
     if [[ "$PEER_ID_V1" == "$PEER_ID_V2" ]]; then
         pass "2. id_stability_across_restart"
-        note "id matched across restart (length=${#PEER_ID_V2})"
+        note "identity_match=true length=${#PEER_ID_V2}"
     else
         fail "2. id_stability_across_restart" \
-             "v1=$PEER_ID_V1 v2=$PEER_ID_V2"
+             "identity_match=false v1_length=${#PEER_ID_V1} v2_length=${#PEER_ID_V2}"
     fi
 fi
 
@@ -336,8 +367,8 @@ CAPTURED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if (( PASS_COUNT >= 3 )); then
     # Only emit the contract JSON if at least the ID emit + restart + teardown
     # assertions passed. Otherwise the values would be polluting future work.
-    TMP_CONTRACT="$TMP_ROOT/contract.json.tmp"
-    cat >"$TMP_CONTRACT" <<JSON
+    CONTRACT_TMP="${CONTRACT_OUT}.tmp.$$"
+    cat >"$CONTRACT_TMP" <<JSON
 {
   "format_version": 1,
   "captured_at": "${CAPTURED_AT}",
@@ -349,12 +380,22 @@ if (( PASS_COUNT >= 3 )); then
   "teardown_ms": ${TEARDOWN_MS}
 }
 JSON
-    mv "$TMP_CONTRACT" "$CONTRACT_OUT"
+    mv "$CONTRACT_TMP" "$CONTRACT_OUT"
+    CONTRACT_TMP=""
     pass "6. format_contract_recording"
-    note "wrote $CONTRACT_OUT"
+    note "contract_recorded=true"
 else
     fail "6. format_contract_recording" \
          "skipped because earlier assertions FAILed (id capture/restart values invalid)"
+fi
+
+TRACKED_CONTRACT_CHECKSUM_AFTER="$(shasum -a 256 "$TRACKED_CONTRACT" | cut -d ' ' -f1)"
+if [[ "$TRACKED_CONTRACT_CHECKSUM_BEFORE" == "$TRACKED_CONTRACT_CHECKSUM_AFTER" ]]; then
+    pass "7. tracked_contract_unchanged"
+    note "tracked_contract_unchanged=true"
+else
+    fail "7. tracked_contract_unchanged" \
+         "tracked_contract_unchanged=false"
 fi
 
 # -------------- Summary -----------------------------------------------------

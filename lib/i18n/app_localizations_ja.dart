@@ -504,7 +504,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get testNode => 'ノードをテスト';
+  String get testNode => 'ブートストラップ要求を送信';
 
   @override
   String get deleteAccount => 'アカウント削除';
@@ -601,7 +601,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get canOnlySelectOnlineNode => 'オンラインノードのみ選択できます';
 
   @override
-  String get canOnlySelectTestedNode => 'テストに成功したノードのみ選択できます。まずノードをテストしてください';
+  String get canOnlySelectTestedNode => 'このノードを選択する前に、ブートストラップ要求を送信してください';
 
   @override
   String get switchNode => 'ノードを切り替え';
@@ -799,10 +799,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get close => '閉じる';
 
   @override
-  String get nodeNotTestedWarning => '注意: このノードはテストされていません。接続できない可能性があります。';
+  String get nodeNotTestedWarning => 'このノードにはまだブートストラップ要求を送信していません。';
 
   @override
-  String get nodeTestFailedWarning => '注意: このノードのテストに失敗しました。接続できない可能性があります。';
+  String get nodeTestFailedWarning =>
+      'ブートストラップ要求の送信に失敗しました。このノードは利用できない可能性があります。';
 
   @override
   String get nicknameTooLong => 'ニックネームが長すぎます';
@@ -841,13 +842,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get setAsCurrentNode => '現在のノードとして設定';
 
   @override
-  String get nodeTestSuccess => 'ノードテスト成功';
+  String get nodeTestSuccess => 'ブートストラップ要求を送信しました';
 
   @override
-  String get nodeTestFailed => 'ノードテスト失敗';
+  String get nodeTestFailed => 'ブートストラップ要求の送信に失敗しました';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => 'ログイン前はテストできません';
+  String get nodeTestUnavailableBeforeLogin => 'ログイン前はブートストラップ要求を送信できません';
 
   @override
   String get failedToStartBootstrapService => 'ブートストラップサービスの起動に失敗しました';

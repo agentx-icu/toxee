@@ -20,6 +20,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# git exports GIT_DIR (and friends) into hook processes, pointing at the
+# SUPERPROJECT. Inherited, they make every `git -C <submodule> ...` below read
+# the superproject config instead — so `remote get-url origin` returned the
+# toxee URL and every pointer was reported unreachable, even with the submodule
+# commits already pushed. CI never saw it because the workflow runs this script
+# directly, with no GIT_DIR in the environment.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+
 PREFIX="verify_submodule_remote:"
 
 # Explicit bypass for environments that can't tolerate the network probe

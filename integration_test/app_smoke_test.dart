@@ -76,14 +76,15 @@ import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/prefs.dart';
 
+import 'host_bundle_test_support.dart';
+
 /// Per-suite temp dir + plugin-channel stubs. Returned as a record so the
 /// teardown can clear handlers without a stateful helper class.
-typedef _SmokeHarness = ({
-  Directory root,
-  void Function() teardown,
-});
+typedef _SmokeHarness = ({Directory root, void Function() teardown});
 
 Future<_SmokeHarness> _installPluginStubs() async {
+  await ensureHostBundleWindowManagerInitialized();
+
   final root = await Directory.systemTemp.createTemp('toxee_smoke_');
   final appSupport = Directory(p.join(root.path, 'app_support'));
   final downloads = Directory(p.join(root.path, 'downloads'));
@@ -100,8 +101,9 @@ Future<_SmokeHarness> _installPluginStubs() async {
   // that calls `getApplicationDocumentsDirectory()` (e.g. Hive used by
   // TencentCloudChatMaterialApp.cache.init) lands inside the sandbox.
   const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
-  messenger.setMockMethodCallHandler(pathProviderChannel,
-      (MethodCall call) async {
+  messenger.setMockMethodCallHandler(pathProviderChannel, (
+    MethodCall call,
+  ) async {
     switch (call.method) {
       case 'getApplicationSupportDirectory':
       case 'getApplicationDocumentsDirectory':
@@ -119,10 +121,12 @@ Future<_SmokeHarness> _installPluginStubs() async {
 
   // flutter_secure_storage: not reached on the StartupShowLogin path, but a
   // no-op handler keeps the report clean if a future change touches it.
-  const secureStorageChannel =
-      MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
-  messenger.setMockMethodCallHandler(secureStorageChannel,
-      (MethodCall call) async {
+  const secureStorageChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+  messenger.setMockMethodCallHandler(secureStorageChannel, (
+    MethodCall call,
+  ) async {
     switch (call.method) {
       case 'read':
       case 'readAll':
@@ -139,11 +143,16 @@ Future<_SmokeHarness> _installPluginStubs() async {
   // against transitive touches in MaterialApp builder.
   const audioplayersChannel = MethodChannel('xyz.luan/audioplayers');
   messenger.setMockMethodCallHandler(
-      audioplayersChannel, (MethodCall call) async => null);
-  const audioplayersGlobalChannel =
-      MethodChannel('xyz.luan/audioplayers.global');
+    audioplayersChannel,
+    (MethodCall call) async => null,
+  );
+  const audioplayersGlobalChannel = MethodChannel(
+    'xyz.luan/audioplayers.global',
+  );
   messenger.setMockMethodCallHandler(
-      audioplayersGlobalChannel, (MethodCall call) async => null);
+    audioplayersGlobalChannel,
+    (MethodCall call) async => null,
+  );
 
   void teardown() {
     messenger.setMockMethodCallHandler(pathProviderChannel, null);
@@ -177,8 +186,9 @@ void main() {
     }
   });
 
-  testWidgets('cold start with no profile renders LoginPage without exceptions',
-      (WidgetTester tester) async {
+  testWidgets('cold start with no profile renders LoginPage without exceptions', (
+    WidgetTester tester,
+  ) async {
     // Drive `EchoUIKitApp` directly (no main() — see file header for why).
     // The pumpWidget renders the app frame; the `_StartupGate` then runs its
     // async startup chain off the main thread, and we wait it out with
@@ -219,26 +229,34 @@ void main() {
     // No exception escaped the framework's error handler during the startup
     // chain — this is the headline assertion (CLAUDE.md flags the startup
     // ordering as the most failure-prone seam in the codebase).
-    expect(tester.takeException(), isNull,
-        reason: 'startup chain must complete without uncaught exceptions');
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'startup chain must complete without uncaught exceptions',
+    );
 
     // We landed on the LoginPage — the only widget that `_StartupGate.build`
     // returns when the outcome is `StartupShowLogin`. Anything else means the
     // use case took a different branch and the test setup is stale.
-    expect(find.byType(LoginPage), findsOneWidget,
-        reason: 'StartupShowLogin must resolve to a LoginPage render');
+    expect(
+      find.byType(LoginPage),
+      findsOneWidget,
+      reason: 'StartupShowLogin must resolve to a LoginPage render',
+    );
 
     // Sanity: the localized "Register new account" call-to-action is on
     // screen. This proves AppLocalizations is wired (delegate registered,
     // English fallback resolved) and the LoginPage actually painted past its
     // initState async loads. Load the string from the delegate rather than
     // hard-coding English so a future i18n tweak doesn't break the smoke.
-    final String registerLabel =
-        (await AppLocalizations.delegate.load(const Locale('en')))
-            .registerNewAccount;
-    expect(find.text(registerLabel), findsOneWidget,
-        reason:
-            'LoginPage should render its localized register-new-account CTA');
+    final String registerLabel = (await AppLocalizations.delegate.load(
+      const Locale('en'),
+    )).registerNewAccount;
+    expect(
+      find.text(registerLabel),
+      findsOneWidget,
+      reason: 'LoginPage should render its localized register-new-account CTA',
+    );
 
     // Locate the "Restore from .tox file" card by its ValueKey. This is the
     // canonical pattern AI-driven automation (marionette, mcp_toolkit) uses
@@ -247,8 +265,10 @@ void main() {
     // `UiKeys.loginPageRestoreFromToxFile` and wired up in
     // `lib/ui/login_page.dart`. Use it here as a working example so a future
     // smoke that adds keys on the LoginPage form has a precedent.
-    expect(find.byKey(UiKeys.loginPageRestoreFromToxFile), findsOneWidget,
-        reason:
-            'LoginPage should expose the restore-from-tox-file card by key');
+    expect(
+      find.byKey(UiKeys.loginPageRestoreFromToxFile),
+      findsOneWidget,
+      reason: 'LoginPage should expose the restore-from-tox-file card by key',
+    );
   });
 }
