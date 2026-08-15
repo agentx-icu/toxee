@@ -9,6 +9,9 @@
 
 import 'dart:convert';
 import 'dart:io';
+
+import 'fixture_c_real_ui_mobile_campaigns.dart';
+
 part 'fixture_c_restore_preflight.dart';
 
 const _usage = '''
@@ -527,14 +530,24 @@ const _validRealUiScenarios = {
   'tablet_master_detail_row_opens_chat',
   'dialog_width_form_factor_tier',
 };
-const _realUiCampaigns = <String, List<String>>{
+
+/// Desktop / platform-agnostic real-UI campaigns. The MOBILE matrix
+/// (`rui-ios-*`, `rui-ipad-*`, `rui-android-*`, `rui-mobile-shell`) lives in
+/// `fixture_c_real_ui_mobile_campaigns.dart` and is merged in below —
+/// [_realUiCampaigns] is what every call site uses.
+const _sharedRealUiCampaigns = <String, List<String>>{
   // Batch 1 — settings sweep 2 (the whole 12-case chain on one launch).
   'rui-settings2': ['sweep_settings2'],
   // Batch 2 — self profile (the whole 8-case chain on one launch; cases 19/20
   // are SKIPs inside the chain).
   'rui-profile': ['sweep_profile'],
-  // Batch 3 — login / register (the whole 9-case chain on one launch; case 26
-  // is a SKIP inside the chain — native picker only).
+  // Batch 3 — login / register (the whole 9-case chain on one launch). Case 26
+  // (login_restore_entry_opens) is NOT a SKIP: it drives the real "Restore from
+  // .tox file" card with the native panel replaced by a fixed invalid path via
+  // `l3_set_account_import_pick_path`, and every exit of
+  // `_loginRestoreEntryOpens` returns a bool (false / ok) — the `Future<bool?>`
+  // signature keeps the sweep's SKIP branch reachable in type only, so the case
+  // is a HARD gate on the error banner.
   'rui-login': ['sweep_login'],
   // Batch 4 — contacts / friend profile (the whole 15-case chain on one
   // TWO-PROCESS launch; one handshake at the top, delete-friend last so the
@@ -548,7 +561,15 @@ const _realUiCampaigns = <String, List<String>>{
   'rui-conv': ['sweep_conv'],
   // Batch 6 — chat surface C2C (the whole 16-case chain on one TWO-PROCESS
   // launch; one handshake at the top, marks both accounts test to unblock l3
-  // SEEDING). Cases 62 (reply) + 68 (offline) are SKIPs inside the chain.
+  // SEEDING). Case 68 (chat_offline_pending_then_deliver) is the SKIP on EVERY
+  // platform. Case 62 (chat_reply_quote_roundtrip) is NO LONGER a SKIP — it
+  // injects a custom inbound bubble and drives the real message menu's Reply
+  // item (only the test-mark seam being unavailable degrades it). On the MOBILE
+  // shell the second unconditional SKIP is case 65
+  // (chat_history_scroll_load_more): `drive_real_ui_pair_chat.dart` returns null
+  // under `a.isMobileShell` because the mobile list keeps seeded rows mounted
+  // (keepAlive), so the "earliest row not yet mounted" baseline is vacuous
+  // there.
   'rui-chat': ['sweep_chat'],
   // Focused C2C expansion: global search contact entry, non-destructive cancel
   // branches, and chat header -> profile -> chat round-trip.
@@ -608,50 +629,6 @@ const _realUiCampaigns = <String, List<String>>{
   'rui-p2-verify': ['sweep_p2_verify'],
   // P1/P2/P3 campaign Batch VIII — P3 writable subset.
   'rui-p3-writable': ['sweep_p3_writable'],
-  // iOS true-App first-pass coverage. These sweeps start from fresh accounts and
-  // establish any needed friendship/group state internally, so they do not rely
-  // on the macOS-only restored Fixture C pair.
-  'rui-ios-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
-  'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
-  // PHONE-shell exclusive controls (bottom nav, mobile composer send button,
-  // long-press message menu) + the compact dialog-width tier. Deliberately NOT
-  // in the rui-ipad-* campaigns: on a tablet every case would SKIP (the wide
-  // shell renders the sidebar rail and the desktop composer), which would only
-  // inflate the skip tally.
-  'rui-mobile-shell': ['sweep_mobile_shell'],
-  'rui-ios-main': [
-    'sweep_login',
-    'sweep_ios_settings_main',
-    'sweep_chat',
-    'sweep_group2',
-    'sweep_mobile_shell',
-  ],
-  // iPad true-App coverage: the SAME sweeps as the iPhone campaigns — the
-  // sweeps already branch on the wide/tablet layout at runtime
-  // (_settingsIsWide, inst.isIos scroll bands) — but the pair is launched on
-  // iPad simulators: selecting a rui-ipad-* campaign makes the runner force
-  // TOXEE_IOS_DEVICE_TYPE=tablet into the launch env (launch_ios_fixture_c_
-  // pair.sh then matches *iPad* simulators). Requires --real-ui-platform=ios.
-  'rui-ipad-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
-  'rui-ipad-chat-main': ['sweep_chat', 'sweep_group2'],
-  // TABLET-exclusive layout behaviour the shared sweeps never assert: the
-  // master-detail row->right-pane binding and the wide dialog-width tier.
-  // (Forces iPad simulators like every other rui-ipad-* campaign.)
-  'rui-ipad-layout': ['sweep_tablet_layout'],
-  'rui-ipad-main': [
-    'sweep_login',
-    'sweep_ios_settings_main',
-    'sweep_chat',
-    'sweep_group2',
-    'sweep_tablet_layout',
-  ],
-  // Android true-App bundles. Same platform-agnostic sweeps; select with
-  // `--real-ui-platform=android` (the campaign name does not force it — only
-  // the rui-ipad-* device-type override does). UNVALIDATED: the Android pair
-  // has never reached the business layer in this harness, so treat a green
-  // result here as unproven until a two-emulator run lands.
-  'rui-android-mobile-shell': ['sweep_mobile_shell'],
-  'rui-android-main': ['sweep_login', 'sweep_chat', 'sweep_mobile_shell'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -821,6 +798,15 @@ const _realUiCampaigns = <String, List<String>>{
     'handshake_detail',
     'decline',
   ],
+};
+
+/// The full campaign catalog: the shared/desktop entries above plus the mobile
+/// matrix. Keys are asserted unique by construction — a mobile campaign that
+/// reused a shared name would silently win the spread, so keep the
+/// `rui-ios-` / `rui-ipad-` / `rui-android-` / `rui-mobile-` prefixes.
+final _realUiCampaigns = <String, List<String>>{
+  ..._sharedRealUiCampaigns,
+  ...mobileRealUiCampaigns,
 };
 const _realUiStateNoFriend = 'no-friend';
 const _realUiStateFriends = 'friends';

@@ -310,8 +310,35 @@ Future<int> runCallReject(Inst a, Inst b, String nickA, String nickB) async {
 }
 
 // Logical-pixel center of the desktop composer text field (1280x768 window).
+// DESKTOP-ONLY constants — always reach them through [_tapDesktopComposer].
 const _composerX = 830;
 const _composerY = 702;
+
+/// Focus the DESKTOP composer's text area before an osascript paste/Return.
+///
+/// Resolve by KEY first (`chat_input_text_field` via the element-tree resolver)
+/// and only fall back to ($_composerX,$_composerY), so a window that is not
+/// exactly 1280x768 still lands. The fallback is guarded, not silent: that
+/// constant is a 1280x768
+/// desktop-window coordinate and a phone viewport is ~390x844 logical points,
+/// so on a mobile shell it is entirely OFF-SCREEN — `tapAt` would succeed at
+/// the RPC level while landing nowhere, and the caller would then blame the
+/// send. Every real caller is already behind a `_isHeadlessRealUi || isIos ||
+/// isMobileShell` branch (mobile sends go through `_sendComposerMessageIos` →
+/// `l3_composer_send`, and the desktop ExtendedTextField is keystroke-only
+/// anyway), so this throw is a REGRESSION TRIPWIRE for a future caller that
+/// forgets the branch — it must fail loudly, never tap empty space.
+Future<void> _tapDesktopComposer(Inst inst) async {
+  if (await inst.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) return;
+  if (inst.isMobileShell) {
+    throw DriveError(
+      '[${inst.name}] _tapDesktopComposer fell through to its desktop-only '
+      'fallback ($_composerX,$_composerY), a 1280x768 constant that is '
+      'off-screen on a mobile shell — use l3_composer_send instead',
+    );
+  }
+  await inst.tapAt(_composerX, _composerY);
+}
 
 /// Open the C2C chat with [friendPubkey] (64-char) by tapping the contact tile.
 Future<void> openChat(
@@ -497,8 +524,29 @@ Future<bool> _openChatViaContactsProfile(
     }
     if (!await inst.tryTapKey('friend_profile_send_message_tile', retries: 2)) {
       if (!await _tryTapText(inst, 'Send Message')) {
-        // Left-most tile in the [Send Message, Voice, Video] row.
-        await inst.tapAt(448, 428);
+        // Both keyed forms of the tile, resolved through the ELEMENT-TREE
+        // resolver (tapKeyAt) — the profile action tiles are keyed wrappers
+        // that flutter_skill's interactiveStructured does not always surface,
+        // which is what pushed this path onto a raw coordinate in the first
+        // place.
+        var landed =
+            await inst.tapKeyAt('friend_profile_send_message_tile') ||
+            await inst.tapKeyAt('friend_profile_send_message_button');
+        if (!landed && !inst.isMobileShell) {
+          // Desktop last resort, unchanged: the left-most tile in the
+          // [Send Message, Voice, Video] row of the 1280x768 profile pane.
+          await inst.tapAt(448, 428);
+          landed = true;
+        }
+        if (!landed) {
+          // A phone profile is a full-width column — (448,428) is off-screen at
+          // 390pt wide and would silently tap nothing (or, worse, whatever sits
+          // under a stray coordinate). Report instead of blind-tapping.
+          print(
+            '[${inst.name}] WARN openChat: no reachable Send Message tile on '
+            'the mobile profile (keys + text + resolver all missed)',
+          );
+        }
         await Future<void>.delayed(const Duration(milliseconds: 900));
       }
     }
@@ -663,7 +711,7 @@ Future<bool> sendComposerMessage(
     if (directSend == true) return true;
     for (var attempt = 0; attempt < 6; attempt++) {
       await inst.foreground();
-      await _tapDesktopComposer(inst);
+      await _tapDesktopComposer(inst); // ensure keyboard focus
       await Future<void>.delayed(const Duration(milliseconds: 450));
       await inst.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));

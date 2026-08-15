@@ -98,6 +98,9 @@ part of 'drive_real_ui_pair.dart';
 //    Gate: typed-but-unsent text DOES survive a real switch-away/switch-back,
 //    proven by Return on the restored composer sending the probe text (with
 //    positive controls before and after proving type+Enter itself works).
+//    PLATFORM: the premise ("really typed, not sent") needs a genuine OS
+//    keyboard, so a `_p1cRealKeyboardCapable`-false shell SKIPs (expected) —
+//    see _p1cDraftRestoreOnConvSwitch.
 //
 // 5. TYPING (typing_indicator_render) — NO UI surface AND no production sender;
 //    DOUBLE-NEGATIVE product-gap gate:
@@ -205,6 +208,31 @@ Future<bool> _p1cTypeIntoComposerNoSend(Inst inst, String text) async {
   await inst.osaPaste(text);
   await Future<void>.delayed(const Duration(milliseconds: 600));
   return true;
+}
+
+/// True when [inst] can be driven with GENUINE OS keyboard/paste events — i.e.
+/// when [_p1cTypeIntoComposerNoSend] + [_p1cComposerReturn] really put text in
+/// the REAL composer. False for every shell whose `osa*` primitives are
+/// substituted by VM-service seams (iOS + Android + the headless
+/// Windows/Linux desktops): there `osaClear`/`osaPaste` become
+/// `flutter_skill.enterText`, which the ExtendedTextField composer ignores
+/// ("Synthetic enterText cannot drive the ExtendedTextField composer",
+/// l3_debug_tools `l3_composer_set_text`), and `osaReturn` becomes
+/// `l3_composer_send` over whatever the field ALREADY holds. Any case whose
+/// premise is "text was really typed but NOT sent" is unconstructible there and
+/// must SKIP — a vacuous pass would report coverage that never ran.
+bool _p1cRealKeyboardCapable(Inst inst) =>
+    !inst.isMobileShell && !inst.isLinux && !_isHeadlessRealUi;
+
+/// Best-effort READBACK of the open composer's live content: the keyed field's
+/// `text` from interactiveStructured, else flutter_skill's text finder (which
+/// also matches an EditableText's controller value). POSITIVE-ONLY — false
+/// means "not seen", which callers must treat as INCONCLUSIVE (the field's
+/// value may simply not be surfaced), never as proof of an empty composer.
+Future<bool> _p1cComposerShowsText(Inst inst, String text) async {
+  final keyed = await _keyedText(inst, 'chat_input_text_field');
+  if (keyed != null && keyed.contains(text)) return true;
+  return inst.waitText(text, timeoutSecs: 2);
 }
 
 /// Press Return in the focused composer (focus first). Used to prove a draft
@@ -714,7 +742,18 @@ Future<bool> _p1cForwardToGroupTarget(
 /// bracket keeps a transient focus/typing failure from reading as "draft lost".
 /// (Was a NEGATIVE pin asserting the opposite — it described code that no
 /// longer exists, so it gated the bug in place.)
-Future<bool> _p1cDraftRestoreOnConvSwitch(
+///
+/// TRI-STATE premise guard (2026-08-14, merged INTO the positive flip): the
+/// verdict is meaningless in EITHER direction unless the probe text really
+/// entered the composer. On a [_p1cRealKeyboardCapable]-false shell the typing
+/// primitives are synthetic substitutes the ExtendedTextField ignores, so the
+/// probe never lands and `probeSent=false` comes from the INPUT, not the draft
+/// layer — a vacuous PASS under the old negative pin, an equally hollow FAIL
+/// under this positive gate. So the premise is proven first (probe read back,
+/// probe actually sent, or the post-control typing + Return); unproven ⇒ SKIP
+/// (null) where there is no real keyboard, FAIL where there is one (a genuine
+/// regression of the typing path, not a platform limit).
+Future<bool?> _p1cDraftRestoreOnConvSwitch(
   Inst a,
   String toxB,
   String gid,
@@ -739,11 +778,11 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
     );
     return false;
   }
-  // The probe: type WITHOUT Enter.
-  if (!await _p1cTypeIntoComposerNoSend(a, probe)) {
-    print('[pair] draft_restore_on_conv_switch: could not type the probe');
-    return false;
-  }
+  // The probe: type WITHOUT Enter, then READ IT BACK. A failed type is NOT an
+  // early FAIL any more — it is one of the premise signals weighed at the end
+  // (on a synthetic-input shell "could not type" is the platform, not a bug).
+  final probeTyped = await _p1cTypeIntoComposerNoSend(a, probe);
+  final probeVisible = probeTyped && await _p1cComposerShowsText(a, probe);
   // Real switch away (group row tap) and back (C2C row tap) — the switch back
   // is what makes the coordinator reload the saved draft into the composer.
   await openGroupChat(a, groupId: gid, groupName: groupName);
@@ -767,16 +806,59 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
   }
   // POST-control (codex P2 bracket): the same type+Enter mechanics must STILL
   // send right after the observation — so a transient focus/typing failure
-  // around the probe can't masquerade as "draft not restored".
+  // around the probe can't masquerade as "draft not restored". Driven with the
+  // PROBE's OWN mechanics (type-no-send + bare Return) rather than
+  // `sendComposerMessage`'s platform-portable seam, so it doubles as the
+  // premise proof: only a Return over text that genuinely reached the field can
+  // send this, whereas the portable seam sends everywhere and proves nothing.
   final postControl = 'RUIP1DRAFTCTL2-$nonce';
-  final postControlSent = await sendComposerMessage(a, postControl);
+  var postControlSent = false;
+  if (await _p1cTypeIntoComposerNoSend(a, postControl)) {
+    await _p1cComposerReturn(a);
+    for (var i = 0; i < 8 && !postControlSent; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      final msgs = await _c2cMessages(a, toxB);
+      postControlSent = msgs.any((m) => m['text']?.toString() == postControl);
+    }
+  }
+  if (!postControlSent) {
+    // The post-control text may have landed but not sent — don't leave it in
+    // the composer for the next case to send by accident.
+    try {
+      await a.tapAt(_composerX, _composerY);
+      await a.osaClear();
+    } on DriveError {
+      // best-effort
+    }
+  }
+  // `probeSent` is itself the strongest possible proof that the probe reached
+  // the composer (nothing else could have sent that exact text), so it counts
+  // as a premise signal alongside the readback and the post-control bracket.
+  final typedInputProven = probeVisible || probeSent || postControlSent;
   await a.shot('/tmp/ui_p1c_draft_A.png');
   print(
     '[pair] draft_restore_on_conv_switch: POSITIVE-GATE controlSent=true '
+    'probeTyped=$probeTyped probeVisible=$probeVisible '
     'probeSent=$probeSent (expect true — the draft coordinator saves on edit '
     'and reloads on conversation-context change, so the switch-back composer '
-    'holds the probe and Return sends it) postControlSent=$postControlSent',
+    'holds the probe and Return sends it) postControlSent=$postControlSent '
+    '(typing bracket + premise proof)',
   );
+  if (!typedInputProven) {
+    final keyboard = _p1cRealKeyboardCapable(a);
+    final why = keyboard
+        ? 'FAIL — this shell HAS real keyboard input, so the typing path '
+              'itself regressed'
+        : 'SKIP — this shell drives input through synthetic seams the '
+              'ExtendedTextField composer ignores; unconstructible here';
+    print(
+      '[pair] draft_restore_on_conv_switch: $why. Typed-but-unsent text never '
+      'provably reached the composer, so the switch-back Return acted on an '
+      'EMPTY field and its verdict says nothing about draft semantics '
+      '(refusing both the vacuous pass and the hollow fail)',
+    );
+    return keyboard ? false : null;
+  }
   return probeSent && postControlSent;
 }
 
@@ -832,11 +914,16 @@ Future<bool> _p1cTypingIndicatorRender(
   // is harmless (case 6 drains unread first). Retried like
   // sendComposerMessage's Return race guard.
   var bKeystrokesProven = false;
-  if (_isWindowsRealUi) {
-    // Windows headless: the typed-no-send + osaReturn real-keystroke path can't
-    // populate the ExtendedTextField controller, so prove B's composer really
-    // works via the set-text+send path (equivalent sanity check that the
-    // no-leak window above is not vacuous). The probe lands as B's own message.
+  if (!_p1cRealKeyboardCapable(b)) {
+    // No real OS keyboard on this shell — headless Windows/Linux desktops,
+    // Android devices AND the iOS Simulator (whose osa* wrappers are synthetic
+    // substitutes, NOT System Events). The typed-no-send + osaReturn path
+    // cannot populate the ExtendedTextField controller there, so prove B's
+    // composer really works via the set-text+send seam instead (the equivalent
+    // sanity check that the no-leak window above is not vacuous). The probe
+    // lands as B's own message. Was gated on `_isWindowsRealUi` alone, which
+    // let Linux/Android/iOS fall into the else-branch and "prove" the composer
+    // with an osaReturn their platform silently substitutes.
     bKeystrokesProven = await sendComposerMessage(b, typeProbe);
   } else {
     for (var attempt = 0; attempt < 4 && !bKeystrokesProven; attempt++) {
@@ -1326,11 +1413,13 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var passed = 0;
   var failed = 0;
+  var skipped = 0;
+  var unexpectedSkipped = 0;
   final results = <String, String>{};
   var endFriends = false;
 
-  Future<void> hard(String id, Future<bool> Function() run) async {
-    bool ok;
+  Future<void> hard(String id, Future<bool?> Function() run) async {
+    bool? ok;
     String? detail;
     try {
       ok = await run();
@@ -1340,7 +1429,17 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       ok = false;
       detail = 'DriveError: ${e.message}';
     }
-    if (ok) {
+    if (ok == null) {
+      // Tri-state: a case may declare its premise unconstructible on this shell
+      // (draft needs a REAL keyboard). Expected skips don't fail the sweep;
+      // an UNEXPECTED one does — a silent skip is as bad as a false pass.
+      skipped++;
+      final expected =
+          id == 'draft_restore_on_conv_switch' && !_p1cRealKeyboardCapable(a);
+      if (!expected) unexpectedSkipped++;
+      results[id] = expected ? 'SKIP(platform-hidden)' : 'SKIP(unexpected)';
+      print('[sweep] $id: ${results[id]}');
+    } else if (ok) {
       passed++;
       results[id] = 'PASS';
       print('[sweep] $id: PASS');
@@ -1479,7 +1578,8 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       endFriends = false;
     }
     print(
-      '[sweep] sweep_p1_chat RESULTS: $passed PASS / $failed FAIL '
+      '[sweep] sweep_p1_chat RESULTS: $passed PASS / $failed FAIL / '
+      '$skipped SKIP (unexpected=$unexpectedSkipped) '
       '($results) | endFriends=$endFriends',
     );
     try {
@@ -1497,7 +1597,7 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       );
     }
   }
-  return (failed == 0 && endFriends) ? 0 : 1;
+  return (failed == 0 && unexpectedSkipped == 0 && endFriends) ? 0 : 1;
 }
 
 /// Whether [scenario] is one of the 8 Batch-III P1 chat/conv cases.
@@ -1574,9 +1674,17 @@ Future<int> runP1ChatCase(
       case 'forward_to_group_target':
         return await _p1cForwardToGroupTarget(a, toxB, gid, groupName) ? 0 : 1;
       case 'draft_restore_on_conv_switch':
-        return await _p1cDraftRestoreOnConvSwitch(a, toxB, gid, groupName)
-            ? 0
-            : 1;
+        // Tri-state: 75 == SKIP (premise unconstructible on this shell).
+        return switch (await _p1cDraftRestoreOnConvSwitch(
+          a,
+          toxB,
+          gid,
+          groupName,
+        )) {
+          true => 0,
+          false => 1,
+          null => 75,
+        };
       case 'typing_indicator_render':
         return await _p1cTypingIndicatorRender(a, b, toxA, toxB) ? 0 : 1;
       case 'unread_badge_total_sidebar':

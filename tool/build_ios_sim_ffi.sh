@@ -105,10 +105,30 @@ build_arch() {
         "https://github.com/jedisct1/libsodium/releases/download/${SODIUM_VERSION}-RELEASE/libsodium-${SODIUM_VERSION}.tar.gz"
         "https://download.libsodium.org/libsodium/releases/libsodium-${SODIUM_VERSION}-stable.tar.gz"
       )
+      # A cached tarball is only reusable if it actually decompresses. curl can
+      # exit 0 on a TRUNCATED body (observed 2026-08-15: repeated
+      # "truncated gzip input" from the download.libsodium.org fallback), and
+      # the old `[[ ! -f ]]` guard then pinned that corpse forever — every
+      # retry re-extracted the same broken file and failed identically, which
+      # reads as a flaky network instead of a poisoned cache. Unlike the
+      # opus/vpx builder (ci/build_av_deps.sh), there is no published sha256
+      # for this URL pair to pin against, so integrity is established by
+      # decompressing it.
+      if [[ -f "$tarball" ]] && ! tar tzf "$tarball" >/dev/null 2>&1; then
+        warn "[$arch] cached $tarball is corrupt — re-downloading"
+        rm -f "$tarball"
+      fi
       if [[ ! -f "$tarball" ]]; then
         local ok=0
         for u in "${urls[@]}"; do
-          if curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 30 -o "$tarball" "$u"; then ok=1; break; fi
+          if curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 30 -o "$tarball" "$u" \
+            && tar tzf "$tarball" >/dev/null 2>&1; then
+            ok=1
+            break
+          fi
+          # Do not leave a partial/garbage body behind for the next URL (or the
+          # next run) to trip over.
+          rm -f "$tarball"
         done
         [[ "$ok" == 1 ]] || { err "[$arch] libsodium download failed"; exit 1; }
       fi

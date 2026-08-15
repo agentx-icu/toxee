@@ -410,10 +410,16 @@ run_android_l3() {
   # service to the host and emits the host-side ws URI in its JSON event
   # stream (app.debugPort -> params.wsUri). nohup keeps the app alive after
   # this script returns (launch-only mode).
+  # TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT: an Android permission dialog
+  # is an OS surface that synthetic flutter_skill / ui_* input cannot dismiss —
+  # it parks on top of the app and every later tap hits the dialog instead of
+  # the widget under test. Defaults on for the automation path (parity with
+  # launch_toxee_ios_instance.sh); export it explicitly to opt back in.
   nohup flutter run -d "$SELECTED_DEVICE_ID" --"$MODE" --machine --no-pub \
     --dart-define=FLUTTER_BUILD_MODE="$MODE" \
     --dart-define=MCP_BINDING="$MCP_BINDING" \
     --dart-define=TOXEE_L3_TEST="$TOXEE_L3_TEST" \
+    --dart-define=TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT="${TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT:-true}" \
     >>"$L3_STDIO_LOG" 2>&1 </dev/null &
   local flutter_pid=$!
   echo "$flutter_pid" >"$L3_PID_FILE"

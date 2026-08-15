@@ -197,8 +197,11 @@ Behavior to know:
     driver calls `l3_boot_existing_account`, so the post-launch copy is
     race-free), with `pm clear` pre-launch for determinism and the same
     profile/history integrity checks as the other launchers. Android restore is
-    IMPLEMENTED but pending its first live two-emulator validation — do not
-    report friendship scenarios as android-green until that run lands.
+    IMPLEMENTED and the launcher **does bring the pair up to the business
+    layer** (see "Android status" below); what is still missing is a
+    **scenario-level green run** — no `rui-android-*` campaign has been driven
+    end-to-end on two emulators yet, so do not report friendship scenarios as
+    android-green until such a run lands.
 - **Native libirc_client gap (honest live-coverage note).** The two IRC cases
   differ in what they need:
   - `irc_join_channel_real_controls` sets the L3 `localAddOverride`, so adding a
@@ -266,20 +269,42 @@ Behavior to know:
    exists (`tencent_cloud_chat_contact_tab.dart:47/111`) but `tap{key}` can't land
    it; tapping the **"New Contacts"** label works. *(Fork fix candidate: move the
    key onto the tappable row; needs a rebuild — driver uses the text fallback.)*
-7. **On iOS/Android the whole `osa*` surface is a SILENT NO-OP — never build a
-   mobile case on it.** `Inst._osa` opens with
-   `if (isIos || _isHeadlessRealUi) return;`, and of the ~90 `osa*` call sites
-   only `focusType` has an iOS branch. So on a Simulator/device
-   `osaReturn` (Enter-to-send), `osaEscape`, `osaClear` (Cmd+A+Delete),
-   `osaPaste`, `osaType`, the Cmd+Ctrl shortcuts and `resizeWindow` all return
-   without doing anything, and the surrounding case still reports PASS — a case
-   that "ran" but asserted nothing. The usable mobile input paths are the
-   synthetic `flutter_skill` ones (`tap`/`tapAt`/`tapKeyCenter`/`enterText`/
-   `waitKey`/`waitText`/`getWidgetTree`/`screenshot`), the ungated `ui_*`
-   pointer tools (`ui_key_center`/`ui_long_press`/`ui_drag`/`ui_scroll_at`), and
-   the `l3_*` seams (`l3_composer_set_text`, `l3_composer_send`,
-   `l3_open_add_group_dialog`, …). Anything that genuinely cannot be driven must
-   be an explicit SKIP (exit 75), not a silently-green pass.
+7. **The `osa*` surface is macOS-only, and on iOS it USED to be a silent
+   no-op.** `osa*` wraps `osascript`, which exists only on the macOS host.
+   `Inst._osa` opens with `if (isIos || _isHeadlessRealUi) return;`, so there
+   are two very different mobile situations — do not conflate them:
+   - **Android / Windows / Linux — SUBSTITUTED, not silent.** These platforms
+     are in `_isHeadlessRealUi` (`drive_real_ui_pair_inst.dart:212`, which
+     deliberately does NOT include iOS), and each `osa*` helper falls through to
+     an l3 / flutter_skill substitute (synthetic key events, `l3_set_clipboard`,
+     composer seams). The case really does drive something — just not the OS
+     input stack.
+   - **iOS — historically SILENT.** `isIos` short-circuits `_osa` *before* the
+     headless substitution, and only `focusType` had an iOS branch, so
+     `osaReturn` (Enter-to-send), `osaEscape`, `osaClear` (Cmd+A+Delete),
+     `osaPaste`, `osaType`, the Cmd/Ctrl shortcuts and `resizeWindow` all
+     returned without doing anything while the surrounding case still reported
+     PASS — a case that "ran" but asserted nothing. iOS is being given the same
+     substitute branches as the other non-macOS platforms; until that lands,
+     treat any iOS run of an `osa*`-carrying chain as unproven (this is exactly
+     the Wave 1 / Wave 2 split in `fixture_c_real_ui_mobile_campaigns.dart`).
+
+   **A substitute is NOT a real OS keyboard.** Synthetic key events do not reach
+   the legacy `FocusNode.onKey` `RawKeyEvent` path (fact 4 above), do not open a
+   real IME, and cannot put an image on a pasteboard. So a case whose ASSERTION
+   IS the keystroke — Enter-to-send on the desktop composer, the Cmd/Ctrl global
+   shortcuts, `osaType('@')` in `sweep_group_mention`, pasting an image in
+   `sweep_p2_verify` — must **SKIP (exit 75) on mobile**, not be re-pointed at a
+   substitute. Substitutes are legitimate only when the keystroke is *plumbing*
+   for the thing under test, never when it *is* the thing under test.
+
+   The always-usable mobile input paths are the synthetic `flutter_skill` ones
+   (`tap`/`tapAt`/`tapKeyCenter`/`enterText`/`waitKey`/`waitText`/
+   `getWidgetTree`/`screenshot`), the ungated `ui_*` pointer tools
+   (`ui_key_center`/`ui_long_press`/`ui_drag`/`ui_scroll_at`), and the `l3_*`
+   seams (`l3_composer_set_text`, `l3_composer_send`, `l3_open_add_group_dialog`,
+   …). Anything that genuinely cannot be driven must be an explicit SKIP, not a
+   silently-green pass.
 
 ## Form-factor scenarios (mobile-shell / tablet-layout exclusives)
 
@@ -343,7 +368,87 @@ launch):
 - Both sweeps declare `required=no-friend` / `result=friends` and establish (or
   REUSE) the A<->B friendship themselves, so they need no `paired_for_e2e`
   restore — which also keeps them runnable on Android, whose restore path is
-  implemented but not yet live-validated.
+  implemented but has no scenario-level green run on record yet.
+
+### Mobile campaign matrix (`fixture_c_real_ui_mobile_campaigns.dart`)
+
+The mobile half of the campaign catalog was split out of
+`fixture_c_unified_runner.dart` into
+`tool/mcp_test/fixture_c_real_ui_mobile_campaigns.dart` (the runner spreads
+`mobileRealUiCampaigns` into `_realUiCampaigns`, so every flag behaves exactly
+as before). Read that file for the per-campaign rationale; the load-bearing
+rules are:
+
+**Inventory** (38 mobile campaigns; re-derive with `--list-real-ui-campaigns`
+rather than trusting these numbers). Case counts are the sweep's own chain
+length, so a family total counts a case once per form factor, not once overall:
+
+| family | campaigns | sweeps covered | cases |
+| --- | --- | --- | --- |
+| iPhone (`rui-ios-*` + `rui-mobile-shell`) | 17 | login 9, ios_settings_main 6, chat 16, group2 14, mobile_shell 5, profile 8, p2_reply 1, p3_writable 1, c2c_deep_extra 1, group_conf_deep_extra 3, settings2 12, p1_single 5, account_conf_extra 6, c2c_extra 5, native_boundary_guards 6, account_deep_extra 1, conv 10, calls_misc 10, contacts 15 | 134 |
+| iPad (`rui-ipad-*`) | 15 | login 9, ios_settings_main 6, chat 16, group2 14, tablet_layout 2, profile 8, c2c_deep_extra 1, group_conf_deep_extra 3, group_conf_member_extra 5, settings2 12, p1_single 5, account_conf_extra 6, c2c_extra 5, conv 10, calls_misc 10, contacts 15, p1_chat 8 | 135 |
+| Android (`rui-android-*`) | 6 | login 9, chat 16, mobile_shell 5, profile 8, settings2 12, conv 10, contacts 15 | 75 |
+
+**Ordering is free.** Every `sweep_*` scenario in `_requiredRealUiState` (all 32
+of them, mobile-registered or not) declares `required=no-friend`, and the
+`friends -> no-friend` transition is done IN PLACE by
+`_executeInternalRealUiReset()` — no relaunch. So any sweep order is
+self-consistent; the chains merely put `result=no-friend` sweeps first so the
+runner does not have to insert a reset between them.
+
+**Mobile campaign budget — `TOXEE_IOS_KEEP_SIMULATOR_FRONT`.** A backgrounded
+iOS Simulator has its apps reclaimed by iOS after ~2-3 minutes (App Nap disable
+and `caffeinate` do NOT prevent it; it is the iOS app lifecycle). Any mobile
+campaign that chains **>= 2 sweeps** — and in practice the long single sweeps
+too (`sweep_contacts` 15 cases, `sweep_settings2` 12) — will die mid-run unless
+the Simulator is kept frontmost:
+
+```bash
+export TOXEE_IOS_KEEP_SIMULATOR_FRONT=1
+dart run tool/mcp_test/fixture_c_unified_runner.dart \
+  --class=2proc-ui --real-ui-platform=ios --real-ui-campaign=rui-ios-contacts
+```
+
+`launch_toxee_ios_instance.sh:64-68` reads the variable and switches
+`open -g -a Simulator` (background, does not steal focus) to `open -a Simulator`
+(frontmost, apps survive the whole run). The unified runner only PASSES THROUGH
+`Platform.environment` and deliberately never sets the flag itself: topping the
+Simulator window steals the host's mouse/focus, so it stays an explicit,
+opt-in caller decision. Driving is still VM-service only — the window is raised
+once at launch and never grabbed again.
+
+**`rui-ipad-*` invocation rules** (unchanged, restated because the matrix grew):
+selecting any `rui-ipad-*` campaign forces `TOXEE_IOS_DEVICE_TYPE=tablet` into
+the pair launch, so it requires `--real-ui-platform=ios` and **cannot be mixed**
+with a non-iPad campaign in one invocation (the device type is a pair-launch
+property; mixing would silently run the second campaign on the first's
+simulators).
+
+**Sweeps deliberately absent from every mobile campaign** (the regression script
+asserts this, so adding one turns the suite red):
+
+| sweep | why it cannot be honest on a device |
+| --- | --- |
+| `sweep_p1_relaunch`, `sweep_p2_keys` | restart a peer through `Process.run('tool/mcp_test/stop_toxee_instance.sh' / 'launch_toxee_instance.sh')` (`drive_real_ui_pair_p1_relaunch.dart:773`/`:803`) — those are the macOS **desktop** instance launchers, so an iOS/Android pair would boot a macOS Toxee.app and overwrite the pair manifest |
+| `sweep_p2_verify` | `paste_image_into_composer` needs an **image** on the host pasteboard; the portable seam `l3_set_clipboard` is text-only |
+| `sweep_group_mention` | `osaType('@')` **is** the trigger under assertion; an l3/skill substitute would bypass the path the case exists to prove |
+| the four `*_optimized` bundles | pure re-orchestration of sweeps already registered — they would only double-count the same cases |
+| `sweep_mobile_shell` in `rui-ipad-*`, `sweep_tablet_layout` in `rui-ios-*` | every case SKIPs on the wrong form factor, inflating the skip tally without adding coverage |
+
+**Wave gating.** The iPhone/iPad entries are grouped into three waves in the
+catalog file: Wave 1 chains contain zero `osa*` call sites and are honest on a
+Simulator today; Wave 2 depends on the iOS `osa*` substitute branches (fact 7
+above); Wave 3 additionally depends on the narrow-shell long-press-menu /
+bottom-bar / coordinate work. They are all REGISTERED so the catalog is the
+single description of the intended matrix — registration is not a claim that
+they pass.
+
+**Two sweeps are iPad-only on purpose.** `sweep_group_conf_member_extra` has
+zero `isMobileShell` branches, so its member-list / peer-menu navigation is only
+known-good on a wide shell; `sweep_p1_chat`'s narrow-shell branches (recall /
+forward / draft-restore across a pushed route) are not written yet, so an iPhone
+run would drive the wrong surface instead of SKIPping. Add `rui-ios-group-member`
+/ `rui-ios-p1-chat` once those branches exist — do not assume them.
 
 **Verification status (be precise about this):** these scenarios were authored
 offline and are **NOT EXECUTION-VERIFIED** — no dart/flutter toolchain was
@@ -353,10 +458,27 @@ pair. The name/registry contracts ARE machine-checked
 fall-through guard, the SKIP/flaky tallies), and the geometry thresholds are
 derived from the widget source (`add_friend_dialog.dart` /
 `add_group_dialog.dart` caps, `AppSpacing.xl/lg` paddings), not measured.
-Android additionally has **never reached the business layer** in this harness
-(no `pair.json` under `tool/mcp_test/.android_runtime`; the logs stop at EGL),
-so `rui-android-*` must not be reported as passing until a two-emulator run
-lands.
+
+**Android status (an earlier claim here was WRONG — corrected 2026-08-14).**
+This document used to say Android had "never reached the business layer" and
+that "the logs stop at EGL / there is no `pair.json`". Both pieces of evidence
+were misread:
+
+- `tool/mcp_test/.android_runtime/A|B/build/flutter_run.log` contains
+  `app.started` **and** the `imsdk version arm64` banner **and** the Badge
+  launcher probe. The Badge probe can only be emitted by an already-LOGGED-IN
+  session: `BadgeService.instance.start` has exactly one call site,
+  `lib/runtime/session_runtime_coordinator.dart:298`, which runs after the
+  session is wired. EGL lines are just the first noisy thing in the log, not
+  where it stops.
+- The absent `pair.json` is not evidence of a failed launch either —
+  `stop_android_fixture_c_pair.sh:55` deletes it on every NORMAL teardown, so a
+  clean run always leaves the directory without one.
+
+The accurate statement is: **the Android pair reaches the business layer, but
+there is no scenario-level green run on record.** No `rui-android-*` campaign
+has been driven end-to-end on two emulators, so results there are UNPROVEN, not
+impossible. Report them as such.
 
 ### Still not covered on mobile (deliberate, with reasons)
 
@@ -645,7 +767,7 @@ each rebuild-gated. Those are the concrete next "problems to solve".
 | --- | --- | --- | --- |
 | macos   | `launch_fixture_c_pair.sh`          | `restore_fixture_c_pair.sh`  | osascript + VM-service |
 | ios     | `launch_ios_fixture_c_pair.sh`      | via macOS container restore  | synthetic VM-service |
-| android | `launch_android_fixture_c_pair.sh`  | `adb exec-in run-as ... tar -x` into the debug app sandbox (2026-07-12; first live 2-emulator validation pending) | synthetic VM-service |
+| android | `launch_android_fixture_c_pair.sh`  | `adb exec-in run-as ... tar -x` into the debug app sandbox (2026-07-12; the pair DOES reach the business layer — see "Android status" — but no scenario-level green run is on record) | synthetic VM-service (l3/skill substitutes for `osa*`) |
 | windows | `launch_windows_fixture_c_pair.ps1` | `restore_fixture_c_pair.ps1` (PowerShell-native, no bash/jq) | synthetic VM-service (headless) |
 | linux   | `launch_linux_fixture_c_pair.sh`    | `restore_fixture_c_pair.sh` (portable: tox_profile + JSON history) | synthetic VM-service (headless) |
 

@@ -498,14 +498,37 @@ Future<String?> _homeShellCurrentConversationId(Inst inst) async {
 }
 
 /// Open the C2C chat, then cycle chats→contacts→settings→chats by tapping the
-/// REAL sidebar tabs (a plain IndexedStack `_index` setState — NOT
+/// REAL home tabs (a plain IndexedStack `_index` setState — NOT
 /// `_forceHomeRootAndWait`, which RESETS the chats-tab detail and would make the
 /// retention assertion vacuous; codex P1). Assert the IndexedStack RETAINS the
 /// open chat: `homeShellCurrentConversationId` stays the C2C id THROUGH the
 /// contacts/settings detour AND is still the C2C id after returning to chats,
 /// where the chat surface re-renders WITHOUT any re-open. Drives the production
-/// sidebar tab widgets; reads the home-shell snapshot.
-Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
+/// tab widgets (sidebar rail or bottom nav — see [_tapHomeTabUntil]); reads the
+/// home-shell snapshot.
+///
+/// SKIPs (null) when the shell is NOT master-detail. The premise is a chat
+/// bound into the RETAINED chats-tab branch, which only exists on the wide
+/// (>=800pt) layout: "Mobile pushes a ChatPage route instead of binding the
+/// pane" (home_page_bootstrap.dart:439). On a compact shell the open chat is a
+/// route ABOVE the home Scaffold, so (a) there is no tab-branch detail to
+/// retain and (b) the tab bar is covered — a tab tap would land on the chat
+/// route. Asserting there would be a false red, and "passing" it would prove
+/// nothing. Read from the live `homeShellShouldShowMasterDetail` (the shell's
+/// OWN computed value) rather than the platform, so an iPad/wide window runs it
+/// and a narrowed desktop window skips it, correctly.
+Future<bool?> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
+  final masterDetail =
+      (await inst.dumpState())['homeShellShouldShowMasterDetail'] == true;
+  if (!masterDetail) {
+    print(
+      '[pair] home_tabs_cycle_state_retained: SKIP — this shell is not '
+      'master-detail (homeShellShouldShowMasterDetail=false), so the chat '
+      'opens as a PUSHED route over the home Scaffold: there is no retained '
+      'chats-tab detail to assert and the tab bar is covered while it is up',
+    );
+    return null;
+  }
   final c2c = 'c2c_${_pubkey(toxB)}';
   // Open the chat so the chats-tab IndexedStack branch holds a detail.
   await openChat(inst, _pubkey(toxB));
@@ -554,18 +577,65 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
       retained;
 }
 
-/// Tap a sidebar home tab and wait for the shell tab to switch, re-tapping if a
+/// True when the COMPACT phone shell is up: HomePage's bottom navigation bar
+/// (`UiKeys.homeBottomNav`) resolves to a laid-out RenderBox. That bar renders
+/// ONLY under `ResponsiveLayout.shouldShowBottomNav` (< 720pt), so its presence
+/// IS the tier signal — a LAYOUT check, not a platform check, which is what the
+/// tab-key choice must key off: an iPad (or any >=720pt shell) is `isMobileShell`
+/// yet still renders the sidebar rail, and a narrowed DESKTOP window renders the
+/// bottom nav. Mirrors `_msPhoneShell` in drive_real_ui_pair_mobile_shell.dart.
+Future<bool> _homeShellHasBottomNav(Inst inst) async =>
+    await inst.keyCenter('home_bottom_nav') != null;
+
+/// The bottom-nav twin of a `sidebar_*_tab` key, or null when there is none.
+String? _bottomNavTwinOf(String sidebarTabKey) => switch (sidebarTabKey) {
+  'sidebar_chats_tab' => 'bottom_nav_chats_tab',
+  'sidebar_contacts_tab' => 'bottom_nav_contacts_tab',
+  'sidebar_settings_tab' => 'bottom_nav_settings_tab',
+  _ => null,
+};
+
+/// Tap a home tab and wait for the shell tab to switch, re-tapping if a
 /// synthetic center-tap didn't fire the tab's onTap (headless Windows). Returns
 /// true once the shell reports [tab]. Tapping a tab you're already on is a no-op,
 /// so the retries are safe.
+///
+/// SHELL-AWARE TAB KEY: the compact phone shell renders NO sidebar — the same
+/// IndexedStack index is switched by `bottom_nav_*_tab` items instead. Passing
+/// only `sidebar_*_tab` there made `tapKeyCenter` fail on the very first attempt
+/// and the case returned false before any retention could be asserted. Resolve
+/// the twin key by LAYOUT (bottom nav present?), not by platform, and keep both
+/// as fallbacks so a mid-run resize/rotation can't strand the loop. Same
+/// dual-path shape as `_selectChatsTab` / `_selectContactsTab` in
+/// drive_real_ui_pair_shell.dart.
 Future<bool> _tapHomeTabUntil(Inst inst, String tabKey, String tab) async {
+  final twin = _bottomNavTwinOf(tabKey);
+  final preferTwin = twin != null && await _homeShellHasBottomNav(inst);
+  // The `twin != null` repeats are load-bearing: a `bool` local does not promote
+  // `twin`, so the collection-if needs the null test inline to yield String.
+  final keys = <String>[
+    if (twin != null && preferTwin) twin,
+    tabKey,
+    if (twin != null && !preferTwin) twin,
+  ];
   for (var attempt = 0; attempt < 5; attempt++) {
     // Foreground first: after the in-call cases the window can lose focus, so a
     // synthetic tab tap silently misses until the app window is active again.
     await inst.foreground();
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    if (!await inst.tapKeyCenter(tabKey, timeoutSecs: 6)) {
-      print('[pair] home_tabs_cycle: $tabKey not tappable');
+    var tapped = false;
+    for (final key in keys) {
+      // Full timeout for the shell's EXPECTED key; a short one for the other
+      // shell's key so a genuinely-failing desktop run isn't slowed by five
+      // 6-second waits on a bottom nav that this shell never renders.
+      final first = key == keys.first;
+      if (await inst.tapKeyCenter(key, timeoutSecs: first ? 6 : 2)) {
+        tapped = true;
+        break;
+      }
+    }
+    if (!tapped) {
+      print('[pair] home_tabs_cycle: no tappable tab among $keys');
       return false;
     }
     await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -679,19 +749,21 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     return false;
   }
   await returnToChatsHome(inst, rounds: 4);
-  // Open the global search overlay (the only entry to message search).
+  // Open the global search overlay (the only entry to message search). Go
+  // through the shared `_openGlobalSearch` helper rather than a bare
+  // `osaSearchShortcut`: it tries the deterministic `l3_open_global_search`
+  // route-push FIRST and only then the real Cmd/Ctrl+F keystroke. That matters
+  // on mobile — a phone has no keyboard chord at all, so the bare shortcut had
+  // no way to mount the overlay and this case could never run there. The
+  // ASSERTED surface (the result row tap → SearchChatHistoryWindow) stays a
+  // real gesture either way; only the opening is seam-assisted, exactly as in
+  // conv_search_filter_clear.
   await inst.foreground();
-  try {
-    await inst.osaSearchShortcut();
-  } on PermissionBlockedError catch (e) {
-    print(
-      '[pair] search_chat_history_window_open: shortcut blocked: ${e.message}',
-    );
-    return false;
-  }
+  final searchOpened = await _openGlobalSearch(inst);
   if (!await inst.waitKey('message_search_field', timeoutSecs: 10)) {
     print(
-      '[pair] search_chat_history_window_open: search overlay did not open',
+      '[pair] search_chat_history_window_open: search overlay did not open '
+      '(opener reported $searchOpened)',
     );
     return false;
   }
@@ -716,12 +788,12 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
   // Close everything back to the chats home. Tapping the result pushes the
   // SearchChatHistoryWindow as a ROUTE (it carries its own message_search_field),
   // and Escape does NOT pop a pushed route — so pop it via the "<" back
-  // affordance (28,72) FIRST, then Escape the underlying global overlay. (A
-  // plain Escape loop left message_search_field present → closed=false.)
+  // affordance FIRST, then Escape the underlying global overlay. (A plain
+  // Escape loop left message_search_field present → closed=false.)
   for (var i = 0; i < 4; i++) {
     if (!await inst.waitKey('message_search_field', timeoutSecs: 1)) break;
     try {
-      await inst.tapAt(28, 72);
+      await _popSearchLayerBack(inst);
     } on DriveError {
       // best-effort
     }
@@ -741,6 +813,39 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     'windowOpened=$windowOpened closed=$closed',
   );
   return resultRow && windowOpened && closed;
+}
+
+/// Dismiss whichever search layer is on top: the global CustomSearch overlay
+/// (its AppBar close "X" IS keyed — `UiKeys.messageSearchCloseButton`,
+/// custom_search.dart:627/703) or the pushed SearchChatHistoryWindow (AppBar
+/// leading BackButton, which carries NO key).
+///
+/// The window's back button is unkeyed, so it still needs a coordinate — but a
+/// FIXED (28,72) was a 1280x768 desktop constant: the leading x is
+/// layout-invariant (Material's NavigationToolbar reserves 56pt → centre 28),
+/// while the y depends entirely on the status-bar inset (0 on desktop, 24 on
+/// Android, 47-59 on a notched iPhone), so the desktop y could land below/above
+/// the real button on mobile. Derive y from the window's OWN keyed search field
+/// instead (it lives in the same AppBar's `bottom` band, ~52pt under the title
+/// row), and only fall back to the desktop constant when nothing resolves.
+Future<void> _popSearchLayerBack(Inst inst) async {
+  // WHICH LAYER IS ON TOP matters: `ui_key_center` has no paint/cover guard, so
+  // the COVERED global overlay's close button still resolves while the history
+  // window is up — tapping its coordinate would land on the window's empty
+  // AppBar trailing and pop nothing. The window's own AppBar title is the
+  // unambiguous top-layer marker.
+  if (await inst.waitText('Search Chat History', timeoutSecs: 1)) {
+    final field = await inst.keyCenter('message_search_field');
+    await inst.tapAt(
+      28,
+      field != null ? (field.y - 52).clamp(8.0, field.y) : 72,
+    );
+    return;
+  }
+  if (await inst.tapKeyCenter('message_search_close_button', timeoutSecs: 2)) {
+    return;
+  }
+  await inst.tapAt(28, 72);
 }
 
 // ===========================================================================
@@ -1062,7 +1167,9 @@ Future<int> runCallsMiscSweep(
       }
 
       // --- MISC: 91 → 92 → 94 → 93 (resize last). ---
-      await hard(
+      // 91 SKIPs on a non-master-detail shell (the chat is a pushed route
+      // there — see the case doc), so it runs through `soft`, not `hard`.
+      await soft(
         'home_tabs_cycle_state_retained',
         () => _homeTabsCycleStateRetained(a, toxB),
       );
@@ -1222,7 +1329,11 @@ Future<int> runCallsMiscCase(
             ? 0
             : 1;
       case 'home_tabs_cycle_state_retained':
-        return await _homeTabsCycleStateRetained(a, cToxB) ? 0 : 1;
+        {
+          // null -> SKIP (non-master-detail shell), false -> FAIL, true -> PASS.
+          final r = await _homeTabsCycleStateRetained(a, cToxB);
+          return r == null ? _realUiSkipExitCodeForBatch8 : (r ? 0 : 1);
+        }
       case 'theme_switch_chat_open':
         return await _themeSwitchChatOpen(a, cToxB) ? 0 : 1;
       case 'search_chat_history_window_open':

@@ -318,7 +318,21 @@ Future<bool> _hveAccountMultiAccountStateIsolation(
 
     await returnToChatsHome(inst, rounds: 4);
     if (inst.isMobileShell) {
-      await inst.osaOpenSettingsShortcut();
+      // Park the mobile shell on the Settings tab so the logout flow below
+      // starts from a known root. Uses the deterministic navigation seam
+      // DIRECTLY: this used to call `osaOpenSettingsShortcut`, whose only job
+      // is to emit a Cmd+Ctrl+, chord — a no-op on iOS (System Events cannot
+      // reach the Simulator) and, on Android, a wrapper around exactly the
+      // forceHomeRoot call made here. Nothing about this step is testing a
+      // keyboard shortcut, so drive the seam, not the chord.
+      try {
+        await inst.forceHomeRoot(tab: 'settings');
+      } on DriveError catch (e) {
+        print(
+          '[pair] account_multi_account_state_isolation: settings park '
+          'best-effort failed: ${e.message}',
+        );
+      }
     }
     if ((await _logoutToLoginPage(inst)) != primaryToxId) {
       print(

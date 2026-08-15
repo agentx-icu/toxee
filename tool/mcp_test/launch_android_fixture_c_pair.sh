@@ -51,6 +51,14 @@ JNI_LIBS_DIR="$REPO_ROOT/android/app/src/main/jniLibs"
 FIXTURE_RESTORE_MODE="${TOXEE_FIXTURE_C_RESTORE:-}"
 MCP_BINDING="${MCP_BINDING:-skill}"
 TOXEE_L3_TEST="${TOXEE_L3_TEST:-true}"
+# Suppress the runtime notification-permission prompt (NotificationService reads
+# this via HarnessEnvironment). An Android system permission dialog is an OS
+# surface the synthetic flutter_skill/ui_* input cannot dismiss, so it parks on
+# top of the app and every subsequent tap lands on the dialog instead of the
+# widget under test — the run then fails in a way that looks like a driver bug.
+# `launch_toxee_ios_instance.sh` has defaulted this to true for the same reason;
+# this brings the Android pair to parity. Override by exporting it explicitly.
+DISABLE_NOTIFICATION_PROMPT="${TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT:-true}"
 MODE="${TOXEE_ANDROID_MODE:-debug}"
 VM_URI_TIMEOUT_SECS="${TOXEE_ANDROID_VM_URI_TIMEOUT_SECS:-360}"
 # Fixed loopback IRC port to adb-reverse so the device can reach the host-side
@@ -236,6 +244,7 @@ launch_android_instance() {
         --dart-define=FLUTTER_BUILD_MODE="$MODE" \
         --dart-define=MCP_BINDING="$MCP_BINDING" \
         --dart-define=TOXEE_L3_TEST="$TOXEE_L3_TEST" \
+        --dart-define=TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT="$DISABLE_NOTIFICATION_PROMPT" \
         >>"$stdio_log" 2>&1 </dev/null &
     local flutter_pid=$!
     echo "$flutter_pid" >"$pid_file"

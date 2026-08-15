@@ -29,11 +29,10 @@ Future<void> _registerRealUiAccount(Inst inst, String nickname) async {
   );
 }
 
-Future<void> _tapDesktopComposer(Inst inst) async {
-  if (!await inst.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) {
-    await inst.tapAt(_composerX, _composerY);
-  }
-}
+// _tapDesktopComposer lives next to the _composerX/_composerY constants it
+// guards, in drive_real_ui_pair_message_call.dart: this file's key-first
+// resolution was merged there with that file's mobile-shell tripwire, so the
+// coordinate fallback can never silently tap off-screen on a phone.
 
 Future<void> _setDesktopComposerText(
   Inst inst,

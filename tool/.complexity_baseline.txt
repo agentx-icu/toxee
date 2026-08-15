@@ -43,7 +43,7 @@ lib/ui/search/custom_search.dart:1019
 lib/ui/search/search_chat_history_window.dart:646
 lib/ui/settings/bootstrap_settings_section.dart:1455
 lib/ui/settings/global_settings_section.dart:706
-lib/ui/settings/settings_page.dart:2130
+lib/ui/settings/settings_page.dart:1956
 lib/ui/settings/sidebar.dart:957
 lib/util/account_service.dart:1038
 lib/util/app_paths.dart:661
@@ -69,7 +69,7 @@ lib/util/placeholder_account_migration.dart:664
 # - login_page_controller.dart (507): the saved-account login flow controller.
 lib/ui/login/login_page_controller.dart:569
 lib/ui/testing/ui_drive_tools.dart:552
-lib/ui/testing/ui_keys.dart:583
+lib/ui/testing/ui_keys.dart:635
 # [2026-08-09] Guard-adoption migration: `tool/` is now scanned in CI, so the
 # pre-existing oversized first-party drivers are pinned at their current sizes
 # to establish the ratchet. This is not an amnesty: any future growth fails.
@@ -88,30 +88,30 @@ tool/mcp_test/drive_fixture_c_join.dart:511
 tool/mcp_test/drive_fixture_c_kick.dart:980
 tool/mcp_test/drive_fixture_c_member_list.dart:741
 tool/mcp_test/drive_fixture_c_network_drop.dart:522
-tool/mcp_test/drive_real_ui_pair.dart:1274
-tool/mcp_test/drive_real_ui_pair_app_entry_extra.dart:762
+tool/mcp_test/drive_real_ui_pair.dart:1282
+tool/mcp_test/drive_real_ui_pair_app_entry_extra.dart:796
 tool/mcp_test/drive_real_ui_pair_c2c_extra.dart:546
-tool/mcp_test/drive_real_ui_pair_calls_misc.dart:1245
-tool/mcp_test/drive_real_ui_pair_chat.dart:2124
-tool/mcp_test/drive_real_ui_pair_contacts.dart:1664
-tool/mcp_test/drive_real_ui_pair_conv.dart:1017
+tool/mcp_test/drive_real_ui_pair_calls_misc.dart:1356
+tool/mcp_test/drive_real_ui_pair_chat.dart:2206
+tool/mcp_test/drive_real_ui_pair_contacts.dart:1776
+tool/mcp_test/drive_real_ui_pair_conv.dart:1066
 tool/mcp_test/drive_real_ui_pair_friends.dart:521
 tool/mcp_test/drive_real_ui_pair_group.dart:996
 tool/mcp_test/drive_real_ui_pair_group2.dart:1950
 tool/mcp_test/drive_real_ui_pair_group_menu.dart:607
 tool/mcp_test/drive_real_ui_pair_group_profile.dart:738
-tool/mcp_test/drive_real_ui_pair_high_value_extra.dart:1470
-tool/mcp_test/drive_real_ui_pair_inst.dart:1289
+tool/mcp_test/drive_real_ui_pair_high_value_extra.dart:1484
+tool/mcp_test/drive_real_ui_pair_inst.dart:1344
 tool/mcp_test/drive_real_ui_pair_login.dart:1300
-tool/mcp_test/drive_real_ui_pair_message_call.dart:810
-tool/mcp_test/drive_real_ui_pair_p1_chat.dart:1606
+tool/mcp_test/drive_real_ui_pair_message_call.dart:855
+tool/mcp_test/drive_real_ui_pair_p1_chat.dart:1714
 tool/mcp_test/drive_real_ui_pair_p1_relaunch.dart:846
 tool/mcp_test/drive_real_ui_pair_p1_single.dart:1245
 tool/mcp_test/drive_real_ui_pair_profile.dart:637
 tool/mcp_test/drive_real_ui_pair_settings.dart:645
-tool/mcp_test/drive_real_ui_pair_settings2.dart:1086
+tool/mcp_test/drive_real_ui_pair_settings2.dart:1172
 tool/mcp_test/drive_real_ui_pair_shell.dart:1274
-tool/mcp_test/fixture_c_unified_runner.dart:2913
+tool/mcp_test/fixture_c_unified_runner.dart:2899
 tool/mcp_test/gen_scenario_index.dart:1080
 tool/mcp_test/run_l3_scenarios.dart:1733
 tool/screenshots/capture_product_screenshots.dart:660

@@ -522,7 +522,13 @@ Future<int> _main(List<String> args) async {
           (await a.dumpState())['currentAccountToxId']?.toString() ?? '';
       switch (scenario) {
         case 'add_friend_dialog_esc_close':
-          return await _addFriendDialogEscClose(a) ? 0 : 1;
+          {
+            // Tri-state: a mobile shell has no ESC key, and the osa* substitute
+            // would dismiss the dialog by a DIFFERENT path than the binding
+            // under test — SKIP (75) instead of reporting a hollow PASS.
+            final escResult = await _addFriendDialogEscCloseOrSkip(a);
+            return escResult == null ? 75 : (escResult ? 0 : 1);
+          }
         case 'add_friend_invalid_id_error':
           return await _addFriendInvalidIdError(a) ? 0 : 1;
         case 'add_friend_self_id_guard':
@@ -740,7 +746,9 @@ Future<int> _main(List<String> args) async {
           case 'chat_msg_menu_surface':
             return await _chatMsgMenuSurface(a, chTox2B) ? 0 : 1;
           case 'chat_copy_message_clipboard':
-            return await _chatCopyMessageClipboard(a, chTox2B) ? 0 : 1;
+            // Tri-state: the assertion reads the HOST clipboard, which a
+            // simulator/emulator app process does not share — SKIP on mobile.
+            return skipMap(await _chatCopyMessageClipboardOrSkip(a, chTox2B));
           case 'chat_reply_quote_roundtrip':
             // SKIP — no driveable C2C reply surface (always returns null → 75).
             return skipMap(await _chatReplyQuoteRoundtrip(a, chTox2B));

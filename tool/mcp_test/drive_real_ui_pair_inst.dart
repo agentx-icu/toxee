@@ -13,9 +13,9 @@ final _realUiPlatform =
 /// Android app runs on a device whose VM service is merely adb-forwarded to
 /// this host), so EVERY input goes through synthetic
 /// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam, and the
-/// osa* primitive surface below is overridden wholesale. This is distinct from
-/// iOS, which also drives via VM-service synthetic input but runs on the SAME
-/// macOS host (its launcher topology, not this flag, governs sim survival).
+/// osa* primitive surface below is overridden wholesale. iOS shares that INPUT
+/// contract but NOT this flag — it runs on the same macOS host, so only its
+/// launcher topology governs sim survival; see [Inst._usesSyntheticInput].
 bool get _isHeadlessRealUi =>
     _realUiPlatform == 'windows' ||
     _realUiPlatform == 'android' ||
@@ -211,6 +211,21 @@ class Inst {
   /// `_realUiPlatform` (not the top-level getter) to avoid self-recursion.
   bool get _isHeadlessRealUi =>
       _realUiPlatform == 'windows' || _realUiPlatform == 'android' || isLinux;
+
+  /// Platforms whose real-UI INPUT must go through the VM-service synthetic
+  /// seams (`flutter_skill.enterText` + the `l3_*` intent tools): the headless
+  /// set ([_isHeadlessRealUi]) PLUS **iOS**. A System Events keystroke lands in
+  /// the frontmost *macOS* app and never crosses into the simulated device, so
+  /// osascript is as unreachable for iOS as for a Windows window-station.
+  /// Before this getter the osa* wrappers gated on [_isHeadlessRealUi] alone, so
+  /// iOS fell through to [_osa]'s defensive `return`: the driver believed the
+  /// type/paste/Return happened, the app never saw it, and the case died on a
+  /// later unrelated assertion (or passed vacuously when weakly asserted).
+  /// Deliberately SEPARATE from [_isHeadlessRealUi] rather than widening it —
+  /// that flag also decides window geometry, foregrounding and blank-shell
+  /// recovery, where iOS needs DIFFERENT answers (see [foreground],
+  /// [resizeWindow], [forceHomeRoot]).
+  bool get _usesSyntheticInput => isIos || _isHeadlessRealUi;
 
   late VmService vm;
   late String iso;
@@ -482,6 +497,15 @@ class Inst {
   /// resize). Used by the responsive layout-swap case (narrow the window past
   /// the 720pt bottom-nav breakpoint, then restore).
   Future<bool> resizeWindow(num width, num height) async {
+    if (isIos) {
+      // iOS has NO resizable window (fixed simulated device screen) and BOTH
+      // seams are dead ends: osascript would target Simulator.app's pid, whose
+      // `window 1` is not the guest app, and `l3_window_state` is double-gated
+      // on window_manager (desktop-only) + the l3 test-account marker. Say "not
+      // applied" up front so a geometry case SKIPs or self-calibrates instead of
+      // waiting out a doomed osascript and asserting an impossible resize.
+      return false;
+    }
     if (_isHeadlessRealUi) {
       // No osascript on Windows — drive the app's own window_manager via the
       // l3_window_state seam (setSize + center). Returns whether it applied.
@@ -513,6 +537,12 @@ class Inst {
   /// OS actually applied the new bounds (so a refused/clamped resize is detected
   /// rather than silently treated as applied).
   Future<({num w, num h})?> windowSize() async {
+    if (isIos) {
+      // Symmetric with [resizeWindow]: no host `window 1` to measure, and the
+      // query_bounds seam is window_manager + test-account gated (desktop only).
+      // null == UNREADABLE, so callers skip or self-calibrate.
+      return null;
+    }
     if (_isHeadlessRealUi) {
       // Read the live logical size via the app's window_manager seam.
       final r = await l3('l3_window_state', {'state': 'query_bounds'});
@@ -1015,13 +1045,13 @@ class Inst {
   // enterText, and Enter-to-send rides the legacy FocusNode.onKey RawKeyEvent
   // path — both need genuine OS events. ---
   Future<void> _osa(String script) async {
-    // No-op on iOS and on the headless platforms (Windows/Android): System
-    // Events keystrokes target the frontmost MACOS app and cannot reach a
-    // Simulator, a Windows window-station, or an Android device. Every osa*
-    // keystroke helper already branches to a synthetic/L3 path before reaching
-    // here, so this is a defensive net against a future osa* caller that forgets
-    // to — it silently skips rather than firing a stray host keystroke / throwing.
-    if (isIos || _isHeadlessRealUi) return;
+    // Every osa* wrapper below now branches EXPLICITLY on [_usesSyntheticInput]
+    // to its synthetic/L3 substitute (iOS included — it used to reach this line
+    // and lose the action silently), so this is purely a defensive net for a
+    // FUTURE wrapper whose author forgets that branch: skipping beats firing a
+    // stray host keystroke into whatever is frontmost. A skip here means a
+    // MISSING branch, never an intended no-op.
+    if (_usesSyntheticInput) return;
     final r = await _osaRun(['-e', script]);
     if (r.exitCode != 0) {
       final stderrText = '${r.stderr}'.trim();
@@ -1045,9 +1075,10 @@ class Inst {
   );
 
   Future<void> osaType(String text) async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
       // Synthetic text entry — sets the focused EditableText's value in one shot
-      // (proven to land verbatim on Windows, no SIGSEGV unlike macOS).
+      // (verbatim on Windows/Linux/Android, no SIGSEGV unlike macOS). iOS shares
+      // it: already its route via [focusType] / [focusTypeSynthetic].
       await skill('enterText', {'text': text});
       return;
     }
@@ -1064,7 +1095,11 @@ class Inst {
   /// characters, so long strings (Tox ids, 76 chars) land verbatim. Used by
   /// [focusType] for any text at/above [_osaPasteThreshold].
   Future<void> osaPaste(String text) async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
+      // enterText IS an atomic paste (whole value, one onChanged), no clipboard
+      // involved. iOS MUST come here: the `pbcopy` below writes the *host*
+      // pasteboard and the Cmd+V lands in the frontmost macOS app, leaving the
+      // device's field empty while the driver reported success.
       await skill('enterText', {'text': text});
       return;
     }
@@ -1083,12 +1118,15 @@ class Inst {
   }
 
   Future<void> osaReturn() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
       // The desktop composer's Enter-to-send rides FocusNode.onKey
       // (RawKeyDownEvent), un-reachable by synthetic enterText and by any
       // headless OS key injection. `l3_composer_send` invokes the EXACT same
       // `_submitDesktopSend()` the real Enter triggers (real field text + real
-      // inputMethods.sendTextMessage). See the fork composer seam.
+      // inputMethods.sendTextMessage). See the fork composer seam. iOS too: it
+      // has no Return to synthesize and its mobile composer sends via the send
+      // button, but the seam submits the composer's REAL text either way — so
+      // osaReturn actually sends there instead of silently dropping.
       await l3('l3_composer_send');
       return;
     }
@@ -1100,19 +1138,24 @@ class Inst {
   /// tencent_cloud_chat_message_input_desktop.dart. A genuine OS chord so the
   /// production RawKeyEvent path runs (synthetic enterText can't reach it).
   Future<void> osaShiftReturn() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
       // Multiline insert (Shift+Enter) has no pure-synthetic equivalent; the few
       // multiline cases must enterText the full "a\nb" body in one shot instead.
-      // No-op here so the surrounding flow doesn't error.
+      // Documented NO-OP, branched EXPLICITLY (iOS included) rather than left to
+      // [_osa]'s net, so it reads as the deliberate contract it is: "no chord
+      // exists — the caller supplies the newline in the text".
       return;
     }
     await _osaForProcess('key code 36 using shift down');
   }
 
   Future<void> osaEscape() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
       // Best-effort dismiss (close search/overlay/dialog) via the navigation
-      // hook — the headless equivalent of pressing Escape.
+      // hook — the synthetic-input equivalent of Escape. iOS has no Escape key
+      // and its mobile shell dismisses by pop anyway, so this is the closest
+      // production path; before, the iOS overlay just stayed open and the next
+      // assertion ran against the wrong screen.
       await l3('l3_pop_to_root');
       return;
     }
@@ -1124,7 +1167,9 @@ class Inst {
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
   Future<void> osaSearchShortcut() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
+      // No OS chord is deliverable (iOS has no Cmd+Ctrl+F at all); open the same
+      // overlay through its l3 intent seam.
       await l3('l3_open_global_search');
       return;
     }
@@ -1135,7 +1180,8 @@ class Inst {
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
   Future<void> osaNewConversationShortcut() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
+      // As [osaSearchShortcut]: chord undeliverable, use the l3 intent seam.
       await l3('l3_open_add_friend_dialog');
       return;
     }
@@ -1146,10 +1192,12 @@ class Inst {
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
   Future<void> osaOpenSettingsShortcut() async {
-    if (_isHeadlessRealUi) {
-      // Headless equivalent: jump the home shell to the Settings tab. Use the
-      // self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
-      // non-test app-entry account doesn't silently no-op the gated tool.
+    if (_usesSyntheticInput) {
+      // Synthetic-input equivalent: jump the home shell to the Settings tab. Use
+      // the self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
+      // non-test app-entry account doesn't silently no-op the gated tool. iOS
+      // included: its bottom nav lands on the SAME tab index, so the
+      // post-condition `homeShellTab == 'settings'` matches the desktop chord's.
       await forceHomeRoot(tab: 'settings');
       await waitState(
         (s) => s['homeShellTab'] == 'settings',
@@ -1162,13 +1210,18 @@ class Inst {
   }
 
   /// Place [text] on the host/device clipboard WITHOUT pasting — for cases that
-  /// then exercise an in-app "Paste" control. Android must use the app-side
-  /// clipboard seam because host `pbcopy` is not visible inside the emulator.
+  /// then exercise an in-app "Paste" control. Every non-macOS target uses the
+  /// app-side seam because host `pbcopy` writes a pasteboard the app process
+  /// cannot see — a foreign window-station, a device/emulator, or (iOS
+  /// Simulator) a pasteboard whose host sync is an opt-in Simulator setting with
+  /// debounced, unreliable propagation.
   Future<void> setClipboard(String text) async {
-    if (_isHeadlessRealUi || isAndroid) {
+    if (_usesSyntheticInput || isAndroid) {
       // Set the clipboard from INSIDE the app (Flutter Clipboard.setData) so the
-      // in-app paste button reads it. A host-side clipboard is invisible to a
-      // device/emulator app process.
+      // in-app paste button reads it deterministically, with no host round-trip.
+      // `isAndroid` stays alongside: [_isHeadlessRealUi] reads the GLOBAL
+      // platform for android, `isAndroid` is per-instance (a heterogeneous pair
+      // can carry an Android peer under a macOS global).
       await l3('l3_set_clipboard', {'text': text});
       return;
     }
@@ -1184,9 +1237,11 @@ class Inst {
   }
 
   Future<void> osaClear() async {
-    if (_isHeadlessRealUi) {
+    if (_usesSyntheticInput) {
       // enterText replaces the focused field's whole value, so an empty string
-      // clears it (the macOS Cmd+A + Delete equivalent).
+      // clears it (the Cmd+A + Delete equivalent). iOS included: neither half of
+      // that chord reaches the device, so the field kept its old text and the
+      // next entry APPENDED — the very corruption osaClear exists to prevent.
       await skill('enterText', {'text': ''});
       return;
     }

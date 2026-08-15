@@ -316,9 +316,17 @@ void main() {
     );
     expect(clipboardBegin, greaterThanOrEqualTo(0));
     expect(clipboardEnd, greaterThan(clipboardBegin));
+    // The guard widened from `_isHeadlessRealUi || isAndroid` to
+    // `_usesSyntheticInput || isAndroid`. `_usesSyntheticInput` is
+    // `isIos || _isHeadlessRealUi`, so iOS now takes the in-app
+    // `l3_set_clipboard` seam too — previously it fell through to the host
+    // `pbcopy` and depended on Simulator<->host pasteboard sync. `isAndroid`
+    // is retained because `_isHeadlessRealUi` reads the GLOBAL platform while
+    // `isAndroid` is per-instance (a heterogeneous pair can carry an Android
+    // peer under a macOS global).
     expect(
       inst.substring(clipboardBegin, clipboardEnd),
-      contains('_isHeadlessRealUi || isAndroid'),
+      contains('_usesSyntheticInput || isAndroid'),
     );
 
     final p1 = File(
@@ -518,7 +526,16 @@ void main() {
     final beforeLogout = accountDeep.substring(primaryActive, firstLogout);
     expect(beforeLogout, contains('returnToChatsHome(inst, rounds: 4)'));
     expect(beforeLogout, contains('inst.isMobileShell'));
-    expect(beforeLogout, contains('inst.osaOpenSettingsShortcut()'));
+    // Was `inst.osaOpenSettingsShortcut()` — a Cmd+Ctrl+, chord, which is a
+    // no-op on iOS and, on Android, only ever resolved to `forceHomeRoot`
+    // anyway. Nothing in this case tests a keyboard chord, so the mobile
+    // branch now calls the deterministic navigation seam DIRECTLY. Pinning
+    // the seam (not the chord) is what keeps this case honest on a shell
+    // that has no keyboard at all.
+    // (Only the CALL is pinned, not the absence of the old name — the driver
+    // comment still cites `osaOpenSettingsShortcut` to explain the swap, and
+    // that rationale is worth keeping.)
+    expect(beforeLogout, contains("forceHomeRoot(tab: 'settings')"));
 
     final instSource = File(
       'tool/mcp_test/drive_real_ui_pair_inst.dart',
