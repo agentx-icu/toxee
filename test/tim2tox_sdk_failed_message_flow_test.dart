@@ -88,6 +88,8 @@ class _FakeFfiChatService implements FfiChatService {
   _FakeFfiChatService({
     List<ChatMessage> history = const [],
     this.throwOnAlternatingSelfIdReads = false,
+    this.deletedCountOverride,
+    this.throwOnDelete = false,
   }) {
     for (final message in history) {
       final conversationID = message.groupId ?? 'peer-a';
@@ -95,6 +97,15 @@ class _FakeFfiChatService implements FfiChatService {
       _lastMessages[conversationID] = message;
     }
   }
+
+  /// Forces the count `deleteMessages` reports, so a test can simulate the
+  /// real no-op ("none of the requested msgIDs are in history"). Null keeps the
+  /// optimistic default of "everything asked for was deleted".
+  final int? deletedCountOverride;
+
+  /// Simulates the delete not being PERFORMABLE (a history/persistence write
+  /// that throws) — the one situation that must still surface a non-zero code.
+  final bool throwOnDelete;
 
   final List<String> deletedIDs = <String>[];
   final List<({String peerId, String payload, bool isGroup})> controlSignals =
@@ -225,7 +236,10 @@ class _FakeFfiChatService implements FfiChatService {
   @override
   Future<int> deleteMessages(List<String> msgIDs) async {
     deletedIDs.addAll(msgIDs);
-    return msgIDs.length;
+    if (throwOnDelete) {
+      throw StateError('history store unavailable');
+    }
+    return deletedCountOverride ?? msgIDs.length;
   }
 
   @override
@@ -733,6 +747,105 @@ void main() {
           jsonDecode(payload.substring('__revoke__:'.length)),
           containsPair('msgID', 'wire-revoke'),
         );
+      },
+    );
+  });
+
+  // CONTRACT: "delete for me" is IDEMPOTENT. `code == 0` means "none of the
+  // requested messages is in a local store any more", NOT "this call is the one
+  // that removed them".
+  //
+  // TWO regressions are pinned here, in opposite directions:
+  //  (1) the original bug — `code: 0, desc: 'success'` answered blindly, so a
+  //      genuine storage FAILURE was reported as a success and the UI stripped
+  //      a row that is still on disk;
+  //  (2) the 2026-08-16 over-correction — non-zero when 0 messages were removed.
+  //      The only consumer of that code is the fork's `deleteMessagesForMe`,
+  //      which reacts by SKIPPING the list strip and nothing else, so an
+  //      idempotent re-delete (or a row the fork can only identify as `""`)
+  //      made the message permanently undeletable with no user feedback at all.
+  //
+  // The UI-visible half of this contract is asserted in
+  // test/ui/chat/message_delete_for_me_real_ui_test.dart, which drives the real
+  // fork provider and checks the rendered message list — a return code nobody
+  // acts on is not a guarantee.
+  group('Tim2ToxSdkPlatform deleteMessages idempotence', () {
+    test('deleting 0 of N is SUCCESS — the messages are already absent',
+        () async {
+      final service = _FakeFfiChatService(deletedCountOverride: 0);
+      final platform = _platformFor(service);
+
+      final result = await platform.deleteMessages(
+        msgIDs: ['wire-absent-1', 'wire-absent-2'],
+      );
+
+      // Success, because the caller's post-condition ("not in my history")
+      // holds. Non-zero here made the row undeletable forever.
+      expect(result.code, 0, reason: result.desc);
+      // The no-op is still DIAGNOSABLE — the count is reported, not discarded.
+      expect(result.desc, contains('already absent'));
+      expect(result.desc, contains('0 of 2'));
+      // The attempt still reached the service — not a short circuit.
+      expect(service.deletedIDs, ['wire-absent-1', 'wire-absent-2']);
+    });
+
+    test('an empty request is SUCCESS, not an error code nobody renders',
+        () async {
+      final service = _FakeFfiChatService(deletedCountOverride: 0);
+      final platform = _platformFor(service);
+
+      final result = await platform.deleteMessages(msgIDs: const []);
+
+      expect(result.code, 0, reason: result.desc);
+      expect(service.deletedIDs, isEmpty);
+    });
+
+    test('a genuine storage failure is the ONLY non-zero code', () async {
+      final service = _FakeFfiChatService(throwOnDelete: true);
+      final platform = _platformFor(service);
+
+      final result = await platform.deleteMessages(msgIDs: ['wire-present']);
+
+      // Keeping the row on screen is the truthful state here: the message
+      // really is still stored, and the user can retry.
+      expect(result.code, isNot(0));
+      expect(result.desc, contains('deleteMessages failed'));
+    });
+
+    test('reports success when history rows were removed', () async {
+      final service = _FakeFfiChatService();
+      final platform = _platformFor(service);
+
+      final result = await platform.deleteMessages(msgIDs: ['wire-present']);
+
+      expect(result.code, 0, reason: result.desc);
+      expect(result.desc, 'success');
+    });
+
+    test(
+      'reports success when ONLY a failed-message row was removed',
+      () async {
+        // A never-sent message lives solely in the failed-message store, so the
+        // history count is legitimately 0.
+        final service = _FakeFfiChatService(deletedCountOverride: 0);
+        final platform = _platformFor(service);
+        await _saveFailedForAccount(
+          message: _v2TextMessage(
+            id: 'local-failed',
+            msgID: 'wire-failed',
+            text: 'never sent',
+            timestamp: 900,
+          ),
+          accountToxId: _account,
+          userID: 'peer-a',
+        );
+        expect(await _failedRows(userID: 'peer-a'), hasLength(1));
+
+        final result = await platform.deleteMessages(msgIDs: ['wire-failed']);
+
+        expect(result.code, 0, reason: result.desc);
+        expect(result.desc, 'success');
+        expect(await _failedRows(userID: 'peer-a'), isEmpty);
       },
     );
   });

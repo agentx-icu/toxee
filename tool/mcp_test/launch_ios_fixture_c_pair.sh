@@ -219,12 +219,43 @@ fi
 PAIR_LAUNCH_METHOD="${TOXEE_IOS_LAUNCH_METHOD:-simctl}"
 PAIR_FORCE_TCP_ONLY="${TOXEE_IOS_FORCE_TCP_ONLY:-1}"
 
+# UDP/DHT port isolation (TOX_UDP_START_PORT, see ToxManager.cpp).
+# Both Simulators share the HOST network stack, so both apps' toxcore sockets
+# compete for toxcore's default 33445.. window — with each other AND with any
+# unrelated host process. A foreign IPv4-wildcard holder of 33445 is not a
+# theoretical worry: it was measured here on 2026-08-15 (a `toxtunnel` QA server
+# owned `0.0.0.0:33445`), and because toxcore's dual-stack `[::]:33445` bind
+# still SUCCEEDS, instance A ended up permanently deaf to inbound IPv4 — every
+# bootstrap-node probe answered "unreachable" for live public nodes, and A<->B
+# looked like one-way UDP. Pin a distinct, high, non-default base per instance so
+# the pair is immune to both collisions. Override with TOXEE_IOS_UDP_START_PORT.
+PAIR_UDP_START_PORT="${TOXEE_IOS_UDP_START_PORT:-34700}"
+
+# TEAR DOWN ANY PAIR THIS RUNTIME ROOT STILL OWNS, FIRST.
+#
+# The relay ports above are FIXED (3389 / 3390) and both Simulators share the
+# host network stack, so a pair left running by a previous campaign makes the
+# NEXT pair's `tox_new` fail with TOX_ERR_NEW_PORT_ALLOC — the app then reports
+# "initWithPath failed" and registration dies, which reads as a product bug on
+# the new form factor rather than as leftover state. Measured 2026-08-16: an
+# iPad pair that outlived its campaign killed the whole first iPhone run this
+# way.
+#
+# This is PRECISE, not a sweep: stop_toxee_instance.sh only ever touches the pid
+# recorded in `<root>/<inst>/instance.json`, and only after validating the
+# (pid, start_time, cmdline) triple — a recycled pid fails validation and the
+# stale json is merely cleared. Nothing outside this runtime root is signalled.
+# Best-effort: a missing/stale json is a no-op, so a first launch is unaffected.
+TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
+    "$MCP_DIR/stop_ios_fixture_c_pair.sh" >/dev/null 2>&1 || true
+
 if [[ "$RESTORE_ENABLED" == "1" ]]; then restore_ios_instance A; fi
 TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_SIMULATOR_ID="${SIMULATORS[0]}" \
     TOXEE_IOS_LAUNCH_METHOD="$PAIR_LAUNCH_METHOD" \
     TOXEE_IOS_FORCE_TCP_ONLY="$PAIR_FORCE_TCP_ONLY" \
     TOXEE_IOS_TCP_RELAY_PORT="${TOXEE_IOS_TCP_RELAY_PORT:-3389}" \
+    TOXEE_IOS_UDP_START_PORT="$PAIR_UDP_START_PORT" \
     "$MCP_DIR/launch_toxee_ios_instance.sh" A
 wait_for_instance_json "$RUNTIME_ROOT/A/instance.json"
 A_WS_URI="$(jq -r '.ws_uri' "$RUNTIME_ROOT/A/instance.json")"
@@ -243,6 +274,7 @@ TOXEE_IOS_RUNTIME_ROOT="$RUNTIME_ROOT" \
     TOXEE_IOS_LAUNCH_METHOD="$PAIR_LAUNCH_METHOD" \
     TOXEE_IOS_FORCE_TCP_ONLY="$PAIR_FORCE_TCP_ONLY" \
     TOXEE_IOS_TCP_RELAY_PORT="$(( ${TOXEE_IOS_TCP_RELAY_PORT:-3389} + 1 ))" \
+    TOXEE_IOS_UDP_START_PORT="$(( PAIR_UDP_START_PORT + 200 ))" \
     "$MCP_DIR/launch_toxee_ios_instance.sh" B
 wait_for_instance_json "$RUNTIME_ROOT/B/instance.json"
 B_WS_URI="$(jq -r '.ws_uri' "$RUNTIME_ROOT/B/instance.json")"

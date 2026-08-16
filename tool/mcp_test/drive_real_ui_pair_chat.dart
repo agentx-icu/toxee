@@ -266,66 +266,60 @@ Future<bool> _waitC2cMessageText(
 /// least one keyed `message_menu_item:*` rendered. Foregrounds first + retries.
 ///
 /// WHY THE BRANCH: a mobile shell has no secondary-button pointer, so
-/// `ui_secondary_tap` dispatches a kSecondaryMouseButton PointerDown that the
-/// bubble's Listener never treats as a menu open — the menu simply never
-/// appeared on iOS/Android and every menu-driven chat case
-/// (chat_msg_menu_surface / chat_forward_to_other_conv / …) hard-failed. The
-/// mobile twin is a real touch down→hold→up at 800 ms (past the 500 ms
-/// framework deadline AND the fork's 650 ms recognizer), the same trigger
-/// `mobile_message_long_press_menu` already proves out in
-/// drive_real_ui_pair_mobile_shell.dart. Desktop behaviour is unchanged.
+/// `ui_secondary_tap` dispatches a kSecondaryMouseButton PointerDown the
+/// bubble's Listener never treats as a menu open — every menu-driven chat case
+/// hard-failed on iOS/Android. The mobile twin is a real touch down→hold→up at
+/// 800 ms (past the 500 ms framework deadline AND the fork's 650 ms
+/// recognizer), the trigger `mobile_message_long_press_menu` already proves out
+/// in drive_real_ui_pair_mobile_shell.dart. Desktop behaviour is unchanged.
 Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   await inst.foreground();
-  // Pop the friend's contact profile if it's covering the chat — otherwise the
-  // message row is offstage behind it and the secondary-tap hits the profile
-  // ("menu did not open").
+  // Pop the friend's contact profile if it covers the chat — the row is then
+  // offstage behind it and the trigger hits the profile ("menu did not open").
   await _dismissFriendProfileToUnderlying(inst);
   final rowKey = 'message_list_item:$msgId';
   if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
-    print('[pair] _openMessageMenuReal: row $rowKey not present');
+    // WHERE is the app? "row not present" cannot tell a missing bubble from a
+    // chat surface that left the stack (narrow shell: a dismiss tap that popped
+    // the pushed route) — the ambiguity that cost a shift on kg3's receipt case.
+    print(
+      '[pair] _openMessageMenuReal: row $rowKey not present — '
+      '${await _convShellDiag(inst)}',
+    );
     return false;
   }
-  // A SELF message bubble is right-aligned, so the row's geometric CENTER can
-  // land on empty space left of the bubble — a secondary-tap there misses the
-  // bubble's `Listener.onPointerDown` and no menu opens. Right-click the bubble
-  // itself: prefer a keyed bubble anchor, else bias the tap toward the right
-  // (self) / left (peer) third of the row.
-  final rowCenter = await inst.keyCenter(rowKey);
-  // A SELF bubble is right-aligned WITHIN the chat detail pane. The row center
-  // (rowCenter.x) IS the pane center, so bias toward the pane's RIGHT portion
-  // RELATIVE to it — an absolute x (e.g. 1150) can fall OUTSIDE a narrow pane
-  // and miss entirely (observed rowCenter.x≈404 → pane≈0-808 → 1150 missed). The
-  // pane half-width ≈ rowCenter.x, so 1.4x / 1.6x / 1.8x land in the right third
-  // where the bubble's Listener.onPointerDown is. Alternate with the row-key
-  // center (peer / full-width rows).
-  // Bias factors relative to the pane-center rowCenter.x: 1.0 = row centre,
-  // >1 = RIGHT third (self/outbound bubbles), <1 = LEFT third (peer/INBOUND
-  // bubbles — e.g. a narrow inbound `[Custom]` placeholder sits far left of the
-  // pane centre, so a centre/right tap misses its Listener.onPointerDown and no
-  // menu opens). Cover both sides + centre.
-  // Bias factors relative to the pane-center rowCenter.x. Live-probed on the
-  // Feishu-restyle layout (1280-wide window, rowCenter.x≈831): the SELF (outbound)
-  // bubble's Listener.onPointerDown sits at ≈1.24× rowCenter.x (x≈1030), NOT the
-  // old 1.5× (x≈1247, which overshoots past the bubble's right edge → no menu).
-  // The PEER (inbound) bubble sits at ≈0.6×. Cover the self range (1.12–1.32) and
-  // the peer range (0.45–0.7) densely; 1.8× fell OFF-SCREEN on this wider pane.
-  // MOBILE bias factors: the phone chat pane is the FULL window, so the same
-  // "row centre == pane centre" arithmetic holds, but the self bubble sits
-  // closer in (no sidebar to offset the pane). Use the live-probed mobile set
-  // from `mobile_message_long_press_menu` plus the peer-side factor, and keep
-  // the count short — each mobile attempt costs an 800 ms hold.
-  const biasFactor = <double>[1.24, 0.6, 1.32, 0.5, 1.12, 0.7, 1.0, 0.45];
-  const mobileBiasFactor = <double>[1.24, 0.6, 1.32, 1.0, 0.5];
-  final factors = inst.isMobileShell ? mobileBiasFactor : biasFactor;
+  // A message ROW spans the whole chat pane, but the BUBBLE inside it is
+  // alignment-offset: self/outbound right, peer/inbound left. The row's
+  // geometric centre therefore lands on empty space beside the bubble, where a
+  // secondary-tap / long-press misses its `Listener.onPointerDown` and no menu
+  // opens. So aim at FRACTIONS OF THE ROW'S OWN WIDTH.
+  //
+  // Row-RELATIVE, not centre-scaled (fixed 2026-08-16). Scaling the centre's
+  // ABSOLUTE x assumes the row starts at x == 0 — true only when the chat pane
+  // is flush left. On the iPad master-detail shell the pane starts after the
+  // sidebar + conversation list (live: rowCentre.x = 683 for a ~532..834 pane),
+  // so the "right third" landed at 847/902 (OFF the 834pt screen) and the "left
+  // third" at 410/341, inside the CONVERSATION LIST.
+  // Fractions: 0.72/0.85 sit on a right-aligned self bubble (0.72 reproduces
+  // the live-probed desktop hit at x≈1030 of a 382..1280 pane), 0.15/0.28 on a
+  // left-aligned peer bubble (incl. the narrow inbound `[Custom]` placeholder),
+  // 0.5 is the plain row centre. The mobile list is shorter (800 ms per hold).
+  final rowBox = await _keyBox(inst, rowKey);
+  final rowCenter = rowBox == null ? null : (x: rowBox.x, y: rowBox.y);
+  const bubbleFraction = <double>[0.72, 0.15, 0.85, 0.28, 0.6, 0.4, 0.5];
+  const mobileBubbleFraction = <double>[0.72, 0.15, 0.85, 0.5, 0.28];
+  final factors = inst.isMobileShell ? mobileBubbleFraction : bubbleFraction;
   for (var attempt = 0; attempt < factors.length; attempt++) {
     var tapped = false;
     try {
-      final bias = factors[attempt];
+      final f = factors[attempt];
+      final usable = rowBox != null && rowBox.w > 0;
+      final x = usable ? rowBox.x - rowBox.w / 2 + f * rowBox.w : 0.0;
       if (inst.isMobileShell) {
-        if (rowCenter != null && bias != 1.0) {
+        if (usable && f != 0.5) {
           final r = await inst.l3('ui_long_press', {
-            'x': '${rowCenter.x * bias}',
-            'y': '${rowCenter.y}',
+            'x': '$x',
+            'y': '${rowBox.y}',
             'holdMs': '800',
           });
           if (r['ok'] != true) {
@@ -334,8 +328,8 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
         } else {
           await inst.longPressKey(rowKey);
         }
-      } else if (rowCenter != null && bias != 1.0) {
-        await inst.secondaryTapAt(rowCenter.x * bias, rowCenter.y);
+      } else if (usable && f != 0.5) {
+        await inst.secondaryTapAt(x, rowBox.y);
       } else {
         await inst.secondaryTapKey(rowKey);
       }
@@ -366,13 +360,19 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   await inst.shot('/tmp/ui_open_msg_menu_fail_${inst.name}.png');
   print(
     '[pair] _openMessageMenuReal: menu did not open for $rowKey '
-    '(rowCenter=$rowCenter) shot=/tmp/ui_open_msg_menu_fail_${inst.name}.png',
+    '(rowCenter=$rowCenter rowW=${rowBox?.w}) '
+    'shot=/tmp/ui_open_msg_menu_fail_${inst.name}.png',
   );
   return false;
 }
 
-/// Dismiss an open message menu / popup by tapping the modal barrier corner.
+/// Dismiss an open message menu / popup. The corner tap clears barrier-backed
+/// popups; the keyed Cancel additionally clears an adaptive CONFIRM dialog,
+/// which `showAdaptiveDialog` mounts with `barrierDismissible: false` — a corner
+/// tap can NOT close one, and an abandoned one then sits on the Navigator stack
+/// swallowing every later tap (live: it poisoned 3 sweep_p1_chat cases).
 Future<void> _dismissMessageMenu(Inst inst) async {
+  await inst.tapKeyCenter('confirm_dialog_secondary_button', timeoutSecs: 1);
   await inst.tapAt(8, 8);
   await Future<void>.delayed(const Duration(milliseconds: 500));
 }
@@ -1681,8 +1681,8 @@ Future<bool> _chatImageBubbleOpenPreview(
 ) async {
   // Smallest valid 1x1 PNG (so the bubble's Image.file decodes).
   const pngB64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'awAAAABJRU5ErkJggg==';
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8AAQv8ZYAwAQ84H'
+      '+SUC+b4AAAAASUVORK5CYII=';
   final nonce = DateTime.now().microsecondsSinceEpoch % 100000;
   final fileName = 'rui$nonce.png';
   // Seed FROM B to A (B must be a test account to call l3_send_file).

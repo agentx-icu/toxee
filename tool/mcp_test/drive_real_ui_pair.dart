@@ -154,40 +154,49 @@ import 'local_irc_server.dart';
 //   p2_reply      — P1/P2/P3-campaign Batch VI (P2 reply seam/key case):
 //                   C2C custom inbound seed + real Reply menu/send metadata.
 //   p2_verify     — P1/P2/P3-campaign Batch VII (P2 verify-first result):
-//                   pasted-image composer flow; voice/tray remain documented
-//                   product gaps / L3-pinned surfaces.
+//                   pasted-image composer flow; voice/tray stay documented gaps.
 //   p3             — P1/P2/P3-campaign Batch VIII (P3 writable subset):
 //                   parametric C2C burst perf with advisory timing threshold.
 //   mobile_shell   — FORM-FACTOR cases: mobile-only controls (bottom nav, the
 //                   mobile composer send button, the long-press message menu)
 //                   and the tablet-only master-detail split + per-form-factor
 //                   dialog width tier. Every case SKIPs (75) when the running
-//                   layout tier does not have the surface, and none of them
-//                   uses the osa* keystroke path (a silent no-op on iOS/
-//                   Android).
+//                   layout tier lacks the surface, and none uses the osa*
+//                   keystroke path (a silent no-op on iOS/Android).
 part 'drive_real_ui_pair_inst.dart';
+part 'drive_real_ui_pair_inst_os_input.dart';
+part 'drive_real_ui_pair_keyed_gaps4_mobile_nav.dart';
+// Tap / key-resolution diagnostics (keeps the raw skill('tap') payload).
+part 'drive_real_ui_pair_tap_diag.dart';
 part 'drive_real_ui_pair_shell.dart';
 part 'drive_real_ui_pair_friends.dart';
 part 'drive_real_ui_pair_message_call.dart';
 part 'drive_real_ui_pair_group.dart';
 part 'drive_real_ui_pair_settings.dart';
 part 'drive_real_ui_pair_settings2.dart';
+part 'drive_real_ui_pair_settings2_bootstrap.dart';
+part 'drive_real_ui_pair_settings2_mobile.dart';
+part 'drive_real_ui_pair_settings2_prelogin.dart';
 part 'drive_real_ui_pair_profile.dart';
 part 'drive_real_ui_pair_login.dart';
 part 'drive_real_ui_pair_contacts.dart';
 part 'drive_real_ui_pair_group_profile.dart';
 part 'drive_real_ui_pair_group_menu.dart';
 part 'drive_real_ui_pair_conv.dart';
+part 'drive_real_ui_pair_conv_mobile.dart';
 part 'drive_real_ui_pair_chat.dart';
+part 'drive_real_ui_pair_geom.dart';
 part 'drive_real_ui_pair_c2c_extra.dart';
 part 'drive_real_ui_pair_optimized.dart';
 part 'drive_real_ui_pair_group2.dart';
 part 'drive_real_ui_pair_calls_misc.dart';
+part 'drive_real_ui_pair_calls_misc_video.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
 part 'drive_real_ui_pair_p1_relaunch.dart';
 part 'drive_real_ui_pair_p1_extra.dart';
 part 'drive_real_ui_pair_account_conf_extra.dart';
+part 'drive_real_ui_pair_member_menu.dart';
 part 'drive_real_ui_pair_group_conf_member_extra.dart';
 part 'drive_real_ui_pair_high_value_extra.dart';
 part 'drive_real_ui_pair_p2_keys.dart';
@@ -197,6 +206,28 @@ part 'drive_real_ui_pair_p3.dart';
 part 'drive_real_ui_pair_app_entry_extra.dart';
 part 'drive_real_ui_pair_group_mention.dart';
 part 'drive_real_ui_pair_mobile_shell.dart';
+//   sweep_tally — the shared PASS/FAIL/SKIP verdict rule (net shrink: extracted
+//   out of mobile_shell once four unrelated sweeps started sharing it).
+part 'drive_real_ui_pair_sweep_tally.dart';
+//   msg_select(+_cases) — MESSAGE MULTI-SELECT surface + `dispatchFormFactor`.
+part 'drive_real_ui_pair_msg_select.dart';
+part 'drive_real_ui_pair_msg_select_cases.dart';
+//   keyed_gaps(+_register/_irc) — keyed-but-never-driven batch #2, dispatched
+//   from `dispatchFormFactor` so this file needs no new dispatch lines.
+part 'drive_real_ui_pair_keyed_gaps.dart';
+part 'drive_real_ui_pair_keyed_gaps_register.dart';
+part 'drive_real_ui_pair_keyed_gaps_irc.dart';
+//   keyed_gaps3(+_msg/_contacts/_group) — batch #3, two-process, same dispatch.
+part 'drive_real_ui_pair_keyed_gaps3.dart';
+part 'drive_real_ui_pair_keyed_gaps3_msg.dart';
+part 'drive_real_ui_pair_keyed_gaps3_contacts.dart';
+part 'drive_real_ui_pair_keyed_gaps3_group.dart';
+//   keyed_gaps4(+_msg/_attach/_mobile/_login) — batch #4, same dispatch.
+part 'drive_real_ui_pair_keyed_gaps4.dart';
+part 'drive_real_ui_pair_keyed_gaps4_msg.dart';
+part 'drive_real_ui_pair_keyed_gaps4_attach.dart';
+part 'drive_real_ui_pair_keyed_gaps4_mobile.dart';
+part 'drive_real_ui_pair_keyed_gaps4_login.dart';
 
 /// The ONLY scenarios allowed to fall through the dispatch chain in [_main] and
 /// run the shared add-friend/handshake flow at the bottom of this file. Any
@@ -333,7 +364,7 @@ Future<int> _main(List<String> args) async {
     }
     // Batch 1 — settings sweep 2 (single-instance; drive only A).
     if (scenario == 'sweep_settings2') {
-      return await runSettingsSweep2(a, nickA);
+      return await runSettingsSweep2(a, nickA, peer: b, peerNick: nickB);
     }
     if (scenario == 'sweep_ios_settings_main') {
       return await runIosSettingsMainSweep(a, nickA);
@@ -936,20 +967,13 @@ Future<int> _main(List<String> args) async {
     if (_isGroupMentionCaseScenario(scenario)) {
       return await runGroupMentionCase(a, b, nickA, nickB, scenario);
     }
-    // Form-factor (mobile shell / tablet layout) cases. The sweeps establish
-    // their own A<->B friendship for the cases that need a real C2C chat; the
-    // A-only cases (bottom nav, dialog tier) skip that cost. Every case is
-    // layout-tier gated at runtime and SKIPs (75) rather than pretending to
-    // cover a surface the running shell does not render.
-    if (scenario == 'sweep_mobile_shell') {
-      return await runMobileShellSweep(a, b, nickA, nickB);
-    }
-    if (scenario == 'sweep_tablet_layout') {
-      return await runTabletLayoutSweep(a, b, nickA, nickB);
-    }
-    if (_isMobileShellCaseScenario(scenario)) {
-      return await runMobileShellCase(a, b, nickA, nickB, scenario);
-    }
+    // Form-factor (mobile shell / tablet layout) + multi-select cases. Each
+    // sweep establishes its own A<->B friendship when a case needs a real C2C
+    // chat, and each case SKIPs (75) when the running shell/build has no such
+    // surface instead of faking coverage. The dispatch body lives in
+    // drive_real_ui_pair_msg_select.dart so this file stays under its pin.
+    final formFactorRc = await dispatchFormFactor(a, b, nickA, nickB, scenario);
+    if (formFactorRc != null) return formFactorRc;
     // Focused account-management + conference expansion sweep. Single-instance
     // by design; B stays idle.
     if (scenario == 'sweep_account_conf_extra') {
@@ -1257,26 +1281,8 @@ Future<int> _main(List<String> args) async {
   }
 }
 
-/// Dispose an [Inst] without letting a dead/unreachable peer's VM-service close
-/// hang teardown. Best-effort: swallows errors and times out.
-Future<void> _safeDispose(Inst inst) async {
-  try {
-    await inst.dispose().timeout(const Duration(seconds: 5));
-  } on Object {
-    // Peer already gone / connection broken — nothing left to clean up.
-  }
-}
-
-Future<bool> _retryBool(
-  Future<bool> Function() body, {
-  required String label,
-  int attempts = 30,
-  int intervalMs = 1000,
-}) async {
-  for (var i = 0; i < attempts; i++) {
-    if (await body()) return true;
-    await Future<void>.delayed(Duration(milliseconds: intervalMs));
-  }
-  print('[retry] "$label" never became true');
-  return false;
-}
+// `_safeDispose` now lives in drive_real_ui_pair_keyed_gaps3.dart and
+// `_retryBool` in drive_real_ui_pair_keyed_gaps4.dart (same library, unchanged
+// behaviour) — this file is pinned in tool/.complexity_baseline.txt and the
+// ratchet forbids growth, so the `part` directives those batches needed are
+// paid for by moving them out.

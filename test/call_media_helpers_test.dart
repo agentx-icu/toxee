@@ -213,6 +213,71 @@ void main() {
     }
   });
 
+  group('capture-device probe caching', () {
+    tearDown(() => CallMediaCapabilities.debugDeviceHasCamera = null);
+
+    test('a device-level "no camera" answer disables video everywhere', () {
+      CallMediaCapabilities.debugDeviceHasCamera = false;
+      for (final p in [
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+        TargetPlatform.macOS,
+      ]) {
+        expect(
+          CallMediaCapabilities.supportsVideoCapture(platform: p),
+          isFalse,
+          reason: 'a camera-less $p device takes the receive-only video path',
+        );
+      }
+    });
+
+    test(
+      'ensureCaptureDevicesKnown does NOT clobber an injected answer',
+      () async {
+        // REGRESSION: the setter only nulled the cached probe future, so the
+        // next `ensureCaptureDevicesKnown()` ran a real enumeration whose
+        // result overwrote the injected value (and in a unit test the
+        // MissingPluginException branch would reset it to null → "assume a
+        // camera"). The injected value is now authoritative.
+        CallMediaCapabilities.debugDeviceHasCamera = false;
+        await CallMediaCapabilities.ensureCaptureDevicesKnown();
+        expect(
+          CallMediaCapabilities.supportsVideoCapture(
+            platform: TargetPlatform.iOS,
+          ),
+          isFalse,
+        );
+
+        CallMediaCapabilities.debugDeviceHasCamera = true;
+        await CallMediaCapabilities.ensureCaptureDevicesKnown();
+        expect(
+          CallMediaCapabilities.supportsVideoCapture(
+            platform: TargetPlatform.iOS,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('an inconclusive probe keeps the platform default', () async {
+      // No injection: `availableCameras()` has no plugin in the test host, so
+      // the probe throws and must leave the answer null ("assume the platform
+      // default") rather than latching a false negative.
+      CallMediaCapabilities.debugDeviceHasCamera = null;
+      await CallMediaCapabilities.ensureCaptureDevicesKnown();
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(platform: TargetPlatform.iOS),
+        isTrue,
+      );
+      // And it stays re-probable: a second call must not throw or wedge.
+      await CallMediaCapabilities.ensureCaptureDevicesKnown();
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(platform: TargetPlatform.iOS),
+        isTrue,
+      );
+    });
+  });
+
   test('hides speaker toggle until audio route switching is implemented', () {
     expect(
       CallMediaCapabilities.supportsSpeakerToggle(

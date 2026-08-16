@@ -198,10 +198,13 @@ Behavior to know:
     race-free), with `pm clear` pre-launch for determinism and the same
     profile/history integrity checks as the other launchers. Android restore is
     IMPLEMENTED and the launcher **does bring the pair up to the business
-    layer** (see "Android status" below); what is still missing is a
-    **scenario-level green run** — no `rui-android-*` campaign has been driven
-    end-to-end on two emulators yet, so do not report friendship scenarios as
-    android-green until such a run lands.
+    layer** (see "Android status" below). **The first scenario-level green run
+    landed 2026-08-16**: `rui-android-msg-select` (`sweep_msg_select`, all four
+    cases) went `passed=4 failed=0 skipped=0` on two emulators
+    (`emulator-5554` / `emulator-5556`), including the live A<->B friendship the
+    sweep establishes itself. Other `rui-android-*` campaigns are still
+    unproven — do not report THOSE as android-green until they have their own
+    run.
 - **Native libirc_client gap (honest live-coverage note).** The two IRC cases
   differ in what they need:
   - `irc_join_channel_real_controls` sets the L3 `localAddOverride`, so adding a
@@ -370,6 +373,383 @@ launch):
   restore — which also keeps them runnable on Android, whose restore path is
   implemented but has no scenario-level green run on record yet.
 
+## Message multi-select (`sweep_msg_select`)
+
+`tool/mcp_test/drive_real_ui_pair_msg_select.dart` (dispatch + sweep +
+preconditions) and `..._msg_select_cases.dart` (the case bodies) cover the
+surface behind `message_menu_item:multiSelect`. Until this batch that menu entry
+was keyed but never driven, so the whole select-mode surface was dark AND
+keyless: the toolbar that REPLACES the composer, its delete/forward affordances,
+the delete confirmation dialog, and the select-mode header bar. The keys added
+with it are catalogued in `lib/ui/testing/ui_keys_fork.dart` (`ForkUiKeys`):
+`message_select_{delete,forward,forward_individually,forward_combined}_button`,
+`message_select_forward_{individually,combined}_item`,
+`message_select_delete_{confirm,cancel}_button`,
+`message_select_{clear,cancel}_button`, `message_select_count_text`, plus
+`forward_picker_cancel_button` (the dismiss twin of the existing
+`forward_picker_send_button`).
+
+**Only a CUSTOM bubble can enter select mode.**
+`tencent_cloud_chat_message_item_with_menu_container.dart` strips
+`_uikit_multi_message` from the menu for TEXT bubbles and for
+file/image/video/sound bubbles, which leaves the custom bubble — the same reason
+`reply_quote_real` drives Reply on one. Every case therefore seeds an inbound
+custom message with `l3_inject_c2c_custom` and long-presses / right-clicks THAT
+row.
+
+### Sweep verdicts: an UNDECLARED skip is a failure
+
+`_MobileShellTally` (`drive_real_ui_pair_sweep_tally.dart`) is the shared
+PASS/FAIL/SKIP bookkeeper for `sweep_mobile_shell`, `sweep_tablet_layout`,
+`sweep_keyed_gaps3`, `sweep_keyed_gaps4(_login)` and `sweep_msg_select`.
+
+Its original `finish()` was `failed != 0 -> 1; passed == 0 && skipped != 0 ->
+75; else 0` — so **`passed > 0 && skipped > 0` was GREEN**. That is right for
+the two FORM-FACTOR sweeps it was written for (a case whose surface does not
+exist in the running layout tier is making a capability assertion), and wrong
+for the three sweeps that later adopted it, where every case is meant to run on
+every form factor. The sibling `runKeyedGapsSweep` — written in the same batch —
+already treated an unexpected SKIP as exit 1; the tally now matches it.
+
+`run()` therefore takes `expectedSkip`, **defaulting to false**: a skip fails
+the sweep unless the call site declares that skipping is a legitimate outcome
+for that case. The declared set is the EXPECTED-SKIP REGISTRY at the top of
+`drive_real_ui_pair_sweep_tally.dart`, one place, each entry naming the LIVE
+probe that decides it (layout tier, live composer/menu surface, measured scroll
+extent, or a source-proven bridge gap). `passed == 0 && skipped != 0` still
+exits 75 — a sweep pointed at the wrong shell is inapplicable, not broken.
+
+When adding a case: do NOT add it to the registry to make a red go away. A skip
+justified by flakiness or by an estimated geometry threshold is a swallowed
+failure — that is exactly how `message_viewer_save_and_zoom_surface`,
+`msg_select_forward_combined_absent_gating` and the `group_profile_scroll_view`
+viewport guess were each hiding a real red until 2026-08-16.
+
+**A missing multiSelect entry FAILS — it does not SKIP.** The custom bubble is
+the LAST bubble type that still carries `_uikit_multi_message`, i.e. the only
+door into the entire select-mode surface. Reporting its absence as a SKIP was a
+soft assertion: `_MobileShellTally.finish()` only returns 75 when NOTHING
+passed, and these cases are chained behind others that do pass, so a fork sync
+that dropped multiSelect from custom bubbles too would have made the whole
+surface stop being covered while the run still went green. `_mselEnterSelectMode`
+now returns FALSE there and prints the diagnosis together with the
+`message_menu_item:*` ids the menu DID offer. The source half of the same
+regression is caught device-free by `test/fork_message_multi_select_menu_test.dart`
+in the ordinary `flutter test` gate.
+
+**RETRACTED (2026-08-16): this family has NO SKIP.** An earlier revision of this
+document claimed `msg_select_forward_surface` legitimately SKIPs when the toolbar
+renders no forward affordance, because `enableMessageForwardIndividually` /
+`enableMessageForwardCombined` are product CONFIG toggles a build may turn off.
+That claim was wrong for toxee, and the SKIP it justified was unreachable:
+`enableMessageForwardIndividually` is pinned **true** (`lib/ui/home_page_bootstrap.dart:683`,
+and the fork's own config default is true too), while `enableMessageForwardCombined`
+is pinned **false** by the fork's select-mode container
+(`..._input_select_mode_container.dart:43`, hardcoded until the Tox-side merger
+elem exists). The phone builder gates its single forward icon on
+`enableMessageForwardCombined || enableMessageForwardIndividually`
+(`..._input_select_mode.dart:190`) — `false || true`, always true — and the
+tablet/desktop builders gate theirs on Individually alone, also always true. So a
+toolbar with no forward control cannot mean "config off"; it can only mean the
+toolbar never mounted. That is now a **FAIL** carrying exactly that diagnosis,
+alongside the raw `skill('tap')` payload and the opener's resolved geometry.
+
+| Scenario | Real control driven | Hard assertion | SKIP (75) when |
+|---|---|---|---|
+| `msg_select_enter_and_cancel` | `message_menu_item:multiSelect`, then the header's `message_select_cancel_button` | select mode MOUNTS both ends of the chat surface (`message_select_count_text` + `message_select_delete_button`) and Cancel UNMOUNTS them — presence of those keys IS `inSelectMode`; nothing in the dump exposes it | never — no multiSelect entry is a FAIL |
+| `msg_select_delete_cancel_keeps_message` | multi-select delete → the dialog's `message_select_delete_cancel_button` | dialog closes, the row is still in the tree, the message is still in history, and select mode is STILL up (the fork shares a `handled` latch between the confirm and cancel branches) | never |
+| `msg_select_delete_for_me_removes_row` | the dialog's `message_select_delete_confirm_button` | the row leaves the tree, the message leaves history, and select mode exits by itself (`onDeleteForMe` sets `inSelectMode = false`) | never |
+| `msg_select_forward_surface` | the toolbar's forward affordance, then `forward_picker_cancel_button` | the REAL forward target picker mounts (`forward_picker_send_button`) and unmounts again; nothing is forwarded, so no state is left behind | never — "no forward affordance" is a FAIL (the flags are pinned, so the config-off SKIP is unreachable) |
+
+Design notes if you extend it:
+
+- **The forward path is DETECTED, not guessed.** The phone `defaultBuilder`
+  renders one icon that opens a forward-type bottom sheet; `tabletAppBuilder` /
+  `desktopBuilder` render the per-type buttons directly. The case looks for
+  whichever key is mounted, so a narrowed desktop window (still the desktop
+  builder) does not red it.
+- **The toolbar must SETTLE before it can be tapped** (root cause of the
+  intermittent reds here, fixed 2026-08-16). `_mselEnterSelectMode` used to
+  return as soon as the select-mode HEADER mounted, but the bottom toolbar is a
+  separate, slower animation: the mobile composer swaps it in through an
+  AnimatedSwitcher whose transitionBuilder is a `SlideTransition` from
+  `Offset(1, 0)` (`..._message_input_mobile.dart:972-983`), so it flies in from
+  the right edge. A coordinate tap loses that race by construction — the centre
+  is resolved over one RPC and the pointer dispatched over the next. Measured on
+  Android: `message_select_delete_button` resolved at x=419.4 and x=200.8 for a
+  button that settles at x=40.0 in a 411.4-wide view. The pointer hit empty
+  space, nothing raised an error, and the case reported "the delete dialog never
+  mounted". Element-resolved `skill('tap')` was immune (it invokes the callback,
+  not a point), which is why the forward case appeared to work and the delete
+  cases did not — the difference was the input path, never the control. The gate
+  now waits for the toolbar's centre to stop moving
+  (`Inst.waitKeyCenterSettled`, `drive_real_ui_pair_tap_diag.dart`). Reuse that
+  helper for any other animated surface rather than adding per-case retries.
+- **Combined forward is deliberately not driven.** toxee pins
+  `enableMessageForwardCombined` to false in the select-mode container until the
+  merger-elem protocol exists, so its button / sheet row never renders.
+- **Destructive only to its own probe.** The one deletion is of the throwaway
+  custom bubble the case seeded seconds earlier, so the sweep is
+  `required=no-friend` / `result=friends` like the form-factor sweeps.
+- **No `osa*` anywhere** (silent no-op on iOS/Android), so the sweep is honest on
+  a Simulator/emulator with no driver change.
+
+Campaign wiring: `--real-ui-campaign=rui-msg-select` (platform-agnostic) and
+`rui-ios-msg-select` / `rui-ipad-msg-select` / `rui-android-msg-select` for
+focused debugging; the broad runs get it through `rui-ios-chat-main`,
+`rui-ipad-chat-main` and `rui-android-main`, where it reuses the same launch that
+`sweep_chat` already paid for.
+
+## Keyed-but-never-driven batch #2 (`sweep_keyed_gaps`)
+
+`tool/mcp_test/drive_real_ui_pair_keyed_gaps.dart` (dispatch + sweep + shared
+helpers + the add-group case), `..._keyed_gaps_register.dart` and
+`..._keyed_gaps_irc.dart` cover eight controls that carried a `ValueKey` but that
+no scenario had ever driven. All eight are SINGLE-INSTANCE (A only; B stays
+launched-but-idle), `required=no-friend` / `result=no-friend`.
+
+Production keys added with the batch (all ADDITIVE and state-ENCODED — the
+pre-existing keys could only say "mounted", never "in which state", which is why
+a driver could not assert a flip):
+
+| New key | File | Why |
+|---|---|---|
+| `register_confirm_match_{ok,mismatch}` | `lib/ui/register_page_form.dart` | `register_confirm_match_icon` is identical for check_circle and cancel |
+| `register_confirm_visibility_icon_{obscured,visible}` | same | `obscureText` is invisible through the field value |
+| `register_strength_segment_<i>_{filled,empty}` | `lib/ui/widgets/register_password_strength_bar.dart` | segment fill is a `BoxDecoration.color` |
+| `irc_channel_dialog_password_visibility_icon_{obscured,visible}` | `lib/ui/applications/irc_channel_dialog.dart` | same reason as the register toggle |
+
+They all follow the already-shipped `register_password_visibility_icon_*`
+pattern: the tappable widget keeps its stable key, a sibling key carries state.
+
+| Scenario | Real control driven | Hard assertion |
+|---|---|---|
+| `add_group_type_selector_hint_switches` | `add_group_type_selector` (all three segments) | the per-type hint sentence under the selector SWAPS on every selection (previous hint gone + new hint shown); the dialog is closed with `add_group_close_button` so nothing is created |
+| `irc_channel_dialog_cancel_discards` | `irc_channel_dialog_password_visibility_toggle` + `irc_channel_dialog_cancel_button` | the obscure icon key flips both ways; Cancel closes the dialog AND leaves no channel tile and no `ircChannels` entry (a Cancel that fell through to `addChannel` would still close the dialog) |
+| `irc_channel_remove_row_confirm` | `applications_irc_remove_channel_button:<channel>`, both dialog branches | Cancel: tile survives in the tree AND in `ircChannels`; Remove: tile leaves the tree AND the channel leaves `ircChannels` |
+| `irc_app_uninstall_reinstall_card` | `applications_irc_card` + `applications_irc_uninstall_button`, both branches | Cancel: still installed (button + `ircInstalled == true`); Uninstall: the action row SWAPS to `applications_irc_install_button`, add-channel unmounts, `ircInstalled` flips to false, and the CARD survives |
+| `register_status_field_length_guard` | `register_status_field` | the "Status message too long" inline error MOUNTS over the 24-char cap and UNMOUNTS on a short value, with the typed value read back through `getTextValue` |
+| `register_confirm_match_icon_flips` | `register_confirm_match_icon` | mismatch → match FLIP via the state keys, then the whole badge unmounts when the confirm field is cleared |
+| `register_confirm_visibility_toggle_flips` | `register_confirm_visibility_toggle` | obscured→visible→obscured, PLUS the password field stays `obscured` while the confirm field is revealed (the two flags are independent) |
+| `register_strength_segments_ramp` | `register_password_strength_bar` + `register_strength_segment_<i>` | every rung 0→1→2→3→4 asserted on the SEGMENTS (`_filled` present AND `_empty` absent per index), then reversible back to 0 — the existing `register_password_strength_flips` only reads the caption and pins two rungs |
+
+Notes if you extend it:
+
+- **The unkeyed confirm dialogs are tapped by text through `_kgTapTextTopmost`,
+  not `_tapTextCenter`.** The IRC card's own "Uninstall"/"Remove" labels sit
+  EARLIER in the element tree than the dialog action with the same label, so the
+  first match is the widget covered by the modal barrier. `_kgTapTextTopmost`
+  takes the LAST positive-bounds match, mirroring `tapKeyCenter`'s `.last` rule.
+- **State keys are resolved with `waitKeyCenter` / `_kgWaitKeyCenterGone`**, not
+  `waitKey` / `waitKeyGone`: they sit on `KeyedSubtree`s and bare `Icon`s, which
+  flutter_skill's interactive index never surfaces.
+- **No `osa*` anywhere** — only `focusType` (real paste on desktop,
+  flutter_skill `enterText` on a device) — so the sweep is honest on a
+  Simulator/emulator with no driver change.
+- **Launch reuse**: `sweep_keyed_gaps` is APPENDED to `rui-app-entry-extra`,
+  `rui-ios-account-settings`, `rui-ipad-account-settings` and `rui-android-main`,
+  and is a step inside `sweep_single_app_optimized`. `rui-keyed-gaps` /
+  `rui-android-keyed-gaps` exist only for focused debugging.
+
+### Verify-first exclusions from this batch (do NOT "fix" by writing a case)
+
+- **`av_conference_{join,mute,enable,leave}_button`** — no constructible
+  precondition. The header action renders only when
+  `conversation.groupType == 'av_conference'` (`home_page_bootstrap.dart:6`), and
+  the only producer of that type is an INBOUND `TOX_CONFERENCE_TYPE_AV` invite
+  (`V2TIMManagerImpl.cpp:1157`, `is_av_invite ? "av_conference" : "conference"`).
+  The AddGroupDialog creates exactly three types (`group` / `privateGroup` /
+  `conference`, `add_group_dialog.dart:193`) and `l3_create_group` maps only
+  public/private, so neither the app nor the harness can produce an AV
+  conference. `call_camera_switch_button` additionally needs a live VIDEO call
+  plus `CallMediaCapabilities.supportsCameraSwitch()`.
+- **`message_attachment_{image,photo,video,search}_button`** — dead under
+  toxee's configuration. `buildToxeeMessageAttachmentConfig()`
+  (`lib/ui/home/mobile_attachment_policy.dart`) pins `enableSendImage`,
+  `enableSendVideo`, `enableSendFile` and `enableSearch` to false, and
+  `_buildDesktopInputOptions` builds only `Icons.attach_file` (plus
+  `Icons.qr_code_2` in C2C). The one live sibling is
+  `message_attachment_personal_card_button`, which is a two-process case for the
+  native-boundary sweep and is NOT in this batch.
+- **`add_group_copy_id_button`** — unreachable in production. `_buildCreatedInfo()`
+  renders only while `_createdGroupId != null`, but `_createGroup` pops the
+  dialog on success unless `closeOnCreateSuccess == false`, and nothing in `lib/`
+  ever passes that flag (it defaults to true). Only a widget test can reach it.
+- **`login_page_settings_button`** is NOT uncovered: `sweep_settings2`'s
+  `settings_prelogin_bootstrap_node_test`
+  (`drive_real_ui_pair_settings2_prelogin.dart:96`) already taps it and drives
+  `LoginSettingsPage` → `BootstrapSettingsSection`.
+
+## Keyed-but-never-driven batch #3 (`sweep_keyed_gaps3`)
+
+`tool/mcp_test/drive_real_ui_pair_keyed_gaps3.dart` (dispatch + sweep + shared
+helpers), `..._keyed_gaps3_msg.dart`, `..._keyed_gaps3_contacts.dart` and
+`..._keyed_gaps3_group.dart` close the LAST tranche of keyed-but-undriven
+controls. Unlike batch #2 this one is TWO-PROCESS: `required=no-friend` (the
+sweep runs its own handshake and reuses an existing one) / `result=friends`.
+The six group cases share ONE `_establishTwoProcessGroup`, so the whole batch
+costs one launch, one friendship and one group.
+
+| Scenario | Real control driven | Hard assertion |
+|---|---|---|
+| `msgmenu_reveal_file_location_gating` | `message_menu_item:revealFileLocation` on a real inbound FILE bubble | GATING PAIR: the entry MOUNTS on the file bubble and is ABSENT on a text bubble whose menu is demonstrably up (`message_menu_item:delete` resolves). The TAP is deliberately not driven — desktop `onTap` only runs `Process.run(open/explorer/xdg-open)` (an OS file manager that steals focus) and mobile has no platform branch at all, so there is no in-app observable past the boundary |
+| `msgmenu_read_receipt_group_gating` | `message_menu_item:readReceipt` on A's own group message | GATING PAIR: present on A's OWN just-sent group message (sent through the REAL composer submit seam so the UIKit stamps `needReadReceipt`), ABSENT on B's inbound message in the same group. The entry's `onTap` is literally `{}`, so the render IS the observable. Absent on BOTH → SKIP with the bridge-drops-the-flag diagnosis, negative leg still asserted |
+| `contact_application_detail_decline_removes_row` | `contact_application_detail_decline_button:<uid>` | the detail route renders BOTH actions for a `l3_inject_friend_application` applicant, and after the real Decline the route shows the `tL10n.declined` RESULT text (locale-tolerant match). That string is reachable ONLY from the success arm of `onRefuseApplication`; the earlier `(buttonGone \|\| applicationRemoved) && alive` verdict passed on the FAILURE arm too, because `invalidApplication` also calls `deleteApplicationList` (fixed 2026-08-16) |
+| `friendprof_copy_toxid_snackbar` | `user_profile_copy_id_button` | the production `'Tox ID copied'` SnackBar appears, asserted GONE first so a leftover toast cannot false-pass |
+| `personal_card_send_c2c` | `message_attachment_personal_card_button` | the C2C conversation GROWS by a message (online → QR card file, offline → the two-line failure text) or the `'Personal Card sent'` snackbar shows. LIVE composer probe decides desktop-vs-mobile; the mobile composer SKIPs with the reason |
+| `group_member_info_profile_entry_opens_profile` | `group_member_info_profile_entry` | three route transitions each proven by a route-exclusive key: member-info (`group_member_info_copy_id_button`) → entry mounts → the user profile (`user_profile_copy_id_button`) is the ONSTAGE route while the member-info key stops being onstage. Both onstage halves are in the verdict — `waitKeyCenter` alone resolves through the COVERED full-tree fallback, so a profile route mounted under an opaque cover used to pass (fixed 2026-08-16) |
+| `group_member_action_cancel_closes_sheet` | `group_member_action_cancel_button` | after the real Cancel the sheet's Cancel AND Info actions UNMOUNT while the member-list route stays up (the peer ROW still resolves) — "the sheet closed" vs "Cancel popped the route". LIVE surface probe: the desktop popup SKIPs |
+| `group_add_member_button_opens_picker` | `group_add_member_button` | the REAL profile row (every existing add-member case uses the `l3_open_group_add_member` deep link) mounts the picker's `group_member_invite_confirm_button`, which is then dismissed WITHOUT inviting and the member count is unchanged |
+| `group_profile_scroll_view_scrolls` | `group_profile_scroll_view` | a gesture through the keyed ListView moves the content: the top anchor's centre y drops ≥ 80 (or leaves the tree) and a bottom-anchored control becomes reachable. SKIPs only when the body demonstrably fits: the bottom control sits above the scroll view's MEASURED bottom edge (`ui_key_center` y + h/2), not above a guessed constant that any shorter body would have turned into a swallowed SKIP |
+| `group_profile_edit_name_dialog_cancel` | `group_profile_edit_name_dialog` + its Cancel action | the dialog key MOUNTS, a new name is typed into the real field, Cancel UNMOUNTS it, and the group's `showName` is still the ORIGINAL (Cancel discarded rather than applied) |
+
+Notes if you extend it:
+
+- **Launch reuse**: `sweep_keyed_gaps3` is APPENDED to `rui-ios-chat-main`,
+  `rui-ipad-chat-main` and `rui-android-main` (after `sweep_msg_select`, whose
+  `result=friends` matches), and to the desktop `rui-msg-select-keyed-gaps3`
+  bundle, and it is a step inside `sweep_friendship_optimized` (right after
+  `sweep_group_conf_member_extra`, whose state contract it matches).
+  `--plan-json` confirms ONE pair launch with a single in-place
+  `reset_friendship` between the two sweeps. `rui-{,ios-,ipad-,android-}keyed-gaps3`
+  exist only for focused debugging.
+- **Overlay/KeyedSubtree keys need `waitKeyCenter` / `_kg3WaitKeyCenterGone`**,
+  never `waitKey` / `waitKeyGone` — same reason as batch #2 and
+  `_memberMenuGone`.
+- **`_safeDispose` moved** from `drive_real_ui_pair.dart` into
+  `..._keyed_gaps3.dart` (same library, unchanged) to pay for this batch's four
+  `part` directives without re-pinning the aggregator's complexity baseline.
+
+### Verify-first exclusions from batch #3 (do NOT "fix" by writing a case)
+
+- **`message_menu_item:translate`** — DEAD unconditionally. The generator adds
+  `_uikit_translate`
+  (`tencent_cloud_chat_message_item_with_menu_container.dart:544-552`) and then
+  BOTH post-filters strip it: `:583` for every non-text elemType, `:608-614` for
+  text. No elemType survives both.
+- **`message_menu_item:convertToText`** — DEAD by construction. It needs
+  `dataProvider.soundToTextPluginInstance != null`
+  (`tencent_cloud_chat_message_row_container.dart:483`), but toxee gates the
+  plugin registration on `tim2toxSoundToTextBackendSupported`, a
+  **`const bool ... = false`** (`lib/ui/home/tim2tox_plugin_policy.dart:1`,
+  called from `lib/ui/home_page_plugins.dart:270`). The voice-message
+  precondition is moot.
+- **`contact_group_notifications_tab`** — DEAD. The key is switched on
+  `item.id == 'group_notification'` (`tencent_cloud_chat_contact_tab.dart:48`
+  default / `:112` desktop), but the toxee fork DELETED that tab item from BOTH
+  builders (`tencent_cloud_chat_contact.dart:192-207` and `:280-283`) because
+  the Tox bridge has no group-application concept.
+- **`group_invite_accept_button:<gid>`** — DEAD at two layers. It renders only
+  inside `TencentCloudChatContactGroupApplicationList`
+  (`..._contact_group_application_list.dart:315`), reachable only via
+  `TencentCloudChatRouteNames.groupApplication`; `navigateToGroupApplication`
+  (`tencent_cloud_chat_navigator.dart:268-275`) has ZERO callers, and
+  `Tim2ToxSdkPlatform.getGroupApplicationList()` returns a hard-coded empty list
+  (`tim2tox_sdk_platform.dart:9652-9675`) with `acceptGroupApplication` a no-op.
+- **`contact_app_bar_add_group_item`** (and its `..._add_contact_item` /
+  `contact_app_bar_menu_button` siblings) — DEAD in production. They live in the
+  `else` arm of `if (TencentCloudChatContactAppBarName.trailingBuilder != null)`
+  (`tencent_cloud_chat_contact_app_bar.dart:145-146` / `:198-199`); toxee assigns
+  that hook for HomePage's whole lifetime (`lib/ui/home_page.dart:394`, cleared
+  only in the dispose bag at `:406`) AND overrides `contactAppBarNameBuilder`
+  (`lib/ui/home_page_bootstrap.dart:124` / `:303`).
+
+## Keyed-but-never-driven batch #4 (`sweep_keyed_gaps4` + `sweep_keyed_gaps4_login`)
+
+`tool/mcp_test/drive_real_ui_pair_keyed_gaps4.dart` (spine + dispatch + shared
+probes), `..._keyed_gaps4_msg.dart`, `..._keyed_gaps4_attach.dart`,
+`..._keyed_gaps4_mobile.dart` and `..._keyed_gaps4_login.dart`.
+
+**Re-derived, not inherited.** The gap list was recomputed from scratch:
+every key string in `lib/ui/testing/ui_keys{,_fork,_login}.dart` plus every
+`ValueKey('…')` / `Key('…')` literal under `lib/ui`, `lib/call` and
+`third_party/chat-uikit-flutter`, minus every string appearing in **non-comment**
+driver code under `tool/mcp_test/drive_*.dart`. Result: **282** distinct UI keys,
+**246** already driven, **13** prose-only and **23** absent. Two of the 13
+(`contact_application_decline_button:<uid>`, `search_result_contact:<uid>`) are
+false positives — they are driven through a key string assembled at runtime — and
+one is a doc placeholder, so the honest undriven total is **33**. This batch
+drives **16**; the other 17 are documented verify-first exclusions in the spine
+file's header.
+
+`sweep_keyed_gaps4` is TWO-PROCESS, `required=no-friend` / `result=friends`
+(own handshake, one throwaway group via the shared `_kg3WithGroup`).
+`sweep_keyed_gaps4_login` is SINGLE-instance, `required=no-friend` /
+`result=no-friend` — it is a separate sweep **on purpose**: it logs out,
+registers a throwaway account and deletes it, which is a state contract the
+two-process sweep does not have, and merging them would force a reset.
+
+| Scenario | Real control driven | Hard assertion | SKIP (75) when |
+|---|---|---|---|
+| `msg_select_clear_button_resets_count` | `message_select_clear_button` | Clear is not Cancel (select mode still up) AND the selection really is empty: the subsequent REAL delete-confirm leaves the seeded bubble alive in tree AND history — the same sequence without Clear deletes it | — |
+| `msg_select_forward_combined_absent_gating` | `message_select_forward_combined_{button,item}` | GATING PAIR: the *individually* affordance mounts while its *combined* twin is absent (toxee pins `enableMessageForwardCombined` false). Surface is DETECTED — inline buttons on tablet/desktop, bottom sheet on phone | never — "no forward affordance" is a FAIL. Individually is pinned true at the app AND fork-default layer and the phone builder gates on `combined \|\| individually`, so the only thing that reaches that branch is the select-mode toolbar failing to mount (retracted 2026-08-16, same as `msg_select_forward_surface`) |
+| `attachment_toolbar_disabled_entries_gating` | `message_attachment_{image,photo,video,search}_button` | GATING PAIR over one icon→key switch: file + personal-card entries mount, all four disabled entries absent | the MOBILE composer is mounted |
+| `mobile_attachment_panel_entries` | `message_attachment_{options,file,camera}_button` | the "+" overlay MOUNTS both data-driven entries and they UNMOUNT on dismiss. Entries not tapped (OS picker / camera) | the DESKTOP composer is mounted |
+| `mobile_voice_record_button_reveals` | `chat_voice_record_button` | mutual exclusion of the composer's trailing control across empty→typed→empty; the mic arm was previously invisible to every driver | the DESKTOP composer is mounted |
+| `message_viewer_save_and_zoom_surface` | `message_image_bubble:<msgID>` (the fork's keyed tap target, single `tapAt` at its resolved centre; the row-fraction ladder is only a fallback), then `message_viewer_save_button`, `message_viewer_zoom_<msgID>` | the zoom key carries the MESSAGE IDENTITY, so it proves the viewer bound the right message; save button mounts; both unmount on close. Save tap NOT driven (OS gallery write). On failure it prints `render=` (image/error/loading/absent), `onDisk=` (the driver stats the very file, since iOS runs on this host) and `rendersFinalPath=` — enough to name the layer without another run | never — a viewer that will not open is a FAIL. Flakiness is not a product shape: a SKIP there is indistinguishable from a broken GestureDetector / an image that never decodes / a route that no longer pushes (retracted 2026-08-16) |
+| `mobile_chats_unread_badge_flips` | `home_chats_unread_badge` | drained-0 baseline (badge absent) → one real inbound → `totalUnreadCount == 1` AND badge mounts → read → 0 AND badge unmounts | no bottom nav in this layout tier |
+| `mobile_chat_back_clears_active_peer` | conversation row (real tap) + `chat_header_back_button` (real tap) | the row tap BINDS `activePeerId`, the real back control pops the pushed chat route (asserted **onstage**, not merely resolvable), `activePeerId` is null again, and one real inbound then raises `totalUnreadCount` to 1. NOTHING calls the `l3_clear_active_conversation` seam between the bind and the assert — that seam is precisely what the product was missing | no bottom nav in this layout tier (a master-detail shell rebinds a pane instead of pushing a route) |
+| `mobile_mention_picker_confirm_inserts` | `mention_member:<uid>`, `mention_member_list_confirm_button` | the PEER receives a group message containing `@<label>` — end-to-end, not an in-app probe | the DESKTOP composer is mounted |
+| `mobile_mention_picker_back_empty_selection` | `mention_member_list_back_button` | empty-selection contract: back commits nothing, so the peer receives the probe text with a bare trailing `@` and no label | same |
+| `login_account_delete_confirm_removes_card` | `login_delete_account_confirm_button` | wrong-word guard holds (dialog stays open, card intact), then the right word UNMOUNTS the throwaway card while the primary survives; `finally` quick-logs back into the primary | — |
+
+### Product/fork keys added with batch #4
+
+Five controls had **no key at all**. Every addition is additive (an optional
+parameter or a `key:` argument), changes no behaviour/layout/callback, and reuses
+a key STRING `ui_keys.dart` already declared — so the pinned registry file was
+not touched:
+
+| Key | File | Note |
+|---|---|---|
+| `message_attachment_options_button` | fork `..._message_input_mobile.dart` | `_buildInputAreaIcon` gained an optional `iconKey`. `ui_keys.dart` already CLAIMED this parameter existed; it did not |
+| `message_attachment_{file,camera}_button` | fork `..._message_attachment_options.dart` | derived from the option's `IconData` (only the two icons toxee injects; anything else returns null, so duplicate siblings are impossible) |
+| `chat_voice_record_button` | fork `..._message_input_mobile.dart` | on the `Listener`, deliberately NOT on the `Transform`/`AnimatedBuilder` above it — a state-encoding key on an animated widget remounts it and destroys the animation |
+| `mention_member:<uid>` / `mention_member:atAll` | fork `..._at_group_member_list.dart` | the MOBILE @-picker had zero keys while the desktop panel had the full contract |
+| `mention_member_list_{back,confirm}_button` | same | back is NOT a cancel: both app-bar affordances call `_submitAtMemberList()` |
+
+**Side effect worth knowing:** `personal_card_send_c2c` (batch #3) probes
+`message_attachment_options_button` to tell the mobile composer from the desktop
+toolbar. Until this batch attached it, that probe could never resolve, so the
+case's mobile SKIP branch was unreachable and it reported the wrong diagnosis.
+
+### Batch #4 campaign wiring
+
+Launch reuse is honoured — `--plan-json` shows **one** pair launch for every
+chain below, with only in-place `reset_friendship` maintenance:
+
+- desktop: `rui-msg-select-keyed-gaps34` (`sweep_msg_select` →
+  `sweep_keyed_gaps3` → `sweep_keyed_gaps4`), `rui-keyed-gaps4`,
+  `rui-keyed-gaps4-login`; `sweep_keyed_gaps4` is a step inside
+  `sweep_friendship_optimized` and `sweep_keyed_gaps4_login` inside
+  `sweep_single_app_optimized` (immediately before the destructive
+  `sweep_p1_single` tail).
+- iPhone: appended to `rui-ios-chat-main` and `rui-ios-account-settings`; focused
+  entries `rui-ios-keyed-gaps4` / `rui-ios-keyed-gaps4-login`.
+- iPad: appended to `rui-ipad-chat-main` and `rui-ipad-account-settings`; focused
+  entries `rui-ipad-keyed-gaps4` / `rui-ipad-keyed-gaps4-login`. On a tablet only
+  ONE case skips — `mobile_chats_unread_badge_flips`, on `_msPhoneShell` — while
+  the forward case hits `tabletAppBuilder`'s inline buttons instead of the phone
+  sheet. **The "four narrow-shell cases SKIP on a tablet" claim this bullet used
+  to make was WRONG**; see "iPad mounts the MOBILE composer" below.
+- Android: appended to `rui-android-main`; focused entries
+  `rui-android-keyed-gaps4` / `rui-android-keyed-gaps4-login`.
+
+`sweep_keyed_gaps4_login` also rides `rui-app-entry-extra` (all three sweeps
+there are single-instance `no-friend`/`no-friend`). Note this widened
+`tool/check_source_contracts.py`'s `rui-app-entry-extra` needle from an exact
+one-element list to a prefix, so appending compatible sweeps stays legal.
+
+**No `osa*` anywhere** in either sweep — only `focusType` (atomic on every
+platform), real taps, and the `l3_composer_set_text` / `l3_composer_send` /
+`l3_send_file` / `l3_group_member_list` seams. The `@` that opens the mention
+picker is PLUMBING for the surface under test, not the thing asserted, which is
+why these cases do not have to SKIP on a device the way `sweep_group_mention`
+does.
+
+**NOT EXECUTION-VERIFIED.** Authored offline against the widget source; no
+campaign run has driven any batch-#4 case yet.
+
 ### Mobile campaign matrix (`fixture_c_real_ui_mobile_campaigns.dart`)
 
 The mobile half of the campaign catalog was split out of
@@ -379,15 +759,18 @@ The mobile half of the campaign catalog was split out of
 as before). Read that file for the per-campaign rationale; the load-bearing
 rules are:
 
-**Inventory** (38 mobile campaigns; re-derive with `--list-real-ui-campaigns`
-rather than trusting these numbers). Case counts are the sweep's own chain
-length, so a family total counts a case once per form factor, not once overall:
+**Inventory** — **53** mobile campaigns as of 2026-08-16. **Re-derive, do not
+trust this table**: `--list-real-ui-campaigns` is the authority. The previous
+version claimed 38 and carried hand-maintained per-sweep CASE counts that
+nothing regenerates; only the figures a script can produce from
+`mobileRealUiCampaigns` are kept, because a hand-maintained number is a stale
+number waiting to happen.
 
-| family | campaigns | sweeps covered | cases |
-| --- | --- | --- | --- |
-| iPhone (`rui-ios-*` + `rui-mobile-shell`) | 17 | login 9, ios_settings_main 6, chat 16, group2 14, mobile_shell 5, profile 8, p2_reply 1, p3_writable 1, c2c_deep_extra 1, group_conf_deep_extra 3, settings2 12, p1_single 5, account_conf_extra 6, c2c_extra 5, native_boundary_guards 6, account_deep_extra 1, conv 10, calls_misc 10, contacts 15 | 134 |
-| iPad (`rui-ipad-*`) | 15 | login 9, ios_settings_main 6, chat 16, group2 14, tablet_layout 2, profile 8, c2c_deep_extra 1, group_conf_deep_extra 3, group_conf_member_extra 5, settings2 12, p1_single 5, account_conf_extra 6, c2c_extra 5, conv 10, calls_misc 10, contacts 15, p1_chat 8 | 135 |
-| Android (`rui-android-*`) | 6 | login 9, chat 16, mobile_shell 5, profile 8, settings2 12, conv 10, contacts 15 | 75 |
+| family | campaigns | sweeps covered |
+| --- | --- | --- |
+| iPhone (`rui-ios-*` + `rui-mobile-shell`) | 22 | account_conf_extra, account_deep_extra, c2c_deep_extra, c2c_extra, calls_misc, chat, contacts, conv, group2, group_conf_deep_extra, ios_settings_main, keyed_gaps, keyed_gaps3, keyed_gaps4, keyed_gaps4_login, login, mobile_shell, msg_select, native_boundary_guards, p1_single, p2_reply, p3_writable, profile, settings2 |
+| iPad (`rui-ipad-*`) | 20 | account_conf_extra, c2c_deep_extra, c2c_extra, calls_misc, chat, contacts, conv, group2, group_conf_deep_extra, group_conf_member_extra, ios_settings_main, keyed_gaps, keyed_gaps3, keyed_gaps4, keyed_gaps4_login, login, msg_select, p1_chat, p1_single, profile, settings2, tablet_layout |
+| Android (`rui-android-*`) | 11 | chat, contacts, conv, keyed_gaps, keyed_gaps3, keyed_gaps4, keyed_gaps4_login, login, mobile_shell, msg_select, profile, settings2 |
 
 **Ordering is free.** Every `sweep_*` scenario in `_requiredRealUiState` (all 32
 of them, mobile-registered or not) declares `required=no-friend`, and the
@@ -450,6 +833,303 @@ forward / draft-restore across a pushed route) are not written yet, so an iPhone
 run would drive the wrong surface instead of SKIPping. Add `rui-ios-group-member`
 / `rui-ios-p1-chat` once those branches exist — do not assume them.
 
+`sweep_p1_chat` itself is **live-green on iPad (7 PASS / 0 FAIL / 1 SKIP,
+2026-08-16)**. It got there through ONE root cause, not four: the non-desktop
+recall-confirm dialog carried no `confirm_dialog_primary_button` key, and because
+`showAdaptiveDialog` defaults to `barrierDismissible: false` the abandoned dialog
+stayed on the Navigator stack and swallowed every subsequent tap — which is why
+four unrelated-looking cases failed together. Green on iPad is NOT a claim about
+iPhone: the sweep stays `rui-ipad-p1-chat`-only until its `isMobileShell`
+navigation branches are written (the `osa*` objection to running it on a phone
+was a red herring — every `osa*` wrapper already gates on `_usesSyntheticInput`,
+which includes iOS).
+
+### iPad mounts the MOBILE composer (corrects several claims above)
+
+Proved live on 2026-08-16 (`rui-ipad-keyed-gaps4`, two independent runs) and
+confirmed at the source: `TencentCloudChatMessageInput.tabletAppBuilder`
+(`..._message_input/tencent_cloud_chat_message_input.dart`) delegates straight to
+`defaultBuilder`, which builds `TencentCloudChatMessageInputMobile`. Only
+`desktopBuilder` builds `TencentCloudChatMessageInputDesktop`. So on a tablet:
+
+- `mobile_attachment_panel_entries` and `mobile_voice_record_button_reveals`
+  **PASS** on iPad — they do not skip, because the "+" overlay opener and the
+  hold-to-record mic are both mounted;
+- `attachment_toolbar_disabled_entries_gating` **SKIPs** on iPad with "the MOBILE
+  composer is mounted". Its desktop-composer branch is therefore reachable ONLY
+  on a real desktop shell — an iPad run does not cover it, contrary to what the
+  campaign catalog used to claim;
+- the two `mobile_mention_picker_*` cases **RUN** on iPad (they gate on
+  `_kg4ComposerKind`, not on the platform name);
+- `mobile_chats_unread_badge_flips` is the ONLY tablet skip in the batch, and it
+  gates on `_msPhoneShell` (no `home_bottom_nav`), not on the composer.
+
+Rule of thumb: on iOS/Android, "wide shell" changes the SHELL (sidebar rail vs
+bottom nav, master-detail vs pushed routes), not the COMPOSER. Anything that
+wants the desktop input builder needs an actual desktop run.
+
+### A swallowed `non_test_account` is a silent vacuous baseline
+
+`l3_clear_active_conversation`, `l3_force_home_root` and the L3 seeding tools are
+**test-gated**: an account registered through the real UI is a PRODUCT account
+and gets `{ok:false, error:'non_test_account'}`. `Inst.forceHomeRoot` recovers
+from that itself (mark → retry → unmark); **`Inst.clearActiveConversation` does
+not**, and the widespread `on DriveError { if (!_isNonTestAccountError(e)) rethrow; }`
+idiom then swallows the refusal as if it were benign.
+
+It is not benign for anything that measures UNREAD.
+`FfiChatService.getC2CUnreadCount` short-circuits to 0 for `_activePeerId`, so a
+conversation that was never unbound reads 0 no matter what arrives. A drain loop
+therefore "reaches a 0 baseline" immediately, the next real inbound is counted as
+READ on arrival, and the case reports a broken badge that is really a live
+diagnosis of its own precondition. That is exactly why
+`mobile_chats_unread_badge_flips` sat at `totalUnreadCount=0 want 1` on iPhone
+across every attempt: A's log contained **no** `l3_clear_active_conversation:
+cleared …` line at all, while `l3_force_home_root` logged its clears fine.
+
+Rules for any case that asserts unread/badge state:
+
+1. wrap the clears in `markAccountTest()` / `unmarkAccountTest()` — the same
+   idiom `_kg4ViewerSaveAndZoom` already uses around `l3_send_file`;
+2. **fail** on a refusal, never swallow it — every assertion after it is
+   unfalsifiable;
+3. assert the conversation row is PRESENT in the dump (`tracked`), so an
+   un-hydrated conversation list cannot drain "clean" vacuously.
+
+Open follow-up (found, not fixed): on the NARROW shell nothing product-side
+clears `setActivePeer` when the pushed chat route is popped — `_openChat` pushes
+the UIKit message route and only `onTapConversationItem` binds the peer, with no
+matching unbind. So a phone user who backs out of a chat keeps that peer's unread
+suppressed. Fixing it needs a `NavigatorObserver` (or an equivalent route-pop
+hook) in `HomePage`; the harness cases above do not depend on it because they
+unbind explicitly.
+
+**What the fix un-masked** (`mobile_chats_unread_badge_flips`, iPhone,
+2026-08-16). With the conversation genuinely unbound the COUNT half is now
+correct — `totalUnreadCount=1 want 1`, `perConv={c2c_…: 1}`,
+`currentConversation=null` — so the case has moved from "the count never moves"
+to a single remaining unknown: `badgeShown=false`, i.e. neither
+`waitKeyCenter('home_chats_unread_badge')` nor `waitKey` resolves the badge
+while the count IS 1. The count is read from the same
+`TencentCloudChat…conversation.totalUnreadCount` the badge's builder
+(`TencentCloudChatConversationTotalUnreadCount`, which does subscribe to the
+`totalUnreadCount` key and `safeSetState`s) reads, so the two candidates are:
+
+- a DRIVER limit — the badge is a `Positioned(top:-5, right:-6)` inside a
+  `Stack(clipBehavior: Clip.none)` inside `BottomNavigationBarItem.icon`, so it
+  paints OUTSIDE its parent's bounds; a centre-point probe that validates
+  hit-testing can legitimately refuse it. Its sibling
+  `sidebar_chats_unread_badge` has no such geometry, which is why
+  `unread_badge_total_sidebar` passes on iPad;
+- a PRODUCT gap — the bottom-nav item subtree not rebuilding with the store.
+
+Next step is to probe `bottom_nav_chats` (the parent `Stack`'s key) and the
+rendered count TEXT in the same run: if the parent resolves and the digit is on
+screen, it is the driver's geometry rule, not the badge.
+
+### Fourth iOS shift — three product bugs, root-caused live (2026-08-16)
+
+Each of these was diagnosed by disproving the previous shift's hypothesis with a
+live probe first, then fixed at the layer the evidence pointed at.
+
+**1. The bottom-nav unread badge never rendered on the tab you were standing on**
+(`mobile_chats_unread_badge_flips`, `badgeShown=false` while the store said 1).
+`BottomNavigationBar` renders `selected ? item.activeIcon : item.icon`
+(flutter/src/material/bottom_navigation_bar.dart). toxee attached the badge — and
+the `bottom_nav_chats_tab` automation key — to `icon` ONLY, with `activeIcon` a
+bare `Icon`, so BOTH vanished the moment the Chats tab was selected. Not a driver
+geometry limit: the widget was not in the element tree at all. Fixed by
+extracting `ChatsNavIcon` (`lib/ui/home/home_widgets.dart`) and building it for
+both glyphs. **Mobile parity: shared Dart, so iOS and Android both get it; the
+wide shell has no bottom nav and uses `sidebar_chats_unread_badge`.** Green on
+iPhone in two independent runs, and independently confirmed green on Android.
+
+**2. Backing out of a chat suppressed that peer's unread count forever.** On a
+compact shell `_openChat` PUSHES the UIKit message route; `onTapConversationItem`
+binds `setActivePeer(conversationID)` on the way in and nothing unbound on the
+way out. `FfiChatService.getC2CUnreadCount` short-circuits to 0 for the active
+peer, so every later message from that friend was counted as already-read — no
+row badge, no nav badge, no tray badge — until the user happened to open some
+other chat. Fixed with `ActiveConversationRouteObserver`
+(`lib/navigation/active_conversation_route_observer.dart`), registered on the
+root `MaterialApp`, which clears the binding when a route named
+`TencentCloudChatRouteNames.message` pops / is removed / is replaced. An observer
+rather than an `await`-at-the-push-site because the route is pushed from at least
+four places and can also leave the stack via gestures with no call site at all.
+**Mobile parity: iOS and Android share the observer; desktop/tablet never push
+that route (they rebind a master-detail pane), so it simply never fires there.**
+Covered by the new `mobile_chat_back_clears_active_peer` case, which is the one
+case that never touches the `l3_clear_active_conversation` seam after binding.
+
+**3. `message_viewer_save_and_zoom_surface` was red for four device shifts
+because of TWO harness defects — and the "product decode bug" everyone
+(including this shift, at first) inferred from the error placeholder was NOT
+one.** The evidence chain, in order:
+
+- `structured=null` proved the OLD failure mode outright: the case aimed its
+  "6 bounded retry taps" using `_p1cKeyBounds`, i.e. flutter_skill's
+  `interactiveStructured`, which only reports widgets in its interactive
+  allow-list. `message_list_item:` sits on `TencentCloudChatMessageItemContainer`
+  (a plain StatefulWidget), so the lookup returned NOTHING and **zero taps were
+  ever dispatched**. The fork's 300 ms `onTapUp` window was NOT the cause —
+  flutter_skill's `_dispatchTap` is a 50 ms down→up, and its `onTapDownTime > 0`
+  clause makes even a dropped down harmless.
+- With the tap actually landing (the new `message_image_bubble:<msgID>` key on
+  the fork's GestureDetector, resolved through `ui_key_center`), the viewer STILL
+  did not open, and the new `render=` probe said `error` while `onDisk=70B`
+  reported a valid PNG on disk. The error placeholder is an `InkWell`, which wins
+  the gesture arena over the image's parent `GestureDetector` — **an errored
+  bubble is untappable by construction**, so no tap timing or position could ever
+  have fixed it.
+- `rendersFinalPath=true` then killed the "stale path" theory: the widget was
+  decoding the EXACT file the driver had just stat'ed at 70 bytes. Which left
+  one suspect nobody had checked — **the seed itself**. A three-line hermetic
+  probe settled it: the shared fixture,
+  `iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC…` (a 1x1 8-bit GRAY+ALPHA PNG),
+  makes `ui.instantiateImageCodec` throw *"Codec failed to produce an image,
+  possibly due to invalid image data"*. `file(1)` calls it "PNG image data,
+  1 x 1", which is exactly why it survived four shifts of inspection. **The
+  product was right to render the decode-error placeholder. The fixture was
+  broken.**
+
+Replaced with a 2x2 8-bit RGBA PNG in all four drivers that carried it
+(`keyed_gaps4_attach`, `p1_chat`, `chat`, `high_value_extra`), plus the two
+avatar seeds in `profile` which turned out to be undecodable in the same way.
+`message_viewer_save_and_zoom_surface` then went **green on iPad, first attempt,
+with `render=image`** and the bubble measuring a square 198x198 instead of the
+placeholder's 198x263.34.
+
+**New hermetic gate: `test/mcp/real_ui_image_seed_decodes_test.dart`.** It scans
+the driver SOURCE for base64 PNG literals (re-joining Dart's adjacent-string
+wrapping) and decodes each with the real Flutter codec. It caught the profile
+avatar seeds on its first run. A device campaign is an absurd place to discover
+an invalid fixture; this costs under a second in `flutter test`.
+
+The fork hardening stays, on its own merits: on a local decode error the image
+bubble now `evict()`s the cached provider, re-runs `_getImageUrl()` (so a stale
+path is re-resolved too) and rebuilds with a bumped nonce, up to 8 times with
+backoff capped at 2 s, and the error placeholder's own tap re-arms the same
+recovery for the user. `Image` resolves its provider once per provider identity
+and `FileImage` compares equal on (path, scale), so without this ONE unlucky
+decode of a genuinely half-written received file sticks until the user leaves and
+re-enters the chat. **Mobile parity: fork Dart, so iOS/Android/desktop all get
+it.** Note it did NOT rescue the bad seed (8 retries over ~13 s all failed, as
+they should) — that is the cleanest evidence that the seed, not the timing, was
+the problem.
+
+Three fork keys were added for this, mirrored in `lib/ui/testing/ui_keys_fork.dart`
+and pinned in `tool/check_source_contracts.py`:
+`message_image_bubble:<msgID>` (the tap target), `message_image_error:<msgID>` /
+`message_image_loading:<msgID>` (the two placeholders, which share the image's
+geometry so a bounds probe cannot tell them apart), and
+`message_image_render_path:<path>` (the key CARRIES the path being decoded, so
+one probe separates "undecodable file" from "stale path").
+
+`_p1cImagePreviewOpenHardened` (`sweep_p1_chat`) used the same broken bounds
+lookup AND passed on `rowRendered` alone as a "documented best-effort floor".
+That floor is **retracted**: it made the case unable to fail for the exact
+regression it names, and it hid this bug for a whole batch. It now drives the
+bubble key and is hard in both directions.
+
+**Also fixed this shift**
+
+- `settings_prelogin_bootstrap_node_test` on iPhone
+  (`onScreen="none-of-the-known-verdicts"`, both halves). NOT a missing sixth
+  verdict and NOT `BootstrapProbeUnavailable`: the screenshot the case now takes
+  on failure showed all three manual-node fields correctly filled, the caret
+  still in the public-key field, and the Test button below the visible fold. The
+  three fills leave the SOFT KEYBOARD up; the IME covers the bottom of a phone
+  screen and swallows taps aimed there while the element tree keeps reporting
+  those controls at their unobscured coordinates — so the tap "succeeded" and the
+  probe never ran. Fixed with `Inst.hideKeyboard()` plus dropping the measured
+  settings band cache (a band measured with the IME up is wrong for the resized
+  viewport) before nudging and tapping. iPad never hit it: it has the viewport to
+  spare, which is why this case had only ever been exercised there. iPhone:
+  **13 PASS / 0 FAIL, first attempt.** The failure diagnostics gained the
+  `invalidNodeInfo` sixth candidate, a per-field `form[...]` presence report and
+  a screenshot, so the next reader gets the answer without a round-trip.
+- `msgmenu_read_receipt_group_gating` on iPhone (`_openMessageMenuReal: row … not
+  present`). The self leg passed and the PEER leg died with the message list
+  absent from the tree entirely — `_dismissMessageMenu`'s corner tap pops the
+  pushed chat route on a narrow shell. The case now re-anchors the group chat
+  between the two legs (the same normalization it already does before the self
+  leg; no assertion changed), and `_openMessageMenuReal`'s not-present branch now
+  prints `_convShellDiag` so "row missing" can never again be confused with
+  "surface gone". iPhone: **8 PASS / 0 FAIL / 2 declared SKIP, first attempt**.
+- `Inst.clearActiveConversation` now has the mark → retry → unmark recovery
+  `forceHomeRoot` had. The recovery was hoisted into a shared `_l3TestGated`
+  helper and applied to the third test-gated `Inst` seam as well
+  (`l3_pop_to_root`, reached from `osaEscape` and `_popMobileCoveringRoute`,
+  which used to log a `non_test_account` refusal as a warn and carry on with the
+  covering route still up). Paying for it needed a deliberate split: the OS-input
+  primitives moved to `drive_real_ui_pair_inst_os_input.dart` as an
+  `extension InstOsInput on Inst` (Dart has no partial classes; same library, so
+  private access is unchanged), taking that file from its 1354 pin to 1178. The
+  other two gated `Inst` seams — `l3_delete_friend` and `l3_window_state` — are
+  deliberately NOT wrapped: both are called from paths that already mark the
+  account, and both FAIL loudly rather than reporting a vacuous success.
+
+### iPhone rollout — live results (2026-08-16, `rui-ios-*`)
+
+First end-to-end iPhone runs of campaigns previously only exercised on iPad. All
+under the STRICTER tally (`unexpectedSkipped` counts as failure), one complete
+run each, `TOXEE_IOS_KEEP_SIMULATOR_FRONT=1`, pair torn down between campaigns:
+
+| campaign | result | notes |
+| --- | --- | --- |
+| `rui-ios-msg-select` | **4 P / 0 F / 0 S**, rc=0 | clean first attempt |
+| `rui-ios-keyed-gaps3` | 8 P / 1 F / 1 S (declared) | FAIL `msgmenu_read_receipt_group_gating` — `_openMessageMenuReal` reports "row … not present", i.e. the self bubble never rendered for the long-press; this case is in the expected-skip registry but it FAILED rather than skipped |
+| `rui-ios-settings2` | 12 P / 1 F | FAIL `settings_prelogin_bootstrap_node_test` — see below |
+| `rui-ios-keyed-gaps4` | 6 P / 2 F / 1 S (declared) | both `mobile_mention_picker_*` PASS; see the two reds below |
+
+`settings_prelogin_bootstrap_node_test` is a genuinely NEW code path the iPad run
+never reached. The iOS pair is TCP-only, so `peerPort=0` and the case takes its
+udp-less branch and waits for `nodeTestUdpUnavailable` ("Node test needs UDP;
+this device is running TCP-only"). The probe reported
+`onScreen="none-of-the-known-verdicts"` for BOTH the dead and the live host —
+none of the five verdict strings resolved at all, not merely the wrong one. Both
+the snackbar (`BootstrapVerdictUi.snackBarFor`) and the persistent pill
+(`pillFor`) use that exact l10n string, so the next step is whether the pill is
+simply below the fold on a narrow shell after the probe re-renders (the case
+already scrolls in bands) rather than a missing verdict. iPad passes this case
+through its reachable/unreachable branches, which is why the udp-less branch had
+never been executed anywhere.
+
+Two sweeps stay iPad-only for the reasons in "Two sweeps are iPad-only on
+purpose": `sweep_p1_chat` (no `isMobileShell` branches for recall / forward /
+draft-restore across a pushed route) and `sweep_group_conf_member_extra` (zero
+`isMobileShell` branches at all). `home_tabs_cycle_state_retained` remains a
+by-design SKIP on a phone — there is no master-detail pane to retain.
+
+### Back-to-back iOS pairs MUST be torn down between campaigns
+
+The iOS pair pins **fixed host ports** for the Tox TCP relay —
+`TOXEE_IOS_TCP_RELAY_PORT` default **3389** for A and **3390** for B
+(`launch_ios_fixture_c_pair.sh`) — because two sandboxed Simulator apps cannot
+reach each other over same-host UDP loopback and need exactly one relay each.
+Both Simulators share the host network stack, so a **survivor from a previous
+campaign still holding `TCP *:3389 (LISTEN)`** makes the next pair's `tox_new`
+fail at registration. Guest apps also leak across a device-type switch
+(iPhone → iPad and back), which is how an iPhone campaign launched straight
+after an iPad one used to die in `[A] registering ... via real UI`.
+
+So any script that runs more than one iOS campaign must call
+`./tool/mcp_test/stop_ios_fixture_c_pair.sh` (and pause a few seconds) **between**
+campaigns — not only at the end:
+
+```bash
+for camp in rui-ipad-keyed-gaps4 rui-ios-keyed-gaps4 rui-ios-settings2; do
+  dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui \
+    --real-ui-platform=ios --real-ui-campaign="$camp" > "/tmp/$camp.log" 2>&1
+  ./tool/mcp_test/stop_ios_fixture_c_pair.sh >/dev/null 2>&1
+  sleep 8
+done
+```
+
+`stop_ios_fixture_c_pair.sh` documents the same rule at its head; this is the
+campaign-level restatement, since the failure surfaces as a registration timeout
+in the NEXT campaign and reads like a flake rather than a leak.
+
 **Verification status (be precise about this):** these scenarios were authored
 offline and are **NOT EXECUTION-VERIFIED** — no dart/flutter toolchain was
 available where they were written, so nothing here has been run against a live
@@ -475,10 +1155,24 @@ were misread:
   `stop_android_fixture_c_pair.sh:55` deletes it on every NORMAL teardown, so a
   clean run always leaves the directory without one.
 
-The accurate statement is: **the Android pair reaches the business layer, but
-there is no scenario-level green run on record.** No `rui-android-*` campaign
-has been driven end-to-end on two emulators, so results there are UNPROVEN, not
-impossible. Report them as such.
+The accurate statement (updated 2026-08-16) is: **the Android pair reaches the
+business layer AND one campaign is now proven green end-to-end.**
+`rui-android-msg-select` ran `passed=4 failed=0 skipped=0` on `emulator-5554` /
+`emulator-5556`. Every OTHER `rui-android-*` campaign is still UNPROVEN, not
+impossible — report those as such.
+
+Two things that first green run taught, both worth knowing before the next one:
+
+- **JDK.** The Gradle build needs a JVM >= 11. A machine with only the system
+  Java 8 fails at `assembleDebug` with "Dependency requires at least JVM runtime
+  version 11", and the launcher surfaces it only as "A flutter run exited before
+  the VM URI appeared". Export `JAVA_HOME` to a JDK 17 before launching.
+- **Host contention is the dominant flake source.** Running the Android pair
+  next to an iOS Simulator campaign starved the emulator to ~4.9 s frames and
+  killed instance A's VM service mid-sweep (`SocketException: Connection
+  refused` on the forwarded port, then every subsequent case fails as an
+  EXCEPTION). That is environmental, not a scenario defect; the runner's
+  automatic second attempt recovered it. Prefer not to overlap the two.
 
 ### Still not covered on mobile (deliberate, with reasons)
 

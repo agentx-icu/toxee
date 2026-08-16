@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
 import '../util/account_reconciliation.dart';
@@ -45,6 +46,13 @@ class AppBootstrap {
       );
     }
     await AppRuntimeBootstrap.initialize();
+    // Learn whether this DEVICE actually has a camera before anything can offer
+    // a video call, so a camera-less device never raises a camera permission
+    // sheet it cannot resolve (that modal covers the app and blocks even VOICE
+    // calls). Backgrounded: inconclusive until it resolves means "platform
+    // default", which is the old behaviour. See
+    // CallMediaCapabilities.refreshCaptureDevices.
+    unawaited(CallMediaCapabilities.refreshCaptureDevices());
     await DesktopShellBootstrap.initializeIfNeeded();
     // OS-level notifications. Lazy-safe — the service no-ops on unsupported
     // platforms and the V2TimAdvancedMsgListener that actually drives

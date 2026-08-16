@@ -6,8 +6,9 @@
 //   - each mode radio (manual / auto / lan) persists via Prefs.getBootstrapNodeMode
 //     and flips the visible affordances;
 //   - the manual node form's Test button validates host/port/pubkey and, with
-//     no FfiChatService, surfaces the documented "test unavailable before
-//     login" snackbar without claiming a fake success;
+//     no FfiChatService, still runs a REAL reachability probe through
+//     BootstrapNodeProbe (which supplies its own ephemeral Tox instance) and
+//     reports a genuine verdict — never a "not available before login" excuse;
 //   - invalid manual input (empty fields, out-of-range port) raises the
 //     invalidNodeInfo error snackbar and never writes Prefs;
 //   - the current-node card reflects Prefs.setCurrentBootstrapNode (the same
@@ -26,11 +27,11 @@
 //     renders _buildModeRowMobile (a 2-segment manual/auto button, no LAN) and
 //     Prefs.setBootstrapNodeMode('lan') is coerced back to 'auto'. We assert
 //     the desktop classification (the test process is macOS) explicitly.
-//   - "Set as Current Node" through the button: it only appears after a node
-//     tests successfully, which requires a live FfiChatService. With
-//     service: null the test can never succeed, so the button is unreachable;
-//     we instead validate its persistence target (setCurrentBootstrapNode)
-//     directly. See the returned report.
+//   - "Set as Current Node" through the button appears once a node tests
+//     successfully. Pre-login that is now reachable (the probe no longer needs
+//     a session), but the probe itself talks to the network, so these hermetic
+//     tests stub it via BootstrapNodeProbe.debugProbeOverride and additionally
+//     validate its persistence target (setCurrentBootstrapNode) directly.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/settings/bootstrap_settings_section.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/util/bootstrap_node_probe.dart';
 import 'package:toxee/util/platform_utils.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -287,10 +289,33 @@ void main() {
       );
     });
 
-    testWidgets('Test with valid fields but no service shows '
-        '"test unavailable before login" and keeps result null', (
+    // REGRESSION GATE. This case used to assert the OPPOSITE — that pre-login
+    // the Test button surfaced "Cannot send a bootstrap request before login".
+    // That string was the bug: the one surface a disconnected user can reach
+    // refused to do the one thing they needed. The button must now run the real
+    // probe (stubbed here) and render its verdict.
+    testWidgets('Test with valid fields and no service still probes for real', (
       tester,
     ) async {
+      final probed = <({String host, int port, String pubkey, bool hadService})>[];
+      var verdict = BootstrapProbeVerdict.reachable;
+      BootstrapNodeProbe.debugProbeOverride =
+          ({
+            required String host,
+            required int port,
+            required String publicKey,
+            service,
+          }) async {
+            probed.add((
+              host: host,
+              port: port,
+              pubkey: publicKey,
+              hadService: service != null,
+            ));
+            return verdict;
+          };
+      addTearDown(() => BootstrapNodeProbe.debugProbeOverride = null);
+
       await enterManualMode(tester);
 
       await tester.enterText(
@@ -308,29 +333,47 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      // service: null → no real probe; the section refuses to fake a result.
+      expect(
+        probed,
+        [
+          (
+            host: 'node.example.com',
+            port: 33445,
+            pubkey: _validPubkey,
+            hadService: false,
+          ),
+        ],
+        reason:
+            'Pre-login the Test button must drive BootstrapNodeProbe with the '
+            'typed tuple and no session, not bail out early',
+      );
       expect(
         find.text('Cannot send a bootstrap request before login'),
-        findsOneWidget,
-        reason:
-            'Pre-login the section declines to TCP-probe a UDP port and '
-            'tells the user the test is unavailable',
-      );
-      // Because the result stays null, the "Set as Current Node" button
-      // (gated on a successful test) must NOT appear.
-      expect(
-        find.text('Set as Current Node'),
         findsNothing,
-        reason:
-            'Without a successful test there is no node to promote; the '
-            'set-as-current affordance is correctly absent pre-login',
+        reason: 'That verdict no longer exists in the product',
       );
+      expect(find.text('Node reachable'), findsWidgets);
+      // A reachable node pre-login now unlocks promotion, which is the whole
+      // point: a user who cannot connect can configure a working node.
+      expect(find.text('Set as Current Node'), findsOneWidget);
+
+      // And a negative probe reads as a real failure verdict.
+      verdict = BootstrapProbeVerdict.unreachable;
+      await tester.enterText(
+        find.byKey(UiKeys.manualNodeHostField),
+        'dead.example.com',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(UiKeys.manualNodeTestButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(probed, hasLength(2));
+      expect(find.text('Node unreachable'), findsWidgets);
+      expect(find.text('Set as Current Node'), findsNothing);
     });
   });
 
-  // ----------------------------------------------------------------------
-  // current-node card: the persistence target of "Set as Current Node".
-  // ----------------------------------------------------------------------
   group('current-node card (Prefs.setCurrentBootstrapNode)', () {
     testWidgets('seeded current node renders host:port + truncated pubkey', (
       tester,

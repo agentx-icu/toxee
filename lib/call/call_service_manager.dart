@@ -35,33 +35,7 @@ import '../util/locale_controller.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
 
-@visibleForTesting
-bool callForegroundUsesCamera({
-  required CallMode mode,
-  required bool isVideoEnabled,
-  required bool supportsVideoCapture,
-  required bool isVideoCapturing,
-}) {
-  return mode == CallMode.video &&
-      isVideoEnabled &&
-      supportsVideoCapture &&
-      isVideoCapturing;
-}
-
-@visibleForTesting
-bool shouldShowIncomingCallNotificationFallbackNotice(
-  IncomingCallNotificationOutcome outcome,
-) {
-  return outcome == IncomingCallNotificationOutcome.inAppOnlyFallback ||
-      outcome == IncomingCallNotificationOutcome.failedFallback;
-}
-
-@visibleForTesting
-bool shouldOfferSettingsForIncomingCallNotificationFallback(
-  IncomingCallNotificationOutcome outcome,
-) {
-  return outcome == IncomingCallNotificationOutcome.inAppOnlyFallback;
-}
+part 'call_service_manager_predicates.dart';
 
 /// Manages ToxAV service lifecycle and bridges events to CallStateNotifier.
 ///
@@ -1219,18 +1193,27 @@ class CallServiceManager
     _videoHandler.setCodecProfile(CallCodecProfile.defaultProfile);
   }
 
-  Future<bool> _ensurePermissionsForCurrentMode() async {
-    // Camera-less platforms accept video calls receive-only: local capture
-    // never starts (see _startMediaCapture / acceptCall's videoBitRate 0),
-    // so requesting camera permission would only block or reject an accept
-    // that needs nothing but the microphone.
+  /// THE single choke point for call permissions: join the capture-device probe
+  /// first, then only ask for camera when this device can actually CAPTURE.
+  /// Camera-less devices still take video calls receive-only (local capture
+  /// never starts — see _startMediaCapture / acceptCall's videoBitRate 0).
+  /// Rationale for the await: CallMediaCapabilities.ensureCaptureDevicesKnown.
+  Future<CallPermissionResult> _requestCallPermissions({
+    required bool wantVideo,
+  }) async {
+    await CallMediaCapabilities.ensureCaptureDevicesKnown();
     final result = await CallPermissionHelper.requestPermissionsForCallDetailed(
-      isVideo:
-          _callState.mode == CallMode.video &&
-          CallMediaCapabilities.supportsVideoCapture(),
+      isVideo: wantVideo && CallMediaCapabilities.supportsVideoCapture(),
+    );
+    if (!result.granted) _emitPermissionNotice(result);
+    return result;
+  }
+
+  Future<bool> _ensurePermissionsForCurrentMode() async {
+    final result = await _requestCallPermissions(
+      wantVideo: _callState.mode == CallMode.video,
     );
     if (!result.granted) {
-      _emitPermissionNotice(result);
       debugPrint(
         '[CallServiceManager] Required call permissions denied for mode=${_callState.mode}',
       );
@@ -1239,6 +1222,9 @@ class CallServiceManager
   }
 
   Future<bool> _preflightOutgoingCall(String userID, String type) async {
+    // Join the startup capture-device probe BEFORE the gate below reads
+    // supportsVideoCapture() — see _requestCallPermissions.
+    await CallMediaCapabilities.ensureCaptureDevicesKnown();
     // Central video-capture gate: hidden buttons (useVideoCall) cover the
     // main surfaces, but the fork has other startVideoCall entry points
     // (call-record bubble tap, message row). Deny at setup so EVERY outgoing
@@ -1262,12 +1248,7 @@ class CallServiceManager
       );
       return false;
     }
-    final result = await CallPermissionHelper.requestPermissionsForCallDetailed(
-      isVideo: type == TYPE_VIDEO,
-    );
-    if (!result.granted) {
-      _emitPermissionNotice(result);
-    }
+    final result = await _requestCallPermissions(wantVideo: type == TYPE_VIDEO);
     return result.granted;
   }
 
@@ -1693,6 +1674,9 @@ class CallServiceManager
   Future<void> toggleVideo() async {
     final enableVideo = !_callState.isVideoEnabled;
     if (enableVideo) {
+      // Join the startup capture-device probe BEFORE the gate below reads
+      // supportsVideoCapture() — see _requestCallPermissions.
+      await CallMediaCapabilities.ensureCaptureDevicesKnown();
       if (!CallMediaCapabilities.supportsVideoCapture()) {
         // Windows/Linux have no camera capture backend — enabling the camera
         // would silently send no frames (see VideoHandler's
@@ -1700,12 +1684,9 @@ class CallServiceManager
         _emitLocalizedUiNotice((l10n) => l10n.callVideoUnsupportedPlatform);
         return;
       }
-      final result =
-          await CallPermissionHelper.requestPermissionsForCallDetailed(
-            isVideo: true,
-          );
+      final result = await _requestCallPermissions(wantVideo: true);
       if (!result.granted) {
-        _emitPermissionNotice(result);
+        // _requestCallPermissions already emitted the user-facing notice.
         debugPrint(
           '[CallServiceManager] Video permission denied while enabling camera',
         );

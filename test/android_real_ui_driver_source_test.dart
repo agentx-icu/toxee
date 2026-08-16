@@ -80,18 +80,28 @@ void main() {
     expect(openSelfProfile, contains("_tryTapText(inst, 'Profile')"));
   });
 
-  test('P1 home-tab selector uses mobile bottom navigation', () {
-    final p1 = File(
-      'tool/mcp_test/drive_real_ui_pair_p1_single.dart',
-    ).readAsStringSync();
-    final start = p1.indexOf('Future<bool> _p1SelectHomeTab');
-    final end = p1.indexOf('Future<bool> _p1OpenLanguageSettings', start);
-    final selector = p1.substring(start, end);
-    expect(selector, contains('inst.isMobileShell'));
-    expect(selector, contains('bottom_nav_chats_tab'));
-    expect(selector, contains('bottom_nav_contacts_tab'));
-    expect(selector, contains('bottom_nav_settings_tab'));
-  });
+  test(
+    'P1 home-tab selector picks bottom navigation by LAYOUT, not platform',
+    () {
+      final p1 = File(
+        'tool/mcp_test/drive_real_ui_pair_p1_single.dart',
+      ).readAsStringSync();
+      final start = p1.indexOf('Future<bool> _p1SelectHomeTab');
+      final end = p1.indexOf('Future<bool> _p1OpenLanguageSettings', start);
+      final selector = p1.substring(start, end);
+      // The selector must resolve the bottom-nav twin from the LIVE layout
+      // (`_homeShellHasBottomNav` resolves the real `home_bottom_nav` key), NOT
+      // from `Inst.isMobileShell` — that is `isIos || isAndroid`, which an iPad
+      // satisfies while still rendering the WIDE sidebar shell, so the old
+      // platform test aimed every tab tap at a `bottom_nav_*` id that iPadOS
+      // never builds (live iPad red: zh_locale_page_walk, contactsOpened=false).
+      expect(selector, contains('_homeShellHasBottomNav(inst)'));
+      expect(selector, isNot(contains('inst.isMobileShell')));
+      expect(selector, contains('bottom_nav_chats_tab'));
+      expect(selector, contains('bottom_nav_contacts_tab'));
+      expect(selector, contains('bottom_nav_settings_tab'));
+    },
+  );
 
   test('Group profile opener is single-fire on onstage avatars', () {
     final source = File(
@@ -305,8 +315,13 @@ void main() {
   });
 
   test('Android P1 and app-entry boundaries use mobile-safe paths', () {
+    // The OS-input primitives (setClipboard / osa* and their synthetic
+    // substitutes) moved out of drive_real_ui_pair_inst.dart into the
+    // `InstOsInput` extension part on 2026-08-16, when that file had to make
+    // room for the `_l3TestGated` recovery. Same library, same members — only
+    // the file changed, so this test follows them there.
     final inst = File(
-      'tool/mcp_test/drive_real_ui_pair_inst.dart',
+      'tool/mcp_test/drive_real_ui_pair_inst_os_input.dart',
     ).readAsStringSync();
     const clipboardStart = 'Future<void> setClipboard';
     final clipboardBegin = inst.indexOf(clipboardStart);
@@ -537,9 +552,15 @@ void main() {
     // that rationale is worth keeping.)
     expect(beforeLogout, contains("forceHomeRoot(tab: 'settings')"));
 
-    final instSource = File(
-      'tool/mcp_test/drive_real_ui_pair_inst.dart',
-    ).readAsStringSync();
+    // `Inst` now spans two part files (the OS-input primitives moved to the
+    // InstOsInput extension — see the note above), and this block pins members
+    // from BOTH. Concatenate them so the assertions stay about the CLASS rather
+    // than about which file a member happens to sit in.
+    final instSource =
+        File('tool/mcp_test/drive_real_ui_pair_inst.dart').readAsStringSync() +
+        File(
+          'tool/mcp_test/drive_real_ui_pair_inst_os_input.dart',
+        ).readAsStringSync();
     final settingsShortcutStart = instSource.indexOf(
       'Future<void> osaOpenSettingsShortcut',
     );
@@ -573,16 +594,46 @@ void main() {
       lessThan(shellSource.indexOf("_tryTapText(inst, 'Back')")),
     );
 
+    // The mark -> retry -> unmark recovery is no longer inlined in
+    // forceHomeRoot: it was hoisted into `_l3TestGated` (2026-08-16) so the
+    // OTHER test-gated seams get it too. A real-UI account is a PRODUCT account,
+    // and a swallowed `non_test_account` on a STATE seam is worse than a loud
+    // failure — an unbound `l3_clear_active_conversation` leaves the active peer
+    // bound, and `getC2CUnreadCount` then reports 0 for it forever, making every
+    // unread assertion downstream unfalsifiable.
+    final gatedStart = instSource.indexOf(
+      'Future<Map<String, dynamic>> _l3TestGated',
+    );
+    final gatedEnd = instSource.indexOf(
+      'Future<void> clearActiveConversation',
+      gatedStart,
+    );
+    final gated = instSource.substring(gatedStart, gatedEnd);
+    expect(gated, contains("r['error'] == 'non_test_account'"));
+    expect(gated, contains('final marked = await markAccountTest()'));
+    expect(gated, contains('if (marked) await unmarkAccountTest()'));
+
     final forceHomeStart = instSource.indexOf('Future<void> forceHomeRoot');
     final forceHomeEnd = instSource.indexOf(
       'Future<bool> openAddFriendDialogViaL3',
       forceHomeStart,
     );
     final forceHome = instSource.substring(forceHomeStart, forceHomeEnd);
-    expect(forceHome, contains("r['error'] == 'non_test_account'"));
-    expect(forceHome, contains('final marked = await markAccountTest()'));
-    expect(forceHome, contains('if (marked) await unmarkAccountTest()'));
+    expect(forceHome, contains("_l3TestGated('l3_force_home_root'"));
     expect(forceHome, contains('navToolsUnavailable = true'));
+    expect(forceHome, contains("_l3TestGated('l3_pop_to_root')"));
+    // The seam whose silent refusal produced a VACUOUS unread baseline.
+    final clearStart = instSource.indexOf(
+      'Future<void> clearActiveConversation',
+    );
+    final clearEnd = instSource.indexOf(
+      'Future<void> forceHomeRoot',
+      clearStart,
+    );
+    expect(
+      instSource.substring(clearStart, clearEnd),
+      contains("_l3TestGated('l3_clear_active_conversation')"),
+    );
 
     final l3Tools = File(
       'lib/ui/testing/l3_debug_tools.dart',

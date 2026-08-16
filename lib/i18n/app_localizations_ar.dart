@@ -520,7 +520,7 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get testNode => 'إرسال طلب تمهيد';
+  String get testNode => 'اختبار العقدة';
 
   @override
   String get deleteAccount => 'حذف الحساب';
@@ -822,12 +822,14 @@ class AppLocalizationsAr extends AppLocalizations {
   String get close => 'إغلاق';
 
   @override
-  String get nodeNotTestedWarning =>
-      'لم يتم إرسال طلب تمهيد إلى هذه العقدة بعد.';
+  String get nodeNotTestedWarning => 'لم يتم اختبار هذه العقدة بعد.';
 
   @override
-  String get nodeTestFailedWarning =>
-      'فشل طلب التمهيد؛ قد لا تكون هذه العقدة متاحة.';
+  String get nodeTestFailedWarning => 'لم تستجب هذه العقدة؛ قد تكون غير متاحة.';
+
+  @override
+  String get nodeTestInconclusiveWarning =>
+      'تعذّر فحص هذه العقدة من هذا الجهاز، لذا لا يُعرف شيء عن حالتها.';
 
   @override
   String get nicknameTooLong => 'الاسم المستعار طويل جداً';
@@ -866,14 +868,20 @@ class AppLocalizationsAr extends AppLocalizations {
   String get setAsCurrentNode => 'تعيين كعقدة حالية';
 
   @override
-  String get nodeTestSuccess => 'تم إرسال طلب التمهيد';
+  String get nodeTestSuccess => 'العقدة متاحة';
 
   @override
-  String get nodeTestFailed => 'فشل إرسال طلب التمهيد';
+  String get nodeTestUdpUnavailable =>
+      'يتطلب اختبار العقدة UDP؛ يعمل هذا الجهاز عبر TCP فقط';
 
   @override
-  String get nodeTestUnavailableBeforeLogin =>
-      'لا يمكن إرسال طلب تمهيد قبل تسجيل الدخول';
+  String get nodeTestFailed => 'العقدة غير متاحة';
+
+  @override
+  String get nodeTestUnavailable => 'اختبار العقدة غير متاح على هذا الجهاز';
+
+  @override
+  String get failedToLoadBootstrapNodes => 'فشل تحميل عُقد التمهيد';
 
   @override
   String get failedToStartBootstrapService => 'فشل بدء خدمة الإقلاع';

@@ -74,6 +74,32 @@ import UIKit
   // MARK: - Channel registration
 
   @objc func register(binaryMessenger: FlutterBinaryMessenger) {
+    #if targetEnvironment(simulator)
+      // CallKit is NOT functional on the iOS Simulator. `reportNewIncomingCall`
+      // and `CXStartCallAction` both SUCCEED there, and CallKit then performs a
+      // `CXEndCallAction` for the same UUID within the same second — there is no
+      // telephony subsystem to host the call. Diagnosed live on 2026-08-16
+      // (iPad Pro sim pair): the callee logged
+      //   `_onIncomingCall ... startRinging ... state=ringing`
+      // immediately followed by
+      //   `CallKit action: kind=CallKitActionKind.end`
+      // which drove `rejectCall()`, and the caller's ToxAV then reported
+      // `_onCallState state=2 (FINISHED)` ~2 s later. Every voice-call scenario
+      // in `sweep_calls_misc` failed as "incoming voice call never rang" for
+      // exactly this reason, on BOTH form factors, since the first run.
+      //
+      // Leaving the channel unregistered makes Dart's `CallKitBridge` take its
+      // already-existing `MissingPluginException` branch, which is the SAME
+      // fallback a real device takes when CallKit refuses to present the UI
+      // (e.g. "Silence Unknown Callers"): the in-app incoming-call view rings
+      // instead. Device builds are untouched — this is a compile-time
+      // simulator-only branch, so nothing about the shipped CallKit behaviour
+      // changes.
+      NSLog("[CallKitProvider] iOS Simulator: CallKit channel NOT registered "
+        + "(the Simulator ends every reported call immediately); the app uses "
+        + "its in-app incoming-call UI.")
+      return
+    #else
     let methodChannel = FlutterMethodChannel(
       name: "toxee/callkit",
       binaryMessenger: binaryMessenger
@@ -82,6 +108,7 @@ import UIKit
       self?.handle(methodCall: call, result: result)
     }
     self.channel = methodChannel
+    #endif
   }
 
   // MARK: - Dart → Native

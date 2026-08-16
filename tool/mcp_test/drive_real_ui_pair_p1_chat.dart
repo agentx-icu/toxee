@@ -416,10 +416,8 @@ Future<bool> _p1cRecallMessage(
   }
   if (!await a.waitKeyCenter('message_menu_item:recall', timeoutSecs: 4)) {
     await _dismissMessageMenu(a);
-    print(
-      '[pair] chat_recall_message: recall item not present on fresh self '
-      'message (recallTimeLimit/config regression?)',
-    );
+    print('[pair] chat_recall_message: recall item not present on fresh '
+        'self message (recallTimeLimit/config regression?)');
     return false;
   }
   if (!await a.tapKeyCenter('message_menu_item:recall', timeoutSecs: 6)) {
@@ -430,10 +428,12 @@ Future<bool> _p1cRecallMessage(
   // The keyed desktop confirm dialog (same key as the delete confirm).
   if (!await a.waitKeyCenter('confirm_dialog_primary_button', timeoutSecs: 8)) {
     await a.shot('/tmp/ui_p1c_recall_noconfirm_A.png');
+    await _dismissMessageMenu(a);
     print('[pair] chat_recall_message: recall confirm dialog did not open');
     return false;
   }
   if (!await a.tapKeyCenter('confirm_dialog_primary_button', timeoutSecs: 6)) {
+    await _dismissMessageMenu(a);
     print('[pair] chat_recall_message: recall confirm not tappable');
     return false;
   }
@@ -1266,16 +1266,12 @@ Future<bool> _p1cSearchEmptyState(Inst a) async {
 // ===========================================================================
 // case p1c-8 — image_preview_open_hardened (P1#16)
 // ===========================================================================
-/// Batch-6 case 69 hardened: seed an inbound image via l3_send_file (B→A,
-/// seed-marker required), wait for the REAL bubble row, then retry-tap ACROSS
-/// the row's LEFT region (inbound bubbles are left-aligned, ≤198px wide — a
-/// row-center tap can miss the bubble; the tap must also be a quick <300ms
-/// down-up for the fork's onTapUp guard). HARD when the keyed viewer
-/// (`message_viewer_root`, added this batch) mounts on any attempt — then it
-/// is tapped once (single-fire tapKeyCenter; onTap == closeViewer) and must
-/// unmount. If every retry exhausts, print the documented best-effort SOFT
-/// result and pass IFF the bubble row itself rendered (the batch-6 honest
-/// floor); fail only when the bubble never rendered.
+/// Seed an inbound image via l3_send_file (B→A, seed-marker required), wait for
+/// the REAL bubble row, tap the fork's keyed `message_image_bubble:<msgID>`
+/// GestureDetector (row-relative fractions as fallback), then require the keyed
+/// viewer (`message_viewer_root`) to mount, be closed by a single-fire tap
+/// (onTap == closeViewer) and unmount. HARD in every direction as of
+/// 2026-08-16 — the old "pass if the row rendered" floor is retracted below.
 Future<bool> _p1cImagePreviewOpenHardened(
   Inst a,
   Inst b,
@@ -1283,8 +1279,8 @@ Future<bool> _p1cImagePreviewOpenHardened(
   String toxB,
 ) async {
   const pngB64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'awAAAABJRU5ErkJggg==';
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8AAQv8ZYAwAQ84H'
+      '+SUC+b4AAAAASUVORK5CYII=';
   final nonce = DateTime.now().microsecondsSinceEpoch % 100000;
   final fileName = 'ruip1c$nonce.png';
   final sent = await b.l3('l3_send_file', {
@@ -1324,27 +1320,29 @@ Future<bool> _p1cImagePreviewOpenHardened(
     print('[pair] image_preview_open_hardened: bubble row never rendered');
     return false;
   }
-  // Give the async image decode a beat (the tappable GestureDetector mounts
-  // only after the image info resolves), then bounded retry-taps across the
-  // left region of the row with backoff.
+  // Give the async image decode a beat, then tap the fork's KEYED bubble target
+  // (`message_image_bubble:<msgID>` on the GestureDetector itself). The old
+  // row-fraction ladder read its bounds from flutter_skill's
+  // `interactiveStructured`, which never reports the row's non-interactive
+  // container — so it aimed nowhere and dispatched zero taps. The ladder is kept
+  // as a fallback, now fed by `_keyBox` (centre + extent) and corrected to be
+  // left-edge relative. See `_kg4ViewerSaveAndZoom` for the full diagnosis.
   await Future<void>.delayed(const Duration(milliseconds: 1200));
   var viewerMounted = false;
+  final bubbleKey = 'message_image_bubble:$imageMsgId';
   const fractions = <double>[0.18, 0.28, 0.40, 0.50, 0.22, 0.33];
-  for (
-    var attempt = 0;
-    attempt < fractions.length && !viewerMounted;
-    attempt++
-  ) {
-    final bounds = await _p1cKeyBounds(a, rowKey);
-    if (bounds == null) {
-      // Row scrolled out / not laid out — re-anchor and retry.
-      await _ensureChatOpen(a, toxB);
-      await a.waitKey(rowKey, timeoutSecs: 4);
-      continue;
+  for (var attempt = 0; attempt <= fractions.length && !viewerMounted; attempt++) {
+    if (attempt == 0) {
+      if (!await a.tapKeyAt(bubbleKey)) continue;
+    } else {
+      final box = await _keyBox(a, rowKey);
+      if (box == null || box.w <= 0) {
+        await _ensureChatOpen(a, toxB);
+        await a.waitKey(rowKey, timeoutSecs: 4);
+        continue;
+      }
+      await a.tapAt(box.x - box.w / 2 + box.w * fractions[attempt - 1], box.y);
     }
-    final x = bounds.x + bounds.w * fractions[attempt];
-    final y = bounds.y + bounds.h * 0.5;
-    await a.tapAt(x, y);
     viewerMounted = await a.waitKey('message_viewer_root', timeoutSecs: 3);
     if (!viewerMounted) {
       await Future<void>.delayed(Duration(milliseconds: 500 + attempt * 300));
@@ -1375,14 +1373,16 @@ Future<bool> _p1cImagePreviewOpenHardened(
   }
   await returnToChatsHome(a, rounds: 4);
   print(
-    '[pair] image_preview_open_hardened: SOFT — bubble rendered but the '
-    'preview viewer did not mount after ${fractions.length} positioned '
-    'retry-taps (async-mount GestureDetector / bubble hit-region). '
-    'Documented best-effort floor (batch-6 scope note): PASSING on the '
-    'rendered bubble; the viewer half stays best-effort until a run-phase '
-    'session can tune tap timing/position with live bounds.',
+    '[pair] image_preview_open_hardened: FAIL — the bubble rendered but the '
+    'viewer never mounted, from a tap at the keyed `$bubbleKey` target nor '
+    'from ${fractions.length} row-relative retry taps. This used to PASS on '
+    '`rowRendered` alone as a "best-effort floor"; that floor made the case '
+    'unable to fail for the exact regression it names (a dead GestureDetector, '
+    'an image that never decodes, a viewer route that no longer pushes) and it '
+    'hid the real defect — the bounds lookup resolved nothing, so no tap was '
+    'ever dispatched. Retracted 2026-08-16.',
   );
-  return rowRendered;
+  return false;
 }
 
 // ===========================================================================

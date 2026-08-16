@@ -88,85 +88,8 @@ Future<bool> _seedConvRow(Inst inst, String tox, {String? text}) async {
   return _waitConversationListed(inst, convId, timeoutSecs: 12);
 }
 
-/// Open the REAL C2C conversation-row context menu for [tox] — the production
-/// `onSecondaryTapConversationItem` (desktop right-click) /
-/// `onLongPressConversationItem` (mobile long-press) path, no gated tool. Both
-/// triggers land on the SAME `_showConversationContextMenu` handler
-/// (home_page.dart:428/437), so the keyed menu items asserted below are
-/// identical on every platform. Lands on the chats home first so the
-/// conversation list is mounted. Returns whether the menu's keyed items
-/// appeared.
-///
-/// TRIGGER PER SHELL (why this branches): the fork's row wraps its content in
-/// `TencentCloudChatGesture` with BOTH `onSecondaryTapDown` and
-/// `onLongPressStart` (tencent_cloud_chat_conversation_item.dart:303-312). A
-/// mobile shell has NO secondary-button pointer at all — a `ui_secondary_tap`
-/// there dispatches a kSecondaryMouseButton PointerDown that the row's
-/// recognizer never claims, so the menu NEVER opened and every menu-driven C2C
-/// case (surface / pin / clear / delete) hard-failed on iOS+Android. The mobile
-/// twin is a genuine touch down→hold→up (`ui_long_press`, 800 ms — past both
-/// the 500 ms framework deadline and the fork's 650 ms recognizer; a shorter
-/// hold releases as a TAP, which NAVIGATES into the chat). Desktop keeps the
-/// right-click path byte-for-byte.
-Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
-  await returnToChatsHome(inst, rounds: 4);
-  await inst.foreground();
-  // Pop a leaked contact profile that can cover the conversation list.
-  await _dismissFriendProfileToUnderlying(inst);
-  final rowKey = _convRowKey(tox);
-  if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
-    print('[pair] _openConvRowMenuReal: row $rowKey not present');
-    return false;
-  }
-  var rowCenter = await inst.keyCenter(rowKey);
-  for (var attempt = 0; attempt < 4; attempt++) {
-    await inst.foreground();
-    if (inst.isMobileShell && !await inst.waitKey(rowKey, timeoutSecs: 1)) {
-      // A long-press that released early degenerates into a TAP, which opens
-      // the chat and unmounts the row. Recover to the list before retrying so
-      // the next attempt presses a real row instead of the chat surface.
-      await returnToChatsHome(inst, rounds: 3);
-      rowCenter = await inst.keyCenter(rowKey);
-    }
-    try {
-      // Alternate the keyed trigger (which can resolve a stale OFFSTAGE copy
-      // and fire on empty space) with a coordinate trigger at the resolved row
-      // center — a full-width conv row is tappable anywhere on it.
-      if (inst.isMobileShell) {
-        if (attempt.isOdd && rowCenter != null) {
-          final r = await inst.l3('ui_long_press', {
-            'x': '${rowCenter.x}',
-            'y': '${rowCenter.y}',
-            'holdMs': '800',
-          });
-          if (r['ok'] != true) {
-            print('[pair] _openConvRowMenuReal: ui_long_press warn: $r');
-          }
-        } else {
-          await inst.longPressKey(rowKey);
-        }
-      } else if (attempt.isOdd && rowCenter != null) {
-        await inst.secondaryTapAt(rowCenter.x, rowCenter.y);
-      } else {
-        await inst.secondaryTapKey(rowKey);
-      }
-    } on DriveError catch (e) {
-      print('[pair] _openConvRowMenuReal: menu trigger warn: ${e.message}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    // Either the Pin or Unpin item renders depending on current pin state.
-    // Detect via the element-tree resolver (waitKeyCenter → resolveKeyCenter):
-    // the context menu can render in an Overlay.insert entry that flutter_skill's
-    // whole-tree waitKey does not traverse.
-    if (await inst.waitKeyCenter('conversation_context_menu_pin_item',
-            timeoutSecs: 3) ||
-        await inst.waitKeyCenter('conversation_context_menu_unpin_item',
-            timeoutSecs: 2)) {
-      return true;
-    }
-  }
-  return false;
-}
+// `_openConvRowMenuReal` (+ its per-shell triggers and diagnostics) lives in
+// `drive_real_ui_pair_conv_mobile.dart`.
 
 /// Dispatch a conversation-row menu action (`pin`/`mark_read`/`delete`) for a
 /// C2C conversation DIRECTLY through the production handler via the ungated
@@ -348,7 +271,17 @@ Future<bool> _convMarkReadTwoProc(
   var bSent = 0;
   var seeded = false;
   for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
-    await openChat(b, toxA);
+    try {
+      // B's FIRST chat open of the sweep: the peer pane/route binding can miss
+      // once under 2-process contention (the identical open succeeds in the
+      // later bump case on the same launch), and openChat THROWS on a miss —
+      // which aborted this case before its own retry loop could help.
+      await openChat(b, toxA);
+    } on DriveError catch (e) {
+      print('[pair] conv_mark_read_two_proc: B open-chat retry $attempt '
+          '(${e.message})');
+      continue;
+    }
     for (var i = 0; i < 3; i++) {
       if (await sendComposerMessage(b, 'RUIB5UNREAD-$attempt$i-$nonce')) bSent++;
     }
@@ -362,8 +295,11 @@ Future<bool> _convMarkReadTwoProc(
   if (!seeded) {
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_conv_markread_noseed_A.png');
+    // The shell snapshot tells apart "the messages never arrived" from "they
+    // arrived but A still counts as VIEWING the conversation" (activePeer /
+    // shellConv still bound → getC2CUnreadCount returns 0 by contract).
     print('[pair] conv_mark_read_two_proc: unread did not accrue (entry=$entry '
-        'bSent=$bSent)');
+        'bSent=$bSent ${await _convShellDiag(a)})');
     return false;
   }
   // Surface check via the REAL menu (mark-read item renders).
@@ -556,7 +492,7 @@ Future<bool> _convUnreadBadgeBumpClear(
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_conv_bump_noseed_A.png');
     print('[pair] conv_unread_badge_bump_clear: unread did not bump '
-        '(entry=$entry bSent=$bSent)');
+        '(entry=$entry bSent=$bSent ${await _convShellDiag(a)})');
     return false;
   }
   // OPEN the chat by tapping the real row → marks read on open.
@@ -698,6 +634,35 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
 Future<bool> _openGlobalSearch(Inst inst) async {
   await inst.foreground();
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) return true;
+  // MOBILE PRIMARY: the REAL magnifier in the conversation app bar
+  // (`conversation_global_search_button`, NewEntryButton.onOpenGlobalSearch).
+  // It is the only real-user entry to the overlay on a touch platform — the
+  // Cmd/Ctrl+F shortcut the desktop path below drives is registered behind
+  // `PlatformUtils.isDesktop`, and the `l3_open_global_search` seam DELIBERATELY
+  // refuses a non-master-detail layout (home_page_bootstrap.dart), which is what
+  // made this case a hard FAIL on Android/iPhone. Driving the real control is
+  // also strictly better than the seam: the open is a genuine gesture, not a
+  // navigation hook.
+  // `isMobileShell` is `isIos || isAndroid` — a PLATFORM test, which is exactly
+  // the `!PlatformUtils.isDesktop` condition the button renders under (iPad
+  // included: it is not a desktop platform and has no Cmd/Ctrl+F either).
+  if (inst.isMobileShell) {
+    await returnToChatsHome(inst, rounds: 3);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (await inst.tapKeyCenter(
+        'conversation_global_search_button',
+        timeoutSecs: 4,
+      )) {
+        if (await inst.waitKey('message_search_field', timeoutSecs: 4)) {
+          return true;
+        }
+      }
+    }
+    print(
+      '[pair] _openGlobalSearch: real app-bar magnifier did not open the '
+      'overlay — falling through to the l3 seam',
+    );
+  }
   // PRIMARY: the deterministic l3_open_global_search seam (pushes the SAME
   // CustomSearch route the Cmd/Ctrl+F shortcut uses). The osascript keystroke
   // below is occasionally dropped when the window isn't fully foregrounded

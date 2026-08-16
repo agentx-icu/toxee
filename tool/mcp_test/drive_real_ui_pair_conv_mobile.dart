@@ -1,0 +1,312 @@
+// ignore_for_file: avoid_print
+part of 'drive_real_ui_pair.dart';
+
+// Conversation-row context-menu TRIGGER, split per shell. Extracted from
+// `drive_real_ui_pair_conv.dart` (Batch 5) because the MOBILE trigger needs a
+// materially different strategy — and its own diagnostics — from the desktop
+// right-click, and the conv file is at its complexity-baseline pin.
+//
+// DESKTOP: `ui_secondary_tap` (a kSecondaryMouseButton PointerDown/Up) on the
+// row → the fork's InkWell `onSecondaryTapDown` → toxee's
+// `onSecondaryTapConversationItem` → `_showConversationContextMenu`.
+//
+// MOBILE (iOS/Android, phone AND tablet): there is no secondary mouse button at
+// all, so the twin trigger is a genuine touch down→hold→up (`ui_long_press`)
+// which drives the fork's `TencentCloudChatGesture` →
+// `LongPressGestureRecognizer(duration: 650)` → `onLongPressStart` → toxee's
+// `onLongPressConversationItem` → the SAME `_showConversationContextMenu`. Both
+// shells therefore assert the SAME keyed items.
+
+/// Whether [key] resolves to a point the user can actually TOUCH — i.e. the
+/// app's `ui_key_center` found it on the ONSTAGE walk, not via the full-tree
+/// fallback that also digs up boxes buried under an opaque pushed route.
+///
+/// A build without the `onstage` field (an older binary) is treated as onstage,
+/// so this degrades to the previous lenient behaviour instead of hard-failing.
+Future<bool> _keyOnstage(Inst inst, String key) async {
+  try {
+    final r = await inst.l3('ui_key_center', {'key': key});
+    if (r['ok'] != true) return false;
+    return r['onstage'] != false;
+  } on DriveError {
+    return false;
+  }
+}
+
+/// True when a MOBILE home shell is COVERED by an opaque pushed route — the
+/// UIKit chat page being the one that matters here.
+///
+/// Why this exists: `_chatsHomeReady` accepts as soon as the dump reports
+/// `homeShellTab == 'chats'` and a shell landmark RESOLVES. On mobile the chat
+/// page is a pushed route, and the home shell underneath it stays laid out with
+/// no `Offstage`/`Visibility` ancestor — so the landmark resolved through the
+/// full-tree fallback and `returnToChatsHome` returned with the chat page still
+/// on screen. Everything downstream then drove the WRONG surface: the
+/// conversation-row long-press landed on the message list (no context menu at
+/// all), and B's inbound messages arrived while A was still VIEWING the chat, so
+/// they were marked read on arrival and unread never accrued. Requiring the
+/// landmark ONSTAGE is what tells the two states apart.
+Future<bool> _mobileHomeShellCovered(Inst inst) async {
+  if (!inst.isMobileShell) return false;
+  for (final key in const [
+    'bottom_nav_chats_tab',
+    'sidebar_chats_tab',
+    'new_entry_menu_button',
+  ]) {
+    if (await _keyOnstage(inst, key)) return false;
+  }
+  return true;
+}
+
+/// Pop whatever route covers the mobile home shell. Returns whether a cover was
+/// actually removed; false (cheaply) when nothing covers it, so callers can use
+/// this as a no-op-safe first leg.
+///
+/// ACTION PER LAYOUT — this distinction is load-bearing:
+///  * COMPACT shell: the chat IS the covering route, so the REAL affordance is
+///    its header back chevron (`chat_header_back_button`). Drive that first.
+///  * MASTER-DETAIL shell (iPad): the chat is a PANE inside the home route, and
+///    that same chevron runs `popDialogIfCurrent`, which pops the HomePage ROUTE
+///    itself — a blank shell whose conversation list unmounts and whose L3
+///    invokers de-register (observed live as
+///    `key_not_found:conversation_list_item:…` + `invoker not registered`). So a
+///    wide shell NEVER taps it; the cover there is some other pushed route (the
+///    friend-application Info page after a handshake accept, a profile, a
+///    settings sub-page) and the layout-agnostic `l3_pop_to_root` seam — which
+///    stops AT HomePage's route — is the safe, correct pop.
+Future<bool> _popMobileCoveringRoute(Inst inst) async {
+  if (!await _mobileHomeShellCovered(inst)) return false;
+  var compact = false;
+  try {
+    compact =
+        (await inst.dumpState())['homeShellShouldShowMasterDetail'] == false;
+  } on DriveError {
+    // Unknown layout: treat as wide (seam-only) — never risk the chevron.
+  }
+  for (var attempt = 0; attempt < 3; attempt++) {
+    if (compact &&
+        await inst.tapKeyCenter('chat_header_back_button', timeoutSecs: 2)) {
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!await _mobileHomeShellCovered(inst)) return true;
+      continue;
+    }
+    try {
+      // Gate-recovering wrapper: a real-UI account is a PRODUCT account and the
+      // raw tool answers `non_test_account`, which this used to log as a warn
+      // and carry on from — leaving the covering route up.
+      if (!await inst.popToRoot()) {
+        print('[pair] _popMobileCoveringRoute: popToRoot reported no pop');
+      }
+    } on DriveError catch (e) {
+      print('[pair] _popMobileCoveringRoute: l3_pop_to_root warn: ${e.message}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!await _mobileHomeShellCovered(inst)) return true;
+  }
+  print(
+    '[pair] _popMobileCoveringRoute: shell still covered — '
+    '${await _convShellDiag(inst)}',
+  );
+  return false;
+}
+
+/// Tap a conversation ROW for real, with a resolver-backed fallback.
+///
+/// `tryTapKey` goes through flutter_skill, which frequently cannot act on a
+/// conversation row: the row key sits on a NON-interactive `KeyedSubtree`
+/// wrapper that `interactiveStructured` does not report (observed live as
+/// `rowKeys=[]` while the row was plainly on screen), so the tap no-ops. On the
+/// iPad master-detail shell that left the right pane unbound and `openChat`
+/// burned every leg. The fallback resolves the row's onstage centre through
+/// `ui_key_center` and dispatches ONE real `tapAt` there — the same gesture a
+/// user makes. Best-effort by contract: callers verify with `_chatSurfaceReady`.
+Future<void> _tapConversationRowReal(Inst inst, String rowKey) async {
+  if (await inst.tryTapKey(rowKey, retries: 2)) return;
+  await inst.tapKeyAt(rowKey);
+}
+
+/// One-line home-shell / session snapshot used by the conversation-list
+/// diagnostics. Everything here comes from `l3_dump_state`, so it is safe on a
+/// non-test account and costs one RPC.
+Future<String> _convShellDiag(Inst inst) async {
+  try {
+    final s = await inst.dumpState();
+    return 'tab=${s['homeShellTab']} '
+        'masterDetail=${s['homeShellShouldShowMasterDetail']} '
+        'shellConv=${s['homeShellCurrentConversationId']} '
+        'activePeer=${s['activePeerId']} '
+        'currentConv=${s['currentConversation']} '
+        'convIds=${(s['conversationIds'] as List?)?.length ?? 0}';
+  } on DriveError catch (e) {
+    return 'diag-unavailable(${e.message})';
+  }
+}
+
+/// The `ui_key_center` resolution for [key] as a printable string, including
+/// the resolver's `candidates` count / `error` (`key_offstage_only:…` vs
+/// `key_not_found:…`) — the signal that distinguishes "the row is behind a
+/// pushed route" from "the row was never built".
+Future<String> _convKeyDiag(Inst inst, String key) async {
+  try {
+    final r = await inst.l3('ui_key_center', {'key': key});
+    if (r['ok'] == true) {
+      return '(${r['x']},${r['y']}) candidates=${r['candidates']}';
+    }
+    return 'unresolved error=${r['error']}';
+  } on DriveError catch (e) {
+    return 'unresolved throw=${e.message}';
+  }
+}
+
+/// Every key flutter_skill's `interactiveStructured` currently reports that
+/// CONTAINS [needle], with its bounds. Used when a menu/row does not appear, to
+/// tell "the surface mounted under a different key" from "nothing mounted".
+Future<List<String>> _convKeysContaining(Inst inst, String needle) async {
+  final out = <String>[];
+  try {
+    final r = await inst.skill('interactiveStructured', const {});
+    final data = r['data'];
+    final elements = data is Map ? data['elements'] : null;
+    if (elements is! List) return out;
+    for (final e in elements) {
+      if (e is! Map) continue;
+      final k = e['key']?.toString() ?? '';
+      if (!k.contains(needle)) continue;
+      final b = e['bounds'];
+      out.add(
+        b is Map ? '$k@(${b['x']},${b['y']},${b['w']}x${b['h']})' : k,
+      );
+    }
+  } on DriveError {
+    // best-effort diagnostic
+  }
+  return out;
+}
+
+/// Whether either keyed conversation-context-menu anchor (Pin or Unpin — which
+/// one renders depends on the row's current pin state) is resolvable. Uses the
+/// ELEMENT-TREE resolver: the menu renders in a pushed `_PopupMenuRoute` whose
+/// items flutter_skill's whole-tree `waitForElement` reaches, but whose bounds
+/// only `ui_key_center` reports reliably.
+Future<bool> _convMenuItemsVisible(Inst inst, {int timeoutSecs = 3}) async {
+  return await inst.waitKeyCenter(
+        'conversation_context_menu_pin_item',
+        timeoutSecs: timeoutSecs,
+      ) ||
+      await inst.waitKeyCenter(
+        'conversation_context_menu_unpin_item',
+        timeoutSecs: 2,
+      );
+}
+
+/// MOBILE trigger: long-press the conversation row until the real context menu
+/// mounts. Returns whether the menu's keyed items appeared.
+///
+/// Strategy (each element is there for a live-observed failure mode):
+///  * The press point is re-resolved EVERY attempt: a long-press that released
+///    early degenerates into a TAP, which NAVIGATES into the chat and unmounts
+///    the row, so the next attempt must re-find it from the chats home.
+///  * The hold grows across attempts (900 → 1300 ms). The fork's recognizer
+///    fires at 650 ms, but under 2-process simulator contention the app's event
+///    loop can be busy enough that the down→up window collapses; a longer hold
+///    is the only lever the harness has over that.
+///  * The press alternates between the row's resolved CENTRE and a point in its
+///    LEFT third (over the avatar/content, always inside the gesture subtree) —
+///    the row centre can land on the trailing time/badge column, which is inside
+///    the same `TencentCloudChatGesture`, so this is belt-and-braces rather than
+///    a different code path.
+Future<bool> _convMobileRowMenu(Inst inst, String rowKey) async {
+  const holds = <int>[900, 900, 1300, 1300];
+  for (var attempt = 0; attempt < holds.length; attempt++) {
+    await inst.foreground();
+    // Recover the list when a degenerated tap navigated into the chat.
+    if (!await inst.waitKey(rowKey, timeoutSecs: 1)) {
+      await returnToChatsHome(inst, rounds: 3);
+    }
+    final centre = await inst.keyCenter(rowKey);
+    if (centre == null) {
+      print(
+        '[pair] _convMobileRowMenu: row centre unresolved '
+        '(${await _convKeyDiag(inst, rowKey)}; ${await _convShellDiag(inst)})',
+      );
+      await returnToChatsHome(inst, rounds: 3);
+      continue;
+    }
+    final x = attempt.isOdd ? centre.x * 0.35 : centre.x;
+    try {
+      final r = await inst.l3('ui_long_press', {
+        'x': '$x',
+        'y': '${centre.y}',
+        'holdMs': '${holds[attempt]}',
+      });
+      if (r['ok'] != true) {
+        print('[pair] _convMobileRowMenu: ui_long_press warn: $r');
+      }
+    } on DriveError catch (e) {
+      print('[pair] _convMobileRowMenu: long-press warn: ${e.message}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (await _convMenuItemsVisible(inst)) return true;
+    print(
+      '[pair] _convMobileRowMenu: attempt $attempt (hold=${holds[attempt]}ms '
+      'at $x,${centre.y}) did not mount the menu — '
+      'menuKeys=${await _convKeysContaining(inst, 'conversation_context_menu')} '
+      'rowKeys=${await _convKeysContaining(inst, 'conversation_list_item')} '
+      '${await _convShellDiag(inst)}',
+    );
+  }
+  await inst.shot('/tmp/ui_conv_menu_trigger_fail_${inst.name}.png');
+  return false;
+}
+
+/// DESKTOP trigger: right-click the row until the menu mounts.
+Future<bool> _convDesktopRowMenu(Inst inst, String rowKey) async {
+  final rowCenter = await inst.keyCenter(rowKey);
+  for (var attempt = 0; attempt < 4; attempt++) {
+    await inst.foreground();
+    try {
+      // Alternate the keyed trigger (which can resolve a stale OFFSTAGE copy
+      // and fire on empty space) with a coordinate trigger at the resolved row
+      // centre — a full-width conv row is right-clickable anywhere on it.
+      if (attempt.isOdd && rowCenter != null) {
+        await inst.secondaryTapAt(rowCenter.x, rowCenter.y);
+      } else {
+        await inst.secondaryTapKey(rowKey);
+      }
+    } on DriveError catch (e) {
+      print('[pair] _convDesktopRowMenu: menu trigger warn: ${e.message}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (await _convMenuItemsVisible(inst)) return true;
+  }
+  return false;
+}
+
+/// Open the REAL C2C conversation-row context menu for [tox] — the production
+/// `onSecondaryTapConversationItem` (desktop right-click) /
+/// `onLongPressConversationItem` (mobile long-press) path, no gated tool. Both
+/// triggers land on the SAME `_showConversationContextMenu` handler
+/// (home_page.dart:428/437), so the keyed menu items asserted by the callers are
+/// identical on every platform. Lands on the chats home first so the
+/// conversation list is mounted. Returns whether the menu's keyed items
+/// appeared.
+Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
+  await returnToChatsHome(inst, rounds: 4);
+  await inst.foreground();
+  // Pop a leaked contact profile that can cover the conversation list.
+  await _dismissFriendProfileToUnderlying(inst);
+  final rowKey = _convRowKey(tox);
+  if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
+    print(
+      '[pair] _openConvRowMenuReal: row $rowKey not present — '
+      'keyCenter=${await _convKeyDiag(inst, rowKey)} '
+      'rowKeys=${await _convKeysContaining(inst, 'conversation_list_item')} '
+      '${await _convShellDiag(inst)}',
+    );
+    await inst.shot('/tmp/ui_conv_row_missing_${inst.name}.png');
+    return false;
+  }
+  return inst.isMobileShell
+      ? _convMobileRowMenu(inst, rowKey)
+      : _convDesktopRowMenu(inst, rowKey);
+}

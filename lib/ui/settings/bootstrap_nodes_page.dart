@@ -6,7 +6,9 @@ import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.d
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/bootstrap_node_probe.dart';
 import '../../util/bootstrap_nodes.dart';
+import '../../util/logger.dart';
 import '../../util/platform_utils.dart';
 import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
@@ -14,6 +16,8 @@ import '../../i18n/app_localizations.dart';
 import '../../ui/widgets/empty_state_widget.dart';
 import '../../ui/widgets/loading_shimmer.dart';
 import '../../ui/widgets/stagger_list_item.dart';
+
+part 'bootstrap_nodes_page_card.dart';
 
 class BootstrapNodesPage extends StatefulWidget {
   const BootstrapNodesPage({
@@ -38,10 +42,28 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
   final Map<String, String?> _testResults = {};
   final Map<String, bool> _nodeTestSuccess = {}; // Track test success status
 
+  /// Whether the last probe produced a verdict ABOUT THE NODE.
+  ///
+  /// `false` for `udpUnavailable` and for a caught [BootstrapProbeUnavailable]:
+  /// in both cases the probe never ran against the node, so `_nodeTestSuccess`
+  /// being `false` means "unknown", NOT "the node failed". Without this
+  /// distinction `_selectNode` told a TCP-only user that every node they tested
+  /// "did not respond" — exactly the lie [BootstrapProbeVerdict.udpUnavailable]
+  /// documents must never be rendered.
+  final Map<String, bool> _nodeTestConclusive = {};
+
   @override
   void initState() {
     super.initState();
     _loadNodes();
+  }
+
+  @override
+  void dispose() {
+    // Hand back the ephemeral probe Tox instance when the page goes away, so a
+    // pre-login probe can never outlive the screen that asked for it.
+    unawaited(BootstrapNodeProbe.shutdown());
+    super.dispose();
   }
 
   Future<void> _loadNodes() async {
@@ -74,39 +96,53 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
     final appL10n = AppLocalizations.of(context)!;
     final successLabel = appL10n.nodeTestSuccess;
     final failedLabel = appL10n.nodeTestFailed;
-    final unavailableLabel = appL10n.nodeTestUnavailableBeforeLogin;
+    final udpLabel = appL10n.nodeTestUdpUnavailable;
+    final unavailableLabel = appL10n.nodeTestUnavailable;
     setState(() {
       _testingNodes[node.publicKey] = true;
       _testResults[node.publicKey] = null;
       _nodeTestSuccess[node.publicKey] = false;
+      _nodeTestConclusive[node.publicKey] = false;
     });
     try {
-      bool success;
-      if (widget.service != null) {
-        success = await widget.service!.tryBootstrapNode(
-          host,
-          node.port,
-          node.publicKey,
-        );
-      } else {
-        // Pre-login: no FFI session yet. TCP probe to a UDP Tox port lies,
-        // so surface "test unavailable" rather than a misleading green check.
-        setState(() {
-          _testResults[node.publicKey] = unavailableLabel;
-          _nodeTestSuccess[node.publicKey] = false;
-        });
-        return;
-      }
+      // A real DHT reachability probe, session or not: pre-login the probe
+      // stands up its own isolated, short-lived Tox instance. This page is
+      // reachable from the LOGIN page, which is precisely where a user who
+      // cannot connect needs to try nodes out.
+      final verdict = await BootstrapNodeProbe.probe(
+        host: host,
+        port: node.port,
+        publicKey: node.publicKey,
+        service: widget.service,
+      );
+      final success = verdict == BootstrapProbeVerdict.reachable;
+      // UDP-less device: the probe proved nothing about this node, so show the
+      // constraint rather than a red cross the node did not earn.
+      final udpless = verdict == BootstrapProbeVerdict.udpUnavailable;
       if (!mounted) return;
       setState(() {
-        _testResults[node.publicKey] = success ? successLabel : failedLabel;
+        _testResults[node.publicKey] = udpless
+            ? udpLabel
+            : (success ? successLabel : failedLabel);
         _nodeTestSuccess[node.publicKey] = success;
+        _nodeTestConclusive[node.publicKey] = !udpless;
+      });
+    } on BootstrapProbeUnavailable catch (e, st) {
+      // The probe itself could not run. Reporting that as a node failure would
+      // blame the user's node for our defect — see the exception's doc comment.
+      AppLogger.logError('[BootstrapNodesPage] node probe unavailable', e, st);
+      if (!mounted) return;
+      setState(() {
+        _testResults[node.publicKey] = unavailableLabel;
+        _nodeTestSuccess[node.publicKey] = false;
+        _nodeTestConclusive[node.publicKey] = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _testResults[node.publicKey] = appL10n.error(e.toString());
         _nodeTestSuccess[node.publicKey] = false;
+        _nodeTestConclusive[node.publicKey] = false;
       });
     } finally {
       if (mounted) {
@@ -125,6 +161,9 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
     final isOnline = node.status == 'ONLINE';
     final isTestedSuccess = _nodeTestSuccess[node.publicKey] ?? false;
     final hasBeenTested = _testResults[node.publicKey] != null;
+    // "Tested" is not the same as "we learned something": a UDP-less device (or
+    // a probe that failed to start) leaves a result label but no verdict.
+    final isConclusive = _nodeTestConclusive[node.publicKey] ?? false;
 
     final appL10n = AppLocalizations.of(context)!;
 
@@ -138,11 +177,16 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
       return;
     }
 
-    // Show warning if node hasn't been tested or test failed, but allow selection
+    // Show warning if node hasn't been tested or test failed, but allow
+    // selection. THREE outcomes, not two — collapsing the inconclusive case
+    // into "did not respond" is the lie this branch exists to avoid.
     String confirmMessage = appL10n.switchNodeConfirm(endpoint);
     if (!hasBeenTested) {
       confirmMessage =
           '${appL10n.switchNodeConfirm(endpoint)}\n\n${appL10n.nodeNotTestedWarning}';
+    } else if (!isConclusive) {
+      confirmMessage =
+          '${appL10n.switchNodeConfirm(endpoint)}\n\n${appL10n.nodeTestInconclusiveWarning}';
     } else if (!isTestedSuccess) {
       confirmMessage =
           '${appL10n.switchNodeConfirm(endpoint)}\n\n${appL10n.nodeTestFailedWarning}';
@@ -318,155 +362,24 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
                     itemCount: _nodes.length,
                     itemBuilder: (context, index) {
                       final node = _nodes[index];
-                      final endpoint = node.formattedEndpoint ?? '';
-                      final isOnline = node.status == 'ONLINE';
-                      final isTesting = _testingNodes[node.publicKey] ?? false;
-                      final testResult = _testResults[node.publicKey];
-                      final isTestedSuccess =
-                          _nodeTestSuccess[node.publicKey] ?? false;
-                      final outlineVariant = Theme.of(
-                        context,
-                      ).colorScheme.outlineVariant;
-                      final statusColor = isOnline
-                          ? AppThemeConfig.successColor
-                          : Theme.of(context).colorScheme.error;
-                      // Stagger entrance for first 10 rows only; respect
+                      final card = _BootstrapNodeCard(
+                        node: node,
+                        isTesting: _testingNodes[node.publicKey] ?? false,
+                        testResult: _testResults[node.publicKey],
+                        isTestedSuccess:
+                            _nodeTestSuccess[node.publicKey] ?? false,
+                        isTestConclusive:
+                            _nodeTestConclusive[node.publicKey] ?? false,
+                        colorTheme: colorTheme,
+                        onTest: () => _testNode(node),
+                        onSelect: () => _selectNode(node),
+                      );
+                      // Stagger entrance for first 10 rows only; respect the
                       // reduced-motion preference (no-op when disabled).
-                      final disableAnims = MediaQuery.disableAnimationsOf(
-                        context,
-                      );
-                      final card = Card(
-                        elevation: 0,
-                        clipBehavior: Clip.antiAlias,
-                        margin: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.xs,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          side: BorderSide(color: outlineVariant),
-                          borderRadius: BorderRadius.circular(
-                            AppThemeConfig.cardBorderRadius,
-                          ),
-                        ),
-                        child: InkWell(
-                          onTap: isOnline ? () => _selectNode(node) : null,
-                          child: ListTile(
-                            leading: Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                color: statusColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            title: Text(
-                              endpoint,
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: colorTheme.primaryTextColor,
-                                    fontFamily: 'monospace',
-                                  ),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (node.location != null)
-                                  Text(
-                                    node.location!,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                if (node.maintainer != null)
-                                  Text(
-                                    AppLocalizations.of(
-                                      context,
-                                    )!.maintainer(node.maintainer!),
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                if (node.lastPing != null)
-                                  Text(
-                                    appL10n.lastPing(node.lastPing.toString()),
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                if (testResult != null) ...[
-                                  AppSpacing.verticalXs,
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        isTestedSuccess
-                                            ? Icons.send_outlined
-                                            : Icons.error_outline,
-                                        size: 14,
-                                        color: isTestedSuccess
-                                            ? AppThemeConfig.successColor
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.error,
-                                      ),
-                                      AppSpacing.horizontalXs,
-                                      Text(
-                                        testResult,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelMedium
-                                            ?.copyWith(
-                                              color: isTestedSuccess
-                                                  ? AppThemeConfig.successColor
-                                                  : Theme.of(
-                                                      context,
-                                                    ).colorScheme.error,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: isTesting
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.send_outlined),
-                                  onPressed: isTesting
-                                      ? null
-                                      : () => _testNode(node),
-                                  tooltip: appL10n.testNode,
-                                ),
-                                if (isOnline)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      right: AppSpacing.sm,
-                                    ),
-                                    child: Icon(
-                                      isTestedSuccess
-                                          ? Icons.send_outlined
-                                          : Icons.chevron_right,
-                                      size: 20,
-                                      color: isTestedSuccess
-                                          ? AppThemeConfig.successColor
-                                          : Theme.of(context).iconTheme.color
-                                                ?.withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                      if (disableAnims || index >= 10) return card;
+                      if (MediaQuery.disableAnimationsOf(context) ||
+                          index >= 10) {
+                        return card;
+                      }
                       return StaggeredListItem(
                         index: index,
                         staggerDelay: const Duration(milliseconds: 40),

@@ -208,7 +208,7 @@
   "refresh": "重新整理",
   "retry": "重試",
   "lastPing": "最後ping: {seconds}秒前",
-  "testNode": "傳送引導請求",
+  "testNode": "測試節點",
   "deleteAccount": "註銷帳號",
   "deleteAccountConfirmMessage": "註銷後帳號與所有數據將永久刪除且無法找回，請謹慎操作。",
   "delete": "註銷",
@@ -249,12 +249,11 @@
   "nodePort": "端口",
   "nodePublicKey": "公鑰",
   "setAsCurrentNode": "設置為當前節點",
-  "nodeTestSuccess": "引導請求已傳送",
-  "nodeTestFailed": "引導請求傳送失敗",
-  "nodeTestUnavailableBeforeLogin": "登入前無法傳送引導請求",
-  "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
-  },
+  "nodeTestSuccess": "節點可連線",
+  "nodeTestUdpUnavailable": "節點測試需要 UDP，本裝置目前僅使用 TCP",
+  "nodeTestFailed": "節點無法連線",
+  "failedToLoadBootstrapNodes": "載入引導節點失敗",
+  "nodeTestUnavailable": "本裝置無法執行節點測試",
   "failedToStartBootstrapService": "啟動引導服務失敗",
   "invalidNodeInfo": "請輸入有效的節點信息（主機、端口和公鑰）",
   "nodeSetSuccess": "已設為目前節點",
@@ -584,11 +583,12 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "尚未向此節點傳送引導請求。",
+  "nodeNotTestedWarning": "尚未測試此節點。",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "引導請求傳送失敗，此節點可能無法使用。",
+  "nodeTestFailedWarning": "此節點未回應，可能無法使用。",
+  "nodeTestInconclusiveWarning": "無法從本裝置檢測該節點，因此對它是否可用一無所知。",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },

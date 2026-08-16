@@ -7,6 +7,8 @@ import '../util/app_spacing.dart';
 import '../util/responsive_layout.dart';
 import 'settings/bootstrap_settings_section.dart';
 import 'settings/global_settings_section.dart';
+import 'testing/ui_keys.dart';
+import 'testing/ui_keys_login.dart';
 import 'widgets/safe_dialog_pop.dart';
 
 class LoginSettingsPage extends StatefulWidget {
@@ -24,6 +26,7 @@ class _LoginSettingsPageState extends State<LoginSettingsPage> {
       leading: Padding(
         padding: EdgeInsetsDirectional.only(start: horizontal),
         child: IconButton(
+          key: LoginUiKeys.loginSettingsBackButton,
           icon: const Icon(Icons.arrow_back),
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
           onPressed: () => popDialogIfCurrent(context),
@@ -53,6 +56,10 @@ class _LoginSettingsPageState extends State<LoginSettingsPage> {
           appBar: _buildAppBar(context),
           body: SafeArea(
             child: SingleChildScrollView(
+              // Same anchor the logged-in settings page uses, so real-UI
+              // automation can scroll to the bootstrap section here too. See
+              // UiKeys.settingsScrollView for why sharing the key is safe.
+              key: UiKeys.settingsScrollView,
               padding: ResponsiveLayout.responsivePadding(context),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

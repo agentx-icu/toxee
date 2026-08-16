@@ -26,10 +26,32 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/settings/bootstrap_settings_section.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/util/bootstrap_node_probe.dart';
 import 'package:toxee/util/lan_bootstrap_service.dart';
 import 'package:toxee/util/prefs.dart';
 
 typedef _BootstrapNode = ({String host, int port, String pubkey});
+
+/// Stands in for the real DHT probe so widget tests stay hermetic — and, more
+/// importantly, lets a test ASSERT that a surface actually routed through
+/// [BootstrapNodeProbe] instead of short-circuiting to a canned answer.
+class _ProbeRecorder {
+  BootstrapProbeVerdict verdict = BootstrapProbeVerdict.reachable;
+  final List<({_BootstrapNode node, bool hadService})> calls = [];
+
+  Future<BootstrapProbeVerdict> call({
+    required String host,
+    required int port,
+    required String publicKey,
+    FfiChatService? service,
+  }) async {
+    calls.add((
+      node: (host: host, port: port, pubkey: publicKey),
+      hadService: service != null,
+    ));
+    return verdict;
+  }
+}
 
 const _originalNode = (
   host: 'original.example.com',
@@ -187,6 +209,15 @@ void main() {
     Tim2ToxFfi.open();
   });
 
+  late _ProbeRecorder probe;
+  setUp(() {
+    probe = _ProbeRecorder();
+    BootstrapNodeProbe.debugProbeOverride = probe.call;
+  });
+  tearDown(() {
+    BootstrapNodeProbe.debugProbeOverride = null;
+  });
+
   group('BootstrapSettingsSection - desktop mode row', () {
     testWidgets('default mode is auto and all three radios are present', (
       tester,
@@ -322,7 +353,7 @@ void main() {
 
   group('BootstrapSettingsSection - manual transaction', () {
     testWidgets(
-      'manual probe uses tryBootstrapNode without applying or persisting',
+      'manual probe runs a real reachability probe without applying or persisting',
       (tester) async {
         await _initPrefs();
         await Prefs.setCurrentBootstrapNode(
@@ -336,13 +367,105 @@ void main() {
 
         await _testManualNode(tester);
 
-        expect(service.triedNodes, [_candidateNode]);
+        expect(probe.calls.length, 1);
+        _expectNode(probe.calls.single.node, _candidateNode);
+        expect(
+          probe.calls.single.hadService,
+          isTrue,
+          reason: 'With a session the probe must reuse it, not spin up a new '
+              'Tox instance alongside the singleton',
+        );
         expect(
           service.addedNodes,
           isEmpty,
           reason: 'A probe must not apply or persist the candidate node',
         );
         _expectNode(await Prefs.getCurrentBootstrapNode(), _originalNode);
+      },
+    );
+
+    // A UDP-less device (UDP-blocked network, or TOX_FORCE_TCP_ONLY) cannot run
+    // a DHT probe at all. Reporting "unreachable" there would blame every node
+    // the user tries for a LOCAL constraint — the same lie the probe exists to
+    // remove — and would also trap them, since a TCP-only client still needs a
+    // bootstrap node. So: distinct message, and the node stays promotable.
+    testWidgets('UDP-less probe reports the constraint, not a failed node', (
+      tester,
+    ) async {
+      await _initPrefs();
+      probe.verdict = BootstrapProbeVerdict.udpUnavailable;
+      final service = _RecordingFfiChatService();
+      await _showManualForm(tester, service);
+      await _enterManualNode(tester, _candidateNode);
+
+      await _testManualNode(tester);
+
+      expect(probe.calls.length, 1);
+      expect(
+        find.text('Node test needs UDP; this device is running TCP-only'),
+        findsWidgets,
+      );
+      expect(
+        find.text('Node unreachable'),
+        findsNothing,
+        reason: 'The node was never disproved; do not render a negative verdict',
+      );
+      expect(
+        find.text('Set as Current Node'),
+        findsOneWidget,
+        reason: 'A TCP-only client still needs to be able to pick a node',
+      );
+    });
+
+    // THE REGRESSION GATE for this change. Pre-login (`service: null`) the Test
+    // button used to bail out with "Cannot send a bootstrap request before
+    // login" — no probe, no verdict — which is exactly the state a user who
+    // cannot connect is stuck in. It must now drive the real probe and render a
+    // real verdict.
+    testWidgets(
+      'pre-login manual test really probes and reports a verdict',
+      (tester) async {
+        await _initPrefs();
+        await Prefs.setBootstrapNodeMode('manual');
+        await _pumpSettled(
+          tester,
+          _harness(child: const BootstrapSettingsSection(service: null)),
+        );
+        await tester.tap(find.byKey(UiKeys.manualNodeInputButton));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        await _enterManualNode(tester, _candidateNode);
+
+        await _testManualNode(tester);
+
+        expect(
+          probe.calls.length,
+          1,
+          reason: 'Pre-login must reach BootstrapNodeProbe, not a canned answer',
+        );
+        _expectNode(probe.calls.single.node, _candidateNode);
+        expect(
+          probe.calls.single.hadService,
+          isFalse,
+          reason: 'Pre-login there is no session; the probe must supply its own '
+              'ephemeral Tox instance',
+        );
+        expect(find.text('Node reachable'), findsWidgets);
+        expect(find.text('Cannot send a bootstrap request before login'),
+            findsNothing);
+
+        // ...and a negative verdict is reported as a negative verdict, not as
+        // "unavailable".
+        probe.verdict = BootstrapProbeVerdict.unreachable;
+        await tester.enterText(
+          find.byKey(UiKeys.manualNodeHostField),
+          'dead.example.com',
+        );
+        await tester.pump();
+        await _testManualNode(tester);
+
+        expect(probe.calls.length, 2);
+        expect(find.text('Node unreachable'), findsWidgets);
       },
     );
 
@@ -454,7 +577,12 @@ void main() {
   });
 
   group('BootstrapSettingsSection - LAN transaction', () {
-    testWidgets('pre-login start does not launch a native LAN manager', (
+    // Pre-login the LAN service used to refuse to start at all ("cannot send a
+    // bootstrap request before login"). There is nothing session-bound about
+    // running a local bootstrap daemon: it starts, and the node is persisted so
+    // the next `FfiChatService.init` picks it up from Prefs. Only the live
+    // `addBootstrapNode` hand-off is skipped, because there is no session.
+    testWidgets('pre-login start runs the LAN service and persists the node', (
       tester,
     ) async {
       await _initPrefs();
@@ -474,12 +602,19 @@ void main() {
         find.widgetWithText(ElevatedButton, 'Start Local Bootstrap Service'),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-      expect(manager.startCalls, 0);
-      expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+      expect(manager.startCalls, 1);
+      expect(manager.stopCalls, 0);
+      expect(await Prefs.getLanBootstrapServiceRunning(), isTrue);
+      _expectNode(await Prefs.getCurrentBootstrapNode(), (
+        host: manager.info!.ip,
+        port: manager.info!.port,
+        pubkey: manager.info!.pubkey,
+      ));
       expect(
         find.text('Cannot send a bootstrap request before login'),
-        findsOneWidget,
+        findsNothing,
       );
     });
 

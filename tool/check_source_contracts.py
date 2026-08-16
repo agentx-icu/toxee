@@ -127,6 +127,24 @@ def check_ui_anchors() -> None:
             "ValueKey('desktop_send_image_confirm_button')",
             'desktop pasted-image confirm button key',
         ),
+        (
+            f'{FORK}/tencent_cloud_chat_message_widgets/message_type_builders/'
+            'tencent_cloud_chat_message_image.dart',
+            "'message_image_bubble:$_imageStateKeyId'",
+            'image bubble tap-target key',
+        ),
+        (
+            f'{FORK}/tencent_cloud_chat_message_widgets/message_type_builders/'
+            'tencent_cloud_chat_message_image.dart',
+            "'message_image_error:${_imageStateKeyId}'",
+            'image decode-error placeholder key',
+        ),
+        (
+            f'{FORK}/tencent_cloud_chat_message_widgets/message_type_builders/'
+            'tencent_cloud_chat_message_image.dart',
+            '_scheduleLocalDecodeRetry(path)',
+            'image local-decode evict-and-retry recovery',
+        ),
     ]
     for path, needle, label in fork_contracts:
         want(read(path), needle, path, label)
@@ -230,13 +248,31 @@ def _p3_writable() -> None:
 
 
 def _mobile_shell_exit_contract() -> None:
-    path = f'{MCP}/drive_real_ui_pair_mobile_shell.dart'
+    # `_MobileShellTally` moved out of drive_real_ui_pair_mobile_shell.dart once
+    # four unrelated sweeps started sharing it; the verdict rule lives in the
+    # extracted part file now.
+    path = f'{MCP}/drive_real_ui_pair_sweep_tally.dart'
     source = read(path)
     want(
         source,
         'if (passed == 0 && skipped != 0) return 75;',
         path,
         'all-skipped mobile shell sweep result',
+    )
+    # An UNDECLARED skip must fail the sweep. Without this, `passed > 0 &&
+    # skipped > 0` is green and a case whose surface silently stopped mounting
+    # disappears from coverage inside an otherwise-passing chain.
+    want(
+        source,
+        'if (failed != 0 || unexpectedSkipped != 0) return 1;',
+        path,
+        'unexpected SKIPs fail the sweep',
+    )
+    want(
+        source,
+        'bool expectedSkip = false,',
+        path,
+        'skips are unexpected unless the call site declares otherwise',
     )
 
 
@@ -263,7 +299,13 @@ def _irc_real_ui() -> None:
         "'MCP_BINDING': 'skill'",
         "'TOXEE_L3_TEST': 'true'",
         "'TOXEE_BUILD_ONLY': '1'",
-        "'rui-app-entry-extra': ['sweep_app_entry_extra']",
+        # Prefix only, no closing bracket: the contract is that the campaign
+        # STARTS with sweep_app_entry_extra (so selecting it really runs the IRC
+        # app-entry cases). Later batches legitimately APPEND compatible
+        # single-instance sweeps (sweep_keyed_gaps, sweep_keyed_gaps4_login) to
+        # reuse the same pair launch — "real-UI startup reuse is the default" —
+        # and pinning the exact one-element list would forbid that.
+        "'rui-app-entry-extra': [\n    'sweep_app_entry_extra',",
     ):
         want(runner, needle, runner_path, 'IRC runner registration')
 

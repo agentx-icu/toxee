@@ -89,6 +89,29 @@ MCP_BINDING="${MCP_BINDING:-skill}" TOXEE_L3_TEST="${TOXEE_L3_TEST:-true}" \
   "$REPO_ROOT/run_toxee_ios.sh" --action deploy --mode "$BUILD_MODE" \
   --simulator-id "$SIMULATOR_ID" >>"$STDIO_LOG" 2>&1
 
+# Pre-grant the AV privacy classes to the freshly (re)installed app.
+#
+# WHY: an outgoing/incoming call runs through
+# CallServiceManager._ensurePermissionsForCurrentMode(), which ABORTS the call
+# when the mic permission is not granted — before any tox_av signalling. On a
+# Simulator nothing has ever granted it and no human is there to answer the TCC
+# prompt, so every AV case died with `callerState=idle` and the sweep read it as
+# "incoming voice call never rang" (live iPad: sweep_calls_misc 6 FAIL). This is
+# the Simulator equivalent of tapping "Allow" once on a real device, so it makes
+# the AV cases run for real rather than being written off as un-constructible.
+# The uninstall above clears TCC for this bundle, hence granting on every launch.
+#
+# MICROPHONE ONLY: `simctl privacy` has no `camera` service (see
+# `xcrun simctl help privacy`), and a Simulator has no camera hardware anyway —
+# `_ensurePermissionsForCurrentMode` only asks for camera when
+# `CallMediaCapabilities.supportsVideoCapture()` is true, so a video call here
+# needs nothing but the mic. Best-effort: `simctl privacy` is missing on older
+# Xcode, and that must not abort a non-AV run.
+if [[ -n "$BUNDLE_ID" ]]; then
+  xcrun simctl privacy "$SIMULATOR_ID" grant microphone "$BUNDLE_ID" \
+    >>"$STDIO_LOG" 2>&1 || true
+fi
+
 # LAUNCH_METHOD:
 #   flutter (default) — `flutter run --machine`. Simple, but its resident debug
 #     connection to the Simulator is FRAGILE under sustained real-UI driving: it
@@ -129,6 +152,15 @@ if [[ "$LAUNCH_METHOD" == "simctl" ]]; then
   # delivery is deterministic once the peer relay is reachable.
   if [[ -n "${TOXEE_IOS_FORCE_TCP_ONLY:-}" ]]; then
     export SIMCTL_CHILD_TOX_FORCE_TCP_ONLY="$TOXEE_IOS_FORCE_TCP_ONLY"
+  fi
+  # Move this app's toxcore UDP/DHT socket off the default 33445.. window
+  # (TOX_UDP_START_PORT, see ToxManager.cpp). Both Simulators share the HOST
+  # network stack, and a foreign IPv4-wildcard holder of 33445 makes toxcore's
+  # dual-stack `[::]:33445` bind succeed while being permanently deaf to inbound
+  # IPv4 — measured 2026-08-15, it turned every bootstrap-node probe into a false
+  # "unreachable". Pin an isolated base instead of racing for the default.
+  if [[ -n "${TOXEE_IOS_UDP_START_PORT:-}" ]]; then
+    export SIMCTL_CHILD_TOX_UDP_START_PORT="$TOXEE_IOS_UDP_START_PORT"
   fi
   launch_out="$(xcrun simctl launch "$SIMULATOR_ID" "$BUNDLE_ID" 2>>"$STDIO_LOG")"
   echo "$launch_out" >>"$STDIO_LOG"

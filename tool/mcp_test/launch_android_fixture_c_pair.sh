@@ -216,6 +216,46 @@ launch_android_instance() {
     # when the package is not installed yet (first ever run). The restored
     # snapshot (when requested) is then the ONLY account store the app can find.
     adb -s "$device_id" shell pm clear "$APP_PACKAGE_ID" >/dev/null 2>&1 || true
+    # Pre-grant the dangerous runtime permissions, AFTER `pm clear` (which resets
+    # every grant) and BEFORE the app process starts.
+    #
+    # Why: a runtime permission request renders `GrantPermissionsActivity` — an OS
+    # surface owned by com.google.android.permissioncontroller. Synthetic
+    # flutter_skill / ui_* input is delivered INTO THE APP'S widget tree, so it can
+    # neither tap nor dismiss that dialog; the dialog just parks on top and every
+    # subsequent tap lands on it instead of the widget under test, failing the rest
+    # of the run in a way that looks like a driver bug. Same class of problem the
+    # TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT dart-define solves for
+    # POST_NOTIFICATIONS, but these are requested by package code we do not gate
+    # (lib/call/permission_helper.dart requests microphone+camera on call start),
+    # so the fix has to be on the device side.
+    #
+    # OBSERVED on an API 33 emulator (not speculative): two
+    # `START ... GrantPermissionsActivity ... from uid <app>` entries in logcat
+    # during a call-touching sweep.
+    #
+    # Note `pm revoke` would NOT help — a revoked permission is re-requested (and
+    # re-prompts) on the next call. Pre-granting is what removes the dialog.
+    # A scenario that specifically asserts denied-permission behaviour must revoke
+    # the one permission it needs itself rather than relying on this default.
+    #
+    # Each grant is best-effort: permissions that do not exist on the device's API
+    # level (READ_MEDIA_* are API 33+) make `pm grant` fail harmlessly.
+    #
+    # NOT handled here: the MediaProjection ("Start recording or casting")
+    # consent box. It has no `pm grant` equivalent and would need
+    # `appops set <pkg> PROJECT_MEDIA ignore`, but toxee never calls
+    # MediaProjection (zero references in lib/, android/, or any plugin manifest),
+    # so that dialog cannot fire. Add the appops line here if screen sharing lands.
+    for _perm in \
+        android.permission.CAMERA \
+        android.permission.RECORD_AUDIO \
+        android.permission.READ_MEDIA_IMAGES \
+        android.permission.READ_MEDIA_VIDEO \
+        android.permission.READ_MEDIA_AUDIO \
+        android.permission.POST_NOTIFICATIONS; do
+        adb -s "$device_id" shell pm grant "$APP_PACKAGE_ID" "$_perm" >/dev/null 2>&1 || true
+    done
     # Tox TCP relay topology (see header): TCP-only on both devices; A hosts the
     # relay. debug.toxee.* system properties are the Android stand-in for the
     # TOX_FORCE_TCP_ONLY / TOX_TCP_RELAY_PORT env vars (ToxManager.cpp

@@ -57,8 +57,55 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // iOS true-App first-pass coverage. These sweeps start from fresh accounts
   // and establish any needed friendship/group state internally, so they do not
   // rely on the macOS-only restored Fixture C pair.
-  'rui-ios-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
-  'rui-ios-chat-main': ['sweep_chat', 'sweep_group2'],
+  // `sweep_keyed_gaps` rides along here (and in the iPad/Android twins below)
+  // instead of getting its own campaign: it is single-instance,
+  // required=no-friend / result=no-friend, and it drives the SAME LoginPage /
+  // RegisterPage surface `sweep_login` already logs out onto — so the runner
+  // reuses one launch and inserts no reset. Its input path is `focusType` only
+  // (real paste on desktop, flutter_skill `enterText` on a device), with ZERO
+  // `osa*` chords, so it is honest on a Simulator/emulator today.
+  // `sweep_keyed_gaps4_login` is appended for the same reason as
+  // `sweep_keyed_gaps`: single-instance, required=no-friend / result=no-friend,
+  // and it drives the SAME LoginPage surface `sweep_login` already logs out
+  // onto (it registers a throwaway account, deletes it through the real
+  // LoginPage confirm dialog and quick-logs back into the primary in a
+  // `finally`). Its only input path is `focusType`, which is atomic on every
+  // platform, so there are no `osa*` chords to be silent on a Simulator.
+  'rui-ios-account-settings': [
+    'sweep_login',
+    'sweep_ios_settings_main',
+    'sweep_keyed_gaps',
+    'sweep_keyed_gaps4_login',
+  ],
+  // sweep_msg_select is appended here (rather than given a launch of its own in
+  // the broad runs) because it is the "startup reuse is the default" case: it
+  // needs exactly what sweep_chat already leaves behind — a live A<->B
+  // friendship and an open C2C conversation. Its required state is no-friend, so
+  // the runner inserts one in-place reset before it, the same as it already does
+  // between sweep_chat and sweep_group2.
+  // `sweep_keyed_gaps4` follows `sweep_keyed_gaps3` for the same reason: same
+  // required=no-friend / result=friends contract, with its own handshake and its
+  // own throwaway group, so it needs no extra LAUNCH. It does still get an
+  // in-place reset: `result=friends` -> `required=no-friend` is exactly the
+  // transition `_executeInternalRealUiReset()` handles without relaunching
+  // (fixture_c_unified_runner.dart, the `_realUiStateFriends` ->
+  // `_realUiStateNoFriend` arm), same as between `sweep_chat` and
+  // `sweep_group2`. On an iPHONE it is the highest-value member of this chain —
+  // SIX of its nine cases gate on the live layout tier and SKIP on the other
+  // one: `mobile_attachment_panel_entries`,
+  // `mobile_voice_record_button_reveals`, `mobile_chats_unread_badge_flips` and
+  // both `mobile_mention_picker_*` need the NARROW shell, while
+  // `attachment_toolbar_disabled_entries_gating` needs the DESKTOP composer.
+  // Those six are the sweep's ONLY declared skips
+  // (`_keyedGaps4ExpectedSkipCases` in drive_real_ui_pair_sweep_tally.dart);
+  // anything else that skips now FAILS the sweep.
+  'rui-ios-chat-main': [
+    'sweep_chat',
+    'sweep_group2',
+    'sweep_msg_select',
+    'sweep_keyed_gaps3',
+    'sweep_keyed_gaps4',
+  ],
   // PHONE-shell exclusive controls (bottom nav, mobile composer send button,
   // long-press message menu) + the compact dialog-width tier. Deliberately NOT
   // in the rui-ipad-* campaigns: on a tablet every case would SKIP (the wide
@@ -95,6 +142,32 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // exactly one internal reset between the two sweeps; they are grouped
   // because each on its own would waste a whole pair launch on 1-3 cases.
   'rui-ios-deep-extra': ['sweep_c2c_deep_extra', 'sweep_group_conf_deep_extra'],
+  // Message multi-select: 4 cases, two-process, required=no-friend /
+  // result=friends. Wave 1 — the chain contains ZERO `osa*` call sites (real
+  // taps + the `l3_inject_c2c_custom` seed seam only), so it is honest on a
+  // Simulator today. Standalone campaign for focused debugging; the broad iPhone
+  // run gets it through rui-ios-chat-main.
+  'rui-ios-msg-select': ['sweep_msg_select'],
+  // Keyed-but-never-driven batch #3: 10 cases, two-process, required=no-friend /
+  // result=friends. Same launch-reuse contract as sweep_msg_select (it runs its
+  // OWN handshake and creates ONE throwaway group), so the broad iPhone run gets
+  // it through rui-ios-chat-main; this entry is for focused debugging.
+  'rui-ios-keyed-gaps3': ['sweep_keyed_gaps3'],
+  // Keyed-but-never-driven batch #2: 8 cases, SINGLE-instance (A only),
+  // required=no-friend / result=no-friend. The broad iPhone run gets it through
+  // rui-ios-account-settings (where it reuses sweep_login's launch); this entry
+  // exists only for focused debugging of the batch on its own launch.
+  'rui-ios-keyed-gaps': ['sweep_keyed_gaps'],
+  // Keyed-but-never-driven batch #4: 9 cases, two-process, required=no-friend /
+  // result=friends. Wave 1 — ZERO `osa*` call sites (real taps plus the
+  // `l3_composer_set_text` / `l3_send_file` / `l3_group_member_list` seams), so
+  // it is honest on a Simulator today. The broad iPhone run gets it through
+  // rui-ios-chat-main; this entry is for focused debugging.
+  'rui-ios-keyed-gaps4': ['sweep_keyed_gaps4'],
+  // The SINGLE-instance login half on its own launch, for focused debugging of
+  // the LoginPage delete-confirm flow. The broad run gets it through
+  // rui-ios-account-settings.
+  'rui-ios-keyed-gaps4-login': ['sweep_keyed_gaps4_login'],
 
   // iPhone WAVE 2 — unblocked by the iOS `osa*` branch work (until that lands,
   // these chains contain call sites that were silent no-ops on a Simulator).
@@ -152,8 +225,32 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // iPad simulators: selecting a rui-ipad-* campaign makes the runner force
   // TOXEE_IOS_DEVICE_TYPE=tablet into the launch env (launch_ios_fixture_c_
   // pair.sh then matches *iPad* simulators). Requires --real-ui-platform=ios.
-  'rui-ipad-account-settings': ['sweep_login', 'sweep_ios_settings_main'],
-  'rui-ipad-chat-main': ['sweep_chat', 'sweep_group2'],
+  'rui-ipad-account-settings': [
+    'sweep_login',
+    'sweep_ios_settings_main',
+    'sweep_keyed_gaps',
+    'sweep_keyed_gaps4_login',
+  ],
+  // On a TABLET `sweep_keyed_gaps4` is a genuinely different data point, not a
+  // duplicate — but NOT for the reason this comment used to give. iPad mounts
+  // the MOBILE composer: `TencentCloudChatMessageInput.tabletAppBuilder`
+  // delegates to `defaultBuilder`, which builds
+  // `TencentCloudChatMessageInputMobile`; only `desktopBuilder` builds the
+  // desktop input. Live-proved 2026-08-16 — `mobile_attachment_panel_entries`
+  // and `mobile_voice_record_button_reveals` PASS on iPad, and
+  // `attachment_toolbar_disabled_entries_gating` SKIPs there with "the MOBILE
+  // composer is mounted", so its desktop-composer branch is reachable only on a
+  // real desktop run. What IS tablet-specific here: the select-mode forward
+  // case hits `tabletAppBuilder`'s inline per-type buttons instead of the phone
+  // bottom sheet, and `mobile_chats_unread_badge_flips` is the batch's only
+  // tablet skip (it gates on `_msPhoneShell`, i.e. the bottom nav).
+  'rui-ipad-chat-main': [
+    'sweep_chat',
+    'sweep_group2',
+    'sweep_msg_select',
+    'sweep_keyed_gaps3',
+    'sweep_keyed_gaps4',
+  ],
   // TABLET-exclusive layout behaviour the shared sweeps never assert: the
   // master-detail row->right-pane binding and the wide dialog-width tier.
   // (Forces iPad simulators like every other rui-ipad-* campaign.)
@@ -179,6 +276,19 @@ const mobileRealUiCampaigns = <String, List<String>>{
     'sweep_c2c_deep_extra',
     'sweep_group_conf_deep_extra',
   ],
+  // Message multi-select on a TABLET is a genuinely different data point, not a
+  // duplicate of the iPhone run: `tabletAppBuilder` renders the per-type forward
+  // BUTTONS directly, where the phone `defaultBuilder` renders one icon that
+  // opens a forward-type bottom sheet. The case detects which is mounted.
+  'rui-ipad-msg-select': ['sweep_msg_select'],
+  'rui-ipad-keyed-gaps3': ['sweep_keyed_gaps3'],
+  // Batch #2 on a TABLET: same 8 single-instance cases, but the register /
+  // IRC / add-group dialogs render at the wide dialog tier here, which is a
+  // different layout branch from the iPhone run. Broad iPad runs get it through
+  // rui-ipad-account-settings; this entry is for focused debugging.
+  'rui-ipad-keyed-gaps': ['sweep_keyed_gaps'],
+  'rui-ipad-keyed-gaps4': ['sweep_keyed_gaps4'],
+  'rui-ipad-keyed-gaps4-login': ['sweep_keyed_gaps4_login'],
   // Group/conference member management: 5 cases, two-process,
   // required=no-friend / result=friends. iPad ONLY for now: the chain in
   // drive_real_ui_pair_group_conf_member_extra.dart has ZERO `isMobileShell`
@@ -236,12 +346,15 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // STATUS: the Android pair DOES reach the business layer (both instances log
   // `app.started` + `imsdk version arm64` and fire the Badge launcher probe,
   // which only a logged-in session can trigger — `BadgeService.instance.start`
-  // is called from lib/runtime/session_runtime_coordinator.dart:298). What is
-  // still missing is a SCENARIO-LEVEL green run: no campaign here has been
-  // driven end-to-end on two emulators yet, so do not report `rui-android-*`
-  // results as proven. (A missing `.android_runtime/*/pair.json` is NOT the
-  // evidence it used to be treated as — stop_android_fixture_c_pair.sh:55
-  // deletes it on every normal teardown.)
+  // is called from lib/runtime/session_runtime_coordinator.dart:298). The FIRST
+  // scenario-level green run landed 2026-08-16: `rui-android-msg-select`
+  // (`sweep_msg_select`, all four cases) went passed=4 failed=0 skipped=0 on
+  // two emulators (`emulator-5554` / `emulator-5556`), including the live A<->B
+  // friendship the sweep establishes itself — see REAL_UI_TWO_PROCESS.md
+  // "Android status". Every OTHER `rui-android-*` campaign is still unproven:
+  // do not report those as android-green until each has its own run. (A missing
+  // `.android_runtime/*/pair.json` is NOT the evidence it used to be treated as
+  // — stop_android_fixture_c_pair.sh:55 deletes it on every normal teardown.)
   //
   // Unlike iOS, Android is in `_isHeadlessRealUi`
   // (drive_real_ui_pair_inst.dart:212), so the `osa*` surface routes to the
@@ -251,9 +364,36 @@ const mobileRealUiCampaigns = <String, List<String>>{
   'rui-android-mobile-shell': ['sweep_mobile_shell'],
   'rui-android-main': [
     'sweep_login',
+    'sweep_keyed_gaps',
+    'sweep_keyed_gaps4_login',
     'sweep_chat',
     'sweep_mobile_shell',
+    'sweep_msg_select',
+    'sweep_keyed_gaps3',
+    'sweep_keyed_gaps4',
   ],
+  // Keyed-gaps batch #2: single-instance, required=no-friend /
+  // result=no-friend, no `osa*` call sites. Chained after sweep_login in
+  // rui-android-main (both end on the LoginPage/home boundary) and available
+  // standalone here for focused debugging.
+  'rui-android-keyed-gaps': ['sweep_keyed_gaps'],
+  // Message multi-select: 4 cases, two-process, required=no-friend /
+  // result=friends. No `osa*` dependency, so nothing here relies on the
+  // headless substitutes beyond the shared tap/seed surface.
+  'rui-android-msg-select': ['sweep_msg_select'],
+  // Keyed-gaps batch #3: 10 cases, two-process, required=no-friend /
+  // result=friends. Appended to rui-android-main after sweep_msg_select (both
+  // end friends with the C2C row alive, so the runner adds no extra LAUNCH —
+  // the `friends -> no-friend` step it does insert is the in-place
+  // `_executeInternalRealUiReset()`, not a relaunch).
+  'rui-android-keyed-gaps3': ['sweep_keyed_gaps3'],
+  // Keyed-gaps batch #4: 9 cases, two-process, required=no-friend /
+  // result=friends, plus the single-instance login half. No `osa*` dependency
+  // anywhere in either sweep, so nothing here relies on the Android headless
+  // substitutes beyond the shared tap/seed surface. Appended to
+  // rui-android-main; these entries are for focused debugging.
+  'rui-android-keyed-gaps4': ['sweep_keyed_gaps4'],
+  'rui-android-keyed-gaps4-login': ['sweep_keyed_gaps4_login'],
   // Self profile: 8 cases, single-instance,
   // required=no-friend / result=no-friend.
   'rui-android-profile': ['sweep_profile'],

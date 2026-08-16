@@ -227,19 +227,49 @@ class _RegisterPageForm extends StatelessWidget {
           children: [
             if (confirmPasswordController.text.isNotEmpty &&
                 passwordController.text.isNotEmpty)
-              Icon(
-                key: const Key('register_confirm_match_icon'),
-                confirmPasswordController.text == passwordController.text
-                    ? Icons.check_circle
-                    : Icons.cancel,
-                color: confirmPasswordController.text == passwordController.text
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.error,
-                size: 20,
+              // The Icon's own key is state-INDEPENDENT (it exists to say "the
+              // match affordance is mounted"), so a driver could never tell
+              // check_circle from cancel through it. The KeyedSubtree adds the
+              // state-encoded sibling key `register_confirm_match_{ok,mismatch}`
+              // — the same trick `register_password_visibility_icon_*` uses —
+              // so real-UI automation can assert the mismatch->ok FLIP instead
+              // of merely "an icon appeared".
+              //
+              // An ANCESTOR wrapper is safe HERE only because the child is a
+              // plain `Icon` with no animation state to lose. Do NOT copy this
+              // shape over an implicitly-animated widget: a key that flips with
+              // the state remounts the subtree and kills the tween. See
+              // `register_password_strength_bar.dart`, where the equivalent
+              // marker is a CHILD of the AnimatedContainer for exactly this
+              // reason.
+              KeyedSubtree(
+                key: Key(
+                  'register_confirm_match_'
+                  '${confirmPasswordController.text == passwordController.text ? 'ok' : 'mismatch'}',
+                ),
+                child: Icon(
+                  key: const Key('register_confirm_match_icon'),
+                  confirmPasswordController.text == passwordController.text
+                      ? Icons.check_circle
+                      : Icons.cancel,
+                  color:
+                      confirmPasswordController.text == passwordController.text
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.error,
+                  size: 20,
+                ),
               ),
             IconButton(
               key: const Key('register_confirm_visibility_toggle'),
               icon: Icon(
+                // State-suffixed icon key, mirroring the password field's
+                // `register_password_visibility_icon_{obscured,visible}`: the
+                // IconButton key stays stable for TAPPING, this one is what
+                // makes the obscure flip observable.
+                key: Key(
+                  'register_confirm_visibility_icon_'
+                  '${confirmPasswordObscure ? 'obscured' : 'visible'}',
+                ),
                 confirmPasswordObscure
                     ? Icons.visibility_off
                     : Icons.visibility,

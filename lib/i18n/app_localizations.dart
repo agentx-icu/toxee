@@ -1048,10 +1048,10 @@ abstract class AppLocalizations {
   /// **'Last ping: {seconds}s ago'**
   String lastPing(String seconds);
 
-  /// Button text to send a bootstrap request to the current node
+  /// Label of the button that runs a real DHT reachability probe against a bootstrap node
   ///
   /// In en, this message translates to:
-  /// **'Send Bootstrap Request'**
+  /// **'Test Node'**
   String get testNode;
 
   /// Button text for account deletion
@@ -1576,17 +1576,23 @@ abstract class AppLocalizations {
   /// **'Close'**
   String get close;
 
-  /// Warning message when no bootstrap request has been sent to the node
+  /// Warning shown when selecting a bootstrap node that has not been probed
   ///
   /// In en, this message translates to:
-  /// **'No bootstrap request has been sent to this node.'**
+  /// **'This node has not been tested yet.'**
   String get nodeNotTestedWarning;
 
-  /// Warning message when local submission of a bootstrap request failed
+  /// Warning shown when selecting a bootstrap node whose probe came back negative
   ///
   /// In en, this message translates to:
-  /// **'The bootstrap request failed; this node may be unavailable.'**
+  /// **'This node did not respond; it may be unavailable.'**
   String get nodeTestFailedWarning;
+
+  /// Warning shown when selecting a bootstrap node whose probe could not be performed (UDP-less device, or the probe instance failed to start). Must NOT imply the node is at fault.
+  ///
+  /// In en, this message translates to:
+  /// **'This node could not be checked from this device, so nothing is known about it either way.'**
+  String get nodeTestInconclusiveWarning;
 
   /// Error message when nickname is too long
   ///
@@ -1660,23 +1666,35 @@ abstract class AppLocalizations {
   /// **'Set as Current Node'**
   String get setAsCurrentNode;
 
-  /// Message shown when a bootstrap request is accepted locally for submission
+  /// Verdict shown when a bootstrap node answered an authenticated DHT nodes request
   ///
   /// In en, this message translates to:
-  /// **'Bootstrap request sent'**
+  /// **'Node reachable'**
   String get nodeTestSuccess;
 
-  /// Message shown when local submission of a bootstrap request fails
+  /// Shown when the DHT reachability probe cannot run because no UDP socket is bound
   ///
   /// In en, this message translates to:
-  /// **'Bootstrap request failed'**
+  /// **'Node test needs UDP; this device is running TCP-only'**
+  String get nodeTestUdpUnavailable;
+
+  /// Verdict shown when a bootstrap node did not answer within the probe timeout
+  ///
+  /// In en, this message translates to:
+  /// **'Node unreachable'**
   String get nodeTestFailed;
 
-  /// Message shown when a bootstrap request cannot be sent before login (no live FFI session)
+  /// Shown when the probe itself could not be performed (BootstrapProbeUnavailable). Deliberately neutral: this is our defect, not the node's.
   ///
   /// In en, this message translates to:
-  /// **'Cannot send a bootstrap request before login'**
-  String get nodeTestUnavailableBeforeLogin;
+  /// **'Node test unavailable on this device'**
+  String get nodeTestUnavailable;
+
+  /// Error shown when the public bootstrap node list could not be fetched
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load bootstrap nodes'**
+  String get failedToLoadBootstrapNodes;
 
   /// Snackbar text shown when starting the local LAN bootstrap service fails
   ///

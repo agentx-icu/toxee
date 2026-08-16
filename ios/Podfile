@@ -40,5 +40,48 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+
+    # permission_handler_apple OPT-IN MACROS — REQUIRED, not optional.
+    #
+    # permission_handler_apple compiles every permission strategy out by
+    # default: `Classes/PermissionHandlerEnums.h` does
+    #   #ifndef PERMISSION_MICROPHONE
+    #     #define PERMISSION_MICROPHONE 0
+    #   #endif
+    # for EVERY permission, and `AudioVideoPermissionStrategy.h` then falls back
+    # to `@interface AudioVideoPermissionStrategy : UnknownPermissionStrategy`.
+    # `UnknownPermissionStrategy.requestPermission:` unconditionally answers
+    # `PermissionStatusPermanentlyDenied` WITHOUT ever asking iOS — so
+    # `Permission.microphone.request()` returned permanentlyDenied on every iOS
+    # build (device AND simulator) no matter what TCC said, and
+    # `CallServiceManager._preflightOutgoingCall` /
+    # `_ensurePermissionsForCurrentMode` aborted every voice/video call with
+    # `CallSetupFailureReason.preflightDenied` before any tox_av signalling.
+    # Verified on the pre-fix build: `otool -oV` on the built
+    # permission_handler_apple.framework showed
+    #   _OBJC_CLASS_$_AudioVideoPermissionStrategy
+    #     superclass _OBJC_CLASS_$_UnknownPermissionStrategy
+    #     baseMethods 0x0            <- no methods at all
+    #
+    # Only enable groups this app actually requests AND that have a matching
+    # Info.plist usage string, because an enabled group with no usage string is
+    # an immediate iOS termination when requested:
+    #   PERMISSION_MICROPHONE -> NSMicrophoneUsageDescription   (calls, voice msgs)
+    #   PERMISSION_CAMERA     -> NSCameraUsageDescription       (video calls, QR)
+    #   PERMISSION_PHOTOS     -> NSPhotoLibraryUsageDescription +
+    #                            NSPhotoLibraryAddUsageDescription (image picker,
+    #                            also covers PermissionGroupPhotosAddOnly)
+    # Android is unaffected (manifest-driven); macOS never asks
+    # (CallPermissionHelper.shouldRequestRuntimePermission is false there).
+    target.build_configurations.each do |config|
+      defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+      defs = [defs] unless defs.is_a?(Array)
+      defs |= [
+        'PERMISSION_MICROPHONE=1',
+        'PERMISSION_CAMERA=1',
+        'PERMISSION_PHOTOS=1',
+      ]
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+    end
   end
 end

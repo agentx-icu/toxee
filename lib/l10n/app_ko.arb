@@ -208,7 +208,7 @@
   "refresh": "새로고침",
   "retry": "다시 시도",
   "lastPing": "마지막 ping: {seconds}초 전",
-  "testNode": "부트스트랩 요청 보내기",
+  "testNode": "노드 테스트",
   "deleteAccount": "계정 삭제",
   "deleteAccountConfirmMessage": "계정과 모든 데이터가 영구적으로 삭제되며 복구할 수 없습니다. 신중하게 진행하세요.",
   "delete": "삭제",
@@ -249,12 +249,11 @@
   "nodePort": "포트",
   "nodePublicKey": "공개 키",
   "setAsCurrentNode": "현재 노드로 설정",
-  "nodeTestSuccess": "부트스트랩 요청을 보냈습니다",
-  "nodeTestFailed": "부트스트랩 요청 전송 실패",
-  "nodeTestUnavailableBeforeLogin": "로그인 전에는 부트스트랩 요청을 보낼 수 없습니다",
-  "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
-  },
+  "nodeTestSuccess": "노드에 연결됨",
+  "nodeTestUdpUnavailable": "노드 테스트에는 UDP가 필요합니다. 이 기기는 TCP 전용으로 동작 중입니다",
+  "nodeTestFailed": "노드에 연결할 수 없음",
+  "failedToLoadBootstrapNodes": "부트스트랩 노드를 불러오지 못했습니다",
+  "nodeTestUnavailable": "이 기기에서는 노드 테스트를 실행할 수 없습니다",
   "failedToStartBootstrapService": "부트스트랩 서비스 시작에 실패했습니다",
   "invalidNodeInfo": "유효한 노드 정보(호스트, 포트, 공개 키)를 입력하세요",
   "nodeSetSuccess": "노드가 현재 노드로 성공적으로 설정되었습니다",
@@ -567,11 +566,12 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "이 노드에 아직 부트스트랩 요청을 보내지 않았습니다.",
+  "nodeNotTestedWarning": "이 노드는 아직 테스트되지 않았습니다.",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "부트스트랩 요청 전송에 실패했습니다. 이 노드를 사용할 수 없을 수 있습니다.",
+  "nodeTestFailedWarning": "이 노드가 응답하지 않았습니다. 사용할 수 없을 수 있습니다.",
+  "nodeTestInconclusiveWarning": "이 기기에서는 이 노드를 확인할 수 없어 사용 가능 여부를 알 수 없습니다.",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },

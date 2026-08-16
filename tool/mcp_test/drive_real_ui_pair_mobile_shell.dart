@@ -146,27 +146,37 @@ Future<int> runMobileShellSweep(
     return 1;
   }
   final tally = _MobileShellTally('sweep_mobile_shell');
+  // EVERY case here is `expectedSkip: true`: this whole file exists to drive
+  // controls that render only in ONE layout tier, and each body prints the tier
+  // probe that made it skip (see the LAYOUT TIERS block at the top). That is a
+  // capability assertion, not a swallowed failure — the contract
+  // `_MobileShellTally` now demands before it lets a skip go green.
   await tally.run(
     'mobile_bottom_nav_tab_switch',
     () => _msBottomNavTabSwitch(a),
+    expectedSkip: true,
   );
   await tally.run(
     'mobile_composer_send_button_reveals',
     () => _msComposerSendButtonReveals(a, ids.toxB),
+    expectedSkip: true,
   );
   await tally.run(
     'mobile_composer_send_delivers',
     () => _msComposerSendDelivers(a, b, ids.toxA, ids.toxB),
+    expectedSkip: true,
   );
   await tally.run(
     'mobile_message_long_press_menu',
     () => _msMessageLongPressMenu(a, ids.toxB),
+    expectedSkip: true,
   );
   // The dialog tier assertion is form-factor AWARE (it asserts the phone tier
   // here and the tablet tier in sweep_tablet_layout), so it belongs in both.
   await tally.run(
     'dialog_width_form_factor_tier',
     () => _msDialogWidthFormFactorTier(a),
+    expectedSkip: true,
   );
   await _msLandHome(a, 'sweep_mobile_shell');
   return tally.finish();
@@ -189,60 +199,20 @@ Future<int> runTabletLayoutSweep(
     return 1;
   }
   final tally = _MobileShellTally('sweep_tablet_layout');
+  // Same `expectedSkip: true` rationale as `runMobileShellSweep`: both cases
+  // gate on the live layout tier and print the probe that decided it.
   await tally.run(
     'tablet_master_detail_row_opens_chat',
     () => _msTabletMasterDetailRow(a, ids.toxB),
+    expectedSkip: true,
   );
   await tally.run(
     'dialog_width_form_factor_tier',
     () => _msDialogWidthFormFactorTier(a),
+    expectedSkip: true,
   );
   await _msLandHome(a, 'sweep_tablet_layout');
   return tally.finish();
-}
-
-/// PASS/FAIL/SKIP bookkeeping shared by both sweeps. A SKIP is COUNTED (never
-/// silently `continue`d) so an all-skipped chain can't read as green.
-class _MobileShellTally {
-  _MobileShellTally(this.label);
-
-  final String label;
-  int passed = 0;
-  int failed = 0;
-  int skipped = 0;
-
-  Future<void> run(String name, Future<bool?> Function() body) async {
-    bool? result;
-    try {
-      result = await body();
-    } on PermissionBlockedError {
-      rethrow;
-    } on Object catch (e, st) {
-      result = false;
-      print('[sweep] $label EXCEPTION in $name: $e');
-      print(st);
-    }
-    if (result == null) {
-      skipped++;
-      print('[sweep] $label SKIP: $name');
-      return;
-    }
-    if (result) {
-      passed++;
-    } else {
-      failed++;
-    }
-    print('[sweep] $label ${result ? 'PASS' : 'FAIL'}: $name');
-  }
-
-  int finish() {
-    print(
-      '[sweep] $label summary: passed=$passed failed=$failed skipped=$skipped',
-    );
-    if (failed != 0) return 1;
-    if (passed == 0 && skipped != 0) return 75;
-    return 0;
-  }
 }
 
 /// End-guard: land back on the chats home so a REUSED launch (the optimized /
@@ -266,6 +236,27 @@ Future<void> _msLandHome(Inst inst, String label) async {
 /// on a narrow desktop window too (by design: the same mobile widgets are up).
 Future<bool> _msPhoneShell(Inst inst) async =>
     await inst.keyCenter('home_bottom_nav') != null;
+
+/// The MEASURED bottom edge (in logical pixels) of the keyed widget [key], from
+/// `ui_key_center`'s `y` + `h / 2`. Null when the key does not resolve.
+///
+/// `Inst.keyCenter` drops the RenderBox size, so every "is that row inside this
+/// scrollable's viewport?" question used to be answered against a GUESSED
+/// constant (`2 * view.y - <fudge>`). A guess silently changes meaning whenever
+/// the surrounding chrome changes height — which turns a genuine red into a
+/// swallowed SKIP. This reads the box the framework actually laid out.
+Future<double?> _measuredBottomEdge(Inst inst, String key) async {
+  try {
+    final r = await inst.l3('ui_key_center', {'key': key});
+    if (r['ok'] != true) return null;
+    final y = (r['y'] as num?)?.toDouble();
+    final h = (r['h'] as num?)?.toDouble();
+    if (y == null || h == null) return null;
+    return y + h / 2;
+  } on DriveError {
+    return null;
+  }
+}
 
 /// True when the WIDE master-detail shell is up (>= 800pt: both iPad
 /// orientations, desktop). Read from the live dump (HomePage's own computed

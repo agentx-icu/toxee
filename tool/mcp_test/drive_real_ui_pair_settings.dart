@@ -99,7 +99,14 @@ Future<void> _openSettings(Inst inst) async {
 /// A compact iPhone returns false and keeps the push-navigation path.
 Future<bool> _settingsIsWide(Inst inst) async {
   final v = (await inst.dumpState())['homeShellShouldShowMasterDetail'];
-  return v == true;
+  if (v is bool) return v;
+  // UNKNOWN is not "narrow". This value comes from a HomePage-registered
+  // snapshot reader that is briefly ABSENT right after a register/account-switch
+  // remount, and treating null as false made an iPad (wide, buttons inline in
+  // the Account card) take the compact drill-in path and fail with
+  // "Account Management did not open" (live: settings_switch_account_entry).
+  // Fall back to the live widget tree, which is always truthful.
+  return !await _homeShellHasBottomNav(inst);
 }
 
 Future<bool> _openMobileAccountManagement(Inst inst) async {

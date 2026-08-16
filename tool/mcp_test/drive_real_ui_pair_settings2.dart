@@ -1,7 +1,7 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
-// Batch 1 of the real-UI sweep campaign — "Settings sweep 2" (12 cases, single
+// Batch 1 of the real-UI sweep campaign — "Settings sweep 2" (13 cases, single
 // instance, one launch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // Every case drives the REAL settings widgets of ONE live instance (A; B is
@@ -94,87 +94,9 @@ const double _settingsViewBottom = 700;
 // below it can pull it up. So on a STALL, accept it up to this extended bottom.
 const double _settingsViewBottomMax = 770;
 
-// MOBILE fallback band — the iPhone-tuned constants, used ONLY when the live
-// viewport probe cannot resolve the settings ListView. They are also the FLOOR
-// of the measured band, so a measurement can only ever widen it.
-const double _settingsMobileViewTop = 80;
-const double _settingsMobileViewBottom = 620;
-const double _settingsMobileViewBottomMax = 690;
-// The settings ListView is inside a SafeArea, so its top edge is the status-bar
-// inset (~24pt on the notch-less iPads, more on a notched iPhone). Only the
-// STALL bound leans on this estimate; the reading bound does not.
-const double _settingsMobileSafeAreaTop = 24;
-
-/// Per-instance cache of the measured mobile band (geometry is fixed per run).
-final _settingsBandCache =
-    <String, ({double top, double bottom, double maxBottom})>{};
-
-/// The visible band a settings widget must be scrolled into — MEASURED off the
-/// live shell instead of assumed.
-///
-/// ROOT CAUSE (iPad, 2026-08-14): the WIDE shell renders every settings section
-/// INLINE in one ListView (settings_page.dart's non-`isMobile` branch →
-/// `_buildSettingsChildren`: Account / Global / Bootstrap cards) and a tablet
-/// viewport is roughly twice the 620/690 constants tuned on an 844pt iPhone.
-/// Targets in its LOWER half (download-limit field, bootstrap mode radios,
-/// manual-node expand button) are fully ON SCREEN yet below the assumed bottom,
-/// with little or no scroll extent left to pull them up — so
-/// `_scrollKeyIntoBand` burned its step budget and reported "never reached" for
-/// widgets a user can see and touch. One cause, five iPad failures.
-///
-/// Fix: derive the band from the REAL viewport. `settings_scroll_view` is keyed
-/// on the ListView itself, so `ui_key_center` resolves its viewport RenderBox
-/// centre EXACTLY — and the reading `bottom` IS that centre: a target at/above
-/// it sits in the viewport's TOP HALF, hence certainly on-screen and
-/// hit-testable, with no dependence on the screen height (unreadable on iOS). An
-/// ESTIMATED bottom is not good enough — a live probe showed a mid-scroll
-/// position ~1100 that passed a `2*cy - inset` estimate yet was clipped, so
-/// `tapAt` there reported "Tap successful" and changed nothing. Targets that
-/// cannot come that high (bottom-anchored rows) are covered by the STALL rule
-/// below, which fires only once scrolling has run out of extent — i.e. when the
-/// target already sits at its topmost achievable position. DESKTOP IS UNTOUCHED
-/// (same constants as always): a live LAYOUT reading, never a platform name.
-Future<({double top, double bottom, double maxBottom})> _settingsBand(
-  Inst inst,
-) async {
-  if (!inst.isMobileShell) {
-    return (
-      top: _settingsViewTop,
-      bottom: _settingsViewBottom,
-      maxBottom: _settingsViewBottomMax,
-    );
-  }
-  final cached = _settingsBandCache[inst.name];
-  if (cached != null) return cached;
-  final centre = await inst.keyCenter(_settingsScrollKey);
-  // Not onstage yet — keep the historical constants and do NOT cache, so a later
-  // call (after _openSettings) still gets a real measurement.
-  if (centre == null) {
-    return (
-      top: _settingsMobileViewTop,
-      bottom: _settingsMobileViewBottom,
-      maxBottom: _settingsMobileViewBottomMax,
-    );
-  }
-  // Both floored by the legacy constants so a measurement can only widen — never
-  // narrow — what already worked on the phone shells.
-  final maxBottom = 2 * centre.y - _settingsMobileSafeAreaTop - 30;
-  final band = (
-    top: _settingsMobileViewTop,
-    bottom: centre.y > _settingsMobileViewBottom
-        ? centre.y
-        : _settingsMobileViewBottom,
-    maxBottom: maxBottom > _settingsMobileViewBottomMax
-        ? maxBottom
-        : _settingsMobileViewBottomMax,
-  );
-  _settingsBandCache[inst.name] = band;
-  print(
-    '[pair] settings band ${inst.name}: viewportCentreY=${centre.y} '
-    'top=${band.top} bottom=${band.bottom} maxBottom=${band.maxBottom}',
-  );
-  return band;
-}
+// (The MOBILE band constants + `_settingsBand` itself live in
+// drive_real_ui_pair_settings2_mobile.dart, next to the narrow-shell navigation
+// they exist for.)
 
 /// The on-screen center-y of the keyed widget: `interactiveStructured` bounds
 /// (exact for switches / fields / buttons / radios), falling back to the
@@ -229,10 +151,11 @@ Future<void> _fillFieldViaKeystrokes(Inst inst, String key, String text) async {
 /// widgets that appear BELOW an expander we just opened.
 Future<bool> _nudgeIntoBand(Inst inst, String key, {int steps = 8}) async {
   final band = await _settingsBand(inst);
+  final scrollKey = _settingsActiveScrollKey(inst);
   for (var i = 0; i <= steps; i++) {
     final cy = await _keyedCenterY(inst, key);
     if (cy != null && cy >= band.top && cy <= band.bottom) return true;
-    await inst.scrollAt(_settingsScrollKey, dy: 140);
+    await inst.scrollAt(scrollKey, dy: 140);
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
   return false;
@@ -256,6 +179,33 @@ Future<bool> _scrollKeyIntoBand(
   double? bottomBand,
 }) async {
   await inst.foreground();
+  // Narrow shell: the target may live on a pushed section route. Enter it
+  // BEFORE measuring/scrolling (no-op on desktop/iPad and for root targets).
+  if (!await _settingsEnterMobileSection(inst, targetKey)) return false;
+  final scrollKey = _settingsActiveScrollKey(inst);
+  // The scroll SURFACE must be genuinely ONSTAGE before we drive it.
+  //
+  // Callers reach here after proving a settings ROW exists — e.g. the prelogin
+  // bootstrap case does `waitKey('settings_bootstrap_mode_manual')`. That is
+  // NOT evidence the page is on screen: `waitKey` is flutter_skill's whole-tree
+  // finder, which matches a mounted-but-not-yet-painting element, and
+  // `BootstrapSettingsSection` is shared between the logged-in SettingsPage and
+  // LoginSettingsPage so the SAME row key can be satisfied by a copy that is
+  // still animating in (or by LoginSettingsPage's `tL10n == null` spinner frame,
+  // where the scroll view is not built at all).
+  //
+  // `ui_scroll_at` resolves through `resolveKeyCenter`, which requires an
+  // attached, positively-sized, PAINTING RenderBox — so in that window it threw
+  // `key_offstage_only:settings_scroll_view` and aborted the sweep (the
+  // settings2 `flaky=1`). Waiting for the anchor TIGHTENS the precondition
+  // rather than retrying past it.
+  if (!await inst.waitKeyCenter(scrollKey, timeoutSecs: 8)) {
+    print(
+      '[pair] settings scroll surface "$scrollKey" never became onstage '
+      '(target="$targetKey") — the settings route is not painting',
+    );
+    return false;
+  }
   final band = await _settingsBand(inst);
   final top = topBand ?? band.top;
   final bottom = bottomBand ?? band.bottom;
@@ -263,7 +213,7 @@ Future<bool> _scrollKeyIntoBand(
   // bottomBand is a caller's deliberate tightening (language-selector headroom)
   // and must not be widened back out underneath it.
   final maxBottom = bottomBand == null ? band.maxBottom : bottom;
-  await inst.scrollAt(_settingsScrollKey, dy: -6000);
+  await inst.scrollAt(scrollKey, dy: -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
   // Steps smaller than the band height so a target can't jump from below it
   // straight to above it between checks (the "never reached" overshoot).
@@ -286,7 +236,7 @@ Future<bool> _scrollKeyIntoBand(
       stalledScans = 0;
     }
     prevCy = cy;
-    await inst.scrollAt(_settingsScrollKey, dy: scrollDelta);
+    await inst.scrollAt(scrollKey, dy: scrollDelta);
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
   final cy = await _keyedCenterY(inst, targetKey);
@@ -306,7 +256,13 @@ Future<bool> _scrollKeyIntoBand(
 /// assert every top-level section HEADER renders (Account Info / Appearance /
 /// Language / Auto Download Size Limit / Bootstrap Nodes).
 Future<bool> _settingsSurfaceSections(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
+  // NARROW shells only. iPad is `isMobileShell` yet renders every section
+  // INLINE (no index of drill-in tiles), so the narrow variant's "General" /
+  // "Bootstrap Nodes" TILE titles do not exist there and it false-FAILs.
+  if (inst.isMobileShell && !await _settingsIsWide(inst)) {
+    return _settingsSurfaceSectionsMobile(inst);
+  }
   final accountInfo = await inst.waitText('Account Info', timeoutSecs: 6);
   // Appearance + Language are in the GlobalSettingsSection (mid page).
   final appearance =
@@ -345,11 +301,13 @@ Future<bool> _settingsSurfaceSections(Inst inst) async {
 /// exists" probe); a tappable target must go through [_scrollKeyIntoBand].
 Future<bool> _scrollToText(Inst inst, String text, {int maxSteps = 16}) async {
   await inst.foreground();
-  await inst.scrollAt(_settingsScrollKey, dy: -6000);
+  // Scrolls whichever list we are parked on (root index or a pushed section).
+  final scrollKey = _settingsActiveScrollKey(inst);
+  await inst.scrollAt(scrollKey, dy: -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
   if (await inst.waitText(text, timeoutSecs: 1)) return true;
   for (var step = 0; step < maxSteps; step++) {
-    await inst.scrollAt(_settingsScrollKey, dy: 280);
+    await inst.scrollAt(scrollKey, dy: 280);
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (await inst.waitText(text, timeoutSecs: 1)) return true;
   }
@@ -383,7 +341,7 @@ Future<bool> _tapThemeSegment(Inst inst, String label) async {
 /// case 2 — settings_theme_dark (S57): tap the real "Dark" theme segment → dump
 /// themeMode persists 'dark' AND the label is still rendered. Case 3 restores.
 Future<bool> _settingsThemeDark(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final before = (await inst.dumpState())['themeMode']?.toString() ?? 'system';
   final tapped = await _tapThemeSegment(inst, 'Dark');
   final persisted = tapped && await _waitStringState(inst, 'themeMode', 'dark');
@@ -399,7 +357,7 @@ Future<bool> _settingsThemeDark(Inst inst) async {
 /// case 3 — settings_theme_light_back (S57): revert to "Light" → dump themeMode
 /// persists 'light' and the UI re-renders. Leaves a deterministic light mode.
 Future<bool> _settingsThemeLightBack(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final tapped = await _tapThemeSegment(inst, 'Light');
   final persisted =
       tapped && await _waitStringState(inst, 'themeMode', 'light');
@@ -425,7 +383,7 @@ Future<bool> _anchorLanguageSelector(Inst inst) => _scrollKeyIntoBand(
 /// header (外观) is visible; then revert to English (the native option labels are
 /// locale-invariant) BEFORE any later English-text assertion can be poisoned.
 Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   // Anchor the collapsed selector row HIGH (an explicit band, not the measured
   // one) so the dropdown OPTIONS that render BELOW it on expand stay on screen —
   // the "option not tappable" failure was the 简体中文 row below the fold.
@@ -507,7 +465,7 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
 /// case 5 — settings_download_limit_edit (S98): bring the keyed field onstage,
 /// clear it, type a value, tap Save → dump autoDownloadSizeLimit reflects it.
 Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   if (!await _settingsScrollTo(inst, 'settings_download_limit_field')) {
     print('[pair] settings_download_limit: field never reached');
     return false;
@@ -612,262 +570,6 @@ Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
   return _waitStringState(inst, 'bootstrapNodeMode', mode, timeoutSecs: 4);
 }
 
-/// case 6 — settings_bootstrap_mode_cycle (S99/S85): cycle the bootstrap mode
-/// control auto→manual→(lan)→auto, asserting the dump bootstrapNodeMode after
-/// each real tap. Ends on 'auto' (the default, leaving a known state).
-///
-/// LAN is a DESKTOP-ONLY product feature: the LAN radio lives only in the
-/// `PlatformUtils.isDesktop` branch of `_buildModeRow`, and
-/// `_setBootstrapNodeMode` hard-returns on `'lan'` off desktop. So that leg is
-/// SKIPPED (reason printed) when the shell ships no LAN control — gated on the
-/// mode row being MOUNTED (`toAuto0` proves it) so an unreachable widget can't
-/// masquerade as an absent one, and still FAILING on desktop.
-Future<bool> _settingsBootstrapModeCycle(Inst inst) async {
-  await _openSettings(inst);
-  // Normalize to auto first (cheap, and proves the starting point).
-  final toAuto0 = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  final toManual = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_manual',
-    'manual',
-  );
-  final lanShipped =
-      !toAuto0 ||
-      !inst.isMobileShell ||
-      await inst.waitKey('settings_bootstrap_mode_lan', timeoutSecs: 3);
-  final toLan = lanShipped
-      ? await _setBootstrapMode(inst, 'settings_bootstrap_mode_lan', 'lan')
-      : true;
-  final backAuto = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  print(
-    '[pair] settings_bootstrap_mode_cycle: auto0=$toAuto0 manual=$toManual '
-    'lan=${lanShipped ? toLan : 'SKIP(no LAN control on this shell)'} '
-    'backAuto=$backAuto',
-  );
-  return toAuto0 && toManual && toLan && backAuto;
-}
-
-/// case 7 — settings_bootstrap_manual_add_node (S89): switch to manual mode,
-/// expand the manual node form, fill host/port/pubkey via real input → the
-/// production Test button READS BACK the typed values.
-///
-/// NOTE on scope: "Set as Current Node" only appears AFTER a live
-/// `addBootstrapNode` test SUCCEEDS (needs real DHT reachability), so the
-/// bounded assertion is that the real form mounts and accepts input on a
-/// persisted bootstrapNodeMode→manual. Leaves the form EXPANDED for case 8.
-///
-/// VALUE READBACK (2026-08-14): key PRESENCE alone would pass even when a fill
-/// landed NOTHING, and no API reads a TextField's value back — so the readback
-/// rides the PRODUCTION control. `_testManualNode` reads
-/// `_manualHostController.text` & co. and SnackBars `invalidNodeInfo` unless
-/// host+port+valid-64-hex-pubkey are all present. Hence the DIFFERENTIAL: Test
-/// with the pubkey CLEARED must say "invalid", then Test with every field filled
-/// must reach a real verdict — only reachable if the typed bytes really are in
-/// the controllers. The text readback below is a breadcrumb, never the gate.
-Future<bool> _settingsBootstrapManualAddNode(Inst inst) async {
-  await _openSettings(inst);
-  final manualMode = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_manual',
-    'manual',
-  );
-  if (!manualMode) {
-    print('[pair] bootstrap_manual_add: could not enter manual mode');
-    return false;
-  }
-  // Expand the form. The button TOGGLES `_manualInputExpanded`, so a
-  // double-firing `tapKey` would open AND close it — bring it onstage then
-  // SINGLE-FIRE via tapKeyCenter.
-  if (!await _settingsScrollTo(inst, 'manual_node_input_button')) {
-    print('[pair] bootstrap_manual_add: expand button never reached');
-    return false;
-  }
-  if (!await inst.tapKeyCenter('manual_node_input_button')) {
-    print('[pair] bootstrap_manual_add: expand button not tappable');
-    return false;
-  }
-  final hostShown = await inst.waitKey(
-    'manual_node_host_field',
-    timeoutSecs: 6,
-  );
-  if (!hostShown) {
-    print('[pair] bootstrap_manual_add: host field did not appear');
-    return false;
-  }
-  // The expanded form renders BELOW the (bottom-anchored) expand toggle, so the
-  // host field can be just under the fold. Nudge DOWN a little (a small delta,
-  // NOT a `_settingsScrollTo` reset — the top-reset collapses the form), then
-  // settle it into the MEASURED band instead of trusting the fixed 300px guess
-  // (no-op when already in band, so desktop is unchanged).
-  await inst.scrollAt(_settingsScrollKey, dy: 300);
-  await Future<void>.delayed(const Duration(milliseconds: 250));
-  await _nudgeIntoBand(inst, 'manual_node_host_field');
-  // Fill via REAL focus + input (see _fillFieldViaKeystrokes). All three fields
-  // are filled: the port is pinned rather than trusted to its 33445 default, and
-  // the pubkey is CLEARED first so the invalid half of the differential is
-  // deterministic even when a saved current node pre-populated the controllers.
-  const host = 'tox.example.org';
-  const pubkey =
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-  const invalidMsg =
-      'Please enter valid node information (host, port, and public key)';
-  await _fillFieldViaKeystrokes(inst, 'manual_node_host_field', host);
-  final portShown = await inst.waitKey(
-    'manual_node_port_field',
-    timeoutSecs: 4,
-  );
-  if (portShown) {
-    await _nudgeIntoBand(inst, 'manual_node_port_field');
-    await _fillFieldViaKeystrokes(inst, 'manual_node_port_field', '33445');
-  }
-  final pubkeyShown = await inst.waitKey(
-    'manual_node_pubkey_field',
-    timeoutSecs: 4,
-  );
-  if (pubkeyShown) {
-    await _nudgeIntoBand(inst, 'manual_node_pubkey_field');
-    await _fillFieldViaKeystrokes(inst, 'manual_node_pubkey_field', '');
-  }
-  final testShown = await inst.waitKey(
-    'manual_node_test_button',
-    timeoutSecs: 4,
-  );
-  // Breadcrumb only: some flutter_skill builds report a TextField's LABEL here
-  // rather than its value, so this can never be the gate.
-  final hostReadback = await _keyedText(inst, 'manual_node_host_field');
-
-  // Differential half 1 — pubkey empty ⇒ the production validator must refuse.
-  await _nudgeIntoBand(inst, 'manual_node_test_button');
-  if (!await inst.tapKeyCenter('manual_node_test_button')) {
-    await inst.tryTapKey('manual_node_test_button');
-  }
-  final invalidShown = await inst.waitText(invalidMsg, timeoutSecs: 8);
-
-  // Differential half 2 — a valid 64-hex pubkey ⇒ the SAME control must get past
-  // validation to a real verdict, unreachable unless host+port+pubkey are all
-  // sitting in the real controllers.
-  await inst.waitTextGone(invalidMsg, timeoutSecs: 12);
-  await _nudgeIntoBand(inst, 'manual_node_pubkey_field');
-  await _fillFieldViaKeystrokes(inst, 'manual_node_pubkey_field', pubkey);
-  await _nudgeIntoBand(inst, 'manual_node_test_button');
-  if (!await inst.tapKeyCenter('manual_node_test_button')) {
-    await inst.tryTapKey('manual_node_test_button');
-  }
-  // The validator answers synchronously (~1 frame), the probe verdict does not:
-  // look for a repeat refusal FIRST, then wait out the verdict (which survives
-  // the SnackBar — the _StatusPill keeps rendering it in the form).
-  final stillInvalid = await inst.waitText(invalidMsg, timeoutSecs: 3);
-  var verdictShown = await inst.waitText('Node test failed', timeoutSecs: 20);
-  for (final t in const [
-    'Node test successful',
-    'Test unavailable before login',
-  ]) {
-    if (verdictShown) break;
-    verdictShown = await inst.waitText(t, timeoutSecs: 2);
-  }
-  print(
-    '[pair] settings_bootstrap_manual_add_node: manualMode=$manualMode '
-    'host=$hostShown port=$portShown pubkey=$pubkeyShown test=$testShown '
-    'invalidShown=$invalidShown verdictShown=$verdictShown '
-    'stillInvalid=$stillInvalid (expect false) '
-    'hostReadback=${hostReadback ?? 'n/a'}',
-  );
-  return manualMode &&
-      hostShown &&
-      portShown &&
-      pubkeyShown &&
-      testShown &&
-      invalidShown &&
-      verdictShown &&
-      !stillInvalid;
-}
-
-/// case 8 — settings_bootstrap_manual_remove_node (S89): collapse the manual
-/// node form via the production toggle → the form ROW (host/port/pubkey fields)
-/// is GONE.
-///
-/// NOTE on scope: BootstrapSettingsSection has NO per-node remove affordance
-/// (manual mode only overwrites the current node). The closest real "remove the
-/// row" surface is the manual input EXPAND toggle — tapping it again collapses
-/// the form so its fields leave the tree. We assert that GONE transition (the
-/// inverse of case 7), then restore mode→auto.
-Future<bool> _settingsBootstrapManualRemoveNode(Inst inst) async {
-  await _openSettings(inst);
-  // Ensure we are in manual mode with the form expanded (case 7 left it so, but
-  // be robust to running case 8 standalone).
-  await _setBootstrapMode(inst, 'settings_bootstrap_mode_manual', 'manual');
-  if (!await _settingsScrollTo(inst, 'manual_node_input_button')) {
-    print('[pair] bootstrap_manual_remove: expand button never reached');
-    return false;
-  }
-  // If the form is collapsed, expand it first so there is a row to remove.
-  // SINGLE-FIRE the toggle (see case 7).
-  if (!await inst.waitKey('manual_node_host_field', timeoutSecs: 2)) {
-    await inst.tapKeyCenter('manual_node_input_button');
-    if (!await inst.waitKey('manual_node_host_field', timeoutSecs: 6)) {
-      print('[pair] bootstrap_manual_remove: could not expand form to remove');
-      return false;
-    }
-  }
-  // Collapse it again — the production toggle removes the form row. SINGLE-FIRE.
-  if (!await inst.tapKeyCenter('manual_node_input_button')) {
-    print('[pair] bootstrap_manual_remove: collapse toggle not tappable');
-    return false;
-  }
-  final hostGone = await inst.waitKeyGone(
-    'manual_node_host_field',
-    timeoutSecs: 8,
-  );
-  final pubkeyGone = await inst.waitKeyGone(
-    'manual_node_pubkey_field',
-    timeoutSecs: 4,
-  );
-  // Restore mode→auto and ENFORCE it (a failed restore would leave the pair in
-  // manual mode → state-poisoning false pass).
-  final restoredAuto = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  print(
-    '[pair] settings_bootstrap_manual_remove_node: hostGone=$hostGone '
-    'pubkeyGone=$pubkeyGone restoredAuto=$restoredAuto',
-  );
-  return hostGone && pubkeyGone && restoredAuto;
-}
-
-/// Real pointer tap on the keyed Switch until the dump [field] reaches [want].
-/// One tap is not enough: foreground contention drops taps, and a Switch
-/// resolved at a not-yet-settled scroll position swallows the hit (the observed
-/// iPad `notificationSound flipped=false`).
-Future<bool> _driveSwitchTo(
-  Inst inst,
-  String key,
-  String field,
-  bool want,
-) async {
-  for (var attempt = 0; attempt < 3; attempt++) {
-    if (!await _settingsScrollTo(inst, key)) {
-      print('[pair] switch "$key": never reached (attempt $attempt)');
-      continue;
-    }
-    if (!await inst.tapKeyCenter(key)) {
-      print('[pair] switch "$key": center not tappable (attempt $attempt)');
-      continue;
-    }
-    if (await _waitBoolState(inst, field, want, timeoutSecs: 6)) return true;
-  }
-  return false;
-}
-
 /// cases 9 + 10 — settings_autologin_toggle_hard (S96) and
 /// settings_notifsound_toggle_hard (S97): scroll the real Switch onstage, tap
 /// its CENTER (flutter_skill's synthetic tap doesn't reliably toggle a Material
@@ -878,7 +580,7 @@ Future<bool> _settingsSwitchToggleHard(
   String key,
   String field,
 ) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final before = (await inst.dumpState())[field] == true;
   final flipped = await _driveSwitchTo(inst, key, field, !before);
   final restored = flipped
@@ -910,7 +612,7 @@ Future<bool> _settingsNotifSoundToggleHard(Inst inst) =>
 /// no Navigator.pop). Asserts both. ESC dismisses without setting a password, so
 /// no later case inherits a password-protected account.
 Future<bool> _settingsPasswordMismatchError(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   // Below-fold opener: tapKey still opens the dialog via its direct
   // _tryInvokeCallback even off-screen, so a failed scroll is not fatal.
   if (!await _settingsScrollTo(inst, 'settings_set_password_button')) {
@@ -986,7 +688,7 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
 /// CANCEL → the dialog closes and sessionReady stays true (no teardown). Runs
 /// LAST because it opens the dangerous logout dialog; only ever taps Cancel.
 Future<bool> _settingsLogoutCancel(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final wasReady = (await inst.dumpState())['sessionReady'] == true;
   // Below-fold opener (fires once via direct callback).
   if (!await _settingsScrollTo(inst, 'settings_logout_button')) {
@@ -1047,7 +749,7 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
       print(
         '[sweep] normalize: locale is ${st['languageCode']} -> reverting en',
       );
-      await _openSettings(inst);
+      await _openSettingsRoot(inst);
       // The selector shows the current NATIVE label; expand + pick English.
       // Try the known non-English native labels (zh-Hans/zh-Hant/ja/ko/ar).
       const nativeLabels = ['简体中文', '繁體中文', '日本語', '한국어', 'العربية'];
@@ -1070,7 +772,7 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
         '[sweep] normalize: bootstrap mode is ${st2['bootstrapNodeMode']} '
         '-> reverting auto',
       );
-      await _openSettings(inst);
+      await _openSettingsRoot(inst);
       await _setBootstrapMode(inst, 'settings_bootstrap_mode_auto', 'auto');
     }
   } on DriveError catch (e) {
@@ -1078,21 +780,32 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
   }
 }
 
-/// sweep_settings2 — Batch 1: chain all 12 settings-sweep-2 cases on ONE launch.
+/// sweep_settings2 — Batch 1: chain all 13 settings-sweep-2 cases on ONE launch.
 /// Order avoids state poisoning: surface read first; theme dark→light (ends
 /// light); locale zh→en roundtrip (reverts BEFORE later English-text cases);
 /// download-limit (restores); bootstrap mode cycle (ends auto); manual add then
 /// remove (collapse); the two Switch toggles (restore); password-mismatch
-/// (ESC-dismiss); logout_cancel LAST (Cancel only). Prints `[sweep] <case>:
+/// (ESC-dismiss); logout_cancel (Cancel only); prelogin_bootstrap_node_test
+/// LAST (really logs out, logs back in). Prints `[sweep] <case>:
 /// PASS|FAIL` per case + final counts; exits non-zero if any HARD case fails.
-Future<int> runSettingsSweep2(Inst inst, String nick) async {
+/// [peer] is the launched-but-idle B instance. It is used ONLY by
+/// `settings_prelogin_bootstrap_node_test`, which needs a genuinely REACHABLE
+/// Tox DHT endpoint to prove the pre-login probe can answer "reachable" as well
+/// as "unreachable" — B's own `l3_dht_info` endpoint on 127.0.0.1 is exactly
+/// that, and it keeps the check hermetic (no public node, no internet).
+Future<int> runSettingsSweep2(
+  Inst inst,
+  String nick, {
+  Inst? peer,
+  String peerNick = '',
+}) async {
   await ensureHome(inst, nick);
   await inst.waitState(
     (s) => s['isConnected'] == true,
     label: '$nick connected',
     timeoutSecs: 90,
   );
-  // Ordered list of (caseId, runner). All 12 are HARD gates.
+  // Ordered list of (caseId, runner). All 13 are HARD gates.
   final cases = <MapEntry<String, Future<bool> Function()>>[
     MapEntry('settings_surface_sections', () => _settingsSurfaceSections(inst)),
     MapEntry('settings_theme_dark', () => _settingsThemeDark(inst)),
@@ -1130,7 +843,21 @@ Future<int> runSettingsSweep2(Inst inst, String nick) async {
       () => _settingsPasswordMismatchError(inst),
     ),
     MapEntry('settings_logout_cancel', () => _settingsLogoutCancel(inst)),
+    // Needs a second LIVE Tox node for the "reachable" half of its
+    // differential, so it is EXCLUDED (never fake-passed) when this sweep is
+    // reused by a single-app bundle. See its doc comment.
+    if (peer != null)
+      MapEntry(
+        'settings_prelogin_bootstrap_node_test',
+        () => _settingsPreloginBootstrapNodeTest(inst, peer, peerNick),
+      ),
   ];
+  if (peer == null) {
+    print(
+      '[sweep] settings_prelogin_bootstrap_node_test: EXCLUDED '
+      '(single-app bundle has no second Tox node to probe as REACHABLE)',
+    );
+  }
 
   var passed = 0;
   var failed = 0;

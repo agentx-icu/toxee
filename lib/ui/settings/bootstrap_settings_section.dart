@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/bootstrap_node_probe.dart';
 import '../../util/bootstrap_nodes.dart';
 import '../../util/lan_bootstrap_service.dart';
 import '../../util/logger.dart';
@@ -15,6 +18,7 @@ import '../testing/ui_keys.dart';
 import '../widgets/app_page_route.dart';
 import '../widgets/app_snackbar.dart';
 import '../widgets/section_header.dart';
+import 'bootstrap_node_verdict.dart';
 import 'bootstrap_nodes_page.dart';
 
 /// Shared bootstrap node settings section. Layout and behavior match [SettingsPage].
@@ -85,6 +89,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     _manualPortController.dispose();
     _manualPubkeyController.dispose();
     _lanBootstrapPortController.dispose();
+    // Release the ephemeral probe Tox instance if this section owned the last
+    // in-flight probe; a no-op when a probe is still running (it holds its own
+    // lease and tears the instance down when it returns it).
+    unawaited(BootstrapNodeProbe.shutdown());
     super.dispose();
   }
 
@@ -151,8 +159,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         st,
       );
       if (!mounted) return;
-      // TODO(l10n): key=failedToLoadBootstrapNodes
-      AppSnackBar.showError(context, 'Failed to load bootstrap nodes');
+      AppSnackBar.showError(
+        context,
+        AppLocalizations.of(context)!.failedToLoadBootstrapNodes,
+      );
     }
   }
 
@@ -199,35 +209,59 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     if (mounted) _lanBootstrapPortController.text = port.toString();
   }
 
+  /// Runs a real DHT reachability probe against [node].
+  ///
+  /// Works with or without a session: [BootstrapNodeProbe] stands up an
+  /// isolated, short-lived Tox instance when [widget.service] is null, so the
+  /// login-page copy of this section reaches the same verdict as the logged-in
+  /// one. See `BootstrapNodeProbe` for why the old `tryBootstrapNode` boolean
+  /// was not a reachability answer even when a session existed.
+  Future<BootstrapProbeVerdict> _probeNode(
+    ({String host, int port, String pubkey}) node,
+  ) {
+    return BootstrapNodeProbe.probe(
+      host: node.host,
+      port: node.port,
+      publicKey: node.pubkey,
+      service: widget.service,
+    );
+  }
+
   Future<void> _testCurrentNode() async {
-    if (_currentBootstrapNode == null) return;
+    final node = _currentBootstrapNode;
+    if (node == null || _testingCurrentNode) return;
     setState(() {
       _testingCurrentNode = true;
       _nodeTestResult = null;
     });
     try {
-      bool success;
-      if (widget.service != null) {
-        success = await widget.service!.tryBootstrapNode(
-          _currentBootstrapNode!.host,
-          _currentBootstrapNode!.port,
-          _currentBootstrapNode!.pubkey,
-        );
-      } else {
-        // Pre-login (login settings): no FFI session yet, and a raw TCP probe
-        // to a UDP Tox port lies — drop the result rather than show a fake
-        // green/red. The real check happens at first bootstrap.
-        success = false;
-      }
+      final verdict = await _probeNode(node);
       if (mounted) {
         setState(() {
           _testingCurrentNode = false;
-          _nodeTestResult = widget.service != null
-              ? (success ? 'success' : 'failed')
-              : null;
+          _nodeTestResult = BootstrapVerdictUi.resultFor(verdict);
         });
       }
-    } catch (_) {
+    } on BootstrapProbeUnavailable catch (e, st) {
+      // Probe could not be PERFORMED — neutral state, not a negative verdict
+      // about the node (see BootstrapProbeUnavailable's doc comment).
+      AppLogger.logError(
+        '[BootstrapSettingsSection] current node probe unavailable',
+        e,
+        st,
+      );
+      if (mounted) {
+        setState(() {
+          _testingCurrentNode = false;
+          _nodeTestResult = BootstrapVerdictUi.unavailableResult;
+        });
+      }
+    } catch (e, st) {
+      AppLogger.logError(
+        '[BootstrapSettingsSection] current node probe failed',
+        e,
+        st,
+      );
       if (mounted) {
         setState(() {
           _testingCurrentNode = false;
@@ -273,47 +307,57 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       _testedManualNode = null;
     });
     try {
-      bool success;
-      if (widget.service != null) {
-        success = await widget.service!.tryBootstrapNode(host, port, pubkey);
-      } else {
-        // Pre-login (login settings): no FFI session yet. A TCP probe to a
-        // UDP Tox port misleads users into "tested OK"; mark as not tested
-        // and let the first bootstrap on the running service decide.
-        if (mounted) {
-          setState(() {
-            _testingManualNode = false;
-            _manualNodeTestResult = null;
-            _testedManualNode = null;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                AppLocalizations.of(context)!.nodeTestUnavailableBeforeLogin,
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      // Same probe with or without a session — see [_probeNode].
+      final verdict = await _probeNode((
+        host: host,
+        port: port,
+        pubkey: pubkey,
+      ));
+      final result = BootstrapVerdictUi.resultFor(verdict);
+      // A UDP-less device can still USE this node over a TCP relay, so the
+      // probe's inability to test it must not block promotion.
+      final selectable =
+          result == 'success' ||
+          verdict == BootstrapProbeVerdict.udpUnavailable;
       if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
         setState(() {
           _testingManualNode = false;
-          _manualNodeTestResult = success ? 'success' : 'failed';
-          _testedManualNode = success
+          _manualNodeTestResult = result;
+          _testedManualNode = selectable
               ? (host: host, port: port, pubkey: pubkey)
               : null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
+          BootstrapVerdictUi.snackBarFor(
+            context,
+            verdict,
+            successLabel: l10n.nodeTestSuccess,
+            udpLabel: l10n.nodeTestUdpUnavailable,
+            failedLabel: l10n.nodeTestFailed,
+          ),
+        );
+      }
+    } on BootstrapProbeUnavailable catch (e, st) {
+      // The probe never ran, so we learned NOTHING about this node. Rendering
+      // it as "node unreachable" would blame the user's node for our defect —
+      // see BootstrapProbeUnavailable's doc comment. Stay neutral, and keep the
+      // node promotable.
+      AppLogger.logError(
+        '[BootstrapSettingsSection] manual node probe unavailable',
+        e,
+        st,
+      );
+      if (mounted) {
+        setState(() {
+          _testingManualNode = false;
+          _manualNodeTestResult = BootstrapVerdictUi.unavailableResult;
+          _testedManualNode = (host: host, port: port, pubkey: pubkey);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              success
-                  ? AppLocalizations.of(context)!.nodeTestSuccess
-                  : AppLocalizations.of(context)!.nodeTestFailed,
-            ),
-            backgroundColor: success
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.error,
+            content: Text(AppLocalizations.of(context)!.nodeTestUnavailable),
+            backgroundColor: Theme.of(context).colorScheme.secondary,
           ),
         );
       }
@@ -344,7 +388,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     final candidate = port == null
         ? null
         : (host: host, port: port, pubkey: pubkey);
-    if (_manualNodeTestResult != 'success' ||
+    if (!BootstrapVerdictUi.promotable(_manualNodeTestResult) ||
         candidate == null ||
         candidate != _testedManualNode) {
       if (mounted) {
@@ -414,19 +458,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
   }
 
   Future<void> _startLanBootstrapService() async {
-    if (widget.service == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.nodeTestUnavailableBeforeLogin,
-            ),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-      return;
-    }
     final port = int.tryParse(_lanBootstrapPortController.text.trim()) ?? 33445;
     if (port <= 0 || port > 65535) {
       if (mounted) {
@@ -461,11 +492,17 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
         if (info == null) {
           success = false;
         } else {
-          success = await widget.service!.addBootstrapNode(
-            info.ip,
-            info.port,
-            info.pubkey,
-          );
+          // Pre-login there is no live session to hand the node to; persisting
+          // it is the whole job, and the next session picks it up from Prefs
+          // during `FfiChatService.init`. Mirrors the null-service branch of
+          // [_restoreAndStopLanTransaction].
+          success =
+              widget.service == null ||
+              await widget.service!.addBootstrapNode(
+                info.ip,
+                info.port,
+                info.pubkey,
+              );
           if (success) {
             await Prefs.setCurrentBootstrapNode(
               info.ip,
@@ -762,13 +799,14 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                 runSpacing: AppSpacing.xs,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  _StatusPill(
-                                    label: _nodeTestResult == 'success'
-                                        ? l10n.nodeTestSuccess
-                                        : l10n.nodeTestFailed,
-                                    color: _nodeTestResult == 'success'
-                                        ? AppThemeConfig.successColor
-                                        : Theme.of(context).colorScheme.error,
+                                  BootstrapVerdictUi.pillFor(
+                                    context,
+                                    _nodeTestResult,
+                                    successLabel: l10n.nodeTestSuccess,
+                                    udpLabel: l10n.nodeTestUdpUnavailable,
+                                    unavailableLabel: l10n.nodeTestUnavailable,
+                                    failedLabel: l10n.nodeTestFailed,
+                                    successColor: AppThemeConfig.successColor,
                                   ),
                                 ],
                               ),
@@ -1096,13 +1134,14 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                           if (_manualNodeTestResult != null) ...[
                             Row(
                               children: [
-                                _StatusPill(
-                                  label: _manualNodeTestResult == 'success'
-                                      ? l10n.nodeTestSuccess
-                                      : l10n.nodeTestFailed,
-                                  color: _manualNodeTestResult == 'success'
-                                      ? AppThemeConfig.successColor
-                                      : Theme.of(context).colorScheme.error,
+                                BootstrapVerdictUi.pillFor(
+                                  context,
+                                  _manualNodeTestResult,
+                                  successLabel: l10n.nodeTestSuccess,
+                                  udpLabel: l10n.nodeTestUdpUnavailable,
+                                  unavailableLabel: l10n.nodeTestUnavailable,
+                                  failedLabel: l10n.nodeTestFailed,
+                                  successColor: AppThemeConfig.successColor,
                                 ),
                               ],
                             ),
@@ -1131,7 +1170,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                       : null,
                                 ),
                               ),
-                              if (_manualNodeTestResult == 'success') ...[
+                              if (BootstrapVerdictUi.promotable(
+                                _manualNodeTestResult,
+                              )) ...[
                                 AppSpacing.horizontalSm,
                                 Expanded(
                                   child: ElevatedButton.icon(
@@ -1407,49 +1448,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
             ),
           ),
       ],
-    );
-  }
-}
-
-/// Pill-shaped status badge used for online/offline/test-result indicators in
-/// the bootstrap settings UI. Background is a 10% tint of [color]; text + dot
-/// are full [color]; outer shape is a Stadium pill so it reads as a status
-/// chip rather than a button or list-tile leading marker.
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label, required this.color});
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: ShapeDecoration(
-        color: color.withValues(alpha: 0.10),
-        shape: const StadiumBorder(),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          AppSpacing.horizontalXs,
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

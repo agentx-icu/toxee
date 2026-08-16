@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'fixture_c_real_ui_mobile_campaigns.dart';
+import 'fixture_c_real_ui_scenarios.dart';
 
 part 'fixture_c_restore_preflight.dart';
 
@@ -217,319 +218,10 @@ final List<String> _realUiFlakyScenarios = <String>[];
 /// Real-UI scenarios that passed (on any attempt).
 final List<String> _realUiPassedScenarios = <String>[];
 
-const _validRealUiScenarios = {
-  'handshake',
-  'message',
-  'message_burst',
-  'group_message',
-  'group_create',
-  'group_profile_open',
-  'group_rename',
-  'group_search',
-  'group_add_member_open',
-  'group_add_member_picker',
-  'group_conversation_menu',
-  'group_menu_pin_unpin',
-  'group_menu_mark_read',
-  'group_menu_mark_read_unread',
-  'group_menu_delete_confirm',
-  'group_clear_history',
-  'group_clear_preserves_pin',
-  'group_burst',
-  'group_member_list',
-  'conference_message',
-  'handshake_detail',
-  'decline',
-  'custom_message',
-  'call_voice',
-  'call_reject',
-  // Batch 1 — settings sweep 2 (single-instance, no-friend). The 12 cases are
-  // individually runnable; sweep_settings2 chains them on one launch.
-  'sweep_settings2',
-  'sweep_ios_settings_main',
-  'settings_surface_sections',
-  'settings_theme_dark',
-  'settings_theme_light_back',
-  'settings_locale_zh_roundtrip',
-  'settings_download_limit_edit',
-  'settings_bootstrap_mode_cycle',
-  'settings_bootstrap_manual_add_node',
-  'settings_bootstrap_manual_remove_node',
-  'settings_autologin_toggle_hard',
-  'settings_notifsound_toggle_hard',
-  'settings_password_mismatch_error',
-  'settings_logout_cancel',
-  // Batch 2 — self profile (single-instance, no-friend). The 8 cases are
-  // individually runnable; sweep_profile chains them on one launch. Cases 19/20
-  // drive the real avatar control with deterministic fixed picker-path input.
-  'sweep_profile',
-  'profile_open_sidebar_avatar',
-  'profile_edit_toggle_roundtrip',
-  'profile_edit_nickname_persists',
-  'profile_edit_status_persists',
-  'profile_copy_toxid_snackbar',
-  'profile_qr_copy',
-  'profile_avatar_picker_opens',
-  'profile_avatar_select_default_applies',
-  // Batch 3 — login / register (single-instance, no-friend). The 9 cases are
-  // individually runnable; sweep_login chains them on one launch. Case 26 taps
-  // the real restore card with deterministic invalid-file picker input.
-  'sweep_login',
-  'login_register_open_back',
-  'login_account_card_renders',
-  'login_restore_entry_opens',
-  'register_empty_nickname_error',
-  'register_password_mismatch_error',
-  'register_password_strength_flips',
-  'login_password_wrong_error',
-  'login_password_correct_unlocks',
-  'account_switch_second_account',
-  // Batch 4 — contacts / friend profile (TWO-PROCESS). sweep_contacts chains
-  // all 15 on one launch: required=no-friend (it does its OWN handshake) and
-  // result=no-friend (case 44 deletes the friend on both sides). The individual
-  // cases are runnable too — the add-friend dialog guards (30/31/32) + subtab
-  // cycle (34) are no-friend; the friendship-dependent cases (33, 35–43)
-  // require/leave a friendship; 44 leaves no-friend.
-  'sweep_contacts',
-  'add_friend_dialog_esc_close',
-  'add_friend_invalid_id_error',
-  'add_friend_self_id_guard',
-  'add_friend_duplicate_guard',
-  'contacts_subtabs_cycle',
-  'contacts_row_opens_friend_profile',
-  'friendprof_send_message_tile',
-  'friendprof_pin_toggle',
-  'friendprof_block_unblock',
-  'friendprof_mute_toggle_regression',
-  'friendprof_remark_edit_persists',
-  'friendprof_clear_history',
-  'blocked_list_unblock_row',
-  'contact_search_filter_clear',
-  'friendprof_delete_friend_confirm',
-  // Batch 5 — conversation list C2C (TWO-PROCESS). sweep_conv chains all 10 on
-  // one launch: required=no-friend (it does its OWN handshake) and result=friends
-  // (the C2C delete removes only the conversation ROW, not the friend; the sweep
-  // re-seeds a row, so the launch ends friends). All cases are friendship-
-  // dependent (B's sends seed real unread/preview/history). Case 53 (presence) is
-  // a SKIP inside the sweep — the friend online flag has no ungated setter and
-  // flipping it needs stopping B's process (forbidden by launch-reuse).
-  'sweep_conv',
-  'conv_menu_surface_c2c',
-  'conv_pin_unpin_reorders',
-  'conv_mark_read_two_proc',
-  'conv_delete_confirm_c2c',
-  'conv_clear_history_c2c',
-  'conv_clear_preserves_pin_c2c',
-  'conv_unread_badge_bump_clear',
-  'conv_preview_updates_on_inbound',
-  'conv_presence_dot_flips',
-  'conv_search_filter_clear',
-  // Batch 6 — chat surface C2C (TWO-PROCESS). sweep_chat chains all 16 on one
-  // launch: required=no-friend (it does its OWN handshake) and result=friends
-  // (no case deletes the friend; the sweep ends with the C2C conversation alive).
-  // All cases are friendship-dependent (B's real sends seed history; l3 seeding
-  // delivers inbound media). Case 62 (reply) stays a legacy SKIP in this +94
-  // sweep; the P1/P2/P3 campaign covers the newly driveable reply flow as
-  // `reply_quote_real`. Case 68 (offline-pending) is a SKIP — the
-  // pending→deliver flip is un-seedable on a reused launch (no ungated offline
-  // seam; stopping B is forbidden).
-  'sweep_chat',
-  'chat_open_from_row',
-  'chat_multiline_send',
-  'chat_long_text_send',
-  'chat_emoji_insert_send',
-  'chat_sticker_panel_send',
-  'chat_msg_menu_surface',
-  'chat_copy_message_clipboard',
-  'chat_reply_quote_roundtrip',
-  'chat_forward_to_other_conv',
-  'chat_delete_message_gone',
-  'chat_history_scroll_load_more',
-  'chat_inbound_while_scrolled_up',
-  'chat_header_opens_profile',
-  'chat_offline_pending_then_deliver',
-  'chat_image_bubble_open_preview',
-  'chat_file_bubble_present_open',
-  // Focused C2C expansion — safe-path real controls not covered by the main
-  // chat/conv sweeps: search entry, cancel branches, and profile send-back.
-  'sweep_c2c_extra',
-  'c2c_global_search_contact_opens_chat',
-  'c2c_conv_delete_cancel',
-  'c2c_profile_clear_history_cancel',
-  'c2c_delete_friend_cancel',
-  'c2c_header_profile_send_back',
-  // Optimized orchestration bundles — reuse existing sweeps in one app launch
-  // and, where possible, one A<->B friendship.
-  'sweep_single_app_optimized',
-  'sweep_c2c_optimized',
-  'sweep_friendship_optimized',
-  'sweep_optimized_current',
-  // Batch 7 — group / conference (MIXED single-instance + two-process).
-  // sweep_group2 chains all 14 on one launch: required=no-friend (it does its
-  // OWN handshake) and result=friends (no case deletes the FRIEND — case 78
-  // kicks B from the group, case 75 leaves the group, but the A<->B friendship
-  // stays intact). The single-instance create cases (71/72/82) are no-friend;
-  // the rest of the single-instance group/conference cases create their own
-  // group standalone (no friendship needed); the 2p cases (77/78/79/81) need a
-  // friendship (the standalone dispatch establishes it + joins B).
-  'sweep_group2',
-  'group_create_cancel',
-  'group_create_type_selector_surface',
-  'group_rename_updates_header',
-  'group_profile_members_entry',
-  'group_mute_toggle',
-  'group_profile_clear_history',
-  'group_add_member_full_join',
-  'group_member_list_scroll',
-  'group_unread_badge_two_proc',
-  'group_kick_member_ui',
-  'group_leave_via_profile_confirm',
-  'conf_create_dialog_surface',
-  'conf_row_menu_surface',
-  'conf_member_list_renders',
-  // Batch 8 — calls / misc (FINAL batch; MIXED two-process + single-instance).
-  // sweep_calls_misc chains all 10 on one launch: required=no-friend (it does
-  // its OWN handshake) and result=friends (no case deletes the friend; the
-  // calls end idle, the conversation row stays alive). The call cases + the
-  // chat-open misc cases (91/92/94) are friendship-dependent (the standalone
-  // dispatch establishes it); window_resize_responsive is single-instance and
-  // is a SKIP-able case (exit 75) when the raw-launched window refuses resize.
-  'sweep_calls_misc',
-  'call_video_accept_hangup',
-  'call_mute_toggle_incall',
-  'call_camera_toggle_incall',
-  'call_missed_record_row',
-  'call_callee_hangup',
-  'call_record_bubble_renders',
-  'home_tabs_cycle_state_retained',
-  'theme_switch_chat_open',
-  'search_chat_history_window_open',
-  'window_resize_responsive',
-  // P1/P2/P3 campaign Batch II — single-instance account/locale/conference
-  // cases (sweep_p1_single chains all 5 on one launch; each is individually
-  // dispatchable; the delete case is DESTRUCTIVE to its own throwaway account
-  // and runs last in the sweep).
-  'sweep_p1_single',
-  'zh_locale_page_walk',
-  'conference_rename_leave',
-  'settings_switch_account_entry',
-  'account_card_management_menu',
-  'account_delete_full_flow',
-  // P1/P2/P3 campaign Batch III — two-process chat/conv octet. sweep_p1_chat
-  // chains all 8 on one launch: required=no-friend (it does its OWN handshake)
-  // and result=friends (no case deletes the friend; the end-guard re-seeds a
-  // row). Three cases are NEGATIVE product-gap pins decided by verify-first
-  // code reading: read_receipt_double_tick, draft_restore_on_conv_switch, and
-  // typing_indicator_render.
-  'sweep_p1_chat',
-  'chat_recall_message',
-  'read_receipt_double_tick',
-  'forward_to_group_target',
-  'draft_restore_on_conv_switch',
-  'typing_indicator_render',
-  'unread_badge_total_sidebar',
-  'search_empty_state',
-  'image_preview_open_hardened',
-  // P1/P2/P3 campaign Batch IV — relaunch + profile-call quartet. The sweep
-  // internally restarts instances, so the runner treats its result as
-  // relaunch-dirty and relaunches before the next external scenario.
-  'sweep_p1_relaunch',
-  'relaunch_history_autologin',
-  'offline_pending_relaunch',
-  'call_from_profile_tiles',
-  'group_join_by_id_real_ui',
-  // P1 extra — feasible follow-ups from the inventory's "still add" bucket
-  // that are driveable in the current macOS real-app harness.
-  'sweep_p1_extra',
-  'ar_rtl_page_walk',
-  'keyboard_global_search_shortcut',
-  // App-entry extra — §7.5.1 high-frequency single-instance real-control cases
-  // (drive only A): new-entry popup, add-friend paste, two desktop shortcuts,
-  // register password-visibility toggle, login Import entry render-gate.
-  'sweep_app_entry_extra',
-  'new_entry_menu_surface',
-  'add_friend_paste_clipboard',
-  'keyboard_new_conversation_shortcut',
-  'keyboard_open_settings_shortcut',
-  'irc_join_channel_real_controls',
-  'irc_join_channel_loopback_live',
-  'register_password_visibility_toggle',
-  'login_import_account_card_open',
-  // Group @-mention — §7.5.1 two-process: real desktop mention panel + send.
-  'sweep_group_mention',
-  'group_at_member_send',
-  'group_at_all_send',
-  // Account/conference focused expansion — single-instance, real controls,
-  // non-destructive assertions with cleanup-gated state.
-  'sweep_account_conf_extra',
-  'settings_switch_account_cancel',
-  'login_account_delete_cancel',
-  'settings_delete_account_cancel',
-  'conference_profile_id_surface',
-  'conference_profile_send_message_tile',
-  'conference_search_result_opens',
-  // Focused group/conference member-management expansion — real member-list
-  // row menus, role action smoke, remove, and conference negative affordances.
-  'sweep_group_conf_member_extra',
-  'group_member_peer_menu_surface',
-  'group_member_role_action_smoke',
-  'group_member_remove_ui',
-  'conference_member_peer_row_surface',
-  'conference_member_role_remove_absent',
-  // Highest-value follow-up additions: optimized-stable deep cases plus
-  // standalone native-boundary guards.
-  'sweep_c2c_deep_extra',
-  'c2c_search_result_opens_target_message',
-  'sweep_account_deep_extra',
-  'account_multi_account_state_isolation',
-  'sweep_group_conf_deep_extra',
-  'group_member_role_reopen_surface',
-  'group_member_remove_receiver_state',
-  'conference_bidirectional_message_lifecycle',
-  'sweep_native_boundary_guards',
-  'attachment_entry_buttons_render',
-  'restore_import_entry_guard',
-  'notification_tap_routes_to_c2c',
-  'network_disconnect_guard',
-  'call_permission_denied_guard',
-  'mobile_smoke_playbook_guard',
-  // P1/P2/P3 campaign Batch V — P2 selector-backed cases. The sweep chains all
-  // three and restarts B for presence; individual sticker/chip cases keep the
-  // friendship, presence reports relaunch-dirty.
-  'sweep_p2_keys',
-  'sticker_face_cell_send',
-  'new_messages_chip_tap',
-  'presence_dot_relaunch',
-  // P1/P2/P3 campaign Batch VI — C2C custom inbound seed + real Reply.
-  'sweep_p2_reply',
-  'reply_quote_real',
-  // P1/P2/P3 campaign Batch VII — verify-first P2 trio outcome. Voice and tray
-  // are documented as L3-pinned/product gaps; pasted-image is driveable.
-  'sweep_p2_verify',
-  'paste_image_into_composer',
-  // P1/P2/P3 campaign Batch VIII — P3 writable subset. The live real-UI case is
-  // message_burst_perf; ar_rtl_smoke runs as a hermetic Flutter test.
-  'sweep_p3_writable',
-  'message_burst_perf',
-  // FORM-FACTOR cases (mobile shell / tablet layout). These are the first
-  // scenarios that drive controls which exist ONLY on the mobile shell (bottom
-  // navigation, the mobile composer send button, the long-press message menu)
-  // or assert the tablet-only master-detail split — the `rui-ios-*`/`rui-ipad-*`
-  // campaigns before them only RE-RAN the desktop sweeps on a smaller screen.
-  // Each case detects its layout tier from live signals (`home_bottom_nav`
-  // onstage / `homeShellShouldShowMasterDetail`) and SKIPs (exit 75) when the
-  // running shell has no such surface, so the same scenario list is safe to
-  // point at any platform. sweep_mobile_shell chains the phone cases on one
-  // launch; sweep_tablet_layout chains the wide-layout ones.
-  'sweep_mobile_shell',
-  'sweep_tablet_layout',
-  'mobile_bottom_nav_tab_switch',
-  'mobile_composer_send_button_reveals',
-  'mobile_composer_send_delivers',
-  'mobile_message_long_press_menu',
-  'tablet_master_detail_row_opens_chat',
-  'dialog_width_form_factor_tier',
-};
+/// The real-UI scenario vocabulary. The catalog itself lives in
+/// `fixture_c_real_ui_scenarios.dart` (see that file for why it was split out);
+/// this alias keeps every existing call site unchanged.
+const _validRealUiScenarios = realUiScenarioNames;
 
 /// Desktop / platform-agnostic real-UI campaigns. The MOBILE matrix
 /// (`rui-ios-*`, `rui-ipad-*`, `rui-android-*`, `rui-mobile-shell`) lives in
@@ -606,7 +298,22 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   // search shortcut flow.
   'rui-p1-extra': ['sweep_p1_extra'],
   // §7.5.1 app-entry extra — high-frequency single-instance real-control cases.
-  'rui-app-entry-extra': ['sweep_app_entry_extra'],
+  // `sweep_keyed_gaps` is APPENDED here rather than given a launch of its own:
+  // both sweeps are single-instance, required=no-friend / result=no-friend and
+  // both end on the chats home with the primary account live, so the runner
+  // keeps ONE pair launch across the pair and inserts no reset. They also share
+  // a surface (the IRC Applications page), so chaining them keeps the seeded
+  // IRC prefs work in one place.
+  // `sweep_keyed_gaps4_login` rides along for the same reason: single-instance,
+  // required=no-friend / result=no-friend, and it ends back on the primary
+  // account (its `finally` quick-logs in), so the chain still needs no reset.
+  'rui-app-entry-extra': [
+    'sweep_app_entry_extra',
+    'sweep_keyed_gaps',
+    'sweep_keyed_gaps4_login',
+  ],
+  // Standalone entry for focused debugging of the keyed-gaps batch alone.
+  'rui-keyed-gaps': ['sweep_keyed_gaps'],
   // §7.5.1 group @-mention — two-process real desktop mention panel.
   'rui-group-mention': ['sweep_group_mention'],
   // Focused account-management + conference expansion.
@@ -629,6 +336,38 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   'rui-p2-verify': ['sweep_p2_verify'],
   // P1/P2/P3 campaign Batch VIII — P3 writable subset.
   'rui-p3-writable': ['sweep_p3_writable'],
+  // MESSAGE MULTI-SELECT — 4 cases, two-process, one launch and one friendship;
+  // required=no-friend / result=friends. Platform-agnostic (the toolbar is
+  // shared Dart and the forward affordance is detected at runtime), so the same
+  // sweep backs the rui-{ios,ipad,android}-msg-select campaigns.
+  'rui-msg-select': ['sweep_msg_select'],
+  // KEYED-BUT-NEVER-DRIVEN batch #3 — 10 cases, two-process, one launch, one
+  // friendship and ONE group; required=no-friend / result=friends, the same
+  // contract as sweep_msg_select. Chained AFTER it in the desktop bundle rather
+  // than given a launch of its own (startup reuse is the default); the
+  // standalone entry is for focused debugging.
+  'rui-msg-select-keyed-gaps3': ['sweep_msg_select', 'sweep_keyed_gaps3'],
+  'rui-keyed-gaps3': ['sweep_keyed_gaps3'],
+  // KEYED-BUT-NEVER-DRIVEN batch #4 — 9 cases, two-process, one launch, one
+  // friendship and ONE group; required=no-friend / result=friends, the same
+  // contract as sweep_msg_select and sweep_keyed_gaps3, so it is APPENDED to
+  // the same desktop bundle (startup reuse is the default) instead of paying
+  // for a third pair launch. The standalone entry is for focused debugging.
+  'rui-msg-select-keyed-gaps34': [
+    'sweep_msg_select',
+    'sweep_keyed_gaps3',
+    'sweep_keyed_gaps4',
+  ],
+  'rui-keyed-gaps4': ['sweep_keyed_gaps4'],
+  // The SINGLE-instance login half. Kept out of the two-process bundle above
+  // because it is the one batch-#4 sweep that LOGS OUT and provisions/deletes a
+  // throwaway account: chaining it there would force the runner to re-establish
+  // the friendship the other sweeps already paid for. It rides along with
+  // `sweep_keyed_gaps` instead — both are single-instance,
+  // required=no-friend / result=no-friend, and both end on the LoginPage/home
+  // boundary with the primary account live, so they share ONE launch and need
+  // no reset between them.
+  'rui-keyed-gaps4-login': ['sweep_keyed_gaps', 'sweep_keyed_gaps4_login'],
   'all-current': ['handshake', 'message', 'handshake_detail', 'decline'],
   'accepted-friend-inline': ['handshake', 'message'],
   'accepted-friend-detail': ['handshake_detail', 'message'],
@@ -1944,6 +1683,59 @@ String _requiredRealUiState(String scenario) {
     case 'mobile_message_long_press_menu':
     case 'tablet_master_detail_row_opens_chat':
     case 'dialog_width_form_factor_tier':
+    // Multi-select: the sweep and every case establish (or reuse) the A<->B
+    // friendship themselves and seed their own throwaway custom bubble, so a
+    // fresh no-friend pair launch is enough — no paired_for_e2e restore, which
+    // keeps them runnable on iOS/Android too.
+    case 'sweep_msg_select':
+    case 'msg_select_enter_and_cancel':
+    case 'msg_select_delete_cancel_keeps_message':
+    case 'msg_select_delete_for_me_removes_row':
+    case 'msg_select_forward_surface':
+    // Keyed-gaps batch #2: single-instance, A only. Nothing needs a friend, so
+    // a fresh no-friend pair launch is enough (no paired_for_e2e restore),
+    // which is what keeps these runnable on iOS/Android too.
+    case 'sweep_keyed_gaps':
+    case 'add_group_type_selector_hint_switches':
+    case 'irc_channel_dialog_cancel_discards':
+    case 'irc_channel_remove_row_confirm':
+    case 'irc_app_uninstall_reinstall_card':
+    case 'register_status_field_length_guard':
+    case 'register_confirm_match_icon_flips':
+    case 'register_confirm_visibility_toggle_flips':
+    case 'register_strength_segments_ramp':
+    // Keyed-gaps batch #3: two-process. The sweep and every case establish (or
+    // reuse) the A<->B friendship themselves and create their own throwaway
+    // group, so a fresh no-friend pair launch is enough — no paired_for_e2e
+    // restore, which keeps them runnable on iOS/Android too.
+    case 'sweep_keyed_gaps3':
+    case 'contact_application_detail_decline_removes_row':
+    case 'friendprof_copy_toxid_snackbar':
+    case 'msgmenu_reveal_file_location_gating':
+    case 'msgmenu_read_receipt_group_gating':
+    case 'personal_card_send_c2c':
+    case 'group_member_info_profile_entry_opens_profile':
+    case 'group_member_action_cancel_closes_sheet':
+    case 'group_add_member_button_opens_picker':
+    case 'group_profile_scroll_view_scrolls':
+    case 'group_profile_edit_name_dialog_cancel':
+    // Keyed-gaps batch #4. The two-process sweep runs its OWN handshake and
+    // creates its own throwaway group; the login sweep needs no peer at all — a
+    // fresh no-friend pair launch covers both, with no paired_for_e2e restore
+    // (which is what keeps them runnable on iOS/Android).
+    case 'sweep_keyed_gaps4':
+    case 'sweep_keyed_gaps4_login':
+    case 'msg_select_clear_button_resets_count':
+    case 'msg_select_forward_combined_absent_gating':
+    case 'attachment_toolbar_disabled_entries_gating':
+    case 'mobile_attachment_panel_entries':
+    case 'mobile_voice_record_button_reveals':
+    case 'message_viewer_save_and_zoom_surface':
+    case 'mobile_chats_unread_badge_flips':
+    case 'mobile_chat_back_clears_active_peer':
+    case 'mobile_mention_picker_confirm_inserts':
+    case 'mobile_mention_picker_back_empty_selection':
+    case 'login_account_delete_confirm_removes_card':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -2108,6 +1900,43 @@ String _resultRealUiState(String scenario) {
     case 'mobile_composer_send_delivers':
     case 'mobile_message_long_press_menu':
     case 'tablet_master_detail_row_opens_chat':
+    // Multi-select END FRIENDS: the only deletion is of the case's own seeded
+    // custom bubble (delete-for-me), and the forward case cancels its picker
+    // without forwarding, so neither the friendship nor the C2C row is touched.
+    case 'sweep_msg_select':
+    case 'msg_select_enter_and_cancel':
+    case 'msg_select_delete_cancel_keeps_message':
+    case 'msg_select_delete_for_me_removes_row':
+    case 'msg_select_forward_surface':
+    // Keyed-gaps batch #3 ENDS FRIENDS: no case deletes the friend. The
+    // application-decline case declines a SYNTHETIC injected applicant, the
+    // group half leaves its own throwaway group in cleanup, and the personal
+    // card / message-menu cases only add messages.
+    case 'sweep_keyed_gaps3':
+    case 'contact_application_detail_decline_removes_row':
+    case 'friendprof_copy_toxid_snackbar':
+    case 'msgmenu_reveal_file_location_gating':
+    case 'msgmenu_read_receipt_group_gating':
+    case 'personal_card_send_c2c':
+    case 'group_member_info_profile_entry_opens_profile':
+    case 'group_member_action_cancel_closes_sheet':
+    case 'group_add_member_button_opens_picker':
+    case 'group_profile_scroll_view_scrolls':
+    case 'group_profile_edit_name_dialog_cancel':
+    // Keyed-gaps batch #4 (two-process half) ENDS FRIENDS: nothing deletes the
+    // friend — only the case's own probe artefacts (an EMPTY multi-select
+    // delete, the throwaway group), and the surface cases dismiss cleanly.
+    case 'sweep_keyed_gaps4':
+    case 'msg_select_clear_button_resets_count':
+    case 'msg_select_forward_combined_absent_gating':
+    case 'attachment_toolbar_disabled_entries_gating':
+    case 'mobile_attachment_panel_entries':
+    case 'mobile_voice_record_button_reveals':
+    case 'message_viewer_save_and_zoom_surface':
+    case 'mobile_chats_unread_badge_flips':
+    case 'mobile_chat_back_clears_active_peer':
+    case 'mobile_mention_picker_confirm_inserts':
+    case 'mobile_mention_picker_back_empty_selection':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
     case 'relaunch_history_autologin':
@@ -2239,6 +2068,26 @@ String _resultRealUiState(String scenario) {
     // dialog width tier) never form or delete a friendship.
     case 'mobile_bottom_nav_tab_switch':
     case 'dialog_width_form_factor_tier':
+    // Keyed-gaps batch #2 — single-instance (A only). The register cases log
+    // out and relogin inside the driver end-clean, the IRC cases reset the
+    // local IRC prefs and revoke the test marker, and the add-group case closes
+    // its dialog without creating anything, so the launch ends NO-FRIEND with
+    // the primary account live.
+    case 'sweep_keyed_gaps':
+    case 'add_group_type_selector_hint_switches':
+    case 'irc_channel_dialog_cancel_discards':
+    case 'irc_channel_remove_row_confirm':
+    case 'irc_app_uninstall_reinstall_card':
+    case 'register_status_field_length_guard':
+    case 'register_confirm_match_icon_flips':
+    case 'register_confirm_visibility_toggle_flips':
+    case 'register_strength_segments_ramp':
+    // Keyed-gaps batch #4 (login half) ends NO-FRIEND with the primary account
+    // live: the case provisions a throwaway account, deletes it again through
+    // the real LoginPage confirm, and quick-logs back into the primary in a
+    // `finally` so a mid-case failure cannot strand the launch logged out.
+    case 'sweep_keyed_gaps4_login':
+    case 'login_account_delete_confirm_removes_card':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');

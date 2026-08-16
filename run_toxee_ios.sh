@@ -407,6 +407,15 @@ build_ios_simulator_app() {
   local -a flutter_build_args=(
     build ios --simulator --"$MODE"
     --dart-define=FLUTTER_BUILD_MODE="$MODE"
+    # This function ONLY ever builds `--simulator` slices (device builds go
+    # through run_toxee_ios_device.sh), so the flag is a build-shape fact, not
+    # a runtime guess. `CallMediaCapabilities.isIosSimulator` reads it to keep
+    # microphone capture off a Simulator, whose AVAudioEngine input node
+    # `abort()`s the process from inside AudioToolbox the moment a call is
+    # answered — see supportsAudioCapture for the measured stack. Dart's
+    # `Platform.environment` does NOT carry the Simulator's `SIMULATOR_*`
+    # variables into the guest app, which is why this is a define.
+    --dart-define=TOXEE_IOS_SIMULATOR=true
   )
   if [[ -n "${MCP_BINDING:-}" ]]; then
     case "${MCP_BINDING}" in

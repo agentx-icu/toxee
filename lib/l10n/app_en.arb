@@ -342,7 +342,7 @@
       }
     }
   },
-  "testNode": "Send Bootstrap Request",
+  "testNode": "Test Node",
   "deleteAccount": "Delete Account",
   "@deleteAccount": {
     "description": "Button text for account deletion"
@@ -397,7 +397,7 @@
   "invalidSizeLimit": "Invalid size limit, please enter a number between 1 and 10000",
   "save": "Save",
   "@testNode": {
-    "description": "Button text to send a bootstrap request to the current node"
+    "description": "Label of the button that runs a real DHT reachability probe against a bootstrap node"
   },
   "routeSelection": "Route Selection",
   "@routeSelection": {
@@ -700,13 +700,17 @@
   "@close": {
     "description": "Button text to close dialog"
   },
-  "nodeNotTestedWarning": "No bootstrap request has been sent to this node.",
+  "nodeNotTestedWarning": "This node has not been tested yet.",
   "@nodeNotTestedWarning": {
-    "description": "Warning message when no bootstrap request has been sent to the node"
+    "description": "Warning shown when selecting a bootstrap node that has not been probed"
   },
-  "nodeTestFailedWarning": "The bootstrap request failed; this node may be unavailable.",
+  "nodeTestFailedWarning": "This node did not respond; it may be unavailable.",
   "@nodeTestFailedWarning": {
-    "description": "Warning message when local submission of a bootstrap request failed"
+    "description": "Warning shown when selecting a bootstrap node whose probe came back negative"
+  },
+  "nodeTestInconclusiveWarning": "This node could not be checked from this device, so nothing is known about it either way.",
+  "@nodeTestInconclusiveWarning": {
+    "description": "Warning shown when selecting a bootstrap node whose probe could not be performed (UDP-less device, or the probe instance failed to start). Must NOT imply the node is at fault."
   },
   "nicknameTooLong": "Nickname too long",
   "@nicknameTooLong": {
@@ -756,17 +760,25 @@
   "@setAsCurrentNode": {
     "description": "Button text to set manually entered node as current"
   },
-  "nodeTestSuccess": "Bootstrap request sent",
+  "nodeTestSuccess": "Node reachable",
   "@nodeTestSuccess": {
-    "description": "Message shown when a bootstrap request is accepted locally for submission"
+    "description": "Verdict shown when a bootstrap node answered an authenticated DHT nodes request"
   },
-  "nodeTestFailed": "Bootstrap request failed",
+  "nodeTestUdpUnavailable": "Node test needs UDP; this device is running TCP-only",
+  "@nodeTestUdpUnavailable": {
+    "description": "Shown when the DHT reachability probe cannot run because no UDP socket is bound"
+  },
+  "nodeTestFailed": "Node unreachable",
   "@nodeTestFailed": {
-    "description": "Message shown when local submission of a bootstrap request fails"
+    "description": "Verdict shown when a bootstrap node did not answer within the probe timeout"
   },
-  "nodeTestUnavailableBeforeLogin": "Cannot send a bootstrap request before login",
-  "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
+  "nodeTestUnavailable": "Node test unavailable on this device",
+  "@nodeTestUnavailable": {
+    "description": "Shown when the probe itself could not be performed (BootstrapProbeUnavailable). Deliberately neutral: this is our defect, not the node's."
+  },
+  "failedToLoadBootstrapNodes": "Failed to load bootstrap nodes",
+  "@failedToLoadBootstrapNodes": {
+    "description": "Error shown when the public bootstrap node list could not be fetched"
   },
   "failedToStartBootstrapService": "Failed to start bootstrap service",
   "@failedToStartBootstrapService": {

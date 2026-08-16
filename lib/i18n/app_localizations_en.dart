@@ -520,7 +520,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get testNode => 'Send Bootstrap Request';
+  String get testNode => 'Test Node';
 
   @override
   String get deleteAccount => 'Delete Account';
@@ -822,12 +822,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get close => 'Close';
 
   @override
-  String get nodeNotTestedWarning =>
-      'No bootstrap request has been sent to this node.';
+  String get nodeNotTestedWarning => 'This node has not been tested yet.';
 
   @override
   String get nodeTestFailedWarning =>
-      'The bootstrap request failed; this node may be unavailable.';
+      'This node did not respond; it may be unavailable.';
+
+  @override
+  String get nodeTestInconclusiveWarning =>
+      'This node could not be checked from this device, so nothing is known about it either way.';
 
   @override
   String get nicknameTooLong => 'Nickname too long';
@@ -866,14 +869,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get setAsCurrentNode => 'Set as Current Node';
 
   @override
-  String get nodeTestSuccess => 'Bootstrap request sent';
+  String get nodeTestSuccess => 'Node reachable';
 
   @override
-  String get nodeTestFailed => 'Bootstrap request failed';
+  String get nodeTestUdpUnavailable =>
+      'Node test needs UDP; this device is running TCP-only';
 
   @override
-  String get nodeTestUnavailableBeforeLogin =>
-      'Cannot send a bootstrap request before login';
+  String get nodeTestFailed => 'Node unreachable';
+
+  @override
+  String get nodeTestUnavailable => 'Node test unavailable on this device';
+
+  @override
+  String get failedToLoadBootstrapNodes => 'Failed to load bootstrap nodes';
 
   @override
   String get failedToStartBootstrapService =>

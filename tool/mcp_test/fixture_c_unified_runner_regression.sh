@@ -1052,8 +1052,20 @@ sources = {
     path: strip_line_comments(read(path))
     for path in glob.glob(os.path.join(mcp, "drive_real_ui_pair*.dart"))
 }
+# The dispatch chain is drive_real_ui_pair.dart PLUS any part file that owns an
+# extracted `Future<int?> dispatchXxx(...)` helper. Those extractions exist
+# because drive_real_ui_pair.dart is pinned in tool/.complexity_baseline.txt, so
+# whole dispatch blocks get moved into a part file instead of the file being
+# re-pinned; reading only the main file would then report every moved scenario
+# as "runner accepts a name the driver never dispatches".
 dispatch_path = os.path.join(mcp, "drive_real_ui_pair.dart")
-dispatch = sources[dispatch_path]
+dispatch_paths = [dispatch_path] + sorted(
+    path
+    for path, text in sources.items()
+    if path != dispatch_path
+    and re.search(r"Future<int\?>\s+dispatch[A-Za-z0-9_]*\(", text)
+)
+dispatch = "\n".join(sources[path] for path in dispatch_paths)
 
 # 1) Direct `scenario == '<name>'` branches in the dispatch chain.
 driver = set(re.findall(r"scenario == '([A-Za-z0-9_]+)'", dispatch))
@@ -1103,11 +1115,31 @@ for predicate in predicates:
         driver |= resolved
 
 runner_src = strip_line_comments(read(os.path.join(mcp, "fixture_c_unified_runner.dart")))
+# The catalog is either declared inline in the runner or (current layout)
+# aliased to a const in fixture_c_real_ui_scenarios.dart, the same way the
+# campaign matrix was split into fixture_c_real_ui_mobile_campaigns.dart. Follow
+# the alias rather than pinning this check to one file layout.
+catalog_src = runner_src
 decl = re.search(r"const _validRealUiScenarios = \{", runner_src)
 if not decl:
-    print("could not locate _validRealUiScenarios in fixture_c_unified_runner.dart")
-    sys.exit(1)
-valid = quoted(brace_body(runner_src, runner_src.index("{", decl.start())))
+    alias = re.search(r"const _validRealUiScenarios = ([A-Za-z0-9_]+);", runner_src)
+    if not alias:
+        print("could not locate _validRealUiScenarios in fixture_c_unified_runner.dart")
+        sys.exit(1)
+    catalog_src = strip_line_comments(
+        read(os.path.join(mcp, "fixture_c_real_ui_scenarios.dart"))
+    )
+    decl = re.search(
+        r"const " + re.escape(alias.group(1)) + r"\s*=\s*(?:<String>)?\{",
+        catalog_src,
+    )
+    if not decl:
+        print(
+            "could not locate the %s catalog backing _validRealUiScenarios"
+            % alias.group(1)
+        )
+        sys.exit(1)
+valid = quoted(brace_body(catalog_src, catalog_src.index("{", decl.start())))
 
 problems = []
 if unresolved:

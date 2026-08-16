@@ -71,10 +71,10 @@ Future<int> runCustomMessage(Inst a, Inst b, String nickA, String nickB) async {
   // scenario can continue the same launch without another recovery dance.
   await ensureContactsShell(a);
   await ensureNewEntryShell(b);
-  // Let any late friend-application deletion callbacks from the just-refused
-  // request settle before the next no-friend scenario re-sends to the same
-  // peer. Without this pause we've seen the next request arrive in native
-  // pending_applications_, then get cleared before l3_dump_state surfaces it.
+  // Let late friend-application deletion callbacks from the just-refused
+  // request settle before the next no-friend scenario re-sends to the same peer
+  // — without it the next request lands in native pending_applications_ and is
+  // cleared again before l3_dump_state can surface it.
   await Future<void>.delayed(const Duration(seconds: 4));
   print('[pair] PASS: custom message round-tripped and self-cleaned');
   return 0;
@@ -161,7 +161,9 @@ Future<bool> _startVoiceCallUntilRinging(
     );
     await _reopenChatFromConversationList(caller, 'c2c_$calleePubkey');
     await caller.foreground();
-    await caller.tapKey('chat_call_voice_button');
+    // SINGLE-FIRE: flutter_skill's `tap` runs onPressed TWICE (synthetic
+    // pointer + direct callback), which issued two overlapping invites.
+    await caller.tapKeyCenter('chat_call_voice_button', timeoutSecs: 8);
     await Future<void>.delayed(const Duration(milliseconds: 2200));
     if (await _waitCallStateAnyForegrounded(callee, {
       'ringing',
@@ -182,10 +184,8 @@ Future<bool> _startVoiceCallUntilRinging(
       await caller.foreground();
       await caller.tryTapKey('call_hangup_button', retries: 2);
     }
-    // Let both sides' call state settle back to idle before re-issuing the
-    // next invite. The local notifier auto-resets ended -> idle after 2s, so a
-    // too-fast retry can re-enter while the previous signaling call is still
-    // winding down and never reach the callee.
+    // Settle both sides back to idle first: the notifier auto-resets
+    // ended -> idle after 2 s, so a too-fast retry re-enters mid-teardown.
     await _waitCallStateAny(caller, {'idle'}, timeoutSecs: 5);
     await _waitCallStateAny(callee, {'idle'}, timeoutSecs: 5);
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -390,7 +390,7 @@ Future<void> openChat(
   if (preferConversationList &&
       await _homeShellTab(inst) == 'chats' &&
       await _waitConversationListed(inst, targetConversation)) {
-    await inst.tryTapKey('conversation_list_item:$targetConversation');
+    await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (await ready()) {
       return;
@@ -399,7 +399,7 @@ Future<void> openChat(
   if (preferConversationList && await _homeShellTab(inst) != 'chats') {
     await returnToChatsHome(inst, rounds: 4);
     if (await _waitConversationListed(inst, targetConversation)) {
-      await inst.tryTapKey('conversation_list_item:$targetConversation');
+      await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (await ready()) {
         return;

@@ -15,6 +15,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
           ),
           body: SafeArea(
             child: ListView(
+              key: UiKeys.settingsMobileSectionScrollView,
               padding: const EdgeInsets.all(AppSpacing.md),
               children: [child],
             ),

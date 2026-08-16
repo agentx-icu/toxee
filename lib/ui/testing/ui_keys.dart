@@ -207,6 +207,14 @@ class UiKeys {
   static const Key settingsMobileSectionBackButton = Key(
     'settings_mobile_section_back_button',
   );
+  /// Scrollable of a PUSHED mobile settings sub-page. The narrow shell renders
+  /// the root as section TILES, so the driven controls (theme/language/download
+  /// limit/bootstrap) live here, not in [settingsScrollView] — and it needs its
+  /// OWN key because the root list stays mounted under the pushed route, where a
+  /// shared key would give `resolveKeyCenter` two candidates. Automation-only.
+  static const Key settingsMobileSectionScrollView = Key(
+    'settings_mobile_section_scroll_view',
+  );
   static const Key settingsMobileProfileTile = Key(
     'settings_mobile_profile_tile',
   );
