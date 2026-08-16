@@ -161,6 +161,65 @@ if run_runner --list-real-ui-campaigns >"$CAMPAIGN_LIST_OUT" \
     else
         fail "campaign catalog includes representative bucket samples"
     fi
+
+    # The mobile matrix lives in fixture_c_real_ui_mobile_campaigns.dart and is
+    # spread into _realUiCampaigns. If the merge ever breaks (rename, dropped
+    # import, const/final mishap), the catalog silently loses ~38 entries — this
+    # asserts one representative from every family instead of a bare count so
+    # the failure names what disappeared.
+    MOBILE_MISSING=""
+    for name in rui-mobile-shell rui-ios-main rui-ios-profile \
+        rui-ios-contacts rui-ipad-main rui-ipad-group-member rui-ipad-p1-chat \
+        rui-android-main rui-android-contacts; do
+        grep -q "^$name:" "$CAMPAIGN_LIST_OUT" || MOBILE_MISSING="$MOBILE_MISSING $name"
+    done
+    if [[ -z "$MOBILE_MISSING" ]]; then
+        pass "mobile campaign matrix is merged into the catalog"
+    else
+        fail "mobile campaign matrix is merged into the catalog" \
+            "missing:$MOBILE_MISSING"
+    fi
+
+    # Sweeps that CANNOT be honest on a device (see the "DELIBERATELY NOT
+    # REGISTERED" block in fixture_c_real_ui_mobile_campaigns.dart): peer
+    # relaunch shells out to the macOS DESKTOP instance launchers; p2_verify
+    # needs an image on the host pasteboard; group_mention asserts the osaType
+    # keystroke itself. Registering any of them under a mobile campaign would
+    # produce a green run that drove the wrong process or asserted nothing.
+    MOBILE_FORBIDDEN=""
+    while IFS= read -r line; do
+        case "$line" in
+            rui-ios-*|rui-ipad-*|rui-android-*|rui-mobile-*) ;;
+            *) continue ;;
+        esac
+        for sweep in sweep_p1_relaunch sweep_p2_keys sweep_p2_verify \
+            sweep_group_mention; do
+            case "$line" in
+                *"$sweep"*)
+                    MOBILE_FORBIDDEN="$MOBILE_FORBIDDEN ${line%%:*}/$sweep"
+                    ;;
+            esac
+        done
+    done <"$CAMPAIGN_LIST_OUT"
+    # Form-factor exclusives must not cross over: sweep_mobile_shell in a
+    # rui-ipad-* campaign (or sweep_tablet_layout in an iPhone one) SKIPs every
+    # case and only inflates the skip tally.
+    while IFS= read -r line; do
+        case "$line" in
+            rui-ipad-*sweep_mobile_shell*)
+                MOBILE_FORBIDDEN="$MOBILE_FORBIDDEN ${line%%:*}/sweep_mobile_shell"
+                ;;
+            rui-ios-*sweep_tablet_layout*)
+                MOBILE_FORBIDDEN="$MOBILE_FORBIDDEN ${line%%:*}/sweep_tablet_layout"
+                ;;
+        esac
+    done <"$CAMPAIGN_LIST_OUT"
+    if [[ -z "$MOBILE_FORBIDDEN" ]]; then
+        pass "mobile campaigns exclude the un-driveable / wrong-form-factor sweeps"
+    else
+        fail "mobile campaigns exclude the un-driveable / wrong-form-factor sweeps" \
+            "registered anyway:$MOBILE_FORBIDDEN"
+    fi
 else
     fail "--list-real-ui-campaigns exits 0" \
         "$(cat "$TMP_ROOT/campaigns.err" "$CAMPAIGN_LIST_OUT" 2>/dev/null)"
@@ -993,8 +1052,20 @@ sources = {
     path: strip_line_comments(read(path))
     for path in glob.glob(os.path.join(mcp, "drive_real_ui_pair*.dart"))
 }
+# The dispatch chain is drive_real_ui_pair.dart PLUS any part file that owns an
+# extracted `Future<int?> dispatchXxx(...)` helper. Those extractions exist
+# because drive_real_ui_pair.dart is pinned in tool/.complexity_baseline.txt, so
+# whole dispatch blocks get moved into a part file instead of the file being
+# re-pinned; reading only the main file would then report every moved scenario
+# as "runner accepts a name the driver never dispatches".
 dispatch_path = os.path.join(mcp, "drive_real_ui_pair.dart")
-dispatch = sources[dispatch_path]
+dispatch_paths = [dispatch_path] + sorted(
+    path
+    for path, text in sources.items()
+    if path != dispatch_path
+    and re.search(r"Future<int\?>\s+dispatch[A-Za-z0-9_]*\(", text)
+)
+dispatch = "\n".join(sources[path] for path in dispatch_paths)
 
 # 1) Direct `scenario == '<name>'` branches in the dispatch chain.
 driver = set(re.findall(r"scenario == '([A-Za-z0-9_]+)'", dispatch))
@@ -1044,11 +1115,31 @@ for predicate in predicates:
         driver |= resolved
 
 runner_src = strip_line_comments(read(os.path.join(mcp, "fixture_c_unified_runner.dart")))
+# The catalog is either declared inline in the runner or (current layout)
+# aliased to a const in fixture_c_real_ui_scenarios.dart, the same way the
+# campaign matrix was split into fixture_c_real_ui_mobile_campaigns.dart. Follow
+# the alias rather than pinning this check to one file layout.
+catalog_src = runner_src
 decl = re.search(r"const _validRealUiScenarios = \{", runner_src)
 if not decl:
-    print("could not locate _validRealUiScenarios in fixture_c_unified_runner.dart")
-    sys.exit(1)
-valid = quoted(brace_body(runner_src, runner_src.index("{", decl.start())))
+    alias = re.search(r"const _validRealUiScenarios = ([A-Za-z0-9_]+);", runner_src)
+    if not alias:
+        print("could not locate _validRealUiScenarios in fixture_c_unified_runner.dart")
+        sys.exit(1)
+    catalog_src = strip_line_comments(
+        read(os.path.join(mcp, "fixture_c_real_ui_scenarios.dart"))
+    )
+    decl = re.search(
+        r"const " + re.escape(alias.group(1)) + r"\s*=\s*(?:<String>)?\{",
+        catalog_src,
+    )
+    if not decl:
+        print(
+            "could not locate the %s catalog backing _validRealUiScenarios"
+            % alias.group(1)
+        )
+        sys.exit(1)
+valid = quoted(brace_body(catalog_src, catalog_src.index("{", decl.start())))
 
 problems = []
 if unresolved:

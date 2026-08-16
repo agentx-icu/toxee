@@ -259,64 +259,93 @@ Future<bool> _waitC2cMessageText(
   return false;
 }
 
-/// Open the REAL desktop message context menu for the OWN message [msgId] via a
-/// genuine secondary-tap (right-click) on its row — the production
-/// `_openDesktopMessageMenu` path (no gated tool). Returns whether at least one
-/// keyed `message_menu_item:*` rendered. Foregrounds first + retries.
+/// Open the REAL message context menu for the OWN message [msgId] with the
+/// shell's own trigger — a genuine secondary-tap (desktop
+/// `_openDesktopMessageMenu`) or a genuine long-press (mobile
+/// `_onLongPressMessageOnMobile`). No gated tool either way. Returns whether at
+/// least one keyed `message_menu_item:*` rendered. Foregrounds first + retries.
+///
+/// WHY THE BRANCH: a mobile shell has no secondary-button pointer, so
+/// `ui_secondary_tap` dispatches a kSecondaryMouseButton PointerDown the
+/// bubble's Listener never treats as a menu open — every menu-driven chat case
+/// hard-failed on iOS/Android. The mobile twin is a real touch down→hold→up at
+/// 800 ms (past the 500 ms framework deadline AND the fork's 650 ms
+/// recognizer), the trigger `mobile_message_long_press_menu` already proves out
+/// in drive_real_ui_pair_mobile_shell.dart. Desktop behaviour is unchanged.
 Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   await inst.foreground();
-  // Pop the friend's contact profile if it's covering the chat — otherwise the
-  // message row is offstage behind it and the secondary-tap hits the profile
-  // ("menu did not open").
+  // Pop the friend's contact profile if it covers the chat — the row is then
+  // offstage behind it and the trigger hits the profile ("menu did not open").
   await _dismissFriendProfileToUnderlying(inst);
   final rowKey = 'message_list_item:$msgId';
   if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
-    print('[pair] _openMessageMenuReal: row $rowKey not present');
+    // WHERE is the app? "row not present" cannot tell a missing bubble from a
+    // chat surface that left the stack (narrow shell: a dismiss tap that popped
+    // the pushed route) — the ambiguity that cost a shift on kg3's receipt case.
+    print(
+      '[pair] _openMessageMenuReal: row $rowKey not present — '
+      '${await _convShellDiag(inst)}',
+    );
     return false;
   }
-  // A SELF message bubble is right-aligned, so the row's geometric CENTER can
-  // land on empty space left of the bubble — a secondary-tap there misses the
-  // bubble's `Listener.onPointerDown` and no menu opens. Right-click the bubble
-  // itself: prefer a keyed bubble anchor, else bias the tap toward the right
-  // (self) / left (peer) third of the row.
-  final rowCenter = await inst.keyCenter(rowKey);
-  // A SELF bubble is right-aligned WITHIN the chat detail pane. The row center
-  // (rowCenter.x) IS the pane center, so bias toward the pane's RIGHT portion
-  // RELATIVE to it — an absolute x (e.g. 1150) can fall OUTSIDE a narrow pane
-  // and miss entirely (observed rowCenter.x≈404 → pane≈0-808 → 1150 missed). The
-  // pane half-width ≈ rowCenter.x, so 1.4x / 1.6x / 1.8x land in the right third
-  // where the bubble's Listener.onPointerDown is. Alternate with the row-key
-  // center (peer / full-width rows).
-  // Bias factors relative to the pane-center rowCenter.x: 1.0 = row centre,
-  // >1 = RIGHT third (self/outbound bubbles), <1 = LEFT third (peer/INBOUND
-  // bubbles — e.g. a narrow inbound `[Custom]` placeholder sits far left of the
-  // pane centre, so a centre/right tap misses its Listener.onPointerDown and no
-  // menu opens). Cover both sides + centre.
-  // Bias factors relative to the pane-center rowCenter.x. Live-probed on the
-  // Feishu-restyle layout (1280-wide window, rowCenter.x≈831): the SELF (outbound)
-  // bubble's Listener.onPointerDown sits at ≈1.24× rowCenter.x (x≈1030), NOT the
-  // old 1.5× (x≈1247, which overshoots past the bubble's right edge → no menu).
-  // The PEER (inbound) bubble sits at ≈0.6×. Cover the self range (1.12–1.32) and
-  // the peer range (0.45–0.7) densely; 1.8× fell OFF-SCREEN on this wider pane.
-  const biasFactor = <double>[1.24, 0.6, 1.32, 0.5, 1.12, 0.7, 1.0, 0.45];
-  for (var attempt = 0; attempt < biasFactor.length; attempt++) {
+  // A message ROW spans the whole chat pane, but the BUBBLE inside it is
+  // alignment-offset: self/outbound right, peer/inbound left. The row's
+  // geometric centre therefore lands on empty space beside the bubble, where a
+  // secondary-tap / long-press misses its `Listener.onPointerDown` and no menu
+  // opens. So aim at FRACTIONS OF THE ROW'S OWN WIDTH.
+  //
+  // Row-RELATIVE, not centre-scaled (fixed 2026-08-16). Scaling the centre's
+  // ABSOLUTE x assumes the row starts at x == 0 — true only when the chat pane
+  // is flush left. On the iPad master-detail shell the pane starts after the
+  // sidebar + conversation list (live: rowCentre.x = 683 for a ~532..834 pane),
+  // so the "right third" landed at 847/902 (OFF the 834pt screen) and the "left
+  // third" at 410/341, inside the CONVERSATION LIST.
+  // Fractions: 0.72/0.85 sit on a right-aligned self bubble (0.72 reproduces
+  // the live-probed desktop hit at x≈1030 of a 382..1280 pane), 0.15/0.28 on a
+  // left-aligned peer bubble (incl. the narrow inbound `[Custom]` placeholder),
+  // 0.5 is the plain row centre. The mobile list is shorter (800 ms per hold).
+  final rowBox = await _keyBox(inst, rowKey);
+  final rowCenter = rowBox == null ? null : (x: rowBox.x, y: rowBox.y);
+  const bubbleFraction = <double>[0.72, 0.15, 0.85, 0.28, 0.6, 0.4, 0.5];
+  const mobileBubbleFraction = <double>[0.72, 0.15, 0.85, 0.5, 0.28];
+  final factors = inst.isMobileShell ? mobileBubbleFraction : bubbleFraction;
+  for (var attempt = 0; attempt < factors.length; attempt++) {
     var tapped = false;
     try {
-      final bias = biasFactor[attempt];
-      if (rowCenter != null && bias != 1.0) {
-        await inst.secondaryTapAt(rowCenter.x * bias, rowCenter.y);
+      final f = factors[attempt];
+      final usable = rowBox != null && rowBox.w > 0;
+      final x = usable ? rowBox.x - rowBox.w / 2 + f * rowBox.w : 0.0;
+      if (inst.isMobileShell) {
+        if (usable && f != 0.5) {
+          final r = await inst.l3('ui_long_press', {
+            'x': '$x',
+            'y': '${rowBox.y}',
+            'holdMs': '800',
+          });
+          if (r['ok'] != true) {
+            print('[pair] _openMessageMenuReal: ui_long_press warn: $r');
+          }
+        } else {
+          await inst.longPressKey(rowKey);
+        }
+      } else if (usable && f != 0.5) {
+        await inst.secondaryTapAt(x, rowBox.y);
       } else {
         await inst.secondaryTapKey(rowKey);
       }
       tapped = true;
     } on DriveError catch (e) {
-      print('[pair] _openMessageMenuReal: secondaryTap warn: ${e.message}');
+      print('[pair] _openMessageMenuReal: menu trigger warn: ${e.message}');
     }
     if (!tapped) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       continue;
     }
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    // The mobile menu animates in after the hold releases — give it the same
+    // 900 ms `mobile_message_long_press_menu` settled on.
+    await Future<void>.delayed(
+      Duration(milliseconds: inst.isMobileShell ? 900 : 700),
+    );
     // The desktop context menu renders in an `Overlay.insert` entry that
     // flutter_skill's waitForElement/interactiveStructured does NOT traverse
     // (it only ever matched the now-keyless OFFSTAGE measurement copy). Detect
@@ -331,13 +360,19 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
   await inst.shot('/tmp/ui_open_msg_menu_fail_${inst.name}.png');
   print(
     '[pair] _openMessageMenuReal: menu did not open for $rowKey '
-    '(rowCenter=$rowCenter) shot=/tmp/ui_open_msg_menu_fail_${inst.name}.png',
+    '(rowCenter=$rowCenter rowW=${rowBox?.w}) '
+    'shot=/tmp/ui_open_msg_menu_fail_${inst.name}.png',
   );
   return false;
 }
 
-/// Dismiss an open message menu / popup by tapping the modal barrier corner.
+/// Dismiss an open message menu / popup. The corner tap clears barrier-backed
+/// popups; the keyed Cancel additionally clears an adaptive CONFIRM dialog,
+/// which `showAdaptiveDialog` mounts with `barrierDismissible: false` — a corner
+/// tap can NOT close one, and an abandoned one then sits on the Navigator stack
+/// swallowing every later tap (live: it poisoned 3 sweep_p1_chat cases).
 Future<void> _dismissMessageMenu(Inst inst) async {
+  await inst.tapKeyCenter('confirm_dialog_secondary_button', timeoutSecs: 1);
   await inst.tapAt(8, 8);
   await Future<void>.delayed(const Duration(milliseconds: 500));
 }
@@ -630,7 +665,7 @@ Future<bool> _chatMultilineSend(
   for (var outer = 0; outer < 2; outer++) {
     await a.foreground();
     await a.waitKey('chat_input_text_field', timeoutSecs: 8);
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
     await Future<void>.delayed(const Duration(milliseconds: 500));
     await a.osaClear();
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -650,7 +685,7 @@ Future<bool> _chatMultilineSend(
     var sent = false;
     for (var attempt = 0; attempt < 5; attempt++) {
       await a.foreground();
-      await a.tapAt(_composerX, _composerY);
+      await _tapDesktopComposer(a);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       await a.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -789,7 +824,7 @@ Future<bool> _chatEmojiInsertSend(
   if (a.isMobileShell) {
     await a.tapKeyCenter(trigger, timeoutSecs: 6);
   } else {
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
   }
   await Future<void>.delayed(const Duration(milliseconds: 400));
   if (!panelOpened) {
@@ -889,7 +924,7 @@ Future<bool> _chatStickerPanelSend(Inst a, String toxB) async {
   if (a.isMobileShell) {
     await a.tapKeyCenter(trigger, timeoutSecs: 6);
   } else {
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
   }
   await Future<void>.delayed(const Duration(milliseconds: 400));
   print(
@@ -945,8 +980,45 @@ Future<bool> _chatMsgMenuSurface(Inst a, String toxB) async {
 // ===========================================================================
 // case 61 — chat_copy_message_clipboard (S16)
 // ===========================================================================
+/// Tri-state entry for case 61 — SKIPs (null) on a mobile shell, otherwise runs
+/// the real desktop assertion.
+///
+/// WHY MOBILE CANNOT ASSERT THIS: the case's whole signal is "the CLIPBOARD now
+/// holds the bubble text", and the only clipboard the driver can read is the
+/// HOST's (`pbpaste` / `Get-Clipboard`). An iOS Simulator and an Android device
+/// each own a SEPARATE pasteboard, so the app's `Clipboard.setData` from the
+/// real Copy item never reaches the host — the host read would return the
+/// pre-seeded sentinel and the case would false-FAIL (or, if the host clipboard
+/// happened to hold the same text, false-PASS). Driving it honestly needs an
+/// app-side READ seam; `lib/ui/testing/l3_debug_tools.dart` today registers only
+/// `l3_set_clipboard` (write) — there is no `l3_get_clipboard`, and no in-app
+/// paste control that both reads the clipboard AND exposes the result to the
+/// driver (add_friend_dialog's Paste button writes into a TextField whose value
+/// neither `getTextContent` nor `interactiveStructured` reports). So: SKIP with
+/// the reason, never a vacuous pass. Unblocking it = add a `l3_get_clipboard`
+/// tool (`Clipboard.getData('text/plain')`) next to `l3_set_clipboard`.
+Future<bool?> _chatCopyMessageClipboardOrSkip(Inst a, String toxB) async {
+  if (a.isMobileShell) {
+    print(
+      '[pair] chat_copy_message_clipboard: SKIP — the app runs on a '
+      'simulator/device with its OWN pasteboard (platform=${a.platform}); the '
+      'driver can only read the HOST clipboard and there is no l3_get_clipboard '
+      'seam, so the copy could only be asserted vacuously',
+    );
+    return null;
+  }
+  return _chatCopyMessageClipboard(a, toxB);
+}
+
 /// Secondary-tap an OWN bubble → tap the real Copy item → the OS clipboard
 /// contains the exact bubble text (asserted via `pbpaste` — a genuine OS read).
+///
+/// DESKTOP ONLY — call [_chatCopyMessageClipboardOrSkip] instead so a mobile
+/// shell SKIPs rather than asserting against the wrong pasteboard. (The
+/// single-scenario dispatcher in drive_real_ui_pair.dart still calls this
+/// directly with a `bool` contract; on a mobile shell that path reports FAIL,
+/// never a false PASS — switching it to the tri-state form is a one-line change
+/// in that file.)
 Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
   final nonce = DateTime.now().microsecondsSinceEpoch;
   final text = 'RUIB6COPY-$nonce';
@@ -1609,8 +1681,8 @@ Future<bool> _chatImageBubbleOpenPreview(
 ) async {
   // Smallest valid 1x1 PNG (so the bubble's Image.file decodes).
   const pngB64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'awAAAABJRU5ErkJggg==';
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8AAQv8ZYAwAQ84H'
+      '+SUC+b4AAAAASUVORK5CYII=';
   final nonce = DateTime.now().microsecondsSinceEpoch % 100000;
   final fileName = 'rui$nonce.png';
   // Seed FROM B to A (B must be a test account to call l3_send_file).
@@ -1995,11 +2067,21 @@ Future<int> runChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       );
       // 60 message menu surface (own bubble).
       await hard('chat_msg_menu_surface', () => _chatMsgMenuSurface(a, toxB));
-      // 61 copy message → clipboard.
-      await hard(
-        'chat_copy_message_clipboard',
-        () => _chatCopyMessageClipboard(a, toxB),
-      );
+      // 61 copy message → clipboard. Mobile shells route through the tri-state
+      // form (SKIP: guest-vs-host pasteboard — see the case doc); desktop keeps
+      // the hard gate AND `hard`'s catch-all (a missing pbpaste/Get-Clipboard
+      // raises a ProcessException, which `skip` would not contain).
+      if (a.isMobileShell) {
+        await skip(
+          'chat_copy_message_clipboard',
+          () => _chatCopyMessageClipboardOrSkip(a, toxB),
+        );
+      } else {
+        await hard(
+          'chat_copy_message_clipboard',
+          () => _chatCopyMessageClipboard(a, toxB),
+        );
+      }
       // 62 reply/quote round-trip (SKIP — no driveable C2C reply surface).
       await skip(
         'chat_reply_quote_roundtrip',

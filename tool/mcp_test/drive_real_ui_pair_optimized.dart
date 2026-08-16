@@ -29,11 +29,10 @@ Future<void> _registerRealUiAccount(Inst inst, String nickname) async {
   );
 }
 
-Future<void> _tapDesktopComposer(Inst inst) async {
-  if (!await inst.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) {
-    await inst.tapAt(_composerX, _composerY);
-  }
-}
+// _tapDesktopComposer lives next to the _composerX/_composerY constants it
+// guards, in drive_real_ui_pair_message_call.dart: this file's key-first
+// resolution was merged there with that file's mobile-shell tripwire, so the
+// coordinate fallback can never silently tap off-screen on a phone.
 
 Future<void> _setDesktopComposerText(
   Inst inst,
@@ -217,6 +216,11 @@ Future<int> runSingleAppOptimizedSweep(Inst a, String nickA) {
           'sweep_ios_settings_main',
           () => runIosSettingsMainSweep(a, nickA),
         )
+      // No `peer` here on purpose: this bundle launches ONE app, and
+          // settings_prelogin_bootstrap_node_test needs a second LIVE Tox node
+          // to prove the "reachable" half of its differential. runSettingsSweep2
+          // therefore EXCLUDES that case (with a printed reason) instead of
+          // pretending it passed; it stays a hard gate in sweep_settings2.
       : _OptimizedStep('sweep_settings2', () => runSettingsSweep2(a, nickA));
   return _runOptimizedSequence('sweep_single_app_optimized', [
     settingsStep,
@@ -234,6 +238,23 @@ Future<int> runSingleAppOptimizedSweep(Inst a, String nickA) {
     _OptimizedStep(
       'sweep_account_deep_extra',
       () => runAccountDeepExtraSweep(a, nickA),
+    ),
+    // Keyed-gaps batch #2 (register page / IRC app / add-group type selector).
+    // Single-instance, required=no-friend / result=no-friend, and its own
+    // end-clean relogins + resets the local IRC prefs — so it composes here
+    // without a reset. Placed AFTER app_entry_extra (they share the IRC
+    // Applications surface, and app_entry_extra's IRC cases already reset it)
+    // and BEFORE the destructive p1_single tail.
+    _OptimizedStep('sweep_keyed_gaps', () => runKeyedGapsSweep(a, nickA)),
+    // Keyed-gaps batch #4, login half (the LoginPage delete-account CONFIRM).
+    // Single-instance, required=no-friend / result=no-friend: it provisions a
+    // throwaway account, deletes it, and quick-logs back into the primary in a
+    // `finally`. Placed immediately BEFORE the p1_single tail because it is the
+    // first account-destructive step — everything above it still expects a
+    // pristine account list.
+    _OptimizedStep(
+      'sweep_keyed_gaps4_login',
+      () => runKeyedGaps4LoginSweep(a, nickA),
     ),
     // p1_single runs LAST: its `account_delete_full_flow` is DESTRUCTIVE (it
     // deletes accounts across multiple logout/login cycles) and poisons the
@@ -293,6 +314,21 @@ Future<int> runFriendshipOptimizedSweep(
     _OptimizedStep(
       'sweep_group_conf_deep_extra',
       () => runGroupConfDeepExtraSweep(a, b, nickA, nickB),
+    ),
+    // Keyed-gaps batch #3: same shape as sweep_group_conf_member_extra
+    // (required=no-friend / result=friends, establishes its own throwaway group
+    // and cleans it up), so it rides this bundle instead of a launch of its own.
+    _OptimizedStep(
+      'sweep_keyed_gaps3',
+      () => runKeyedGaps3Sweep(a, b, nickA, nickB),
+    ),
+    // Keyed-gaps batch #4, two-process half: identical state contract to batch
+    // #3 (required=no-friend / result=friends, own handshake, own throwaway
+    // group cleaned up by the shared helper), so it chains here with no reset
+    // and no extra launch.
+    _OptimizedStep(
+      'sweep_keyed_gaps4',
+      () => runKeyedGaps4Sweep(a, b, nickA, nickB),
     ),
     _OptimizedStep(
       'sweep_calls_misc',

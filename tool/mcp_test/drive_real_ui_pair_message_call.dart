@@ -71,10 +71,10 @@ Future<int> runCustomMessage(Inst a, Inst b, String nickA, String nickB) async {
   // scenario can continue the same launch without another recovery dance.
   await ensureContactsShell(a);
   await ensureNewEntryShell(b);
-  // Let any late friend-application deletion callbacks from the just-refused
-  // request settle before the next no-friend scenario re-sends to the same
-  // peer. Without this pause we've seen the next request arrive in native
-  // pending_applications_, then get cleared before l3_dump_state surfaces it.
+  // Let late friend-application deletion callbacks from the just-refused
+  // request settle before the next no-friend scenario re-sends to the same peer
+  // — without it the next request lands in native pending_applications_ and is
+  // cleared again before l3_dump_state can surface it.
   await Future<void>.delayed(const Duration(seconds: 4));
   print('[pair] PASS: custom message round-tripped and self-cleaned');
   return 0;
@@ -161,7 +161,9 @@ Future<bool> _startVoiceCallUntilRinging(
     );
     await _reopenChatFromConversationList(caller, 'c2c_$calleePubkey');
     await caller.foreground();
-    await caller.tapKey('chat_call_voice_button');
+    // SINGLE-FIRE: flutter_skill's `tap` runs onPressed TWICE (synthetic
+    // pointer + direct callback), which issued two overlapping invites.
+    await caller.tapKeyCenter('chat_call_voice_button', timeoutSecs: 8);
     await Future<void>.delayed(const Duration(milliseconds: 2200));
     if (await _waitCallStateAnyForegrounded(callee, {
       'ringing',
@@ -182,10 +184,8 @@ Future<bool> _startVoiceCallUntilRinging(
       await caller.foreground();
       await caller.tryTapKey('call_hangup_button', retries: 2);
     }
-    // Let both sides' call state settle back to idle before re-issuing the
-    // next invite. The local notifier auto-resets ended -> idle after 2s, so a
-    // too-fast retry can re-enter while the previous signaling call is still
-    // winding down and never reach the callee.
+    // Settle both sides back to idle first: the notifier auto-resets
+    // ended -> idle after 2 s, so a too-fast retry re-enters mid-teardown.
     await _waitCallStateAny(caller, {'idle'}, timeoutSecs: 5);
     await _waitCallStateAny(callee, {'idle'}, timeoutSecs: 5);
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -310,8 +310,35 @@ Future<int> runCallReject(Inst a, Inst b, String nickA, String nickB) async {
 }
 
 // Logical-pixel center of the desktop composer text field (1280x768 window).
+// DESKTOP-ONLY constants — always reach them through [_tapDesktopComposer].
 const _composerX = 830;
 const _composerY = 702;
+
+/// Focus the DESKTOP composer's text area before an osascript paste/Return.
+///
+/// Resolve by KEY first (`chat_input_text_field` via the element-tree resolver)
+/// and only fall back to ($_composerX,$_composerY), so a window that is not
+/// exactly 1280x768 still lands. The fallback is guarded, not silent: that
+/// constant is a 1280x768
+/// desktop-window coordinate and a phone viewport is ~390x844 logical points,
+/// so on a mobile shell it is entirely OFF-SCREEN — `tapAt` would succeed at
+/// the RPC level while landing nowhere, and the caller would then blame the
+/// send. Every real caller is already behind a `_isHeadlessRealUi || isIos ||
+/// isMobileShell` branch (mobile sends go through `_sendComposerMessageIos` →
+/// `l3_composer_send`, and the desktop ExtendedTextField is keystroke-only
+/// anyway), so this throw is a REGRESSION TRIPWIRE for a future caller that
+/// forgets the branch — it must fail loudly, never tap empty space.
+Future<void> _tapDesktopComposer(Inst inst) async {
+  if (await inst.tapKeyCenter('chat_input_text_field', timeoutSecs: 8)) return;
+  if (inst.isMobileShell) {
+    throw DriveError(
+      '[${inst.name}] _tapDesktopComposer fell through to its desktop-only '
+      'fallback ($_composerX,$_composerY), a 1280x768 constant that is '
+      'off-screen on a mobile shell — use l3_composer_send instead',
+    );
+  }
+  await inst.tapAt(_composerX, _composerY);
+}
 
 /// Open the C2C chat with [friendPubkey] (64-char) by tapping the contact tile.
 Future<void> openChat(
@@ -363,7 +390,7 @@ Future<void> openChat(
   if (preferConversationList &&
       await _homeShellTab(inst) == 'chats' &&
       await _waitConversationListed(inst, targetConversation)) {
-    await inst.tryTapKey('conversation_list_item:$targetConversation');
+    await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (await ready()) {
       return;
@@ -372,7 +399,7 @@ Future<void> openChat(
   if (preferConversationList && await _homeShellTab(inst) != 'chats') {
     await returnToChatsHome(inst, rounds: 4);
     if (await _waitConversationListed(inst, targetConversation)) {
-      await inst.tryTapKey('conversation_list_item:$targetConversation');
+      await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (await ready()) {
         return;
@@ -497,8 +524,29 @@ Future<bool> _openChatViaContactsProfile(
     }
     if (!await inst.tryTapKey('friend_profile_send_message_tile', retries: 2)) {
       if (!await _tryTapText(inst, 'Send Message')) {
-        // Left-most tile in the [Send Message, Voice, Video] row.
-        await inst.tapAt(448, 428);
+        // Both keyed forms of the tile, resolved through the ELEMENT-TREE
+        // resolver (tapKeyAt) — the profile action tiles are keyed wrappers
+        // that flutter_skill's interactiveStructured does not always surface,
+        // which is what pushed this path onto a raw coordinate in the first
+        // place.
+        var landed =
+            await inst.tapKeyAt('friend_profile_send_message_tile') ||
+            await inst.tapKeyAt('friend_profile_send_message_button');
+        if (!landed && !inst.isMobileShell) {
+          // Desktop last resort, unchanged: the left-most tile in the
+          // [Send Message, Voice, Video] row of the 1280x768 profile pane.
+          await inst.tapAt(448, 428);
+          landed = true;
+        }
+        if (!landed) {
+          // A phone profile is a full-width column — (448,428) is off-screen at
+          // 390pt wide and would silently tap nothing (or, worse, whatever sits
+          // under a stray coordinate). Report instead of blind-tapping.
+          print(
+            '[${inst.name}] WARN openChat: no reachable Send Message tile on '
+            'the mobile profile (keys + text + resolver all missed)',
+          );
+        }
         await Future<void>.delayed(const Duration(milliseconds: 900));
       }
     }
@@ -663,7 +711,7 @@ Future<bool> sendComposerMessage(
     if (directSend == true) return true;
     for (var attempt = 0; attempt < 6; attempt++) {
       await inst.foreground();
-      await _tapDesktopComposer(inst);
+      await _tapDesktopComposer(inst); // ensure keyboard focus
       await Future<void>.delayed(const Duration(milliseconds: 450));
       await inst.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));

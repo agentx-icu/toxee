@@ -208,7 +208,7 @@
   "refresh": "刷新",
   "retry": "重试",
   "lastPing": "最后ping: {seconds}秒前",
-  "testNode": "发送引导请求",
+  "testNode": "测试节点",
   "deleteAccount": "注销账号",
   "deleteAccountConfirmMessage": "注销后账号与所有数据将永久删除且无法找回，请谨慎操作。",
   "delete": "注销",
@@ -249,12 +249,11 @@
   "nodePort": "端口",
   "nodePublicKey": "公钥",
   "setAsCurrentNode": "设置为当前节点",
-  "nodeTestSuccess": "引导请求已发送",
-  "nodeTestFailed": "引导请求发送失败",
-  "nodeTestUnavailableBeforeLogin": "登录前无法发送引导请求",
-  "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
-  },
+  "nodeTestSuccess": "节点可达",
+  "nodeTestUdpUnavailable": "节点测试需要 UDP，本设备当前仅使用 TCP",
+  "nodeTestFailed": "节点不可达",
+  "failedToLoadBootstrapNodes": "加载引导节点失败",
+  "nodeTestUnavailable": "本设备无法执行节点测试",
   "failedToStartBootstrapService": "启动引导服务失败",
   "invalidNodeInfo": "请输入有效的节点信息（主机、端口和公钥）",
   "nodeSetSuccess": "已设为当前节点",
@@ -584,11 +583,12 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "尚未向此节点发送引导请求。",
+  "nodeNotTestedWarning": "尚未测试此节点。",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "引导请求发送失败，此节点可能不可用。",
+  "nodeTestFailedWarning": "此节点未响应，可能不可用。",
+  "nodeTestInconclusiveWarning": "无法从本设备检测该节点，因此对它是否可用一无所知。",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },

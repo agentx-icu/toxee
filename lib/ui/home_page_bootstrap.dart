@@ -681,7 +681,7 @@ extension _HomePageBootstrap on _HomePageState {
       defaultMessageSelectionOperationsConfig: createDefaultValue(
         TencentCloudChatMessageDefaultMessageSelectionOptionsConfig(
           enableMessageForwardIndividually: true,
-          enableMessageForwardCombined: true,
+          // enableMessageForwardCombined: dead — fork container pins it false.
           enableMessageDeleteForSelf: true,
         ),
       ),
@@ -1086,6 +1086,13 @@ extension _HomePageBootstrap on _HomePageState {
       );
     }
 
+    // Claim the L3 invoker slot set for THIS HomePage. dispose clears the set
+    // only while this token is still the live owner, so a remount (the harness's
+    // forceHomeRoot recovery / pushAndRemoveUntil) can re-register before the
+    // old instance disposes without the old dispose clobbering the new
+    // registration into `invoker_not_registered`.
+    final l3InvokerOwner = beginL3InvokerRegistration();
+    _bag.add(() => clearL3InvokersIfOwner(l3InvokerOwner));
     // S46/S47: let the L3 surface drive the LIVE auto-accept setters (cached
     // flag + Prefs + accept-pending), not just Prefs. No-op unless the L3 test
     // surface is enabled; cleared via _bag on dispose.
@@ -1096,7 +1103,6 @@ extension _HomePageBootstrap on _HomePageState {
         await _setAutoAcceptGroupInvites(value);
       }
     });
-    _bag.add(() => registerL3AutoAcceptApplier(null));
     registerL3HomeShellApplier((tab) async {
       final normalized = tab.trim().toLowerCase();
       final nextIndex = switch (normalized) {
@@ -1120,7 +1126,6 @@ extension _HomePageBootstrap on _HomePageState {
         });
       }
     });
-    _bag.add(() => registerL3HomeShellApplier(null));
     final L3HomeShellSnapshotReader homeShellSnapshotReader = () {
       final tab = switch (_index) {
         1 => 'contacts',
@@ -1167,7 +1172,6 @@ extension _HomePageBootstrap on _HomePageState {
       unawaited(_showAddFriendDialog());
       return true;
     });
-    _bag.add(() => registerL3OpenAddFriendDialogInvoker(null));
     final openAddGroupDialogInvoker = () async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the add-friend invoker above.
@@ -1199,7 +1203,6 @@ extension _HomePageBootstrap on _HomePageState {
       _openChat(peerId: userId, groupId: groupId);
       return true;
     });
-    _bag.add(() => registerL3OpenChatInvoker(null));
     registerL3OpenSelfProfileInvoker(() async {
       if (!mounted) return false;
       // Mirror the user-avatar tap: showSelfProfile resolves the real Tox ID
@@ -1221,7 +1224,6 @@ extension _HomePageBootstrap on _HomePageState {
       );
       return true;
     });
-    _bag.add(() => registerL3OpenSelfProfileInvoker(null));
     final homeRoute = ModalRoute.of(context);
     final navigator = Navigator.of(context);
     final popToRootInvoker = () async {
@@ -1285,7 +1287,8 @@ extension _HomePageBootstrap on _HomePageState {
       _openGlobalSearchOverlay();
       return true;
     });
-    _bag.add(() => registerL3OpenGlobalSearchInvoker(null));
+    // NOT unregistered on dispose: a HomePage REMOUNT re-registers BEFORE the old
+    // one disposes, so a null-out clobbers the LIVE invoker; closure self-guards.
     registerL3OpenGroupAddMemberInvoker((groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the dialog invokers above: PUSH the
@@ -1294,7 +1297,6 @@ extension _HomePageBootstrap on _HomePageState {
       // until the screen is popped.
       return _openGroupAddMember(groupId);
     });
-    _bag.add(() => registerL3OpenGroupAddMemberInvoker(null));
     registerL3OpenGroupMemberListInvoker((groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the add-member invoker above: PUSH the
@@ -1304,7 +1306,6 @@ extension _HomePageBootstrap on _HomePageState {
       // driven through the real member-list UI.
       return _openGroupMemberList(groupId);
     });
-    _bag.add(() => registerL3OpenGroupMemberListInvoker(null));
     final openGroupProfileInvoker = (String groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract: PUSH the clean group-profile page (after
@@ -1350,8 +1351,7 @@ extension _HomePageBootstrap on _HomePageState {
       // here would block the l3 response (same contract as the dialog invokers).
       unawaited(_showConversationContextMenu(target, const Offset(200, 200)));
       return true;
-    });
-    _bag.add(() => registerL3OpenConversationMenuInvoker(null));
+    }); // NOT unregistered on dispose — see the global-search invoker above.
 
     _checkIrcAppStatus();
     _msgSub = widget.service.messages.listen((m) {

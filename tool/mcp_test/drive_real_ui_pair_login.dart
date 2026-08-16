@@ -400,7 +400,7 @@ Future<bool?> _loginRestoreEntryOpens(Inst inst, String primaryToxId) async {
 Future<bool> _openRegisterPage(Inst inst) async {
   for (var round = 0; round < 4; round++) {
     await inst.foreground();
-    if (await inst.waitKey('register_page_nickname_field', timeoutSecs: 2)) {
+    if (await _registerPageOnstage(inst, 2)) {
       return true;
     }
     // PRECONDITION RECOVERY: the Register CTA only exists on the LoginPage, so a
@@ -418,7 +418,7 @@ Future<bool> _openRegisterPage(Inst inst) async {
       continue;
     }
     if (await _tryTapText(inst, 'Register new account')) {
-      if (await inst.waitKey('register_page_nickname_field', timeoutSecs: 6)) {
+      if (await _registerPageOnstage(inst, 6)) {
         return true;
       }
     }

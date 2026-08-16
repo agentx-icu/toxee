@@ -192,7 +192,10 @@ Future<bool> _p1WaitAccountReady(
 /// the UI is in Chinese). Single-fire taps (a tab re-select is harmless, but
 /// tapKeyCenter keeps the discipline uniform).
 Future<bool> _p1SelectHomeTab(Inst inst, String tabKey, String tabName) async {
-  final targetKey = inst.isMobileShell
+  // By LAYOUT, not platform: an iPad is isMobileShell=true but renders the WIDE
+  // sidebar shell, so `bottom_nav_*` does not exist there (live:
+  // contactsOpened=false). See `_tapHomeTabUntil` in ..._calls_misc.dart.
+  final targetKey = await _homeShellHasBottomNav(inst)
       ? switch (tabName) {
           'chats' => 'bottom_nav_chats_tab',
           'contacts' => 'bottom_nav_contacts_tab',
@@ -657,6 +660,11 @@ Future<String> _p1RegisterSecondAccount(Inst inst, String nick) async {
   }
   await inst.focusType('register_page_nickname_field', nick);
   await Future<void>.delayed(const Duration(milliseconds: 300));
+  // Diagnostic: nickname typed but submit unreachable ⇒ RegisterPage mounted
+  // yet covered/partly built rather than absent. Capture before the throw.
+  if (!await inst.waitKey('register_page_register_button', timeoutSecs: 8)) {
+    await inst.shot('/tmp/ui_p1_register_nobutton_${inst.name}.png');
+  }
   await inst.tapKey('register_page_register_button');
   await inst.foreground();
   if (!await _waitBoolState(inst, 'sessionReady', true, timeoutSecs: 60)) {

@@ -208,7 +208,7 @@
   "refresh": "تحديث",
   "retry": "إعادة المحاولة",
   "lastPing": "آخر ping: منذ {seconds} ثانية",
-  "testNode": "إرسال طلب تمهيد",
+  "testNode": "اختبار العقدة",
   "deleteAccount": "حذف الحساب",
   "deleteAccountConfirmMessage": "سيتم حذف حسابك وجميع البيانات نهائياً ولا يمكن استردادها. يرجى المتابعة بحذر.",
   "delete": "حذف",
@@ -249,12 +249,11 @@
   "nodePort": "المنفذ",
   "nodePublicKey": "المفتاح العام",
   "setAsCurrentNode": "تعيين كعقدة حالية",
-  "nodeTestSuccess": "تم إرسال طلب التمهيد",
-  "nodeTestFailed": "فشل إرسال طلب التمهيد",
-  "nodeTestUnavailableBeforeLogin": "لا يمكن إرسال طلب تمهيد قبل تسجيل الدخول",
-  "@nodeTestUnavailableBeforeLogin": {
-    "description": "Message shown when a bootstrap request cannot be sent before login (no live FFI session)"
-  },
+  "nodeTestSuccess": "العقدة متاحة",
+  "nodeTestUdpUnavailable": "يتطلب اختبار العقدة UDP؛ يعمل هذا الجهاز عبر TCP فقط",
+  "nodeTestFailed": "العقدة غير متاحة",
+  "failedToLoadBootstrapNodes": "فشل تحميل عُقد التمهيد",
+  "nodeTestUnavailable": "اختبار العقدة غير متاح على هذا الجهاز",
   "failedToStartBootstrapService": "فشل بدء خدمة الإقلاع",
   "invalidNodeInfo": "يرجى إدخال معلومات عقدة صالحة (الخادم والمنفذ والمفتاح العام)",
   "nodeSetSuccess": "تم تعيين العقدة كعقدة حالية بنجاح",
@@ -567,11 +566,12 @@
   "@noReceivers": {
     "description": "Message shown when there are no message receivers"
   },
-  "nodeNotTestedWarning": "لم يتم إرسال طلب تمهيد إلى هذه العقدة بعد.",
+  "nodeNotTestedWarning": "لم يتم اختبار هذه العقدة بعد.",
   "@nodeNotTestedWarning": {
     "description": "Warning message when selecting untested node"
   },
-  "nodeTestFailedWarning": "فشل طلب التمهيد؛ قد لا تكون هذه العقدة متاحة.",
+  "nodeTestFailedWarning": "لم تستجب هذه العقدة؛ قد تكون غير متاحة.",
+  "nodeTestInconclusiveWarning": "تعذّر فحص هذه العقدة من هذا الجهاز، لذا لا يُعرف شيء عن حالتها.",
   "@nodeTestFailedWarning": {
     "description": "Warning message when selecting failed node"
   },

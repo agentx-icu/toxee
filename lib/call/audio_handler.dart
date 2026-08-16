@@ -6,6 +6,7 @@ import 'package:record/record.dart';
 import 'package:tim2tox_dart/service/toxav_service.dart';
 
 import '../util/logger.dart';
+import 'call_media_capabilities.dart';
 
 /// Captures microphone PCM and feeds to ToxAV; plays received PCM from ToxAV.
 /// Uses 48000 Hz, mono, 16-bit PCM; 960 samples (20 ms) per frame.
@@ -47,6 +48,22 @@ class AudioHandler {
     _friendNumber = friendNumber;
     _avService = avService;
     _zeroDataWarningLogged = false;
+
+    // Receive-only audio where local capture would ABORT the process. The iOS
+    // Simulator's AVAudioEngine input node raises SIGABRT from inside
+    // AudioToolbox (see CallMediaCapabilities.supportsAudioCapture for the
+    // measured stack), which no `try/catch` below can intercept — the app dies
+    // the moment a call is answered. Same rule the camera-less platforms
+    // already follow for video: connect the call, render the remote stream,
+    // just do not open a local capture that cannot work here.
+    if (!CallMediaCapabilities.supportsAudioCapture()) {
+      AppLogger.log(
+        '[AudioHandler] startCapture skipped: this platform cannot open a '
+        'microphone stream (iOS Simulator AVAudioEngine aborts); the call '
+        'continues receive-only',
+      );
+      return;
+    }
 
     final hasPermission = await _recorder.hasPermission();
     final isDesktop = defaultTargetPlatform == TargetPlatform.macOS ||
@@ -137,6 +154,14 @@ class AudioHandler {
   void onAudioReceived(int friendNumber, List<int> pcm, int sampleCount, int ch,
       int samplingRate) {
     if (pcm.isEmpty || sampleCount <= 0) return;
+    // Same environment gate as capture, for the PLAYBACK half. `AudioQueue`'s
+    // converter chain crashes the Simulator's AudioControl thread with SIGILL
+    // inside `AudioConverterNewInternal` (measured 2026-08-16, crash report
+    // Runner-2026-08-16-143603.ips), which killed the app AFTER the voice-call
+    // cases had already passed and took the rest of `sweep_calls_misc` with it.
+    // Dropping remote PCM on the floor there keeps the call state machine —
+    // the thing under test — alive; real hardware is unaffected.
+    if (!CallMediaCapabilities.supportsAudioPlayback()) return;
     if (!_playbackSetup) _setupPlayback();
 
     List<int> samples;

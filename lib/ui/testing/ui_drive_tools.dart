@@ -27,6 +27,7 @@
 //   - ui_drag       {key?|fromX,fromY?, dx?, dy, steps?} touch drag (down/moves/up)
 //   - ui_secondary_tap {key?|x,y?}           right-button mouse down/up
 //   - ui_long_press {key?|x,y?, holdMs?}     touch down → hold → up (long-press)
+//   - ui_hide_keyboard {}                    unfocus → close the soft keyboard
 //
 // Each returns {ok:true} or {ok:false, error:"..."} (+ a "candidates" count when
 // a key resolves to multiple onstage matches, for debuggability).
@@ -38,6 +39,10 @@ import 'package:mcp_toolkit/mcp_toolkit.dart';
 
 import '../../util/logger.dart';
 
+// The thin MCP registration layer (tool schemas + registerUiDriveToolsIfDebug)
+// lives in the part below; this file keeps the resolver + the pure handlers.
+part 'ui_drive_tools_mcp.dart';
+
 /// Unique pointer ids per dispatched gesture so successive/concurrent gestures
 /// never collide on the same id (the arena/router keys state by pointer id).
 int _uiDrivePointerSeq = 7000;
@@ -46,14 +51,43 @@ int _nextPointerId() => _uiDrivePointerSeq++;
 /// Resolution outcome for a `{key?|x,y?}` target.
 @visibleForTesting
 class UiTargetResolution {
-  UiTargetResolution.point(this.point, {this.candidates = 1}) : error = null;
+  UiTargetResolution.point(
+    this.point, {
+    this.candidates = 1,
+    this.onstage = true,
+    this.size,
+  }) : error = null;
   UiTargetResolution.failure(this.error)
     : point = null,
-      candidates = 0;
+      candidates = 0,
+      onstage = false,
+      size = null;
 
   final Offset? point;
   final String? error;
   final int candidates;
+
+  /// The resolved box's SIZE, when the target was found by key.
+  ///
+  /// A centre alone cannot tell a caller how wide the widget is, and several
+  /// drivers need that: `_openMessageMenuReal` has to aim at the right/left
+  /// THIRD of a full-width message row to hit an alignment-offset bubble, and
+  /// it used to approximate the row's half-width with the centre's absolute x.
+  /// That silently assumes the row starts at x == 0, which is false on any
+  /// master-detail shell whose chat pane is offset by a sidebar + list column
+  /// (on an iPad the "right third" landed OFF-SCREEN and the "left third"
+  /// landed in the conversation list). Reporting the real size lets callers
+  /// work in row-relative fractions instead.
+  final Size? size;
+
+  /// True when the point came from the ONSTAGE walk, false when only the
+  /// full-tree fallback found it. A route BELOW an opaque pushed route (the
+  /// mobile chat page covering the home shell) is still laid out and has no
+  /// Offstage/Visibility ancestor, so the fallback reports a centre the user
+  /// cannot touch — a gesture there hits the COVER. Callers that mean "visible"
+  /// must require this; callers that only need a laid-out box (the
+  /// nested-navigator routes the onstage walk legitimately misses) need not.
+  final bool onstage;
 
   bool get ok => point != null;
 }
@@ -93,7 +127,11 @@ UiTargetResolution resolveKeyCenter(String keyName) {
   if (onstage.isNotEmpty) {
     final box = _sizedBoxFor(onstage.first)!;
     final center = box.localToGlobal(box.size.center(Offset.zero));
-    return UiTargetResolution.point(center, candidates: onstage.length);
+    return UiTargetResolution.point(
+      center,
+      candidates: onstage.length,
+      size: box.size,
+    );
   }
 
   // No onstage match. Some pushed routes / overlays are NOT reached by
@@ -134,7 +172,12 @@ UiTargetResolution resolveKeyCenter(String keyName) {
     // single-candidate case first == last, so this is a no-op there.
     final box = _sizedBoxFor(full.last)!;
     final center = box.localToGlobal(box.size.center(Offset.zero));
-    return UiTargetResolution.point(center, candidates: full.length);
+    return UiTargetResolution.point(
+      center,
+      candidates: full.length,
+      onstage: false,
+      size: box.size,
+    );
   }
 
   // Still nothing sized: distinguish "exists but only offstage/unsized" from
@@ -382,7 +425,18 @@ Future<Map<String, Object?>> uiLongPressHandler({
 /// input dispatched). Lets the harness tell whether a keyed but NON-interactive
 /// scroll anchor (e.g. a SizedBox wrapping a SegmentedButton, whose per-segment
 /// labels aren't surfaced by flutter_skill's interactiveStructured) is within the
-/// visible viewport before tapping a child of it. Returns {ok, x?, y?, error?}.
+/// visible viewport before tapping a child of it. Returns
+/// {ok, x?, y?, w?, h?, viewWidth?, viewHeight?, candidates?, onstage?, error?}.
+///
+/// [viewWidth]/[viewHeight] are the VIEW's logical size, reported alongside every
+/// resolved centre because an (x,y) alone cannot be judged. This resolver has NO
+/// viewport check at all — it happily returns a centre that lies past the right
+/// or bottom edge — while `flutter_skill`'s `tap` REJECTS any resolved centre
+/// outside the view ±50 px with `elementNotVisible`. That asymmetry makes an
+/// off-edge control look "present but untappable": `ui_key_center` finds it,
+/// `tap` refuses it, and no campaign log could tell that apart from a missing
+/// key. Emitting the view extent here closes that hole for every driver at once
+/// (shared Dart — iOS, Android and desktop alike).
 @visibleForTesting
 Map<String, Object?> uiKeyCenterHandler({String? key}) {
   if (key == null || key.trim().isEmpty) {
@@ -391,162 +445,25 @@ Map<String, Object?> uiKeyCenterHandler({String? key}) {
   final resolved = resolveKeyCenter(key.trim());
   if (!resolved.ok) return {'ok': false, 'error': resolved.error};
   final p = resolved.point!;
-  return {'ok': true, 'x': p.dx, 'y': p.dy, 'candidates': resolved.candidates};
-}
-
-MCPCallResult _result(Map<String, Object?> r) => MCPCallResult(
-  message: r['ok'] == true ? 'ok' : 'error: ${r['error']}',
-  parameters: r,
-);
-
-// ---------------------------------------------------------------------------
-// Thin MCP registration around the pure handlers.
-// ---------------------------------------------------------------------------
-
-MCPCallEntry _uiScrollAtEntry() => MCPCallEntry.tool(
-  handler: (request) async => _result(
-    uiScrollAtHandler(
-      key: request['key'],
-      x: request['x'],
-      y: request['y'],
-      dx: request['dx'],
-      dy: request['dy'],
-    ),
-  ),
-  definition: MCPToolDefinition(
-    name: 'ui_scroll_at',
-    description:
-        'DEBUG-ONLY (ungated): dispatch one mouse-wheel PointerScrollEvent at a '
-        'widget key center (key) or raw global coords (x,y), with dx/dy delta. '
-        'Runs the real hit-test/scroll pipeline. Returns {ok, error?, candidates}.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'key': StringSchema(description: 'ValueKey of the scroll point center.'),
-        'x': StringSchema(description: 'Raw global x (when no key).'),
-        'y': StringSchema(description: 'Raw global y (when no key).'),
-        'dx': StringSchema(description: 'Horizontal scroll delta (default 0).'),
-        'dy': StringSchema(description: 'Vertical scroll delta (down positive).'),
-      },
-    ),
-  ),
-);
-
-MCPCallEntry _uiDragEntry() => MCPCallEntry.tool(
-  handler: (request) async => _result(
-    await uiDragHandler(
-      key: request['key'],
-      fromX: request['fromX'],
-      fromY: request['fromY'],
-      dx: request['dx'],
-      dy: request['dy'],
-      steps: request['steps'],
-    ),
-  ),
-  definition: MCPToolDefinition(
-    name: 'ui_drag',
-    description:
-        'DEBUG-ONLY (ungated): touch-drag (PointerDown -> N PointerMove -> '
-        'PointerUp) from a key center (key) or raw coords (fromX,fromY) by '
-        '(dx,dy) over steps moves (default 12). Engages real scroll physics; '
-        'mobile-style touch scroll. Returns {ok, error?, candidates}.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'key': StringSchema(description: 'ValueKey of the drag start center.'),
-        'fromX': StringSchema(description: 'Raw global start x (when no key).'),
-        'fromY': StringSchema(description: 'Raw global start y (when no key).'),
-        'dx': StringSchema(description: 'Total horizontal drag (default 0).'),
-        'dy': StringSchema(description: 'Total vertical drag (up negative).'),
-        'steps': StringSchema(description: 'Number of move events (default 12).'),
-      },
-    ),
-  ),
-);
-
-MCPCallEntry _uiSecondaryTapEntry() => MCPCallEntry.tool(
-  handler: (request) async => _result(
-    uiSecondaryTapHandler(
-      key: request['key'],
-      x: request['x'],
-      y: request['y'],
-    ),
-  ),
-  definition: MCPToolDefinition(
-    name: 'ui_secondary_tap',
-    description:
-        'DEBUG-ONLY (ungated): right-click (secondary-button mouse PointerDown '
-        'then PointerUp) at a key center (key) or raw coords (x,y). Opens the '
-        'desktop chat message context menu. Returns {ok, error?, candidates}.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'key': StringSchema(description: 'ValueKey of the right-click center.'),
-        'x': StringSchema(description: 'Raw global x (when no key).'),
-        'y': StringSchema(description: 'Raw global y (when no key).'),
-      },
-    ),
-  ),
-);
-
-MCPCallEntry _uiLongPressEntry() => MCPCallEntry.tool(
-  handler: (request) async => _result(
-    await uiLongPressHandler(
-      key: request['key'],
-      x: request['x'],
-      y: request['y'],
-      holdMs: request['holdMs'],
-    ),
-  ),
-  definition: MCPToolDefinition(
-    name: 'ui_long_press',
-    description:
-        'DEBUG-ONLY (ungated): long-press (touch PointerDown, hold holdMs — '
-        'default 800 ms, past the 500 ms framework timeout AND the fork '
-        'conversation-row recognizer at 650 ms — then PointerUp) at a key '
-        'center (key) or raw coords (x,y). Drives the production onLongPress '
-        'handlers (the mobile context-menu trigger). '
-        'Returns {ok, error?, candidates}.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'key': StringSchema(description: 'ValueKey of the long-press center.'),
-        'x': StringSchema(description: 'Raw global x (when no key).'),
-        'y': StringSchema(description: 'Raw global y (when no key).'),
-        'holdMs': StringSchema(
-          description: 'Hold duration in ms (default 600; >500 long-presses).',
-        ),
-      },
-    ),
-  ),
-);
-
-MCPCallEntry _uiKeyCenterEntry() => MCPCallEntry.tool(
-  handler: (request) async => _result(uiKeyCenterHandler(key: request['key'])),
-  definition: MCPToolDefinition(
-    name: 'ui_key_center',
-    description:
-        'DEBUG-ONLY (ungated): READ-ONLY — resolve the on-screen global center '
-        '(x,y) of a keyed widget without dispatching any input. Returns '
-        '{ok, x?, y?, error?, candidates?}. Lets the harness check whether a '
-        'keyed (possibly non-interactive) scroll anchor is within the viewport.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'key': StringSchema(description: 'ValueKey to resolve the center of.'),
-      },
-    ),
-  ),
-);
-
-/// Register the UI-drive pointer tools. No-op outside [kDebugMode]
-/// (tree-shaken from profile/release). Call after
-/// `MCPToolkitBinding.instance.initialize()` in `main()`. UNGATED — these are
-/// pure input plumbing and must work on fresh non-test accounts.
-void registerUiDriveToolsIfDebug() {
-  if (!kDebugMode) return;
-  AppLogger.info(
-    '[ui-drive] Registering pointer-event tools '
-    '(ui_scroll_at, ui_drag, ui_secondary_tap, ui_long_press, ui_key_center).',
-  );
-  addMcpTool(_uiScrollAtEntry());
-  addMcpTool(_uiDragEntry());
-  addMcpTool(_uiSecondaryTapEntry());
-  addMcpTool(_uiLongPressEntry());
-  addMcpTool(_uiKeyCenterEntry());
+  final s = resolved.size;
+  final views = WidgetsBinding.instance.platformDispatcher.views;
+  // `flutter_skill`'s own viewport check reads `views.first`; mirror it exactly
+  // so the numbers reported here are the ones `tap` will judge against.
+  final view = views.isEmpty ? null : views.first;
+  final dpr = view?.devicePixelRatio ?? 0;
+  return {
+    'ok': true,
+    'x': p.dx,
+    'y': p.dy,
+    if (view != null && dpr > 0) 'viewWidth': view.physicalSize.width / dpr,
+    if (view != null && dpr > 0) 'viewHeight': view.physicalSize.height / dpr,
+    // The resolved box's extent — see [UiTargetResolution.size]. Lets a driver
+    // aim at a FRACTION of the widget (the right/left third of a message row)
+    // instead of scaling the centre's absolute x, which breaks on any shell
+    // whose pane does not start at x == 0.
+    if (s != null) 'w': s.width,
+    if (s != null) 'h': s.height,
+    'candidates': resolved.candidates,
+    'onstage': resolved.onstage, // see [UiTargetResolution.onstage]
+  };
 }

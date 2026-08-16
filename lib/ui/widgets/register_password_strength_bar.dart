@@ -110,6 +110,34 @@ class RegisterPasswordStrengthBar extends StatelessWidget {
                         : cs.outline.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(2),
                   ),
+                  // State-encoded key `register_strength_segment_<i>_{filled,
+                  // empty}`. The stable key above cannot express the fill state
+                  // (it is a `BoxDecoration.color`, invisible to a
+                  // widget-driving harness that can only ask "is this key
+                  // onstage?"), so this marker makes the 0→4 ramp assertable
+                  // from the SEGMENTS themselves, not just the caption Text.
+                  //
+                  // It MUST be a DESCENDANT of the AnimatedContainer, never an
+                  // ancestor: an ancestor whose key flips with the state forces
+                  // Flutter to unmount and rebuild the whole subtree, which
+                  // destroys the AnimatedContainer's State and turns the colour
+                  // tween into a hard jump. As a child, only this marker
+                  // remounts and the fill animation is untouched.
+                  //
+                  // `SizedBox.expand` (not `shrink`) because `resolveKeyCenter`
+                  // requires an attached RenderBox with a NON-EMPTY size
+                  // (ui_drive_tools.dart `_sizedBoxFor`) — a zero-sized marker
+                  // would resolve as `key_offstage_only` and fail the case. It
+                  // inherits the segment's own box, paints nothing, and ignores
+                  // pointers, so it is inert.
+                  child: IgnorePointer(
+                    child: SizedBox.expand(
+                      key: Key(
+                        'register_strength_segment_${i}_'
+                        '${i < strength ? 'filled' : 'empty'}',
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

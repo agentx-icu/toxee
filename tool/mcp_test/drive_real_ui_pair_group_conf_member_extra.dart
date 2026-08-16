@@ -227,38 +227,10 @@ Future<String?> _gcmeVisiblePeerRowKey(
   return _memberRowKeyFor(inst, gid, peerTox);
 }
 
-Future<String?> _gcmeOpenPeerDesktopMenu(
-  Inst inst,
-  String groupId,
-  String peerTox, {
-  required String label,
-}) async {
-  if (!await _openGroupMemberListPage(inst, groupId)) {
-    print('[pair] $label: member-list page did not open');
-    return null;
-  }
-  final rowKey = await _gcmeVisiblePeerRowKey(inst, groupId, peerTox);
-  if (rowKey == null) {
-    await inst.shot('/tmp/ui_${label}_norow_${inst.name}.png');
-    print('[pair] $label: peer member row not rendered');
-    return null;
-  }
-  for (var attempt = 0; attempt < 3; attempt++) {
-    try {
-      await inst.secondaryTapKey(rowKey);
-    } on DriveError catch (e) {
-      print('[pair] $label: secondaryTap warn: ${e.message}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    final menuUp =
-        await inst.waitKey('group_member_desktop_info_item', timeoutSecs: 2) ||
-        await inst.waitKey('group_member_desktop_copy_id_item', timeoutSecs: 1);
-    if (menuUp) return rowKey;
-  }
-  await inst.shot('/tmp/ui_${label}_nomenu_${inst.name}.png');
-  print('[pair] $label: desktop member menu did not open');
-  return null;
-}
+// The member-menu opener now lives in drive_real_ui_pair_member_menu.dart as
+// `_openPeerMemberMenu`: the desktop secondary-tap popup and the mobile
+// action sheet are two affordances for the SAME surface, and hard-coding the
+// desktop one here made every case below unrunnable on iOS/iPadOS/Android.
 
 Future<bool> _gcmeGroupPeerMenuSurface(
   Inst a,
@@ -276,31 +248,33 @@ Future<bool> _gcmeGroupPeerMenuSurface(
     run: (est) async {
       final toxB =
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'gcme_group_menu',
       );
       if (row == null) return false;
-      final hasInfo = await a.waitKey(
-        'group_member_desktop_info_item',
+      final hasInfo = await a.waitKeyCenter(
+        _memberMenuInfoKey(a),
         timeoutSecs: 3,
       );
-      final hasCopy = await a.waitKey(
-        'group_member_desktop_copy_id_item',
+      final hasRole = await a.waitKeyCenter(
+        _memberMenuRoleKey(a),
         timeoutSecs: 3,
       );
-      final hasRole = await a.waitKey(
-        'group_member_desktop_role_item',
-        timeoutSecs: 3,
-      );
-      final hasKick = await a.waitKey(
-        'group_member_desktop_kick_item',
+      final hasKick = await a.waitKeyCenter(
+        _memberMenuKickKey(a),
         timeoutSecs: 3,
       );
       await a.shot('/tmp/ui_gcme_group_menu_A.png');
-      await _dismissContextMenu(a);
+      // Copy-ID LAST: on mobile it is not an inline sheet action, so the probe
+      // drives Info -> member-info route and consumes the menu.
+      final hasCopy = await _memberMenuCopyIdReachable(
+        a,
+        label: 'gcme_group_menu',
+      );
+      await _dismissMemberMenu(a);
       print(
         '[pair] group_member_peer_menu_surface: row=$row info=$hasInfo '
         'copy=$hasCopy role=$hasRole kick=$hasKick',
@@ -327,24 +301,32 @@ Future<bool> _gcmeGroupRoleActionSmoke(
       final toxB =
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
       final before = await _groupMemberCount(a, est.groupIdA);
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'gcme_group_role',
       );
       if (row == null) return false;
-      if (!await a.waitKey('group_member_desktop_role_item', timeoutSecs: 4)) {
+      if (!await a.waitKeyCenter(_memberMenuRoleKey(a), timeoutSecs: 4)) {
         print('[pair] group_member_role_action_smoke: role item absent');
         return false;
       }
       final tapped = await a.tapKeyCenter(
-        'group_member_desktop_role_item',
+        _memberMenuRoleKey(a),
         timeoutSecs: 6,
       );
       await Future<void>.delayed(const Duration(milliseconds: 1200));
-      final menuGone = await a.waitKeyGone(
-        'group_member_desktop_role_item',
+      // `Inst.waitKeyGone` goes through flutter_skill's `waitForGone`, which
+      // never surfaces menu / action-sheet OVERLAY entries — it reports
+      // `gone: true` on the very first poll whether or not the menu is up, so
+      // this assertion was a documented no-op and `tapped` was the only live
+      // signal left. `_memberMenuGone` polls the ELEMENT-TREE walk instead
+      // (drive_real_ui_pair_member_menu.dart:117-135); `high_value_extra.dart`
+      // :576 was already migrated for the same reason.
+      final menuGone = await _memberMenuGone(
+        a,
+        _memberMenuRoleKey(a),
         timeoutSecs: 4,
       );
       final after = await _groupMemberCount(a, est.groupIdA);
@@ -376,19 +358,19 @@ Future<bool> _gcmeGroupMemberRemoveUi(
       final toxB =
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
       final before = await _groupMemberCount(a, est.groupIdA);
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'gcme_group_remove',
       );
       if (row == null) return false;
-      if (!await a.waitKey('group_member_desktop_kick_item', timeoutSecs: 4)) {
+      if (!await a.waitKeyCenter(_memberMenuKickKey(a), timeoutSecs: 4)) {
         print('[pair] group_member_remove_ui: kick item absent');
         return false;
       }
       final tapped = await a.tapKeyCenter(
-        'group_member_desktop_kick_item',
+        _memberMenuKickKey(a),
         timeoutSecs: 6,
       );
       var after = before;
@@ -457,31 +439,32 @@ Future<bool> _gcmeConferenceRoleRemoveAbsent(
     run: (est) async {
       final toxB =
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'gcme_conf_negative',
       );
       if (row == null) return false;
-      final hasInfo = await a.waitKey(
-        'group_member_desktop_info_item',
+      final hasInfo = await a.waitKeyCenter(
+        _memberMenuInfoKey(a),
         timeoutSecs: 3,
       );
-      final hasCopy = await a.waitKey(
-        'group_member_desktop_copy_id_item',
-        timeoutSecs: 3,
-      );
-      final roleAbsent = !await a.waitKey(
-        'group_member_desktop_role_item',
+      final roleAbsent = !await a.waitKeyCenter(
+        _memberMenuRoleKey(a),
         timeoutSecs: 2,
       );
-      final kickAbsent = !await a.waitKey(
-        'group_member_desktop_kick_item',
+      final kickAbsent = !await a.waitKeyCenter(
+        _memberMenuKickKey(a),
         timeoutSecs: 2,
       );
       await a.shot('/tmp/ui_gcme_conf_negative_A.png');
-      await _dismissContextMenu(a);
+      // Copy-ID LAST — same mobile menu-consuming contract as the group case.
+      final hasCopy = await _memberMenuCopyIdReachable(
+        a,
+        label: 'gcme_conf_negative',
+      );
+      await _dismissMemberMenu(a);
       print(
         '[pair] conference_member_role_remove_absent: row=$row '
         'info=$hasInfo copy=$hasCopy roleAbsent=$roleAbsent '

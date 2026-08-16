@@ -502,7 +502,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get testNode => '发送引导请求';
+  String get testNode => '测试节点';
 
   @override
   String get deleteAccount => '注销账号';
@@ -789,10 +789,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get close => '关闭';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此节点发送引导请求。';
+  String get nodeNotTestedWarning => '尚未测试此节点。';
 
   @override
-  String get nodeTestFailedWarning => '引导请求发送失败，此节点可能不可用。';
+  String get nodeTestFailedWarning => '此节点未响应，可能不可用。';
+
+  @override
+  String get nodeTestInconclusiveWarning => '无法从本设备检测该节点，因此对它是否可用一无所知。';
 
   @override
   String get nicknameTooLong => '昵称过长';
@@ -831,13 +834,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setAsCurrentNode => '设置为当前节点';
 
   @override
-  String get nodeTestSuccess => '引导请求已发送';
+  String get nodeTestSuccess => '节点可达';
 
   @override
-  String get nodeTestFailed => '引导请求发送失败';
+  String get nodeTestUdpUnavailable => '节点测试需要 UDP，本设备当前仅使用 TCP';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => '登录前无法发送引导请求';
+  String get nodeTestFailed => '节点不可达';
+
+  @override
+  String get nodeTestUnavailable => '本设备无法执行节点测试';
+
+  @override
+  String get failedToLoadBootstrapNodes => '加载引导节点失败';
 
   @override
   String get failedToStartBootstrapService => '启动引导服务失败';
@@ -2119,7 +2128,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get testNode => '发送引导请求';
+  String get testNode => '测试节点';
 
   @override
   String get deleteAccount => '注销账号';
@@ -2407,10 +2416,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get close => '关闭';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此节点发送引导请求。';
+  String get nodeNotTestedWarning => '尚未测试此节点。';
 
   @override
-  String get nodeTestFailedWarning => '引导请求发送失败，此节点可能不可用。';
+  String get nodeTestFailedWarning => '此节点未响应，可能不可用。';
+
+  @override
+  String get nodeTestInconclusiveWarning => '无法从本设备检测该节点，因此对它是否可用一无所知。';
 
   @override
   String get nicknameTooLong => 'Nickname too long';
@@ -2437,13 +2449,19 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get setAsCurrentNode => '设置为当前节点';
 
   @override
-  String get nodeTestSuccess => '引导请求已发送';
+  String get nodeTestSuccess => '节点可达';
 
   @override
-  String get nodeTestFailed => '引导请求发送失败';
+  String get nodeTestUdpUnavailable => '节点测试需要 UDP，本设备当前仅使用 TCP';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => '登录前无法发送引导请求';
+  String get nodeTestFailed => '节点不可达';
+
+  @override
+  String get nodeTestUnavailable => '本设备无法执行节点测试';
+
+  @override
+  String get failedToLoadBootstrapNodes => '加载引导节点失败';
 
   @override
   String get failedToStartBootstrapService => '启动引导服务失败';
@@ -3489,7 +3507,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String get testNode => '傳送引導請求';
+  String get testNode => '測試節點';
 
   @override
   String get deleteAccount => '註銷帳號';
@@ -3776,10 +3794,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get close => '關閉';
 
   @override
-  String get nodeNotTestedWarning => '尚未向此節點傳送引導請求。';
+  String get nodeNotTestedWarning => '尚未測試此節點。';
 
   @override
-  String get nodeTestFailedWarning => '引導請求傳送失敗，此節點可能無法使用。';
+  String get nodeTestFailedWarning => '此節點未回應，可能無法使用。';
+
+  @override
+  String get nodeTestInconclusiveWarning => '無法從本裝置檢測該節點，因此對它是否可用一無所知。';
 
   @override
   String get nicknameTooLong => '暱稱過長';
@@ -3806,13 +3827,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get setAsCurrentNode => '設置為當前節點';
 
   @override
-  String get nodeTestSuccess => '引導請求已傳送';
+  String get nodeTestSuccess => '節點可連線';
 
   @override
-  String get nodeTestFailed => '引導請求傳送失敗';
+  String get nodeTestUdpUnavailable => '節點測試需要 UDP，本裝置目前僅使用 TCP';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => '登入前無法傳送引導請求';
+  String get nodeTestFailed => '節點無法連線';
+
+  @override
+  String get nodeTestUnavailable => '本裝置無法執行節點測試';
+
+  @override
+  String get failedToLoadBootstrapNodes => '載入引導節點失敗';
 
   @override
   String get failedToStartBootstrapService => '啟動引導服務失敗';

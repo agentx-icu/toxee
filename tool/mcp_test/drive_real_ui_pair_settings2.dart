@@ -1,28 +1,22 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
-// Batch 1 of the real-UI sweep campaign — "Settings sweep 2" (12 cases, single
+// Batch 1 of the real-UI sweep campaign — "Settings sweep 2" (13 cases, single
 // instance, one launch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // Every case drives the REAL settings widgets of ONE live instance (A; B is
 // launched-but-idle) and asserts a REAL side-effect: an l3_dump_state field
 // (themeMode / languageCode / autoDownloadSizeLimit / bootstrapNodeMode /
-// autoLogin / notificationSound / sessionReady) AND/OR a real UI signal
-// (section header text, a Chinese label after a locale flip, a snackbar /
-// dialog-stays-open assertion). Mutating cases restore the prior value so a
-// later case is not poisoned; logout_cancel runs LAST (it opens the dangerous
-// logout dialog) and only taps Cancel.
-//
-// The settings list scrolls; the lower Global / Bootstrap sections sit below
-// the fold on a narrow window. The driver wheel-scrolls the keyed root ListView
-// (UiKeys.settingsScrollView == 'settings_scroll_view') via scrollUntilKey to
-// bring a below-fold target onstage before tapping it.
+// autoLogin / notificationSound / sessionReady) AND/OR a real UI signal.
+// Mutating cases restore the prior value; logout_cancel runs LAST (dangerous
+// dialog) and only taps Cancel. Lower sections can sit below the fold, so the
+// driver wheel-scrolls the keyed root ListView (UiKeys.settingsScrollView) to
+// bring a target into the MEASURED visible band ([_settingsBand]) first.
 
 const _settingsScrollKey = 'settings_scroll_view';
 
 /// Poll l3_dump_state until a top-level field equals [want] (string compare; no
-/// throw). Mirrors `_waitBoolState` but for string-valued settings fields
-/// (themeMode / languageCode / bootstrapNodeMode).
+/// throw) — the string-valued twin of `_waitBoolState`.
 Future<bool> _waitStringState(
   Inst inst,
   String field,
@@ -52,17 +46,10 @@ Future<bool> _waitFieldWhere(
   return false;
 }
 
-/// SINGLE-FIRE tap on a widget matched by visible [text]: resolve its on-screen
-/// centre via `interactiveStructured` and dispatch exactly ONE `tapAt`.
-///
-/// Why this exists: flutter_skill's `tap`/`tapText` fires the callback TWICE (a
-/// synthetic pointer hit AND a direct `_tryInvokeCallback`) — see
-/// `Inst.tapKeyCenter`. For a TOGGLE control (the locale row's InkWell flips
-/// `_languageExpanded = !_languageExpanded`; the theme SegmentedButton segment),
-/// a double-fire toggles twice (even → net no-op), so `tapText` would leave the
-/// language list collapsed / re-select the same segment. The labels carry no
-/// key, so `tapKeyCenter` cannot be used — this is its text-matched twin.
-/// Returns false (no throw) when no positively-sized match is found.
+/// SINGLE-FIRE tap on a widget matched by visible [text] — the text-matched twin
+/// of `Inst.tapKeyCenter`. flutter_skill's `tapText` fires the callback TWICE,
+/// which on a TOGGLE (the locale row's `_languageExpanded` InkWell) is a net
+/// no-op, and these labels carry no key. False (no throw) when nothing matches.
 Future<bool> _tapTextCenter(
   Inst inst,
   String text, {
@@ -76,8 +63,7 @@ Future<bool> _tapTextCenter(
     if (elements is List) {
       for (final e in elements) {
         if (e is! Map) continue;
-        // Match the element whose visible text equals `text` (the interactive
-        // structured dump exposes a `text` field for tappable text widgets).
+        // Match the element whose visible text equals `text`.
         final elText = e['text']?.toString();
         if (elText != text) continue;
         final b = e['bounds'];
@@ -96,32 +82,27 @@ Future<bool> _tapTextCenter(
   return false;
 }
 
-// The live macOS window is 1280x800. A settings widget is "usefully visible"
-// (tappable by tapKeyCenter / interactiveStructured bounds) only when its CENTER
-// lands within this band — clear of the 64pt app bar at the top and the bottom
-// edge. A ListView keeps OFF-screen children MOUNTED (cacheExtent), so a plain
-// `waitKey` is true even when the target is scrolled OUT of the viewport (negative
-// or >800 y) — which is exactly why the auto-login switch (center y ~ -334 after
-// a prior case scrolled the list down) was "found" yet untappable. We verify the
-// real on-screen y via interactiveStructured instead.
+// DESKTOP band (live macOS window 1280x800): a settings widget is tappable only
+// when its CENTER lands within it. A ListView keeps OFF-screen children MOUNTED
+// (cacheExtent), so a plain `waitKey` is true even for a target scrolled OUT of
+// the viewport (the auto-login switch at y ~ -334 was "found" yet untappable);
+// we verify the real on-screen y instead.
 const double _settingsViewTop = 90;
 const double _settingsViewBottom = 700;
-// A bottom-anchored LAST element (e.g. the manual-node expand button, which is
-// the final row of the BootstrapSettingsSection when the form is collapsed) can
-// never enter the [_settingsViewTop].._settingsViewBottom band: once the
-// ListView is at max scroll extent it sits near the window bottom (~y740 in the
-// ~792px-tall content viewport) and there is nothing below it to scroll up. So
-// when downward scrolling STALLS (the target's center-y stops moving), accept
-// the target if it is onstage anywhere up to this extended bottom — it is fully
-// visible and tappable, just below the nominal reading band.
+// A bottom-anchored LAST element (the manual-node expand button while the form
+// is collapsed) can never enter the reading band: at max scroll extent nothing
+// below it can pull it up. So on a STALL, accept it up to this extended bottom.
 const double _settingsViewBottomMax = 770;
 
-/// The on-screen center-y of the keyed widget. First tries flutter_skill's
-/// `interactiveStructured` bounds (exact for interactive widgets — switches,
-/// fields, buttons, radios); falls back to the READ-ONLY `ui_key_center`
-/// primitive (resolveKeyCenter) for NON-interactive keyed anchors (e.g. the
-/// `settings_theme_segment` SizedBox), whose bounds interactiveStructured does
-/// not surface. Returns null only when the key resolves nowhere onstage.
+// (The MOBILE band constants + `_settingsBand` itself live in
+// drive_real_ui_pair_settings2_mobile.dart, next to the narrow-shell navigation
+// they exist for.)
+
+/// The on-screen center-y of the keyed widget: `interactiveStructured` bounds
+/// (exact for switches / fields / buttons / radios), falling back to the
+/// READ-ONLY `ui_key_center` primitive for NON-interactive keyed anchors (e.g.
+/// the `settings_theme_segment` SizedBox). Null only when the key resolves
+/// nowhere onstage.
 Future<double?> _keyedCenterY(Inst inst, String key) async {
   final r = await inst.skill('interactiveStructured', const {});
   final data = r['data'];
@@ -142,108 +123,146 @@ Future<double?> _keyedCenterY(Inst inst, String key) async {
   return c?.y;
 }
 
-/// Fill a keyed plain TextField via a REAL pointer focus + REAL OS keystrokes,
+/// Fill a keyed plain TextField via a REAL pointer focus + REAL OS input,
 /// avoiding the synthetic `enterText` → `FlutterTextInputPlugin setEditingState:`
-/// path that intermittently SIGSEGVs the macOS Flutter engine (observed crashing
-/// instance A on the manual-node host field — frame 2 of the FATAL backtrace was
-/// `-[FlutterTextInputPlugin setEditingState:]`). A single-fire `tapKeyCenter`
-/// focuses the field (no focus-thrash from flutter_skill's double-firing `tap`),
-/// then `osaClear` + `osaType` drive genuine keyboard events through AppKit —
-/// the same crash-free path the desktop composer uses. Best-effort: the
-/// manual-node cases assert field PRESENCE (waitKey), not the typed value, so a
-/// type that doesn't fully land still leaves a valid gate.
+/// path that SIGSEGVs the macOS engine. NOT best-effort:
+/// `_settingsBootstrapManualAddNode` gates on the production Test button READING
+/// these values back. These are PLAIN TextFields, so the synthetic `enterText`
+/// substitution the headless/iOS shells apply to `osa*` does reach them.
 Future<void> _fillFieldViaKeystrokes(Inst inst, String key, String text) async {
-  // Focus the field via a single real pointer tap at its CURRENT on-screen
-  // center, then drive real keystrokes. Deliberately does NOT reset the scroll
-  // to the top first: a single large `dy:-6000` wheel reset on the settings
-  // ListView was observed to COLLAPSE the just-expanded manual-node form
-  // (`_manualInputExpanded` flips closed under a big overscroll), tearing down
-  // the very fields we're about to fill. The caller guarantees the field is
-  // already onstage (the expand toggle scrolls the form into view); we tap it
-  // where it sits.
+  // Tap the field at its CURRENT on-screen center. Deliberately does NOT reset
+  // the scroll first: a `dy:-6000` reset COLLAPSES the just-expanded manual-node
+  // form, tearing down the very fields we're about to fill. The caller
+  // guarantees the field is already in band.
   if (!await inst.tapKeyCenter(key)) {
     await inst.tapKeyAt(key);
   }
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.osaClear();
-  // PASTE, don't keystroke: under a CJK host input source (this Mac's daily
-  // state) keystroke letters enter the IME composition and commit as hanzi.
-  // Paste is atomic, IME-immune, and rides the same crash-free AppKit path.
+  // PASTE, don't keystroke: under a CJK host input source keystroke letters
+  // enter the IME composition and commit as hanzi. Paste is atomic + IME-immune.
   await inst.osaPaste(text);
   await Future<void>.delayed(const Duration(milliseconds: 150));
 }
 
-/// Bring a below-fold (or above-fold) settings widget into the VISIBLE viewport
-/// by wheel-scrolling the keyed settings ListView, returning whether it landed in
-/// the on-screen band. Resets to the TOP first (so a target scrolled off the top
-/// by a prior case is reachable by scrolling DOWN), then scrolls down step by step
-/// checking the REAL on-screen y via `_keyedCenterY` (NOT `waitKey`, which is true
-/// for off-screen mounted children). For interactive targets (switches, fields,
-/// buttons) this is exact; for targets whose bounds aren't surfaced it falls back
-/// to the in-tree `waitKey` signal after the same downward sweep.
-Future<bool> _settingsScrollTo(Inst inst, String targetKey) async {
-  return _scrollKeyIntoBand(
-    inst,
-    targetKey,
-    topBand: inst.isIos ? 80 : _settingsViewTop,
-    bottomBand: inst.isIos ? 620 : _settingsViewBottom,
-  );
+/// Nudge the settings ListView DOWN in SMALL steps until [key]'s REAL on-screen
+/// center lands in the measured band. NOT [_settingsScrollTo]: its `dy:-6000`
+/// reset COLLAPSES the just-expanded manual-node form. Downward only — for
+/// widgets that appear BELOW an expander we just opened.
+Future<bool> _nudgeIntoBand(Inst inst, String key, {int steps = 8}) async {
+  final band = await _settingsBand(inst);
+  final scrollKey = _settingsActiveScrollKey(inst);
+  for (var i = 0; i <= steps; i++) {
+    final cy = await _keyedCenterY(inst, key);
+    if (cy != null && cy >= band.top && cy <= band.bottom) return true;
+    await inst.scrollAt(scrollKey, dy: 140);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  return false;
 }
 
+/// Bring a below/above-fold settings widget into the VISIBLE viewport by
+/// wheel-scrolling the keyed settings ListView.
+Future<bool> _settingsScrollTo(Inst inst, String targetKey) =>
+    _scrollKeyIntoBand(inst, targetKey);
+
 /// Scroll the settings ListView so the keyed [targetKey]'s on-screen center-y
-/// lands within [topBand]..[bottomBand]. Resets to the TOP first (so a target
-/// above the current offset is reachable downward), then scrolls down checking
-/// the REAL on-screen y via `_keyedCenterY` (interactive bounds, or the
-/// `ui_key_center` fallback for non-interactive anchors). NOT `waitKey` — a
-/// ListView keeps off-screen children mounted, so `waitKey` is true off-screen.
+/// lands inside the visible band ([_settingsBand], or an explicit
+/// [topBand]/[bottomBand] override). Resets to the TOP first (so a target above
+/// the current offset is reachable downward), then steps down checking the REAL
+/// on-screen y via [_keyedCenterY] — NOT `waitKey`, which a ListView keeps true
+/// for off-screen mounted children.
 Future<bool> _scrollKeyIntoBand(
   Inst inst,
   String targetKey, {
-  double topBand = _settingsViewTop,
-  double bottomBand = _settingsViewBottom,
+  double? topBand,
+  double? bottomBand,
 }) async {
   await inst.foreground();
-  await inst.scrollAt(_settingsScrollKey, dy: -6000);
+  // Narrow shell: the target may live on a pushed section route. Enter it
+  // BEFORE measuring/scrolling (no-op on desktop/iPad and for root targets).
+  if (!await _settingsEnterMobileSection(inst, targetKey)) return false;
+  final scrollKey = _settingsActiveScrollKey(inst);
+  // The scroll SURFACE must be genuinely ONSTAGE before we drive it.
+  //
+  // Callers reach here after proving a settings ROW exists — e.g. the prelogin
+  // bootstrap case does `waitKey('settings_bootstrap_mode_manual')`. That is
+  // NOT evidence the page is on screen: `waitKey` is flutter_skill's whole-tree
+  // finder, which matches a mounted-but-not-yet-painting element, and
+  // `BootstrapSettingsSection` is shared between the logged-in SettingsPage and
+  // LoginSettingsPage so the SAME row key can be satisfied by a copy that is
+  // still animating in (or by LoginSettingsPage's `tL10n == null` spinner frame,
+  // where the scroll view is not built at all).
+  //
+  // `ui_scroll_at` resolves through `resolveKeyCenter`, which requires an
+  // attached, positively-sized, PAINTING RenderBox — so in that window it threw
+  // `key_offstage_only:settings_scroll_view` and aborted the sweep (the
+  // settings2 `flaky=1`). Waiting for the anchor TIGHTENS the precondition
+  // rather than retrying past it.
+  if (!await inst.waitKeyCenter(scrollKey, timeoutSecs: 8)) {
+    print(
+      '[pair] settings scroll surface "$scrollKey" never became onstage '
+      '(target="$targetKey") — the settings route is not painting',
+    );
+    return false;
+  }
+  final band = await _settingsBand(inst);
+  final top = topBand ?? band.top;
+  final bottom = bottomBand ?? band.bottom;
+  // The stall escape hatch applies only to the DEFAULT band: an explicit
+  // bottomBand is a caller's deliberate tightening (language-selector headroom)
+  // and must not be widened back out underneath it.
+  final maxBottom = bottomBand == null ? band.maxBottom : bottom;
+  await inst.scrollAt(scrollKey, dy: -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
-  // Smaller steps (160px) than the band height so a target can't jump from below
-  // the band straight to above it between checks (the "never reached" overshoot).
+  // Steps smaller than the band height so a target can't jump from below it
+  // straight to above it between checks (the "never reached" overshoot).
   double? prevCy;
   var stalledScans = 0;
-  final maxSteps = inst.isIos ? 45 : 30;
-  final scrollDelta = inst.isIos ? 110.0 : 160.0;
-  final maxBottom = inst.isIos ? 690.0 : _settingsViewBottomMax;
+  final maxSteps = inst.isMobileShell ? 45 : 30;
+  final scrollDelta = inst.isMobileShell ? 110.0 : 160.0;
   for (var step = 0; step < maxSteps; step++) {
     final cy = await _keyedCenterY(inst, targetKey);
-    if (cy != null && cy >= topBand && cy <= bottomBand) return true;
-    // Detect a max-scroll-extent STALL: a bottom-anchored last element stops
-    // moving once the ListView can't scroll further. After two consecutive scans
-    // with no downward progress, accept the target if it's onstage up to the
-    // extended bottom (it's fully visible + tappable, just below the band).
+    if (cy != null && cy >= top && cy <= bottom) return true;
+    // STALL = max scroll extent: a bottom-anchored element stops moving. After
+    // two scans with no progress, accept it up to the extended bottom.
     if (cy != null && prevCy != null && (cy - prevCy).abs() < 4) {
       stalledScans++;
-      if (stalledScans >= 2 && cy >= topBand && cy <= maxBottom) {
+      if (stalledScans >= 2 && cy >= top && cy <= maxBottom) {
         return true;
       }
+      if (stalledScans >= 4) break; // pinned at max extent — stop burning steps
     } else {
       stalledScans = 0;
     }
     prevCy = cy;
-    await inst.scrollAt(_settingsScrollKey, dy: scrollDelta);
+    await inst.scrollAt(scrollKey, dy: scrollDelta);
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
   final cy = await _keyedCenterY(inst, targetKey);
   // Final acceptance also honours the extended bottom for a bottom-anchored row.
-  return cy != null && cy >= topBand && cy <= maxBottom;
+  final ok = cy != null && cy >= top && cy <= maxBottom;
+  if (!ok) {
+    // cy null = UNMOUNTED key; otherwise a widget parked outside the band.
+    print(
+      '[pair] scrollIntoBand "$targetKey": NOT reached (cy=$cy '
+      'band=$top..$bottom maxBottom=$maxBottom)',
+    );
+  }
+  return ok;
 }
 
-/// case 1 — settings_surface_sections: open Settings, scroll the whole page,
-/// and assert every top-level section HEADER renders (Account Info / Appearance
-/// / Language / Auto Download Size Limit / Bootstrap Nodes). The headers are
-/// SectionHeader Text widgets, asserted by their localized English label after
-/// scrolling each onstage.
+/// case 1 — settings_surface_sections: open Settings, scroll the whole page, and
+/// assert every top-level section HEADER renders (Account Info / Appearance /
+/// Language / Auto Download Size Limit / Bootstrap Nodes).
 Future<bool> _settingsSurfaceSections(Inst inst) async {
-  await _openSettings(inst);
-  // Account Info sits at the very top (already onstage).
+  await _openSettingsRoot(inst);
+  // NARROW shells only. iPad is `isMobileShell` yet renders every section
+  // INLINE (no index of drill-in tiles), so the narrow variant's "General" /
+  // "Bootstrap Nodes" TILE titles do not exist there and it false-FAILs.
+  if (inst.isMobileShell && !await _settingsIsWide(inst)) {
+    return _settingsSurfaceSectionsMobile(inst);
+  }
   final accountInfo = await inst.waitText('Account Info', timeoutSecs: 6);
   // Appearance + Language are in the GlobalSettingsSection (mid page).
   final appearance =
@@ -252,9 +271,8 @@ Future<bool> _settingsSurfaceSections(Inst inst) async {
   final language =
       await inst.waitText('Language', timeoutSecs: 2) ||
       await _scrollToText(inst, 'Language');
-  // Auto Download Size Limit + Bootstrap Nodes are lower still — scroll the
-  // keyed download-limit field onstage, then assert BOTH the keyed field AND its
-  // SectionHeader text rendered (the field-key alone wouldn't prove the header).
+  // Lower still — scroll the keyed download-limit field onstage, then assert
+  // BOTH the field AND its SectionHeader (the key alone wouldn't prove it).
   final downloadField = await _settingsScrollTo(
     inst,
     'settings_download_limit_field',
@@ -277,42 +295,33 @@ Future<bool> _settingsSurfaceSections(Inst inst) async {
   return accountInfo && appearance && language && downloadLimit && bootstrap;
 }
 
-/// Wheel-scroll the settings list so [text] becomes visible. NOTE: a ListView
-/// keeps OFF-screen children MOUNTED (cacheExtent), so `waitText` is true for a
-/// SectionHeader that's still below/above the fold — which makes a follow-up tap
-/// (computed at the off-screen y) miss. This is best-effort for NON-tappable
-/// section headers (used only as a "the section exists" probe in case 1); for a
-/// tappable target use `_scrollTappableTextIntoView` (verifies the on-screen y).
-/// Resets to the top first so a header scrolled above the fold is reachable.
+/// Wheel-scroll the settings list so [text] becomes visible. A ListView keeps
+/// OFF-screen children MOUNTED, so `waitText` is true for a SectionHeader still
+/// below the fold — best-effort, for NON-tappable headers only (a "the section
+/// exists" probe); a tappable target must go through [_scrollKeyIntoBand].
 Future<bool> _scrollToText(Inst inst, String text, {int maxSteps = 16}) async {
   await inst.foreground();
-  await inst.scrollAt(_settingsScrollKey, dy: -6000);
+  // Scrolls whichever list we are parked on (root index or a pushed section).
+  final scrollKey = _settingsActiveScrollKey(inst);
+  await inst.scrollAt(scrollKey, dy: -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
   if (await inst.waitText(text, timeoutSecs: 1)) return true;
   for (var step = 0; step < maxSteps; step++) {
-    await inst.scrollAt(_settingsScrollKey, dy: 280);
+    await inst.scrollAt(scrollKey, dy: 280);
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (await inst.waitText(text, timeoutSecs: 1)) return true;
   }
   return false;
 }
 
-/// Tap the theme SegmentedButton's [label] segment ("System" | "Light" |
-/// "Dark"). The ButtonSegments carry no per-segment key (SegmentedButton's
-/// ButtonSegment takes none), so we drive by the localized visible label after
-/// bringing the Appearance card onstage.
+/// Tap the theme SegmentedButton's [label] segment ("System"|"Light"|"Dark") by
+/// its visible label, after bringing the keyed Appearance anchor onstage.
 Future<bool> _tapThemeSegment(Inst inst, String label) async {
-  // A SegmentedButton ButtonSegment's label `Text` ("System"/"Light"/"Dark") is
-  // NOT surfaced as an interactive element by flutter_skill's
-  // `interactiveStructured`. flutter_skill's `tap{text}` finder DOES match it —
-  // BUT it computes the tap from the widget's tree position, which for a child
-  // mounted OFF-SCREEN in the ListView cacheExtent is an OFF-screen y (e.g. 942 on
-  // an 800px window when the list is at the top) → the tap silently misses. So the
-  // segment must be in the VISIBLE viewport first. The keyed wrapper box
-  // `settings_theme_segment` (a production automation key) IS scroll-resolvable
-  // via ui_scroll_at's resolveKeyCenter, so scroll IT into the viewport band, then
-  // tap the now-visible segment label. A double-fire on a segment just re-selects
-  // the same value (idempotent — harmless).
+  // A ButtonSegment's label Text is not surfaced by `interactiveStructured`.
+  // flutter_skill's `tap{text}` DOES match it, but computes the tap from the
+  // widget's tree position — an OFF-screen y for a child mounted in the ListView
+  // cacheExtent → silent miss. So bring the keyed wrapper `settings_theme_segment`
+  // into the band first, then tap the label (a segment double-fire is harmless).
   if (!await _settingsScrollTo(inst, 'settings_theme_segment')) {
     print('[pair] theme: could not bring the theme segment into view');
   }
@@ -329,16 +338,14 @@ Future<bool> _tapThemeSegment(Inst inst, String label) async {
   return false;
 }
 
-/// case 2 — settings_theme_dark (S57): tap the real "Dark" theme segment →
-/// dump themeMode persists 'dark' AND the "Dark" segment label is visible
-/// (real UI signal). Restored to the prior mode by case 3.
+/// case 2 — settings_theme_dark (S57): tap the real "Dark" theme segment → dump
+/// themeMode persists 'dark' AND the label is still rendered. Case 3 restores.
 Future<bool> _settingsThemeDark(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final before = (await inst.dumpState())['themeMode']?.toString() ?? 'system';
   final tapped = await _tapThemeSegment(inst, 'Dark');
   final persisted = tapped && await _waitStringState(inst, 'themeMode', 'dark');
-  // Real-UI signal: the Dark segment label is still rendered onstage (the
-  // Appearance card did not vanish / crash on the rebuild).
+  // Real-UI signal: the Appearance card survived the rebuild.
   final labelVisible = await inst.waitText('Dark', timeoutSecs: 4);
   print(
     '[pair] settings_theme_dark: before=$before tapped=$tapped '
@@ -348,10 +355,9 @@ Future<bool> _settingsThemeDark(Inst inst) async {
 }
 
 /// case 3 — settings_theme_light_back (S57): revert to "Light" → dump themeMode
-/// persists 'light' and the UI re-renders (Light segment label visible). This
-/// leaves the app in light mode (a deterministic, known state for later cases).
+/// persists 'light' and the UI re-renders. Leaves a deterministic light mode.
 Future<bool> _settingsThemeLightBack(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final tapped = await _tapThemeSegment(inst, 'Light');
   final persisted =
       tapped && await _waitStringState(inst, 'themeMode', 'light');
@@ -363,38 +369,31 @@ Future<bool> _settingsThemeLightBack(Inst inst) async {
   return tapped && persisted && labelVisible;
 }
 
+/// Park the keyed language selector row HIGH so its expanded option list (which
+/// renders BELOW the row) stays on screen. Explicit band, not the measured one.
+Future<bool> _anchorLanguageSelector(Inst inst) => _scrollKeyIntoBand(
+  inst,
+  'settings_language_selector',
+  topBand: 110,
+  bottomBand: 300,
+);
+
 /// case 4 — settings_locale_zh_roundtrip (S38): expand the Language selector,
-/// pick 简体中文 → dump languageCode == 'zh_Hans' AND a known Chinese label
-/// (外观, the Appearance section header) is visible; then revert to English via
-/// KEYS-free native labels (English label is unchanged across locales). Reverts
-/// BEFORE any later text-based English assertions so it can't poison them.
+/// pick 简体中文 → dump languageCode == 'zh_Hans' AND the Chinese Appearance
+/// header (外观) is visible; then revert to English (the native option labels are
+/// locale-invariant) BEFORE any later English-text assertion can be poisoned.
 Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
-  await _openSettings(inst);
-  // The Language card is in the GlobalSettingsSection; bring the keyed
-  // collapsed-selector row (`settings_language_selector`) into the UPPER viewport
-  // band so that (a) the row itself is tappable, AND (b) the dropdown OPTIONS that
-  // render BELOW it on expand are within the visible viewport (the
-  // "option not tappable" failure was the expanded 简体中文 row sitting below the
-  // fold). A prior case can leave the list scrolled, so this resets + re-anchors.
-  await _scrollKeyIntoBand(
-    inst,
-    'settings_language_selector',
-    topBand: 110,
-    bottomBand: 300,
-  );
-  // Expand by tapping the selector row, then choose 简体中文. SINGLE-FIRE: the
-  // selector InkWell toggles `_languageExpanded`, so a double-fire would open AND
-  // re-close it (net no-op). The keyed row IS tappable via tapKeyCenter (a single
-  // pointer tap at its resolved center). After tapping, 简体中文 must appear.
+  await _openSettingsRoot(inst);
+  // Anchor the collapsed selector row HIGH (an explicit band, not the measured
+  // one) so the dropdown OPTIONS that render BELOW it on expand stay on screen —
+  // the "option not tappable" failure was the 简体中文 row below the fold.
+  await _anchorLanguageSelector(inst);
+  // Expand, then choose 简体中文. SINGLE-FIRE: the selector InkWell toggles
+  // `_languageExpanded`, so a double-fire would open AND re-close it.
   var expanded = false;
   for (var attempt = 0; attempt < 4 && !expanded; attempt++) {
     if (!await inst.tapKeyAt('settings_language_selector')) {
-      await _scrollKeyIntoBand(
-        inst,
-        'settings_language_selector',
-        topBand: 110,
-        bottomBand: 300,
-      );
+      await _anchorLanguageSelector(inst);
       if (!await inst.tapKeyAt('settings_language_selector')) break;
     }
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -404,10 +403,8 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
     print('[pair] settings_locale_zh: could not expand language selector');
     return false;
   }
-  // Tap the keyed 简体中文 option (settings_language_option_zh_Hans). The option
-  // InkWell's label Text isn't surfaced by interactiveStructured, so use the
-  // production option key via tapKeyAt (resolveKeyCenter + tapAt — works for the
-  // keyed non-interactive Material wrapper). Re-anchor + retry once if needed.
+  // The option InkWell's label Text isn't surfaced by interactiveStructured, so
+  // drive the production option key via tapKeyAt (resolveKeyCenter + tapAt).
   var zhTapped = await inst.tapKeyAt('settings_language_option_zh_Hans');
   if (!zhTapped) {
     await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -429,27 +426,14 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
     '[pair] settings_locale_zh: zhPersisted=$zhPersisted '
     'zhLabelVisible=$zhLabelVisible',
   );
-  // Revert to English. The language option labels are NATIVE names (literal
-  // 'English' / '简体中文'), unchanged by locale, so tapping "English" works
-  // while in Chinese. The collapsed selector now shows "简体中文" — anchor the
-  // KEYED selector row in the upper band (so its options below are visible), tap
-  // it to expand, then tap the "English" option.
-  await _scrollKeyIntoBand(
-    inst,
-    'settings_language_selector',
-    topBand: 110,
-    bottomBand: 300,
-  );
+  // Revert to English. The option labels are NATIVE names (literal 'English' /
+  // '简体中文'), unchanged by locale, so tapping "English" works while in Chinese.
+  await _anchorLanguageSelector(inst);
   var reverted = false;
   for (var attempt = 0; attempt < 4 && !reverted; attempt++) {
     // Expand (single-fire) the now-Chinese-labelled selector, then pick English.
     if (!await inst.tapKeyAt('settings_language_selector')) {
-      await _scrollKeyIntoBand(
-        inst,
-        'settings_language_selector',
-        topBand: 110,
-        bottomBand: 300,
-      );
+      await _anchorLanguageSelector(inst);
       if (!await inst.tapKeyAt('settings_language_selector')) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         continue;
@@ -478,11 +462,10 @@ Future<bool> _settingsLocaleZhRoundtrip(Inst inst) async {
   return zhPersisted && zhLabelVisible && reverted && enLabelBack;
 }
 
-/// case 5 — settings_download_limit_edit (S98): bring the keyed download-limit
-/// field onstage, clear it, type a fresh value, tap the keyed Save → dump
-/// autoDownloadSizeLimit reflects the new value. Restores the prior value.
+/// case 5 — settings_download_limit_edit (S98): bring the keyed field onstage,
+/// clear it, type a value, tap Save → dump autoDownloadSizeLimit reflects it.
 Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   if (!await _settingsScrollTo(inst, 'settings_download_limit_field')) {
     print('[pair] settings_download_limit: field never reached');
     return false;
@@ -492,14 +475,10 @@ Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
   // A distinct in-range value (1..10000 per _saveAutoDownloadSizeLimit) that
   // differs from `before` so the change is observable.
   final target = before == 42 ? 37 : 42;
-  // Focus the field via flutter_skill's tap{key} (which ESTABLISHES the text
-  // input connection — a raw coordinate tapAt/tapKeyCenter does NOT, and a
-  // subsequent enterText with no input connection SIGSEGVs the macOS engine's
-  // FlutterTextInputPlugin setEditingState). Clear first so we don't append.
-  // RETRY the focus→clear→type→save→verify cycle: under 2-process foreground
-  // contention the enterText or the save tap intermittently doesn't land, so a
-  // single attempt flakes run-to-run (documented). Re-driving the real controls
-  // until the persisted state reflects the typed value keeps it an honest gate.
+  // Focus via flutter_skill's tap{key}, which ESTABLISHES the text input
+  // connection (a raw tapAt does NOT, and enterText without one SIGSEGVs macOS's
+  // FlutterTextInputPlugin). RETRY the whole cycle: under 2-process foreground
+  // contention the enterText or the save tap intermittently doesn't land.
   var saved = false;
   for (var attempt = 0; attempt < 3 && !saved; attempt++) {
     await inst.tapKey('settings_download_limit_field');
@@ -523,8 +502,7 @@ Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
       timeoutSecs: 10,
     );
   }
-  // Restore the prior value so later cases / reruns see the original cap, and
-  // ENFORCE the restore (an un-restored value would poison reruns).
+  // Restore the prior cap and ENFORCE it (an un-restored value poisons reruns).
   var restored = true;
   if (saved) {
     await inst.tapKey('settings_download_limit_field');
@@ -550,13 +528,18 @@ Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
   return saved && restored;
 }
 
-/// Tap a bootstrap-mode RadioListTile by key and wait for the dump
-/// bootstrapNodeMode to reflect it. The radios are below the fold; bring the
-/// keyed tile onstage first.
+/// Drive the real bootstrap-mode control to [mode] and wait for the dump
+/// bootstrapNodeMode to reflect it, bringing the keyed control onstage first.
+///
+/// The control differs by shell: `BootstrapSettingsSection` builds three
+/// `RadioListTile`s only `if (PlatformUtils.isDesktop)`, and a two-segment
+/// `SegmentedButton` (manual | auto — no LAN) everywhere else, whose keys sit on
+/// a `KeyedSubtree` around each segment LABEL. A live probe confirms a
+/// coordinate tap at that label's resolved centre flips the mode in ~15ms — as
+/// long as the centre is genuinely on screen, which [_settingsBand]'s
+/// viewport-centre bottom now guarantees.
 Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
-  // Retry the whole scroll+tap a few times: the radios sit low in the page and a
-  // single tap can land a frame late / on a neighbouring row after a scroll, so a
-  // mode flip can silently miss (the observed `backAuto=false` flake).
+  var everTapped = false;
   for (var attempt = 0; attempt < 3; attempt++) {
     if (!await _settingsScrollTo(inst, key)) {
       print(
@@ -565,11 +548,10 @@ Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       continue;
     }
-    // tapKeyCenter re-resolves the live on-screen bounds and taps the exact
-    // center; tapKeyAt (resolveKeyCenter) is the fallback for a tile whose bounds
-    // interactiveStructured doesn't surface.
-    if (!await inst.tapKeyCenter(key)) {
-      await inst.tapKeyAt(key);
+    // tapKeyCenter taps the live on-screen centre; tapKeyAt (resolveKeyCenter)
+    // is the fallback when interactiveStructured doesn't surface the tile.
+    if (await inst.tapKeyCenter(key) || await inst.tapKeyAt(key)) {
+      everTapped = true;
     }
     if (await _waitStringState(
       inst,
@@ -580,245 +562,60 @@ Future<bool> _setBootstrapMode(Inst inst, String key, String mode) async {
       return true;
     }
   }
+  // Grace window for a late tap — but ONLY when the real control was driven.
+  // Without this guard the helper answered TRUE whenever the mode ALREADY
+  // equalled [mode]: on iPad the tiles were never reached, yet auto0/backAuto
+  // reported true because the default IS 'auto' — a false green.
+  if (!everTapped) return false;
   return _waitStringState(inst, 'bootstrapNodeMode', mode, timeoutSecs: 4);
 }
 
-/// case 6 — settings_bootstrap_mode_cycle (S99/S85): cycle the bootstrap mode
-/// radios auto→manual→lan→auto, asserting the dump bootstrapNodeMode after each
-/// real tap. Ends on 'auto' (the default, leaving a known state).
-Future<bool> _settingsBootstrapModeCycle(Inst inst) async {
-  await _openSettings(inst);
-  // Normalize to auto first (cheap, and proves the starting point).
-  final toAuto0 = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  final toManual = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_manual',
-    'manual',
-  );
-  final toLan = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_lan',
-    'lan',
-  );
-  final backAuto = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  print(
-    '[pair] settings_bootstrap_mode_cycle: auto0=$toAuto0 manual=$toManual '
-    'lan=$toLan backAuto=$backAuto',
-  );
-  return toAuto0 && toManual && toLan && backAuto;
-}
-
-/// case 7 — settings_bootstrap_manual_add_node (S89): switch to manual mode,
-/// expand the manual node form, fill host/port/pubkey via real input → the
-/// manual node form ROW renders (host/port/pubkey fields + Test button onstage).
-///
-/// NOTE on scope: the production "Set as Current Node" button only appears AFTER
-/// a live `addBootstrapNode` test SUCCEEDS (which needs real DHT reachability,
-/// non-deterministic in the harness), so the faithful, bounded assertion here is
-/// that the real manual-node form mounts and accepts input. Mode + form mount
-/// IS the S89 surface (a real settings mutation: bootstrapNodeMode→manual,
-/// persisted). Leaves the form EXPANDED for case 8 to collapse.
-Future<bool> _settingsBootstrapManualAddNode(Inst inst) async {
-  await _openSettings(inst);
-  final manualMode = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_manual',
-    'manual',
-  );
-  if (!manualMode) {
-    print('[pair] bootstrap_manual_add: could not enter manual mode');
-    return false;
-  }
-  // Expand the manual-input form. The expand button TOGGLES `_manualInputExpanded
-  // = !_manualInputExpanded`, so a double-firing `tapKey` would open AND close it
-  // (net no-op). Bring it onstage then SINGLE-FIRE via tapKeyCenter (one tapAt).
-  if (!await _settingsScrollTo(inst, 'manual_node_input_button')) {
-    print('[pair] bootstrap_manual_add: expand button never reached');
-    return false;
-  }
-  if (!await inst.tapKeyCenter('manual_node_input_button')) {
-    print('[pair] bootstrap_manual_add: expand button not tappable');
-    return false;
-  }
-  final hostShown = await inst.waitKey(
-    'manual_node_host_field',
-    timeoutSecs: 6,
-  );
-  if (!hostShown) {
-    print('[pair] bootstrap_manual_add: host field did not appear');
-    return false;
-  }
-  // The expanded form renders BELOW the (bottom-anchored) expand toggle, so the
-  // host field can be just under the fold. Nudge the list DOWN a little (a small
-  // delta, NOT a `_settingsScrollTo` reset — the big top-reset collapses the
-  // form) so the host field's real bounds are on-screen for the pointer focus.
-  await inst.scrollAt(_settingsScrollKey, dy: 300);
-  await Future<void>.delayed(const Duration(milliseconds: 250));
-  // Prove the form ACCEPTS INPUT by typing into the host field via REAL focus +
-  // REAL keystrokes (NOT synthetic enterText, which SIGSEGVs
-  // FlutterTextInputPlugin.setEditingState on macOS — see
-  // _fillFieldViaKeystrokes). Once the form is expanded ALL of its fields (host,
-  // port, pubkey) live in the SAME mounted Column (host+port share one Row), so
-  // typing one field + asserting every field key is present is the faithful
-  // "form mounts + accepts input" gate for S89; re-focusing each narrow field
-  // separately only added flakiness without strengthening the assertion.
-  await _fillFieldViaKeystrokes(
-    inst,
-    'manual_node_host_field',
-    'tox.example.org',
-  );
-  final portShown = await inst.waitKey(
-    'manual_node_port_field',
-    timeoutSecs: 4,
-  );
-  final pubkeyShown = await inst.waitKey(
-    'manual_node_pubkey_field',
-    timeoutSecs: 4,
-  );
-  final testShown = await inst.waitKey(
-    'manual_node_test_button',
-    timeoutSecs: 4,
-  );
-  print(
-    '[pair] settings_bootstrap_manual_add_node: manualMode=$manualMode '
-    'host=$hostShown port=$portShown pubkey=$pubkeyShown test=$testShown',
-  );
-  return manualMode && hostShown && portShown && pubkeyShown && testShown;
-}
-
-/// case 8 — settings_bootstrap_manual_remove_node (S89): collapse the manual
-/// node form via the production toggle → the form ROW (host/port/pubkey fields)
-/// is GONE.
-///
-/// NOTE on scope: BootstrapSettingsSection has NO per-node remove affordance
-/// (manual mode only supports overwrite-as-current; the "current node" card is
-/// replaced, never deleted; the auto-mode Route-selection page is a read-only
-/// fetched-node list). The closest real "remove the row" surface is the manual
-/// input EXPAND toggle: tapping it again collapses the just-added node form so
-/// its fields leave the tree. We assert that GONE transition (the inverse of
-/// case 7), then restore mode→auto so the pair ends in a known state.
-Future<bool> _settingsBootstrapManualRemoveNode(Inst inst) async {
-  await _openSettings(inst);
-  // Ensure we are in manual mode with the form expanded (case 7 left it so, but
-  // be robust to running case 8 standalone).
-  await _setBootstrapMode(inst, 'settings_bootstrap_mode_manual', 'manual');
-  if (!await _settingsScrollTo(inst, 'manual_node_input_button')) {
-    print('[pair] bootstrap_manual_remove: expand button never reached');
-    return false;
-  }
-  // If the form is collapsed, expand it first so there is a row to remove.
-  // SINGLE-FIRE the toggle (see case 7).
-  if (!await inst.waitKey('manual_node_host_field', timeoutSecs: 2)) {
-    await inst.tapKeyCenter('manual_node_input_button');
-    if (!await inst.waitKey('manual_node_host_field', timeoutSecs: 6)) {
-      print('[pair] bootstrap_manual_remove: could not expand form to remove');
-      return false;
-    }
-  }
-  // Collapse it again — the production toggle removes the form row. SINGLE-FIRE.
-  if (!await inst.tapKeyCenter('manual_node_input_button')) {
-    print('[pair] bootstrap_manual_remove: collapse toggle not tappable');
-    return false;
-  }
-  final hostGone = await inst.waitKeyGone(
-    'manual_node_host_field',
-    timeoutSecs: 8,
-  );
-  final pubkeyGone = await inst.waitKeyGone(
-    'manual_node_pubkey_field',
-    timeoutSecs: 4,
-  );
-  // Restore mode→auto for a clean end state, and ENFORCE the restore (a failed
-  // restore would leave the pair in manual mode → state-poisoning false pass).
-  final restoredAuto = await _setBootstrapMode(
-    inst,
-    'settings_bootstrap_mode_auto',
-    'auto',
-  );
-  print(
-    '[pair] settings_bootstrap_manual_remove_node: hostGone=$hostGone '
-    'pubkeyGone=$pubkeyGone restoredAuto=$restoredAuto',
-  );
-  return hostGone && pubkeyGone && restoredAuto;
-}
-
-/// case 9 — settings_autologin_toggle_hard (S96): scroll the auto-login Switch
-/// onstage, tap its CENTER (a real pointer tap, not flutter_skill's synthetic
-/// tap which doesn't reliably toggle a Material Switch) → dump autoLogin flips;
-/// tap back → restores. Upgrades the documented soft autologin case to a hard
-/// gate by (a) scrolling it onstage and (b) using tapKeyCenter (real tapAt).
-Future<bool> _settingsAutologinToggleHard(Inst inst) async {
-  await _openSettings(inst);
-  // The auto-login row is in the Account card (upper-mid); bring it onstage.
-  if (!await _settingsScrollTo(inst, 'settings_auto_login_switch')) {
-    print('[pair] autologin_hard: switch never reached');
-    return false;
-  }
-  final before = (await inst.dumpState())['autoLogin'] == true;
-  if (!await inst.tapKeyCenter('settings_auto_login_switch')) {
-    print('[pair] autologin_hard: switch center not tappable');
-    return false;
-  }
-  final flipped = await _waitBoolState(inst, 'autoLogin', !before);
-  // Restore (only if it flipped, so a pass never leaves autoLogin mutated).
-  var restored = true;
-  if (flipped) {
-    await inst.tapKeyCenter('settings_auto_login_switch');
-    restored = await _waitBoolState(inst, 'autoLogin', before);
-  }
-  print(
-    '[pair] settings_autologin_toggle_hard: before=$before flipped=$flipped '
-    'restored=$restored',
-  );
+/// cases 9 + 10 — settings_autologin_toggle_hard (S96) and
+/// settings_notifsound_toggle_hard (S97): scroll the real Switch onstage, tap
+/// its CENTER (flutter_skill's synthetic tap doesn't reliably toggle a Material
+/// Switch) → the dump field flips; tap back → restores.
+Future<bool> _settingsSwitchToggleHard(
+  Inst inst,
+  String caseId,
+  String key,
+  String field,
+) async {
+  await _openSettingsRoot(inst);
+  final before = (await inst.dumpState())[field] == true;
+  final flipped = await _driveSwitchTo(inst, key, field, !before);
+  final restored = flipped
+      ? await _driveSwitchTo(inst, key, field, before)
+      : true;
+  print('[pair] $caseId: before=$before flipped=$flipped restored=$restored');
   return flipped && restored;
 }
 
-/// case 10 — settings_notifsound_toggle_hard (S97): same upgrade for the
-/// notification-sound Switch (lives lower, in the GlobalSettingsSection).
-Future<bool> _settingsNotifSoundToggleHard(Inst inst) async {
-  await _openSettings(inst);
-  if (!await _settingsScrollTo(inst, 'settings_notification_sound_switch')) {
-    print('[pair] notifsound_hard: switch never reached');
-    return false;
-  }
-  final before = (await inst.dumpState())['notificationSound'] == true;
-  if (!await inst.tapKeyCenter('settings_notification_sound_switch')) {
-    print('[pair] notifsound_hard: switch center not tappable');
-    return false;
-  }
-  final flipped = await _waitBoolState(inst, 'notificationSound', !before);
-  var restored = true;
-  if (flipped) {
-    await inst.tapKeyCenter('settings_notification_sound_switch');
-    restored = await _waitBoolState(inst, 'notificationSound', before);
-  }
-  print(
-    '[pair] settings_notifsound_toggle_hard: before=$before flipped=$flipped '
-    'restored=$restored',
-  );
-  return flipped && restored;
-}
+Future<bool> _settingsAutologinToggleHard(Inst inst) =>
+    _settingsSwitchToggleHard(
+      inst,
+      'settings_autologin_toggle_hard',
+      'settings_auto_login_switch',
+      'autoLogin',
+    );
+
+Future<bool> _settingsNotifSoundToggleHard(Inst inst) =>
+    _settingsSwitchToggleHard(
+      inst,
+      'settings_notifsound_toggle_hard',
+      'settings_notification_sound_switch',
+      'notificationSound',
+    );
 
 /// case 11 — settings_password_mismatch_error (S40): open the set-password
 /// dialog, type MISMATCHED new/confirm values, tap Save → the production handler
-/// shows the "Passwords do not match" snackbar and the dialog STAYS OPEN
-/// (returns early, no Navigator.pop). Asserts the snackbar text AND that the
-/// new-password field is still in the tree. ESC dismisses without setting a
-/// password (so no later case inherits a password-protected account).
+/// snackbars "Passwords do not match" and the dialog STAYS OPEN (early return,
+/// no Navigator.pop). Asserts both. ESC dismisses without setting a password, so
+/// no later case inherits a password-protected account.
 Future<bool> _settingsPasswordMismatchError(Inst inst) async {
-  await _openSettings(inst);
-  // Below-fold opener: tapKey fires the callback once off-screen.
+  await _openSettingsRoot(inst);
+  // Below-fold opener: tapKey still opens the dialog via its direct
+  // _tryInvokeCallback even off-screen, so a failed scroll is not fatal.
   if (!await _settingsScrollTo(inst, 'settings_set_password_button')) {
-    // Even if it doesn't scroll fully onstage, the below-fold tapKey still opens
-    // the dialog via its direct _tryInvokeCallback, so continue anyway.
     print('[pair] password_mismatch: set-password button below fold (ok)');
   }
   await inst.tapKey('settings_set_password_button');
@@ -828,16 +625,10 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
   }
   await inst.focusType('settings_set_password_new_field', 'RuiPwAAAA1');
   await inst.focusType('settings_set_password_confirm_field', 'RuiPwBBBB2');
-  // The Save button calls Navigator.pop ONLY when the values match; on a
-  // mismatch it shows a snackbar and returns WITHOUT popping. So flutter_skill's
-  // double-fire `tap` is safe here (no route to double-pop), but we use the
-  // single-fire center tap to mirror the matching-path harness convention.
-  // Foreground + re-tap Save until the mismatch snackbar appears: a synthetic
-  // center-tap on the dialog's Save button can silently miss on the headless
-  // Windows VM (the window isn't active after the field focusType), so the
-  // mismatch handler never runs and no snackbar shows. Re-tapping is safe — on a
-  // mismatch the handler only shows the snackbar and returns (no Navigator.pop).
-  // The snackbar text is LOCALIZED, so assert any shipped locale variant.
+  // Save pops ONLY when the values match; on a mismatch it snackbars and returns
+  // without popping, so re-tapping is safe. Foreground + re-tap until the
+  // snackbar shows (a center-tap can silently miss on the headless Windows VM).
+  // The text is LOCALIZED, so accept any shipped variant.
   const variants = [
     'Passwords do not match', // en
     '密码不匹配', // zh
@@ -867,11 +658,9 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
     'settings_set_password_new_field',
     timeoutSecs: 4,
   );
-  // Dismiss the dialog WITHOUT setting a password (ESC) so the account stays
-  // password-free for later cases (logout_cancel relies on no password). ESC
-  // can be eaten by focus state, so fall back to the keyed Cancel button, and
-  // ENFORCE that the dialog is gone — a stray password dialog left mounted would
-  // poison case 12 (and is itself a real failure to surface, not swallow).
+  // Dismiss WITHOUT setting a password (ESC) so the account stays password-free.
+  // ESC can be eaten by focus state, so fall back to the keyed Cancel button and
+  // ENFORCE that the dialog is gone — a stray dialog would poison case 12.
   try {
     await inst.osaEscape();
   } on DriveError {
@@ -896,19 +685,17 @@ Future<bool> _settingsPasswordMismatchError(Inst inst) async {
 }
 
 /// case 12 — settings_logout_cancel (S44): open the logout confirm dialog, tap
-/// CANCEL → the dialog closes and the session is STILL ready (sessionReady
-/// stays true, no teardown). Runs LAST because it opens the dangerous logout
-/// dialog; it only ever taps Cancel, so the session survives.
+/// CANCEL → the dialog closes and sessionReady stays true (no teardown). Runs
+/// LAST because it opens the dangerous logout dialog; only ever taps Cancel.
 Future<bool> _settingsLogoutCancel(Inst inst) async {
-  await _openSettings(inst);
+  await _openSettingsRoot(inst);
   final wasReady = (await inst.dumpState())['sessionReady'] == true;
   // Below-fold opener (fires once via direct callback).
   if (!await _settingsScrollTo(inst, 'settings_logout_button')) {
     print('[pair] logout_cancel: logout button below fold (ok)');
   }
-  // The logout button is now scrolled into view; tapKeyCenter (live bounds +
-  // exact-center tapAt) is robust, with a tapKey fallback (its direct callback
-  // fires even slightly off-screen).
+  // tapKeyCenter (live bounds + exact-centre tapAt), with a tapKey fallback
+  // whose direct callback fires even slightly off-screen.
   if (!await inst.tapKeyCenter('settings_logout_button')) {
     await inst.tapKey('settings_logout_button');
   }
@@ -916,24 +703,27 @@ Future<bool> _settingsLogoutCancel(Inst inst) async {
     print('[pair] logout_cancel: confirm dialog did not open');
     return false;
   }
-  // The logout dialog's Cancel button is now KEYED
-  // (settings_logout_cancel_button) — single-fire tapKeyCenter (a dialog pop
-  // button must not double-fire: the first pop closes the dialog, a second fired
-  // mid-dismiss would pop the page underneath; see flutter_skill_double_tap_blank).
-  // It calls popDialogIfCurrent(context,false) — pops only the dialog (no
-  // page-pop), and ModalRoute.isCurrent guards re-entrancy. Fall back to the
-  // "Cancel" label only if the keyed button can't be resolved.
-  if (!await inst.tapKeyCenter('settings_logout_cancel_button')) {
-    if (!await _tryTapText(inst, 'Cancel')) {
-      print('[pair] logout_cancel: Cancel button not tappable');
-      return false;
+  // SINGLE-FIRE the keyed Cancel: a dialog pop button must not double-fire (the
+  // first pop closes the dialog, a second fired mid-dismiss pops the page
+  // underneath). Fall back to the "Cancel" label only if the key can't resolve.
+  // RE-TAP while the dialog is still up: a centre tap intermittently doesn't
+  // land under foreground contention (observed `dialogClosed=false` on one of
+  // two iPad runs), and each round re-checks that the dialog is still there.
+  var dialogClosed = false;
+  for (var attempt = 0; attempt < 3 && !dialogClosed; attempt++) {
+    await inst.foreground();
+    if (!await inst.tapKeyCenter('settings_logout_cancel_button')) {
+      if (!await _tryTapText(inst, 'Cancel')) {
+        print('[pair] logout_cancel: Cancel button not tappable');
+        return false;
+      }
     }
+    // Dialog gone (confirm button no longer in the tree) AND session intact.
+    dialogClosed = await inst.waitKeyGone(
+      'settings_logout_confirm_button',
+      timeoutSecs: 6,
+    );
   }
-  // Dialog gone (confirm button no longer in the tree) AND session intact.
-  final dialogClosed = await inst.waitKeyGone(
-    'settings_logout_confirm_button',
-    timeoutSecs: 8,
-  );
   // sessionReady must remain true: Cancel must NOT have torn down the session.
   final stillReady = await _waitBoolState(
     inst,
@@ -949,13 +739,9 @@ Future<bool> _settingsLogoutCancel(Inst inst) async {
 }
 
 /// Best-effort, idempotent between-cases normalizer: drive locale back to
-/// English and bootstrap mode back to auto IF a prior case left them mutated
-/// (e.g. it FAILED mid-restore). Cheap no-op when already normalized (just a
-/// dump read). This is the cross-case poison guard codex flagged: the sweep
-/// keeps running after a failed case, so a stuck-in-zh locale would false-FAIL
-/// the later English-text cases (password "Passwords do not match", logout
-/// "Cancel"). Never throws — a failure here is logged, not propagated (the next
-/// case's own assertions remain the source of truth).
+/// English and bootstrap mode back to auto IF a prior case left them mutated.
+/// The sweep keeps running after a failed case, so a stuck-in-zh locale would
+/// false-FAIL later English-text cases. Never throws.
 Future<void> _normalizeBetweenCases(Inst inst) async {
   try {
     final st = await inst.dumpState();
@@ -963,7 +749,7 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
       print(
         '[sweep] normalize: locale is ${st['languageCode']} -> reverting en',
       );
-      await _openSettings(inst);
+      await _openSettingsRoot(inst);
       // The selector shows the current NATIVE label; expand + pick English.
       // Try the known non-English native labels (zh-Hans/zh-Hant/ja/ko/ar).
       const nativeLabels = ['简体中文', '繁體中文', '日本語', '한국어', 'العربية'];
@@ -986,7 +772,7 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
         '[sweep] normalize: bootstrap mode is ${st2['bootstrapNodeMode']} '
         '-> reverting auto',
       );
-      await _openSettings(inst);
+      await _openSettingsRoot(inst);
       await _setBootstrapMode(inst, 'settings_bootstrap_mode_auto', 'auto');
     }
   } on DriveError catch (e) {
@@ -994,22 +780,32 @@ Future<void> _normalizeBetweenCases(Inst inst) async {
   }
 }
 
-/// sweep_settings2 — Batch 1: chain all 12 settings-sweep-2 cases on ONE launch.
+/// sweep_settings2 — Batch 1: chain all 13 settings-sweep-2 cases on ONE launch.
 /// Order avoids state poisoning: surface read first; theme dark→light (ends
 /// light); locale zh→en roundtrip (reverts BEFORE later English-text cases);
 /// download-limit (restores); bootstrap mode cycle (ends auto); manual add then
 /// remove (collapse); the two Switch toggles (restore); password-mismatch
-/// (ESC-dismiss, leaves no password); logout_cancel LAST (Cancel only — session
-/// survives). Prints `[sweep] <case>: PASS|FAIL` per case + final counts; exits
-/// non-zero if any HARD case fails.
-Future<int> runSettingsSweep2(Inst inst, String nick) async {
+/// (ESC-dismiss); logout_cancel (Cancel only); prelogin_bootstrap_node_test
+/// LAST (really logs out, logs back in). Prints `[sweep] <case>:
+/// PASS|FAIL` per case + final counts; exits non-zero if any HARD case fails.
+/// [peer] is the launched-but-idle B instance. It is used ONLY by
+/// `settings_prelogin_bootstrap_node_test`, which needs a genuinely REACHABLE
+/// Tox DHT endpoint to prove the pre-login probe can answer "reachable" as well
+/// as "unreachable" — B's own `l3_dht_info` endpoint on 127.0.0.1 is exactly
+/// that, and it keeps the check hermetic (no public node, no internet).
+Future<int> runSettingsSweep2(
+  Inst inst,
+  String nick, {
+  Inst? peer,
+  String peerNick = '',
+}) async {
   await ensureHome(inst, nick);
   await inst.waitState(
     (s) => s['isConnected'] == true,
     label: '$nick connected',
     timeoutSecs: 90,
   );
-  // Ordered list of (caseId, runner). All 12 are HARD gates.
+  // Ordered list of (caseId, runner). All 13 are HARD gates.
   final cases = <MapEntry<String, Future<bool> Function()>>[
     MapEntry('settings_surface_sections', () => _settingsSurfaceSections(inst)),
     MapEntry('settings_theme_dark', () => _settingsThemeDark(inst)),
@@ -1047,7 +843,21 @@ Future<int> runSettingsSweep2(Inst inst, String nick) async {
       () => _settingsPasswordMismatchError(inst),
     ),
     MapEntry('settings_logout_cancel', () => _settingsLogoutCancel(inst)),
+    // Needs a second LIVE Tox node for the "reachable" half of its
+    // differential, so it is EXCLUDED (never fake-passed) when this sweep is
+    // reused by a single-app bundle. See its doc comment.
+    if (peer != null)
+      MapEntry(
+        'settings_prelogin_bootstrap_node_test',
+        () => _settingsPreloginBootstrapNodeTest(inst, peer, peerNick),
+      ),
   ];
+  if (peer == null) {
+    print(
+      '[sweep] settings_prelogin_bootstrap_node_test: EXCLUDED '
+      '(single-app bundle has no second Tox node to probe as REACHABLE)',
+    );
+  }
 
   var passed = 0;
   var failed = 0;
@@ -1072,9 +882,8 @@ Future<int> runSettingsSweep2(Inst inst, String nick) async {
         '${failDetail != null ? ' ($failDetail)' : ''}',
       );
     }
-    // Cross-case poison guard: if a case failed mid-restore (or even on a pass),
-    // re-normalize locale→en + bootstrap→auto so a later English-text case isn't
-    // false-failed by leftover state. Idempotent / best-effort (never throws).
+    // Cross-case poison guard: re-normalize locale→en + bootstrap→auto so a
+    // later English-text case isn't false-failed by leftover state.
     await _normalizeBetweenCases(inst);
   }
   print(

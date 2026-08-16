@@ -143,11 +143,21 @@ Future<void> openGroupChat(
   // briefly not-yet-connected (group_connected=0), so the chat surface does not
   // always become ready on the first tap. Re-tap from the conversation list and
   // wait again, giving it a moment to connect between attempts.
+  // Which path claimed to have opened the row. A bare `rowOpened == true` is
+  // not enough to debug this failure: three very different mechanisms can set
+  // it, and only the first two actually address the conversation row (the text
+  // fallback matches the group NAME anywhere on screen). Recorded so the error
+  // below names the culprit instead of leaving "the tap said yes" unexplained.
+  var openPath = 'none';
   for (var attempt = 0; attempt < 3; attempt++) {
     await returnToChatsHome(inst, rounds: 4);
-    var rowOpened =
-        await inst.tryTapKey(conversationKey, retries: 1) ||
-        await inst.tryTapKey('group_list_tile:$groupId', retries: 1);
+    var rowOpened = await inst.tryTapKey(conversationKey, retries: 1);
+    if (rowOpened) {
+      openPath = 'skill:$conversationKey';
+    } else if (await inst.tryTapKey('group_list_tile:$groupId', retries: 1)) {
+      rowOpened = true;
+      openPath = 'skill:group_list_tile';
+    }
     if (!rowOpened) {
       // A FRESHLY-created group/conference has no messages → its sort key is
       // `lastMessage.timestamp ?? 0` == 0 → it sorts to the BOTTOM of the conv
@@ -167,10 +177,12 @@ Future<void> openGroupChat(
       }
       if (await inst.keyCenter(conversationKey) != null) {
         rowOpened = await inst.tapKeyCenter(conversationKey, timeoutSecs: 6);
+        if (rowOpened) openPath = 'scrolled-center';
       }
     }
     if (!rowOpened) {
       rowOpened = await _tryTapText(inst, groupName);
+      if (rowOpened) openPath = 'text-fallback';
     }
     if (!rowOpened) {
       lastError = DriveError(
@@ -191,7 +203,9 @@ Future<void> openGroupChat(
     lastError = DriveError(
       '[${inst.name}] group chat did not become ready '
       '(groupId=${_shortId(groupId)} name="$groupName" '
-      'currentConversation=${await _currentConversationId(inst)})',
+      'currentConversation=${await _currentConversationId(inst)} '
+      'openPath=$openPath attempt=$attempt '
+      'rowResolvable=${await inst.keyCenter(conversationKey) != null})',
     );
     // Settle + retry (give the conference a moment to connect).
     await Future<void>.delayed(const Duration(milliseconds: 800));

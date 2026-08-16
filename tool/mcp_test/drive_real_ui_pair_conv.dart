@@ -88,50 +88,8 @@ Future<bool> _seedConvRow(Inst inst, String tox, {String? text}) async {
   return _waitConversationListed(inst, convId, timeoutSecs: 12);
 }
 
-/// Open the REAL C2C conversation-row context menu for [tox] via a genuine
-/// secondary-tap (right-click) on the row — the production
-/// `onSecondaryTapConversationItem` path (no gated tool). Lands on the chats
-/// home first so the conversation list is mounted. Returns whether the menu's
-/// keyed items appeared.
-Future<bool> _openConvRowMenuReal(Inst inst, String tox) async {
-  await returnToChatsHome(inst, rounds: 4);
-  await inst.foreground();
-  // Pop a leaked contact profile that can cover the conversation list.
-  await _dismissFriendProfileToUnderlying(inst);
-  final rowKey = _convRowKey(tox);
-  if (!await inst.waitKey(rowKey, timeoutSecs: 8)) {
-    print('[pair] _openConvRowMenuReal: row $rowKey not present');
-    return false;
-  }
-  final rowCenter = await inst.keyCenter(rowKey);
-  for (var attempt = 0; attempt < 4; attempt++) {
-    await inst.foreground();
-    try {
-      // Alternate the keyed secondary-tap (which can resolve a stale OFFSTAGE
-      // copy and right-click empty space) with a coordinate secondary-tap at the
-      // resolved row center — a full-width conv row is tappable anywhere on it.
-      if (attempt.isOdd && rowCenter != null) {
-        await inst.secondaryTapAt(rowCenter.x, rowCenter.y);
-      } else {
-        await inst.secondaryTapKey(rowKey);
-      }
-    } on DriveError catch (e) {
-      print('[pair] _openConvRowMenuReal: secondaryTap warn: ${e.message}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    // Either the Pin or Unpin item renders depending on current pin state.
-    // Detect via the element-tree resolver (waitKeyCenter → resolveKeyCenter):
-    // the context menu can render in an Overlay.insert entry that flutter_skill's
-    // whole-tree waitKey does not traverse.
-    if (await inst.waitKeyCenter('conversation_context_menu_pin_item',
-            timeoutSecs: 3) ||
-        await inst.waitKeyCenter('conversation_context_menu_unpin_item',
-            timeoutSecs: 2)) {
-      return true;
-    }
-  }
-  return false;
-}
+// `_openConvRowMenuReal` (+ its per-shell triggers and diagnostics) lives in
+// `drive_real_ui_pair_conv_mobile.dart`.
 
 /// Dispatch a conversation-row menu action (`pin`/`mark_read`/`delete`) for a
 /// C2C conversation DIRECTLY through the production handler via the ungated
@@ -179,8 +137,10 @@ Future<List<String>> _c2cConvOrder(Inst inst) async {
 // ===========================================================================
 // case 45 — conv_menu_surface_c2c (S117)
 // ===========================================================================
-/// Right-click the C2C row → the REAL production menu renders pin + mark-read +
-/// delete items (keyed). Drives the genuine secondary-tap (no gated open).
+/// Open the C2C row's context menu with the shell's REAL trigger (desktop
+/// right-click / mobile long-press — see [_openConvRowMenuReal]) → the REAL
+/// production menu renders pin + mark-read + delete items (keyed). No gated
+/// open.
 Future<bool> _convMenuSurfaceC2c(Inst inst, String tox) async {
   if (!await _seedConvRow(inst, tox)) {
     print('[pair] conv_menu_surface_c2c: could not seed the C2C row');
@@ -311,7 +271,17 @@ Future<bool> _convMarkReadTwoProc(
   var bSent = 0;
   var seeded = false;
   for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
-    await openChat(b, toxA);
+    try {
+      // B's FIRST chat open of the sweep: the peer pane/route binding can miss
+      // once under 2-process contention (the identical open succeeds in the
+      // later bump case on the same launch), and openChat THROWS on a miss —
+      // which aborted this case before its own retry loop could help.
+      await openChat(b, toxA);
+    } on DriveError catch (e) {
+      print('[pair] conv_mark_read_two_proc: B open-chat retry $attempt '
+          '(${e.message})');
+      continue;
+    }
     for (var i = 0; i < 3; i++) {
       if (await sendComposerMessage(b, 'RUIB5UNREAD-$attempt$i-$nonce')) bSent++;
     }
@@ -325,8 +295,11 @@ Future<bool> _convMarkReadTwoProc(
   if (!seeded) {
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_conv_markread_noseed_A.png');
+    // The shell snapshot tells apart "the messages never arrived" from "they
+    // arrived but A still counts as VIEWING the conversation" (activePeer /
+    // shellConv still bound → getC2CUnreadCount returns 0 by contract).
     print('[pair] conv_mark_read_two_proc: unread did not accrue (entry=$entry '
-        'bSent=$bSent)');
+        'bSent=$bSent ${await _convShellDiag(a)})');
     return false;
   }
   // Surface check via the REAL menu (mark-read item renders).
@@ -519,7 +492,7 @@ Future<bool> _convUnreadBadgeBumpClear(
     final entry = await _conversationEntry(a, convId);
     await a.shot('/tmp/ui_conv_bump_noseed_A.png');
     print('[pair] conv_unread_badge_bump_clear: unread did not bump '
-        '(entry=$entry bSent=$bSent)');
+        '(entry=$entry bSent=$bSent ${await _convShellDiag(a)})');
     return false;
   }
   // OPEN the chat by tapping the real row → marks read on open.
@@ -661,6 +634,35 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
 Future<bool> _openGlobalSearch(Inst inst) async {
   await inst.foreground();
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) return true;
+  // MOBILE PRIMARY: the REAL magnifier in the conversation app bar
+  // (`conversation_global_search_button`, NewEntryButton.onOpenGlobalSearch).
+  // It is the only real-user entry to the overlay on a touch platform — the
+  // Cmd/Ctrl+F shortcut the desktop path below drives is registered behind
+  // `PlatformUtils.isDesktop`, and the `l3_open_global_search` seam DELIBERATELY
+  // refuses a non-master-detail layout (home_page_bootstrap.dart), which is what
+  // made this case a hard FAIL on Android/iPhone. Driving the real control is
+  // also strictly better than the seam: the open is a genuine gesture, not a
+  // navigation hook.
+  // `isMobileShell` is `isIos || isAndroid` — a PLATFORM test, which is exactly
+  // the `!PlatformUtils.isDesktop` condition the button renders under (iPad
+  // included: it is not a desktop platform and has no Cmd/Ctrl+F either).
+  if (inst.isMobileShell) {
+    await returnToChatsHome(inst, rounds: 3);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (await inst.tapKeyCenter(
+        'conversation_global_search_button',
+        timeoutSecs: 4,
+      )) {
+        if (await inst.waitKey('message_search_field', timeoutSecs: 4)) {
+          return true;
+        }
+      }
+    }
+    print(
+      '[pair] _openGlobalSearch: real app-bar magnifier did not open the '
+      'overlay — falling through to the l3 seam',
+    );
+  }
   // PRIMARY: the deterministic l3_open_global_search seam (pushes the SAME
   // CustomSearch route the Cmd/Ctrl+F shortcut uses). The osascript keystroke
   // below is occasionally dropped when the window isn't fully foregrounded
@@ -691,10 +693,10 @@ Future<bool> _openGlobalSearch(Inst inst) async {
   return false;
 }
 
-/// Close the global search overlay (ESC; falls back to the close IconButton's
-/// tooltip is not key-targetable, so ESC is the deterministic dismiss). Returns
-/// whether the overlay is GONE afterwards (the search field key is absent) — the
-/// caller gates on this so a lingering overlay never false-passes case 54.
+/// Close the global search overlay (ESC first — the desktop CallbackShortcuts
+/// binding is itself worth exercising). Returns whether the overlay is GONE
+/// afterwards (the search field key is absent) — the caller gates on this so a
+/// lingering overlay never false-passes case 54.
 Future<bool> _closeGlobalSearch(Inst inst) async {
   if (!await inst.waitKey('message_search_field', timeoutSecs: 1)) return true;
   try {
@@ -703,9 +705,21 @@ Future<bool> _closeGlobalSearch(Inst inst) async {
     // best-effort
   }
   if (await inst.waitKeyGone('message_search_field', timeoutSecs: 4)) return true;
-  // Fallback: the overlay's close IconButton has no key; tap the top-right
-  // corner where it renders (1280x768 AppBar trailing).
-  await inst.tapAt(1240, 36);
+  // Fallback: the overlay's close (X) IconButton IS keyed
+  // (UiKeys.messageSearchCloseButton, custom_search.dart:627/703) on BOTH
+  // AppBar variants, so drive it by KEY. The old fallback blind-tapped the
+  // 1280x768 AppBar trailing corner (1240,36), which on a 390pt-wide phone is
+  // far off-screen — the overlay stayed up and every caller of this helper
+  // false-failed on `closed`.
+  if (await inst.tapKeyCenter('message_search_close_button', timeoutSecs: 3)) {
+    if (await inst.waitKeyGone('message_search_field', timeoutSecs: 3)) {
+      return true;
+    }
+  }
+  if (!inst.isMobileShell) {
+    // Desktop last resort, unchanged: the 1280x768 AppBar trailing corner.
+    await inst.tapAt(1240, 36);
+  }
   return inst.waitKeyGone('message_search_field', timeoutSecs: 3);
 }
 

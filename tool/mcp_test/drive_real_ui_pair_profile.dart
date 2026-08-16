@@ -409,12 +409,12 @@ Future<bool?> _profileQrCopy(Inst inst) async {
   return qrShown && tapped && snackbar && closed;
 }
 
-// Smallest valid 1x1 PNGs (distinct bytes so the two cases pick DIFFERENT
-// images and each apply is observably a change). Base64 of a 1x1 red / blue PNG.
+// Distinct 2x2 RGBA PNGs (so each apply is observably a change) that Flutter
+// ACTUALLY decodes; the old 1x1 pair did NOT — gate real_ui_image_seed_decodes.
 const _avatarPngRedB64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8DwH4QZYAwAR8oH+Rq28akAAAAASUVORK5CYII=';
 const _avatarPngBlueB64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR42mNgYPj/H4KhDAA/0gf5XBPgQgAAAABJRU5ErkJggg==';
 
 /// Read the persisted self-avatar path from the dump (added to l3_dump_state).
 Future<String> _selfAvatarPath(Inst inst) async =>

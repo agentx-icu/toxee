@@ -98,6 +98,9 @@ part of 'drive_real_ui_pair.dart';
 //    Gate: typed-but-unsent text DOES survive a real switch-away/switch-back,
 //    proven by Return on the restored composer sending the probe text (with
 //    positive controls before and after proving type+Enter itself works).
+//    PLATFORM: the premise ("really typed, not sent") needs a genuine OS
+//    keyboard, so a `_p1cRealKeyboardCapable`-false shell SKIPs (expected) —
+//    see _p1cDraftRestoreOnConvSwitch.
 //
 // 5. TYPING (typing_indicator_render) — NO UI surface AND no production sender;
 //    DOUBLE-NEGATIVE product-gap gate:
@@ -205,6 +208,31 @@ Future<bool> _p1cTypeIntoComposerNoSend(Inst inst, String text) async {
   await inst.osaPaste(text);
   await Future<void>.delayed(const Duration(milliseconds: 600));
   return true;
+}
+
+/// True when [inst] can be driven with GENUINE OS keyboard/paste events — i.e.
+/// when [_p1cTypeIntoComposerNoSend] + [_p1cComposerReturn] really put text in
+/// the REAL composer. False for every shell whose `osa*` primitives are
+/// substituted by VM-service seams (iOS + Android + the headless
+/// Windows/Linux desktops): there `osaClear`/`osaPaste` become
+/// `flutter_skill.enterText`, which the ExtendedTextField composer ignores
+/// ("Synthetic enterText cannot drive the ExtendedTextField composer",
+/// l3_debug_tools `l3_composer_set_text`), and `osaReturn` becomes
+/// `l3_composer_send` over whatever the field ALREADY holds. Any case whose
+/// premise is "text was really typed but NOT sent" is unconstructible there and
+/// must SKIP — a vacuous pass would report coverage that never ran.
+bool _p1cRealKeyboardCapable(Inst inst) =>
+    !inst.isMobileShell && !inst.isLinux && !_isHeadlessRealUi;
+
+/// Best-effort READBACK of the open composer's live content: the keyed field's
+/// `text` from interactiveStructured, else flutter_skill's text finder (which
+/// also matches an EditableText's controller value). POSITIVE-ONLY — false
+/// means "not seen", which callers must treat as INCONCLUSIVE (the field's
+/// value may simply not be surfaced), never as proof of an empty composer.
+Future<bool> _p1cComposerShowsText(Inst inst, String text) async {
+  final keyed = await _keyedText(inst, 'chat_input_text_field');
+  if (keyed != null && keyed.contains(text)) return true;
+  return inst.waitText(text, timeoutSecs: 2);
 }
 
 /// Press Return in the focused composer (focus first). Used to prove a draft
@@ -388,10 +416,8 @@ Future<bool> _p1cRecallMessage(
   }
   if (!await a.waitKeyCenter('message_menu_item:recall', timeoutSecs: 4)) {
     await _dismissMessageMenu(a);
-    print(
-      '[pair] chat_recall_message: recall item not present on fresh self '
-      'message (recallTimeLimit/config regression?)',
-    );
+    print('[pair] chat_recall_message: recall item not present on fresh '
+        'self message (recallTimeLimit/config regression?)');
     return false;
   }
   if (!await a.tapKeyCenter('message_menu_item:recall', timeoutSecs: 6)) {
@@ -402,10 +428,12 @@ Future<bool> _p1cRecallMessage(
   // The keyed desktop confirm dialog (same key as the delete confirm).
   if (!await a.waitKeyCenter('confirm_dialog_primary_button', timeoutSecs: 8)) {
     await a.shot('/tmp/ui_p1c_recall_noconfirm_A.png');
+    await _dismissMessageMenu(a);
     print('[pair] chat_recall_message: recall confirm dialog did not open');
     return false;
   }
   if (!await a.tapKeyCenter('confirm_dialog_primary_button', timeoutSecs: 6)) {
+    await _dismissMessageMenu(a);
     print('[pair] chat_recall_message: recall confirm not tappable');
     return false;
   }
@@ -714,7 +742,18 @@ Future<bool> _p1cForwardToGroupTarget(
 /// bracket keeps a transient focus/typing failure from reading as "draft lost".
 /// (Was a NEGATIVE pin asserting the opposite — it described code that no
 /// longer exists, so it gated the bug in place.)
-Future<bool> _p1cDraftRestoreOnConvSwitch(
+///
+/// TRI-STATE premise guard (2026-08-14, merged INTO the positive flip): the
+/// verdict is meaningless in EITHER direction unless the probe text really
+/// entered the composer. On a [_p1cRealKeyboardCapable]-false shell the typing
+/// primitives are synthetic substitutes the ExtendedTextField ignores, so the
+/// probe never lands and `probeSent=false` comes from the INPUT, not the draft
+/// layer — a vacuous PASS under the old negative pin, an equally hollow FAIL
+/// under this positive gate. So the premise is proven first (probe read back,
+/// probe actually sent, or the post-control typing + Return); unproven ⇒ SKIP
+/// (null) where there is no real keyboard, FAIL where there is one (a genuine
+/// regression of the typing path, not a platform limit).
+Future<bool?> _p1cDraftRestoreOnConvSwitch(
   Inst a,
   String toxB,
   String gid,
@@ -739,11 +778,11 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
     );
     return false;
   }
-  // The probe: type WITHOUT Enter.
-  if (!await _p1cTypeIntoComposerNoSend(a, probe)) {
-    print('[pair] draft_restore_on_conv_switch: could not type the probe');
-    return false;
-  }
+  // The probe: type WITHOUT Enter, then READ IT BACK. A failed type is NOT an
+  // early FAIL any more — it is one of the premise signals weighed at the end
+  // (on a synthetic-input shell "could not type" is the platform, not a bug).
+  final probeTyped = await _p1cTypeIntoComposerNoSend(a, probe);
+  final probeVisible = probeTyped && await _p1cComposerShowsText(a, probe);
   // Real switch away (group row tap) and back (C2C row tap) — the switch back
   // is what makes the coordinator reload the saved draft into the composer.
   await openGroupChat(a, groupId: gid, groupName: groupName);
@@ -767,16 +806,59 @@ Future<bool> _p1cDraftRestoreOnConvSwitch(
   }
   // POST-control (codex P2 bracket): the same type+Enter mechanics must STILL
   // send right after the observation — so a transient focus/typing failure
-  // around the probe can't masquerade as "draft not restored".
+  // around the probe can't masquerade as "draft not restored". Driven with the
+  // PROBE's OWN mechanics (type-no-send + bare Return) rather than
+  // `sendComposerMessage`'s platform-portable seam, so it doubles as the
+  // premise proof: only a Return over text that genuinely reached the field can
+  // send this, whereas the portable seam sends everywhere and proves nothing.
   final postControl = 'RUIP1DRAFTCTL2-$nonce';
-  final postControlSent = await sendComposerMessage(a, postControl);
+  var postControlSent = false;
+  if (await _p1cTypeIntoComposerNoSend(a, postControl)) {
+    await _p1cComposerReturn(a);
+    for (var i = 0; i < 8 && !postControlSent; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      final msgs = await _c2cMessages(a, toxB);
+      postControlSent = msgs.any((m) => m['text']?.toString() == postControl);
+    }
+  }
+  if (!postControlSent) {
+    // The post-control text may have landed but not sent — don't leave it in
+    // the composer for the next case to send by accident.
+    try {
+      await a.tapAt(_composerX, _composerY);
+      await a.osaClear();
+    } on DriveError {
+      // best-effort
+    }
+  }
+  // `probeSent` is itself the strongest possible proof that the probe reached
+  // the composer (nothing else could have sent that exact text), so it counts
+  // as a premise signal alongside the readback and the post-control bracket.
+  final typedInputProven = probeVisible || probeSent || postControlSent;
   await a.shot('/tmp/ui_p1c_draft_A.png');
   print(
     '[pair] draft_restore_on_conv_switch: POSITIVE-GATE controlSent=true '
+    'probeTyped=$probeTyped probeVisible=$probeVisible '
     'probeSent=$probeSent (expect true — the draft coordinator saves on edit '
     'and reloads on conversation-context change, so the switch-back composer '
-    'holds the probe and Return sends it) postControlSent=$postControlSent',
+    'holds the probe and Return sends it) postControlSent=$postControlSent '
+    '(typing bracket + premise proof)',
   );
+  if (!typedInputProven) {
+    final keyboard = _p1cRealKeyboardCapable(a);
+    final why = keyboard
+        ? 'FAIL — this shell HAS real keyboard input, so the typing path '
+              'itself regressed'
+        : 'SKIP — this shell drives input through synthetic seams the '
+              'ExtendedTextField composer ignores; unconstructible here';
+    print(
+      '[pair] draft_restore_on_conv_switch: $why. Typed-but-unsent text never '
+      'provably reached the composer, so the switch-back Return acted on an '
+      'EMPTY field and its verdict says nothing about draft semantics '
+      '(refusing both the vacuous pass and the hollow fail)',
+    );
+    return keyboard ? false : null;
+  }
   return probeSent && postControlSent;
 }
 
@@ -832,11 +914,16 @@ Future<bool> _p1cTypingIndicatorRender(
   // is harmless (case 6 drains unread first). Retried like
   // sendComposerMessage's Return race guard.
   var bKeystrokesProven = false;
-  if (_isWindowsRealUi) {
-    // Windows headless: the typed-no-send + osaReturn real-keystroke path can't
-    // populate the ExtendedTextField controller, so prove B's composer really
-    // works via the set-text+send path (equivalent sanity check that the
-    // no-leak window above is not vacuous). The probe lands as B's own message.
+  if (!_p1cRealKeyboardCapable(b)) {
+    // No real OS keyboard on this shell — headless Windows/Linux desktops,
+    // Android devices AND the iOS Simulator (whose osa* wrappers are synthetic
+    // substitutes, NOT System Events). The typed-no-send + osaReturn path
+    // cannot populate the ExtendedTextField controller there, so prove B's
+    // composer really works via the set-text+send seam instead (the equivalent
+    // sanity check that the no-leak window above is not vacuous). The probe
+    // lands as B's own message. Was gated on `_isWindowsRealUi` alone, which
+    // let Linux/Android/iOS fall into the else-branch and "prove" the composer
+    // with an osaReturn their platform silently substitutes.
     bKeystrokesProven = await sendComposerMessage(b, typeProbe);
   } else {
     for (var attempt = 0; attempt < 4 && !bKeystrokesProven; attempt++) {
@@ -1179,16 +1266,12 @@ Future<bool> _p1cSearchEmptyState(Inst a) async {
 // ===========================================================================
 // case p1c-8 — image_preview_open_hardened (P1#16)
 // ===========================================================================
-/// Batch-6 case 69 hardened: seed an inbound image via l3_send_file (B→A,
-/// seed-marker required), wait for the REAL bubble row, then retry-tap ACROSS
-/// the row's LEFT region (inbound bubbles are left-aligned, ≤198px wide — a
-/// row-center tap can miss the bubble; the tap must also be a quick <300ms
-/// down-up for the fork's onTapUp guard). HARD when the keyed viewer
-/// (`message_viewer_root`, added this batch) mounts on any attempt — then it
-/// is tapped once (single-fire tapKeyCenter; onTap == closeViewer) and must
-/// unmount. If every retry exhausts, print the documented best-effort SOFT
-/// result and pass IFF the bubble row itself rendered (the batch-6 honest
-/// floor); fail only when the bubble never rendered.
+/// Seed an inbound image via l3_send_file (B→A, seed-marker required), wait for
+/// the REAL bubble row, tap the fork's keyed `message_image_bubble:<msgID>`
+/// GestureDetector (row-relative fractions as fallback), then require the keyed
+/// viewer (`message_viewer_root`) to mount, be closed by a single-fire tap
+/// (onTap == closeViewer) and unmount. HARD in every direction as of
+/// 2026-08-16 — the old "pass if the row rendered" floor is retracted below.
 Future<bool> _p1cImagePreviewOpenHardened(
   Inst a,
   Inst b,
@@ -1196,8 +1279,8 @@ Future<bool> _p1cImagePreviewOpenHardened(
   String toxB,
 ) async {
   const pngB64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'awAAAABJRU5ErkJggg==';
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8AAQv8ZYAwAQ84H'
+      '+SUC+b4AAAAASUVORK5CYII=';
   final nonce = DateTime.now().microsecondsSinceEpoch % 100000;
   final fileName = 'ruip1c$nonce.png';
   final sent = await b.l3('l3_send_file', {
@@ -1237,27 +1320,29 @@ Future<bool> _p1cImagePreviewOpenHardened(
     print('[pair] image_preview_open_hardened: bubble row never rendered');
     return false;
   }
-  // Give the async image decode a beat (the tappable GestureDetector mounts
-  // only after the image info resolves), then bounded retry-taps across the
-  // left region of the row with backoff.
+  // Give the async image decode a beat, then tap the fork's KEYED bubble target
+  // (`message_image_bubble:<msgID>` on the GestureDetector itself). The old
+  // row-fraction ladder read its bounds from flutter_skill's
+  // `interactiveStructured`, which never reports the row's non-interactive
+  // container — so it aimed nowhere and dispatched zero taps. The ladder is kept
+  // as a fallback, now fed by `_keyBox` (centre + extent) and corrected to be
+  // left-edge relative. See `_kg4ViewerSaveAndZoom` for the full diagnosis.
   await Future<void>.delayed(const Duration(milliseconds: 1200));
   var viewerMounted = false;
+  final bubbleKey = 'message_image_bubble:$imageMsgId';
   const fractions = <double>[0.18, 0.28, 0.40, 0.50, 0.22, 0.33];
-  for (
-    var attempt = 0;
-    attempt < fractions.length && !viewerMounted;
-    attempt++
-  ) {
-    final bounds = await _p1cKeyBounds(a, rowKey);
-    if (bounds == null) {
-      // Row scrolled out / not laid out — re-anchor and retry.
-      await _ensureChatOpen(a, toxB);
-      await a.waitKey(rowKey, timeoutSecs: 4);
-      continue;
+  for (var attempt = 0; attempt <= fractions.length && !viewerMounted; attempt++) {
+    if (attempt == 0) {
+      if (!await a.tapKeyAt(bubbleKey)) continue;
+    } else {
+      final box = await _keyBox(a, rowKey);
+      if (box == null || box.w <= 0) {
+        await _ensureChatOpen(a, toxB);
+        await a.waitKey(rowKey, timeoutSecs: 4);
+        continue;
+      }
+      await a.tapAt(box.x - box.w / 2 + box.w * fractions[attempt - 1], box.y);
     }
-    final x = bounds.x + bounds.w * fractions[attempt];
-    final y = bounds.y + bounds.h * 0.5;
-    await a.tapAt(x, y);
     viewerMounted = await a.waitKey('message_viewer_root', timeoutSecs: 3);
     if (!viewerMounted) {
       await Future<void>.delayed(Duration(milliseconds: 500 + attempt * 300));
@@ -1288,14 +1373,16 @@ Future<bool> _p1cImagePreviewOpenHardened(
   }
   await returnToChatsHome(a, rounds: 4);
   print(
-    '[pair] image_preview_open_hardened: SOFT — bubble rendered but the '
-    'preview viewer did not mount after ${fractions.length} positioned '
-    'retry-taps (async-mount GestureDetector / bubble hit-region). '
-    'Documented best-effort floor (batch-6 scope note): PASSING on the '
-    'rendered bubble; the viewer half stays best-effort until a run-phase '
-    'session can tune tap timing/position with live bounds.',
+    '[pair] image_preview_open_hardened: FAIL — the bubble rendered but the '
+    'viewer never mounted, from a tap at the keyed `$bubbleKey` target nor '
+    'from ${fractions.length} row-relative retry taps. This used to PASS on '
+    '`rowRendered` alone as a "best-effort floor"; that floor made the case '
+    'unable to fail for the exact regression it names (a dead GestureDetector, '
+    'an image that never decodes, a viewer route that no longer pushes) and it '
+    'hid the real defect — the bounds lookup resolved nothing, so no tap was '
+    'ever dispatched. Retracted 2026-08-16.',
   );
-  return rowRendered;
+  return false;
 }
 
 // ===========================================================================
@@ -1326,11 +1413,13 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var passed = 0;
   var failed = 0;
+  var skipped = 0;
+  var unexpectedSkipped = 0;
   final results = <String, String>{};
   var endFriends = false;
 
-  Future<void> hard(String id, Future<bool> Function() run) async {
-    bool ok;
+  Future<void> hard(String id, Future<bool?> Function() run) async {
+    bool? ok;
     String? detail;
     try {
       ok = await run();
@@ -1340,7 +1429,17 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       ok = false;
       detail = 'DriveError: ${e.message}';
     }
-    if (ok) {
+    if (ok == null) {
+      // Tri-state: a case may declare its premise unconstructible on this shell
+      // (draft needs a REAL keyboard). Expected skips don't fail the sweep;
+      // an UNEXPECTED one does — a silent skip is as bad as a false pass.
+      skipped++;
+      final expected =
+          id == 'draft_restore_on_conv_switch' && !_p1cRealKeyboardCapable(a);
+      if (!expected) unexpectedSkipped++;
+      results[id] = expected ? 'SKIP(platform-hidden)' : 'SKIP(unexpected)';
+      print('[sweep] $id: ${results[id]}');
+    } else if (ok) {
       passed++;
       results[id] = 'PASS';
       print('[sweep] $id: PASS');
@@ -1479,7 +1578,8 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       endFriends = false;
     }
     print(
-      '[sweep] sweep_p1_chat RESULTS: $passed PASS / $failed FAIL '
+      '[sweep] sweep_p1_chat RESULTS: $passed PASS / $failed FAIL / '
+      '$skipped SKIP (unexpected=$unexpectedSkipped) '
       '($results) | endFriends=$endFriends',
     );
     try {
@@ -1497,7 +1597,7 @@ Future<int> runP1ChatSweep(Inst a, Inst b, String nickA, String nickB) async {
       );
     }
   }
-  return (failed == 0 && endFriends) ? 0 : 1;
+  return (failed == 0 && unexpectedSkipped == 0 && endFriends) ? 0 : 1;
 }
 
 /// Whether [scenario] is one of the 8 Batch-III P1 chat/conv cases.
@@ -1574,9 +1674,17 @@ Future<int> runP1ChatCase(
       case 'forward_to_group_target':
         return await _p1cForwardToGroupTarget(a, toxB, gid, groupName) ? 0 : 1;
       case 'draft_restore_on_conv_switch':
-        return await _p1cDraftRestoreOnConvSwitch(a, toxB, gid, groupName)
-            ? 0
-            : 1;
+        // Tri-state: 75 == SKIP (premise unconstructible on this shell).
+        return switch (await _p1cDraftRestoreOnConvSwitch(
+          a,
+          toxB,
+          gid,
+          groupName,
+        )) {
+          true => 0,
+          false => 1,
+          null => 75,
+        };
       case 'typing_indicator_render':
         return await _p1cTypingIndicatorRender(a, b, toxA, toxB) ? 0 : 1;
       case 'unread_badge_total_sidebar':

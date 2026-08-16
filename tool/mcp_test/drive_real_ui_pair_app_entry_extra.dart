@@ -94,9 +94,15 @@ Future<int> runAppEntryExtraSweep(Inst a, String nickA) async {
     if (ok == null) {
       skipped++;
       final expected =
-          a.isAndroid &&
-          (name == 'add_friend_paste_clipboard' ||
-              name == 'irc_join_channel_loopback_live');
+          (a.isAndroid &&
+              (name == 'add_friend_paste_clipboard' ||
+                  name == 'irc_join_channel_loopback_live')) ||
+          // The two Cmd+Ctrl chords have no mobile input to drive them; their
+          // osa* wrappers substitute l3 seams that would assert the wrong
+          // subject, so both SKIP rather than pass on a phone/tablet shell.
+          (a.isMobileShell &&
+              (name == 'keyboard_new_conversation_shortcut' ||
+                  name == 'keyboard_open_settings_shortcut'));
       if (!expected) unexpectedSkipped++;
       print(
         '[sweep] sweep_app_entry_extra ${expected ? 'SKIP(platform-hidden)' : 'SKIP(unexpected)'}: $name',
@@ -324,7 +330,22 @@ Future<bool?> _aeeAddFriendPasteClipboard(Inst inst) async {
 /// keyboard_new_conversation_shortcut: drive the real Cmd+Ctrl+N chord and assert
 /// the Add-Friend dialog opens (`_NewConversationIntent` -> `_showAddFriendDialog`),
 /// then dismiss. No mouse path is used for the trigger.
-Future<bool> _aeeKeyboardNewConversationShortcut(Inst inst) async {
+///
+/// SKIPs (null) on a mobile shell: the asserted subject IS the Cmd+Ctrl chord,
+/// an input a phone/tablet cannot produce. `osaNewConversationShortcut`
+/// substitutes `l3_open_add_friend_dialog` there, which opens the dialog
+/// straight from the intent handler and would report a keyboard shortcut as
+/// covered on a platform that has no keyboard. Mirrors
+/// `_p1eKeyboardGlobalSearchShortcut`.
+Future<bool?> _aeeKeyboardNewConversationShortcut(Inst inst) async {
+  if (inst.isMobileShell) {
+    print(
+      '[pair] keyboard_new_conversation_shortcut: SKIP — the Cmd+Ctrl+N chord '
+      'is not constructible on a mobile shell (the l3 substitute would prove '
+      'the dialog, not the shortcut)',
+    );
+    return null;
+  }
   await returnToChatsHome(inst, rounds: 4);
   // Retry the chord: an osascript keystroke intermittently doesn't reach the
   // app under 2-process foreground contention (the window isn't frontmost the
@@ -366,7 +387,20 @@ Future<bool> _aeeKeyboardNewConversationShortcut(Inst inst) async {
 /// chord and assert the home shell switches to Settings (`_OpenSettingsIntent` ->
 /// `_index = 3`, observed via `homeShellTab == 'settings'`). Starts off-settings so
 /// the flip is observable, then returns to chats.
-Future<bool> _aeeKeyboardOpenSettingsShortcut(Inst inst) async {
+///
+/// SKIPs (null) on a mobile shell for the same reason as
+/// [_aeeKeyboardNewConversationShortcut]: `osaOpenSettingsShortcut` substitutes
+/// `forceHomeRoot(tab: 'settings')` there, so the tab WOULD flip — proving the
+/// l3 navigation seam, not a Cmd+Ctrl+, that no phone can send.
+Future<bool?> _aeeKeyboardOpenSettingsShortcut(Inst inst) async {
+  if (inst.isMobileShell) {
+    print(
+      '[pair] keyboard_open_settings_shortcut: SKIP — the Cmd+Ctrl+, chord is '
+      'not constructible on a mobile shell (the l3 substitute would prove the '
+      'tab switch, not the shortcut)',
+    );
+    return null;
+  }
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
   if (await _settingsTabActive(inst)) {

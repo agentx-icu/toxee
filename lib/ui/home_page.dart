@@ -136,6 +136,7 @@ import 'testing/l3_debug_tools.dart';
 
 part 'home_page_plugins.dart';
 part 'home_page_bootstrap.dart';
+part 'home_page_shortcuts.dart';
 
 enum _MediaPickType { file, image, video }
 
@@ -384,6 +385,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           onCreateGroup: _showAddGroupDialog,
           onJoinIrcChannel: _showJoinIrcChannelDialog,
           canJoinIrc: () => IrcAppManager().isInstalled,
+          // Non-desktop only (see NewEntryButton.onOpenGlobalSearch): the
+          // Cmd/Ctrl+F shortcut below is `PlatformUtils.isDesktop`-gated, so
+          // this is the ONLY real entry to global search on iOS/iPadOS/Android.
+          onOpenGlobalSearch: _openGlobalSearchOverlay,
         );
     // Install the SAME Tox-aware NewEntryButton on both the Chats-tab
     // conversation app bar and the Contacts-tab app bar so the two "+" menus are
@@ -1615,79 +1620,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           unselectedLabelStyle: theme.textTheme.labelSmall,
           items: [
             BottomNavigationBarItem(
-              icon: Stack(
-                key: UiKeys.bottomNavChats,
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.chat_bubble_outline),
-                  Positioned(
-                    top: -5,
-                    right: -6,
-                    child: UnconstrainedBox(
-                      child: TencentCloudChatConversationTotalUnreadCount(
-                        builder: (BuildContext _, int totalUnreadCount) {
-                          if (totalUnreadCount == 0) {
-                            return const SizedBox.shrink();
-                          }
-                          final displayText = totalUnreadCount > 99
-                              ? "99+"
-                              : "$totalUnreadCount";
-                          final isLargeText = displayText.length > 2;
-                          return Semantics(
-                            label: AppLocalizations.of(
-                              context,
-                            )!.unreadMessagesSemantics(totalUnreadCount),
-                            container: true,
-                            child: UnconstrainedBox(
-                              child: Container(
-                                constraints: const BoxConstraints(minWidth: 16),
-                                height: 16,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: isLargeText ? 5 : 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: DesignTokens.unreadBadge,
-                                  borderRadius: BorderRadius.circular(
-                                    AppThemeConfig.badgeBorderRadius,
-                                  ),
-                                  border: Border.all(
-                                    color: theme.scaffoldBackgroundColor,
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: ExcludeSemantics(
-                                    child: Text(
-                                      displayText,
-                                      // Automation-only: the mobile bottom-nav
-                                      // twin of sidebar_chats_unread_badge.
-                                      key: UiKeys.homeChatsUnreadBadge,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.labelSmall
-                                          ?.copyWith(
-                                            color: DesignTokens.onUnreadBadge,
-                                            fontWeight: FontWeight.w600,
-                                            height: 1.0,
-                                            fontSize: 10,
-                                            fontFeatures: const [
-                                              FontFeature.tabularFigures(),
-                                            ],
-                                          ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              activeIcon: const Icon(Icons.chat_bubble),
+              // The badge must be attached to BOTH glyphs. `BottomNavigationBar`
+              // renders `selected ? item.activeIcon : item.icon`
+              // (flutter/src/material/bottom_navigation_bar.dart), so a badge
+              // that only decorates `icon` VANISHES the moment the Chats tab is
+              // selected — the tab the user is standing on while they read the
+              // total. Live-proved on iPhone 2026-08-16: the store reported
+              // totalUnreadCount == 1 while neither the badge nor its parent
+              // `bottom_nav_chats_tab` Stack existed in the tree at all.
+              icon: const ChatsNavIcon(glyph: Icons.chat_bubble_outline),
+              activeIcon: const ChatsNavIcon(glyph: Icons.chat_bubble),
               label: l10n.chats,
             ),
             BottomNavigationBarItem(
@@ -2504,26 +2446,4 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Desktop keyboard shortcut intents
-// ---------------------------------------------------------------------------
-// Each intent is a marker type — the matching `CallbackAction` lives inline
-// in `HomePage.build` so it can close over local state (`setState`,
-// `_showAddFriendDialog`, etc.).
-class _OpenSettingsIntent extends Intent {
-  const _OpenSettingsIntent();
-}
-
-class _NewConversationIntent extends Intent {
-  const _NewConversationIntent();
-}
-
-class _CloseWindowIntent extends Intent {
-  const _CloseWindowIntent();
-}
-
-class _OpenSearchIntent extends Intent {
-  const _OpenSearchIntent();
 }

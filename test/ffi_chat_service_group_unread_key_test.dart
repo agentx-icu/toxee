@@ -77,10 +77,38 @@ void main() {
       }
     });
 
+    /// Build a service that is torn down before [tempRoot] is deleted.
+    ///
+    /// Every test here builds a REAL [FfiChatService], which owns a
+    /// [MessageHistoryPersistence] writing into the mocked AppSupport root
+    /// (`tempRoot`). Its appends are DEBOUNCED behind a Timer, so an undisposed
+    /// service can land a file in `tempRoot` after the group `tearDown` has
+    /// begun deleting it — `delete(recursive: true)` then fails with
+    /// `Directory not empty` (errno 66). That is a load-dependent race: it
+    /// never reproduced running this file alone, only inside the full
+    /// `flutter test` run.
+    ///
+    /// `dispose()` flushes pending saves and cancels the debounce timers, and
+    /// test-scoped `addTearDown` callbacks run BEFORE the enclosing group
+    /// `tearDown`, so the writer is provably stopped before the delete.
+    FfiChatService newService() {
+      final service = FfiChatService();
+      addTearDown(service.dispose);
+      return service;
+    }
+
+    /// Same contract for the standalone persistence instances the hook tests
+    /// construct directly.
+    MessageHistoryPersistence newPersistence({required int instanceId}) {
+      final persistence = MessageHistoryPersistence(instanceId: instanceId);
+      addTearDown(persistence.dispose);
+      return persistence;
+    }
+
     test(
       'a prefixed writer and a raw reader address the same unread bucket',
       () async {
-        final service = FfiChatService();
+        final service = newService();
         await service.registerJoinedGroupState(_gid);
 
         // The Platform path hands the group id along in the `group_` shape.
@@ -108,7 +136,7 @@ void main() {
     test(
       'a raw writer is readable through the prefixed conversation id',
       () async {
-        final service = FfiChatService();
+        final service = newService();
         await service.registerJoinedGroupState(_gid);
 
         // The native path forwards the raw gid off the message.
@@ -123,7 +151,7 @@ void main() {
     test(
       'opening the conversation zeroes the badge regardless of id shape',
       () async {
-        final service = FfiChatService();
+        final service = newService();
         await service.registerJoinedGroupState(_gid);
         service.incrementGroupUnread(_gid);
         expect(service.getUnreadOf(_gid), 1);
@@ -162,11 +190,11 @@ void main() {
         // message — the real `C2C=2 / group=0 / total=2` sidebar symptom that
         // the key-normalization tests above do NOT catch (a bare `tox_N` gid
         // normalizes to itself, so key shape was never the failing part).
-        final service = FfiChatService();
+        final service = newService();
         await service.registerJoinedGroupState(_gid);
         service.groupUnreadHandledExternally = true;
         BinaryReplacementHistoryHook.initialize(
-          MessageHistoryPersistence(instanceId: 999321),
+          newPersistence(instanceId: 999321),
           'SELF',
         );
         addTearDown(BinaryReplacementHistoryHook.uninstallStandalone);
@@ -206,10 +234,10 @@ void main() {
         // `messages.listen`, so a suppressed emit drops the recall on the
         // floor — the peer keeps the message forever. That is the `bGone=false`
         // half of the real-UI chat_recall_message failure.
-        final service = FfiChatService();
+        final service = newService();
         await service.registerJoinedGroupState(_gid);
         BinaryReplacementHistoryHook.initialize(
-          MessageHistoryPersistence(instanceId: 999322),
+          newPersistence(instanceId: 999322),
           'SELF',
         );
         addTearDown(BinaryReplacementHistoryHook.uninstallStandalone);

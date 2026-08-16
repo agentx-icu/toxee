@@ -268,8 +268,49 @@ Future<bool> _closeAddFriendDialog(Inst inst) async {
 // ===========================================================================
 // case 30 — add_friend_dialog_esc_close (S5)
 // ===========================================================================
+/// Tri-state entry for case 30 — SKIPs (null) on a mobile shell, otherwise runs
+/// the real ESC assertion.
+///
+/// WHY MOBILE CANNOT ASSERT THIS: the subject under test IS the keyboard
+/// binding (`Focus(autofocus:true)` + `CallbackShortcuts(escape)` →
+/// `Navigator.maybePop`). A phone/tablet shell has no Escape key at all, and
+/// `Inst.osaEscape` on a mobile shell is a SUBSTITUTE (the l3/skill dismiss
+/// stand-in, not a real key event) — it would pop the dialog and the case would
+/// report PASS while proving nothing about the binding. That is exactly the
+/// vacuous green this case exists to catch, so mobile SKIPs instead. The mobile
+/// dismiss affordances (the keyed Cancel button, the system back gesture) are
+/// separate surfaces; add_friend_invalid_id_error / add_friend_self_id_guard
+/// still exercise the dialog itself on mobile.
+Future<bool?> _addFriendDialogEscCloseOrSkip(Inst inst) async {
+  if (inst.isMobileShell) {
+    print(
+      '[pair] add_friend_dialog_esc_close: SKIP — no Escape key on the mobile '
+      'shell (platform=${inst.platform}); osaEscape there is a dismiss '
+      'SUBSTITUTE, so a pass would prove nothing about the real ESC binding',
+    );
+    return null;
+  }
+  return _addFriendDialogEscClose(inst);
+}
+
 /// Open Add Contact, then ESC closes the dialog (the input field is gone).
+///
+/// DESKTOP ONLY — call [_addFriendDialogEscCloseOrSkip] so a mobile shell SKIPs
+/// instead of passing vacuously. (drive_real_ui_pair.dart's single-scenario
+/// dispatcher still calls this directly under a `bool` contract; switching it to
+/// the tri-state form is a one-line change in that file.)
 Future<bool> _addFriendDialogEscClose(Inst inst) async {
+  if (inst.isMobileShell) {
+    // Belt-and-braces for the `bool`-contract callers: refuse to report a
+    // result rather than pass on the osaEscape substitute (see the SKIP reason
+    // on [_addFriendDialogEscCloseOrSkip]).
+    print(
+      '[pair] add_friend_dialog_esc_close: NOT ASSERTABLE on the mobile shell '
+      '(no Escape key; osaEscape is a substitute) — use '
+      '_addFriendDialogEscCloseOrSkip to get a SKIP instead of this failure',
+    );
+    return false;
+  }
   if (!await _openAddFriendDialog(inst)) {
     print('[pair] add_friend_dialog_esc_close: dialog did not open');
     return false;
@@ -411,6 +452,45 @@ Future<bool> _addFriendDuplicateGuard(Inst b, String toxA) async {
   return guardShown && dialogStays && closed;
 }
 
+/// The 1280x768 DESKTOP master-row coordinates of the Contacts sub-tabs, used
+/// only as the desktop last-resort fallback in [_tapContactSubTab].
+const _contactSubTabFallback = <String, (num, num)>{
+  'contact_blocked_users_tab': (240, 270),
+  'contact_new_contacts_tab': (240, 173),
+};
+
+/// Tap a Contacts sub-tab master row ([tabKey], captioned [label]).
+///
+/// Order: the KEYED row (the production InkWell/GestureDetector) → a text tap →
+/// on a mobile shell the element-tree resolver (`tapKeyAt`, which finds a keyed
+/// NON-interactive wrapper that flutter_skill's interactiveStructured never
+/// surfaces) → on a desktop shell the legacy fixed coordinate.
+///
+/// The fixed coordinates are 1280x768 DESKTOP two-pane master-row positions. On
+/// a 390pt-wide phone they point at whatever happens to be there — a blind tap
+/// that can NAVIGATE somewhere unrelated and leave the case asserting against
+/// the wrong pane, which is worse than not tapping at all. So mobile never
+/// blind-taps: it exhausts the key/text/resolver routes and logs if the row is
+/// genuinely unreachable. Desktop keeps its exact previous sequence (best-effort
+/// text tap, then the coordinate regardless — the coordinate historically
+/// rescued a text tap that matched the wrong row).
+Future<void> _tapContactSubTab(Inst inst, String tabKey, String label) async {
+  if (await inst.tryTapKey(tabKey, retries: 2)) return;
+  final byText = await _tryTapText(inst, label);
+  if (!inst.isMobileShell) {
+    final fb = _contactSubTabFallback[tabKey];
+    if (fb != null) await inst.tapAt(fb.$1, fb.$2);
+    return;
+  }
+  if (byText) return;
+  if (await inst.tapKeyAt(tabKey)) return;
+  print(
+    '[pair] _tapContactSubTab: "$tabKey" ($label) is unreachable on this '
+    'mobile shell — not blind-tapping the 1280x768 desktop master-row '
+    'coordinate; the caller will report the missing detail pane',
+  );
+}
+
 // ===========================================================================
 // case 34 — contacts_subtabs_cycle (S106)
 // ===========================================================================
@@ -431,10 +511,7 @@ Future<bool> _contactsSubtabsCycle(Inst inst) async {
   await inst.foreground();
   // Open Blocked Users FIRST so the New-Contacts assertion below proves a real
   // SWAP back (not just "happened to already be on New Contacts").
-  if (!await inst.tryTapKey('contact_blocked_users_tab', retries: 2)) {
-    await _tryTapText(inst, 'Blocked Users');
-    await inst.tapAt(240, 270); // Blocked Users master-row fallback (1280x768)
-  }
+  await _tapContactSubTab(inst, 'contact_blocked_users_tab', 'Blocked Users');
   await Future<void>.delayed(const Duration(milliseconds: 1100));
   // Blocked Users DETAIL pane rendered: the block-list empty-state copy. This
   // text only renders inside TencentCloudChatContactBlockList's body (never on
@@ -442,10 +519,7 @@ Future<bool> _contactsSubtabsCycle(Inst inst) async {
   final blockedDetailShown =
       await inst.waitText('No blocked users', timeoutSecs: 6);
   // Swap to New Contacts.
-  if (!await inst.tryTapKey('contact_new_contacts_tab', retries: 2)) {
-    await _tryTapText(inst, 'New Contacts');
-    await inst.tapAt(240, 173); // New Contacts master-row fallback
-  }
+  await _tapContactSubTab(inst, 'contact_new_contacts_tab', 'New Contacts');
   await Future<void>.delayed(const Duration(milliseconds: 1100));
   // New Contacts DETAIL pane rendered: the application list's empty-state KEY,
   // which only exists inside TencentCloudChatContactApplication's list body
@@ -962,10 +1036,7 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
   // 2) Navigate to the Blocked Users sub-tab.
   await ensureContactsShell(inst);
   await inst.foreground();
-  if (!await inst.tryTapKey('contact_blocked_users_tab', retries: 2)) {
-    await _tryTapText(inst, 'Blocked Users');
-    await inst.tapAt(240, 270);
-  }
+  await _tapContactSubTab(inst, 'contact_blocked_users_tab', 'Blocked Users');
   await Future<void>.delayed(const Duration(milliseconds: 1200));
   // 3) Assert the blocked-list DETAIL (right pane) is NON-empty — B is in it.
   // Do NOT key off `contact_list_item:<B>`: that key ALSO matches the
@@ -997,14 +1068,9 @@ Future<bool> _blockedListUnblockRow(Inst inst, String toxFriend) async {
   // the stale cached list.
   await ensureContactsShell(inst);
   await inst.foreground();
-  if (!await inst.tryTapKey('contact_new_contacts_tab', retries: 2)) {
-    await inst.tapAt(240, 173);
-  }
+  await _tapContactSubTab(inst, 'contact_new_contacts_tab', 'New Contacts');
   await Future<void>.delayed(const Duration(milliseconds: 700));
-  if (!await inst.tryTapKey('contact_blocked_users_tab', retries: 2)) {
-    await _tryTapText(inst, 'Blocked Users');
-    await inst.tapAt(240, 270);
-  }
+  await _tapContactSubTab(inst, 'contact_blocked_users_tab', 'Blocked Users');
   await Future<void>.delayed(const Duration(milliseconds: 1400));
   // The blocked-list DETAIL shows its empty-state once B is unblocked. (Keying
   // off `contact_list_item:<B>` would false-fail: B's left-pane main-list row
@@ -1484,6 +1550,10 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var passed = 0;
   var failed = 0;
+  // SKIPped cases (a shell that genuinely cannot construct the case's subject —
+  // e.g. no Escape key on mobile). Counted separately so a skip never inflates
+  // the pass count and never fails the sweep.
+  var skipped = 0;
   // Whether the launch ends in the registered NO-FRIEND state. Default false so
   // an early/exceptional abort before the end-guard runs is treated as DIRTY
   // (the runner must NOT trust a no-friend result that was never achieved).
@@ -1535,9 +1605,51 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
     }
   }
 
+  // Tri-state runner: null -> SKIP (a shell that cannot construct the case),
+  // false -> FAIL, true -> PASS. Shares `hard`'s inter-case nav reset so a
+  // skipped case still leaves the shell on a known root. A thrown DriveError is
+  // a FAIL, exactly as in `hard` — only an EXPLICIT null is a skip, so routing a
+  // case through here can never soften a real desktop failure.
+  Future<void> skip(String id, Future<bool?> Function() run) async {
+    bool? ok;
+    String? detail;
+    try {
+      ok = await run();
+    } on PermissionBlockedError {
+      rethrow;
+    } on DriveError catch (e) {
+      ok = false;
+      detail = 'DriveError: ${e.message}';
+    }
+    if (ok == true) {
+      passed++;
+      results[id] = 'PASS';
+      print('[sweep] $id: PASS');
+    } else if (ok == false) {
+      failed++;
+      results[id] = 'FAIL';
+      print('[sweep] $id: FAIL${detail != null ? ' ($detail)' : ''}');
+    } else {
+      skipped++;
+      results[id] = 'SKIP';
+      print('[sweep] $id: SKIP');
+    }
+    try {
+      await _dismissFriendProfileToUnderlying(a);
+      await returnToChatsHome(a, rounds: 3);
+    } on DriveError {
+      // best-effort
+    }
+  }
+
   try {
     // --- 30/31/32: add-friend dialog guards (BEFORE the handshake; A-side). ---
-    await hard('add_friend_dialog_esc_close', () => _addFriendDialogEscClose(a));
+    // 30 is ESC-bound, so it SKIPs on a keyboard-less mobile shell rather than
+    // passing on the osaEscape substitute.
+    await skip(
+      'add_friend_dialog_esc_close',
+      () => _addFriendDialogEscCloseOrSkip(a),
+    );
     await hard('add_friend_invalid_id_error', () => _addFriendInvalidIdError(a));
     await hard('add_friend_self_id_guard', () => _addFriendSelfIdGuard(a, toxA));
 
@@ -1641,8 +1753,8 @@ Future<int> runContactsSweep(Inst a, Inst b, String nickA, String nickB) async {
       print('[sweep] contacts end-clean: reset best-effort failed: ${e.message}');
     }
     print(
-      '[sweep] sweep_contacts RESULTS: $passed PASS / $failed FAIL '
-      '($results) | endNoFriend=$endNoFriend',
+      '[sweep] sweep_contacts RESULTS: $passed PASS / $failed FAIL / '
+      '$skipped SKIP ($results) | endNoFriend=$endNoFriend',
     );
     try {
       await a.shot('/tmp/ui_contacts_sweep_A.png');

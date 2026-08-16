@@ -60,12 +60,16 @@ import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desk
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart'
-    show debugRealUiMobileComposerSetText, debugRealUiMobileComposerSendText;
+    show
+        debugRealUiMobileComposerSetText,
+        debugRealUiMobileComposerSendText,
+        debugRealUiMobileComposerSend;
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart'
     show debugRealUiDesktopComposerSendText;
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../call/call_media_capabilities.dart';
 import '../../call/permission_helper.dart';
 import '../../navigation/app_navigation.dart';
 import '../../notifications/notification_service.dart';
@@ -82,6 +86,8 @@ import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
 
+part 'l3_invoker_registry.dart';
+
 /// True only on the canonical L3 launch (`run_toxee.sh` with an `MCP_BINDING`
 /// injects `--dart-define=TOXEE_L3_TEST=true`). Combined with [kDebugMode] this
 /// keeps the whole surface out of profile/release builds.
@@ -96,44 +102,6 @@ String? _exportSaveFilePathOverride;
 String? _accountImportPickFilePathOverride;
 String? _attachmentPickFilePathOverride;
 bool _ircLocalAddOverrideEnabled = false;
-
-/// S46/S47: the live auto-accept setter hook. `l3_set_setting` only writes
-/// Prefs, but the inbound friend-application / group-invite listeners read a
-/// CACHED HomePage flag (`_autoAcceptFriends` etc.) that a Prefs write does not
-/// refresh — so the setting never takes effect mid-session. HomePage registers
-/// this applier (gated) in `_initAfterSessionReady` and clears it on dispose;
-/// it drives the SAME `_setAutoAcceptFriends`/`_setAutoAcceptGroupInvites` the
-/// settings toggle uses (cached flag + Prefs + accept-pending side effect). When
-/// present, `l3_set_setting` routes through it; otherwise it falls back to a
-/// Prefs-only write (e.g. unit tests with no live HomePage).
-typedef L3AutoAcceptApplier = Future<void> Function(String key, bool value);
-L3AutoAcceptApplier? _l3AutoAcceptApplier;
-typedef L3HomeShellApplier = Future<void> Function(String tab);
-L3HomeShellApplier? _l3HomeShellApplier;
-typedef L3OpenAddFriendDialogInvoker = Future<bool> Function();
-L3OpenAddFriendDialogInvoker? _l3OpenAddFriendDialogInvoker;
-typedef L3OpenAddGroupDialogInvoker = Future<bool> Function();
-L3OpenAddGroupDialogInvoker? _l3OpenAddGroupDialogInvoker;
-typedef L3OpenChatInvoker =
-    Future<bool> Function({String? userId, String? groupId});
-L3OpenChatInvoker? _l3OpenChatInvoker;
-typedef L3OpenSelfProfileInvoker = Future<bool> Function();
-L3OpenSelfProfileInvoker? _l3OpenSelfProfileInvoker;
-typedef L3PopToRootInvoker = Future<bool> Function();
-L3PopToRootInvoker? _l3PopToRootInvoker;
-typedef L3OpenGlobalSearchInvoker = Future<bool> Function();
-L3OpenGlobalSearchInvoker? _l3OpenGlobalSearchInvoker;
-typedef L3OpenGroupAddMemberInvoker = Future<bool> Function(String groupId);
-L3OpenGroupAddMemberInvoker? _l3OpenGroupAddMemberInvoker;
-typedef L3OpenGroupMemberListInvoker = Future<bool> Function(String groupId);
-L3OpenGroupMemberListInvoker? _l3OpenGroupMemberListInvoker;
-typedef L3OpenGroupProfileInvoker = Future<bool> Function(String groupId);
-L3OpenGroupProfileInvoker? _l3OpenGroupProfileInvoker;
-typedef L3OpenConversationMenuInvoker =
-    Future<bool> Function(String conversationId, {String? action});
-L3OpenConversationMenuInvoker? _l3OpenConversationMenuInvoker;
-typedef L3HomeShellSnapshotReader = Map<String, dynamic> Function();
-L3HomeShellSnapshotReader? _l3HomeShellSnapshotReader;
 
 /// Project the message provider's in-flight RECEIVE file-progress map
 /// (`FakeMessageProvider.fileProgress`, msgID → byte counts) into the
@@ -178,77 +146,6 @@ Map<String, Object?> projectIrcState({
     'ircChannelGroups': channelGroups,
   };
 }
-
-/// Register (or clear, with null) the live auto-accept applier. No-op unless the
-/// L3 test surface is enabled.
-void registerL3AutoAcceptApplier(L3AutoAcceptApplier? fn) {
-  if (kL3TestSurfaceEnabled) _l3AutoAcceptApplier = fn;
-}
-
-void registerL3HomeShellApplier(L3HomeShellApplier? fn) {
-  if (kL3TestSurfaceEnabled) _l3HomeShellApplier = fn;
-}
-
-void registerL3OpenAddFriendDialogInvoker(L3OpenAddFriendDialogInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenAddFriendDialogInvoker = fn;
-}
-
-void registerL3OpenAddGroupDialogInvoker(L3OpenAddGroupDialogInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenAddGroupDialogInvoker = fn;
-}
-
-void registerL3OpenChatInvoker(L3OpenChatInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenChatInvoker = fn;
-}
-
-void registerL3OpenSelfProfileInvoker(L3OpenSelfProfileInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenSelfProfileInvoker = fn;
-}
-
-void registerL3PopToRootInvoker(L3PopToRootInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3PopToRootInvoker = fn;
-}
-
-void registerL3OpenGlobalSearchInvoker(L3OpenGlobalSearchInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenGlobalSearchInvoker = fn;
-}
-
-void registerL3OpenGroupAddMemberInvoker(L3OpenGroupAddMemberInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenGroupAddMemberInvoker = fn;
-}
-
-void registerL3OpenGroupMemberListInvoker(L3OpenGroupMemberListInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenGroupMemberListInvoker = fn;
-}
-
-void registerL3OpenGroupProfileInvoker(L3OpenGroupProfileInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenGroupProfileInvoker = fn;
-}
-
-void registerL3OpenConversationMenuInvoker(L3OpenConversationMenuInvoker? fn) {
-  if (kL3TestSurfaceEnabled) _l3OpenConversationMenuInvoker = fn;
-}
-
-void registerL3HomeShellSnapshotReader(L3HomeShellSnapshotReader? fn) {
-  if (kL3TestSurfaceEnabled) _l3HomeShellSnapshotReader = fn;
-}
-
-/// The currently-registered home-shell snapshot reader, exposed so a HomePage's
-/// dispose can identity-guard its unregister: a switch-back
-/// (`pushAndRemoveUntil(HomePage)`) mounts the NEW HomePage (which re-registers)
-/// BEFORE the old one disposes, so an unconditional `register…(null)` on dispose
-/// would clobber the new instance's reader and leave the dump's `homeShellTab`
-/// null after every switch (breaking `_settingsTabActive`/settings nav).
-L3HomeShellSnapshotReader? get currentL3HomeShellSnapshotReader =>
-    _l3HomeShellSnapshotReader;
-
-L3OpenAddGroupDialogInvoker? get currentL3OpenAddGroupDialogInvoker =>
-    _l3OpenAddGroupDialogInvoker;
-
-L3OpenGroupProfileInvoker? get currentL3OpenGroupProfileInvoker =>
-    _l3OpenGroupProfileInvoker;
-
-L3PopToRootInvoker? get currentL3PopToRootInvoker => _l3PopToRootInvoker;
 
 /// S79: avatar-pick override path (mirrors the export-save override). When set,
 /// the avatar image picker is bypassed and this fixed path is returned, so the
@@ -1519,10 +1416,17 @@ MCPCallEntry _l3ComposerSendEntry() => MCPCallEntry.tool(
     // Desktop / Windows: set the field DIRECTLY (flutter_skill enterText can't
     // reach this composer's controller headless on Windows), then invoke the REAL
     // Enter-send (the exact inputMethods.sendTextMessage path).
-    final hook = debugRealUiDesktopComposerSend;
+    //
+    // The MOBILE composer falls back to its own send-only seam. Without it, a
+    // no-`text` call on any phone/tablet shell answered `no_active_composer` and
+    // silently sent nothing — which is what made both `mobile_mention_picker_*`
+    // cases fail: the text they must send is written by the app's own
+    // `_submitAtMemberList`, so they cannot supply it as an argument.
+    final hook =
+        debugRealUiDesktopComposerSend ?? debugRealUiMobileComposerSend;
     if (hook == null) {
       return MCPCallResult(
-        message: 'l3_composer_send: no desktop composer mounted',
+        message: 'l3_composer_send: no composer mounted',
         parameters: {'ok': false, 'error': 'no_active_composer'},
       );
     }
@@ -6815,6 +6719,16 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       //   downloadsDirectory    → L8 download dir (null = platform default)
       //   autoDownloadSizeLimit → L8 auto-download cap in MB
       // The matching write half goes through l3_set_setting (typed keys).
+      // CALL MEDIA CAPABILITY, read from the live predicates the product gates
+      // on. `videoCaptureSupported` is what
+      // `session_runtime_coordinator.dart:283` turns into `useVideoCall` (the
+      // chat header's video button), and `iosSimulator` is the ONE environment
+      // in which "no camera" is EXPECTED. The video-call harness needs both:
+      // without `iosSimulator` it cannot tell the Simulator's designed
+      // camera-less state from a genuine capture outage on real hardware, and
+      // would report a real video regression as a SKIP.
+      'videoCaptureSupported': CallMediaCapabilities.supportsVideoCapture(),
+      'iosSimulator': CallMediaCapabilities.isIosSimulator,
       'notificationSound': await Prefs.getNotificationSoundEnabled(),
       'bootstrapNodeMode': await Prefs.getBootstrapNodeMode(),
       'downloadsDirectory': await Prefs.getDownloadsDirectory(),

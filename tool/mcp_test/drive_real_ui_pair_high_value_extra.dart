@@ -318,7 +318,21 @@ Future<bool> _hveAccountMultiAccountStateIsolation(
 
     await returnToChatsHome(inst, rounds: 4);
     if (inst.isMobileShell) {
-      await inst.osaOpenSettingsShortcut();
+      // Park the mobile shell on the Settings tab so the logout flow below
+      // starts from a known root. Uses the deterministic navigation seam
+      // DIRECTLY: this used to call `osaOpenSettingsShortcut`, whose only job
+      // is to emit a Cmd+Ctrl+, chord — a no-op on iOS (System Events cannot
+      // reach the Simulator) and, on Android, a wrapper around exactly the
+      // forceHomeRoot call made here. Nothing about this step is testing a
+      // keyboard shortcut, so drive the seam, not the chord.
+      try {
+        await inst.forceHomeRoot(tab: 'settings');
+      } on DriveError catch (e) {
+        print(
+          '[pair] account_multi_account_state_isolation: settings park '
+          'best-effort failed: ${e.message}',
+        );
+      }
     }
     if ((await _logoutToLoginPage(inst)) != primaryToxId) {
       print(
@@ -543,28 +557,25 @@ Future<bool> _hveGroupMemberRoleReopenSurface(
       final toxB =
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
       final before = await _groupMemberCount(a, est.groupIdA);
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'hve_role_reopen_first',
       );
       if (row == null) return false;
-      if (!await a.waitKey('group_member_desktop_role_item', timeoutSecs: 4)) {
+      if (!await a.waitKeyCenter(_memberMenuRoleKey(a), timeoutSecs: 4)) {
         print('[pair] group_member_role_reopen_surface: role item absent');
         return false;
       }
       final roleTapped = await a.tapKeyCenter(
-        'group_member_desktop_role_item',
+        _memberMenuRoleKey(a),
         timeoutSecs: 6,
       );
-      final firstMenuGone = await a.waitKeyGone(
-        'group_member_desktop_role_item',
-        timeoutSecs: 5,
-      );
+      final firstMenuGone = await _memberMenuGone(a, _memberMenuRoleKey(a));
       await Future<void>.delayed(const Duration(milliseconds: 1000));
 
-      final reopenedRow = await _gcmeOpenPeerDesktopMenu(
+      final reopenedRow = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
@@ -572,13 +583,13 @@ Future<bool> _hveGroupMemberRoleReopenSurface(
       );
       final roleStillVisible =
           reopenedRow != null &&
-          await a.waitKey('group_member_desktop_role_item', timeoutSecs: 4);
+          await a.waitKeyCenter(_memberMenuRoleKey(a), timeoutSecs: 4);
       final kickStillVisible =
           reopenedRow != null &&
-          await a.waitKey('group_member_desktop_kick_item', timeoutSecs: 4);
+          await a.waitKeyCenter(_memberMenuKickKey(a), timeoutSecs: 4);
       final after = await _groupMemberCount(a, est.groupIdA);
       await a.shot('/tmp/ui_hve_group_role_reopen_A.png');
-      await _dismissContextMenu(a);
+      await _dismissMemberMenu(a);
       print(
         '[pair] group_member_role_reopen_surface: before=$before after=$after '
         'roleTapped=$roleTapped firstMenuGone=$firstMenuGone '
@@ -613,19 +624,19 @@ Future<bool> _hveGroupMemberRemoveReceiverState(
           (await b.dumpState())['currentAccountToxId']?.toString() ?? '';
       final beforeA = await _groupMemberCount(a, est.groupIdA);
       final beforeB = await _groupMemberCount(b, est.groupIdB);
-      final row = await _gcmeOpenPeerDesktopMenu(
+      final row = await _openPeerMemberMenu(
         a,
         est.groupIdA,
         toxB,
         label: 'hve_remove_receiver',
       );
       if (row == null) return false;
-      if (!await a.waitKey('group_member_desktop_kick_item', timeoutSecs: 4)) {
+      if (!await a.waitKeyCenter(_memberMenuKickKey(a), timeoutSecs: 4)) {
         print('[pair] group_member_remove_receiver_state: kick item absent');
         return false;
       }
       final tapped = await a.tapKeyCenter(
-        'group_member_desktop_kick_item',
+        _memberMenuKickKey(a),
         timeoutSecs: 6,
       );
 
@@ -1284,8 +1295,8 @@ Future<bool> _hveAttachmentEntryButtonsRender(
 }
 
 const _hveTinyPngB64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-    'awAAAABJRU5ErkJggg==';
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP4z8AAQv8ZYAwAQ84H'
+    '+SUC+b4AAAAASUVORK5CYII=';
 
 Future<bool> _hveAttachmentPickAndSend(
   Inst a,

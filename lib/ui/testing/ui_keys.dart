@@ -207,6 +207,14 @@ class UiKeys {
   static const Key settingsMobileSectionBackButton = Key(
     'settings_mobile_section_back_button',
   );
+  /// Scrollable of a PUSHED mobile settings sub-page. The narrow shell renders
+  /// the root as section TILES, so the driven controls (theme/language/download
+  /// limit/bootstrap) live here, not in [settingsScrollView] — and it needs its
+  /// OWN key because the root list stays mounted under the pushed route, where a
+  /// shared key would give `resolveKeyCenter` two candidates. Automation-only.
+  static const Key settingsMobileSectionScrollView = Key(
+    'settings_mobile_section_scroll_view',
+  );
   static const Key settingsMobileProfileTile = Key(
     'settings_mobile_profile_tile',
   );
@@ -355,6 +363,51 @@ class UiKeys {
   );
   static const Key messageAttachmentSearchButton = Key(
     'message_attachment_search_button',
+  );
+
+  // Mobile message composer + attachment panel (UIKit fork:
+  // tencent_cloud_chat_message_input/mobile/*).
+  //
+  // The mobile composer has ONE attachment affordance — the "+" icon left of
+  // the input pill — which opens the attachment options overlay. It is built by
+  // the composer's `_buildInputAreaIcon` helper, which now takes an optional
+  // `iconKey` so this key can be attached to the tappable InkWell.
+  static const Key messageAttachmentOptionsButton = Key(
+    'message_attachment_options_button',
+  );
+  // Entries INSIDE that overlay. toxee injects exactly two
+  // (lib/ui/home/mobile_attachment_policy.dart: File, Camera); the built-in
+  // call entry appears when CallKit is enabled. The panel is data-driven, so
+  // the fork derives these keys from the option's IconData — File reuses the
+  // desktop toolbar's `message_attachment_file_button` on purpose, so one
+  // real-UI case can drive both platforms.
+  static const Key messageAttachmentCameraButton = Key(
+    'message_attachment_camera_button',
+  );
+  static const Key messageAttachmentCallButton = Key(
+    'message_attachment_call_button',
+  );
+  // Hold-to-record (press-and-hold "voice message") control, shown in place of
+  // the send button while the mobile composer is empty. Keyed so automation can
+  // dispatch the pointer down/up pair; whether recording actually starts still
+  // depends on the microphone permission.
+  static const Key chatVoiceRecordButton = Key('chat_voice_record_button');
+
+  // @-mention member picker. The DESKTOP inline panel
+  // (desktop/..._input_member_mention_panel.dart) and the MOBILE full-screen
+  // picker (mobile/tencent_cloud_chat_at_group_member_list.dart) share this key
+  // contract, so a single real-UI case can drive either. The two surfaces are
+  // never mounted at the same time (platform-exclusive composers).
+  static const Key mentionMemberAtAll = Key('mention_member:atAll');
+  static Key mentionMember(String userId) => Key('mention_member:$userId');
+  // Mobile-only: the picker is multi-select and only commits the selection when
+  // the screen is popped, so the app bar's back/confirm affordances are keyed
+  // too — the desktop panel needs no equivalent (a row tap picks immediately).
+  static const Key mentionMemberListBackButton = Key(
+    'mention_member_list_back_button',
+  );
+  static const Key mentionMemberListConfirmButton = Key(
+    'mention_member_list_confirm_button',
   );
 
   // Group profile actions (lib/ui/group/group_builder_override.dart).
@@ -520,6 +573,13 @@ class UiKeys {
   );
   static const Key groupMemberDesktopKickItem = Key(
     'group_member_desktop_kick_item',
+  );
+  // The MOBILE member manage sheet (CupertinoActionSheet in
+  // tencent_cloud_chat_group_member_list.dart `onManageMember`). The role and
+  // kick actions were already keyed; the "Info" action — which pushes the
+  // member-info route — was not, so automation had to tap a localized label.
+  static const Key groupMemberActionInfoButton = Key(
+    'group_member_action_info_button',
   );
   static const Key groupMemberActionRoleButton = Key(
     'group_member_action_role_button',

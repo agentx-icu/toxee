@@ -505,7 +505,7 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get testNode => '부트스트랩 요청 보내기';
+  String get testNode => '노드 테스트';
 
   @override
   String get deleteAccount => '계정 삭제';
@@ -799,11 +799,14 @@ class AppLocalizationsKo extends AppLocalizations {
   String get close => '닫기';
 
   @override
-  String get nodeNotTestedWarning => '이 노드에 아직 부트스트랩 요청을 보내지 않았습니다.';
+  String get nodeNotTestedWarning => '이 노드는 아직 테스트되지 않았습니다.';
 
   @override
-  String get nodeTestFailedWarning =>
-      '부트스트랩 요청 전송에 실패했습니다. 이 노드를 사용할 수 없을 수 있습니다.';
+  String get nodeTestFailedWarning => '이 노드가 응답하지 않았습니다. 사용할 수 없을 수 있습니다.';
+
+  @override
+  String get nodeTestInconclusiveWarning =>
+      '이 기기에서는 이 노드를 확인할 수 없어 사용 가능 여부를 알 수 없습니다.';
 
   @override
   String get nicknameTooLong => '닉네임이 너무 깁니다';
@@ -842,13 +845,20 @@ class AppLocalizationsKo extends AppLocalizations {
   String get setAsCurrentNode => '현재 노드로 설정';
 
   @override
-  String get nodeTestSuccess => '부트스트랩 요청을 보냈습니다';
+  String get nodeTestSuccess => '노드에 연결됨';
 
   @override
-  String get nodeTestFailed => '부트스트랩 요청 전송 실패';
+  String get nodeTestUdpUnavailable =>
+      '노드 테스트에는 UDP가 필요합니다. 이 기기는 TCP 전용으로 동작 중입니다';
 
   @override
-  String get nodeTestUnavailableBeforeLogin => '로그인 전에는 부트스트랩 요청을 보낼 수 없습니다';
+  String get nodeTestFailed => '노드에 연결할 수 없음';
+
+  @override
+  String get nodeTestUnavailable => '이 기기에서는 노드 테스트를 실행할 수 없습니다';
+
+  @override
+  String get failedToLoadBootstrapNodes => '부트스트랩 노드를 불러오지 못했습니다';
 
   @override
   String get failedToStartBootstrapService => '부트스트랩 서비스 시작에 실패했습니다';

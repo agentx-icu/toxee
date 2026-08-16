@@ -104,387 +104,6 @@ Future<bool> _ensureBothIdle(Inst a, Inst b, {int timeoutSecs = 15}) async {
   return aIdle && bIdle;
 }
 
-/// Start a VIDEO call from [caller] to [callee] and wait until [callee] sees the
-/// ring. Mirrors `_startVoiceCallUntilRinging` but taps the chat header's
-/// `chat_call_video_button`. Returns whether the callee reached ringing/incoming.
-Future<bool> _startVideoCallUntilRinging(
-  Inst caller,
-  Inst callee,
-  String calleeId, {
-  int attempts = 3,
-  int timeoutSecs = 10,
-}) async {
-  final calleePubkey = _pubkey(calleeId);
-  for (var attempt = 0; attempt < attempts; attempt++) {
-    await openChat(
-      caller,
-      calleeId,
-      preferConversationList: true,
-      requirePeerOnline: true,
-    );
-    await _reopenChatFromConversationList(caller, 'c2c_$calleePubkey');
-    await caller.foreground();
-    await caller.tapKey('chat_call_video_button');
-    await Future<void>.delayed(const Duration(milliseconds: 2200));
-    if (await _waitCallStateAnyForegrounded(callee, {
-      'ringing',
-      'incoming',
-    }, timeoutSecs: timeoutSecs)) {
-      return true;
-    }
-    final callerState = await _callState(caller);
-    final calleeState = await _callState(callee);
-    print(
-      '[pair] WARN video-call start retry '
-      '(attempt ${attempt + 1}/$attempts '
-      'callerState=$callerState calleeState=$calleeState)',
-    );
-    if (callerState == 'ringing' ||
-        callerState == 'inCall' ||
-        callerState == 'ended') {
-      await caller.foreground();
-      await caller.tryTapKey('call_hangup_button', retries: 2);
-    }
-    await _waitCallStateAny(caller, {'idle'}, timeoutSecs: 5);
-    await _waitCallStateAny(callee, {'idle'}, timeoutSecs: 5);
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-  }
-  return false;
-}
-
-/// Count [inst]'s call-record bubbles for the C2C conversation with [friendId]
-/// from the dump `messages[]` (a record is `mediaKind=='call_record'`). Reads
-/// the conversation-scoped dump so it only counts records for THIS chat.
-Future<int> _callRecordCount(Inst inst, String friendId) async {
-  final convId = 'c2c_${_pubkey(friendId)}';
-  final s = await inst.dumpState(conversationId: convId);
-  final msgs = (s['messages'] as List?) ?? const [];
-  var n = 0;
-  for (final m in msgs) {
-    if (m is Map && m['mediaKind']?.toString() == 'call_record') n++;
-  }
-  return n;
-}
-
-/// Wait until [inst]'s call-record count for [friendId] is at least [want].
-Future<bool> _waitCallRecordCount(
-  Inst inst,
-  String friendId,
-  int want, {
-  int timeoutSecs = 20,
-}) async {
-  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
-  while (DateTime.now().isBefore(deadline)) {
-    if (await _callRecordCount(inst, friendId) >= want) return true;
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-  }
-  return false;
-}
-
-/// Whether a call-record bubble ROW is rendered in [inst]'s open chat. The fork
-/// renders call records through the message list; the row container key is
-/// `message_list_item:<msgID>`. We resolve the record msgID from the dump, then
-/// assert its row mounts. Returns whether at least one record row is rendered.
-Future<bool> _callRecordRowRendered(
-  Inst inst,
-  String friendId, {
-  int timeoutSecs = 12,
-}) async {
-  final convId = 'c2c_${_pubkey(friendId)}';
-  final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
-  while (DateTime.now().isBefore(deadline)) {
-    final s = await inst.dumpState(conversationId: convId);
-    final msgs = (s['messages'] as List?) ?? const [];
-    for (final m in msgs) {
-      if (m is! Map) continue;
-      if (m['mediaKind']?.toString() != 'call_record') continue;
-      final id = m['msgID']?.toString() ?? m['id']?.toString() ?? '';
-      if (id.isEmpty) continue;
-      if (await inst.waitKey('message_list_item:$id', timeoutSecs: 1)) {
-        return true;
-      }
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-  }
-  return false;
-}
-
-// ===========================================================================
-// case 86 — call_mute_toggle_incall (S74)  [two-process; starts the voice block]
-// ===========================================================================
-/// Start a voice call (B calls A, A accepts → both inCall), DON'T hang up, then
-/// toggle mute ON then OFF on the in-call dock (`call_mic_mute_button`),
-/// asserting A's `call.isMuted` flips ON then back OFF (the REAL state signal).
-/// The call is LEFT IN inCall so case 89 (callee-hangup) ends this SAME call.
-/// Returns the inCall continuation flag via the out-param style: it returns true
-/// only when the call reached inCall AND both mute toggles flipped the state.
-Future<bool> _callMuteToggleIncall(Inst a, Inst b, String toxA) async {
-  // Make sure no stale call lingers — a lingering call would poison this case
-  // (the "double-invite miscount" lesson), so a failed idle-settle is HARD.
-  if (!await _ensureBothIdle(a, b)) {
-    print(
-      '[pair] call_mute_toggle_incall: a prior call did not settle to idle',
-    );
-    return false;
-  }
-  // B (caller) rings A (callee) — same direction as runCallVoice.
-  final ringing = await _startVoiceCallUntilRinging(b, a, toxA);
-  if (!ringing) {
-    print('[pair] call_mute_toggle_incall: incoming voice call never rang');
-    return false;
-  }
-  // A accepts → both inCall.
-  await a.foreground();
-  await a.tapKey('call_accept_button');
-  final inCallA = await _waitCallStateAny(a, {'inCall'});
-  final inCallB = await _waitCallStateAny(b, {'inCall'});
-  if (!inCallA || !inCallB) {
-    print(
-      '[pair] call_mute_toggle_incall: did not reach inCall '
-      '(A=${await _callState(a)} B=${await _callState(b)})',
-    );
-    await _ensureBothIdle(a, b);
-    return false;
-  }
-  // Toggle mute on the CALLEE (A) dock — the keyed mic button.
-  await a.foreground();
-  final mutedBefore = await _callField(a, 'isMuted') == true;
-  if (!await a.tapKeyCenter('call_mic_mute_button', timeoutSecs: 8)) {
-    print('[pair] call_mute_toggle_incall: mute button not tappable');
-    await _ensureBothIdle(a, b);
-    return false;
-  }
-  final mutedOn = await _waitCallField(a, 'isMuted', !mutedBefore);
-  // Toggle back (unmute / restore).
-  if (!await a.tapKeyCenter('call_mic_mute_button', timeoutSecs: 8)) {
-    print('[pair] call_mute_toggle_incall: mute button not tappable (restore)');
-    await _ensureBothIdle(a, b);
-    return false;
-  }
-  final mutedOff = await _waitCallField(a, 'isMuted', mutedBefore);
-  await a.shot('/tmp/ui_b8_mute_A.png');
-  // Leave the call inCall (case 89 ends it). Confirm it's STILL inCall.
-  final stillInCall = await _callState(a) == 'inCall';
-  print(
-    '[pair] call_mute_toggle_incall: inCall=$inCallA/$inCallB '
-    'mutedBefore=$mutedBefore mutedOn=$mutedOn mutedOff=$mutedOff '
-    'stillInCall=$stillInCall',
-  );
-  return mutedOn && mutedOff && stillInCall;
-}
-
-// ===========================================================================
-// case 89 — call_callee_hangup (S76)  [two-process; ends the voice block]
-// ===========================================================================
-/// The callee (A) ends the SAME voice call from case 86 via the keyed
-/// `call_hangup_button` → BOTH sides settle to idle/ended. If case 86 already
-/// tore the call down (e.g. it failed mid-way), re-establish a quick voice call
-/// so this case still drives the callee-hangup path honestly.
-Future<bool> _callCalleeHangup(Inst a, Inst b, String toxA) async {
-  // If the call from case 86 is no longer live, re-establish one (B calls A, A
-  // accepts) so the callee-hangup is still the asserted action.
-  if (await _callState(a) != 'inCall' || await _callState(b) != 'inCall') {
-    await _ensureBothIdle(a, b);
-    final ringing = await _startVoiceCallUntilRinging(b, a, toxA);
-    if (!ringing) {
-      print('[pair] call_callee_hangup: could not re-establish a voice call');
-      return false;
-    }
-    await a.foreground();
-    await a.tapKey('call_accept_button');
-    final inCallA = await _waitCallStateAny(a, {'inCall'});
-    final inCallB = await _waitCallStateAny(b, {'inCall'});
-    if (!inCallA || !inCallB) {
-      print(
-        '[pair] call_callee_hangup: re-established call did not reach inCall',
-      );
-      await _ensureBothIdle(a, b);
-      return false;
-    }
-  }
-  // A is the CALLEE — A ends the call.
-  await a.foreground();
-  await a.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
-  final endedA = await _waitCallStateAny(a, {'ended', 'idle'});
-  final endedB = await _waitCallStateAny(b, {'ended', 'idle'});
-  // Settle both to idle (the local notifier auto-resets ended -> idle after 2s).
-  final idle = await _ensureBothIdle(a, b);
-  await a.shot('/tmp/ui_b8_callee_hangup_A.png');
-  print(
-    '[pair] call_callee_hangup: endedA=$endedA endedB=$endedB bothIdle=$idle',
-  );
-  return endedA && endedB && idle;
-}
-
-// ===========================================================================
-// case 90 — call_record_bubble_renders  [two-process; reads after the voice block]
-// ===========================================================================
-/// After the completed voice call (86 → 89), A's chat history must carry a NEW
-/// call-record bubble (the FakeUIKit `_insertCallRecord` path writes a
-/// `mediaKind=='call_record'` ChatMessage into the conversation). [baseline] is
-/// the record count BEFORE the voice block — case 90 requires the count to
-/// EXCEED it (codex P2: on a restored `paired_for_e2e` launch the conversation
-/// may already carry stale call records, so `>= 1` could false-pass even if the
-/// just-finished call produced no record). Then assert a record row renders.
-Future<bool> _callRecordBubbleRenders(
-  Inst a,
-  String toxB, {
-  required int baseline,
-}) async {
-  // The record is inserted on call end; give it a beat to persist + reopen the
-  // chat fresh so the history reloads from FfiChatService.
-  await returnToChatsHome(a, rounds: 4);
-  final hasNewRecord = await _waitCallRecordCount(
-    a,
-    toxB,
-    baseline + 1,
-    timeoutSecs: 20,
-  );
-  if (!hasNewRecord) {
-    print(
-      '[pair] call_record_bubble_renders: no NEW call_record persisted '
-      '(baseline=$baseline now=${await _callRecordCount(a, toxB)})',
-    );
-    return false;
-  }
-  await openChat(a, _pubkey(toxB));
-  final rowRendered = await _callRecordRowRendered(a, toxB, timeoutSecs: 15);
-  await a.shot('/tmp/ui_b8_call_record_A.png');
-  await returnToChatsHome(a, rounds: 4);
-  final count = await _callRecordCount(a, toxB);
-  print(
-    '[pair] call_record_bubble_renders: baseline=$baseline hasNewRecord='
-    '$hasNewRecord count=$count rowRendered=$rowRendered',
-  );
-  return hasNewRecord && rowRendered;
-}
-
-// ===========================================================================
-// case 88 — call_missed_record_row (S77)  [two-process]
-// ===========================================================================
-/// B calls A, then B CANCELS the unanswered ring before A picks up → A sees a
-/// MISSED incoming call. The FakeUIKit call-record path inserts a record on the
-/// cancel; assert A's call-record count INCREASES (a new missed-call record
-/// rendered) and a record row mounts. Reuses the missed-call recipe (the caller
-/// cancels while the callee is still ringing — drive_fixture_c_missed_call.dart).
-Future<bool> _callMissedRecordRow(
-  Inst a,
-  Inst b,
-  String toxA,
-  String toxB,
-) async {
-  // A lingering call would poison the missed-call accounting — HARD-gate idle.
-  if (!await _ensureBothIdle(a, b)) {
-    print('[pair] call_missed_record_row: a prior call did not settle to idle');
-    return false;
-  }
-  final before = await _callRecordCount(a, toxB);
-  // B (caller) rings A (callee).
-  final ringing = await _startVoiceCallUntilRinging(b, a, toxA);
-  if (!ringing) {
-    print('[pair] call_missed_record_row: incoming call never rang');
-    return false;
-  }
-  // Let A genuinely ring for a few seconds (truly unanswered), confirm A is
-  // still ringing, then B CANCELS (the missed-call realization).
-  await Future<void>.delayed(const Duration(seconds: 3));
-  final stillRinging = await _waitCallStateAnyForegrounded(a, {
-    'ringing',
-    'incoming',
-  }, timeoutSecs: 4);
-  await b.foreground();
-  await b.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
-  // Both tear down WITHOUT A having accepted = a missed incoming call from A.
-  final endedA = await _waitCallStateAny(a, {'ended', 'idle'});
-  final endedB = await _waitCallStateAny(b, {'ended', 'idle'});
-  await _ensureBothIdle(a, b);
-  // A's call-record count must INCREASE (a new missed/cancel record).
-  final got = await _waitCallRecordCount(a, toxB, before + 1, timeoutSecs: 20);
-  // Open the chat + assert a record row renders.
-  await openChat(a, _pubkey(toxB));
-  final rowRendered = await _callRecordRowRendered(a, toxB, timeoutSecs: 12);
-  await a.shot('/tmp/ui_b8_missed_A.png');
-  await returnToChatsHome(a, rounds: 4);
-  final after = await _callRecordCount(a, toxB);
-  print(
-    '[pair] call_missed_record_row: stillRinging=$stillRinging endedA=$endedA '
-    'endedB=$endedB before=$before after=$after got=$got '
-    'rowRendered=$rowRendered',
-  );
-  return got && rowRendered;
-}
-
-// ===========================================================================
-// case 85 + 87 — video call with camera toggle (S66 + S75)  [two-process]
-// ===========================================================================
-/// Start a VIDEO call (B calls A via `chat_call_video_button`, A accepts → both
-/// inCall + mode==video). DURING the call (case 87) toggle the camera off/on via
-/// `call_camera_toggle_button`, asserting A's `call.isVideoEnabled` flips OFF
-/// then back ON. Then (case 85) hang up → both idle. Returns a record of both
-/// case outcomes so the sweep can tally 85 and 87 separately.
-Future<({bool videoCall, bool cameraToggle})> _callVideoWithCameraToggle(
-  Inst a,
-  Inst b,
-  String toxA,
-) async {
-  // A lingering call would poison the video block — HARD-gate idle first.
-  if (!await _ensureBothIdle(a, b)) {
-    print('[pair] video call: a prior call did not settle to idle');
-    return (videoCall: false, cameraToggle: false);
-  }
-  final ringing = await _startVideoCallUntilRinging(b, a, toxA);
-  if (!ringing) {
-    print('[pair] video call: incoming video call never rang');
-    return (videoCall: false, cameraToggle: false);
-  }
-  await a.foreground();
-  await a.tapKey('call_accept_button');
-  final inCallA = await _waitCallStateAny(a, {'inCall'});
-  final inCallB = await _waitCallStateAny(b, {'inCall'});
-  // Confirm the call mode is actually VIDEO (the video button path).
-  final modeVideo = await _waitCallField(a, 'mode', 'video', timeoutSecs: 8);
-  if (!inCallA || !inCallB || !modeVideo) {
-    print(
-      '[pair] video call: did not reach inCall video '
-      '(A=${await _callState(a)} B=${await _callState(b)} '
-      'mode=${await _callField(a, 'mode')})',
-    );
-    await _ensureBothIdle(a, b);
-    return (videoCall: false, cameraToggle: false);
-  }
-  // --- case 87: camera toggle DURING the video call ---
-  await a.foreground();
-  final videoBefore = await _callField(a, 'isVideoEnabled') == true;
-  var cameraToggle = false;
-  if (await a.tapKeyCenter('call_camera_toggle_button', timeoutSecs: 8)) {
-    final off = await _waitCallField(a, 'isVideoEnabled', !videoBefore);
-    final restored =
-        await a.tapKeyCenter('call_camera_toggle_button', timeoutSecs: 8) &&
-        await _waitCallField(a, 'isVideoEnabled', videoBefore);
-    cameraToggle = off && restored;
-    print(
-      '[pair] call_camera_toggle_incall: videoBefore=$videoBefore '
-      'off=$off restored=$restored',
-    );
-  } else {
-    print('[pair] call_camera_toggle_incall: camera button not tappable');
-  }
-  await a.shot('/tmp/ui_b8_camera_A.png');
-  // --- case 85: hang up the video call → both idle ---
-  await a.foreground();
-  await a.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
-  final endedA = await _waitCallStateAny(a, {'ended', 'idle'});
-  final endedB = await _waitCallStateAny(b, {'ended', 'idle'});
-  final idle = await _ensureBothIdle(a, b);
-  await a.shot('/tmp/ui_b8_video_A.png');
-  final videoCall = inCallA && inCallB && modeVideo && endedA && endedB && idle;
-  print(
-    '[pair] call_video_accept_hangup: inCall=$inCallA/$inCallB modeVideo=$modeVideo '
-    'endedA=$endedA endedB=$endedB bothIdle=$idle => videoCall=$videoCall',
-  );
-  return (videoCall: videoCall, cameraToggle: cameraToggle);
-}
-
 // ===========================================================================
 // case 91 — home_tabs_cycle_state_retained  [single-instance]
 // ===========================================================================
@@ -498,14 +117,37 @@ Future<String?> _homeShellCurrentConversationId(Inst inst) async {
 }
 
 /// Open the C2C chat, then cycle chats→contacts→settings→chats by tapping the
-/// REAL sidebar tabs (a plain IndexedStack `_index` setState — NOT
+/// REAL home tabs (a plain IndexedStack `_index` setState — NOT
 /// `_forceHomeRootAndWait`, which RESETS the chats-tab detail and would make the
 /// retention assertion vacuous; codex P1). Assert the IndexedStack RETAINS the
 /// open chat: `homeShellCurrentConversationId` stays the C2C id THROUGH the
 /// contacts/settings detour AND is still the C2C id after returning to chats,
 /// where the chat surface re-renders WITHOUT any re-open. Drives the production
-/// sidebar tab widgets; reads the home-shell snapshot.
-Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
+/// tab widgets (sidebar rail or bottom nav — see [_tapHomeTabUntil]); reads the
+/// home-shell snapshot.
+///
+/// SKIPs (null) when the shell is NOT master-detail. The premise is a chat
+/// bound into the RETAINED chats-tab branch, which only exists on the wide
+/// (>=800pt) layout: "Mobile pushes a ChatPage route instead of binding the
+/// pane" (home_page_bootstrap.dart:439). On a compact shell the open chat is a
+/// route ABOVE the home Scaffold, so (a) there is no tab-branch detail to
+/// retain and (b) the tab bar is covered — a tab tap would land on the chat
+/// route. Asserting there would be a false red, and "passing" it would prove
+/// nothing. Read from the live `homeShellShouldShowMasterDetail` (the shell's
+/// OWN computed value) rather than the platform, so an iPad/wide window runs it
+/// and a narrowed desktop window skips it, correctly.
+Future<bool?> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
+  final masterDetail =
+      (await inst.dumpState())['homeShellShouldShowMasterDetail'] == true;
+  if (!masterDetail) {
+    print(
+      '[pair] home_tabs_cycle_state_retained: SKIP — this shell is not '
+      'master-detail (homeShellShouldShowMasterDetail=false), so the chat '
+      'opens as a PUSHED route over the home Scaffold: there is no retained '
+      'chats-tab detail to assert and the tab bar is covered while it is up',
+    );
+    return null;
+  }
   final c2c = 'c2c_${_pubkey(toxB)}';
   // Open the chat so the chats-tab IndexedStack branch holds a detail.
   await openChat(inst, _pubkey(toxB));
@@ -522,12 +164,18 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
   // A synthetic center-tap on the sidebar tab occasionally doesn't fire its
   // onTap on the headless Windows VM, so re-tap until the shell tab switches
   // (still the production tab widget — retention assertion stays valid).
-  final onContacts =
-      await _tapHomeTabUntil(inst, 'sidebar_contacts_tab', 'contacts');
+  final onContacts = await _tapHomeTabUntil(
+    inst,
+    'sidebar_contacts_tab',
+    'contacts',
+  );
   final retainedThroughContacts =
       await _homeShellCurrentConversationId(inst) == c2c;
-  final onSettings =
-      await _tapHomeTabUntil(inst, 'sidebar_settings_tab', 'settings');
+  final onSettings = await _tapHomeTabUntil(
+    inst,
+    'sidebar_settings_tab',
+    'settings',
+  );
   final retainedThroughSettings =
       await _homeShellCurrentConversationId(inst) == c2c;
   // Tap back to the REAL sidebar Chats tab — the retained IndexedStack branch
@@ -554,18 +202,65 @@ Future<bool> _homeTabsCycleStateRetained(Inst inst, String toxB) async {
       retained;
 }
 
-/// Tap a sidebar home tab and wait for the shell tab to switch, re-tapping if a
+/// True when the COMPACT phone shell is up: HomePage's bottom navigation bar
+/// (`UiKeys.homeBottomNav`) resolves to a laid-out RenderBox. That bar renders
+/// ONLY under `ResponsiveLayout.shouldShowBottomNav` (< 720pt), so its presence
+/// IS the tier signal — a LAYOUT check, not a platform check, which is what the
+/// tab-key choice must key off: an iPad (or any >=720pt shell) is `isMobileShell`
+/// yet still renders the sidebar rail, and a narrowed DESKTOP window renders the
+/// bottom nav. Mirrors `_msPhoneShell` in drive_real_ui_pair_mobile_shell.dart.
+Future<bool> _homeShellHasBottomNav(Inst inst) async =>
+    await inst.keyCenter('home_bottom_nav') != null;
+
+/// The bottom-nav twin of a `sidebar_*_tab` key, or null when there is none.
+String? _bottomNavTwinOf(String sidebarTabKey) => switch (sidebarTabKey) {
+  'sidebar_chats_tab' => 'bottom_nav_chats_tab',
+  'sidebar_contacts_tab' => 'bottom_nav_contacts_tab',
+  'sidebar_settings_tab' => 'bottom_nav_settings_tab',
+  _ => null,
+};
+
+/// Tap a home tab and wait for the shell tab to switch, re-tapping if a
 /// synthetic center-tap didn't fire the tab's onTap (headless Windows). Returns
 /// true once the shell reports [tab]. Tapping a tab you're already on is a no-op,
 /// so the retries are safe.
+///
+/// SHELL-AWARE TAB KEY: the compact phone shell renders NO sidebar — the same
+/// IndexedStack index is switched by `bottom_nav_*_tab` items instead. Passing
+/// only `sidebar_*_tab` there made `tapKeyCenter` fail on the very first attempt
+/// and the case returned false before any retention could be asserted. Resolve
+/// the twin key by LAYOUT (bottom nav present?), not by platform, and keep both
+/// as fallbacks so a mid-run resize/rotation can't strand the loop. Same
+/// dual-path shape as `_selectChatsTab` / `_selectContactsTab` in
+/// drive_real_ui_pair_shell.dart.
 Future<bool> _tapHomeTabUntil(Inst inst, String tabKey, String tab) async {
+  final twin = _bottomNavTwinOf(tabKey);
+  final preferTwin = twin != null && await _homeShellHasBottomNav(inst);
+  // The `twin != null` repeats are load-bearing: a `bool` local does not promote
+  // `twin`, so the collection-if needs the null test inline to yield String.
+  final keys = <String>[
+    if (twin != null && preferTwin) twin,
+    tabKey,
+    if (twin != null && !preferTwin) twin,
+  ];
   for (var attempt = 0; attempt < 5; attempt++) {
     // Foreground first: after the in-call cases the window can lose focus, so a
     // synthetic tab tap silently misses until the app window is active again.
     await inst.foreground();
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    if (!await inst.tapKeyCenter(tabKey, timeoutSecs: 6)) {
-      print('[pair] home_tabs_cycle: $tabKey not tappable');
+    var tapped = false;
+    for (final key in keys) {
+      // Full timeout for the shell's EXPECTED key; a short one for the other
+      // shell's key so a genuinely-failing desktop run isn't slowed by five
+      // 6-second waits on a bottom nav that this shell never renders.
+      final first = key == keys.first;
+      if (await inst.tapKeyCenter(key, timeoutSecs: first ? 6 : 2)) {
+        tapped = true;
+        break;
+      }
+    }
+    if (!tapped) {
+      print('[pair] home_tabs_cycle: no tappable tab among $keys');
       return false;
     }
     await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -679,19 +374,21 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     return false;
   }
   await returnToChatsHome(inst, rounds: 4);
-  // Open the global search overlay (the only entry to message search).
+  // Open the global search overlay (the only entry to message search). Go
+  // through the shared `_openGlobalSearch` helper rather than a bare
+  // `osaSearchShortcut`: it tries the deterministic `l3_open_global_search`
+  // route-push FIRST and only then the real Cmd/Ctrl+F keystroke. That matters
+  // on mobile — a phone has no keyboard chord at all, so the bare shortcut had
+  // no way to mount the overlay and this case could never run there. The
+  // ASSERTED surface (the result row tap → SearchChatHistoryWindow) stays a
+  // real gesture either way; only the opening is seam-assisted, exactly as in
+  // conv_search_filter_clear.
   await inst.foreground();
-  try {
-    await inst.osaSearchShortcut();
-  } on PermissionBlockedError catch (e) {
-    print(
-      '[pair] search_chat_history_window_open: shortcut blocked: ${e.message}',
-    );
-    return false;
-  }
+  final searchOpened = await _openGlobalSearch(inst);
   if (!await inst.waitKey('message_search_field', timeoutSecs: 10)) {
     print(
-      '[pair] search_chat_history_window_open: search overlay did not open',
+      '[pair] search_chat_history_window_open: search overlay did not open '
+      '(opener reported $searchOpened)',
     );
     return false;
   }
@@ -716,12 +413,12 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
   // Close everything back to the chats home. Tapping the result pushes the
   // SearchChatHistoryWindow as a ROUTE (it carries its own message_search_field),
   // and Escape does NOT pop a pushed route — so pop it via the "<" back
-  // affordance (28,72) FIRST, then Escape the underlying global overlay. (A
-  // plain Escape loop left message_search_field present → closed=false.)
+  // affordance FIRST, then Escape the underlying global overlay. (A plain
+  // Escape loop left message_search_field present → closed=false.)
   for (var i = 0; i < 4; i++) {
     if (!await inst.waitKey('message_search_field', timeoutSecs: 1)) break;
     try {
-      await inst.tapAt(28, 72);
+      await _popSearchLayerBack(inst);
     } on DriveError {
       // best-effort
     }
@@ -741,6 +438,39 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     'windowOpened=$windowOpened closed=$closed',
   );
   return resultRow && windowOpened && closed;
+}
+
+/// Dismiss whichever search layer is on top: the global CustomSearch overlay
+/// (its AppBar close "X" IS keyed — `UiKeys.messageSearchCloseButton`,
+/// custom_search.dart:627/703) or the pushed SearchChatHistoryWindow (AppBar
+/// leading BackButton, which carries NO key).
+///
+/// The window's back button is unkeyed, so it still needs a coordinate — but a
+/// FIXED (28,72) was a 1280x768 desktop constant: the leading x is
+/// layout-invariant (Material's NavigationToolbar reserves 56pt → centre 28),
+/// while the y depends entirely on the status-bar inset (0 on desktop, 24 on
+/// Android, 47-59 on a notched iPhone), so the desktop y could land below/above
+/// the real button on mobile. Derive y from the window's OWN keyed search field
+/// instead (it lives in the same AppBar's `bottom` band, ~52pt under the title
+/// row), and only fall back to the desktop constant when nothing resolves.
+Future<void> _popSearchLayerBack(Inst inst) async {
+  // WHICH LAYER IS ON TOP matters: `ui_key_center` has no paint/cover guard, so
+  // the COVERED global overlay's close button still resolves while the history
+  // window is up — tapping its coordinate would land on the window's empty
+  // AppBar trailing and pop nothing. The window's own AppBar title is the
+  // unambiguous top-layer marker.
+  if (await inst.waitText('Search Chat History', timeoutSecs: 1)) {
+    final field = await inst.keyCenter('message_search_field');
+    await inst.tapAt(
+      28,
+      field != null ? (field.y - 52).clamp(8.0, field.y) : 72,
+    );
+    return;
+  }
+  if (await inst.tapKeyCenter('message_search_close_button', timeoutSecs: 2)) {
+    return;
+  }
+  await inst.tapAt(28, 72);
 }
 
 // ===========================================================================
@@ -781,8 +511,10 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
       loweredMin = r['ok'] == true;
     }
     if (!loweredMin) {
-      print('[pair] window_resize_responsive: could not lower window min-size '
-          '(marked=$marked) — SKIP(min-not-lowered)');
+      print(
+        '[pair] window_resize_responsive: could not lower window min-size '
+        '(marked=$marked) — SKIP(min-not-lowered)',
+      );
       return null;
     }
     return await _windowResizeResponsiveBody(inst);
@@ -795,7 +527,9 @@ Future<bool?> _windowResizeResponsive(Inst inst) async {
           'width': '960',
           'height': '600',
         });
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
     if (marked) await inst.unmarkAccountTest();
   }
@@ -1005,11 +739,16 @@ Future<int> runCallsMiscSweep(
       // call_mute_toggle_incall doesn't fail on a cold start.
       Future<bool> friendOnline(Inst inst, String peerTox) async {
         final pk = _pubkey(peerTox);
-        final friends = ((await inst.dumpState())['friends'] as List?) ?? const [];
-        return friends.any((f) =>
-            f is Map && _pubkey(f['userId']?.toString() ?? '') == pk &&
-            f['online'] == true);
+        final friends =
+            ((await inst.dumpState())['friends'] as List?) ?? const [];
+        return friends.any(
+          (f) =>
+              f is Map &&
+              _pubkey(f['userId']?.toString() ?? '') == pk &&
+              f['online'] == true,
+        );
       }
+
       for (var i = 0; i < 40; i++) {
         if (await friendOnline(a, toxB) && await friendOnline(b, toxA)) break;
         await Future<void>.delayed(const Duration(seconds: 1));
@@ -1039,30 +778,38 @@ Future<int> runCallsMiscSweep(
         // --- VIDEO BLOCK: 85 + 87 driven together (camera toggle DURING the
         // same video call). Tally each separately. ---
         final video = await _callVideoWithCameraToggle(a, b, toxA);
-        if (video.videoCall) {
-          passed++;
-          results['call_video_accept_hangup'] = 'PASS';
-          print('[sweep] call_video_accept_hangup: PASS');
-        } else {
-          failed++;
-          results['call_video_accept_hangup'] = 'FAIL';
-          print('[sweep] call_video_accept_hangup: FAIL');
-        }
-        if (video.cameraToggle) {
-          passed++;
-          results['call_camera_toggle_incall'] = 'PASS';
-          print('[sweep] call_camera_toggle_incall: PASS');
-        } else {
-          failed++;
-          results['call_camera_toggle_incall'] = 'FAIL';
-          print('[sweep] call_camera_toggle_incall: FAIL');
+        // A capability SKIP covers BOTH cases: with no video entry point there
+        // is no video call to accept and no in-call camera to toggle.
+        final videoSkip = video.skipReason;
+        for (final id in const [
+          'call_video_accept_hangup',
+          'call_camera_toggle_incall',
+        ]) {
+          final ok = id == 'call_video_accept_hangup'
+              ? video.videoCall
+              : video.cameraToggle;
+          if (videoSkip != null) {
+            skipped++;
+            results[id] = 'SKIP';
+            print('[sweep] $id: SKIP ($videoSkip)');
+          } else if (ok) {
+            passed++;
+            results[id] = 'PASS';
+            print('[sweep] $id: PASS');
+          } else {
+            failed++;
+            results[id] = 'FAIL';
+            print('[sweep] $id: FAIL');
+          }
         }
         // Make sure no call lingers into the misc cases.
         await _ensureBothIdle(a, b);
       }
 
       // --- MISC: 91 → 92 → 94 → 93 (resize last). ---
-      await hard(
+      // 91 SKIPs on a non-master-detail shell (the chat is a pushed route
+      // there — see the case doc), so it runs through `soft`, not `hard`.
+      await soft(
         'home_tabs_cycle_state_retained',
         () => _homeTabsCycleStateRetained(a, toxB),
       );
@@ -1222,7 +969,11 @@ Future<int> runCallsMiscCase(
             ? 0
             : 1;
       case 'home_tabs_cycle_state_retained':
-        return await _homeTabsCycleStateRetained(a, cToxB) ? 0 : 1;
+        {
+          // null -> SKIP (non-master-detail shell), false -> FAIL, true -> PASS.
+          final r = await _homeTabsCycleStateRetained(a, cToxB);
+          return r == null ? _realUiSkipExitCodeForBatch8 : (r ? 0 : 1);
+        }
       case 'theme_switch_chat_open':
         return await _themeSwitchChatOpen(a, cToxB) ? 0 : 1;
       case 'search_chat_history_window_open':

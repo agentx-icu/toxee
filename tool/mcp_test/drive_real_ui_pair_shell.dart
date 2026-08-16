@@ -149,6 +149,12 @@ Future<void> returnToChatsHome(Inst inst, {int rounds = 4}) async {
   }
   for (var round = 0; round < rounds; round++) {
     await inst.foreground();
+    // MOBILE FIRST LEG: pop an opaque route (the pushed UIKit chat page) that
+    // covers the home shell. `_chatsHomeReady` cannot see it — the covered shell
+    // is still laid out, so its landmarks resolve through ui_key_center's
+    // full-tree fallback and it early-accepts with the chat page on screen. No-op
+    // (one cheap resolve) when nothing covers. See `_popMobileCoveringRoute`.
+    if (await _popMobileCoveringRoute(inst)) continue;
     if (await _chatsHomeReady(inst, timeoutSecs: 2)) {
       return;
     }
