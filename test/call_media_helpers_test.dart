@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/call/audio_handler.dart';
@@ -216,6 +217,39 @@ void main() {
   group('capture-device probe caching', () {
     tearDown(() => CallMediaCapabilities.debugDeviceHasCamera = null);
 
+    test('changes fires when the has-camera answer is overridden', () {
+      // REGRESSION: the session runtime evaluated supportsVideoCapture() ONCE
+      // while the bootstrap probe was still in flight, so a camera-less device
+      // whose session init won the race kept its video-call entry points for
+      // the whole session. Consumers now subscribe here and re-evaluate.
+      var fired = 0;
+      void listener() => fired++;
+      CallMediaCapabilities.changes.addListener(listener);
+      addTearDown(() => CallMediaCapabilities.changes.removeListener(listener));
+
+      CallMediaCapabilities.setDeviceHasCameraOverride(false);
+      expect(fired, 1);
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(
+          platform: TargetPlatform.iOS,
+        ),
+        isFalse,
+      );
+
+      CallMediaCapabilities.setDeviceHasCameraOverride(true);
+      expect(fired, 2);
+      expect(
+        CallMediaCapabilities.supportsVideoCapture(
+          platform: TargetPlatform.iOS,
+        ),
+        isTrue,
+      );
+
+      // The @visibleForTesting setter is the same seam.
+      CallMediaCapabilities.debugDeviceHasCamera = null;
+      expect(fired, 3);
+    });
+
     test('a device-level "no camera" answer disables video everywhere', () {
       CallMediaCapabilities.debugDeviceHasCamera = false;
       for (final p in [
@@ -266,13 +300,17 @@ void main() {
       CallMediaCapabilities.debugDeviceHasCamera = null;
       await CallMediaCapabilities.ensureCaptureDevicesKnown();
       expect(
-        CallMediaCapabilities.supportsVideoCapture(platform: TargetPlatform.iOS),
+        CallMediaCapabilities.supportsVideoCapture(
+          platform: TargetPlatform.iOS,
+        ),
         isTrue,
       );
       // And it stays re-probable: a second call must not throw or wedge.
       await CallMediaCapabilities.ensureCaptureDevicesKnown();
       expect(
-        CallMediaCapabilities.supportsVideoCapture(platform: TargetPlatform.iOS),
+        CallMediaCapabilities.supportsVideoCapture(
+          platform: TargetPlatform.iOS,
+        ),
         isTrue,
       );
     });

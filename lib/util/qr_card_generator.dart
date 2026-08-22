@@ -24,12 +24,16 @@ class ContactQrCardGenerator {
 
   /// Card surface — always pure white so the QR is high-contrast in any host.
   static const Color _kCardBg = Colors.white;
+
   /// Soft drop-shadow tint under the card.
   static const Color _kCardShadow = Colors.black12;
+
   /// Avatar ring stroke on top of a photo avatar (white @ 90%).
   static const Color _kAvatarRing = Color(0xE6FFFFFF);
+
   /// Foreground for the initial letter inside the accent-filled avatar circle.
   static const Color _kAvatarInitialFg = Colors.white;
+
   /// Fallback body-text color in [_drawText] when callers don't override.
   static const Color _kDefaultTextColor = Colors.black87;
 
@@ -60,7 +64,9 @@ class ContactQrCardGenerator {
       ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6);
     const rect = ui.Rect.fromLTWH(0, 0, width, height);
     final rrect = ui.RRect.fromRectAndRadius(
-        rect, const ui.Radius.circular(_kCardRadius));
+      rect,
+      const ui.Radius.circular(_kCardRadius),
+    );
     canvas.drawRRect(rrect.shift(const ui.Offset(0, 4)), shadowPaint);
     canvas.drawRRect(rrect, bgPaint);
 
@@ -72,16 +78,27 @@ class ContactQrCardGenerator {
       canvas.save();
       final path = ui.Path()..addOval(avatarRect);
       canvas.clipPath(path);
-      paintImage(canvas: canvas, rect: avatarRect, image: avatarImage, fit: BoxFit.cover);
+      paintImage(
+        canvas: canvas,
+        rect: avatarRect,
+        image: avatarImage,
+        fit: BoxFit.cover,
+      );
       canvas.restore();
       // Draw thin border
-      canvas.drawCircle(avatarCenter, 60, ui.Paint()
-        ..style = ui.PaintingStyle.stroke
-        ..strokeWidth = 4
-        ..color = _kAvatarRing);
+      canvas.drawCircle(
+        avatarCenter,
+        60,
+        ui.Paint()
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 4
+          ..color = _kAvatarRing,
+      );
     } else {
       canvas.drawCircle(avatarCenter, 60, accentPaint);
-      final displayInitial = displayName.trim().isNotEmpty ? displayName.trim()[0].toUpperCase() : '?';
+      final displayInitial = displayName.trim().isNotEmpty
+          ? displayName.trim()[0].toUpperCase()
+          : '?';
       _drawText(
         canvas: canvas,
         text: displayInitial,
@@ -94,7 +111,9 @@ class ContactQrCardGenerator {
       );
     }
 
-    final nameColor = textColor.computeLuminance() > 0.6 ? AppThemeConfig.primaryTextColorLight : textColor;
+    final nameColor = textColor.computeLuminance() > 0.6
+        ? AppThemeConfig.primaryTextColorLight
+        : textColor;
 
     _drawText(
       canvas: canvas,
@@ -114,17 +133,20 @@ class ContactQrCardGenerator {
     );
     final qrImage = await qrPainter.toImage(380);
     final qrRect = ui.Rect.fromCenter(
-        center: const ui.Offset(width / 2, 480),
-        width: 380,
-        height: 380);
+      center: const ui.Offset(width / 2, 480),
+      width: 380,
+      height: 380,
+    );
     paintImage(canvas: canvas, rect: qrRect, image: qrImage);
 
     _drawText(
       canvas: canvas,
       text: bottomText,
-      offset: const ui.Offset(60, 750),
+      offset: const ui.Offset(60, 742),
       width: width - 120,
-      fontSize: 20,
+      // 20px on a 640-wide card shrank to an unreadable speck once the card is
+      // shown at phone/thumbnail size; 28px stays a caption, not a headline.
+      fontSize: 28,
       color: primaryColor,
       weight: FontWeight.w600,
       align: TextAlign.center,
@@ -203,13 +225,16 @@ class ContactQrCardGenerator {
 
   static void _cleanupOldQrCards(Directory dir, String shortId) {
     try {
-      final files = dir.listSync()
+      final files = dir
+          .listSync()
           .whereType<File>()
           .where((f) => f.path.contains('qr_card_$shortId'))
           .toList();
       if (files.length > 5) {
         // Sort by modification time, oldest first
-        files.sort((a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()));
+        files.sort(
+          (a, b) => a.lastModifiedSync().compareTo(b.lastModifiedSync()),
+        );
         // Delete oldest files, keep only the latest 5
         for (var i = 0; i < files.length - 5; i++) {
           files[i].deleteSync();
@@ -252,10 +277,7 @@ class ContactQrCardGenerator {
       final file = File(path);
       if (!await file.exists()) return null;
       final bytes = await file.readAsBytes();
-      ui.decodeImageFromList(
-        bytes,
-        (image) => completer.complete(image),
-      );
+      ui.decodeImageFromList(bytes, (image) => completer.complete(image));
       return await completer.future;
     } catch (error, stackTrace) {
       completer.completeError(error, stackTrace);
@@ -263,4 +285,3 @@ class ContactQrCardGenerator {
     }
   }
 }
-

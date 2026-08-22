@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:tencent_cloud_chat_common/widgets/avatar/tencent_cloud_chat_avatar.dart';
+
 import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
@@ -46,6 +48,16 @@ class AppBootstrap {
       );
     }
     await AppRuntimeBootstrap.initialize();
+    // Every "no avatar" contact, group member and friend request renders
+    // through the UIKit avatar widget, whose bundled placeholder is a stock
+    // photo of a hand holding a phone — off-brand next to toxee's own default
+    // (assets/avatars/default_user.png, installed for the self account) and
+    // misleading as an identity. Point the widget at toxee's neutral contact
+    // placeholder instead; it is the same silhouette in a slate tint so a
+    // contact without an avatar is still distinguishable from self.
+    TencentCloudChatAvatar.defaultAvatarAsset =
+        'assets/avatars/default_contact.png';
+    TencentCloudChatAvatar.defaultAvatarAssetPackage = null;
     // Learn whether this DEVICE actually has a camera before anything can offer
     // a video call, so a camera-less device never raises a camera permission
     // sheet it cannot resolve (that modal covers the app and blocks even VOICE
