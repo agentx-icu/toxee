@@ -30,6 +30,14 @@ abstract final class HarnessEnvironment {
   static const disableNotificationPermissionKey =
       'TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT';
 
+  /// Suppresses the first-launch call-permission prewarm
+  /// (`HomePage._maybePrewarmCallPermissions`). Same rationale as the
+  /// notification key: an OS permission sheet is an OS surface, so it parks
+  /// above the app where synthetic input cannot reach it and it lands in any
+  /// device-framebuffer capture. Never set in a product build.
+  static const disableCallPermissionPrewarmKey =
+      'TOXEE_DISABLE_CALL_PERMISSION_PREWARM';
+
   static const _appSupportDirDefine = String.fromEnvironment(appSupportDirKey);
   static const _logDirDefine = String.fromEnvironment(logDirKey);
   static const _sharedPrefsPrefixDefine = String.fromEnvironment(
@@ -40,6 +48,9 @@ abstract final class HarnessEnvironment {
   );
   static const _disableNotificationPermissionDefine = String.fromEnvironment(
     disableNotificationPermissionKey,
+  );
+  static const _disableCallPermissionPrewarmDefine = String.fromEnvironment(
+    disableCallPermissionPrewarmKey,
   );
 
   static String? value(String key) {
@@ -56,6 +67,7 @@ abstract final class HarnessEnvironment {
       sharedPrefsPrefixKey => _sharedPrefsPrefixDefine,
       tccfGlobalSubdirKey => _tccfGlobalSubdirDefine,
       disableNotificationPermissionKey => _disableNotificationPermissionDefine,
+      disableCallPermissionPrewarmKey => _disableCallPermissionPrewarmDefine,
       _ => '',
     }.trim();
     return define.isEmpty ? null : define;

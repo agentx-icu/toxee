@@ -74,13 +74,38 @@ class CallMediaCapabilities {
   static bool? get _effectiveDeviceHasCamera =>
       _debugDeviceHasCameraOverride ?? _deviceHasCamera;
 
+  /// Fires whenever the answer [supportsVideoCapture] would give may have
+  /// changed: a capture-device probe completed, or an override was set.
+  ///
+  /// WHY: the probe is kicked off UNAWAITED at bootstrap and the session
+  /// runtime evaluates `supportsVideoCapture()` exactly once, when it wires
+  /// the call entry points. Before the probe lands that predicate answers the
+  /// platform default ("iOS has a camera"), so on a camera-less device whose
+  /// session init won the race the video-call buttons stayed on for the whole
+  /// session — the preflight rejected the call, but the UI kept offering it.
+  /// Consumers that cache the predicate listen here and re-evaluate.
+  static final ChangeNotifier changes = _CapabilityChanges();
+
+  static void _notifyChanged() => (changes as _CapabilityChanges).notify();
+
   @visibleForTesting
-  static set debugDeviceHasCamera(bool? value) {
+  static set debugDeviceHasCamera(bool? value) =>
+      setDeviceHasCameraOverride(value);
+
+  /// Pin the has-camera answer (null = back to the probed value). Shared by
+  /// the test setter above and the kDebugMode L3 seam
+  /// (`l3_set_capture_device`), which uses it to make a camera-less Simulator
+  /// render the same video-call affordances a phone does. Takes precedence
+  /// over anything a probe learns, so a probe that lands later cannot clobber
+  /// it (the previous implementation only nulled `_enumeration`, which left
+  /// exactly that race open).
+  static void setDeviceHasCameraOverride(bool? value) {
     _debugDeviceHasCameraOverride = value;
     _deviceHasCamera = value;
     // Drop any cached probe state so the next test starts clean.
     _enumeration = null;
     _lastProbeAt = null;
+    _notifyChanged();
   }
 
   /// Learn whether this DEVICE has any camera, and cache it.
@@ -184,6 +209,7 @@ class CallMediaCapabilities {
       // `false` was permanent for the process.
       _lastProbeAt = DateTime.now();
       _enumeration = null;
+      _notifyChanged();
     }
   }
 
@@ -258,4 +284,10 @@ class CallMediaCapabilities {
   /// "VM service connection refused". Kept as its own predicate so a future
   /// platform that can record but not play (or vice versa) is expressible.
   static bool supportsAudioPlayback() => !isIosSimulator;
+}
+
+/// [ChangeNotifier] with a public notify, so the static capability holder can
+/// broadcast without exposing `notifyListeners` on its own API.
+class _CapabilityChanges extends ChangeNotifier {
+  void notify() => notifyListeners();
 }

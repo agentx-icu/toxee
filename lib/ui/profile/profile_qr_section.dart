@@ -74,8 +74,12 @@ class _ProfileQrSectionState extends State<ProfileQrSection> {
           final availWidth = qrConstraints.maxWidth.isFinite
               ? qrConstraints.maxWidth
               : 300.0;
-          final qrWidth = (availWidth * (widget.isWide ? 0.85 : 0.6)).clamp(
-            160.0,
+          // Narrow (phone) layouts stack the card UNDER the header + Tox ID,
+          // so keep it compact enough that the Save action stays on the first
+          // screen of an iPhone-height viewport; the QR stays scannable at
+          // this size (the card is 640x860 source, quiet zone included).
+          final qrWidth = (availWidth * (widget.isWide ? 0.85 : 0.5)).clamp(
+            150.0,
             260.0,
           );
           final qrHeight = qrWidth * (860.0 / 640.0); // aspect ratio ~1.344

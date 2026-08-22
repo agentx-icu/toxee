@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../i18n/app_localizations.dart';
+import '../util/harness_environment.dart';
 
 /// Request microphone and camera permissions before starting calls.
 enum CallPermission { microphone, camera }
@@ -272,6 +273,15 @@ class CallPermissionHelper {
   /// [requestPermissionsForCallDetailed] with `isVideo: true`.
   static Future<void> prewarmCallPermissions() async {
     if (!shouldRequestRuntimePermission()) return;
+    // Harness opt-out: an OS permission sheet parks above the app where
+    // synthetic input cannot dismiss it, and it lands in device-framebuffer
+    // captures. Same key family as the notification-prompt suppression; never
+    // set in a product build.
+    if (HarnessEnvironment.boolValue(
+      HarnessEnvironment.disableCallPermissionPrewarmKey,
+    )) {
+      return;
+    }
     try {
       await _serialised(() async {
         final micStatus = await Permission.microphone.status;

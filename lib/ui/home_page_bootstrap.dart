@@ -332,13 +332,12 @@ extension _HomePageBootstrap on _HomePageState {
       '[HomePage] initState: Calling _ensureStickerPluginRegistered',
     );
     _ensureStickerPluginRegistered();
-    // P1-C3: if the user is still offline 30s after the home page comes up
-    // — meaning the startup 20s connection wait already elapsed without us
-    // hearing back from the DHT — surface a banner so they know something
-    // is wrong instead of staring at an indefinite "Connecting…" state.
-    // The timer is cancelled the moment we get conn:success, and re-armed
-    // on every offline transition so a transient network blip after
-    // initial success doesn't pop the banner.
+    // P1-C3: if the user is still offline 30s after the home page comes up —
+    // the startup 20s connection wait already elapsed without hearing from
+    // the DHT — surface a banner so they know something is wrong instead of
+    // staring at an indefinite "Connecting…" state. The timer is cancelled on
+    // conn:success and re-armed on every offline transition so a transient
+    // network blip after initial success doesn't pop the banner.
     void scheduleNoConnectionBanner() {
       _noConnectionBannerTimer?.cancel();
       _noConnectionBannerTimer = Timer(const Duration(seconds: 30), () {
@@ -658,6 +657,7 @@ extension _HomePageBootstrap on _HomePageState {
     msg_pkg.TencentCloudChatMessageManager.config.setConfigs(
       showSelfAvatar: createDefaultValue(true),
       showOthersAvatar: createDefaultValue(true),
+      showMessageSenderName: showSenderNameInGroupsOnly,
       enableParseMarkdown: createDefaultValue(true),
       enableAutoReportReadStatusForComingMessages: createDefaultValue(true),
       enabledGroupTypesForMessageReadReceipt: createDefaultValue<List<String>>([

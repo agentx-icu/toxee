@@ -31,3 +31,14 @@ buildToxeeMobileAttachmentOptions({
     ),
   ];
 }
+
+/// Message-list sender-name policy: group chats need sender attribution above
+/// incoming bubbles — without it a multi-party thread is unreadable (avatars
+/// alone don't identify the sender). 1:1 chats keep the name row off: the
+/// header already names the only possible peer. The UIKit name row hides
+/// itself for self-sent messages, so this only labels others' messages.
+bool showSenderNameInGroupsOnly({
+  String? userID,
+  String? groupID,
+  String? topicID,
+}) => (groupID ?? '').isNotEmpty;

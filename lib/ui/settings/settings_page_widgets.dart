@@ -37,6 +37,13 @@ class _AccountCardItemState extends State<_AccountCardItem> {
   @override
   Widget build(BuildContext context) {
     final accountNickname = widget.account['nickname'] ?? '';
+    // Same avatar the account header shows: the stored path when the file is
+    // still there, else the initial. Without this the active account rendered
+    // as an orange avatar at the top of the page and a blue "M" further down.
+    final avatarPath = widget.account['avatarPath'] ?? '';
+    final avatarFile = avatarPath.isNotEmpty && File(avatarPath).existsSync()
+        ? File(avatarPath)
+        : null;
     final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
     final primary = widget.colorTheme.primaryColor as Color;
     final disableAnims = MediaQuery.disableAnimationsOf(context);
@@ -70,6 +77,7 @@ class _AccountCardItemState extends State<_AccountCardItem> {
           ),
           child: ListTile(
             leading: CircleAvatar(
+              key: ValueKey('account-card-avatar-$avatarPath'),
               // Non-current accounts get a neutral slate fill (20% alpha on
               // the brightness-aware secondary text token) so they read as
               // "another identity" rather than a pressed/selected primary
@@ -80,6 +88,9 @@ class _AccountCardItemState extends State<_AccountCardItem> {
                             ? AppThemeConfig.secondaryTextColorDark
                             : AppThemeConfig.secondaryTextColorLight)
                         .withValues(alpha: 0.20),
+              foregroundImage: avatarFile != null
+                  ? FileImage(avatarFile)
+                  : null,
               child: Text(
                 accountNickname.isNotEmpty
                     ? accountNickname[0].toUpperCase()

@@ -42,7 +42,8 @@ class ProfileLayout extends StatelessWidget {
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsetsDirectional.only(
-                          end: AppSpacing.xl),
+                        end: AppSpacing.xl,
+                      ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -59,7 +60,12 @@ class ProfileLayout extends StatelessWidget {
             ),
           );
         }
+        // Narrow: the QR card's action row is the LAST thing on the page, so
+        // give it a real bottom margin (plus the home-indicator inset) instead
+        // of letting it sit flush against — or under — the screen edge.
+        final bottomInset = MediaQuery.paddingOf(context).bottom;
         return SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: AppSpacing.xl + bottomInset),
           child: SizedBox(
             width: width,
             child: Column(

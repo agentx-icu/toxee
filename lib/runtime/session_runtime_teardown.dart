@@ -45,6 +45,10 @@ Future<void> _runSessionRuntimeTeardown() async {
     'pending_hook_subscription',
     () => SessionRuntimeCoordinator._pendingHookSelfIdSub?.cancel(),
   );
+  await step('video_capability_listener', () {
+    SessionRuntimeCoordinator._videoCapabilityListener?.call();
+    SessionRuntimeCoordinator._videoCapabilityListener = null;
+  });
   await step('history_hook', BinaryReplacementHistoryHook.uninstallStandalone);
   await step('ios_bg_refresh', () {
     BgRefreshBridge.instance.onRefresh = null;

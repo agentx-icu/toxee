@@ -15,11 +15,17 @@
 #   --build             force-rebuild each selected platform before launching
 #   --reset             wipe the macOS seed root before running (desktop only)
 #   --sync-site         downscale captured shots into doc/product/assets/<platform>/
+#   --sync-only         re-run ONLY the sync from the existing screenshot/ output
+#                       (no capture) — for fixing up a sync without a full run
 #
 # Targets (override via env):
 #   TOXEE_SHOT_ANDROID_SERIAL   adb serial      (default: first emulator)
 #   TOXEE_SHOT_IOS_UDID         iPhone simulator (default: booted iPhone, else iPhone 16 Pro)
 #   TOXEE_SHOT_IPAD_UDID        iPad simulator   (default: booted iPad,  else iPad Pro 13-inch (M4))
+#   TOXEE_SHOT_NATIVE_FRAMES=1  capture mobile scenes from the DEVICE framebuffer
+#                               (includes the OS status bar / home indicator).
+#                               Needs a session that owns the Mac's display —
+#                               a headless ssh shell gets stale, frozen frames.
 #
 # While a platform is captured, don't steal focus from the macOS window (the
 # desktop scene walk owns the foreground; mobile sims render off-screen).
@@ -31,7 +37,11 @@ SEED_ROOT="$REPO_ROOT/tool/screenshots/_seed_runtime"
 OUT_ROOT="$REPO_ROOT/screenshot"
 DRIVER="$REPO_ROOT/tool/screenshots/capture_product_screenshots.dart"
 APP_BUNDLE="$REPO_ROOT/build/macos/Build/Products/Debug/Toxee.app"
-DART_DEFINES=(--dart-define=FLUTTER_BUILD_MODE=debug --dart-define=MCP_BINDING=skill --dart-define=TOXEE_L3_TEST=true)
+# TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT: the OS notification-permission
+# sheet is an OS surface — it lands in a device-framebuffer capture and every
+# later synthetic tap hits it instead of the widget under test (the fixture-C
+# launchers pass the same define for the same reason).
+DART_DEFINES=(--dart-define=FLUTTER_BUILD_MODE=debug --dart-define=MCP_BINDING=skill --dart-define=TOXEE_L3_TEST=true --dart-define=TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT=true --dart-define=TOXEE_DISABLE_CALL_PERMISSION_PREWARM=true)
 VM_URI_TIMEOUT="${TOXEE_SHOT_VM_URI_TIMEOUT:-180}"
 
 SITE_ASSETS="$REPO_ROOT/doc/product/assets"
@@ -39,6 +49,7 @@ PLATFORMS="desktop,android,ipad,ios"
 BUILD=0
 RESET=0
 SYNC_SITE=0
+SYNC_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platforms) PLATFORMS="${2:-}"; shift 2 ;;
@@ -46,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD=1; shift ;;
     --reset) RESET=1; shift ;;
     --sync-site) SYNC_SITE=1; shift ;;
+    --sync-only) SYNC_SITE=1; SYNC_ONLY=1; shift ;;
     --help|-h) sed -n '2,30p' "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 64 ;;
   esac
@@ -97,22 +109,61 @@ run_driver() {  # <platform> <ws-uri> [extra driver args...]
 }
 
 # --sync-site: downscale a platform's captured scenes into the COMMITTED product
-# assets (screenshot/ itself is gitignored). Phones are already small (kept
-# native); wide shots are downscaled to keep the repo light.
-sync_site() {
-  local platform="$1" dst="$SITE_ASSETS/$platform" w=1024 s src
+# assets (screenshot/ itself is gitignored). Every platform is resampled to the
+# logical-point width doc/product/index.html declares for it: desktop 1400x909
+# → 1024x665, iPad portrait → 1024x1365, phones to their point width (iPhone
+# 402, Android 412 — a no-op for Flutter-layer frames, a 3x downscale for
+# device-framebuffer ones).
+sync_site() {  # <platform>
+  local platform="$1" dst="$SITE_ASSETS/$platform" w=1024 s src tmp got
   mkdir -p "$dst"
-  case "$platform" in android|ios) w=0 ;; esac
+  case "$platform" in ios) w=402 ;; android) w=412 ;; esac
+  local written=0 failed=0
   for s in c2c group_chat new_application self_profile settings; do
     src="$OUT_ROOT/$platform/$s.png"
-    [[ -f "$src" ]] || { warn "sync-site: $platform/$s.png missing — committed asset left stale"; continue; }
-    if [[ "$w" -gt 0 ]]; then
-      sips --resampleWidth "$w" "$src" --out "$dst/$s.png" >/dev/null 2>&1
+    [[ -f "$src" ]] || { warn "sync-site: $platform/$s.png missing — committed asset left stale"; failed=$((failed + 1)); continue; }
+    # Resample into a TEMP file, then move it into place, then READ THE RESULT
+    # BACK. `sips --out <existing file>` has been observed to exit 0 without
+    # replacing the destination (measured 2026-08-22: desktop/android/iPad
+    # assets stayed a generation behind while the run reported success), and a
+    # stale committed screenshot is exactly what this step exists to prevent.
+    # The width read-back is a real post-condition; an mtime comparison is not.
+    tmp="$(mktemp -t toxee_sync).png"
+    if ! sips --resampleWidth "$w" "$src" --out "$tmp" >/dev/null 2>&1; then
+      err "sync-site: sips failed for $platform/$s.png — committed asset is STALE"
+      rm -f "$tmp"; failed=$((failed + 1)); continue
+    fi
+    mv -f "$tmp" "$dst/$s.png"
+    got="$(sips -g pixelWidth "$dst/$s.png" 2>/dev/null | awk '/pixelWidth/{print $2}')"
+    if [[ "$got" == "$w" ]]; then
+      written=$((written + 1))
     else
-      cp "$src" "$dst/$s.png"
+      err "sync-site: $platform/$s.png is ${got}px wide, expected ${w}px — committed asset is STALE"
+      failed=$((failed + 1))
     fi
   done
-  echo "    synced $platform ($(ls "$dst"/*.png 2>/dev/null | wc -l | tr -d ' ') assets)"
+  echo "    synced $platform ($written/5 assets written)"
+  # A stale committed asset must reach the exit code — printing it and exiting
+  # 0 is how these silently stayed behind.
+  [[ "$failed" -eq 0 ]]
+}
+
+# Pin the Android status bar to a clean, deterministic state (SystemUI demo
+# mode: 9:41, full battery, Wi-Fi, no notification icons) for the duration of
+# the capture. Demo mode is a stock developer feature; `exit` restores reality.
+android_status_bar_pin() {  # <serial>
+  local serial="$1"
+  adb -s "$serial" shell settings put global sysui_demo_allowed 1 >/dev/null 2>&1 || true
+  local d="am broadcast -a com.android.systemui.demo"
+  adb -s "$serial" shell "$d -e command enter" >/dev/null 2>&1 || true
+  adb -s "$serial" shell "$d -e command clock -e hhmm 0941" >/dev/null 2>&1 || true
+  adb -s "$serial" shell "$d -e command battery -e level 100 -e plugged false" >/dev/null 2>&1 || true
+  adb -s "$serial" shell "$d -e command network -e wifi show -e level 4 -e fully true" >/dev/null 2>&1 || true
+  adb -s "$serial" shell "$d -e command network -e mobile show -e datatype none -e level 4" >/dev/null 2>&1 || true
+  adb -s "$serial" shell "$d -e command notifications -e visible false" >/dev/null 2>&1 || true
+}
+android_status_bar_unpin() {  # <serial>
+  adb -s "$1" shell "am broadcast -a com.android.systemui.demo -e command exit" >/dev/null 2>&1 || true
 }
 
 # ───────────────────────────── desktop (macOS) ──────────────────────────────
@@ -135,7 +186,15 @@ capture_desktop() {
       done < <(/usr/libexec/PlistBuddy -c 'Print' "$prefs_plist" 2>/dev/null | sed -nE 's/^[[:space:]]+(toxee_shot\.[^ =]+)[[:space:]]*=.*/\1/p')
     fi
   fi
-  build_macos() { (cd "$REPO_ROOT" && MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh "$@"); }
+  # run_toxee.sh redirects `flutter build macos` into build/flutter_build.log
+  # and does NOT stop on failure (it bundles the STALE app and prints "build
+  # complete"), so check the log for a Dart/Xcode error ourselves.
+  build_macos() {
+    (cd "$REPO_ROOT" && MCP_BINDING=skill TOXEE_BUILD_ONLY=1 ./run_toxee.sh "$@") || return 1
+    if grep -qE "Error: |BUILD FAILED|Error \(Xcode\)" "$REPO_ROOT/build/flutter_build.log" 2>/dev/null; then
+      err "desktop: flutter build macos reported errors (see build/flutter_build.log)"; return 1
+    fi
+  }
   if [[ "$BUILD" == "1" || ! -x "$APP_BUNDLE/Contents/MacOS/Toxee" ]]; then
     step "building macOS debug app (L3 surface)"
     build_macos
@@ -193,6 +252,15 @@ capture_android() {
   # Clear app data for a deterministic fresh-account seed each run (the mobile
   # equivalent of the desktop --reset; avoids stale-account / auto-login races).
   adb -s "$serial" shell pm clear com.toxee.app >/dev/null 2>&1 || true
+  # Pre-grant the runtime permissions AFTER install + clear (pm clear resets
+  # grants; a grant before the first install is a no-op): any OS permission
+  # sheet is part of a framebuffer capture. Best-effort per permission (the
+  # READ_MEDIA_* names do not exist below API 33).
+  for _perm in android.permission.POST_NOTIFICATIONS android.permission.CAMERA \
+      android.permission.RECORD_AUDIO android.permission.READ_MEDIA_IMAGES \
+      android.permission.READ_MEDIA_VIDEO android.permission.READ_MEDIA_AUDIO; do
+    adb -s "$serial" shell pm grant com.toxee.app "$_perm" >/dev/null 2>&1 || true
+  done
   local log="$REPO_ROOT/build/screenshot_android_logcat.log"
   mkdir -p "$(dirname "$log")"; : >"$log"
   adb -s "$serial" logcat -c >/dev/null 2>&1 || true
@@ -206,7 +274,13 @@ capture_android() {
     port="$(printf '%s' "$ws" | sed -nE 's#.*:([0-9]+)/.*#\1#p')"
     [[ -n "$port" ]] && adb -s "$serial" forward "tcp:$port" "tcp:$port" >/dev/null 2>&1 || true
     sleep 2  # let the forward settle before the driver connects
-    run_driver android "$ws" || rc=$?
+    local android_native=()
+    if [[ "${TOXEE_SHOT_NATIVE_FRAMES:-0}" == "1" ]]; then
+      android_status_bar_pin "$serial"
+      android_native=(--adb-serial "$serial")
+    fi
+    run_driver android "$ws" ${android_native[@]+"${android_native[@]}"} || rc=$?
+    [[ "${TOXEE_SHOT_NATIVE_FRAMES:-0}" == "1" ]] && android_status_bar_unpin "$serial"
     [[ -n "$port" ]] && adb -s "$serial" forward --remove "tcp:$port" >/dev/null 2>&1 || true
   else
     err "android: VM URI not seen in ${VM_URI_TIMEOUT}s (see $log)"; rc=1
@@ -231,7 +305,10 @@ ios_build_and_inject() {
     (cd "$REPO_ROOT" && bash tool/build_ios_sim_ffi.sh)
   fi
   step "ios: flutter build ios --simulator --debug (L3 surface)"
-  (cd "$REPO_ROOT" && flutter build ios --simulator --debug "${DART_DEFINES[@]}")
+  # A failed build must FAIL the platform: falling through here installed the
+  # previous Runner.app and produced five byte-identical, stale frames.
+  (cd "$REPO_ROOT" && flutter build ios --simulator --debug "${DART_DEFINES[@]}") || {
+    err "ios: simulator build failed"; return 1; }
   local appdir="$REPO_ROOT/build/ios/iphonesimulator/Runner.app"
   [[ -d "$appdir" ]] || { err "ios: built app missing: $appdir"; return 1; }
   mkdir -p "$appdir/Frameworks"
@@ -291,6 +368,12 @@ capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <d
   xcrun simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   xcrun simctl install "$udid" "$appdir"
   xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  # Pre-grant what the Simulator can grant (there is no `camera` service, and
+  # notifications are suppressed by the dart-define above): an OS permission
+  # sheet is part of a framebuffer capture and blocks every later tap.
+  for _svc in microphone photos photos-add; do
+    xcrun simctl privacy "$udid" grant "$_svc" "$bundle_id" >/dev/null 2>&1 || true
+  done
   # The iOS engine logs the VM-service URI to os_log (not the app's stdout), so
   # stream the unified log filtered for it, THEN launch the app. The simulator
   # shares the host's localhost, so the captured 127.0.0.1:PORT (with its auth
@@ -302,12 +385,23 @@ capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <d
   local slog=$! rc=0 ws=""
   _track_pid "$slog"
   sleep 2  # let the log stream attach before the app logs its URI
+  local sim_native=()
+  if [[ "${TOXEE_SHOT_NATIVE_FRAMES:-0}" == "1" ]]; then
+    # Deterministic status bar for the device-framebuffer capture (the driver
+    # grabs `simctl io screenshot`, which includes it): Apple's own 9:41, full
+    # battery, Wi-Fi. Cleared again after the run.
+    xcrun simctl status_bar "$udid" override --time "9:41" --dataNetwork wifi \
+      --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 \
+      --batteryState charged --batteryLevel 100 >/dev/null 2>&1 || true
+    sim_native=(--sim-udid "$udid")
+  fi
   xcrun simctl launch "$udid" "$bundle_id" >/dev/null 2>&1 || true
   if ws="$(wait_for_vm_ws "$log" "$VM_URI_TIMEOUT")"; then
-    run_driver "$platform" "$ws" || rc=$?
+    run_driver "$platform" "$ws" ${sim_native[@]+"${sim_native[@]}"} || rc=$?
   else
     err "$platform: VM URI not seen in ${VM_URI_TIMEOUT}s (see $log)"; rc=1
   fi
+  xcrun simctl status_bar "$udid" clear >/dev/null 2>&1 || true
   kill "$slog" 2>/dev/null || true; wait "$slog" 2>/dev/null || true
   xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
   return $rc
@@ -316,6 +410,17 @@ capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <d
 # ───────────────────────────── main ─────────────────────────────────────────
 declare -a OK=() FAIL=()
 IFS=',' read -r -a SELECTED <<< "$PLATFORMS"
+if [[ "$SYNC_ONLY" == "1" ]]; then
+  step "sync-only: re-syncing $SITE_ASSETS/<platform>/ from $OUT_ROOT"
+  for platform in "${SELECTED[@]}"; do
+    platform="$(echo "$platform" | tr -d ' ')"
+    [[ -z "$platform" ]] && continue
+    sync_site "$platform" || FAIL+=("$platform:sync")
+  done
+  [[ ${#FAIL[@]} -gt 0 ]] && { err "failed: ${FAIL[*]}"; exit 1; }
+  info "✅ synced: ${PLATFORMS}"
+  exit 0
+fi
 for platform in "${SELECTED[@]}"; do
   platform="$(echo "$platform" | tr -d ' ')"
   [[ -z "$platform" ]] && continue
@@ -337,7 +442,7 @@ info "════════ done ════════"
 [[ ${#OK[@]}   -gt 0 ]] && info "captured: ${OK[*]} → $OUT_ROOT/<platform>/"
 if [[ "$SYNC_SITE" == "1" && ${#OK[@]} -gt 0 ]]; then
   step "syncing curated assets → $SITE_ASSETS/<platform>/"
-  for p in ${OK[@]+"${OK[@]}"}; do sync_site "$p"; done
+  for p in ${OK[@]+"${OK[@]}"}; do sync_site "$p" || FAIL+=("$p:sync"); done
 fi
 [[ ${#FAIL[@]} -gt 0 ]] && { err "failed: ${FAIL[*]}"; exit 1; }
 echo ""

@@ -5,7 +5,6 @@ import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
@@ -111,8 +110,8 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
         final userProfile = Platform.environment['USERPROFILE'];
         if (userProfile != null) return p.join(userProfile, 'Downloads');
       } else if (Platform.isAndroid || Platform.isIOS) {
-        final appDir = await getApplicationDocumentsDirectory();
-        return p.join(appDir.path, 'Downloads');
+        // Sandbox-relative label: the absolute container path is per-install.
+        return Platform.isIOS ? p.join('Documents', 'Downloads') : 'Downloads';
       }
     } catch (e) {
       AppLogger.warn(

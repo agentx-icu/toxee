@@ -1,5 +1,6 @@
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
+import '../../util/logger.dart';
 import '../../util/prefs.dart';
 
 /// Load the account-scoped "auto-accept group invites" preference for [toxId]
@@ -30,4 +31,32 @@ Future<bool> loadAndApplyAutoAcceptGroupInvites(
     service.setAutoAcceptGroupInvites(value);
   }
   return value;
+}
+
+/// Accept every pending friend application in [userIds], returning the ids
+/// that were NOT accepted.
+///
+/// `FfiChatService.acceptFriendRequest` THROWS when the native accept fails
+/// (an invalid/own public key, an allocation failure) — since
+/// `tim2tox_ffi_accept_friend` started returning its callback's verdict
+/// instead of an unconditional success, that is a real, reachable outcome.
+/// The caller must therefore keep a failed application PENDING (so the user
+/// can retry, and so the request is not silently lost) and must not report
+/// blanket success. Returning the failures instead of swallowing them is what
+/// makes that possible.
+Future<List<String>> acceptFriendApplications(
+  FfiChatService service,
+  Iterable<String> userIds,
+) async {
+  final failed = <String>[];
+  for (final uid in userIds) {
+    if (uid.isEmpty) continue;
+    try {
+      await service.acceptFriendRequest(uid);
+    } catch (e, st) {
+      AppLogger.logError('[AutoAccept] acceptFriendRequest failed for $uid', e, st);
+      failed.add(uid);
+    }
+  }
+  return failed;
 }

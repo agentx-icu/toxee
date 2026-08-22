@@ -11,32 +11,42 @@
 //
 //   dart run tool/screenshots/capture_product_screenshots.dart \
 //     --platform <desktop|android|ipad|ios> --ws-uri ws://127.0.0.1:PORT/TOKEN/ws \
-//     --out screenshot/<platform> [--pid <macos-pid>]
+//     --out screenshot/<platform> [--pid <macos-pid>] \
+//     [--sim-udid <udid> | --adb-serial <serial>]
 //
 // Navigation is LAYOUT-AWARE: desktop + iPad render the wide master-detail
 // shell (rail; l3_open_chat binds the right pane); android + iPhone render the
 // narrow shell (bottom nav; chats open as a pushed route, popped via
-// l3_pop_to_root between scenes). Capture is via flutter_skill.screenshot,
-// which renders the Flutter layer (RenderRepaintBoundary.toImage) identically
-// on every platform — no host-window grab, no screen-recording permission.
+// l3_pop_to_root between scenes). Capture: desktop uses
+// flutter_skill.screenshot (the Flutter layer — no host-window grab, no
+// screen-recording permission). Mobile captures the DEVICE framebuffer instead
+// (`simctl io screenshot` / `adb screencap`) when `--sim-udid` / `--adb-serial`
+// is given, so the OS status bar and home indicator are part of the product
+// shot rather than blank safe-area bands; capture.sh pins the status bar
+// (9:41, full battery) before launch.
 
 // ignore_for_file: depend_on_referenced_packages, avoid_print
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
+import 'scene_shooter.dart';
 import 'seed_data.dart';
+import 'seed_runner.dart';
 
 /// macOS window size (wide layout). iPad/phone use the device screen.
 ///
-/// Feishu's reference desktop screenshots use a roomy wide macOS window where
-/// the UI reads as rail + conversation list + chat pane. Keep product shots on
-/// the same aspect so pixel review compares like with like.
-const _windowW = 2000, _windowH = 1468;
+/// 1400x909 is the largest 1024:665 frame (the aspect doc/product/index.html
+/// declares for the desktop shots, 1024x665 after `--sync-site` downscales to
+/// 1024 wide) that fits a 1512x982-point MacBook display under the menu bar
+/// and title bar. The previous 2000x1468 request did not fit: macOS clamped
+/// the height to the visible frame and the shots silently came out 2000x1047
+/// (a 1.91 aspect the page then misframed). [_Shot.setWindowBounds] reads the
+/// size back and fails the run if the window manager did not honour it.
+const _windowW = 1400, _windowH = 909;
 
 /// Wide = rail + master-detail (desktop, tablet); narrow = bottom nav + pushed
 /// routes (phone). Drives how a chat is opened and whether routes need popping.
@@ -47,7 +57,7 @@ Future<void> main(List<String> args) async {
 }
 
 Future<int> _main(List<String> args) async {
-  String? platform, wsUri, outDir, pidArg;
+  String? platform, wsUri, outDir, pidArg, simUdid, adbSerial;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--platform':
@@ -58,6 +68,10 @@ Future<int> _main(List<String> args) async {
         outDir = args[++i];
       case '--pid':
         pidArg = args[++i];
+      case '--sim-udid':
+        simUdid = args[++i];
+      case '--adb-serial':
+        adbSerial = args[++i];
       default:
         stderr.writeln('unknown arg: ${args[i]}');
         return 64;
@@ -66,7 +80,8 @@ Future<int> _main(List<String> args) async {
   if (platform == null || wsUri == null || outDir == null) {
     stderr.writeln(
       'usage: capture_product_screenshots.dart --platform <desktop|android|'
-      'ipad|ios> --ws-uri <ws://…/ws> --out <dir> [--pid <macos-pid>]',
+      'ipad|ios> --ws-uri <ws://…/ws> --out <dir> [--pid <macos-pid>] '
+      '[--sim-udid <udid> | --adb-serial <serial>]',
     );
     return 64;
   }
@@ -86,7 +101,6 @@ Future<int> _main(List<String> args) async {
   await out.create(recursive: true);
 
   _Shot? s;
-  final shooter = _Shooter(out, platform);
   try {
     s = await _Shot.connect(
       wsUri: wsUri,
@@ -95,6 +109,14 @@ Future<int> _main(List<String> args) async {
       isDesktop: isDesktop,
       pid: int.tryParse(pidArg ?? ''),
     );
+    final shooter = SceneShooter(
+      out,
+      platform,
+      foreground: s.foreground,
+      skill: s.skill,
+      waitMs: s.waitMs,
+      nativeCapture: deviceCapture(simUdid: simUdid, adbSerial: adbSerial),
+    );
     await s.ensureReady();
     await s.waitForHomeReady();
 
@@ -102,22 +124,27 @@ Future<int> _main(List<String> args) async {
     // Seed BEFORE waiting on DHT: seeding is fully local (needs no peer/
     // connection), and a long idle wait here can let the session re-init and
     // transiently drop FakeUIKit.im.ffi out from under the seed tools.
-    for (final p in seededFriends) {
-      await s.l3('l3_seed_friend', {
-        'userId': p.pubKey,
-        'nickname': p.nickname,
-      });
-    }
-    await _seedC2c(s);
-    final groupId = await _seedGroup(s);
-    await s.l3('l3_inject_friend_application', {
-      'userId': applicantPubKey,
-      'nickname': applicantNickname,
-      'wording': applicantWording,
-    });
+    final groupId = await seedAll(s);
 
-    // Best-effort: let DHT connect so the profile shows "online" (cosmetic).
-    await s.waitConnectedBestEffort(secs: 10);
+    // Presence: the seed environment has no DHT peers, so a real connection
+    // may never come. Give it a short chance, then drive the SAME connection
+    // stream every presence widget listens to (self dot, "Online" labels) —
+    // a hero shot in which the app and every peer are "Offline" reads as a
+    // disconnected product, which is not what is being shown.
+    await s.waitConnectedBestEffort(secs: 5);
+    await s.l3('l3_set_connection', {'connected': 'true'});
+    if (platform == 'ios' || platform == 'ipad') {
+      // The Simulator has no camera, so the video-call affordances hide
+      // (camera-less devices take the receive-only video path). A phone has
+      // one: show the same header a phone shows.
+      await s.l3('l3_set_capture_device', {'hasCamera': 'true'});
+    }
+    if (platform == 'ipad') {
+      // The product page frames the tablet shot landscape (1024x768); the
+      // Simulator boots portrait.
+      await s.l3('l3_set_orientation', {'orientation': 'landscape'});
+      await s.waitMs(1500);
+    }
 
     // ── theme + english, then the 5 scenes ───────────────────────────────
     // Theme defaults to light; override with TOXEE_SHOT_THEME=dark to capture
@@ -136,14 +163,14 @@ Future<int> _main(List<String> args) async {
     // 1 · C2C chat.
     await s.openChat(userId: personaAlex.pubKey);
     await s.waitMs(1700);
-    await shooter.shot(s, 'c2c');
+    await shooter.shot('c2c');
     await s.popToRoot();
 
     // 2 · group chat.
     if (groupId != null) {
       await s.openChat(groupId: groupId);
       await s.waitMs(1700);
-      await shooter.shot(s, 'group_chat');
+      await shooter.shot('group_chat');
       await s.popToRoot();
     } else {
       shooter.warn('group not created — group_chat scene skipped');
@@ -154,19 +181,23 @@ Future<int> _main(List<String> args) async {
     await s.waitMs(1000);
     await s.tapKey('contact_new_contacts_tab', retries: 4, optional: true);
     await s.waitMs(1300);
-    await shooter.shot(s, 'new_application');
+    await shooter.shot('new_application');
     await s.popToRoot();
 
-    // 4 · self profile (Tox ID + QR).
+    // 4 · self profile (Tox ID + QR) — over the Chats root, not over whatever
+    // the previous scene left (a profile dialog on top of the pending friend
+    // request read as two scenes in one frame).
+    await s.l3('l3_force_home_root', {'tab': 'chats'});
+    await s.waitMs(700);
     await s.l3('l3_open_self_profile', const {});
     await s.waitMs(1600);
-    await shooter.shot(s, 'self_profile');
+    await shooter.shot('self_profile');
     await s.popToRoot();
 
     // 5 · settings.
     await s.l3('l3_force_home_root', {'tab': 'settings'});
     await s.waitMs(1300);
-    await shooter.shot(s, 'settings');
+    await shooter.shot('settings');
 
     return shooter.summarize() ? 0 : 1;
   } on _DriveError catch (e) {
@@ -177,143 +208,9 @@ Future<int> _main(List<String> args) async {
   }
 }
 
-// ───────────────────────────── seeding ──────────────────────────────────
-
-Future<void> _seedC2c(_Shot s) async {
-  final existing = await s.messageCountWith(personaAlex.pubKey);
-  if (existing >= conversationWithAlex.length) {
-    print('[seed] C2C with ${personaAlex.nickname} already seeded ($existing)');
-    return;
-  }
-  print('[seed] injecting C2C with ${personaAlex.nickname}');
-  // Space timestamps 1 min apart, ending "now", so the thread reads naturally.
-  var ms =
-      DateTime.now().millisecondsSinceEpoch -
-      conversationWithAlex.length * 60000;
-  for (final line in conversationWithAlex) {
-    await s.l3('l3_inject_c2c_text', {
-      'userId': personaAlex.pubKey,
-      'text': line.text,
-      'isSelf': '${line.fromHero}',
-      'epochMs': '$ms',
-    });
-    ms += 60000;
-    await s.waitMs(60);
-  }
-}
-
-Future<String?> _seedGroup(_Shot s) async {
-  final convId = await s.findGroupConversationId();
-  String groupId;
-  if (convId == null) {
-    print('[seed] creating group "$groupName"');
-    final created = await s.l3('l3_create_group', {
-      'name': groupName,
-      'type': 'public',
-    });
-    groupId = created['groupId']?.toString() ?? '';
-    if (groupId.isEmpty) {
-      throw _DriveError('l3_create_group returned no groupId: $created');
-    }
-  } else {
-    groupId = convId.substring('group_'.length);
-    print('[seed] group "$groupName" already exists ($convId)');
-  }
-  final history = await s.groupMessageCount(groupId);
-  if (history < groupScript.length) {
-    print('[seed] injecting group chatter');
-    for (final (sender, text) in groupScript) {
-      if (sender == 'self') {
-        await s.l3('l3_send_group_text', {'groupId': groupId, 'text': text});
-      } else {
-        await s.l3('l3_inject_group_text', {
-          'groupId': groupId,
-          'fromUserId': sender,
-          'text': text,
-        });
-      }
-      await s.waitMs(180);
-    }
-  }
-  return groupId;
-}
-
-// ───────────────────────────── shooter ──────────────────────────────────
-
-class _Shooter {
-  _Shooter(this.outDir, this.platform);
-  final Directory outDir;
-  final String platform;
-  final List<String> _ok = [];
-  final List<String> _failed = [];
-  final List<String> _warned = [];
-  // Byte fingerprints: two DIFFERENT scenes that are byte-identical means a
-  // navigation silently didn't take — surface it loudly.
-  final Map<String, String> _frameOwners = {};
-
-  Future<void> shot(_Shot s, String scene) async {
-    final path = '${outDir.path}/$scene.png';
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      await s.foreground();
-      await s.waitMs(350);
-      final r = await s.skill('screenshot', const {});
-      final b64 = r['image'] as String?;
-      if (b64 != null && b64.isNotEmpty) {
-        final bytes = base64Decode(b64);
-        await File(path).writeAsBytes(bytes);
-        final dims = _pngDims(bytes);
-        final fp =
-            '${bytes.length}:${bytes.fold<int>(0, (h, b) => (h * 31 + b) & 0x7fffffff)}';
-        final owner = _frameOwners[fp];
-        if (owner != null) {
-          warn('$scene is byte-identical to $owner — navigation likely no-op');
-        }
-        _frameOwners.putIfAbsent(fp, () => scene);
-        print(
-          '[shot:$platform] $scene.png ${dims ?? "?x?"} '
-          '(${(bytes.length / 1024).round()} KB)',
-        );
-        _ok.add(scene);
-        return;
-      }
-      print('[shot:$platform] $scene attempt $attempt empty — retrying');
-      await s.waitMs(800);
-    }
-    _failed.add(scene);
-    stderr.writeln('[shot:$platform] FAILED: $scene');
-  }
-
-  void warn(String msg) {
-    _warned.add(msg);
-    print('[shot:$platform] WARN $msg');
-  }
-
-  bool summarize() {
-    print('\n── $platform summary ──');
-    print('ok     : ${_ok.join(", ")}');
-    if (_warned.isNotEmpty) print('warned : ${_warned.join("; ")}');
-    if (_failed.isNotEmpty) {
-      stderr.writeln('FAILED : ${_failed.join(", ")}');
-      return false;
-    }
-    return true;
-  }
-}
-
-/// Width×height from a PNG IHDR, or null if not a PNG.
-String? _pngDims(List<int> bytes) {
-  if (bytes.length < 24 || bytes[1] != 0x50) return null;
-  int be(int o) =>
-      (bytes[o] << 24) |
-      (bytes[o + 1] << 16) |
-      (bytes[o + 2] << 8) |
-      bytes[o + 3];
-  return '${be(16)}x${be(20)}';
-}
-
 // ───────────────────────────── instance driver ──────────────────────────
 
-class _Shot {
+class _Shot implements SeedClient {
   _Shot({
     required this.vm,
     required this.isolateId,
@@ -327,10 +224,12 @@ class _Shot {
   VmService vm;
   String isolateId;
   final String wsUri;
+  @override
   final String platform;
   final _DeviceKind kind;
   final bool isDesktop;
   final int? pid;
+  @override
   String toxId = '';
 
   static Future<_Shot> connect({
@@ -428,6 +327,7 @@ class _Shot {
     }
   }
 
+  @override
   Future<Map<String, dynamic>> l3(
     String tool,
     Map<String, Object?> args, {
@@ -445,6 +345,7 @@ class _Shot {
     Map<String, Object?> args = const {},
   ]) => _raw('ext.flutter.flutter_skill.$method', args);
 
+  @override
   Future<Map<String, dynamic>> dumpState({String? userId, String? convId}) =>
       _raw('ext.mcp.toolkit.l3_dump_state', {
         if (userId != null) 'userId': userId,
@@ -514,31 +415,6 @@ class _Shot {
     print('[$platform] not DHT-connected after ${secs}s — proceeding anyway');
   }
 
-  // ── data-layer queries ──
-
-  Future<int> messageCountWith(String peer) async {
-    final st = await dumpState(userId: peer);
-    return ((st['messages'] as List?) ?? const []).length;
-  }
-
-  Future<String?> findGroupConversationId() async {
-    final st = await dumpState();
-    final convs = (st['conversations'] as List?) ?? const [];
-    for (final c in convs) {
-      if (c is! Map) continue;
-      final id = c['conversationID']?.toString() ?? '';
-      if (id.startsWith('group_') && c['showName']?.toString() == groupName) {
-        return id;
-      }
-    }
-    return null;
-  }
-
-  Future<int> groupMessageCount(String gid) async {
-    final st = await dumpState(convId: 'group_$gid');
-    return ((st['messages'] as List?) ?? const []).length;
-  }
-
   // ── navigation ──
 
   /// Open a C2C or group chat, layout-aware. Wide: the l3_open_chat deep-link
@@ -601,6 +477,9 @@ class _Shot {
     throw _DriveError('[$platform] tapKey "$key" failed after $retries tries');
   }
 
+  /// Size the macOS window and VERIFY it took: macOS clamps a window to the
+  /// screen's visible frame, and a silently clamped window changes the shot's
+  /// aspect ratio (the product page declares it).
   Future<void> setWindowBounds(int w, int h) async {
     await l3('l3_window_state', {
       'state': 'bounds',
@@ -608,8 +487,18 @@ class _Shot {
       'height': '$h',
     });
     await waitMs(400);
+    final r = await l3('l3_window_state', {'state': 'query_bounds'});
+    final gotW = (r['width'] as num?)?.round();
+    final gotH = (r['height'] as num?)?.round();
+    if (gotW != w || gotH != h) {
+      throw _DriveError(
+        '[$platform] window is ${gotW}x$gotH, asked ${w}x$h — pick a size '
+        'that fits this display so the desktop shots keep the declared aspect',
+      );
+    }
   }
 
+  @override
   Future<void> waitMs(int ms) =>
       Future<void>.delayed(Duration(milliseconds: ms));
 }

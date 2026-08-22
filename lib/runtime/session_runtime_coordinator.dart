@@ -71,6 +71,11 @@ class SessionRuntimeCoordinator {
   /// (post-login) before installing the hook. Cancelled by [disposeRuntime].
   static StreamSubscription<bool>? _pendingHookSelfIdSub;
 
+  /// Detaches the session's video-call availability listener from
+  /// [CallMediaCapabilities.changes]. Installed by [ensureInitialized], run by
+  /// [disposeRuntime] (and by a re-init, so two sessions never stack).
+  static void Function()? _videoCapabilityListener;
+
   static SessionRuntimeState get state => _state;
 
   @visibleForTesting
@@ -116,6 +121,8 @@ class SessionRuntimeCoordinator {
     _generation = 0;
     _hookInstalled = false;
     _pendingHookSelfIdSub = null;
+    _videoCapabilityListener?.call();
+    _videoCapabilityListener = null;
     debugInitBodyOverride = null;
     debugTeardownBodyOverride = null;
     debugHistoryHookInstallOverride = null;
@@ -278,10 +285,21 @@ class SessionRuntimeCoordinator {
         FakeUIKit.instance.callServiceManager?.isCallingAvailable ?? false;
     UikitDataFacade.setUseCallKit(callingAvailable);
     // Video entry points additionally require a camera capture backend
-    // (absent on Windows/Linux) — voice-only there, not a dead video button.
-    UikitDataFacade.setUseVideoCall(
-      callingAvailable && CallMediaCapabilities.supportsVideoCapture(),
-    );
+    // (absent on Windows/Linux) AND a capture device — voice-only otherwise,
+    // not a dead video button. The device answer arrives asynchronously (the
+    // probe is unawaited at bootstrap), so re-evaluate whenever it changes
+    // instead of freezing whatever the predicate said at this instant.
+    void syncVideoCallAvailability() {
+      UikitDataFacade.setUseVideoCall(
+        callingAvailable && CallMediaCapabilities.supportsVideoCapture(),
+      );
+    }
+
+    syncVideoCallAvailability();
+    _videoCapabilityListener?.call();
+    CallMediaCapabilities.changes.addListener(syncVideoCallAvailability);
+    _videoCapabilityListener = () =>
+        CallMediaCapabilities.changes.removeListener(syncVideoCallAvailability);
     if (!callingAvailable) {
       AppLogger.warn(
         '[SessionRuntimeCoordinator] calling disabled: native library has '

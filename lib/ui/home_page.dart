@@ -2057,24 +2057,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _acceptFriendApplications(
     List<V2TimFriendApplication> apps,
   ) async {
-    for (final app in apps) {
-      final uid = app.userID;
-      if (uid.isEmpty) continue;
-      try {
-        await widget.service.acceptFriendRequest(uid);
-      } catch (e, st) {
-        AppLogger.logError(
-          '[HomePage] acceptFriendRequest failed for $uid',
-          e,
-          st,
-        );
-      }
-    }
-    _pendingFriendApps = [];
+    final failed = await acceptFriendApplications(
+      widget.service,
+      apps.map((a) => a.userID),
+    );
+    // A failed accept stays PENDING so the user can retry (and is reported as
+    // a failure, not as the success snackbar) — see acceptFriendApplications.
+    _pendingFriendApps = apps
+        .where((a) => failed.contains(a.userID))
+        .toList(growable: false);
     if (mounted) setState(() {});
     await FakeUIKit.instance.im?.refreshContacts();
     await _load();
-    _showSnackBar(AppLocalizations.of(context)!.autoAcceptedNewFriendRequest);
+    final l10n = AppLocalizations.of(context)!;
+    _showSnackBar(
+      failed.isEmpty
+          ? l10n.autoAcceptedNewFriendRequest
+          : l10n.failedToSendFriendRequest('${failed.length}'),
+    );
     await _updateTray();
   }
 

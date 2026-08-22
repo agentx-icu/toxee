@@ -71,6 +71,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../call/call_media_capabilities.dart';
 import '../../call/permission_helper.dart';
+import 'l3_presentation_tools.dart';
 import '../../navigation/app_navigation.dart';
 import '../../notifications/notification_service.dart';
 import '../profile/profile_avatar_picker.dart';
@@ -386,6 +387,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3WindowStateEntry());
   addMcpTool(_l3SetCallPermissionEntry());
   addMcpTool(_l3SetConnectionEntry());
+  registerL3PresentationTools(isTestAccount: _activeAccountIsTest);
   addMcpTool(_l3InviteToGroupEntry());
   addMcpTool(_l3KickGroupMemberEntry());
   addMcpTool(_l3GroupMemberListEntry());
@@ -1116,6 +1118,18 @@ MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
       if (nickname.isNotEmpty) {
         await ffi.seedLocalFriendNickname(userId, nickname);
       }
+      // Presentation seams for the screenshot pipeline: a seeded key can never
+      // come online for real (it is not on the DHT), and carries no avatar.
+      // Both go through the product's own paths (friend-list presence, the
+      // Prefs-backed avatar path the avatar sync writes).
+      if ((request['online'] ?? '').toString().toLowerCase() == 'true') {
+        ffi.debugSetFriendOnline(pk, true);
+      }
+      final avatarPath = await writeSeedAvatarPng(
+        fileStem: 'friend_$pk',
+        base64Png: (request['avatarBase64'] ?? '').toString(),
+      );
+      if (avatarPath != null) await Prefs.setFriendAvatarPath(pk, avatarPath);
       await FakeUIKit.instance.im?.refreshContacts();
       await FakeUIKit.instance.im?.refreshConversations();
       AppLogger.info(
@@ -1129,6 +1143,7 @@ MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
           'userId': userId,
           'nickname': nickname,
           'alreadyFriend': exists,
+          if (avatarPath != null) 'avatarPath': avatarPath,
         },
       );
     } catch (e, st) {
@@ -1150,6 +1165,13 @@ MCPCallEntry _l3SeedFriendEntry() => MCPCallEntry.tool(
       properties: {
         'userId': StringSchema(description: 'Friend Tox ID / public key.'),
         'nickname': StringSchema(description: 'Display name to cache.'),
+        'online': StringSchema(
+          description:
+              '"true": report this seeded peer as online (presence only).',
+        ),
+        'avatarBase64': StringSchema(
+          description: 'Optional PNG (base64) installed as the friend avatar.',
+        ),
       },
       required: ['userId'],
     ),
@@ -4739,6 +4761,13 @@ MCPCallEntry _l3CreateGroupEntry() => MCPCallEntry.tool(
       // name (incl. the default) so the no-name path doesn't regress to the
       // bare id either (codex).
       await Prefs.setGroupName(gid, effectiveName);
+      // Optional seed avatar, through the same Prefs path the group-profile
+      // avatar picker persists to (fake_provider resolves it on refresh).
+      final avatarPath = await writeSeedAvatarPng(
+        fileStem: 'group_$gid',
+        base64Png: (request['avatarBase64'] ?? '').toString(),
+      );
+      if (avatarPath != null) await Prefs.setGroupAvatar(gid, avatarPath);
       AppLogger.info('[L3] l3_create_group: created $gid chatId=$chatId');
       return MCPCallResult(
         message: 'group created',
@@ -5162,6 +5191,7 @@ MCPCallEntry _l3InjectGroupTextEntry() => MCPCallEntry.tool(
         gid: groupId,
         from: fromUserId,
         text: text,
+        epochMs: int.tryParse((request['epochMs'] ?? '').toString()),
       );
       AppLogger.info(
         '[L3] l3_inject_group_text: gid=$groupId from=$fromUserId '
@@ -5187,12 +5217,15 @@ MCPCallEntry _l3InjectGroupTextEntry() => MCPCallEntry.tool(
         'history persistence, unread, message stream) — deterministic '
         'multi-sender group seeding without same-host NGC peer-link '
         'flakiness. fromUserId should be the sender\'s main Tox pubkey so '
-        'the UI resolves its display name from the friend list.',
+        'the UI resolves its display name from the friend list; the SELF '
+        'pubkey materializes a delivered self line (no pending spinner, no '
+        'unread). epochMs backdates the row for realistic spacing.',
     inputSchema: ObjectSchema(
       properties: {
         'groupId': StringSchema(description: 'Local group id (tox_N).'),
         'fromUserId': StringSchema(description: 'Sender Tox pubkey (64 hex).'),
         'text': StringSchema(description: 'Message text.'),
+        'epochMs': StringSchema(description: 'Optional timestamp override.'),
       },
       required: ['groupId', 'fromUserId', 'text'],
     ),
