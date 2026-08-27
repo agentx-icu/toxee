@@ -1719,10 +1719,8 @@ String _requiredRealUiState(String scenario) {
     case 'group_add_member_button_opens_picker':
     case 'group_profile_scroll_view_scrolls':
     case 'group_profile_edit_name_dialog_cancel':
-    // Keyed-gaps batch #4. The two-process sweep runs its OWN handshake and
-    // creates its own throwaway group; the login sweep needs no peer at all — a
-    // fresh no-friend pair launch covers both, with no paired_for_e2e restore
-    // (which is what keeps them runnable on iOS/Android).
+    // Keyed-gaps batch #4: self-contained handshake/group; a fresh no-friend
+    // pair covers both sweeps (no restore — keeps them iOS/Android-runnable).
     case 'sweep_keyed_gaps4':
     case 'sweep_keyed_gaps4_login':
     case 'msg_select_clear_button_resets_count':
@@ -1735,6 +1733,8 @@ String _requiredRealUiState(String scenario) {
     case 'mobile_chat_back_clears_active_peer':
     case 'mobile_mention_picker_confirm_inserts':
     case 'mobile_mention_picker_back_empty_selection':
+    case 'mobile_mention_at_all_inserts':
+    case 'mobile_search_contact_back_unbinds':
     case 'login_account_delete_confirm_removes_card':
       return _realUiStateNoFriend;
   }
@@ -1923,9 +1923,7 @@ String _resultRealUiState(String scenario) {
     case 'group_add_member_button_opens_picker':
     case 'group_profile_scroll_view_scrolls':
     case 'group_profile_edit_name_dialog_cancel':
-    // Keyed-gaps batch #4 (two-process half) ENDS FRIENDS: nothing deletes the
-    // friend — only the case's own probe artefacts (an EMPTY multi-select
-    // delete, the throwaway group), and the surface cases dismiss cleanly.
+    // Keyed-gaps batch #4 (two-process half) ENDS FRIENDS (probe-only churn).
     case 'sweep_keyed_gaps4':
     case 'msg_select_clear_button_resets_count':
     case 'msg_select_forward_combined_absent_gating':
@@ -1937,6 +1935,8 @@ String _resultRealUiState(String scenario) {
     case 'mobile_chat_back_clears_active_peer':
     case 'mobile_mention_picker_confirm_inserts':
     case 'mobile_mention_picker_back_empty_selection':
+    case 'mobile_mention_at_all_inserts':
+    case 'mobile_search_contact_back_unbinds':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
     case 'relaunch_history_autologin':

@@ -439,5 +439,7 @@ const realUiScenarioNames = <String>{
   'mobile_chat_back_clears_active_peer',
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
+  'mobile_mention_at_all_inserts',
+  'mobile_search_contact_back_unbinds',
   'login_account_delete_confirm_removes_card',
 };
