@@ -6,29 +6,22 @@ const _mcpNs = 'ext.mcp.toolkit';
 final _realUiPlatform =
     (Platform.environment['TOXEE_REAL_UI_PLATFORM'] ?? 'macos').trim();
 
-/// Headless real-UI platforms — **Windows desktop**, **Linux desktop** and
-/// **Android device/emulator**. None can be reached by host osascript /
-/// OS-level key/paste injection (Windows/Linux have no host osascript and run
-/// in their own window-station / X display, typically behind SSH or Xvfb; the
-/// Android app runs on a device whose VM service is merely adb-forwarded to
-/// this host), so EVERY input goes through synthetic
-/// flutter_skill RPC (`enterText`) + the `l3_composer_send` send seam, and the
-/// osa* primitive surface below is overridden wholesale. iOS shares that INPUT
-/// contract but NOT this flag — it runs on the same macOS host, so only its
-/// launcher topology governs sim survival; see [Inst._usesSyntheticInput].
+/// Headless real-UI platforms — Windows/Linux desktop and Android. None can be
+/// reached by host osascript / OS-level key injection (own window-station / X
+/// display / adb-forwarded device), so EVERY input goes through synthetic
+/// flutter_skill RPC + the `l3_composer_send` seam and the osa* surface below
+/// is overridden wholesale. iOS shares that INPUT contract but NOT this flag
+/// (same macOS host); see [Inst._usesSyntheticInput].
 bool get _isHeadlessRealUi =>
     _realUiPlatform == 'windows' ||
     _realUiPlatform == 'android' ||
     _realUiPlatform == 'linux';
 
-/// Windows-DESKTOP-only flag, kept distinct from [_isHeadlessRealUi] for the
-/// scenario drivers that carry empirical *Windows-specific* tuning (slower
-/// settle waits, higher send/recv retry counts, desktop-window resize) which
-/// must NOT be blanket-applied to Android. The shared INPUT layer (foreground /
-/// focusType / osa* primitives in this file, and the returnToChatsHome settle in
-/// the shell) uses [_isHeadlessRealUi] because both headless platforms drive
-/// purely via synthetic VM-service input; the per-campaign timing knobs below
-/// stay gated on Windows until Android is independently dogfooded for them.
+/// Windows-DESKTOP-only flag, distinct from [_isHeadlessRealUi]: drivers carry
+/// empirical Windows-specific tuning (slower settles, higher retry counts,
+/// window resize) that must NOT be blanket-applied to Android. The shared
+/// INPUT layer keys on [_isHeadlessRealUi]; these timing knobs stay
+/// Windows-gated until Android is independently dogfooded for them.
 bool get _isWindowsRealUi => _realUiPlatform == 'windows';
 
 /// Translate a hardcoded `/tmp/<name>` debug path (screenshots, scratch files)
@@ -835,28 +828,27 @@ class Inst {
   /// coordinate tap would miss — use `tapKey`, single off-screen invoke). See
   /// the flutter_skill_double_tap_blank hazard. Returns false (no throw) when
   /// the key is absent or has no usable bounds.
-  Future<bool> tapKeyCenter(String key, {int timeoutSecs = 8}) async {
+  /// [stableBounds]: require the SAME center across two consecutive reads —
+  /// a button resolved mid slide-in taps whatever settles at those coords
+  /// (live: wizard Later resolved onto Export now -> SAF). Dialog buttons only.
+  Future<bool> tapKeyCenter(
+    String key, {
+    int timeoutSecs = 8,
+    bool stableBounds = false,
+  }) async {
     if (await waitKey(key, timeoutSecs: timeoutSecs)) {
-      // `waitKey` proves the element is in the tree, but not that it has been
-      // LAID OUT: in the one-frame window after a dialog appears the RenderBox can
-      // still be absent, so interactiveStructured reports {x:0,y:0,w:0,h:0}.
-      // Re-query a few times so a not-yet-measured button isn't mistaken for
-      // "not tappable" (a silent hard-gate failure). The happy path taps on the
-      // first attempt, unchanged.
-      for (var attempt = 0; attempt < 5; attempt++) {
+      // `waitKey` proves in-tree, not LAID OUT ({x:0,y:0,w:0,h:0} right after
+      // a dialog appears) — re-query; happy path taps on attempt one.
+      ({double x, double y})? prev;
+      for (var attempt = 0; attempt < 7; attempt++) {
         final r = await skill('interactiveStructured', const {});
         final data = r['data'];
         final elements = data is Map ? data['elements'] : null;
         if (elements is List) {
-          // Scan ALL same-key matches and tap the LAST with positive bounds. The
-          // elements are reported in tree order, so when a real-UI sweep stacks
-          // routes carrying the same key (a re-opened group profile leaves buried
-          // duplicates whose RenderBoxes are still laid out with POSITIVE bounds
-          // — flutter_skill has no paint/cover guard), the EARLIER matches are the
-          // OLD, covered copies and the LAST is the on-top route the user sees.
-          // Tapping the first would land on a covered widget (the mute Switch
-          // toggle silently no-ops). Mirrors resolveKeyCenter's `.last` topmost
-          // preference. Single-match is unchanged (first == last).
+          // Tap the LAST same-key match with positive bounds: elements come in
+          // tree order, so with stacked routes the earlier matches are the OLD
+          // covered copies and the LAST is on top (mirrors resolveKeyCenter's
+          // `.last`; single-match unchanged). flutter_skill has no cover guard.
           ({double x, double y})? target;
           for (final e in elements) {
             if (e is! Map || e['key'] != key) continue;
@@ -870,23 +862,30 @@ class Inst {
             target = (x: x + w / 2, y: y + h / 2);
           }
           if (target != null) {
+            if (stableBounds &&
+                (prev == null ||
+                    (prev.x - target.x).abs() > 2 ||
+                    (prev.y - target.y).abs() > 2)) {
+              prev = target;
+              await Future<void>.delayed(const Duration(milliseconds: 250));
+              continue;
+            }
             await tapAt(target.x, target.y);
             return true;
           }
         }
+        // Missing/unsized sample: a stability streak must be CONSECUTIVE.
+        prev = null;
         await Future<void>.delayed(const Duration(milliseconds: 200));
       }
     }
-    // flutter_skill (waitForElement / interactiveStructured) could NOT see the
-    // key OR found no usable bounds. Many real, ONSCREEN keyed widgets are
-    // invisible to flutter_skill because their ValueKey is not propagated to the
-    // element it reports — e.g. a FloatingActionButton, a non-interactive
-    // SelectableText, or a KeyedSubtree wrapper (the group-profile
-    // edit-name/id/members keys, the profile save button). Fall back to the
-    // ELEMENT-TREE resolver (ui_key_center), which finds ANY onstage sized keyed
-    // RenderBox and taps its center. It resolves ONLY onstage widgets, so the
-    // coordinate tap stays valid (it never blind-taps a below-fold opener — that
-    // returns null here, same as before).
+    // Never degrade a stability-required tap to the unstabilized fallback.
+    if (stableBounds) return false;
+    // flutter_skill could not see the key or found no usable bounds — many
+    // real ONSCREEN keyed widgets don't propagate their ValueKey to the element
+    // it reports (FAB, SelectableText, KeyedSubtree). Fall back to the
+    // ELEMENT-TREE resolver (ui_key_center): onstage sized keyed RenderBoxes
+    // only, so the coordinate tap stays valid (no blind below-fold taps).
     return tapKeyAt(key);
   }
 

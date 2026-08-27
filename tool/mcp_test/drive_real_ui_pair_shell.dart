@@ -87,19 +87,12 @@ Future<void> ensureHome(
     return;
   }
   await _registerRealUiAccount(inst, nickname);
-  // First-run backup wizard blocks navigation; dismiss it. "I'll do it later"
-  // opens a SECOND data-loss confirmation; BOTH buttons are keyed
-  // (firstRunBackupWizard.laterButton / .confirmDismissButton), so drive them by
-  // KEY — platform-agnostic. The old text-tap + macOS-coordinate fallback
-  // (tapAt(894, 520)) missed on the narrower iOS screen, stranding the wizard
-  // (which then trips the blank-shell recovery, since a full-screen wizard has
-  // no sidebar/bottom-nav). Key-driving works on macOS AND iOS.
+  // First-run backup wizard blocks navigation; dismiss it BY KEY (platform-
+  // agnostic; the old text-tap + macOS-coordinate fallback missed on narrower
+  // screens, stranding the wizard over the bottom nav and tripping the
+  // blank-shell recovery into a non-test forceHomeRoot loop). "I'll do it
+  // later" opens a SECOND data-loss confirmation; both buttons are keyed.
   await inst.foreground();
-  // Dismiss the first-run backup wizard by KEY (platform-agnostic). The old gate
-  // (waitText 'Save your account file', 20s) skipped dismissal when the text
-  // didn't match in time on the iOS sim, stranding the wizard (laterButton
-  // present) — which covers the bottom nav and tripped the blank-shell recovery
-  // into a non-test forceHomeRoot loop (observed on the macOS↔iOS mixed pair).
   await _dismissBackupWizardIfPresent(inst, timeoutSecs: 20);
   if (!requireHomeMenu) {
     return;
@@ -341,6 +334,9 @@ Future<void> ensureNewEntryShell(Inst inst, {int rounds = 4}) async {
       continue;
     }
     if (await _dismissProfileQrOverlay(inst)) {
+      continue;
+    }
+    if (await _recoverAndroidNativeCover(inst)) {
       continue;
     }
     if (await _selectContactsTab(inst)) {
@@ -659,13 +655,17 @@ Future<bool> _dismissBackupWizardIfPresent(
   if (!await inst.tapKeyCenter(
     'firstRunBackupWizard.laterButton',
     timeoutSecs: 6,
+    stableBounds: true,
   )) {
+    // Fallback only after the entrance animation must be over.
+    await Future<void>.delayed(const Duration(milliseconds: 700));
     await inst.tapText("I'll do it later");
   }
   await Future<void>.delayed(const Duration(milliseconds: 1000));
   if (!await inst.tapKeyCenter(
     'firstRunBackupWizard.confirmDismissButton',
     timeoutSecs: 6,
+    stableBounds: true,
   )) {
     if (!await _tryTapText(inst, 'I understand, continue') &&
         inst.platform == 'macos') {
