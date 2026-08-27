@@ -2,7 +2,6 @@ import 'dart:async' show Timer;
 
 // ignore: directives_ordering
 import '../widgets/safe_dialog_pop.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import '../../util/app_spacing.dart';
@@ -15,13 +14,13 @@ import 'package:toxee/ui/testing/ui_keys.dart';
 import '../widgets/app_page_route.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
+import '../../navigation/active_conversation_binding.dart';
+import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
+import '../../sdk_fake/fake_uikit_core.dart';
 import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/logger.dart';
 import 'package:tencent_cloud_chat_common/chat_sdk/components/tencent_cloud_chat_search_sdk.dart';
-import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
-import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart';
-import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_utils.dart';
 
@@ -38,19 +37,19 @@ typedef RawGlobalSearchData = ({
 });
 
 /// Fetches the raw global-search inputs for [keyword].
-typedef RawGlobalSearchFetcher = Future<RawGlobalSearchData> Function(
-  String keyword,
-);
+typedef RawGlobalSearchFetcher =
+    Future<RawGlobalSearchData> Function(String keyword);
 
 /// Opens the target conversation for a tapped result. In production this drives
 /// the UIKit data facade + conversation SDK ([_CustomSearchState._navigateToMessage]);
 /// the optional [CustomSearch.onOpenConversation] seam lets a test observe the
 /// open-target without the singleton.
-typedef OpenConversationCallback = void Function({
-  String? userID,
-  String? groupID,
-  V2TimMessage? targetMessage,
-});
+typedef OpenConversationCallback =
+    void Function({
+      String? userID,
+      String? groupID,
+      V2TimMessage? targetMessage,
+    });
 
 class CustomSearch extends StatefulWidget {
   final String? userID;
@@ -538,13 +537,12 @@ class _CustomSearchState extends State<CustomSearch> {
       TencentCloudChatComponentsEnum.message,
     )) {
       if (!_isDesktop(context)) {
-        navigateToMessage(
+        pushCompactChatRoute(
           context: context,
-          options: TencentCloudChatMessageOptions(
-            userID: userID,
-            groupID: groupID,
-            targetMessage: targetMessage,
-          ),
+          service: FakeUIKit.instance.im?.ffi,
+          userID: userID,
+          groupID: groupID,
+          targetMessage: targetMessage,
         );
       } else {
         final conv = await TencentCloudChat
@@ -612,105 +610,107 @@ class _CustomSearchState extends State<CustomSearch> {
       bindings: <ShortcutActivator, VoidCallback>{
         // includeRepeats:false — one close per physical press; the route guard
         // in _closeSearch is the belt-and-suspenders backstop.
-        const SingleActivator(
-          LogicalKeyboardKey.escape,
-          includeRepeats: false,
-        ): _closeSearch,
+        const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
+            _closeSearch,
       },
       child: Scaffold(
-      appBar: _isEmbeddedWithParentSearchBar
-          ? AppBar(
-              title: Text(l10n.searchResults),
-              automaticallyImplyLeading: false,
-              actions: [
-                IconButton(
-                  key: UiKeys.messageSearchCloseButton,
-                  icon: const Icon(Icons.close),
-                  tooltip: l10n.close,
-                  onPressed: _closeSearch,
-                ),
-                SizedBox(
-                  width: ResponsiveLayout.responsiveHorizontalPadding(context),
-                ),
-              ],
-            )
-          : AppBar(
-              titleSpacing: 0,
-              title: Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                child: TextField(
-                  key: UiKeys.messageSearchField,
-                  controller: _searchController,
-                  autofocus: true,
-                  // iOS keyboard shows a "Search" return key instead of the
-                  // default "Return" — matches the action this field triggers.
-                  textInputAction: TextInputAction.search,
-                  textAlignVertical: TextAlignVertical.center,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                  decoration: InputDecoration(
-                    hintText: l10n.searchHint,
-                    prefixIcon: Icon(
-                      Icons.search,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    isDense: true,
-                    filled: true,
-                    fillColor: Theme.of(
+        appBar: _isEmbeddedWithParentSearchBar
+            ? AppBar(
+                title: Text(l10n.searchResults),
+                automaticallyImplyLeading: false,
+                actions: [
+                  IconButton(
+                    key: UiKeys.messageSearchCloseButton,
+                    icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
+                    onPressed: _closeSearch,
+                  ),
+                  SizedBox(
+                    width: ResponsiveLayout.responsiveHorizontalPadding(
                       context,
-                    ).colorScheme.surfaceContainerHighest,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppThemeConfig.inputBorderRadius,
-                      ),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppThemeConfig.inputBorderRadius,
-                      ),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppThemeConfig.inputBorderRadius,
-                      ),
-                      borderSide: BorderSide(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 1.5,
-                      ),
                     ),
                   ),
-                  onChanged: (value) {
-                    setState(() {
-                      _searchKeyword = value;
-                    });
-                    _debounceTimer?.cancel();
-                    _debounceTimer = Timer(
-                      const Duration(milliseconds: 300),
-                      _performSearch,
-                    );
-                  },
-                  onSubmitted: (_) => _performSearch(),
+                ],
+              )
+            : AppBar(
+                titleSpacing: 0,
+                title: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: TextField(
+                    key: UiKeys.messageSearchField,
+                    controller: _searchController,
+                    autofocus: true,
+                    // iOS keyboard shows a "Search" return key instead of the
+                    // default "Return" — matches the action this field triggers.
+                    textInputAction: TextInputAction.search,
+                    textAlignVertical: TextAlignVertical.center,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                    decoration: InputDecoration(
+                      hintText: l10n.searchHint,
+                      prefixIcon: Icon(
+                        Icons.search,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppThemeConfig.inputBorderRadius,
+                        ),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppThemeConfig.inputBorderRadius,
+                        ),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppThemeConfig.inputBorderRadius,
+                        ),
+                        borderSide: BorderSide(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchKeyword = value;
+                      });
+                      _debounceTimer?.cancel();
+                      _debounceTimer = Timer(
+                        const Duration(milliseconds: 300),
+                        _performSearch,
+                      );
+                    },
+                    onSubmitted: (_) => _performSearch(),
+                  ),
                 ),
+                actions: [
+                  IconButton(
+                    key: UiKeys.messageSearchCloseButton,
+                    icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
+                    onPressed: _closeSearch,
+                  ),
+                  SizedBox(
+                    width: ResponsiveLayout.responsiveHorizontalPadding(
+                      context,
+                    ),
+                  ),
+                ],
               ),
-              actions: [
-                IconButton(
-                  key: UiKeys.messageSearchCloseButton,
-                  icon: const Icon(Icons.close),
-                  tooltip: l10n.close,
-                  onPressed: _closeSearch,
-                ),
-                SizedBox(
-                  width: ResponsiveLayout.responsiveHorizontalPadding(context),
-                ),
-              ],
-            ),
-      body: SafeArea(child: _buildBody(l10n)),
+        body: SafeArea(child: _buildBody(l10n)),
       ),
     );
   }

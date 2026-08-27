@@ -4319,7 +4319,17 @@ MCPCallEntry _l3SimulateNotificationTapEntry() => MCPCallEntry.tool(
     if (!known.any(payload.startsWith)) {
       payload = 'c2c_$payload';
     }
-    NotificationService.instance.debugInjectNotificationTap(payload);
+    final injected = NotificationService.instance.debugInjectNotificationTap(
+      payload,
+    );
+    if (!injected) {
+      return MCPCallResult(
+        message:
+            'l3_simulate_notification_tap: no tap listener yet (HomePage '
+            'subscribes after its initial load) — retry',
+        parameters: {'ok': false, 'error': 'no_listener', 'payload': payload},
+      );
+    }
     AppLogger.info(
       '[L3] l3_simulate_notification_tap: injected payload "$payload"',
     );

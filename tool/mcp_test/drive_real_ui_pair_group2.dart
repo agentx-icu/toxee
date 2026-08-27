@@ -128,13 +128,16 @@ Future<({double x, double y})?> _scrollProfileButtonIntoBand(
   for (var i = 0; i < 16; i++) {
     final c = await inst.keyCenter(key);
     if (c != null) lastProbe = c;
-    if (inst.isMobileShell && c != null && c.y >= 80 && c.y <= 880) {
-      return c;
+    // Mobile shells: "in band" means inside the LIVE view (an iPad is 1194pt
+    // tall and its profile list may not scroll at all), not a phone-sized 880.
+    if (inst.isMobileShell && c != null && c.y >= 80) {
+      final h = await _viewHeight(inst, key);
+      if (c.y <= (h ?? 880) - 40) return c;
     }
     if (c != null && c.y >= 80 && c.y <= 798) return c;
     if (inst.isMobileShell) {
       try {
-        await inst.dragBy('group_profile_scroll_anchor', dy: -420, steps: 16);
+        await inst.dragBy('group_profile_scroll_view', dy: -420, steps: 16);
       } on DriveError catch (e) {
         print('[pair] _scrollProfileButtonIntoBand: drag warn: ${e.message}');
         if (e.message.contains('key_not_found')) break;
@@ -415,11 +418,7 @@ Future<String> _groupCreateTypeSelectorSurface(Inst inst, String name) async {
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  if (inst.isMobileShell) {
-    // Focusing the field raised the soft keyboard; re-reveal the submit button
-    // above it before tapping.
-    await _revealDialogKey(inst, 'add_group_create_submit_button');
-  }
+  await _prepareDialogSubmit(inst, 'add_group_create_submit_button');
   await inst.tapKey('add_group_create_submit_button');
   // Resolve A's own new private group by its unique name.
   final gid = await _waitForJoinedGroup(
@@ -981,7 +980,7 @@ Future<bool> _groupKickMemberUi(Inst a, String gid, String toxB) async {
   // Right-click B's row → the desktop context menu (canDeleteMember()==true for a
   // PRIVATE group owner) → tap the keyed kick item. Retry the open a few times
   // (the showMenu can race the secondary-tap dispatch).
-  var menuKicked = false;
+  var menuKicked = await _kickViaMobileSheet(a, bRowKey);
   for (var attempt = 0; attempt < 3 && !menuKicked; attempt++) {
     try {
       await a.secondaryTapKey(bRowKey);
@@ -1207,9 +1206,7 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
   await Future<void>.delayed(const Duration(milliseconds: 250));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  if (inst.isMobileShell) {
-    await _revealDialogKey(inst, 'add_group_create_submit_button');
-  }
+  await _prepareDialogSubmit(inst, 'add_group_create_submit_button');
   await inst.tapKey('add_group_create_submit_button');
   final gid = await _waitForJoinedGroup(
     inst,
@@ -1222,6 +1219,7 @@ Future<String> _confCreateDialogSurface(Inst inst, String name) async {
     print(
       '[pair] conf_create_dialog_surface: conference "$name" did not appear',
     );
+    await _printGroupCreateDiag(inst, name);
     return '';
   }
   print(
@@ -1565,9 +1563,7 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
                   in ((await b.dumpState())['conversations'] as List?) ??
                       const []) {
                 if (c is Map && c['type'] == 2) {
-                  names.add(
-                    '${c['conversationID']}="${c['showName']}"',
-                  );
+                  names.add('${c['conversationID']}="${c['showName']}"');
                 }
               }
               print(

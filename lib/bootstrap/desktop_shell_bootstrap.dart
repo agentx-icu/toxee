@@ -16,6 +16,12 @@ class _WindowStateListener with WindowListener {
   void onWindowClose() async {
     if (_closing) return;
     _closing = true;
+    // The desktop app terminates after its last window closes
+    // (`applicationShouldTerminateAfterLastWindowClosed`), so this is the last
+    // thing a close-driven exit ever logs. Say so explicitly: a process that
+    // vanished with this line was closed, one without it was killed or exited
+    // some other way.
+    AppLogger.info('[DesktopShell] window close requested — app will exit');
     try {
       final bounds = await windowManager.getBounds();
       await Prefs.setWindowBounds(bounds);

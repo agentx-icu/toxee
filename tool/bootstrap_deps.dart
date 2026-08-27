@@ -321,6 +321,10 @@ void main(List<String> args) async {
     overrides.writeln('  $p:');
     overrides.writeln('    path: third_party/chat-uikit-flutter/$p');
   }
+  // Vendored (MIT): published 0.9.36 leaks every screenshot's ui.Image —
+  // debug app dies ~770MB RSS. Drop when upstream ships the dispose fix.
+  overrides.writeln('  flutter_skill:');
+  overrides.writeln('    path: third_party/flutter_skill');
   overrides.writeln('  record_linux: ^1.2.1');
   // integration_test (from the Flutter SDK) pins `file: 7.0.1`, while the
   // path-pinned tencent_cloud_chat_intl still asks for `^6.1.2`. The two
@@ -367,6 +371,15 @@ int _offlineCheck(String repoRoot) {
   if (!sdkDir.existsSync()) {
     stderr.writeln(
       'bootstrap_deps: offline-check: third_party/tencent_cloud_chat_sdk missing',
+    );
+    return 1;
+  }
+  // The generated overrides point flutter_skill at the vendored copy; a
+  // checkout without it cannot resolve dependencies, so offline-check must
+  // not false-pass it.
+  if (!File('$repoRoot/third_party/flutter_skill/pubspec.yaml').existsSync()) {
+    stderr.writeln(
+      'bootstrap_deps: offline-check: third_party/flutter_skill missing',
     );
     return 1;
   }

@@ -1486,3 +1486,238 @@ trees into `<runtime>\support\A|B` and the instances boot them via
 `l3_boot_existing_account`. The unified runner's restore gap-guard is now
 Android-only. OpenSSL runtime DLLs for `libirc_client.dll` are staged from
 `build\native-artifacts\windows\` (produced by `--with-irc`).
+
+## Full five-surface matrix — macOS / iPhone / iPad / Android (2026-08-22/23)
+
+First run of EVERY registered real-UI sweep on all four device surfaces
+(Windows/Linux are headless and were not part of this pass), driven from a
+Linux VM over `ssh mac2`, one platform at a time (the macOS phase types real OS
+keystrokes into the frontmost window and the iOS phase needs
+`TOXEE_IOS_KEEP_SIMULATOR_FRONT=1` — they cannot share the display). Campaign
+logs: `~/rui_logs/<platform>__<campaign>.log` on the Mac; orchestration scripts
+next to them (`run_macos*.sh` must run inside Terminal.app via `osascript … do
+script`; `run_mobile.sh ios,ipad,android` boots two headless AVDs itself).
+
+**Re-derive, do not trust these tallies** — they are one night's run. Per sweep
+(PASS/FAIL/SKIP, first attempt unless noted):
+
+| sweep | macOS | iPhone | iPad | Android |
+| --- | --- | --- | --- | --- |
+| login / ios_settings_main | 9/0/0 | 9/0/0 · 6/0 | 9/0/0 · 6/0 | 9/0/0 |
+| settings2 / profile | 12/0 · 8/0 | 13/0 · 7/0/1 | 13/0 · 7/0/1 (profile retry) | 13/0 · 7/0/1 |
+| keyed_gaps / keyed_gaps4_login | 8/0 · 1/0 | 8/0 · 1/0 | 8/0 · 1/0 | 8/0 · 1/0 |
+| keyed_gaps3 / keyed_gaps4 | 8/0/2 · 4/0/6 | 8/0/2 · 9/0/1 | 7/0/3 · 7/0/3 | 8/0/2 · 9/0/1 |
+| contacts | 15/0/0 | 14/0/1 | 14/0/1 | 14/0/1 |
+| conv | 9/0/1 | 9/0/1 | 9/0/1 (retry) | 9/0/1 |
+| chat | 15/0/1 | 13/0/3 | 13/0/3 | 13/0/3 |
+| msg_select | 4/0 | 4/0 | 4/0 | 4/0 |
+| group2 | 14/0 | 1/13 → see below | 12/2 (clear-history / kick reach) | — |
+| c2c_extra / c2c_deep_extra | 5/0 · 1/0 | 5/0 · 0/1 | 5/0 · 1/0 | — |
+| group_conf_member_extra / group_conf_deep_extra | 5/0 · 2/0/1 | — · 2/0/1 | 5/0 · 2/0/1 | — |
+| account_conf_extra / account_deep_extra | 6/0 · 1/0 | 4/2 · 0/1 | 6/0 · — | — |
+| calls_misc | 10/0/0 | 3/5/2 (cascade, see below) | 7/0/3 | — |
+| p1_chat / p1_single | 8/0 · 1/2 | — · 4/1 | 7/0/1 · 5/0 (retry) | — |
+| p2_reply / p2_verify / p3_writable | 1/0 · 1/0 · 1/0 | 1/0 · — · 1/0 | — | — |
+| p1_extra / app_entry_extra / native_boundary_guards | 2/0 · 8/0 · 5/0/1 | — · — · 3/2/1 | — | — |
+| mobile_shell / tablet_layout | — | 5/0 | 1/0 | 5/0 |
+| p1_relaunch / p2_keys / group_mention | 3/0/2 · 2/0/1 · 2/0 (flaky) | — | — | — |
+| legacy scenario stacks (all-expanded + group-*) | 31 pass / 6 flaky | — | — | — |
+
+### Product defects found and fixed (each with a regression test)
+
+1. **Bootstrap node probe libelled an unresolvable host as a local UDP
+   constraint** (macOS `settings_bootstrap_manual_add_node`, 2/2). `tox.example.org`
+   fails every `tox_dht_send_nodes_request` with `BAD_IP`; the probe mapped
+   `sendCount == 0` to `udpUnavailable` and Settings said "this device is
+   running TCP-only" on a UDP-capable desktop. `tim2tox_ffi_dht_send_nodes_request`
+   now returns the negated `Tox_Err_Dht_Send_Nodes_Request` (1 = accepted, 0 =
+   FFI refused pre-toxcore), `DhtSendNodesRequestError` /
+   `dhtSendNodesRequestChecked` decode it, and `BootstrapNodeProbe.verdictFor`
+   holds descriptor-only refusals (`BAD_IP` / `BAD_PORT`) against the node.
+   Tests: `test/util/bootstrap_node_probe_verdict_test.dart`, tim2tox
+   `scenario_dht_nodes_response_api_test` "send refusal carries its reason".
+2. **Conversation long-press / secondary-tap menu clobbered after a HomePage
+   remount** (all three mobile pairs, `sweep_conv` first attempt 4/5; the
+   screenshot shows UIKit's upstream Mark-as-Read/Hide/Delete sheet). HomePage
+   reset the UIKit handlers unconditionally on dispose; mobile `forceHomeRoot`
+   remounts through `pushAndRemoveUntil`, so the OLD dispose erased the NEW
+   registration. `lib/ui/home/conversation_context_menu_handlers.dart` installs
+   and identity-guards them. Test: `test/ui/home/conversation_context_menu_handlers_test.dart`.
+   Verified first-attempt green on iPhone and Android.
+3. **Compact-shell chat open never bound the active conversation** (iPhone:
+   `c2c_global_search_contact_opens_chat`, `c2c_header_profile_send_back`,
+   `friendprof_send_message_tile`, `message_burst_perf`, `call_record_bubble_renders`,
+   `sweep_conv` end-state). Only the row tap called `setActivePeer` +
+   `currentConversation`; `HomePage._openChat` (profile tile, notification tap,
+   `l3_open_chat`, post-create) and global search pushed the message route
+   unbound — unread kept counting, the open chat's notifications were not
+   suppressed. `lib/navigation/active_conversation_binding.dart` is the BIND half
+   (the route observer was already the unbind half). Test:
+   `test/navigation/active_conversation_binding_test.dart`. Verified: c2c_extra
+   5/5, contacts 14/0/1, p3_writable 1/0, conv 9/0/1 on iPhone.
+
+### Harness defects found and fixed
+
+- `reply_quote_real` compared `messageReply.messageSender` to B's pubkey; the
+  fork (like upstream) writes `nickName ?? sender`, so the case failed whenever A
+  already knew B's name (inside any bundle). Accepts the label now.
+- AddGroupDialog on a phone: with the iOS keyboard up, the key-addressed submit
+  tap dismissed the dialog without creating (live-proven; the same tap after
+  `ui_hide_keyboard` creates). `_revealDialogKey`'s drag at y=400 starts on the
+  modal barrier and dismisses it too. `_prepareDialogSubmit` (hide keyboard, no
+  reveal) — iPhone `group_create` scenario and `account_conf_extra` creates now
+  pass.
+- `conference_search_result_opens` and `search_chat_history_window_open` drive
+  the desktop search OVERLAY; they now declare SKIP on any compact shell from
+  the live `homeShellShouldShowMasterDetail` (was Android-only / not at all).
+- `_printGroupCreateDiag` (tap_diag part) prints shell + conversations +
+  dialog state when a real-UI create never surfaces — the iPhone pair has no
+  on-disk app log, so this is the only evidence a red run leaves.
+
+### Second pass (2026-08-24): fixes driven by the open list
+
+- **Conversation row ErrorWidget after a call (iPhone)** — B's render tree
+  after `call_callee_hangup` held a `RenderErrorBox` under
+  `TencentCloudChatConversationItemContent` (264×100000): toxee's call-record
+  emitter omitted `call_end` for a 0-second call and the fork's
+  `CallingMessage` hang-up branch called `getShowTime(null)`. Fixed on both
+  sides (`lib/sdk_fake/fake_uikit_core.dart`, fork
+  `tencent_cloud_chat_message_calling_message.dart`); regression
+  `test/ui/conversation_row_call_record_test.dart`. This is what made the
+  `calls_misc` chain cascade and every later "could not open chat via
+  conversation-list" on the phone.
+- **Compact-shell header stale after rename** — `ToxeeMessageHeaderInfo` now
+  follows UIKit conversation-list events (and carries
+  `chat_header_title_text`); `test/ui/home/toxee_message_header_info_live_name_test.dart`.
+- **Desktop @-mention** — fork `_replaceAtTag` tolerates an invalid selection;
+  `membersNeedToMention` consumed by identity; `test/ui/chat/desktop_mention_insert_test.dart`.
+- **Notification tap seam** answers `no_listener` until HomePage subscribes
+  (the broadcast used to drop the injected tap); the driver polls.
+- **Harness reach on mobile** — profile scroll drags `group_profile_scroll_view`;
+  iOS/Android kick goes through the `CupertinoActionSheet`
+  (`group_member_action_kick_button`); Settings scrolls by touch drag on
+  mobile shells and maps the switch/delete buttons to Account Management
+  (iPhone `account_conf_extra` 5/0/1 declared); the AddGroupDialog submit
+  hides the keyboard first and no longer drags the barrier; the two
+  desktop-search-overlay cases declare SKIP on compact shells; attachment
+  picks open the mobile "+" sheet before each tap.
+- **macOS "silent exit" ROOT-CAUSED: flutter_skill screenshot leak.** lldb
+  proved A stays alive (100% CPU, VM-service listener gone) until the runner's
+  teardown SIGTERM; the RSS curve showed every bundle dying at ~770-790MB with
+  the DART heap at only ~220MB — the bloat is native. The published
+  `flutter_skill` 0.9.36 never `dispose()`s the `ui.Image`/`Picture` behind
+  ANY of its screenshot paths, and `_captureFullScene` captures at PHYSICAL
+  size (~16MB per shot on a 2x display); a bundle takes dozens of shots.
+  Fixed by VENDORING the package (`third_party/flutter_skill`, MIT) with the
+  dispose calls and routing it through `tool/bootstrap_deps.dart`'s generated
+  overrides — drop the vendored copy when upstream fixes it. (The
+  `FfiChatService.dispose()` poll-teardown hardening found on the way is real
+  and kept.) Debug/test builds only — production has no flutter_skill.
+
+  RESIDUAL: with the leak fixed the bundle got further (58 cases vs ~48) but
+  the debug VM still dies at ~770MB dirty — `vmmap` shows the remainder is the
+  debug JIT + Dart heap (`VM_ALLOCATE` 253MB and climbing; MALLOC only
+  ~150MB): the single-launch mega-bundle simply exceeds what a debug VM
+  survives on macOS. Every member sweep passes in its own launch, so treat
+  `rui-single-app-optimized` / `rui-optimized-current` as a smoke-density
+  trade-off with a known ceiling, not as the correctness gate. `Inst.shot`
+  now caps captures at 1000px wide to lower the transient peak.
+
+### Status after the second pass (2026-08-24)
+
+Everything "open" after the first pass is now either FIXED (verified
+in-sweep), root-caused and documented, or a known flaky class:
+
+- **FIXED & verified**: iOS/iPad `conference_rename_leave` header staleness
+  (live conversation-name subscription in `ToxeeMessageHeaderInfo`); macOS
+  `conference_rename_leave` in-sweep ("edit-name dialog did not open" was a
+  stale text-selection handle overlay swallowing the coordinate tap —
+  `_dismissStaleSelectionOverlay`; `sweep_p1_single` 5/0 in-sweep); iPhone
+  `group_kick_member_ui` / iPad `group_profile_clear_history` (mobile-sheet
+  kick + live-height profile scroll; scenario run 14/0); iPhone settings
+  cancel cases (Account Management mapping + touch-drag scrolling); iPhone
+  `notification_tap_routes_to_c2c` (listener-aware inject seam + baseline
+  poll) and `attachment_entry_buttons_render` (mobile "+" sheet reveal
+  before each tap); the conversation-row call-record crash (`call_end` now
+  written by `fake_uikit_core` for ended calls; the fork tolerates records
+  without it) — which also explains the iPhone `calls_misc` cascade.
+- **FIXED & verified in-bundle (friendship-r7 sweep_group_mention 2/0;
+  iOS calls-misc-r4 5/0)**: macOS
+  `group_at_member_send` inside the friendship bundle — final root cause
+  (superseding the interim SelectionHandleOverlay theory): group2's kick
+  case ends on the full-screen GroupMemberList route, the mention flow's
+  open-chat seam short-circuits on the already-current conversation, and
+  every POINTER tap then lands on the leftover page while KEYBOARD events
+  still reach the composer beneath. Proof: byte-identical failure shots
+  across r4/r6 showing that page; dumps with the mention panel open UNDER
+  it; and `group_at_all_send` "passing" only because its bare contains('@')
+  matched the typed '@' itself (assertion now requires `@\S`). The mention
+  flow now resets to home root + clears the active conversation before a
+  real re-open, taps only a STABLE row center, and verifies the composer
+  holds "@<label>" before sending (fork-side `_replaceAtTag` hardening +
+  `identical` consumption stay in as real fixes for the -1-selection
+  RangeError); and iPhone `call_missed_record_row` in-sweep (an
+  earlier case can leave the call overlay minimized to the PiP
+  `floating-call-card` — `_restoreCallOverlayIfMinimized` before hangup;
+  verified `endedA=true endedB=true rowRendered=true`, first attempt).
+- **Root-caused, documented constraint (not an open bug)**: the macOS
+  `rui-single-app-optimized` A-exit — flutter_skill screenshot leak (fixed
+  by the vendored dispose) plus debug-VM JIT/heap growth past ~770MB; see
+  the leak section above. The member sweeps are the correctness gate.
+- **Known flaky classes (retry-covered)**: mobile first-attempt
+  message-delivery timing (`msgmenu_read_receipt_group_gating`,
+  `msg_select_clear_button_resets_count`); same-host NGC/DHT handshake after
+  `reset_friendship` on a long-lived pair (`handshake*`,
+  `conference_message`); macOS keystroke focus (`group_search`); one-off
+  VM-service screenshot stalls under long-bundle load (r7 retry:
+  `c2c_conv_delete_cancel` died on a 45s `flutter_skill.screenshot` timeout
+  and the very next call recovered — `Inst.shot` is now NON-FATAL so a
+  diagnostics capture can never fail a case again).
+- **Pre-existing, unrelated**: tim2tox `scenario_dht_nodes_response_api_test`
+  "DHT nodes crawling" fails on the untouched baseline too (phase 11, not
+  in CI).
+
+### Mobile coverage batch (2026-08-26)
+
+Two new MOBILE real-UI cases in `sweep_keyed_gaps4` (batch 2, part file
+`drive_real_ui_pair_keyed_gaps4_mention2.dart`), both verified PASS on an
+iPhone pair (`kg4-newcases-3`, 11/0 with all siblings green):
+
+- `mobile_mention_at_all_inserts` — pins TWO fork parity bugs the coverage
+  inventory exposed: `TencentCloudChatAtGroupMemberList.defaultBuilder`
+  dropped the container's `isGroupAdmin` verdict, and the @All row was gated
+  on `groupType ∈ {Work, Public, Meeting}` — Tencent taxonomy toxee's
+  lowercase types never satisfy, so **@All was unreachable on mobile for
+  every toxee group** while desktop offered it. Note the picker's @All row
+  AUTO-SUBMITS on tap (sentinel branch in `_onSelectGroupMember`) — it can
+  never be combined with member rows, which is why this is not a
+  multi-select case.
+- `mobile_search_contact_back_unbinds` — drives the one bind entry point no
+  case covered (global-search CONTACT row → `pushCompactChatRoute`) plus the
+  pop-unbind observer leg and the unread-counts-again consequence. Its FIRST
+  run caught a REAL cross-platform product bug: `DartSearchFriends` in the
+  tim2tox FFI bridge mismatched the vendored SDK's JSON contract in BOTH
+  directions (request: expected `friend_search_param_*` keys the SDK never
+  sends, so the keyword list always parsed empty; response:
+  `FriendInfoResultVectorToJson` emitted a shape `V2TimFriendInfoResult
+  .fromJson` reads none of, so `friendInfo` was always null) — contact
+  search silently returned nothing on the binary path on ALL platforms, and
+  `DartGetFriendsInfo` shared the broken serializer. Both directions fixed
+  in `dart_compat_friendship.cpp` / `dart_compat_callbacks.cpp`.
+  Known first-attempt timing: one run showed `popped=true unbound=false`
+  (unbind not observed within 15s) and passed on retry — same
+  mobile first-attempt class as its sibling nav case; watch item.
+
+The batch surfaced a THIRD product bug, iPad-only in practice:
+`removeGroupMemberList` (chat-uikit-flutter group_profile_data) trimmed the
+member cache with `getRange(0, min(length - 1, 20))` — an off-by-one that
+silently drops the LAST member on every `_cleanGroupData` (chat
+close/switch). On a master-detail shell the pane rebinds fire that
+constantly, and `loadGroupMemberList`'s debounce then serves the truncated
+cache: in a 2-member group SELF can be the dropped row, so
+`_resolveIsGroupAdmin` finds no self and the @All entry vanishes — which is
+exactly why `mobile_mention_at_all_inserts` failed ONLY on iPad and ONLY
+in-sweep (fresh standalone runs always passed). Fixed to `min(length, 20)`
+(cap without dropping). Verification matrix for the batch: iPhone 11/0,
+Android 11/0 (first Android kg4 run ever recorded green), iPad 8/0/4
+(designed skips), each with zero first-attempt failures on the final run.

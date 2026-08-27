@@ -94,7 +94,6 @@ import 'package:tencent_cloud_chat_sticker/tencent_cloud_chat_sticker_init_data.
 import 'package:tencent_cloud_chat_text_translate/tencent_cloud_chat_text_translate.dart';
 import 'package:tencent_cloud_chat_sound_to_text/tencent_cloud_chat_sound_to_text.dart';
 import 'search/custom_search.dart' as search_pkg;
-import 'package:tencent_cloud_chat_sdk/enum/conversation_type.dart';
 import 'settings/settings_page.dart';
 import 'settings/sidebar.dart';
 import 'applications/applications_page.dart';
@@ -114,6 +113,8 @@ import '../util/send_failure_notifier.dart';
 import '../util/platform_utils.dart';
 import 'add_friend_dialog.dart';
 import 'add_group_dialog.dart';
+import '../navigation/active_conversation_binding.dart';
+import 'home/conversation_context_menu_handlers.dart';
 import 'home/home_group_controller.dart';
 import 'home/home_session_controller.dart';
 import 'home/home_widgets.dart';
@@ -425,57 +426,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       try {
-        conv_pkg
-            .TencentCloudChatConversationManager
-            .eventHandlers
-            .uiEventHandlers
-            .setEventHandlers(
-              onSecondaryTapConversationItem:
-                  ({
-                    required V2TimConversation conversation,
-                    required Offset position,
-                  }) async {
-                    if (!mounted) return false;
-                    await _showConversationContextMenu(conversation, position);
-                    return true;
-                  },
-              onLongPressConversationItem:
-                  ({
-                    required V2TimConversation conversation,
-                    required Offset position,
-                  }) async {
-                    if (!mounted) return false;
-                    await _showConversationContextMenu(conversation, position);
-                    return true;
-                  },
-            );
-        _bag.add(() {
-          // Tear down the handler closure on dispose so it can't fire
-          // against a stale State context. There's no "clear" API, so set
-          // it back to a no-op that returns false (default behavior).
-          try {
-            conv_pkg
-                .TencentCloudChatConversationManager
-                .eventHandlers
-                .uiEventHandlers
-                .setEventHandlers(
-                  onSecondaryTapConversationItem:
-                      ({
-                        required V2TimConversation conversation,
-                        required Offset position,
-                      }) async => false,
-                  onLongPressConversationItem:
-                      ({
-                        required V2TimConversation conversation,
-                        required Offset position,
-                      }) async => false,
-                );
-          } catch (e) {
-            AppLogger.warn(
-              '[HomePage] failed to restore onSecondaryTapConversationItem no-op: $e',
-            );
-          }
-        });
+        _bag.add(
+          installConversationContextMenuHandlers(
+            isMounted: () => mounted,
+            showMenu: _showConversationContextMenu,
+          ),
+        );
       } catch (e, st) {
         AppLogger.logError(
           '[HomePage] Failed to register conversation context-menu handlers',
@@ -780,6 +736,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // right-pane bind.
     if (!ResponsiveLayout.shouldShowMasterDetail(context)) {
       final hasGroup = groupId != null && groupId.isNotEmpty;
+      // Bind BEFORE the push so the route shows up already active (unread
+      // zeroed, notifications for it suppressed) — see
+      // active_conversation_binding.dart for the phone-only bug this closes.
+      bindActiveConversation(
+        service: widget.service,
+        peerId: peerId,
+        groupId: groupId,
+      );
       navigateToMessage(
         context: context,
         options: TencentCloudChatMessageOptions(
@@ -1962,65 +1926,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       widget.service.setActivePeer(null);
       return;
     }
-    final String targetConvId = hasGroup ? 'group_$groupId' : 'c2c_${peerId!}';
-
-    V2TimConversation? target;
-    for (final conv in UikitDataFacade.conversationList) {
-      if (conv.conversationID == targetConvId) {
-        target = conv;
-        break;
-      }
-    }
-    final normalizedTarget = target == null
-        ? V2TimConversation(
-            conversationID: targetConvId,
-            type: hasGroup
-                ? ConversationType.V2TIM_GROUP
-                : ConversationType.V2TIM_C2C,
-            userID: hasGroup ? null : peerId,
-            groupID: hasGroup ? groupId : null,
-            showName: hasGroup ? groupId : peerId,
-            groupType: hasGroup
-                ? UikitDataFacade.getGroupInfo(groupId).groupType
-                : null,
-            unreadCount: 0,
-          )
-        : V2TimConversation(
-            conversationID: target.conversationID,
-            type:
-                target.type ??
-                (hasGroup
-                    ? ConversationType.V2TIM_GROUP
-                    : ConversationType.V2TIM_C2C),
-            userID: hasGroup ? null : peerId,
-            groupID: hasGroup ? groupId : null,
-            showName:
-                target.showName ??
-                (hasGroup ? groupId : peerId) ??
-                targetConvId,
-            faceUrl: target.faceUrl,
-            groupType: hasGroup
-                ? (() {
-                    final groupType = UikitDataFacade.getGroupInfo(
-                      groupId,
-                    ).groupType;
-                    return groupType.isNotEmpty ? groupType : target?.groupType;
-                  })()
-                : target.groupType,
-            unreadCount: target.unreadCount ?? 0,
-            lastMessage: target.lastMessage,
-            draftText: target.draftText,
-            draftTimestamp: target.draftTimestamp,
-            isPinned: target.isPinned,
-            recvOpt: target.recvOpt,
-            orderkey: target.orderkey,
-            markList: target.markList,
-            customData: target.customData,
-            conversationGroupList: target.conversationGroupList,
-            c2cReadTimestamp: target.c2cReadTimestamp,
-            groupReadSequence: target.groupReadSequence,
-            groupAtInfoList: target.groupAtInfoList,
-          );
+    final normalizedTarget = resolveConversationTarget(
+      peerId: peerId,
+      groupId: groupId,
+    );
     // Selecting a chat means the profile/detail shell is no longer the active
     // interaction surface. Clear this flag here as a final backstop so desktop
     // contact-profile "Send Message" transitions cannot leave the HomePage in a

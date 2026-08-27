@@ -62,9 +62,15 @@ class FakeUIKit {
     // message into the corresponding chat conversation.
     callServiceManager!.onCallRecordNeeded =
         (remoteUserID, isVideo, isOutgoing, durationSeconds, endReason) {
-      _insertCallRecord(service, remoteUserID, isVideo, isOutgoing,
-          durationSeconds, endReason);
-    };
+          _insertCallRecord(
+            service,
+            remoteUserID,
+            isVideo,
+            isOutgoing,
+            durationSeconds,
+            endReason,
+          );
+        };
 
     _started = true;
     // Never set callSystemReady synchronously: ValueListenableBuilder in MaterialApp.builder
@@ -126,8 +132,9 @@ class FakeUIKit {
     final calleeID = isOutgoing ? remoteUserID : selfId;
 
     AppLogger.info(
-        '[FakeUIKit] _insertCallRecord: endReason=$endReason, remoteUserID=$remoteUserID, '
-        'selfId=$selfId, isVideo=$isVideo, isOutgoing=$isOutgoing, duration=$durationSeconds');
+      '[FakeUIKit] _insertCallRecord: endReason=$endReason, remoteUserID=$remoteUserID, '
+      'selfId=$selfId, isVideo=$isVideo, isOutgoing=$isOutgoing, duration=$durationSeconds',
+    );
 
     // Determine actionType matching CallingMessage protocol
     int actionType;
@@ -165,8 +172,11 @@ class FakeUIKit {
         'inviter': callerID,
       },
     };
-    if (isEnded && durationSeconds > 0) {
-      signalingData['call_end'] = durationSeconds;
+    // Every ended call carries its duration — 0 included. The fork's
+    // `CallingMessage` formatter reads `call_end` for a hang-up record, and a
+    // record without it used to throw inside the conversation row.
+    if (isEnded) {
+      signalingData['call_end'] = durationSeconds < 0 ? 0 : durationSeconds;
     }
 
     // Build outer JSON (customElem.data structure)
@@ -198,7 +208,8 @@ class FakeUIKit {
     );
     service.addLocalMessage(remoteUserID, chatMsg);
     AppLogger.info(
-        '[FakeUIKit] Call record stored in FfiChatService: msgID=$msgID, remoteUserID=$remoteUserID, actionType=$actionType');
+      '[FakeUIKit] Call record stored in FfiChatService: msgID=$msgID, remoteUserID=$remoteUserID, actionType=$actionType',
+    );
 
     // Also emit via event bus for real-time delivery if chat page is already open.
     // Find the correct conversation key from the message provider to match _ctrls.
@@ -218,7 +229,8 @@ class FakeUIKit {
     );
     eventBusInstance.emit(FakeIM.topicMessage, fakeMsg);
     AppLogger.info(
-        '[FakeUIKit] Call record emitted via event bus: msgID=$msgID, convID=$conversationID');
+      '[FakeUIKit] Call record emitted via event bus: msgID=$msgID, convID=$conversationID',
+    );
 
     // Also inject into UIKit message data so currently-open chat list updates
     // immediately even when external stream controllers are not attached.
@@ -239,8 +251,9 @@ class FakeUIKit {
     required String callRecordJson,
   }) {
     try {
-      final msg =
-          V2TimMessage(elemType: MessageElemType.V2TIM_ELEM_TYPE_CUSTOM);
+      final msg = V2TimMessage(
+        elemType: MessageElemType.V2TIM_ELEM_TYPE_CUSTOM,
+      );
       msg.msgID = msgID;
       msg.id = msgID;
       msg.timestamp = timestampMs ~/ 1000;
@@ -248,14 +261,19 @@ class FakeUIKit {
       msg.sender = selfID;
       msg.isSelf = true;
       msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_SUCC;
-      msg.customElem =
-          V2TimCustomElem(data: callRecordJson, desc: '', extension: '');
+      msg.customElem = V2TimCustomElem(
+        data: callRecordJson,
+        desc: '',
+        extension: '',
+      );
       UikitDataFacade.onReceiveNewMessage(msg);
       AppLogger.info(
-          '[FakeUIKit] Call record injected into messageData: msgID=$msgID, userID=$remoteUserID');
+        '[FakeUIKit] Call record injected into messageData: msgID=$msgID, userID=$remoteUserID',
+      );
     } catch (e) {
       AppLogger.error(
-          '[FakeUIKit] Call record messageData injection failed: $e');
+        '[FakeUIKit] Call record messageData injection failed: $e',
+      );
     }
   }
 

@@ -486,8 +486,8 @@ void main() {
     );
     final profileScroll = group.substring(profileScrollStart, profileScrollEnd);
     expect(profileScroll, contains('inst.isMobileShell'));
-    expect(profileScroll, contains('c.y <= 880'));
-    expect(profileScroll, contains("dragBy('group_profile_scroll_anchor'"));
+    expect(profileScroll, contains('_viewHeight(inst, key)'));
+    expect(profileScroll, contains("dragBy('group_profile_scroll_view'"));
     expect(profileScroll, contains('dy: -420'));
     expect(profileScroll, contains('steps: 16'));
     expect(profileScroll, contains('key_not_found'));
@@ -525,9 +525,19 @@ void main() {
       createFlow,
       contains("_revealDialogKey(inst, 'add_group_create_name_input')"),
     );
+    // The submit is prepared through `_prepareDialogSubmit` (hide the soft
+    // keyboard first — a key-addressed tap with the iOS keyboard up dismissed
+    // the dialog without creating, live iPhone 2026-08-23), not revealed by the
+    // barrier-dragging `_revealDialogKey`.
     expect(
       createFlow,
-      contains("_revealDialogKey(inst, 'add_group_create_submit_button')"),
+      contains("_prepareDialogSubmit(inst, 'add_group_create_submit_button')"),
+    );
+    expect(
+      createFlow,
+      isNot(
+        contains("_revealDialogKey(inst, 'add_group_create_submit_button')"),
+      ),
     );
 
     final accountDeep = File(

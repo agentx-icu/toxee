@@ -33,7 +33,9 @@ enum BootstrapProbeVerdict {
 
   /// This device has no UDP socket bound, so the DHT probe cannot run at all
   /// (`tox_dht_send_nodes_request` fails with `UDP_DISABLED`), or no getnodes
-  /// request could be sent at all during the probe window.
+  /// request could be sent during the probe window for a reason on THIS
+  /// device (see [BootstrapNodeProbe.verdictFor] — an unresolvable host is
+  /// [unreachable], not this).
   ///
   /// This is NOT [unreachable] and must never be rendered as one. A TCP-only
   /// client still USES bootstrap nodes — it reaches them through
@@ -222,27 +224,57 @@ class BootstrapNodeProbe {
         publicKey: publicKey,
         timeout: timeout,
       );
-      // `sent == 0` means NOT ONE getnodes request left this device across the
-      // whole window — see [_ProbeSession.sendCount]. Nothing was ever asked of
-      // the node, so "unreachable" would be a verdict about our own socket
-      // wearing the node's name. That is the same lie [udpUnavailable] exists
-      // to prevent (a TCP-only client still reaches bootstrap nodes through
-      // `tox_add_tcp_relay`), so it takes the same verdict: report the local
-      // constraint and leave the node selectable.
-      final verdict = answered
-          ? BootstrapProbeVerdict.reachable
-          : session.sendCount == 0
-          ? BootstrapProbeVerdict.udpUnavailable
-          : BootstrapProbeVerdict.unreachable;
+      final verdict = verdictFor(
+        answered: answered,
+        sendCount: session.sendCount,
+        sendErrors: session.sendErrors,
+      );
       AppLogger.log(
         '[BootstrapNodeProbe] $host:$port -> ${verdict.name} '
         '(probeUdp=${session.udpPort} sent=${session.sendCount} '
-        'responses=${session.responseCount})',
+        'responses=${session.responseCount} '
+        'sendErrors=${session.sendErrors.map((e) => e.name).join(',')})',
       );
       return verdict;
     } finally {
       session.dispose();
     }
+  }
+
+  /// Name the verdict from what the probe window actually observed.
+  ///
+  /// `sendCount == 0` means NOT ONE getnodes request left this device across
+  /// the whole window — see [_ProbeSession.sendCount] — and WHY decides whose
+  /// fault that is:
+  ///
+  /// * every refusal described the descriptor ([DhtSendNodesRequestError
+  ///   .isDescriptorProblem]: an unresolvable host, a bad port) — the node was
+  ///   asked for and could not even be addressed, which is exactly the
+  ///   "unresolvable host" [BootstrapProbeVerdict.unreachable] documents;
+  /// * anything else (UDP disabled, no usable instance, a send that failed on
+  ///   this device) — nothing was ever asked of the node, so "unreachable"
+  ///   would be a verdict about our own socket wearing the node's name. That
+  ///   is the same lie [BootstrapProbeVerdict.udpUnavailable] exists to
+  ///   prevent (a TCP-only client still reaches bootstrap nodes through
+  ///   `tox_add_tcp_relay`), so it takes the same verdict: report the local
+  ///   constraint and leave the node selectable.
+  ///
+  /// Before this split a UDP-capable desktop probing `tox.example.org` was
+  /// told "this device is running TCP-only" — false, and it hid the real
+  /// answer (the host does not resolve).
+  @visibleForTesting
+  static BootstrapProbeVerdict verdictFor({
+    required bool answered,
+    required int sendCount,
+    required Set<DhtSendNodesRequestError> sendErrors,
+  }) {
+    if (answered) return BootstrapProbeVerdict.reachable;
+    if (sendCount > 0) return BootstrapProbeVerdict.unreachable;
+    final descriptorOnly =
+        sendErrors.isNotEmpty && sendErrors.every((e) => e.isDescriptorProblem);
+    return descriptorOnly
+        ? BootstrapProbeVerdict.unreachable
+        : BootstrapProbeVerdict.udpUnavailable;
   }
 }
 
@@ -260,10 +292,16 @@ class _ProbeSession {
 
   /// Diagnostics: how many getnodes requests toxcore accepted, and how many
   /// DHT nodes responses came back. `sent > 0 && responses == 0` is the
-  /// signature of a genuinely unreachable node; `sent == 0` means the probe
-  /// never got off the ground and the verdict is not the node's fault.
+  /// signature of a genuinely unreachable node; `sent == 0` means no request
+  /// ever left, and [sendErrors] says whether that was the descriptor's fault
+  /// (unresolvable host, bad port) or this device's — see
+  /// [BootstrapNodeProbe.verdictFor].
   int sendCount = 0;
   int responseCount = 0;
+
+  /// Every distinct reason toxcore refused a send during the window. Read
+  /// together with [sendCount] by [BootstrapNodeProbe.verdictFor].
+  final Set<DhtSendNodesRequestError> sendErrors = <DhtSendNodesRequestError>{};
 
   static Future<_ProbeSession> start() async {
     final root = await AppPaths.getProfileStorageRoot();
@@ -326,8 +364,8 @@ class _ProbeSession {
   ///
   /// Returns `true` only when a response arrived. A `false` here means "no
   /// answer within the window" — it does NOT distinguish a dead node from a
-  /// probe that never got off the ground; [sendCount] does, and
-  /// `_runIsolatedProbe` reads it before naming a verdict.
+  /// probe that never got off the ground; [sendCount] and [sendErrors] do, and
+  /// [BootstrapNodeProbe.verdictFor] reads them before naming a verdict.
   Future<bool> awaitAnyResponse({
     required String host,
     required int port,
@@ -354,8 +392,9 @@ class _ProbeSession {
       // so one transient local hiccup permanently read as "Node unreachable" in
       // Settings for a node that was fine. The retry timer now starts
       // unconditionally and keeps trying for the whole window; if EVERY attempt
-      // fails, `sendCount` stays 0 and the caller reports that as a probe
-      // failure rather than as the node's fault.
+      // fails, `sendCount` stays 0 and [BootstrapNodeProbe.verdictFor] decides
+      // from the recorded refusal reasons whether that is the descriptor's
+      // fault (unresolvable host) or this device's.
       _send(host, port, publicKey);
       retry = Timer.periodic(BootstrapNodeProbe._retryInterval, (_) {
         if (answered.isCompleted) return;
@@ -372,11 +411,15 @@ class _ProbeSession {
 
   bool _send(String host, int port, String publicKey) {
     try {
-      final ok = _run(
-        () => _svc.dhtSendNodesRequest(publicKey, host, port, publicKey),
+      final refusal = _run(
+        () => _svc.dhtSendNodesRequestChecked(publicKey, host, port, publicKey),
       );
-      if (ok) sendCount++;
-      return ok;
+      if (refusal == null) {
+        sendCount++;
+        return true;
+      }
+      sendErrors.add(refusal);
+      return false;
     } catch (e) {
       SafeDiagnostics.logFailure(
         '[BootstrapNodeProbe] getnodes send failed',

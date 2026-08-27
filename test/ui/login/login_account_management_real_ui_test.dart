@@ -107,7 +107,10 @@ Future<void> _tapAndAwait(
   WidgetTester tester, {
   required Finder trigger,
   required FutureOr<bool> Function() isDone,
-  Duration timeout = const Duration(seconds: 10),
+  // Wall-clock budget. 10s flaked under full-suite parallel load (the loaded
+  // Mac runs PBKDF2 + prefs I/O well below solo speed); solo runs finish in
+  // well under a second, so the wider bound costs nothing when healthy.
+  Duration timeout = const Duration(seconds: 45),
   String? timeoutMessage,
 }) async {
   var completed = false;

@@ -91,7 +91,9 @@ Future<int> runAccountConfExtraSweep(Inst a, String nickA) async {
     }
     if (ok == null) {
       skipped++;
-      final expected = a.isAndroid && name == 'conference_search_result_opens';
+      // The only declared SKIP: no desktop search overlay on a compact shell.
+      final expected =
+          name == 'conference_search_result_opens' && await _isCompactShell(a);
       if (!expected) unexpectedSkipped++;
       print(
         '[sweep] sweep_account_conf_extra '
@@ -442,11 +444,7 @@ Future<bool> _aceConferenceProfileSendMessageTile(Inst inst) async {
 }
 
 Future<bool?> _aceConferenceSearchResultOpens(Inst inst) async {
-  if (inst.isAndroid) {
-    print(
-      '[pair] conference_search_result_opens: SKIP — Android compact shell '
-      'has no desktop master-detail search route',
-    );
+  if (await _noSearchOverlay(inst, 'conference_search_result_opens')) {
     return null;
   }
   final name = _aceConfName('SEARCH');
