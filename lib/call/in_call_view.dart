@@ -216,6 +216,7 @@ class InCallView extends StatelessWidget {
         ),
       if (!showSpeakerToggle && supportsRouteSelection)
         CallDockAction(
+          key: UiKeys.callAudioRouteButton,
           icon: Icons.route,
           label: l10n.routeSelection,
           onPressed: () => _showAudioRouteSheet(context, l10n),
@@ -226,6 +227,7 @@ class InCallView extends StatelessWidget {
         // routing is managed by the system, so users aren't left wondering
         // whether the app is missing a feature.
         CallDockAction(
+          key: UiKeys.callAudioRouteButton,
           icon: Icons.route,
           label: l10n.routeSelection,
           enabled: false,
@@ -286,6 +288,9 @@ class InCallView extends StatelessWidget {
               const Divider(height: 1),
               for (final route in state.routes)
                 ListTile(
+                  // toxee automation anchor: lets a case pick a SPECIFIC
+                  // route deterministically instead of tapping by label.
+                  key: UiKeys.callAudioRouteOption(route.id),
                   leading: Icon(
                     _iconForRoute(route.kind),
                     color: route.selected

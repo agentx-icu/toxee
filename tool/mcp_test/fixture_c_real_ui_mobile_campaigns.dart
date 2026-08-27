@@ -406,4 +406,55 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // Contacts / friend profile: 15 cases, two-process,
   // required=no-friend / result=NO-FRIEND (deletes the friend last).
   'rui-android-contacts': ['sweep_contacts'],
+
+  // ---- 2026-08-27 Android expansion: the sweeps below were desktop/iOS-only
+  // by omission, not by dependency — a scoped audit found no osa*/launcher/
+  // TOXEE_IOS_* reliance on their required paths (osaEscape routes to
+  // popToRoot, dialogs use _prepareDialogSubmit, search drives the real
+  // mobile magnifier). STATUS: unproven on an emulator until first green.
+
+  // Mobile settings index/sections: 6 cases, single-instance,
+  // required=no-friend / result=no-friend. The `ios_` prefix is historical —
+  // runIosSettingsMainSweep drives only `isMobileShell` surfaces and an
+  // Android phone takes the same compact drill-in path.
+  'rui-android-settings-main': ['sweep_ios_settings_main'],
+  // Group / conference: 14 cases, mixed single+two-process,
+  // required=no-friend / result=friends. Kick goes through the Cupertino
+  // sheet before the desktop popup; AddGroupDialog submit hides the keyboard.
+  'rui-android-group2': ['sweep_group2'],
+  // Focused C2C expansion: 5 cases, two-process, required=no-friend /
+  // result=friends.
+  'rui-android-c2c-extra': ['sweep_c2c_extra'],
+  // Deep follow-ups on ONE launch: c2c_deep (1) + group_conf_deep (2+1
+  // documented same-host SKIP). Both required=no-friend / result=friends.
+  'rui-android-deep-extra': [
+    'sweep_c2c_deep_extra',
+    'sweep_group_conf_deep_extra',
+  ],
+  // Account-management + conference expansion: 6 cases, single-instance,
+  // required=no-friend / result=no-friend; conference_search_result_opens
+  // declares SKIP on compact shells (expect 5/0/1).
+  'rui-android-account-conf': ['sweep_account_conf_extra'],
+  // Account deep expansion: 1 case, single-instance, no-friend/no-friend.
+  'rui-android-account-deep': ['sweep_account_deep_extra'],
+  // P1 single-instance account/locale/conference: 5 cases,
+  // no-friend/no-friend (ends clean on the primary account + EN locale).
+  'rui-android-p1-single': ['sweep_p1_single'],
+  // C2C reply: 1 case, two-process, no-friend -> friends; menu opens via
+  // ui_long_press on the mobile shell.
+  'rui-android-p2-reply': ['sweep_p2_reply'],
+  // P3 writable subset: 1 case, two-process, no-friend -> friends; the
+  // timing threshold is NON-BLOCKING (slow emulators log an advisory).
+  'rui-android-p3-writable': ['sweep_p3_writable'],
+  // Native/mobile boundary probes: 6 cases, two-process, no-friend ->
+  // friends. restore_import_entry_guard ships its fixture via the seam's
+  // contentB64 (a driver-side /tmp path is unreadable in the app sandbox).
+  'rui-android-boundary-guards': ['sweep_native_boundary_guards'],
+  // Calls + misc: 10 cases, two-process, no-friend -> friends. The video
+  // pair SKIPs when the app reports videoCaptureSupported=false on an
+  // emulator-class environment (iOS Simulator self-report, or Android via
+  // the driver-side platform check); AVDs WITH emulated cameras run them
+  // for real. Expect 3 honest SKIPs otherwise (tabs-cycle, search-overlay,
+  // window-resize).
+  'rui-android-calls-misc': ['sweep_calls_misc'],
 };

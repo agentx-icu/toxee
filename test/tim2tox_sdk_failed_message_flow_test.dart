@@ -213,6 +213,16 @@ class _FakeFfiChatService implements FfiChatService {
   get reactionEvents => _reactions.stream;
 
   @override
+  Stream<({String msgID, String? groupID, int readCount})> get receiptEvents =>
+      const Stream.empty();
+
+  @override
+  void armNextSendNeedReadReceipt(bool value) {
+    // The platform's text dispatch arms/clears this around every send; the
+    // failed-message flow doesn't assert receipt intent, so a no-op is fine.
+  }
+
+  @override
   Stream<
     ({
       int instanceId,
@@ -770,35 +780,39 @@ void main() {
   // fork provider and checks the rendered message list — a return code nobody
   // acts on is not a guarantee.
   group('Tim2ToxSdkPlatform deleteMessages idempotence', () {
-    test('deleting 0 of N is SUCCESS — the messages are already absent',
-        () async {
-      final service = _FakeFfiChatService(deletedCountOverride: 0);
-      final platform = _platformFor(service);
+    test(
+      'deleting 0 of N is SUCCESS — the messages are already absent',
+      () async {
+        final service = _FakeFfiChatService(deletedCountOverride: 0);
+        final platform = _platformFor(service);
 
-      final result = await platform.deleteMessages(
-        msgIDs: ['wire-absent-1', 'wire-absent-2'],
-      );
+        final result = await platform.deleteMessages(
+          msgIDs: ['wire-absent-1', 'wire-absent-2'],
+        );
 
-      // Success, because the caller's post-condition ("not in my history")
-      // holds. Non-zero here made the row undeletable forever.
-      expect(result.code, 0, reason: result.desc);
-      // The no-op is still DIAGNOSABLE — the count is reported, not discarded.
-      expect(result.desc, contains('already absent'));
-      expect(result.desc, contains('0 of 2'));
-      // The attempt still reached the service — not a short circuit.
-      expect(service.deletedIDs, ['wire-absent-1', 'wire-absent-2']);
-    });
+        // Success, because the caller's post-condition ("not in my history")
+        // holds. Non-zero here made the row undeletable forever.
+        expect(result.code, 0, reason: result.desc);
+        // The no-op is still DIAGNOSABLE — the count is reported, not discarded.
+        expect(result.desc, contains('already absent'));
+        expect(result.desc, contains('0 of 2'));
+        // The attempt still reached the service — not a short circuit.
+        expect(service.deletedIDs, ['wire-absent-1', 'wire-absent-2']);
+      },
+    );
 
-    test('an empty request is SUCCESS, not an error code nobody renders',
-        () async {
-      final service = _FakeFfiChatService(deletedCountOverride: 0);
-      final platform = _platformFor(service);
+    test(
+      'an empty request is SUCCESS, not an error code nobody renders',
+      () async {
+        final service = _FakeFfiChatService(deletedCountOverride: 0);
+        final platform = _platformFor(service);
 
-      final result = await platform.deleteMessages(msgIDs: const []);
+        final result = await platform.deleteMessages(msgIDs: const []);
 
-      expect(result.code, 0, reason: result.desc);
-      expect(service.deletedIDs, isEmpty);
-    });
+        expect(result.code, 0, reason: result.desc);
+        expect(service.deletedIDs, isEmpty);
+      },
+    );
 
     test('a genuine storage failure is the ONLY non-zero code', () async {
       final service = _FakeFfiChatService(throwOnDelete: true);

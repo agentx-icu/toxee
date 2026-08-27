@@ -167,4 +167,23 @@ class ForkUiKeys {
       Key('message_image_loading:$msgId');
   static Key messageImageError(String msgId) =>
       Key('message_image_error:$msgId');
+
+  // ---------------------------------------------------------------------
+  // Mobile @-mention member picker
+  // (tencent_cloud_chat_message_input/mobile/
+  //  tencent_cloud_chat_at_group_member_list.dart)
+  // ---------------------------------------------------------------------
+
+  /// The row Checkbox inside the mobile @-mention picker. The row's own
+  /// `mention_member:<uid>` key proves the row exists; this one makes the
+  /// ticked-but-not-yet-committed state observable (the picker is
+  /// multi-select and only commits on pop). `atAll` mirrors the sentinel
+  /// mapping of the row key.
+  static Key mentionMemberCheckbox(String userId) =>
+      Key('mention_member_checkbox:$userId');
+
+  /// The @everyone pseudo-member's checkbox.
+  static const Key mentionMemberCheckboxAtAll = Key(
+    'mention_member_checkbox:atAll',
+  );
 }

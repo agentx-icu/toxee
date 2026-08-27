@@ -1406,21 +1406,20 @@ Future<bool> _hveAttachmentPickAndSend(
 Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
   var ok = false;
   var marked = false;
-  final invalidTox = File(
-    _portableTmp(
-      '/tmp/rui_hve_restore_invalid_'
-      '${DateTime.now().microsecondsSinceEpoch}.tox',
-    ),
-  );
   try {
-    await invalidTox.writeAsString('not a tox profile');
     marked = await inst.markAccountTest();
     if (!marked) {
       print('[pair] restore_import_entry_guard: markAccountTest failed');
       return false;
     }
+    // Ship the invalid fixture THROUGH the seam (contentB64): the app
+    // materializes it inside its own sandbox, so the case asserts the real
+    // "invalid .tox" error on every platform — a driver-written host /tmp
+    // path is unreadable on device and passed for the wrong reason
+    // (missing != invalid).
     final override = await inst.l3('l3_set_account_import_pick_path', {
-      'path': invalidTox.path,
+      'contentB64': base64Encode(utf8.encode('not a tox profile')),
+      'fileName': 'rui_invalid.tox',
     });
     if (override['ok'] != true) {
       print('[pair] restore_import_entry_guard: override failed $override');
@@ -1473,9 +1472,8 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
       print('[pair] restore_import_entry_guard: clear override failed: $e');
     }
     await returnToChatsHome(inst, rounds: 4);
-    if (await invalidTox.exists()) {
-      await invalidTox.delete();
-    }
+    // The fixture lives inside the app sandbox (seam-materialized) — nothing
+    // host-side to clean.
   }
   return ok;
 }
