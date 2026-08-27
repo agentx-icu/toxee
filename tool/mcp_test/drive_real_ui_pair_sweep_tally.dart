@@ -67,7 +67,7 @@ const _keyedGaps3ExpectedSkipCases = <String>{
   'msgmenu_read_receipt_group_gating',
 };
 
-/// keyed-gaps #4 — all seven gate on the running LAYOUT TIER:
+/// keyed-gaps #4 — all nine gate on the running LAYOUT TIER:
 ///   * the three composer-shaped cases gate on `_kg4ComposerKind` (mobile vs
 ///     desktop input builder) — an `unknown` composer is a FAIL, not a skip;
 ///   * `mobile_chats_unread_badge_flips` gates on `_msPhoneShell`
@@ -76,10 +76,18 @@ const _keyedGaps3ExpectedSkipCases = <String>{
 ///   * `mobile_chat_back_clears_active_peer` gates on `_msPhoneShell` too: a
 ///     master-detail shell rebinds its right pane instead of pushing the chat
 ///     route, so there is no route pop for the observer to react to;
-///   * the two @-mention cases gate on `_kg4ComposerKind` too — the desktop
-///     composer resolves mentions through an inline panel and never pushes
-///     `TencentCloudChatAtGroupMemberList`.
+///   * the three @-mention cases (both picker legs + @All) gate on
+///     `_kg4ComposerKind` too — the desktop composer resolves mentions
+///     through an inline panel and never pushes
+///     `TencentCloudChatAtGroupMemberList`;
+///   * `mobile_search_contact_back_unbinds` gates on `_msPhoneShell` like
+///     the conversation-row bind case.
 const _keyedGaps4ExpectedSkipCases = <String>{
+  // batch 2: the @All case gates on _kg4ComposerKind like its picker
+  // siblings; the search-contact bind case gates on _msPhoneShell like the
+  // conversation-row bind case.
+  'mobile_mention_at_all_inserts',
+  'mobile_search_contact_back_unbinds',
   'attachment_toolbar_disabled_entries_gating',
   'mobile_attachment_panel_entries',
   'mobile_voice_record_button_reveals',

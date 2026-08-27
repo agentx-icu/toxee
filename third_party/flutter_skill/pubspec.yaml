@@ -1,0 +1,29 @@
+name: flutter_skill
+description: Give your AI Agent eyes and hands inside your Flutter app.
+version: 0.9.36
+homepage: https://github.com/ai-dashboad/flutter-skill
+repository: https://github.com/ai-dashboad/flutter-skill
+# toxee vendored copy (library-only): bin/, example/, test/ and other
+# non-runtime files are intentionally omitted, so the upstream executables
+# entry is dropped too. lib/flutter_skill.dart carries the screenshot
+# dispose fixes. See README.md.
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  vm_service: ">=14.0.0 <16.0.0"
+  http: ^1.1.0
+  path: ^1.8.0
+  logging: ^1.2.0
+  crypto: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^3.0.0
+  test: ^1.25.0

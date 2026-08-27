@@ -316,9 +316,7 @@ Future<_CreatedGroup> _createGroupViaUI(
   await Future<void>.delayed(const Duration(milliseconds: 200));
   await inst.focusType('add_group_create_name_input', name);
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  if (inst.isMobileShell) {
-    await _revealDialogKey(inst, 'add_group_create_submit_button');
-  }
+  await _prepareDialogSubmit(inst, 'add_group_create_submit_button');
   await inst.tapKey('add_group_create_submit_button');
   // On success the dialog pops and A's own group surfaces as a fresh type==2
   // conversation titled [name]; resolve it unambiguously by that unique name.
@@ -329,7 +327,7 @@ Future<_CreatedGroup> _createGroupViaUI(
     timeoutSecs: 30,
   );
   if (gid == null) {
-    await inst.shot('/tmp/ui_group_create_fail_${inst.name}.png');
+    await _printGroupCreateDiag(inst, name);
     throw DriveError(
       '[${inst.name}] real-UI create: new group "$name" did not appear '
       'after Create',

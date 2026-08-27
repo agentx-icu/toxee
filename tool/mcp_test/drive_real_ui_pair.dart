@@ -166,6 +166,7 @@ import 'local_irc_server.dart';
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_inst_os_input.dart';
 part 'drive_real_ui_pair_keyed_gaps4_mobile_nav.dart';
+part 'drive_real_ui_pair_keyed_gaps4_mention2.dart';
 // Tap / key-resolution diagnostics (keeps the raw skill('tap') payload).
 part 'drive_real_ui_pair_tap_diag.dart';
 part 'drive_real_ui_pair_shell.dart';

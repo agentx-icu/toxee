@@ -699,10 +699,9 @@ packages:
   flutter_skill:
     dependency: "direct main"
     description:
-      name: flutter_skill
-      sha256: b4ee10eba466aee660105b3cc5e17aa509f9f48681c9faeffe6b8fd602acac68
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_skill"
+      relative: true
+    source: path
     version: "0.9.36"
   flutter_svg:
     dependency: transitive

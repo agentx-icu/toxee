@@ -60,10 +60,13 @@ Future<int> runGroupMentionCase(
   var ok = false;
   try {
     ok = switch (scenario) {
-      'group_at_member_send' =>
-        await _gmAtMemberSend(a, est.groupIdA, est.groupName, nickB),
-      'group_at_all_send' =>
-        await _gmAtAllSend(a, est.groupIdA, est.groupName),
+      'group_at_member_send' => await _gmAtMemberSend(
+        a,
+        est.groupIdA,
+        est.groupName,
+        nickB,
+      ),
+      'group_at_all_send' => await _gmAtAllSend(a, est.groupIdA, est.groupName),
       _ => throw ArgumentError('unsupported group-mention scenario: $scenario'),
     };
   } finally {
@@ -93,7 +96,9 @@ Future<int> runGroupMentionSweep(
     namePrefix: 'RUI-MENTION',
   );
   if (est == null) {
-    print('[sweep] sweep_group_mention: could not establish a two-process group');
+    print(
+      '[sweep] sweep_group_mention: could not establish a two-process group',
+    );
     return 1;
   }
 
@@ -109,7 +114,9 @@ Future<int> runGroupMentionSweep(
       rethrow;
     } on Object catch (e, st) {
       ok = false;
-      print('[sweep] sweep_group_mention EXCEPTION in group_at_member_send: $e');
+      print(
+        '[sweep] sweep_group_mention EXCEPTION in group_at_member_send: $e',
+      );
       print(st);
     }
     if (ok) {
@@ -130,9 +137,11 @@ Future<int> runGroupMentionSweep(
     // and BYPASS the render check (a fake pass), so it stays SKIP-with-reason.
     if (_isWindowsRealUi) {
       skipped++;
-      print('[sweep] sweep_group_mention SKIP: group_at_all_send — verifies the '
-          'admin-gated @All panel RENDERS, which needs char-by-char "@" typing '
-          '(undrivable headless); the mention seam would bypass the render check');
+      print(
+        '[sweep] sweep_group_mention SKIP: group_at_all_send — verifies the '
+        'admin-gated @All panel RENDERS, which needs char-by-char "@" typing '
+        '(undrivable headless); the mention seam would bypass the render check',
+      );
     } else {
       var okAll = false;
       try {
@@ -195,7 +204,9 @@ Future<void> _gmCleanup(
   try {
     await _setAutoAcceptGroupInvites(b, est.priorAutoAccept);
   } on DriveError catch (e) {
-    print('[pair] group_mention cleanup: restore auto-accept failed: ${e.message}');
+    print(
+      '[pair] group_mention cleanup: restore auto-accept failed: ${e.message}',
+    );
   }
   await _leaveGroupUnchecked(a, est.groupIdA);
   await _leaveGroupUnchecked(b, est.groupIdB);
@@ -261,13 +272,41 @@ Future<({String userID, String label})?> _resolveOtherMember(
 /// desktop mention panel, append [nonce], and send via the osascript Return path
 /// (retry until the last group message carries the nonce). Returns the final sent
 /// text (empty on send failure) so the caller can assert the inserted "@<label>".
+/// Wait until [key]'s resolved center stops moving (two consecutive resolves
+/// within 1px). The mention panel animates in; a tap fired at a center
+/// resolved mid-animation lands where the row WAS, and the miss dismisses the
+/// panel without inserting (observed in-bundle: sent "@ <nonce>", no label).
+Future<({double x, double y})?> _gmStableKeyCenter(Inst a, String key) async {
+  ({double x, double y})? prev;
+  for (var i = 0; i < 12; i++) {
+    final c = await a.keyCenter(key);
+    if (c != null &&
+        prev != null &&
+        (c.x - prev.x).abs() < 1 &&
+        (c.y - prev.y).abs() < 1) {
+      return c;
+    }
+    prev = c;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+  }
+  return prev;
+}
+
+/// Whether the composer's EditableText currently holds "@<label>…". The
+/// `┤…├` markers are how debugDumpApp prints a TextEditingValue, so this
+/// cannot false-positive on a message bubble that merely shows the label.
+Future<bool> _gmComposerHasMention(Inst a, String label) async {
+  return (await _appTreeText(a)).contains('┤@$label');
+}
+
 Future<String> _gmTypeMentionAndSend(
   Inst a,
   String gidA,
   String gname,
   String mentionKey,
-  String nonce,
-) async {
+  String nonce, {
+  String? verifyLabel,
+}) async {
   // A freshly-created group sorts to the conversation-list bottom (no message →
   // ts 0) where a synthetic coordinate row-tap doesn't reliably fire its onTap
   // (→ currentConversation null). This is timing-sensitive and reproduces on
@@ -275,25 +314,61 @@ Future<String> _gmTypeMentionAndSend(
   // connect). Open via the production `_openChat` seam on ALL platforms — the
   // asserted action here is the @-mention insert + send, NOT opening the group
   // from the list (that row-tap is covered by group-create / group2 sweeps).
+  // group2's kick case leaves the full-screen GroupMemberList route on top
+  // and the open-chat seam short-circuits on an already-current conversation:
+  // POINTER taps land on the leftover page while KEYBOARD events reach the
+  // composer beneath. Reset to a clean stack and force a real re-open.
+  await a.forceHomeRoot(tab: 'chats');
+  await a.clearActiveConversation();
   await openGroupChat(a, groupId: gidA, groupName: gname, viaL3Seam: true);
   await a.foreground();
   await Future<void>.delayed(const Duration(milliseconds: 400));
   await a.tapAt(_composerX, _composerY);
   await Future<void>.delayed(const Duration(milliseconds: 500));
   await a.osaClear();
-  await Future<void>.delayed(const Duration(milliseconds: 300));
   // Typing "@" raises the fork's mention panel (onChanged detects '@').
-  await a.osaType('@');
-  if (!await a.waitKeyCenter(mentionKey, timeoutSecs: 8)) {
-    print('[pair] group_mention: panel row "$mentionKey" did not appear');
+  // Tap the row only once its center is STABLE, then VERIFY the fork inserted
+  // the label into the composer; a missed tap dismisses the panel silently,
+  // so retry the whole @-open-tap cycle when the insert didn't land.
+  var inserted = false;
+  for (var attempt = 0; attempt < 3 && !inserted; attempt++) {
+    if (attempt > 0) {
+      await a.tapAt(_composerX, _composerY);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await a.osaClear();
+    }
+    // Stale layers can still eat pointer taps while keystrokes get through:
+    // unfocus, refocus, type '@', tap a STABLE row center, VERIFY the insert.
+    await a.hideKeyboard(); // soft: swallows DriveError internally
+    if (attempt > 0) {
+      await a.tapAt(_composerX, _composerY - 250);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    await a.tapAt(_composerX, _composerY);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await a.osaType('@');
+    if (!await a.waitKeyCenter(mentionKey, timeoutSecs: 8)) {
+      print('[pair] group_mention: panel row "$mentionKey" did not appear');
+      continue;
+    }
+    final c = await _gmStableKeyCenter(a, mentionKey);
+    if (c == null) continue;
+    await a.tapAt(c.x, c.y);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    inserted = verifyLabel == null
+        ? true
+        : await _gmComposerHasMention(a, verifyLabel);
+    if (!inserted) {
+      print(
+        '[pair] group_mention: tap on "$mentionKey" did not insert '
+        '(attempt ${attempt + 1})',
+      );
+    }
+  }
+  if (!inserted) {
+    print('[pair] group_mention: mention insert failed after retries');
     return '';
   }
-  if (!await a.tapKeyAt(mentionKey)) {
-    print('[pair] group_mention: panel row "$mentionKey" not tappable');
-    return '';
-  }
-  // _replaceAtTag has now inserted "@<label> " and put the cursor after it.
-  await Future<void>.delayed(const Duration(milliseconds: 500));
   await a.foreground();
   await a.tapAt(_composerX, _composerY);
   await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -347,9 +422,11 @@ Future<bool> _gmAtMemberSend(
     await a.foreground();
     final convId = 'group_$gidA';
     last = '';
-    for (var attempt = 0;
-        attempt < 4 && !last.contains(nonce.trim());
-        attempt++) {
+    for (
+      var attempt = 0;
+      attempt < 4 && !last.contains(nonce.trim());
+      attempt++
+    ) {
       await a.l3('l3_mention_send', {
         'userId': member.userID,
         'label': member.label,
@@ -365,10 +442,14 @@ Future<bool> _gmAtMemberSend(
       gname,
       'mention_member:${member.userID}',
       nonce,
+      verifyLabel: member.label,
     );
   }
   await a.shot('/tmp/ui_group_mention_member_${a.name}.png');
   final sent = last.contains(nonce.trim());
+  if (!last.contains('@${member.label}')) {
+    await _dumpWidgetTree(a, 'mention', 'group_at_member_send');
+  }
   // Assert the fork-inserted label (nickName ?? userID), NOT the runner nickB —
   // they can differ. nickB is logged only for context.
   final hasMention = last.contains('@${member.label}');
@@ -407,7 +488,10 @@ Future<bool> _gmAtAllSend(Inst a, String gidA, String gname) async {
   // The @All entry rendered + was tappable iff _gmTypeMentionAndSend returned a
   // non-empty sent text (it bails to '' when the row never appears). The fork's
   // _replaceAtTag inserts "@<tL10n.atAll>", so the sent text carries an '@'.
-  final hasMention = last.contains('@');
+  // '@\S': the INSERTED label must follow the '@' — the bare typed '@'
+  // ("@ atall…") satisfied a plain contains('@') and false-passed while the
+  // leftover-route bug ate every row tap.
+  final hasMention = RegExp(r'@\S').hasMatch(last);
   print(
     '[pair] group_at_all_send: sent=$sent hasMention=$hasMention last="$last"',
   );

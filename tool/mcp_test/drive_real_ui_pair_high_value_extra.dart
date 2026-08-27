@@ -1194,19 +1194,18 @@ Future<bool> _hveNotificationTapRoutesToC2c(Inst a, String toxB) async {
     } on DriveError {
       /* best-effort */
     }
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-    final before = await _currentConversationId(a);
+    String? before; // polls: the route observer clears as the route pops
+    for (var i = 0; i < 10; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      before = await _currentConversationId(a);
+      if (before != convId) break;
+    }
     if (before == convId) {
-      print(
-        '[pair] notification_tap_routes_to_c2c: could not clear the baseline '
-        '(B chat already active)',
-      );
+      print('[pair] notification_tap: baseline never cleared');
       return false;
     }
     // Fire the REAL notification-route handler via the seam.
-    final tap = await a.l3('l3_simulate_notification_tap', {
-      'conversationId': convId,
-    });
+    final tap = await _injectNotificationTapWhenListening(a, convId);
     if (tap['ok'] != true) {
       print('[pair] notification_tap_routes_to_c2c: seam failed $tap');
       return false;
@@ -1222,8 +1221,7 @@ Future<bool> _hveNotificationTapRoutesToC2c(Inst a, String toxB) async {
     await a.shot('/tmp/ui_hve_notification_tap_${a.name}.png');
     print(
       '[pair] notification_tap_routes_to_c2c: before="$before" '
-      'convId=$convId routed=$routed (real route handler via the '
-      'onSelectStream seam; OS-banner trigger is not headless-automatable)',
+      'convId=$convId routed=$routed (onSelectStream seam)',
     );
     return routed;
   } finally {
@@ -1256,10 +1254,7 @@ Future<bool> _hveAttachmentEntryButtonsRender(
   // renders AND sends BOTH a text file and an image (proving the merged picker
   // covers media). Requiring the removed photo/video button keys was a stale
   // expectation after that UI merge.
-  final fileButton = await a.waitKey(
-    'message_attachment_file_button',
-    timeoutSecs: 8,
-  );
+  final fileButton = await _revealAttachmentFileButton(a);
   final fileSent = fileButton
       ? await _hveAttachmentPickAndSend(
           a,
@@ -1289,7 +1284,7 @@ Future<bool> _hveAttachmentEntryButtonsRender(
   await a.shot('/tmp/ui_hve_attachment_entries_${a.name}.png');
   print(
     '[pair] attachment_entry_buttons_render: file=$fileButton '
-    'fileSent=$fileSent imageSent=$imageSent (desktop merged toolbar)',
+    'fileSent=$fileSent imageSent=$imageSent (toolbar or mobile sheet)',
   );
   return fileButton && fileSent && imageSent;
 }
@@ -1351,6 +1346,11 @@ Future<bool> _hveAttachmentPickAndSend(
       print(
         '[pair] attachment picker: WARN chat bind not verified before send',
       );
+    }
+    if (buttonKey == 'message_attachment_file_button' &&
+        !await _revealAttachmentFileButton(a)) {
+      print('[pair] attachment picker: $buttonKey never surfaced');
+      return false;
     }
     if (!await a.tapKeyAt(buttonKey)) {
       print('[pair] attachment picker: $buttonKey not tappable');

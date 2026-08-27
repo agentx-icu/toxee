@@ -827,21 +827,14 @@ class Inst {
   }
 
   /// SINGLE-FIRE tap on a keyed element: resolve its on-screen centre via
-  /// `interactiveStructured` and dispatch exactly ONE `tapAt`.
-  ///
-  /// flutter_skill's `tap` fires the callback TWICE — once via a synthetic
-  /// pointer (`_dispatchTap`) and again via a direct `widget.onPressed!()`
-  /// (`_tryInvokeCallback`). For a route-popping button (`Navigator.pop(...)`)
-  /// that means TWO pops: the first closes the dialog, the second — invoked
-  /// while the button is still mounted mid-dismiss — pops the PAGE underneath.
-  /// In the logout/password flows that pops HomePage, and the trailing
-  /// `if (!mounted) return` then skips the `pushAndRemoveUntil(LoginPage)`,
-  /// leaving an EMPTY Navigator (blank screen, zero interactive elements). Use
-  /// this for the ON-SCREEN dialog POP buttons (confirm/save/dismiss). NOT for
-  /// below-fold openers — a coordinate `tapAt` would miss; drive those with
-  /// `tapKey`, whose direct `_tryInvokeCallback` fires once off-screen. See the
-  /// flutter_skill_double_tap_blank harness hazard. Returns false (no throw)
-  /// when the key is absent or has no usable bounds.
+  /// `interactiveStructured` and dispatch exactly ONE `tapAt`. flutter_skill's
+  /// `tap` fires the callback TWICE (synthetic pointer + direct
+  /// `widget.onPressed!()`); on a route-popping button the second pop lands on
+  /// the PAGE underneath (logout flow → EMPTY Navigator, blank screen). Use
+  /// this for ON-SCREEN dialog POP buttons; NOT for below-fold openers (a
+  /// coordinate tap would miss — use `tapKey`, single off-screen invoke). See
+  /// the flutter_skill_double_tap_blank hazard. Returns false (no throw) when
+  /// the key is absent or has no usable bounds.
   Future<bool> tapKeyCenter(String key, {int timeoutSecs = 8}) async {
     if (await waitKey(key, timeoutSecs: timeoutSecs)) {
       // `waitKey` proves the element is in the tree, but not that it has been
@@ -1165,7 +1158,14 @@ class Inst {
   }
 
   Future<void> shot(String path) async {
-    final r = await skill('screenshot');
+    // Diagnostics only: a screenshot stall must never fail a case.
+    final Map<String, dynamic> r;
+    try {
+      r = await skill('screenshot', {'maxWidth': 1000});
+    } on DriveError catch (e) {
+      print('[$name] shot failed: ${e.message.split('\n').first}');
+      return;
+    }
     final img = r['image'] as String?;
     if (img == null || img.isEmpty) {
       print('[$name] shot empty (window backgrounded?)');

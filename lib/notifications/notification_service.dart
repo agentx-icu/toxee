@@ -200,17 +200,17 @@ class NotificationService {
   Stream<String> get onSelectStream => _onSelectController.stream;
 
   /// L3 TEST seam: push a tap [payload] onto [onSelectStream] exactly as the
-  /// OS tap handler [_handleNotificationResponse] does, WITHOUT a real banner
-  /// or OS-level tap. This drives the SAME subscribers production uses
-  /// (`NotificationMessageListener.onConversationTapped` →
-  /// `_routeToNotificationPayload` → `_openChat`), so the in-app routing half
-  /// of S53 is exercised faithfully; only the OS banner/tap surface is bypassed.
-  /// Used by the `l3_simulate_notification_tap` debug tool. No-op on an empty
-  /// payload or a closed controller.
-  void debugInjectNotificationTap(String payload) {
-    if (payload.isEmpty) return;
-    if (_onSelectController.isClosed) return;
-    _onSelectController.add(stripIncomingCallWindowNonce(payload));
+  /// OS tap handler [_handleNotificationResponse] does, WITHOUT a real banner:
+  /// the SAME subscribers production uses (`NotificationMessageListener
+  /// .onConversationTapped` → `_routeToNotificationPayload` → `_openChat`)
+  /// run, so the in-app routing half of S53 is exercised faithfully.
+  /// Used by `l3_simulate_notification_tap`. False on an empty payload, a
+  /// closed controller, or NO LISTENER YET (a broadcast would drop the event).
+  bool debugInjectNotificationTap(String payload) {
+    final ctrl = _onSelectController;
+    if (payload.isEmpty || ctrl.isClosed || !ctrl.hasListener) return false;
+    ctrl.add(stripIncomingCallWindowNonce(payload));
+    return true;
   }
 
   /// Returns true once [init] has completed successfully on this platform.

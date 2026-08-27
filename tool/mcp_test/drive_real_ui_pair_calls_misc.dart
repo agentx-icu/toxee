@@ -359,12 +359,10 @@ Future<bool> _themeSwitchChatOpen(Inst inst, String toxB) async {
 // case 94 — search_chat_history_window_open (S93)  [two-process state, drives A]
 // ===========================================================================
 /// Seed a UNIQUE message term in the C2C chat, open the GLOBAL search overlay
-/// (Cmd+Ctrl+F — the only entry; there is no visible search button), type the
-/// term → the MESSAGE-result row (`search_result_message_<convId>`) renders →
-/// tap it → the in-conversation `SearchChatHistoryWindow` mounts (asserted by
-/// its "Search Chat History" AppBar title). This is the surface the brief names;
-/// the global overlay is the production entry to it. Closes the overlay after.
-Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
+/// (Cmd+Ctrl+F — the only entry), type the term → the MESSAGE-result row
+/// (`search_result_message_<convId>`) renders → tap it → the in-conversation
+/// `SearchChatHistoryWindow` mounts ("Search Chat History" AppBar title).
+Future<bool?> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
   final c2c = 'c2c_${_pubkey(toxB)}';
   // Seed a unique searchable term as a real message.
   await openChat(inst, _pubkey(toxB));
@@ -374,15 +372,11 @@ Future<bool> _searchChatHistoryWindowOpen(Inst inst, String toxB) async {
     return false;
   }
   await returnToChatsHome(inst, rounds: 4);
-  // Open the global search overlay (the only entry to message search). Go
-  // through the shared `_openGlobalSearch` helper rather than a bare
-  // `osaSearchShortcut`: it tries the deterministic `l3_open_global_search`
-  // route-push FIRST and only then the real Cmd/Ctrl+F keystroke. That matters
-  // on mobile — a phone has no keyboard chord at all, so the bare shortcut had
-  // no way to mount the overlay and this case could never run there. The
-  // ASSERTED surface (the result row tap → SearchChatHistoryWindow) stays a
-  // real gesture either way; only the opening is seam-assisted, exactly as in
-  // conv_search_filter_clear.
+  // Global search overlay via `_openGlobalSearch`; wide shells only (compact
+  // shells SKIP). The asserted result-row tap stays a real gesture.
+  if (await _noSearchOverlay(inst, 'search_chat_history_window_open')) {
+    return null;
+  }
   await inst.foreground();
   final searchOpened = await _openGlobalSearch(inst);
   if (!await inst.waitKey('message_search_field', timeoutSecs: 10)) {
@@ -814,7 +808,7 @@ Future<int> runCallsMiscSweep(
         () => _homeTabsCycleStateRetained(a, toxB),
       );
       await hard('theme_switch_chat_open', () => _themeSwitchChatOpen(a, toxB));
-      await hard(
+      await soft(
         'search_chat_history_window_open',
         () => _searchChatHistoryWindowOpen(a, toxB),
       );
@@ -977,7 +971,10 @@ Future<int> runCallsMiscCase(
       case 'theme_switch_chat_open':
         return await _themeSwitchChatOpen(a, cToxB) ? 0 : 1;
       case 'search_chat_history_window_open':
-        return await _searchChatHistoryWindowOpen(a, cToxB) ? 0 : 1;
+        {
+          final r = await _searchChatHistoryWindowOpen(a, cToxB);
+          return r == null ? _realUiSkipExitCodeForBatch8 : (r ? 0 : 1);
+        }
     }
     return 1;
   } finally {

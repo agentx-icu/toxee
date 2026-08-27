@@ -471,12 +471,12 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
     print('[pair] conference_rename_leave: conference create failed');
     return false;
   }
-  // 2. Rename via the keyed edit-name dialog. The opener FAB is ON-SCREEN in
-  // the profile, so single-fire it (flutter_skill's `tap` double-fires an
-  // on-screen button — synthetic pointer + direct callback — which would stack
-  // TWO edit dialogs; `_changeGroupName` has no re-entry guard).
+  // 2. Rename via the keyed edit-name dialog. Single-fire the on-screen FAB
+  // (flutter_skill `tap` double-fires: pointer + direct callback — that would
+  // stack TWO edit dialogs; `_changeGroupName` has no re-entry guard).
   await openGroupChat(inst, groupId: gid, groupName: name, viaL3Seam: true);
   await _openGroupProfile(inst);
+  await _dismissStaleSelectionOverlay(inst);
   if (!await inst.tapKeyCenter(
     'group_profile_edit_name_button',
     timeoutSecs: 8,
@@ -485,7 +485,7 @@ Future<bool> _p1ConferenceRenameLeave(Inst inst) async {
     return false;
   }
   if (!await inst.waitKey('group_profile_edit_name_field', timeoutSecs: 10)) {
-    print('[pair] conference_rename_leave: edit-name dialog did not open');
+    await _printEditNameDiag(inst, 'conference_rename_leave');
     return false;
   }
   await inst.focusType('group_profile_edit_name_field', newName);

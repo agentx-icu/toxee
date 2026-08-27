@@ -371,6 +371,9 @@ Future<bool> _callMissedRecordRow(
     'incoming',
   }, timeoutSecs: 4);
   await b.foreground();
+  // In-sweep, a route pushed over the call minimizes it to the PiP card and
+  // unmounts the full-screen hangup button — restore first (2026-08-24).
+  await _restoreCallOverlayIfMinimized(b);
   await b.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
   // Both tear down WITHOUT A having accepted = a missed incoming call from A.
   final endedA = await _waitCallStateAny(a, {'ended', 'idle'});

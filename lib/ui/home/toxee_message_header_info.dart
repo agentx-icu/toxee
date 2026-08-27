@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
+import 'package:tencent_cloud_chat_common/data/conversation/tencent_cloud_chat_conversation_data.dart';
+import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_group_member_full_info.dart';
 
 import '../../i18n/app_localizations.dart';
 
@@ -38,8 +40,68 @@ class ToxeeMessageHeaderInfo extends StatefulWidget {
 }
 
 class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
+  /// The conversation as last seen in UIKit's conversation data. On a compact
+  /// shell the message route is PUSHED with only ids and never rebuilt with a
+  /// fresh conversation, so `widget.conversation` is the object captured at
+  /// open time; a rename / alias change that the conversation ROW already
+  /// shows would otherwise never reach this header (iPhone + iPad
+  /// `conference_rename_leave`, 2026-08-24). Desktop rebinds the pane, which
+  /// hid the same gap.
+  V2TimConversation? _liveConversation;
+  StreamSubscription<TencentCloudChatConversationData<dynamic>>?
+  _conversationSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _conversationSub = TencentCloudChat.instance.eventBusInstance
+        .on<TencentCloudChatConversationData<dynamic>>(
+          'TencentCloudChatConversationData',
+        )
+        ?.listen(_onConversationData);
+  }
+
+  @override
+  void didUpdateWidget(covariant ToxeeMessageHeaderInfo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A parent rebuild that hands in a DIFFERENT conversation object — a new
+    // id, or the same id with a fresher name / avatar — wins over whatever the
+    // event stream delivered before it.
+    final o = oldWidget.conversation;
+    final n = widget.conversation;
+    if (o?.conversationID != n?.conversationID ||
+        o?.showName != n?.showName ||
+        o?.faceUrl != n?.faceUrl) {
+      _liveConversation = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _conversationSub?.cancel();
+    super.dispose();
+  }
+
+  void _onConversationData(TencentCloudChatConversationData<dynamic> data) {
+    final id = widget.conversation?.conversationID;
+    if (id == null || id.isEmpty || !mounted) return;
+    for (final conv in data.conversationList) {
+      if (conv.conversationID != id) continue;
+      if (conv.showName ==
+              (_liveConversation ?? widget.conversation)?.showName &&
+          conv.faceUrl == (_liveConversation ?? widget.conversation)?.faceUrl) {
+        return;
+      }
+      setState(() => _liveConversation = conv);
+      return;
+    }
+  }
+
+  V2TimConversation? get _conversation =>
+      _liveConversation ?? widget.conversation;
+
   String _getStatusText(BuildContext context) {
-    final conv = widget.conversation;
+    final conv = _conversation;
     if (conv == null) return '';
     // C2C: show online/offline
     if (conv.type == 1) {
@@ -68,7 +130,8 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
   @override
   Widget build(BuildContext context) {
     final statusText = _getStatusText(context);
-    final displayName = widget.conversation?.showName ??
+    final displayName =
+        _conversation?.showName ??
         widget.userID ??
         TencentCloudChatLocalizations.of(context)?.chat ??
         '';
@@ -80,6 +143,9 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
         children: [
           Text(
             displayName,
+            // Same key as UIKit's own header title, so the real-UI harness
+            // (`chat_header_title_text`) reads this header on every shell.
+            key: const ValueKey('chat_header_title_text'),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
             style: TextStyle(

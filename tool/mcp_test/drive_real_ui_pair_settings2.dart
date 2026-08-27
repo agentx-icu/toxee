@@ -155,7 +155,7 @@ Future<bool> _nudgeIntoBand(Inst inst, String key, {int steps = 8}) async {
   for (var i = 0; i <= steps; i++) {
     final cy = await _keyedCenterY(inst, key);
     if (cy != null && cy >= band.top && cy <= band.bottom) return true;
-    await inst.scrollAt(scrollKey, dy: 140);
+    await _scrollSurface(inst, scrollKey, 140);
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
   return false;
@@ -213,7 +213,7 @@ Future<bool> _scrollKeyIntoBand(
   // bottomBand is a caller's deliberate tightening (language-selector headroom)
   // and must not be widened back out underneath it.
   final maxBottom = bottomBand == null ? band.maxBottom : bottom;
-  await inst.scrollAt(scrollKey, dy: -6000);
+  await _scrollSurface(inst, scrollKey, -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
   // Steps smaller than the band height so a target can't jump from below it
   // straight to above it between checks (the "never reached" overshoot).
@@ -236,7 +236,7 @@ Future<bool> _scrollKeyIntoBand(
       stalledScans = 0;
     }
     prevCy = cy;
-    await inst.scrollAt(scrollKey, dy: scrollDelta);
+    await _scrollSurface(inst, scrollKey, scrollDelta);
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
   final cy = await _keyedCenterY(inst, targetKey);
@@ -303,11 +303,11 @@ Future<bool> _scrollToText(Inst inst, String text, {int maxSteps = 16}) async {
   await inst.foreground();
   // Scrolls whichever list we are parked on (root index or a pushed section).
   final scrollKey = _settingsActiveScrollKey(inst);
-  await inst.scrollAt(scrollKey, dy: -6000);
+  await _scrollSurface(inst, scrollKey, -6000);
   await Future<void>.delayed(const Duration(milliseconds: 250));
   if (await inst.waitText(text, timeoutSecs: 1)) return true;
   for (var step = 0; step < maxSteps; step++) {
-    await inst.scrollAt(scrollKey, dy: 280);
+    await _scrollSurface(inst, scrollKey, 280);
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (await inst.waitText(text, timeoutSecs: 1)) return true;
   }

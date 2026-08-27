@@ -174,3 +174,16 @@ Future<bool?> _kg4LoginDeleteConfirm(Inst a, String nickA) async {
   }
   return wrongWordHeld && cardGone && primaryIntact;
 }
+
+/// The SINGLE-instance login half. One case today; it lives in its own sweep
+/// because it logs out, provisions a throwaway account and deletes it, which is
+/// a `result=no-friend` contract the two-process sweep above does not have.
+Future<int> runKeyedGaps4LoginSweep(Inst a, String nickA) async {
+  final tally = _MobileShellTally('sweep_keyed_gaps4_login');
+  await tally.run(
+    'login_account_delete_confirm_removes_card',
+    () => _kg4RunLoginCase(a, nickA),
+  );
+  await _msLandHome(a, 'sweep_keyed_gaps4_login');
+  return tally.finish();
+}

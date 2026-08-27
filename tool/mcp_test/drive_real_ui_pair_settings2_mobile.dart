@@ -39,6 +39,12 @@ String? _mobileSettingsSectionFor(String key) {
   if (key.startsWith('settings_bootstrap_') || key.startsWith('manual_node_')) {
     return 'settings_mobile_bootstrap_section';
   }
+  // The switch-account rows carry the account's tox id in the key and the
+  // delete button sits next to them — both live in Account Management.
+  if (key.startsWith('settings_account_switch_button:') ||
+      key == 'settings_delete_account_button') {
+    return 'settings_mobile_account_management_section';
+  }
   switch (key) {
     // GlobalSettingsView.appearance — theme + language ONLY.
     case 'settings_theme_segment':

@@ -322,6 +322,9 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    // `detached` is the only trace an app-initiated exit (SystemNavigator.pop,
+    // a terminate request) leaves in the log; the others are cheap and rare.
+    AppLogger.info('[EchoUIKitApp] lifecycle -> ${state.name}');
     if (state == AppLifecycleState.resumed) {
       try {
         FakeUIKit.instance.im?.refreshUnreadTotal();

@@ -159,15 +159,18 @@ const _keyedGaps4Cases = {
   'mobile_chat_back_clears_active_peer',
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
+  'mobile_mention_at_all_inserts',
+  'mobile_search_contact_back_unbinds',
   'login_account_delete_confirm_removes_card',
 };
 
-/// The two cases that need a live two-process GROUP (the mobile @-mention
-/// picker only exists in a group conversation: the composer's `@` branch is
-/// gated on `inputData.groupID != null`). They share ONE established group.
+/// The cases that need a live two-process GROUP (the mobile @-mention picker
+/// only exists in a group conversation: the composer's `@` branch is gated on
+/// `inputData.groupID != null`). They share ONE established group.
 const _keyedGaps4GroupCases = <String>[
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
+  'mobile_mention_at_all_inserts',
 ];
 
 /// The friendship-only (non-group, non-login) cases, in sweep execution order.
@@ -184,6 +187,7 @@ const _keyedGaps4FlatCases = <String>[
   'message_viewer_save_and_zoom_surface',
   'mobile_chats_unread_badge_flips',
   'mobile_chat_back_clears_active_peer',
+  'mobile_search_contact_back_unbinds',
 ];
 
 bool _isKeyedGaps4CaseScenario(String scenario) =>
@@ -259,13 +263,13 @@ Future<int> runKeyedGaps4Case(
   };
 }
 
-/// Nine cases (seven flat + two group) on ONE launch, ONE friendship and ONE
-/// group.
+/// Twelve cases (nine flat + three group) on ONE launch, ONE friendship and
+/// ONE group.
 ///
 /// ORDER: the friendship-only cases first (cheap, none of them mutates group
-/// state), then the two @-mention cases inside a single
-/// `_kg3WithGroup`. `_kg4Normalize` runs between every case so a half-finished
-/// one cannot strand a modal onto the next.
+/// state), then the three group cases (both @-mention picker legs + @All)
+/// inside a single `_kg3WithGroup`. `_kg4Normalize` runs between every case
+/// so a half-finished one cannot strand a modal onto the next.
 Future<int> runKeyedGaps4Sweep(
   Inst a,
   Inst b,
@@ -274,7 +278,9 @@ Future<int> runKeyedGaps4Sweep(
 ) async {
   final ids = await _kg3EnsureFriendship(a, b, nickA, nickB);
   if (ids == null) {
-    print('[sweep] sweep_keyed_gaps4: could not establish the A<->B friendship');
+    print(
+      '[sweep] sweep_keyed_gaps4: could not establish the A<->B friendship',
+    );
     return 1;
   }
   final tally = _MobileShellTally('sweep_keyed_gaps4');
@@ -317,19 +323,6 @@ Future<int> runKeyedGaps4Sweep(
   return tallyExit;
 }
 
-/// The SINGLE-instance login half. One case today; it lives in its own sweep
-/// because it logs out, provisions a throwaway account and deletes it, which is
-/// a `result=no-friend` contract the two-process sweep above does not have.
-Future<int> runKeyedGaps4LoginSweep(Inst a, String nickA) async {
-  final tally = _MobileShellTally('sweep_keyed_gaps4_login');
-  await tally.run(
-    'login_account_delete_confirm_removes_card',
-    () => _kg4RunLoginCase(a, nickA),
-  );
-  await _msLandHome(a, 'sweep_keyed_gaps4_login');
-  return tally.finish();
-}
-
 Future<bool?> _kg4RunFlatCase(
   Inst a,
   Inst b,
@@ -360,8 +353,18 @@ Future<bool?> _kg4RunFlatCase(
     toxA,
     toxB,
   ),
-  'mobile_chat_back_clears_active_peer' =>
-    _kg4MobileChatBackClearsActivePeer(a, b, toxA, toxB),
+  'mobile_chat_back_clears_active_peer' => _kg4MobileChatBackClearsActivePeer(
+    a,
+    b,
+    toxA,
+    toxB,
+  ),
+  'mobile_search_contact_back_unbinds' => _kg4SearchContactBindsBack(
+    a,
+    b,
+    toxA,
+    toxB,
+  ),
   _ => throw ArgumentError('unsupported keyed-gaps4 flat case: $scenario'),
 };
 
@@ -372,6 +375,7 @@ Future<bool?> _kg4RunGroupCase(
 ) => switch (scenario) {
   'mobile_mention_picker_confirm_inserts' => _kg4MentionPickerConfirm(a, est),
   'mobile_mention_picker_back_empty_selection' => _kg4MentionPickerBack(a, est),
+  'mobile_mention_at_all_inserts' => _kg4MentionAtAllInserts(a, est),
   _ => throw ArgumentError('unsupported keyed-gaps4 group case: $scenario'),
 };
 
