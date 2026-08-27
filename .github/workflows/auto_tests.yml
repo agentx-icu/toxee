@@ -118,6 +118,15 @@ jobs:
           # which honours LD_LIBRARY_PATH. Export it for subsequent steps.
           echo "LD_LIBRARY_PATH=$src_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           echo "lib_dir=$src_dir" >> "$GITHUB_OUTPUT"
+          # run_tests_ordered.sh preflights ONLY tim2tox-relative candidates
+          # (auto_tests/../build/ffi, .../ci-linux/ffi, auto_tests/../../build/
+          # native-artifacts — which is third_party/build, NOT this repo root).
+          # A cache HIT skips the build step, so nothing lands on those paths
+          # and the runner aborts with "Native library not found" — the hit
+          # path had never been exercised before 2026-08-27. Stage the library
+          # onto the first candidate so cache hits behave like fresh builds.
+          mkdir -p third_party/tim2tox/build/ffi
+          cp "$src_dir/libtim2tox_ffi.so" third_party/tim2tox/build/ffi/
 
       - name: Install auto_tests Flutter packages
         working-directory: third_party/tim2tox/auto_tests

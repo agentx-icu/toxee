@@ -834,13 +834,11 @@ Future<bool> _loginPasswordCorrectUnlocks(Inst inst, String toxId) async {
   return unlocked && pwGone && stillThisAccount;
 }
 
-/// Dismiss the first-run backup wizard (shown after a brand-new registration)
-/// if it is present, via its KEYED buttons + SINGLE-FIRE taps (codex P2): tap
-/// `firstRunBackupWizard.laterButton` -> the dismiss-confirm dialog -> its keyed
-/// `firstRunBackupWizard.confirmDismissButton`. Both buttons pop via
-/// `popDialogIfCurrent` (so a stray double-pop is already absorbed), and
-/// tapKeyCenter fires exactly one pointer tap, so there is no stacked/stuck
-/// dialog hazard. Best-effort + bounded; returns whether the wizard is gone.
+/// Dismiss the first-run backup wizard (post-registration) via its KEYED
+/// buttons + SINGLE-FIRE stable-bounds taps (codex P2): laterButton -> the
+/// dismiss-confirm dialog -> confirmDismissButton. Both pop via
+/// `popDialogIfCurrent` (stray double-pop absorbed). Best-effort + bounded;
+/// returns whether the wizard is gone.
 Future<bool> _dismissFirstRunWizardIfPresent(Inst inst) async {
   await inst.foreground();
   // The wizard renders the "Save your account file" headline + the keyed Later
@@ -853,6 +851,7 @@ Future<bool> _dismissFirstRunWizardIfPresent(Inst inst) async {
   if (!await inst.tapKeyCenter(
     'firstRunBackupWizard.laterButton',
     timeoutSecs: 6,
+    stableBounds: true,
   )) {
     print('[pair] wizard: Later button not tappable');
     return false;
@@ -861,6 +860,7 @@ Future<bool> _dismissFirstRunWizardIfPresent(Inst inst) async {
   if (!await inst.tapKeyCenter(
     'firstRunBackupWizard.confirmDismissButton',
     timeoutSecs: 8,
+    stableBounds: true,
   )) {
     print('[pair] wizard: confirm-dismiss button not tappable');
     return false;

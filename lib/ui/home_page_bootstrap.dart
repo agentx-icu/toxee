@@ -42,6 +42,7 @@ extension _HomePageBootstrap on _HomePageState {
       onPressed: !canJoinConference || manager == null
           ? null
           : () {
+              if (!mounted) return; // defunct-State guard (codex High)
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   fullscreenDialog: true,
@@ -425,16 +426,11 @@ extension _HomePageBootstrap on _HomePageState {
             if (currentConv != null) {
               final conversationID = currentConv.conversationID;
               final changed = _currentConversationID != conversationID;
-              // On desktop master-detail, binding a conversation must surface the
-              // Chats tab. Every other open-chat path (conversation-row tap,
-              // contact-profile "Send Message", notification routing) flips
-              // _index to 0 explicitly, but the GLOBAL-SEARCH path
-              // (custom_search `_navigateToMessage`) sets currentConversation
-              // directly without flipping — so a chat opened from search while
-              // on Contacts/Settings binds + mounts its composer yet stays hidden
-              // behind that pane (live-confirmed: homeShellTab=contacts,
-              // currentConversation bound, hasInput=true). Flip here so ALL
-              // currentConversation bindings consistently reveal the chat, even
+              // Master-detail: binding a conversation must surface the Chats
+              // tab. The GLOBAL-SEARCH path sets currentConversation without
+              // flipping _index, so a chat opened from Contacts/Settings
+              // stayed hidden behind that pane (live-confirmed). Flip here so
+              // ALL currentConversation bindings reveal the chat, even
               // when re-opening the already-current conversation. Mobile pushes a
               // ChatPage route instead of binding the pane, so it has no such gap.
               final needsTabFlip =
@@ -679,14 +675,17 @@ extension _HomePageBootstrap on _HomePageState {
         ),
       ),
       defaultMessageSelectionOperationsConfig: createDefaultValue(
+        // (forwardCombined: dead — fork container pins it false.)
         TencentCloudChatMessageDefaultMessageSelectionOptionsConfig(
           enableMessageForwardIndividually: true,
-          // enableMessageForwardCombined: dead — fork container pins it false.
           enableMessageDeleteForSelf: true,
         ),
       ),
       additionalAttachmentOptionsForMobile:
           ({String? userID, String? groupID, String? topicID}) {
+            // GLOBAL UIKit config closure — outlives this HomePage; a stale
+            // chat rebuild hit defunct State.context (red screen, Android).
+            if (!mounted) return const [];
             final appL10n = AppLocalizations.of(context)!;
             final fileLabel = appL10n.file;
             final cameraLabel =
@@ -694,17 +693,25 @@ extension _HomePageBootstrap on _HomePageState {
             return buildToxeeMobileAttachmentOptions(
               fileLabel: fileLabel,
               cameraLabel: cameraLabel,
-              onFile: () => _sendMedia(
-                context,
-                userId: userID,
-                groupId: groupID,
-                type: _MediaPickType.file,
-              ),
-              onCamera: () => _showCameraMediaOptions(
-                context,
-                userId: userID,
-                groupId: groupID,
-              ),
+              // Invocation-time guards: options BUILT while mounted can be
+              // tapped after this State dies (codex High).
+              onFile: () async {
+                if (!mounted) return;
+                await _sendMedia(
+                  context,
+                  userId: userID,
+                  groupId: groupID,
+                  type: _MediaPickType.file,
+                );
+              },
+              onCamera: () async {
+                if (!mounted) return;
+                await _showCameraMediaOptions(
+                  context,
+                  userId: userID,
+                  groupId: groupID,
+                );
+              },
             );
           },
       additionalInputControlBarOptionsForDesktop:
@@ -732,11 +739,14 @@ extension _HomePageBootstrap on _HomePageState {
               methods: methods,
               widgets: MessageHeaderBuilderWidgets(
                 messageHeaderProfileImage: widgets.messageHeaderProfileImage,
-                messageHeaderActions: _buildMessageHeaderActions(
-                  context,
-                  widgets: widgets,
-                  data: data,
-                ),
+                // Same defunct-State hazard as above: stock actions fallback.
+                messageHeaderActions: mounted
+                    ? _buildMessageHeaderActions(
+                        context,
+                        widgets: widgets,
+                        data: data,
+                      )
+                    : widgets.messageHeaderActions,
                 messageHeaderMessagesSelectMode:
                     widgets.messageHeaderMessagesSelectMode,
                 messageHeaderInfo: ToxeeMessageHeaderInfo(
@@ -1234,16 +1244,10 @@ extension _HomePageBootstrap on _HomePageState {
         return false;
       }
       if (homeRoute.isCurrent) return true;
-      // Pop every route/dialog above HomePage (mobile message + profile routes,
-      // desktop modals) so the screenshot pipeline re-navigates from a known
-      // root on every layout. No-op on desktop when nothing is pushed.
-      //
-      // Stop at HomePage's OWN route, not just `isFirst`: when HomePage is not
-      // the absolute-first route (it can sit above a startup/gate route, or in a
-      // nested navigator), a bare `popUntil(isFirst)` pops HomePage itself off —
-      // disposing it, which both leaves a blank shell AND unregisters every L3
-      // invoker this bootstrap installed (root cause of the Windows
-      // l3_open_add_group_dialog "invoker not registered" mid-sweep, since the
+      // Pop every route/dialog above HomePage so callers re-navigate from a
+      // known root. Stop at HomePage's OWN route, not `isFirst`: popping
+      // HomePage off disposes it and unregisters every L3 invoker this
+      // bootstrap installed (Windows "invoker not registered" root cause — the
       // harness routes Escape through l3_pop_to_root). `ModalRoute.of(context)`
       // is HomePage's route; popUntil stops at whichever of (homeRoute, first)
       // it reaches first from the top, so dialogs/sub-routes above HomePage are
@@ -1557,14 +1561,10 @@ extension _HomePageBootstrap on _HomePageState {
     _groupBuilderOverride!.installOverrides();
   }
 
-  /// Routes a notification payload to the matching in-app surface using the
-  /// same plumbing as the user-facing tap that would normally open it.
-  ///
-  /// Cold-start safety: when a chat tap fires before the conversation list has
-  /// loaded (replayed launch payload), `_openChat` can still open immediately.
-  /// We additionally schedule a single retry once the list populates so the
-  /// conversation gets rebound to the real entry (proper showName, lastMessage,
-  /// unreadCount).
+  /// Routes a notification payload to the matching in-app surface via the
+  /// same plumbing as the user-facing tap. Cold-start: `_openChat` opens
+  /// immediately even before the conversation list loads; a single scheduled
+  /// retry rebinds to the real entry once the list populates.
   void _routeToNotificationPayload(String payload) {
     if (!mounted) return;
     final target = parseNotificationTapPayload(payload);

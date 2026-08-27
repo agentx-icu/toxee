@@ -1281,6 +1281,14 @@ Future<bool> _hveAttachmentEntryButtonsRender(
           mediaKind: 'image',
         )
       : false;
+  // Close the "+" panel the reveals left open — it overlays the composer and
+  // swallows later pops/logout (Android live). Detect by CONTENT key: the
+  // options button is a toggle, keying on it would open a closed panel.
+  if (a.isMobileShell &&
+      await _keyOnstage(a, 'message_attachment_file_button')) {
+    await a.tapKeyCenter('message_attachment_options_button', timeoutSecs: 2);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  }
   await a.shot('/tmp/ui_hve_attachment_entries_${a.name}.png');
   print(
     '[pair] attachment_entry_buttons_render: file=$fileButton '
@@ -1327,17 +1335,11 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: override failed $override');
       return false;
     }
-    // Re-bind the chat via the production `_openChat` path right before the tap:
-    // the desktop attachment option's onTap captures the message-input's userID
-    // at build time. After a row-tap open (or a prior case) the input can carry a
-    // STALE/null userID, so `_sendMedia` would pick the file but skip `sendFile`
-    // (the `if (userId != null)` guard) and silently send nothing. l3_open_chat
-    // re-binds currentConversation + the right-pane input userID (live-probed:
-    // the send then fires), keeping the asserted action the real keyed button tap.
-    // A FILE transfer needs B actually ONLINE (not just friend-added): the file
-    // offer is dropped if issued before B connects, so B never receives it. Wait
-    // FIRST (the wait polls dumpState for up to 60s), THEN bind the chat right
-    // before the tap — binding before a long wait would let the master-detail
+    // Re-bind the chat (production `_openChat`) right before the tap: the
+    // attachment onTap captures the input userID at build time; a stale/null
+    // one makes `_sendMedia` pick the file but skip sendFile silently.
+    // File transfer also needs B ONLINE first (offer dropped otherwise), so
+    // wait THEN bind — binding before a long wait lets the master-detail
     // composer userID go stale again (observed: sentId empties out).
     if (!await _waitFriendOnline(a, toxB, timeoutSecs: 60)) {
       print('[pair] attachment picker: WARN B not online before send');

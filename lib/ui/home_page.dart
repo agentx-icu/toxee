@@ -721,6 +721,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _sessionController.syncPersistedFriendsToTox();
   }
 
+  /// Conversation keys of compact message routes this HomePage pushed, in
+  /// push order, popped-on-complete — the duplicate-push guard in [_openChat].
+  /// Only the TOP entry dedupes: a conversation buried deeper must be pushed
+  /// again (skipping would rebind global active state to a chat that is not
+  /// the one on screen — codex High).
+  final List<String> _openCompactMessageRouteStack = <String>[];
+
   void _openChat({String? peerId, String? groupId}) {
     setState(() {
       _index = 0; // Ensure Chats tab is visible
@@ -744,13 +751,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         peerId: peerId,
         groupId: groupId,
       );
-      navigateToMessage(
+      // DEDUPE: opening a conversation whose compact message route is already
+      // on top must not push a SECOND identical route (reachable by tapping a
+      // notification for the chat you are already in, and by the l3_open_chat
+      // re-bind seam — live on Android this stacked duplicate chat pages that
+      // back-navigation then had to pop one by one). The rebind above still
+      // ran, which is all a repeat open needs.
+      final convKey = hasGroup ? 'g:$groupId' : 'c:$peerId';
+      if (_openCompactMessageRouteStack.isNotEmpty &&
+          _openCompactMessageRouteStack.last == convKey) {
+        // Repeat open of the newest pushed chat: the rebind above is all it
+        // needs — pushing again stacked duplicate routes (live on Android).
+        unawaited(_updateTray());
+        return;
+      }
+      _openCompactMessageRouteStack.add(convKey);
+      final routeFuture = navigateToMessage(
         context: context,
         options: TencentCloudChatMessageOptions(
           userID: hasGroup ? null : peerId,
           groupID: hasGroup ? groupId : null,
         ),
       );
+      if (routeFuture == null) {
+        // Route unavailable / push failed — unwind NOW or the guard would
+        // wrongly dedupe the next open (codex High).
+        _openCompactMessageRouteStack.removeAt(
+          _openCompactMessageRouteStack.lastIndexOf(convKey),
+        );
+      } else {
+        unawaited(
+          routeFuture.whenComplete(() {
+            final i = _openCompactMessageRouteStack.lastIndexOf(convKey);
+            if (i >= 0) {
+              _openCompactMessageRouteStack.removeAt(i);
+            }
+          }),
+        );
+      }
       unawaited(_updateTray());
       return;
     }

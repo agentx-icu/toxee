@@ -145,6 +145,12 @@ Future<bool> _ensureBoundChat(
   int tries = 4,
 }) async {
   final convId = _c2cConvId(peerTox);
+  // Already bound+onstage? Don't re-open (used to push DUP routes). Verify
+  // the BOUND id too — Android _chatSurfaceReady accepts a STALE composer.
+  if (await _currentConversationId(inst) == convId &&
+      await _chatSurfaceReady(inst, convId, timeoutSecs: 2)) {
+    return true;
+  }
   for (var i = 0; i < tries; i++) {
     await inst.openChatViaL3(userId: _pubkey(peerTox));
     await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -154,10 +160,8 @@ Future<bool> _ensureBoundChat(
 }
 
 Future<bool> _ensureChatOpen(Inst inst, String tox) async {
-  // A prior case can leave the friend's contact profile pushed ON TOP of the
-  // chat; pop it first so the chat surface is actually interactable (otherwise
-  // openChat binds the chat OFFSTAGE behind the profile and the composer/menu
-  // taps land on the profile).
+  // Pop a leftover contact profile first (it covers the chat; taps would
+  // land on the profile).
   await inst.foreground();
   await _dismissFriendProfileToUnderlying(inst);
   final convId = _c2cConvId(tox);
@@ -288,14 +292,10 @@ Future<bool> _openMessageMenuReal(Inst inst, String msgId) async {
     );
     return false;
   }
-  // A message ROW spans the whole chat pane, but the BUBBLE inside it is
-  // alignment-offset: self/outbound right, peer/inbound left. The row's
-  // geometric centre therefore lands on empty space beside the bubble, where a
-  // secondary-tap / long-press misses its `Listener.onPointerDown` and no menu
-  // opens. So aim at FRACTIONS OF THE ROW'S OWN WIDTH.
-  //
-  // Row-RELATIVE, not centre-scaled (fixed 2026-08-16). Scaling the centre's
-  // ABSOLUTE x assumes the row starts at x == 0 — true only when the chat pane
+  // The BUBBLE is alignment-offset inside its full-width row (self right,
+  // peer left): the row's centre is empty space where long-press misses the
+  // Listener. Aim at FRACTIONS OF THE ROW'S OWN WIDTH — row-RELATIVE, not
+  // centre-scaled (2026-08-16): scaling absolute x assumes the row starts at
   // is flush left. On the iPad master-detail shell the pane starts after the
   // sidebar + conversation list (live: rowCentre.x = 683 for a ~532..834 pane),
   // so the "right third" landed at 847/902 (OFF the 834pt screen) and the "left

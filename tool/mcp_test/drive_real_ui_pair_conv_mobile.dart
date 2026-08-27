@@ -33,6 +33,108 @@ Future<bool> _keyOnstage(Inst inst, String key) async {
   }
 }
 
+/// Press the DEVICE back key on an Android instance via adb (device id from
+/// pair.json, matched by pid). The only way to dismiss a NATIVE activity that
+/// covers the Flutter one — Flutter-side taps can't reach it.
+Future<String?> _androidDeviceIdFor(Inst inst) async {
+  if (!inst.isAndroid) return null;
+  try {
+    final pairFile = File(
+      Platform.environment['TOXEE_REAL_UI_PAIR_JSON'] ??
+          'tool/mcp_test/.multi_instance_runtime/pair.json',
+    );
+    if (!await pairFile.exists()) return null;
+    final root =
+        jsonDecode(await pairFile.readAsString()) as Map<String, dynamic>;
+    final instances =
+        (root['instances'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    for (final entry in instances.values) {
+      if (entry is! Map) continue;
+      if (int.tryParse('${entry['pid']}') == inst.pid) {
+        final device = entry['device_id']?.toString();
+        return (device == null || device.isEmpty) ? null : device;
+      }
+    }
+    return null;
+  } on Object {
+    return null;
+  }
+}
+
+Future<bool> _androidBackKey(Inst inst) async {
+  final device = await _androidDeviceIdFor(inst);
+  if (device == null) return false;
+  try {
+    final r = await Process.run('adb', [
+      '-s',
+      device,
+      'shell',
+      'input',
+      'keyevent',
+      '4',
+    ]);
+    return r.exitCode == 0;
+  } on Object catch (e) {
+    print('[${inst.name}] _androidBackKey failed: $e');
+    return false;
+  }
+}
+
+/// Package owning the focused window on [inst]'s device, or null. POSITIVE
+/// adb evidence (codex High): onstage probes cannot distinguish "covered by a
+/// native activity" from a legitimately blank Flutter root, and a paused
+/// Flutter tree may still report the wizard "onstage" behind DocumentsUI.
+Future<String?> _androidTopFocusPackage(Inst inst) async {
+  final device = await _androidDeviceIdFor(inst);
+  if (device == null) return null;
+  try {
+    final r = await Process.run('adb', [
+      '-s',
+      device,
+      'shell',
+      'dumpsys',
+      'window',
+      'displays',
+    ]);
+    final m = RegExp(
+      r'mCurrentFocus=.*\s([A-Za-z0-9_.]+)/[A-Za-z0-9_.$]+',
+    ).firstMatch('${r.stdout}');
+    return m?.group(1);
+  } on Object {
+    return null;
+  }
+}
+
+/// Recover an Android instance covered by a NATIVE activity (the SAF save
+/// dialog the backup wizard's export opens, an OS picker): the Flutter
+/// activity is paused, so EVERY onstage probe dies while l3 calls still
+/// succeed (observed live: register -> mis-tapped Export now -> SAF ->
+/// forceHomeRoot "restored" but homeShellTab stayed unknown). Gate on the
+/// POSITIVE signal — the focused window belongs to another package — so a
+/// legitimately blank Flutter root is never sent BACK. System BACK dismisses
+/// the native activity; if that lands back on the backup wizard (export
+/// cancelled), dismiss it properly too.
+Future<bool> _recoverAndroidNativeCover(Inst inst) async {
+  if (!inst.isAndroid) return false;
+  final topPkg = await _androidTopFocusPackage(inst);
+  if (topPkg == null || topPkg == 'com.toxee.app') return false;
+  print('[${inst.name}] android native cover detected: focus=$topPkg');
+  if (!await _androidBackKey(inst)) return false;
+  await Future<void>.delayed(const Duration(milliseconds: 1500));
+  final uncovered = !await _mobileHomeShellCovered(inst);
+  final onWizard = await _keyOnstage(inst, 'firstRunBackupWizard.laterButton');
+  print(
+    '[${inst.name}] android native-cover BACK => '
+    'uncovered=$uncovered wizard=$onWizard',
+  );
+  if (onWizard) {
+    await _dismissBackupWizardIfPresent(inst, timeoutSecs: 6);
+    return true;
+  }
+  return uncovered;
+}
+
 /// True when a MOBILE home shell is COVERED by an opaque pushed route — the
 /// UIKit chat page being the one that matters here.
 ///
@@ -84,11 +186,26 @@ Future<bool> _popMobileCoveringRoute(Inst inst) async {
     // Unknown layout: treat as wide (seam-only) — never risk the chevron.
   }
   for (var attempt = 0; attempt < 3; attempt++) {
+    // An OPEN attachment panel ("+"-sheet) overlays the composer area and can
+    // swallow pops (seen live on Android: the attachment case left it open
+    // and three back-chevron attempts bounced). Detect the panel by its OWN
+    // content key — the options button is always in the composer row, so
+    // keying on it would toggle a CLOSED panel open instead.
+    if (compact && await _keyOnstage(inst, 'message_attachment_file_button')) {
+      await inst.tapKeyCenter(
+        'message_attachment_options_button',
+        timeoutSecs: 1,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
     if (compact &&
         await inst.tapKeyCenter('chat_header_back_button', timeoutSecs: 2)) {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!await _mobileHomeShellCovered(inst)) return true;
-      continue;
+      // Chevron landed but did NOT uncover (live on Android: its
+      // popDialogIfCurrent no-ops when a stale route sits ABOVE the chat, so
+      // `continue` just burned all three attempts). Fall through to the
+      // pop-to-root seam in the SAME attempt instead of retrying the chevron.
     }
     try {
       // Gate-recovering wrapper: a real-UI account is a PRODUCT account and the
@@ -98,11 +215,14 @@ Future<bool> _popMobileCoveringRoute(Inst inst) async {
         print('[pair] _popMobileCoveringRoute: popToRoot reported no pop');
       }
     } on DriveError catch (e) {
-      print('[pair] _popMobileCoveringRoute: l3_pop_to_root warn: ${e.message}');
+      print(
+        '[pair] _popMobileCoveringRoute: l3_pop_to_root warn: ${e.message}',
+      );
     }
     await Future<void>.delayed(const Duration(milliseconds: 700));
     if (!await _mobileHomeShellCovered(inst)) return true;
   }
+  if (await _recoverAndroidNativeCover(inst)) return true;
   print(
     '[pair] _popMobileCoveringRoute: shell still covered — '
     '${await _convShellDiag(inst)}',
@@ -173,9 +293,7 @@ Future<List<String>> _convKeysContaining(Inst inst, String needle) async {
       final k = e['key']?.toString() ?? '';
       if (!k.contains(needle)) continue;
       final b = e['bounds'];
-      out.add(
-        b is Map ? '$k@(${b['x']},${b['y']},${b['w']}x${b['h']})' : k,
-      );
+      out.add(b is Map ? '$k@(${b['x']},${b['y']},${b['w']}x${b['h']})' : k);
     }
   } on DriveError {
     // best-effort diagnostic
