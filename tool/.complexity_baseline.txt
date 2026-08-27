@@ -96,7 +96,10 @@ lib/ui/login/login_page_controller.dart:569
 # settings sections on Android/iPhone). A flat constant CATALOG can only grow by
 # entries, so "split the file" does not apply; the +8 is one key plus its
 # rationale comment, already trimmed to the minimum.
-lib/ui/testing/ui_keys.dart:643
+# 2026-08-27: 643 -> 656 — audio-route dock/sheet keys and the reserved
+# message_attachment_call_button contract doc (the mention-checkbox key lives
+# in ui_keys_fork.dart). Declarations catalog: new contracts ARE the file.
+lib/ui/testing/ui_keys.dart:656
 # [2026-08-09] Guard-adoption migration: `tool/` is now scanned in CI, so the
 # pre-existing oversized first-party drivers are pinned at their current sizes
 # to establish the ratchet. This is not an amnesty: any future growth fails.

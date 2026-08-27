@@ -207,6 +207,7 @@ class UiKeys {
   static const Key settingsMobileSectionBackButton = Key(
     'settings_mobile_section_back_button',
   );
+
   /// Scrollable of a PUSHED mobile settings sub-page. The narrow shell renders
   /// the root as section TILES, so the driven controls (theme/language/download
   /// limit/bootstrap) live here, not in [settingsScrollView] — and it needs its
@@ -384,6 +385,10 @@ class UiKeys {
   static const Key messageAttachmentCameraButton = Key(
     'message_attachment_camera_button',
   );
+  // RESERVED, not currently emitted: the fork's icon->key mapping covers only
+  // File and Camera, so no widget carries this key today. It stays declared so
+  // the contract is ready the day a call entry is injected into the panel —
+  // any case driving it MUST first verify the fork actually emits it.
   static const Key messageAttachmentCallButton = Key(
     'message_attachment_call_button',
   );
@@ -527,6 +532,14 @@ class UiKeys {
   static const Key callMicMuteButton = Key('call_mic_mute_button');
   static const Key callCameraToggleButton = Key('call_camera_toggle_button');
   static const Key callCameraSwitchButton = Key('call_camera_switch_button');
+
+  /// The audio-route affordance in the in-call dock. The same key sits on the
+  /// DISABLED desktop variant (OS-owned routing) — only one renders at a time.
+  static const Key callAudioRouteButton = Key('call_audio_route_button');
+
+  /// One selectable route row inside the audio-route bottom sheet.
+  static Key callAudioRouteOption(String routeId) =>
+      Key('call_audio_route_option:$routeId');
   static const Key avConferenceJoinButton = Key('av_conference_join_button');
   static const Key avConferenceMuteButton = Key('av_conference_mute_button');
   static const Key avConferenceEnableButton = Key(

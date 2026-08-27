@@ -3515,6 +3515,36 @@ MCPCallEntry _l3SetAccountImportPickPathEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'non_test_account'},
       );
     }
+    // PREFER contentB64 (attachment-seam contract): a host /tmp path is
+    // unreadable in-sandbox — the APP materializes the bytes instead.
+    final contentB64 = request['contentB64']?.toString();
+    if (contentB64 != null && contentB64.isNotEmpty) {
+      final name = (request['fileName']?.toString().trim().isNotEmpty ?? false)
+          ? request['fileName']!.toString().trim()
+          : 'l3_import.tox';
+      final List<int> bytes;
+      try {
+        bytes = base64Decode(contentB64);
+      } on FormatException catch (e) {
+        return MCPCallResult(
+          message:
+              'l3_set_account_import_pick_path: contentB64 not valid base64: '
+              '$e',
+          parameters: {'ok': false, 'error': 'bad_base64'},
+        );
+      }
+      final dir = await Directory.systemTemp.createTemp('l3import');
+      final f = File('${dir.path}/$name');
+      await f.writeAsBytes(bytes);
+      _accountImportPickFilePathOverride = f.path;
+      AppLogger.info(
+        '[L3] l3_set_account_import_pick_path: materialized $name -> ${f.path}',
+      );
+      return MCPCallResult(
+        message: 'account import pick override materialized',
+        parameters: {'ok': true, 'path': f.path},
+      );
+    }
     final path = _normalizeExportSaveOverridePath(request['path']?.toString());
     _accountImportPickFilePathOverride = path;
     AppLogger.info(
@@ -3532,15 +3562,23 @@ MCPCallEntry _l3SetAccountImportPickPathEntry() => MCPCallEntry.tool(
     name: 'l3_set_account_import_pick_path',
     description:
         'L3 TEST ONLY (test/seed account): set or clear the debug-only '
-        'open-file override used by login restore/import flows. When set, the '
-        'native file picker is bypassed and this fixed path is returned. Pass '
-        'an empty path to clear.',
+        'open-file override used by login restore/import flows (bypasses the '
+        'native picker). PREFER "contentB64" + "fileName" — a host /tmp '
+        '"path" is unreadable in-sandbox. Empty path clears.',
     inputSchema: ObjectSchema(
       properties: {
         'path': StringSchema(
           description:
               'Absolute .tox/.zip path to return from account import pickFiles. '
-              'Empty clears.',
+              'Empty clears. Use only for already-app-accessible files.',
+        ),
+        'contentB64': StringSchema(
+          description:
+              'Base64 file bytes; the app writes them to a sandbox-readable '
+              'temp file and returns THAT path. Preferred over "path".',
+        ),
+        'fileName': StringSchema(
+          description: 'File name for the materialized contentB64 file.',
         ),
       },
     ),
@@ -6772,6 +6810,11 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       // would report a real video regression as a SKIP.
       'videoCaptureSupported': CallMediaCapabilities.supportsVideoCapture(),
       'iosSimulator': CallMediaCapabilities.isIosSimulator,
+      // Android analog: the launcher stamps this define only for emulator-*
+      // adb serials, so a physical phone can never claim the designed skip.
+      'androidEmulatorHarness': const bool.fromEnvironment(
+        'TOXEE_ANDROID_EMULATOR',
+      ),
       'notificationSound': await Prefs.getNotificationSoundEnabled(),
       'bootstrapNodeMode': await Prefs.getBootstrapNodeMode(),
       'downloadsDirectory': await Prefs.getDownloadsDirectory(),

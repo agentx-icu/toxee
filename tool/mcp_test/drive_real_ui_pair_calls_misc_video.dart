@@ -31,13 +31,16 @@ part of 'drive_real_ui_pair.dart';
 ///
 ///  1. the sibling VOICE button must be present — that separates "the product
 ///     hid video on purpose" from "the chat never opened";
-///  2. `l3_dump_state` must report `videoCaptureSupported == false` AND
-///     `iosSimulator == true`. Without (2) a genuine capture OUTAGE on real
-///     hardware — camera held by another app, an MDM restriction, an Android
-///     plugin-registration race — looks exactly like the Simulator's designed
-///     no-camera state, and a real video regression would be swallowed as a
-///     SKIP. On real hardware a missing video button is now a FAILURE (this
-///     returns null, so the caller's normal path reports it).
+///  2. `l3_dump_state` must report `videoCaptureSupported == false` AND the
+///     environment must self-identify as camera-less-BY-DESIGN: the iOS
+///     Simulator (`iosSimulator == true`) or an Android EMULATOR
+///     (`androidEmulatorHarness == true`, a dart-define the launcher stamps
+///     only for emulator-* adb serials). Without (2) a genuine capture
+///     OUTAGE on real hardware — camera held by another app, an MDM
+///     restriction, a plugin-registration race — would be swallowed as a
+///     SKIP. On physical hardware (any platform) a missing video button is
+///     a FAILURE (this returns null, so the caller's normal path reports
+///     it).
 ///
 /// `videoCaptureSupported` is the same `CallMediaCapabilities
 /// .supportsVideoCapture()` value `session_runtime_coordinator.dart:283` turns
@@ -56,23 +59,30 @@ Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   }
   final state = await caller.dumpState();
   final capable = state['videoCaptureSupported'];
-  final simulator = state['iosSimulator'] == true;
-  if (capable != false || !simulator) {
+  // Camera-less-BY-DESIGN environments: the iOS Simulator (self-reported)
+  // and Android EMULATORS (the launcher stamps TOXEE_ANDROID_EMULATOR=true
+  // only for emulator-* adb serials — a physical device only ever receives
+  // it as false), surfaced as androidEmulatorHarness.
+  final cameraLessByDesign =
+      state['iosSimulator'] == true || state['androidEmulatorHarness'] == true;
+  if (capable != false || !cameraLessByDesign) {
     print(
       '[pair] video-call entry is ABSENT but this is NOT the expected '
       'camera-less environment (videoCaptureSupported=$capable '
-      'iosSimulator=$simulator). Treating it as a real failure rather than a '
-      'skip: on hardware with a camera the header must render '
-      'chat_call_video_button, and a one-shot empty availableCameras() at '
-      'bootstrap no longer latches for the session '
+      'iosSimulator=${state['iosSimulator']} '
+      'androidEmulatorHarness=${state['androidEmulatorHarness']}). Treating '
+      'it as a real failure rather than a skip: on hardware with a camera '
+      'the header must render chat_call_video_button, and a one-shot empty '
+      'availableCameras() at bootstrap no longer latches for the session '
       '(CallMediaCapabilities.refreshCaptureDevices re-probes).',
     );
     return null;
   }
   return 'no video-call entry on this device: the chat header renders '
       'chat_call_voice_button but NOT chat_call_video_button, and the app '
-      'itself reports videoCaptureSupported=false on an iOS SIMULATOR '
-      '(iosSimulator=true) — the one environment where that is by design. '
+      'itself reports videoCaptureSupported=false in a '
+      'camera-less-by-design environment (iOS Simulator or Android '
+      'emulator). '
       'useVideoCall is gated on CallMediaCapabilities.supportsVideoCapture() '
       '(lib/runtime/session_runtime_coordinator.dart:283); the Simulator has no '
       'camera, availableCameras() returns [] and the app logs "capture devices '

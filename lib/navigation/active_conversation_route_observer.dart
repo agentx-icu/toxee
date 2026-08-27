@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_route_names.dart';
 
@@ -38,7 +39,17 @@ import '../util/logger.dart';
 /// Android are covered by the same object; on desktop/tablet it simply never
 /// fires because the message route is never pushed there.
 class ActiveConversationRouteObserver extends NavigatorObserver {
-  ActiveConversationRouteObserver();
+  ActiveConversationRouteObserver() : _onClearForTest = null;
+
+  /// TEST-ONLY: capture triggers without touching the live service singletons,
+  /// so the route-name contract (which routes unbind, via which observer
+  /// entry point) is unit-testable in isolation.
+  @visibleForTesting
+  ActiveConversationRouteObserver.forTest({
+    required void Function(String trigger) onClear,
+  }) : _onClearForTest = onClear;
+
+  final void Function(String trigger)? _onClearForTest;
 
   /// Route names whose disappearance means "the user is no longer looking at a
   /// conversation". `TencentCloudChatRouteNames.message` is the pushed chat
@@ -49,6 +60,11 @@ class ActiveConversationRouteObserver extends NavigatorObserver {
       route?.settings.name == TencentCloudChatRouteNames.message;
 
   void _clearActiveConversation(String trigger) {
+    final onClearForTest = _onClearForTest;
+    if (onClearForTest != null) {
+      onClearForTest(trigger);
+      return;
+    }
     final service = FakeUIKit.instance.im?.ffi;
     if (service == null) return;
     final previous = service.activePeerId;
