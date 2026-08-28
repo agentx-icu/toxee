@@ -217,6 +217,12 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // LONGEST chain in the whole mobile matrix — KEEP_SIMULATOR_FRONT is
   // effectively mandatory here even though it is a single sweep.
   'rui-ios-contacts': ['sweep_contacts'],
+  // Group/conference member management on the PHONE shell — same 5 cases as
+  // rui-ipad-group-member; the member-menu helpers are per-shell.
+  'rui-ios-group-member': ['sweep_group_conf_member_extra'],
+  // P1 chat octet on the PHONE shell (draft-restore stays a documented
+  // keyboard-capability SKIP here; the other 7 cases run for real).
+  'rui-ios-p1-chat': ['sweep_p1_chat'],
 
   // ---- iPad (rui-ipad-*; forces TOXEE_IOS_DEVICE_TYPE=tablet) ----
   // iPad true-App coverage: the SAME sweeps as the iPhone campaigns — the
@@ -290,11 +296,10 @@ const mobileRealUiCampaigns = <String, List<String>>{
   'rui-ipad-keyed-gaps4': ['sweep_keyed_gaps4'],
   'rui-ipad-keyed-gaps4-login': ['sweep_keyed_gaps4_login'],
   // Group/conference member management: 5 cases, two-process,
-  // required=no-friend / result=friends. iPad ONLY for now: the chain in
-  // drive_real_ui_pair_group_conf_member_extra.dart has ZERO `isMobileShell`
-  // branches, so its member-list / peer-menu navigation is only known-good on a
-  // wide shell. Add `rui-ios-group-member` once the narrow-shell navigation is
-  // verified rather than assumed.
+  // required=no-friend / result=friends. The chain is platform-aware now
+  // (_openPeerMemberMenu drives the desktop popup OR the mobile action
+  // sheet; every menu key resolves per-shell), so the phone entry exists
+  // alongside the tablet one.
   'rui-ipad-group-member': ['sweep_group_conf_member_extra'],
 
   // iPad WAVE 2 — mirrors the iPhone Wave 2; same iOS `osa*` dependency (the
@@ -332,10 +337,7 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // required=no-friend / result=NO-FRIEND (deletes the friend last).
   'rui-ipad-contacts': ['sweep_contacts'],
   // P1/P2/P3 two-process chat/conv octet: 8 cases,
-  // required=no-friend / result=friends. iPad ONLY: the narrow-shell navigation
-  // branches for this chain (recall / forward / draft-restore across a pushed
-  // route) are not written yet, so an iPhone run would drive the wrong surface
-  // rather than SKIP. Add `rui-ios-p1-chat` when those branches land.
+  // required=no-friend / result=friends.
   'rui-ipad-p1-chat': ['sweep_p1_chat'],
 
   // ---- Android (rui-android-*; requires --real-ui-platform=android) ----
