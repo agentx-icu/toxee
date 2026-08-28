@@ -394,11 +394,9 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_profile_clear_history_cancel: dialog did not open');
     return false;
   }
-  // The cancel tap can resolve a STALE offstage measurement copy of the button
-  // (tapKeyCenter walks the element tree and may hit an off-screen IndexedStack
-  // subtree), leaving the real dialog up so dialogGone reads false. Retry the
-  // cancel through keyed-center, then keyed-tap, then Escape until the confirm
-  // button is actually gone (mirrors the robust delete-friend cancel).
+  // The cancel tap can hit a STALE offstage measurement copy (element-tree
+  // walk); retry keyed-center → keyed-tap → Escape until the confirm button
+  // is actually gone (mirrors the robust delete-friend cancel).
   var cancelTapped = false;
   var dialogGone = false;
   for (var attempt = 0; attempt < 4 && !dialogGone; attempt++) {
@@ -409,10 +407,8 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
       dialogGone = true;
       break;
     }
-    // Center-tap the cancel button. tapKeyCenter can return TRUE yet have hit a
-    // stale offstage measurement copy that didn't close the real dialog, so
-    // DON'T let its truthiness short-circuit the escalation — recheck the
-    // confirm button and, if still up, escalate to a keyed tap then Escape.
+    // tapKeyCenter can return TRUE off a stale offstage copy — recheck the
+    // confirm button and escalate (keyed tap, then Escape) if still up.
     if (await inst.tapKeyCenter(
       'user_profile_clear_history_cancel_button',
       timeoutSecs: 4,
@@ -473,11 +469,9 @@ Future<bool> _c2ceDeleteFriendCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_delete_friend_cancel: dialog did not open');
     return false;
   }
-  // Dismiss the confirm dialog via the real Cancel button. tapKeyCenter can
-  // resolve a STALE OFFSTAGE copy of the dialog button and miss the rendered one
-  // (the dialog stays up even though the tap "succeeded"), so retry: keyed
-  // center tap, then the VISIBLE "Cancel" text, then Escape — until the dialog
-  // is actually gone. Dialog-gone IS the cancel succeeding.
+  // Cancel via the real button; a STALE offstage copy can eat the tap, so
+  // retry keyed-center → visible "Cancel" text → Escape until the dialog is
+  // gone (dialog-gone IS the cancel succeeding).
   var dialogGone = false;
   for (var attempt = 0; attempt < 4 && !dialogGone; attempt++) {
     if (attempt.isEven) {
@@ -530,12 +524,18 @@ Future<bool> _c2ceHeaderProfileSendBack(Inst inst, String toxFriend) async {
   final returned =
       sendTapped &&
       await _chatSurfaceReady(inst, _c2cConvId(toxFriend), timeoutSecs: 12);
+  // BIND PROOF (#9): the FACADE field directly — _currentConversationId
+  // falls back to shell state (anti-vacuous, codex High).
+  final bound =
+      ((await inst.dumpState())['currentConversation']
+          as Map?)?['conversationID'] ==
+      _c2cConvId(toxFriend);
   await inst.shot('/tmp/ui_c2c_header_send_back_${inst.name}.png');
   print(
     '[pair] c2c_header_profile_send_back: profileShown=$profileShown '
-    'sendTapped=$sendTapped returned=$returned',
+    'sendTapped=$sendTapped returned=$returned bound=$bound',
   );
-  return returned;
+  return returned && bound;
 }
 
 Future<String?> _c2ceFirstVisibleKey(Inst inst, Iterable<String> keys) async {

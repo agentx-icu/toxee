@@ -1472,10 +1472,10 @@ String _requiredRealUiState(String scenario) {
     case 'home_tabs_cycle_state_retained':
     case 'theme_switch_chat_open':
     case 'search_chat_history_window_open':
-    // Native-boundary cases that assert C2C toolbar/routing need friendship; the
-    // full guard sweep starts no-friend and establishes it once.
+    // Native-boundary cases asserting C2C toolbar/routing need friendship.
     case 'attachment_entry_buttons_render':
     case 'notification_tap_routes_to_c2c':
+    case 'system_back_unbinds_chat':
     // P1/P2/P3 Batch III — every individual chat/conv case needs friendship;
     // standalone dispatch restores paired_for_e2e or establishes it first.
     case 'chat_recall_message':
@@ -1486,9 +1486,8 @@ String _requiredRealUiState(String scenario) {
     case 'unread_badge_total_sidebar':
     case 'search_empty_state':
     case 'image_preview_open_hardened':
-    // P1/P2/P3 Batch IV — individual cases need an existing friendship. Two of
-    // them restart a peer internally; their *result* state is relaunch-dirty,
-    // but their launch precondition is still paired_for_e2e.
+    // Batch IV — cases need existing friendship; two restart a peer (result
+    // relaunch-dirty) but still launch from paired_for_e2e.
     case 'relaunch_history_autologin':
     case 'offline_pending_relaunch':
     case 'call_from_profile_tiles':
@@ -1654,13 +1653,13 @@ String _requiredRealUiState(String scenario) {
     // Account deep expansion is A-only and cleans the temporary account/group.
     case 'sweep_account_deep_extra':
     case 'account_multi_account_state_isolation':
-    // Native-boundary sweep starts no-friend and establishes friendship only for
-    // the toolbar/routing probes; non-friend guard cases below never form one.
+    // Boundary sweep starts no-friend; the guards below never form one.
     case 'sweep_native_boundary_guards':
     case 'restore_import_entry_guard':
     case 'network_disconnect_guard':
     case 'call_permission_denied_guard':
     case 'mobile_smoke_playbook_guard':
+    case 'group_profile_send_binds':
     // P1/P2/P3 Batch V — sweep_p2_keys runs its OWN handshake, then restarts B
     // for the presence-dot case.
     case 'sweep_p2_keys':
@@ -1846,11 +1845,11 @@ String _resultRealUiState(String scenario) {
     case 'group_member_role_reopen_surface':
     case 'group_member_remove_receiver_state':
     case 'conference_bidirectional_message_lifecycle':
-    // Native-boundary full sweep and the C2C toolbar/routing probes form or keep
-    // friendship; SKIP-only non-friend guards are listed in the no-friend result.
+    // Boundary sweep + toolbar/routing probes form or keep friendship.
     case 'sweep_native_boundary_guards':
     case 'attachment_entry_buttons_render':
     case 'notification_tap_routes_to_c2c':
+    case 'system_back_unbinds_chat':
     // Batch 8 — sweep_calls_misc ends FRIENDS (no case deletes the friend; the
     // calls end idle and the conversation row stays alive). The call cases + the
     // chat-open misc cases also leave the friendship intact.
@@ -2062,6 +2061,7 @@ String _resultRealUiState(String scenario) {
     case 'network_disconnect_guard':
     case 'call_permission_denied_guard':
     case 'mobile_smoke_playbook_guard':
+    case 'group_profile_send_binds':
     // A-only optimized bundle leaves the pair friendship state untouched.
     case 'sweep_single_app_optimized':
     // Form-factor cases that drive A ONLY (the bottom-nav tab walk and the

@@ -186,4 +186,11 @@ class ForkUiKeys {
   static const Key mentionMemberCheckboxAtAll = Key(
     'mention_member_checkbox:atAll',
   );
+
+  /// GROUP profile "Send message" tile (group_profile_body.dart) — the
+  /// group twin of `friend_profile_send_message_tile`; drives the
+  /// onNavigateToChat -> _openChat bind contract (#9).
+  static const Key groupProfileSendMessageTile = Key(
+    'group_profile_send_message_tile',
+  );
 }
