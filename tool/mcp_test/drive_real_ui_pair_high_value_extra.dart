@@ -784,13 +784,14 @@ const _nativeBoundaryGuardCases = {
   'network_disconnect_guard',
   'call_permission_denied_guard',
   'mobile_smoke_playbook_guard',
+  'system_back_unbinds_chat',
+  'group_profile_send_binds',
 };
 
 const _nativeBoundaryFriendshipCases = {
   'attachment_entry_buttons_render',
-  // notification_tap_routes_to_c2c is now an unconditional SKIP — it must NOT
-  // require friendship setup first (a friendship failure would false-FAIL a
-  // case that does no real driving anyway; codex-review catch).
+  'system_back_unbinds_chat',
+  // notification_tap SKIPs unconditionally — must not require friendship.
 };
 
 bool _isNativeBoundaryGuardCaseScenario(String scenario) =>
@@ -826,6 +827,8 @@ Future<int> runNativeBoundaryGuardCase(
     'network_disconnect_guard' => await _hveNetworkDisconnectGuard(a) ? 0 : 1,
     'call_permission_denied_guard' =>
       await _hveCallPermissionDeniedGuard(a, toxB) ? 0 : 1,
+    'system_back_unbinds_chat' => await _b2SystemBackUnbindsChat(a, toxB),
+    'group_profile_send_binds' => await _b2GroupProfileSendBinds(a),
     'mobile_smoke_playbook_guard' => await _hveSkip(
       'mobile_smoke_playbook_guard',
       'mobile smoke is covered by integration_test/Patrol playbook, not the '
@@ -914,10 +917,9 @@ Future<int> runNativeBoundaryGuardSweep(
     'notification_tap_routes_to_c2c',
     () async => await _hveNotificationTapRoutesToC2c(a, toxB) ? 0 : 1,
   );
-  // call_permission runs BEFORE network_disconnect: the call button gates on the
-  // UIKit peer-online map (`activeChatPeerOnline`), and network_disconnect churns
-  // A's connection stream — so run the call guard while that map is still cleanly
-  // converged, then let network_disconnect (which restores online at its end) run.
+  // call_permission runs BEFORE network_disconnect: the call button gates on
+  // the peer-online map, which network_disconnect churns (it restores online
+  // at its end).
   await step(
     'call_permission_denied_guard',
     () async => await _hveCallPermissionDeniedGuard(a, toxB) ? 0 : 1,
@@ -927,19 +929,17 @@ Future<int> runNativeBoundaryGuardSweep(
     () async => await _hveNetworkDisconnectGuard(a) ? 0 : 1,
   );
   await step(
+    'system_back_unbinds_chat',
+    () => _b2SystemBackUnbindsChat(a, toxB),
+  );
+  await step('group_profile_send_binds', () => _b2GroupProfileSendBinds(a));
+  await step(
     'mobile_smoke_playbook_guard',
     () => _hveSkip(
       'mobile_smoke_playbook_guard',
-      // Real mobile smoke IS runnable — but on the iOS SIMULATOR, not the macOS
-      // desktop two-process harness. It is exercised (and VERIFIED PASSING,
-      // 2026-07-11) by `flutter test integration_test/app_smoke_test.dart -d
-      // <ios-sim>` — the real app-boot cold-start smoke (empty prefs →
-      // StartupShowLogin → LoginPage renders, no exceptions, register CTA +
-      // restore card present). The smoke's single pumpAndSettle was replaced with
-      // a bounded pump-until-LoginPage loop so the iOS-sim async startup (Futures
-      // resolving via microtasks without scheduling a frame) is not mistaken for a
-      // settled tree. This desktop sweep entry stays a redirect because a desktop
-      // harness can not drive the iOS-sim app.
+      // Runnable — but on the iOS SIMULATOR (verified passing 2026-07-11 via
+      // `flutter test integration_test/app_smoke_test.dart -d <sim>`), not a
+      // desktop two-process harness; this entry stays a redirect.
       'mobile app-boot smoke runs (and passes) on the iOS simulator via '
           '`flutter test integration_test/app_smoke_test.dart -d <sim>`, not this '
           'macOS desktop two-process harness',

@@ -76,9 +76,8 @@ import 'package:vm_service/vm_service_io.dart';
 import 'fixture_c_bootstrap.dart';
 import 'local_irc_server.dart';
 
-// This driver is split into `part` files by concern (one library, shared scope —
-// moving a scenario between parts is purely organizational). main() and the
-// scenario dispatch live here; the implementations live in the parts below.
+// Split into `part` files by concern (one library, shared scope). main() and
+// the scenario dispatch live here; implementations live in the parts below.
 //   inst          — Inst (VM-service connect, skill/l3 calls, tap/wait helpers).
 //   shell         — startup/login, home/contacts/new-entry shells, recovery.
 //   friends       — add/accept/decline/remark/delete + friendship reset.
@@ -192,6 +191,7 @@ part 'drive_real_ui_pair_optimized.dart';
 part 'drive_real_ui_pair_group2.dart';
 part 'drive_real_ui_pair_calls_misc.dart';
 part 'drive_real_ui_pair_calls_misc_video.dart';
+part 'drive_real_ui_pair_boundary2.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
 part 'drive_real_ui_pair_p1_relaunch.dart';

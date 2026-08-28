@@ -288,6 +288,8 @@ const realUiScenarioNames = <String>{
   'network_disconnect_guard',
   'call_permission_denied_guard',
   'mobile_smoke_playbook_guard',
+  'system_back_unbinds_chat',
+  'group_profile_send_binds',
   // P1/P2/P3 campaign Batch V — P2 selector-backed cases. The sweep chains all
   // three and restarts B for presence; individual sticker/chip cases keep the
   // friendship, presence reports relaunch-dirty.
