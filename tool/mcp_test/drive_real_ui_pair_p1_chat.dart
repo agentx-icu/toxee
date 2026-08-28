@@ -21,86 +21,42 @@ part of 'drive_real_ui_pair.dart';
 // VERIFY-FIRST FINDINGS (read from CURRENT code, 2026-06-11 — file:line cited;
 // these decide each case's honest gate shape):
 //
-// 1. RECALL (chat_recall_message) — FULLY WIRED end-to-end:
-//    - Menu item: `message_menu_item:recall` exists for `_uikit_revoke_message`
-//      (tencent_cloud_chat_message_item_with_menu.dart:737-738); the option is
-//      built when `_showRecallButton()` passes — config-enabled (toxee passes
-//      enableMessageRecall: true at home_page_bootstrap.dart:573), within
-//      recallTimeLimit, isSelf, status SEND_SUCC
-//      (tencent_cloud_chat_message_item_with_menu_container.dart:162-186).
-//    - Desktop tap → keyed confirm dialog (`confirm_dialog_primary_button`,
-//      tencent_cloud_chat_desktop_popup.dart:130) → dataProvider.recallMessage
-//      (menu container :497-509) → Tim2ToxSdkPlatform.revokeMessage
-//      (tim2tox_sdk_platform.dart:6883): 2-minute window (M-5), LOCAL DELETE
-//      (deleteMessages) + onRecvMessageRevoked fan-out + best-effort
-//      `__revoke__:{msgID,senderTimestampMs,fromUserId}` wire signal.
-//    - Receive side: `_maybeInterceptControlSignal` (:7043-7107) locates B's
-//      copy by sender + timestamp window (5s — sender msgIDs don't survive the
-//      wire) → deletes it from B's persistence → swallows the signal.
-//    - A-side UI: separate_data.recallMessage (:1238-1260) flips the in-memory
-//      copy to LOCAL_REVOKED + revokerInfo=currentUser → the tips builder
-//      renders `memberRecalledMessage` ("<nick> Recalled a Message", l10n_en
-//      :542; item_container.dart:134-141).
-//    - B-side UI: tim2tox fires the LEGACY onRecvMessageRevoked(msgID); the
-//      fork's handler `onReceiveMessageRecalled` is an EMPTY no-op
-//      (message_data.dart:790-792 — "replaced with onRecvMessageRevokedWithInfo",
-//      which tim2tox never calls). So B's LIVE bubble may linger until reload;
-//      the honest B-side gate is the DATA deletion (text gone from B's dump),
-//      which IS asserted. B-side live-tombstone rendering = recorded gap.
+// 1. RECALL (chat_recall_message) — FULLY WIRED end-to-end: menu item
+//    `message_menu_item:recall` (gated config/recallTimeLimit/isSelf/
+//    SEND_SUCC; toxee enables recall via enableMessageRecall: true) →
+//    keyed confirm → dataProvider.recallMessage →
+//    Tim2ToxSdkPlatform.revokeMessage (2-min window, local delete +
+//    onRecvMessageRevoked + `__revoke__` wire signal). Receiver matches by
+//    sender + 5s timestamp window and deletes from persistence. A-side tips
+//    renders memberRecalledMessage. B-side LIVE tombstone is a recorded gap
+//    (fork's onReceiveMessageRecalled is a no-op; the honest B gate is the
+//    DATA deletion, which IS asserted).
 //
-// 2. READ RECEIPT ✓✓ (read_receipt_double_tick) — NOT WIRED for C2C; NEGATIVE
-//    product-gap gate (pins current behavior; flips to the positive gate when
-//    the gap is fixed):
-//    - UI half EXISTS: own-bubble status icon renders Icons.done_all when
-//      isPeerRead else Icons.done (tencent_cloud_chat_message_item.dart:202,
-//      :308/:330); toxee maps isPeerRead = ChatMessage.isRead
-//      (fake_msg_provider_mapping.dart:591-600). This batch adds the
-//      automation-only state-suffixed fork key
-//      `message_send_status:<msgID>:<read|sent|other>` on that icon.
-//    - Data half is BROKEN/UNWIRED at TWO layers:
-//      (a) B's real chat-open never sends a wire 'read' receipt: the fork calls
-//          cleanConversationUnreadMessageCount ("c2c_<uid>", separate_data
-//          :928-936); Tim2ToxSdkPlatform routes it to
-//          FfiChatService.markConversationRead (:4262), which is LOCAL-ONLY
-//          (ffi_chat_service.dart:893-906 — read barrier + local isRead, no
-//          _sendReceipt). sendMessageReadReceipts fires only for GROUPS with
-//          needReadReceipt (separate_data :916-927). markC2CMessageAsRead has
-//          NO UI-path caller. l3_mark_read now drives that SAME
-//          cleanConversationUnreadMessageCount path (it used to call
-//          setActivePeer, a different function) — still local-only, so the
-//          conclusion below is unchanged: no read receipt reaches the peer.
-//      (b) Even the receipt MATCHING cannot correlate: receipts carry the
-//          RECEIVER's locally generated msgID (`${ms}_${seq}_${from}`,
-//          ffi_chat_service.dart:1774-1777) and `_handleReceipt` requires an
-//          exact primary-msgID match on the sender (:5643); the Tox wire
-//          carries no msgID ("c2c:<sender>:<text>", tim2tox_ffi.cpp:273-274).
-//          S63's spec records the live confirmation: isReceived never flips.
-//    - The inventory row's "✓✓ live 已目击 2026-06-03" claim is contradicted by
-//      S63's own live test + INDEX (receipt leg never validated) — per the
-//      "don't trust doc conclusions" rule the CODE wins. Fix needs a tim2tox
-//      msgID round-trip + a C2C read-receipt trigger on chat-open.
+// 2. READ RECEIPT ✓✓ (read_receipt_double_tick) — NOT WIRED for C2C;
+//    NEGATIVE product-gap gate (flips positive when fixed). UI half exists
+//    (own-bubble done/done_all icon + the automation key
+//    `message_send_status:<msgID>:<state>`); data half is unwired twice:
+//    (a) B's chat-open marks read LOCAL-ONLY (markConversationRead — no
+//    _sendReceipt; l3_mark_read drives the SAME local-only path and
+//    markC2CMessageAsRead has no UI caller; group receipts only fire with
+//    needReadReceipt), and
+//    (b) receipt matching cannot correlate — receipts carry the RECEIVER's
+//    locally generated msgID while the Tox wire carries none, so the
+//    sender's exact-match lookup never hits (S63 live: isReceived never
+//    flips). Fix needs a tim2tox msgID round-trip + a C2C receipt trigger
+//    on chat-open; the CODE wins over the inventory row's stale ✓✓ claim.
 //
-// 3. FORWARD→GROUP (forward_to_group_target) — wired; the sweep pre-creates a
-//    PRIVATE group via the REAL AddGroupDialog (batch-7
-//    `_groupCreateTypeSelectorSurface`). B does NOT need to join: the asserted
-//    behavior is A's real picker → group target → Send → the forwarded text
-//    lands in A's `group_<gid>` conversation (dump). Same-host NGC join is the
-//    flakiest piece of batch 7 and nothing here needs it.
+// 3. FORWARD→GROUP (forward_to_group_target) — wired; the sweep pre-creates
+//    a PRIVATE group via the REAL AddGroupDialog. B does NOT need to join:
+//    the assert is A's real picker → group target → Send → text lands in
+//    A's `group_<gid>` conversation (dump); no same-host NGC join needed.
 //
-// 4. DRAFT (draft_restore_on_conv_switch) — POSITIVE contract gate. The draft
-//    path is real and shared by BOTH platforms:
-//    - DESKTOP and MOBILE inputs each drive a
-//      `TencentCloudChatMessageDraftCoordinator` (`updateContext()` /
-//      `loadDraft()` / `saveDraft()` / `sendAndClear()`), so this is shared-fork
-//      Dart and mobile parity comes for free.
-//    - The coordinator persists through the durable `ChatDraftProvider`, so the
-//      draft outlives the per-conversation widget key disposing composer STATE.
-//    Gate: typed-but-unsent text DOES survive a real switch-away/switch-back,
-//    proven by Return on the restored composer sending the probe text (with
-//    positive controls before and after proving type+Enter itself works).
-//    PLATFORM: the premise ("really typed, not sent") needs a genuine OS
-//    keyboard, so a `_p1cRealKeyboardCapable`-false shell SKIPs (expected) —
-//    see _p1cDraftRestoreOnConvSwitch.
+// 4. DRAFT (draft_restore_on_conv_switch) — POSITIVE contract gate: both
+//    composers drive `TencentCloudChatMessageDraftCoordinator` persisting via
+//    the durable `ChatDraftProvider` (shared-fork Dart — mobile parity free),
+//    so typed-but-unsent text survives a real switch-away/back, proven by
+//    Return sending the probe (positive controls around it). The premise
+//    needs a genuine OS keyboard → `_p1cRealKeyboardCapable`-false SKIPs.
 //
 // 5. TYPING (typing_indicator_render) — NO UI surface AND no production sender;
 //    DOUBLE-NEGATIVE product-gap gate:
@@ -132,8 +88,8 @@ part of 'drive_real_ui_pair.dart';
 //      absence (a bare Text is not in interactiveStructured, so the count
 //      text itself is a getTextContent breadcrumb, not the gate).
 //
-// 7. SEARCH EMPTY STATE (search_empty_state) — wired: Cmd+Ctrl+F →
-//    _OpenSearchIntent → CustomSearch overlay (home_page.dart:1316-1328);
+// 7. SEARCH EMPTY STATE (search_empty_state) — wired: wide = Cmd+Ctrl+F →
+//    _OpenSearchIntent; compact = header magnifier (+L3 fallback);
 //    keyed field `message_search_field` (custom_search.dart:593); no-hit
 //    renders EmptyStateWidget(title: l10n.noResultsFound == "No results
 //    found", custom_search.dart:692-703). ESC-close is attempted first and
@@ -416,8 +372,10 @@ Future<bool> _p1cRecallMessage(
   }
   if (!await a.waitKeyCenter('message_menu_item:recall', timeoutSecs: 4)) {
     await _dismissMessageMenu(a);
-    print('[pair] chat_recall_message: recall item not present on fresh '
-        'self message (recallTimeLimit/config regression?)');
+    print(
+      '[pair] chat_recall_message: recall item not present on fresh '
+      'self message (recallTimeLimit/config regression?)',
+    );
     return false;
   }
   if (!await a.tapKeyCenter('message_menu_item:recall', timeoutSecs: 6)) {
@@ -443,7 +401,10 @@ Future<bool> _p1cRecallMessage(
   // Foreground A and give the LOCAL_REVOKED flip time to rebuild the row into
   // the tombstone tip (the render can lag the data delete; flaky at 8 s).
   await a.foreground();
-  var tombstone = await a.waitText('$nickA Recalled a Message', timeoutSecs: 15);
+  var tombstone = await a.waitText(
+    '$nickA Recalled a Message',
+    timeoutSecs: 15,
+  );
   if (!tombstone) {
     // Accept the named tip ("<nick> Recalled a Message") OR the generic
     // fallback ("Message recalled") — both are valid LOCAL_REVOKED tips (a
@@ -672,14 +633,18 @@ Future<bool> _p1cForwardToGroupTarget(
   // — which is why forward_picker_send_button read as "not resolvable" (the
   // whole dialog was gone, not the button being unsized).
   final targetCenter = await a.keyCenter('forward_picker_item:$gid');
-  var targetTapped =
-      await a.tapKeyCenter('forward_picker_item:$gid', timeoutSecs: 6);
+  var targetTapped = await a.tapKeyCenter(
+    'forward_picker_item:$gid',
+    timeoutSecs: 6,
+  );
   if (!targetTapped) {
     // Fallback only if the keyed row didn't resolve — logged so a gid/groupID
     // mismatch is visible rather than silently dismissing the dialog.
-    print('[pair] forward_to_group_target: keyed picker row '
-        'forward_picker_item:$gid not resolvable (center=$targetCenter) — '
-        'falling back to text tap');
+    print(
+      '[pair] forward_to_group_target: keyed picker row '
+      'forward_picker_item:$gid not resolvable (center=$targetCenter) — '
+      'falling back to text tap',
+    );
     targetTapped = await _p1cTapTextOnce(a, groupName);
   }
   await Future<void>.delayed(const Duration(milliseconds: 600));
@@ -687,22 +652,29 @@ Future<bool> _p1cForwardToGroupTarget(
   // (ui_key_center); the picker is a centered showDialog/AlertDialog (NOT an
   // Overlay popup). WAIT for it to be resolvable first (ui_key_center has no
   // internal retry), then single-fire tap.
-  final sendResolvable =
-      await a.waitKeyCenter('forward_picker_send_button', timeoutSecs: 6);
+  final sendResolvable = await a.waitKeyCenter(
+    'forward_picker_send_button',
+    timeoutSecs: 6,
+  );
   final sendCenter = await a.keyCenter('forward_picker_send_button');
   if (!sendResolvable) {
     // Surface the resolver verdict (key_offstage_only vs key_not_found) +
     // a screenshot — distinguishes "dialog was dismissed" (button absent) from
     // "header not laid out" (button mounted but unsized).
-    final dbg =
-        await a.l3('ui_key_center', {'key': 'forward_picker_send_button'});
+    final dbg = await a.l3('ui_key_center', {
+      'key': 'forward_picker_send_button',
+    });
     await a.shot('/tmp/ui_p1c_fwd_nosend_A.png');
     print('[pair] forward_to_group_target: send resolver debug=$dbg');
   }
-  print('[pair] forward_to_group_target: sendResolvable=$sendResolvable '
-      'sendCenter=$sendCenter targetCenter=$targetCenter');
-  final sendTapped =
-      await a.tapKeyCenter('forward_picker_send_button', timeoutSecs: 6);
+  print(
+    '[pair] forward_to_group_target: sendResolvable=$sendResolvable '
+    'sendCenter=$sendCenter targetCenter=$targetCenter',
+  );
+  final sendTapped = await a.tapKeyCenter(
+    'forward_picker_send_button',
+    timeoutSecs: 6,
+  );
   await Future<void>.delayed(const Duration(milliseconds: 800));
   final pickerGone = await a.waitTextGone(
     'Forward Individually',
@@ -1032,8 +1004,9 @@ Future<Map<String, int>> _p1cConvUnreads(Inst inst) async {
 /// Drain A's unread to a true 0 baseline (open both conversations, park on the
 /// chats home, clear the active conversation), then B REAL-composer-sends N=2
 /// into the C2C and M=1 group inbound is SEEDED via l3_inject_group_text (the
-/// brief-sanctioned group half — B is not an NGC member). The sidebar Chats
-/// badge must RENDER (keyed `sidebar_chats_unread_badge`) with the dump
+/// brief-sanctioned group half — B is not an NGC member). The Chats badge
+/// must RENDER (layout-keyed: sidebar on wide shells, the bottom-nav glyph
+/// `home_chats_unread_badge` on compact) with the dump
 /// `totalUnreadCount` exactly N+M==3; A then opens BOTH conversations via real
 /// row taps → the badge unmounts and the dump total returns to 0.
 Future<bool> _p1cUnreadBadgeTotalSidebar(
@@ -1081,7 +1054,8 @@ Future<bool> _p1cUnreadBadgeTotalSidebar(
     // map must not pass `every` vacuously) AND every conversation's unread 0.
     final c2cId = _c2cConvId(toxB);
     final groupConvId = 'group_$gid';
-    final tracked = baselinePerConv.containsKey(c2cId) &&
+    final tracked =
+        baselinePerConv.containsKey(c2cId) &&
         baselinePerConv.containsKey(groupConvId);
     final allConvZero = baselinePerConv.values.every((u) => u == 0);
     print(
@@ -1098,10 +1072,15 @@ Future<bool> _p1cUnreadBadgeTotalSidebar(
     );
     return false;
   }
-  final badgeGoneAtBaseline = !await a.waitKey(
-    'sidebar_chats_unread_badge',
-    timeoutSecs: 1,
-  );
+  // The badge key follows the LAYOUT, not the platform: wide shells (desktop
+  // AND master-detail iPad) render it in the sidebar; only the COMPACT shell
+  // puts it on the bottom-nav Chats glyph (home_widgets.ChatsNavIcon).
+  final wideShell =
+      (await a.dumpState())['homeShellShouldShowMasterDetail'] == true;
+  final badgeKey = wideShell
+      ? 'sidebar_chats_unread_badge'
+      : 'home_chats_unread_badge';
+  final badgeGoneAtBaseline = !await a.waitKey(badgeKey, timeoutSecs: 1);
   // N=2 REAL composer sends from B into the C2C.
   final nonce = DateTime.now().microsecondsSinceEpoch % 1000000;
   await b.foreground();
@@ -1135,10 +1114,7 @@ Future<bool> _p1cUnreadBadgeTotalSidebar(
     (u) => u == 3,
     timeoutSecs: 45,
   );
-  final badgeShown = await a.waitKey(
-    'sidebar_chats_unread_badge',
-    timeoutSecs: bumped ? 8 : 1,
-  );
+  final badgeShown = await a.waitKey(badgeKey, timeoutSecs: bumped ? 8 : 1);
   final renderedCount = await _p1cTextContaining(a, '3'); // breadcrumb only
   await a.shot('/tmp/ui_p1c_badge_up_A.png');
   if (!bumped || !badgeShown) {
@@ -1166,7 +1142,7 @@ Future<bool> _p1cUnreadBadgeTotalSidebar(
   );
   var badgeGone = false;
   for (var i = 0; i < 10 && !badgeGone; i++) {
-    badgeGone = !await a.waitKey('sidebar_chats_unread_badge', timeoutSecs: 1);
+    badgeGone = !await a.waitKey(badgeKey, timeoutSecs: 1);
     if (!badgeGone) {
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
@@ -1184,7 +1160,8 @@ Future<bool> _p1cUnreadBadgeTotalSidebar(
 // ===========================================================================
 // case p1c-7 — search_empty_state (P1#14)
 // ===========================================================================
-/// Cmd+Ctrl+F (real OS chord → `_OpenSearchIntent` → CustomSearch overlay) →
+/// Wide: real Cmd+Ctrl+F chord; compact: header magnifier (+ L3 fallback) →
+/// CustomSearch overlay →
 /// type a no-hit nonce into the keyed `message_search_field` → the empty state
 /// renders ("No results found", custom_search.dart:697-703) → close. ESC is
 /// attempted FIRST and its efficacy logged (no explicit Escape binding was
@@ -1202,20 +1179,39 @@ Future<bool> _p1cSearchEmptyState(Inst a) async {
   for (var attempt = 0; attempt < 3 && !opened; attempt++) {
     await a.foreground();
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    await a.tapAt(240, 75); // sidebar conversation search filter → home focus
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    try {
-      await a.osaSearchShortcut();
-    } on DriveError catch (e) {
-      print('[pair] search_empty_state: search shortcut blocked: ${e.message}');
-      return false;
+    final compact =
+        a.isMobileShell &&
+        (await a.dumpState())['homeShellShouldShowMasterDetail'] != true;
+    if (compact) {
+      // COMPACT shell only (iPad keeps the proven chord path below): the
+      // REAL entry is the header magnifier; l3_open_global_search is the
+      // nav-stability fallback.
+      if (!await a.tapKeyCenter(
+        'conversation_global_search_button',
+        timeoutSecs: 4,
+      )) {
+        await a.l3('l3_open_global_search');
+      }
+    } else {
+      await a.tapAt(240, 75); // sidebar search filter → home focus
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      try {
+        await a.osaSearchShortcut();
+      } on DriveError catch (e) {
+        print(
+          '[pair] search_empty_state: search shortcut blocked: ${e.message}',
+        );
+        return false;
+      }
     }
     opened = await a.waitKey('message_search_field', timeoutSecs: 6);
   }
   if (!opened) {
     await a.shot('/tmp/ui_p1c_search_noopen_A.png');
-    print('[pair] search_empty_state: search overlay did not open '
-        '(shot=/tmp/ui_p1c_search_noopen_A.png)');
+    print(
+      '[pair] search_empty_state: search overlay did not open '
+      '(shot=/tmp/ui_p1c_search_noopen_A.png)',
+    );
     return false;
   }
   final nonce = 'zqnohit${DateTime.now().microsecondsSinceEpoch}';
@@ -1331,7 +1327,11 @@ Future<bool> _p1cImagePreviewOpenHardened(
   var viewerMounted = false;
   final bubbleKey = 'message_image_bubble:$imageMsgId';
   const fractions = <double>[0.18, 0.28, 0.40, 0.50, 0.22, 0.33];
-  for (var attempt = 0; attempt <= fractions.length && !viewerMounted; attempt++) {
+  for (
+    var attempt = 0;
+    attempt <= fractions.length && !viewerMounted;
+    attempt++
+  ) {
     if (attempt == 0) {
       if (!await a.tapKeyAt(bubbleKey)) continue;
     } else {
