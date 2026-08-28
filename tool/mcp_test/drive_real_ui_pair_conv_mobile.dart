@@ -33,6 +33,60 @@ Future<bool> _keyOnstage(Inst inst, String key) async {
   }
 }
 
+/// MOBILE two-step Search-Chat-History layout: the window first lists
+/// CONVERSATIONS; the keyed `search_history_message_*` rows only exist after
+/// tapping a conversation into `_showMobileDetail`. Desktop shows both panels
+/// at once, so this is a compact-only extra step.
+Future<bool> _openSearchHistoryMobileDetail(Inst inst, String convId) async {
+  if (!inst.isMobileShell) return false;
+  if (!await inst.tapKeyCenter(
+    'search_history_conversation:$convId',
+    timeoutSecs: 4,
+  )) {
+    return false;
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 600));
+  return true;
+}
+
+/// Print the flutter_skill bounds of [keys] — live diagnostics for taps that
+/// land on an adjacent control (resolved center vs actual layout).
+Future<void> _dumpKeyBounds(Inst inst, List<String> keys) async {
+  try {
+    final r = await inst.skill('interactiveStructured', const {});
+    final data = r['data'];
+    final els = data is Map ? data['elements'] : null;
+    final hits = <String>[
+      if (els is List)
+        for (final e in els)
+          if (e is Map && keys.contains(e['key'])) '${e['key']}=${e['bounds']}',
+    ];
+    final centers = <String>[
+      for (final k in keys) '$k@${await inst.keyCenter(k)}',
+    ];
+    print('[${inst.name}] key bounds: $hits elementCenters: $centers');
+  } on DriveError {
+    // diagnostics only
+  }
+}
+
+/// All onstage element keys starting with [prefix] (flutter_skill walk) —
+/// live diagnostics for "row not found" failures in keyed virtual lists.
+Future<List<String>> _visibleKeysWithPrefix(Inst inst, String prefix) async {
+  try {
+    final r = await inst.skill('interactiveStructured', const {});
+    final data = r['data'];
+    final els = data is Map ? data['elements'] : null;
+    return <String>[
+      if (els is List)
+        for (final e in els)
+          if (e is Map && '${e['key']}'.startsWith(prefix)) '${e['key']}',
+    ];
+  } on DriveError {
+    return const [];
+  }
+}
+
 /// Press the DEVICE back key on an Android instance via adb (device id from
 /// pair.json, matched by pid). The only way to dismiss a NATIVE activity that
 /// covers the Flutter one — Flutter-side taps can't reach it.
@@ -241,8 +295,16 @@ Future<bool> _popMobileCoveringRoute(Inst inst) async {
 /// `ui_key_center` and dispatches ONE real `tapAt` there — the same gesture a
 /// user makes. Best-effort by contract: callers verify with `_chatSurfaceReady`.
 Future<void> _tapConversationRowReal(Inst inst, String rowKey) async {
-  if (await inst.tryTapKey(rowKey, retries: 2)) return;
-  await inst.tapKeyAt(rowKey);
+  // SINGLE-FIRE first (element-tree coordinate tap). flutter_skill's key tap
+  // (tryTapKey) DOUBLE-fires: its second synthetic pointer lands ~1s later at
+  // the ROW's coordinates — by then the chat page is up and that spot is the
+  // top call-record bubble, whose tap REDIALS a real audio call (live on
+  // Android: every "video call became audio" red traced back to this).
+  if (await inst.tapKeyAt(rowKey)) return;
+  // Fallback stays SINGLE-FIRE too (skill's key tap double-fires — the
+  // original hazard); rows the coordinate resolvers can't see just miss and
+  // the callers' own fallbacks take over.
+  await inst.tapKeyCenter(rowKey, timeoutSecs: 4);
 }
 
 /// One-line home-shell / session snapshot used by the conversation-list

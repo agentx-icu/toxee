@@ -101,17 +101,15 @@ Future<int> runC2cExtraSweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var endFriends = false;
   try {
-    // Mark BOTH accounts as L3 seed accounts so the test-gated nav/clear tools
-    // (l3_force_home_root for the contacts shell + sendComposerMessage's
-    // recovery, l3_clear_history) work on these fresh non-test real-UI accounts
-    // — mirrors sweep_conv / sweep_chat. The WHOLE marked window (both marks,
-    // cases, end-seed) is wrapped so the finally ALWAYS revokes: a thrown
-    // end-seed (outside hard()) or a partial mark must not leak test-account
-    // state into the next bundle step (codex).
+    // Mark BOTH accounts test so the gated nav/clear tools work (mirrors
+    // sweep_conv). The WHOLE marked window is wrapped so the finally ALWAYS
+    // revokes — no test-account leak into the next bundle step (codex).
     final aMarked = await a.markAccountTest();
     final bMarked = await b.markAccountTest();
-    print('[sweep] sweep_c2c_extra: marked test accounts aMarked=$aMarked '
-        'bMarked=$bMarked');
+    print(
+      '[sweep] sweep_c2c_extra: marked test accounts aMarked=$aMarked '
+      'bMarked=$bMarked',
+    );
 
     await hard(
       'c2c_global_search_contact_opens_chat',
@@ -196,22 +194,26 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
   String friendNickName,
 ) async {
   await returnToChatsHome(inst, rounds: 4);
-  // B surfaces as a CONVERSATION result (A has a C2C conv with B), keyed by the
-  // conversationID `c2c_<pubkey>` — not a search_result_contact row. And search
-  // by the tox-id prefix, not the nickname ($friendNickName): the peer self-name
-  // does not propagate over the same-host loopback friend connection, so A
-  // displays B by its tox id (both verified against the live search overlay).
-  final fullKey = 'search_result_conversation:c2c_${toxFriend.trim()}';
-  final shortKey = 'search_result_conversation:c2c_${_pubkey(toxFriend)}';
+  // Accept CONVERSATION or CONTACT rows (fresh handshake has no conv yet);
+  // both open the chat. Query = tox-id prefix (self-name skips loopback).
+  final pk = _pubkey(toxFriend);
+  final full = toxFriend.trim();
   if (!await _openGlobalSearch(inst)) {
-    print('[pair] c2c_global_search_contact_opens_chat: search did not open '
-        '(displayName="$friendNickName")');
+    print(
+      '[pair] c2c_global_search_contact_opens_chat: search did not open '
+      '(displayName="$friendNickName")',
+    );
     return false;
   }
-  final matchQuery = _pubkey(toxFriend).substring(0, 6);
+  final matchQuery = pk.substring(0, 6);
   await inst.focusType('message_search_field', matchQuery);
   await Future<void>.delayed(const Duration(milliseconds: 1400));
-  final rowKey = await _c2ceFirstVisibleKey(inst, [shortKey, fullKey]);
+  final rowKey = await _c2ceFirstVisibleKey(inst, [
+    'search_result_conversation:c2c_$pk',
+    'search_result_conversation:c2c_$full',
+    'search_result_contact:$pk',
+    'search_result_contact:$full',
+  ]);
   if (rowKey == null) {
     await inst.shot('/tmp/ui_c2c_search_no_contact_${inst.name}.png');
     await _closeGlobalSearch(inst);
@@ -228,16 +230,14 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
       tapped &&
       await _chatSurfaceReady(inst, _c2cConvId(toxFriend), timeoutSecs: 12);
   await inst.shot('/tmp/ui_c2c_search_open_chat_${inst.name}.png');
-  // DIAGNOSTIC (case B): when opened=false despite tapped=true, capture WHICH
-  // _chatSurfaceReady condition failed — shellTab must be 'chats', the bound
-  // currentConversation.conversationID must equal _c2cConvId, and the composer
-  // (chat_input_text_field) must be present. This pinpoints whether the search
-  // tap failed to switch the home tab, failed to bind the conversation, or
-  // failed to mount the chat surface.
+  // DIAG: which _chatSurfaceReady leg failed (tab / bind / composer mount).
   if (!opened) {
     final ds = await inst.dumpState();
     final cur = (ds['currentConversation'] as Map?)?.cast<String, dynamic>();
-    final hasInput = await inst.waitKey('chat_input_text_field', timeoutSecs: 1);
+    final hasInput = await inst.waitKey(
+      'chat_input_text_field',
+      timeoutSecs: 1,
+    );
     print(
       '[pair] c2c_global_search_contact_opens_chat DIAG: '
       'expect=${_c2cConvId(toxFriend)} '
@@ -250,11 +250,8 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
     '[pair] c2c_global_search_contact_opens_chat: rowKey=$rowKey '
     'tapped=$tapped opened=$opened',
   );
-  // ALWAYS dismiss the search overlay before returning — on the NOT-opened path a
-  // still-pushed search route would cover the conversation list for the NEXT case
-  // (conv_delete_cancel saw `conversation_list_item` resolve `key_offstage_only`
-  // because the list sat behind the leaked search route). The opened path already
-  // closes via _navigateToMessage's _closeSearch, so this is a harmless no-op there.
+  // ALWAYS dismiss the search overlay: a leaked search route covers the conv
+  // list for the NEXT case (opened path already closed it — harmless no-op).
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) {
     await _closeGlobalSearch(inst);
   }
@@ -263,9 +260,8 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
 
 Future<bool> _c2ceConvDeleteCancel(Inst inst, String toxFriend) async {
   final convId = _c2cConvId(toxFriend);
-  // Defensive: clear any leftover pushed overlay (e.g. a search route from a
-  // prior case) so the conversation list is ONSTAGE before we seed/secondary-tap
-  // its row — otherwise the row resolves `key_offstage_only` behind the overlay.
+  // Clear any leftover pushed overlay so the conv list is ONSTAGE (else the
+  // row resolves `key_offstage_only` behind it).
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) {
     await _closeGlobalSearch(inst);
   }
@@ -349,12 +345,9 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
     seeded = await sendComposerMessage(inst, seedText);
   }
   if (!seeded) {
-    // Composer flaked under 2-process contention. Fall back to the
-    // deterministic l3_send_text seam — the asserted action here is the
-    // Clear-History CANCEL (count unchanged), NOT the send, so seeding the
-    // history through the seam is fine (same setup-via-seam contract as
-    // l3_open_chat). The c2c_extra sweep marks both accounts test up front,
-    // which l3_send_text requires.
+    // Composer flaked under 2-process contention: seed via l3_send_text —
+    // the asserted action is the Clear-History CANCEL, not the send (same
+    // setup-via-seam contract as l3_open_chat; accounts already marked).
     for (var attempt = 0; attempt < 3 && !seeded; attempt++) {
       try {
         final r = await inst.l3('l3_send_text', {
@@ -363,8 +356,10 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
         });
         seeded = r['ok'] == true;
       } on DriveError catch (e) {
-        print('[pair] c2c_profile_clear_history_cancel: l3 seed warn: '
-            '${e.message}');
+        print(
+          '[pair] c2c_profile_clear_history_cancel: l3 seed warn: '
+          '${e.message}',
+        );
       }
       if (seeded) await Future<void>.delayed(const Duration(milliseconds: 600));
     }
@@ -436,7 +431,9 @@ Future<bool> _c2ceProfileClearHistoryCancel(Inst inst, String toxFriend) async {
       }
       try {
         await inst.osaEscape();
-      } on DriveError {/* best-effort */}
+      } on DriveError {
+        /* best-effort */
+      }
     }
     dialogGone = await inst.waitKeyGone(
       'user_profile_clear_history_confirm_button',
@@ -484,8 +481,10 @@ Future<bool> _c2ceDeleteFriendCancel(Inst inst, String toxFriend) async {
   var dialogGone = false;
   for (var attempt = 0; attempt < 4 && !dialogGone; attempt++) {
     if (attempt.isEven) {
-      await inst.tapKeyCenter('user_profile_delete_friend_cancel_button',
-          timeoutSecs: 5);
+      await inst.tapKeyCenter(
+        'user_profile_delete_friend_cancel_button',
+        timeoutSecs: 5,
+      );
     } else if (!await _tryTapText(inst, 'Cancel')) {
       try {
         await inst.osaEscape();
@@ -494,8 +493,9 @@ Future<bool> _c2ceDeleteFriendCancel(Inst inst, String toxFriend) async {
       }
     }
     dialogGone = await inst.waitKeyGone(
-        'user_profile_delete_friend_cancel_button',
-        timeoutSecs: 3);
+      'user_profile_delete_friend_cancel_button',
+      timeoutSecs: 3,
+    );
   }
   final friendAfter = await areFriends(inst, toxFriend);
   await inst.shot('/tmp/ui_c2c_delete_friend_cancel_${inst.name}.png');

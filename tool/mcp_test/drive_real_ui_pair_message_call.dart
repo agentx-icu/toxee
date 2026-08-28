@@ -380,17 +380,16 @@ Future<void> openChat(
       // non-test account → forceHomeRoot refused; fall through to the taps.
     }
   }
-  // The conversation-row taps are BEST-EFFORT legs of the strategy chain: a
-  // row tap that cannot land (e.g. a lingering overlay right after a call
-  // teardown covers the list, or the tap misses under foreground contention)
-  // must fall through to the contacts-profile / l3 legs below — a throwing
-  // `tapKey` here aborted the WHOLE case before the fallbacks could run
-  // (root cause of the calls-misc "tapKey conversation_list_item failed after
-  // 6 tries" cluster).
+  // Row taps are BEST-EFFORT legs: one that cannot land (lingering overlay,
+  // foreground contention) must fall through to the contacts-profile / l3
+  // legs — a throwing tap here aborted the whole case (calls-misc cluster).
   if (preferConversationList &&
       await _homeShellTab(inst) == 'chats' &&
       await _waitConversationListed(inst, targetConversation)) {
-    await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
+    await _tapConversationRowReal(
+      inst,
+      'conversation_list_item:$targetConversation',
+    );
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (await ready()) {
       return;
@@ -399,7 +398,10 @@ Future<void> openChat(
   if (preferConversationList && await _homeShellTab(inst) != 'chats') {
     await returnToChatsHome(inst, rounds: 4);
     if (await _waitConversationListed(inst, targetConversation)) {
-      await _tapConversationRowReal(inst, 'conversation_list_item:$targetConversation');
+      await _tapConversationRowReal(
+        inst,
+        'conversation_list_item:$targetConversation',
+      );
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (await ready()) {
         return;
@@ -424,13 +426,10 @@ Future<void> openChat(
   // chat sweep's first-chat-open) falls through to the deterministic
   // l3_open_chat navigation seam instead of aborting the whole case.
   //
-  // SKIPPED on the iOS Simulator: this path does a heavy forceHomeRoot +
-  // ensureContactsShell + profile-navigation burst (~4.5s), and under sustained
-  // backgrounded sim driving that burst intermittently TERMINATES the app (the
-  // chat-open sim death). The l3_open_chat seam below is the SAME production
-  // `_openChat` path but light, so on iOS we go straight to it. The
-  // conversation-list row tap above remains the primary real-UI open; only this
-  // heavy no-row fallback is replaced. Desktop keeps the full real flow.
+  // SKIPPED on the iOS Simulator: this heavy forceHomeRoot + contacts +
+  // profile burst (~4.5s) intermittently TERMINATES the backgrounded sim app;
+  // iOS goes straight to the light l3_open_chat seam below instead. The row
+  // tap above stays the primary real-UI open; desktop keeps the full flow.
   if (!inst.isIos &&
       await _openChatViaContactsProfile(
         inst,
@@ -524,14 +523,12 @@ Future<bool> _openChatViaContactsProfile(
     }
     if (!await inst.tryTapKey('friend_profile_send_message_tile', retries: 2)) {
       if (!await _tryTapText(inst, 'Send Message')) {
-        // Both keyed forms of the tile, resolved through the ELEMENT-TREE
-        // resolver (tapKeyAt) — the profile action tiles are keyed wrappers
-        // that flutter_skill's interactiveStructured does not always surface,
-        // which is what pushed this path onto a raw coordinate in the first
-        // place.
-        var landed =
-            await inst.tapKeyAt('friend_profile_send_message_tile') ||
-            await inst.tapKeyAt('friend_profile_send_message_button');
+        // ELEMENT-TREE resolver (tapKeyAt) on the per-tile key ONLY. Never
+        // tap the ROW-WRAPPER key (friend_profile_send_message_button): its
+        // center is the middle [Voice] tile of the 3-tile row — live on
+        // Android this placed a REAL audio call during chat-open, which then
+        // masqueraded as "the video button started an audio call".
+        var landed = await inst.tapKeyAt('friend_profile_send_message_tile');
         if (!landed && !inst.isMobileShell) {
           // Desktop last resort, unchanged: the left-most tile in the
           // [Send Message, Voice, Video] row of the 1280x768 profile pane.
@@ -600,7 +597,9 @@ Future<void> _reopenChatFromConversationList(
   if (await _homeShellTab(inst) != 'chats') {
     await returnToChatsHome(inst, rounds: 4);
   }
-  await inst.tapKey('conversation_list_item:$conversationId');
+  // Single-fire row tap — see _tapConversationRowReal (the skill key tap
+  // double-fires into the just-opened chat's call-record bubble).
+  await _tapConversationRowReal(inst, 'conversation_list_item:$conversationId');
   await Future<void>.delayed(const Duration(milliseconds: 1200));
 }
 

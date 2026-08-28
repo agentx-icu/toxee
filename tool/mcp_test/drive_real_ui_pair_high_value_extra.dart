@@ -118,9 +118,8 @@ Future<bool> _hveC2cSearchResultOpensTargetMessage(
   String toxFriend,
 ) async {
   final c2c = _c2cConvId(toxFriend);
-  // Robust setup open (row tap, then the production _openChat seam): a prior
-  // case can leave the app off the chats list so the conv row isn't tappable
-  // (openChat alone then throws "conversation_list_item ... failed after N").
+  // Robust setup open (row tap then _openChat seam; a prior case can leave
+  // the app off the chats list).
   if (!await _ensureChatOpen(inst, _pubkey(toxFriend))) {
     print('[pair] c2c_search_result_opens_target_message: chat did not open');
     return false;
@@ -142,15 +141,20 @@ Future<bool> _hveC2cSearchResultOpensTargetMessage(
   }
 
   var msgId = '';
-  final deadline = DateTime.now().add(const Duration(seconds: 8));
-  while (DateTime.now().isBefore(deadline) && msgId.isEmpty) {
+  // Poll PAST created_temp_id-* placeholders (history rows use the REAL id).
+  bool unusable() => msgId.isEmpty || msgId.startsWith('created_temp_id-');
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (DateTime.now().isBefore(deadline) && unusable()) {
     msgId = await _ownMessageId(inst, toxFriend, term) ?? '';
-    if (msgId.isEmpty) {
+    if (unusable()) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
   }
-  if (msgId.isEmpty) {
-    print('[pair] c2c_search_result_opens_target_message: msgID unresolved');
+  if (unusable()) {
+    print(
+      '[pair] c2c_search_result_opens_target_message: msgID unresolved '
+      '("$msgId")',
+    );
     return false;
   }
 
@@ -173,14 +177,21 @@ Future<bool> _hveC2cSearchResultOpensTargetMessage(
   final historyKey = 'search_history_message_$msgId';
   if (resultKey != null) {
     await inst.tapKeyCenter(resultKey, timeoutSecs: 6);
-    // The history rows are ListTiles inside a ListView.builder; flutter_skill's
-    // whole-tree `waitKey` can't see keyed list rows (same constraint the group
-    // member-list rows hit), so resolve via the element-tree walk (`waitKeyCenter`)
-    // — consistent with the `tapKeyCenter` below.
+    // ListView.builder rows are invisible to whole-tree `waitKey`; resolve
+    // via the element-tree walk (`waitKeyCenter`), like `tapKeyCenter` below.
     windowOpened =
         await inst.waitText('Search Chat History', timeoutSecs: 8) ||
         await inst.waitKeyCenter(historyKey, timeoutSecs: 8);
     historyRowShown = await inst.waitKeyCenter(historyKey, timeoutSecs: 10);
+    if (!historyRowShown && await _openSearchHistoryMobileDetail(inst, c2c)) {
+      historyRowShown = await inst.waitKeyCenter(historyKey, timeoutSecs: 8);
+    }
+    if (!historyRowShown) {
+      print(
+        '[pair] c2c_search_target DIAG visible='
+        '${await _visibleKeysWithPrefix(inst, 'search_history_message_')}',
+      );
+    }
     if (historyRowShown) {
       await inst.tapKeyCenter(historyKey, timeoutSecs: 6);
       returnedToChat = await _chatSurfaceReady(inst, c2c, timeoutSecs: 12);
@@ -507,13 +518,10 @@ Future<int> runGroupConfDeepExtraSweep(
     'group_member_remove_receiver_state',
     () => _hveGroupMemberRemoveReceiverState(a, b, nickA, nickB),
   );
-  // Env-limited (same-host real-UI): the LEGACY conference (tox_conference_*)
-  // FOUNDER→JOINER direction does not deliver in this deep-sweep context even
-  // over TCP-only + a joiner→founder warm-up + 80s of retries (verified live:
-  // bGot=false while bSent/aGot succeed and aCount=bCount=2). The standalone
-  // `conference_message` scenario (accepted-friend-inline-conference-message)
-  // DOES exercise + pass conference bidirectional delivery same-host, so
-  // conference routing itself is covered; this stricter lifecycle variant after
+  // Env-limited (same-host real-UI): LEGACY conference FOUNDER→JOINER does
+  // not deliver in this deep-sweep context even over TCP-only + warm-up +
+  // 80s retries (verified live). The standalone `conference_message`
+  // scenario covers bidirectional conference delivery; this variant after
   // two prior group operations on the same launch is the un-constructible edge
   // (legacy-conference mesh convergence vs NGC, which now passes — group2,
   // group_mention, group_message all GREEN). Needs a second physical host.
@@ -1030,12 +1038,10 @@ Future<bool> _hveNetworkDisconnectGuard(Inst a) async {
   }
 }
 
-/// call_permission_denied_guard (S66-neg): initiating a call while mic/camera
-/// permission is DENIED must surface the permission-denied UI (a SnackBar with a
-/// Settings action). On macOS the denial branch is UNREACHABLE via the OS
-/// (`shouldRequestRuntimePermission`==false → the OS is never asked, and no
-/// tccutil reset would help), so arm the denial through the test seam
-/// (`l3_set_call_permission`) — the production
+/// call_permission_denied_guard (S66-neg): a call attempt with mic/camera
+/// DENIED must surface the permission-denied UI (SnackBar + Settings action).
+/// macOS cannot reach the denial branch via the OS, so arm it through the
+/// test seam (`l3_set_call_permission`) — the production
 /// `_preflightOutgoingCall → requestPermissionsForCallDetailed → _emitPermissionNotice`
 /// chain then runs and shows the genuine denied SnackBar.
 ///
@@ -1165,13 +1171,12 @@ Future<bool> _hveCallPermissionDeniedGuard(Inst a, String toxB) async {
   }
 }
 
-/// notification_tap_routes_to_c2c (S53): a notification tap must route the app to
-/// the tapped C2C conversation. The literal OS notification-banner click
-/// (UNUserNotification) is NOT headless-automatable and there is NO in-app
-/// notification-list widget to tap, so the only way to exercise the REAL routing
-/// is the `l3_simulate_notification_tap` seam — which pushes the payload onto the
-/// SAME `NotificationService.onSelectStream` the real OS handler
-/// (`_handleNotificationResponse`) writes to. So the PRODUCTION route handler
+/// notification_tap_routes_to_c2c (S53): a notification tap must route to the
+/// tapped C2C conversation. The literal OS banner click is not headless-
+/// automatable and no in-app notification list exists, so exercise the REAL
+/// routing via `l3_simulate_notification_tap` — the same
+/// `NotificationService.onSelectStream` the real OS handler writes to. So the
+/// PRODUCTION route handler
 /// (`_routeToNotificationPayload → _openChat`, home_page_bootstrap) runs
 /// end-to-end; only the un-automatable native TRIGGER is replaced. Asserts, from
 /// a baseline where B's chat is NOT open, that the tap flips the app to B's C2C
@@ -1281,9 +1286,8 @@ Future<bool> _hveAttachmentEntryButtonsRender(
           mediaKind: 'image',
         )
       : false;
-  // Close the "+" panel the reveals left open — it overlays the composer and
-  // swallows later pops/logout (Android live). Detect by CONTENT key: the
-  // options button is a toggle, keying on it would open a closed panel.
+  // Close the "+" panel the reveals left open (it swallows later pops).
+  // Detect by CONTENT key — the options button is a toggle.
   if (a.isMobileShell &&
       await _keyOnstage(a, 'message_attachment_file_button')) {
     await a.tapKeyCenter('message_attachment_options_button', timeoutSecs: 2);
@@ -1324,9 +1328,8 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: markAccountTest failed');
       return false;
     }
-    // Pass contentB64 so the APP writes the source file under its own sandbox
-    // container — a driver-written /tmp file is NOT readable by the sandboxed app
-    // (the native send fails with FFI -6 "Cannot read file").
+    // contentB64: the APP writes the source file in its own sandbox — a
+    // driver /tmp file is unreadable there (FFI -6 "Cannot read file").
     final override = await a.l3('l3_set_attachment_pick_path', {
       'contentB64': contentB64,
       'fileName': fileName,
@@ -1335,12 +1338,10 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: override failed $override');
       return false;
     }
-    // Re-bind the chat (production `_openChat`) right before the tap: the
-    // attachment onTap captures the input userID at build time; a stale/null
-    // one makes `_sendMedia` pick the file but skip sendFile silently.
-    // File transfer also needs B ONLINE first (offer dropped otherwise), so
-    // wait THEN bind — binding before a long wait lets the master-detail
-    // composer userID go stale again (observed: sentId empties out).
+    // Re-bind the chat right before the tap (attachment onTap captures the
+    // input userID at build time; stale/null skips sendFile silently). B must
+    // be ONLINE first (offer dropped otherwise): wait THEN bind — early bind
+    // goes stale again during a long wait (observed: sentId empties out).
     if (!await _waitFriendOnline(a, toxB, timeoutSecs: 60)) {
       print('[pair] attachment picker: WARN B not online before send');
     }
@@ -1358,9 +1359,8 @@ Future<bool> _hveAttachmentPickAndSend(
       print('[pair] attachment picker: $buttonKey not tappable');
       return false;
     }
-    // Match on fileName OR the filePath basename: the SENDER-side history record
-    // carries the file under `filePath` (the app-temp source path), while the
-    // RECEIVER record exposes `fileName` — mirror fixture_c_file and accept both.
+    // Match fileName OR filePath basename (sender carries filePath, the
+    // receiver exposes fileName — mirror fixture_c_file, accept both).
     bool fileMatches(Map<String, dynamic> m) {
       final nameField = m['fileName']?.toString() ?? '';
       final fp = m['filePath']?.toString() ?? '';
