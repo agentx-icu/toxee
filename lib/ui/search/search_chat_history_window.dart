@@ -197,12 +197,14 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
   void _openChatAndPop({V2TimMessage? targetMessage}) {
     if (_filteredResults.isEmpty) return;
     final selected = _filteredResults[_selectedIndex].$1;
-    widget.onNavigateToMessage(
+    final navigate = widget.onNavigateToMessage;
+    // POP FIRST: on compact the callback PUSHES the chat (a later pop ate it).
+    if (mounted) Navigator.of(context).pop();
+    navigate(
       userID: selected.userID,
       groupID: selected.groupID,
       targetMessage: targetMessage,
     );
-    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -215,9 +217,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
       appBar: AppBar(
         title: Text(l10n.searchChatHistory),
         bottom: PreferredSize(
-          // Scale the search field's reserved height with the user's text
-          // scaler so large-text accessibility settings don't clip the
-          // input — clamped to [64, 96] to keep the bar from over-growing.
+          // Text-scaler-aware reserved height, clamped [64, 96].
           preferredSize: Size.fromHeight(
             MediaQuery.textScalerOf(context).scale(64).clamp(64.0, 96.0),
           ),
@@ -374,9 +374,8 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
     );
   }
 
-  /// Mobile: single-column vertical layout — either conversation list or message list with back.
-  /// Vertical-only flow; no left/right split. Result rows are full-width, tappable,
-  /// ~68px tall with a 40px avatar, titleSmall nickname, bodySmall onSurfaceVariant snippet.
+  /// Mobile: single-column two-step flow — conversation list, then message
+  /// list with back (no left/right split).
   Widget _buildMobileLayout(
     BuildContext context,
     AppLocalizations l10n,
@@ -442,6 +441,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
               )
             : l10n.relatedChats(count);
         final row = InkWell(
+          key: UiKeys.searchHistoryConversation(result.conversationID),
           onTap: () {
             setState(() {
               _selectedIndex = index;

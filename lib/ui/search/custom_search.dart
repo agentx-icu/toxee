@@ -536,7 +536,8 @@ class _CustomSearchState extends State<CustomSearch> {
     if (UikitDataFacade.usedComponents.contains(
       TencentCloudChatComponentsEnum.message,
     )) {
-      if (!_isDesktop(context)) {
+      // Gate on the PANE's predicate — a 744-800pt tablet has NO pane (codex).
+      if (!ResponsiveLayout.shouldShowMasterDetail(context)) {
         pushCompactChatRoute(
           context: context,
           service: FakeUIKit.instance.im?.ffi,
@@ -554,10 +555,8 @@ class _CustomSearchState extends State<CustomSearch> {
           UikitDataFacade.currentTargetMessage = targetMessage;
         }
         UikitDataFacade.currentConversation = conv;
-        // Desktop binds the tapped conversation into the master-detail right
-        // pane via currentConversation, but the global-search overlay is a
-        // full-screen pushed route that otherwise stays ON TOP — hiding the
-        // chat the user just selected and swallowing sidebar taps until it is
+        // Desktop binds the tapped conversation into the right pane, but the
+        // full-screen search overlay would stay ON TOP — hiding it until it is
         // dismissed. Close it so the bound chat is revealed (mobile keeps its
         // push-the-message-page behavior, where back returns to the results).
         if (mounted) {

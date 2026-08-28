@@ -10,42 +10,17 @@ part of 'drive_real_ui_pair.dart';
 // actually having capture hardware — see [_videoCallEntryReason].
 
 /// Null when this device DOES offer a video-call entry point; otherwise the
-/// reason the video cases cannot be driven here.
-///
-/// The chat header's video button is gated on `useVideoCall`, which
-/// `lib/runtime/session_runtime_coordinator.dart:283` derives from
-/// `CallMediaCapabilities.supportsVideoCapture()`. That is false on a device
-/// with no capture hardware: `refreshCaptureDevices()` enumerates
-/// `availableCameras()` and an iOS Simulator returns an EMPTY LIST (measured —
-/// the app log carries `[CallMediaCapabilities] capture devices enumerated:
-/// count=0 deviceHasCamera=false`). Hiding the entry there is CORRECT product
-/// behaviour, not a defect: offering a video call on a camera-less device ran
-/// `requestPermissionsForCallDetailed(isVideo: true)`, which raised a system
-/// camera sheet that nothing can answer (`xcrun simctl privacy` has no `camera`
-/// service). The modal then covered the app and every later tap missed.
-///
-/// So the honest verdict is SKIP — but ONLY when the header is genuinely up AND
-/// the app itself reports the camera-less state in the ONE environment where it
-/// is expected. Two guards, because "the video button is missing" on its own is
-/// ambiguous:
-///
-///  1. the sibling VOICE button must be present — that separates "the product
-///     hid video on purpose" from "the chat never opened";
-///  2. `l3_dump_state` must report `videoCaptureSupported == false` AND the
-///     environment must self-identify as camera-less-BY-DESIGN: the iOS
-///     Simulator (`iosSimulator == true`) or an Android EMULATOR
-///     (`androidEmulatorHarness == true`, a dart-define the launcher stamps
-///     only for emulator-* adb serials). Without (2) a genuine capture
-///     OUTAGE on real hardware — camera held by another app, an MDM
-///     restriction, a plugin-registration race — would be swallowed as a
-///     SKIP. On physical hardware (any platform) a missing video button is
-///     a FAILURE (this returns null, so the caller's normal path reports
-///     it).
-///
-/// `videoCaptureSupported` is the same `CallMediaCapabilities
-/// .supportsVideoCapture()` value `session_runtime_coordinator.dart:283` turns
-/// into `useVideoCall`, so (2) also cross-checks that the missing button really
-/// is the capability gate rather than a broken header.
+/// SKIP reason. The header's video button is gated on `useVideoCall` (from
+/// `CallMediaCapabilities.supportsVideoCapture()`); hiding it on a
+/// camera-less device is CORRECT product behaviour (offering it raised an
+/// unanswerable system camera sheet on the iOS Simulator). The honest SKIP
+/// needs TWO guards, because a missing video button alone is ambiguous:
+///  1. the sibling VOICE button must be present ("hidden on purpose", not
+///     "chat never opened");
+///  2. `videoCaptureSupported == false` AND the env self-identifies as
+///     camera-less-BY-DESIGN (`iosSimulator` or `androidEmulatorHarness`) —
+///     else a real-hardware capture OUTAGE would be swallowed as SKIP. On
+///     physical hardware a missing video button stays a FAILURE.
 Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   await openChat(caller, calleeId, preferConversationList: true);
   await caller.foreground();
@@ -110,15 +85,43 @@ Future<bool> _startVideoCallUntilRinging(
     );
     await _reopenChatFromConversationList(caller, 'c2c_$calleePubkey');
     await caller.foreground();
-    // SINGLE-FIRE — see _startVoiceCallUntilRinging: flutter_skill's `tap`
-    // runs onPressed twice, which issues two overlapping invites.
-    await caller.tapKeyCenter('chat_call_video_button', timeoutSecs: 8);
+    // STALE-CALL DRAIN: a LATE audio invite (voice-case retry duplicate —
+    // the first invite was still in signaling flight when the retry fired)
+    // can land AFTER the idle gate; its overlay eats the video tap and its
+    // ring is what the wait sees (live). Drain until BOTH sides hold idle.
+    for (var drain = 0; drain < 4; drain++) {
+      if (await _callState(caller) == 'idle' &&
+          await _callState(callee) == 'idle') {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        if (await _callState(caller) == 'idle' &&
+            await _callState(callee) == 'idle') {
+          break;
+        }
+      }
+      print('[pair] WARN stale call before video tap — draining');
+      await caller.tryTapKey('call_hangup_button', retries: 1);
+      await callee.tryTapKey('call_decline_button', retries: 1);
+      await _waitCallStateAny(caller, {'idle'}, timeoutSecs: 6);
+    }
+    // SINGLE-FIRE element-tree tap (the skill key tap double-fires; its 2nd
+    // pointer replays into whatever now sits at the row coordinates).
+    if (!await caller.tapKeyAt('chat_call_video_button')) {
+      await caller.tapKeyCenter('chat_call_video_button', timeoutSecs: 8);
+    }
     await Future<void>.delayed(const Duration(milliseconds: 2200));
     if (await _waitCallStateAnyForegrounded(callee, {
       'ringing',
       'incoming',
     }, timeoutSecs: timeoutSecs)) {
-      return true;
+      if (await _callField(callee, 'mode') == 'video') {
+        return true;
+      }
+      print('[pair] WARN AUDIO ring during video start — clearing both');
+      await callee.tryTapKey('call_decline_button', retries: 1);
+      await caller.tryTapKey('call_hangup_button', retries: 2);
+      await _waitCallStateAny(caller, {'idle'}, timeoutSecs: 8);
+      await _waitCallStateAny(callee, {'idle'}, timeoutSecs: 8);
+      continue;
     }
     final callerState = await _callState(caller);
     final calleeState = await _callState(callee);
@@ -408,22 +411,17 @@ Future<bool> _callMissedRecordRow(
 // ===========================================================================
 // case 85 + 87 — video call with camera toggle (S66 + S75)  [two-process]
 // ===========================================================================
-/// Start a VIDEO call (B calls A via `chat_call_video_button`, A accepts → both
-/// inCall + mode==video). DURING the call (case 87) toggle the camera off/on via
-/// `call_camera_toggle_button`, asserting A's `call.isVideoEnabled` flips OFF
-/// then back ON. Then (case 85) hang up → both idle. Returns a record of both
-/// case outcomes so the sweep can tally 85 and 87 separately.
+/// Start a VIDEO call (B calls A, A accepts → both inCall + mode==video),
+/// toggle the camera off/on (case 87, `call.isVideoEnabled` flips), then hang
+/// up (case 85). Returns both case outcomes for separate tallies.
 Future<({bool videoCall, bool cameraToggle, String? skipReason})>
 _callVideoWithCameraToggle(Inst a, Inst b, String toxA) async {
-  // A lingering call would poison the video block — HARD-gate idle first.
   if (!await _ensureBothIdle(a, b)) {
     print('[pair] video call: a prior call did not settle to idle');
     return (videoCall: false, cameraToggle: false, skipReason: null);
   }
-  // Does this DEVICE offer a video-call entry at all? See
-  // [_videoCallEntryReason]. On a camera-less device the product deliberately
-  // renders no video button, so there is nothing to drive — that is a genuine
-  // capability SKIP, not a failure, and it must not throw and abort the sweep.
+  // Camera-less devices deliberately render no video button — a genuine
+  // capability SKIP, not a failure (see [_videoCallEntryReason]).
   final entryProblem = await _videoCallEntryReason(b, toxA);
   if (entryProblem != null) {
     print('[pair] video call: SKIP — $entryProblem');

@@ -109,9 +109,11 @@ lib/ui/testing/ui_keys.dart:656
 # blessed: the pins stop further growth while the scenario-driver taxonomy is
 # split up. tool/mcp_test/fixture_c_unified_runner.dart (2843) and
 # drive_real_ui_pair_chat.dart (1861) are the priority splits.
+# bootstrap_deps.dart re-pinned 571 -> 582 (2026-08-28): vendored record_android
+# override + its offline-check guard (double-reply FATAL fix).
 # bootstrap_deps.dart re-pinned 558 -> 562 (2026-08-24): the generated
 # overrides gained the vendored flutter_skill entry (screenshot-leak fix).
-tool/bootstrap_deps.dart:571
+tool/bootstrap_deps.dart:582
 tool/mcp_test/drive_fixture_c_block.dart:532
 tool/mcp_test/drive_fixture_c_concurrent.dart:583
 tool/mcp_test/drive_fixture_c_group.dart:598

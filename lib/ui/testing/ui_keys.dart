@@ -345,6 +345,8 @@ class UiKeys {
       Key('search_result_contact:$userId');
   static Key searchHistoryMessage(String messageId) =>
       Key('search_history_message_$messageId');
+  static Key searchHistoryConversation(String conversationId) =>
+      Key('search_history_conversation:$conversationId');
 
   // Desktop message input toolbar entries (UIKit fork).
   static const Key messageAttachmentFileButton = Key(
@@ -604,11 +606,9 @@ class UiKeys {
       Key('group_invite_accept_button:$groupId');
 
   // Chat composer + friend-profile "Send Message" wiring
-  // (lib/ui/home_page_bootstrap.dart). The underlying widgets live inside
-  // the Tencent UIKit fork (`third_party/chat-uikit-flutter/`); we attach
-  // these keys at the toxee override boundary by wrapping the upstream
-  // widgets with `KeyedSubtree(key: ..., child: ...)`. That keeps the keys
-  // discoverable from `find.byKey` / marionette's `tap(key: ...)` without
+  // (home_page_bootstrap.dart). The widgets live in the UIKit fork; keys
+  // attach at the toxee override boundary via
+  // `KeyedSubtree(key: ..., child: ...)` — `find.byKey`-discoverable without
   // patching third_party.
   //
   // Caveat for [chatSendButton]: UIKit's desktop input has no tappable

@@ -325,6 +325,11 @@ void main(List<String> args) async {
   // debug app dies ~770MB RSS. Drop when upstream ships the dispose fix.
   overrides.writeln('  flutter_skill:');
   overrides.writeln('    path: third_party/flutter_skill');
+  // Vendored: record_android 1.2.1 can double-reply stop() from the encoder
+  // thread ("Reply already submitted" -> app FATAL, live during call
+  // teardown). Idempotent-reply guard in RecorderWrapper.stop.
+  overrides.writeln('  record_android:');
+  overrides.writeln('    path: third_party/record_android');
   overrides.writeln('  record_linux: ^1.2.1');
   // integration_test (from the Flutter SDK) pins `file: 7.0.1`, while the
   // path-pinned tencent_cloud_chat_intl still asks for `^6.1.2`. The two
@@ -380,6 +385,12 @@ int _offlineCheck(String repoRoot) {
   if (!File('$repoRoot/third_party/flutter_skill/pubspec.yaml').existsSync()) {
     stderr.writeln(
       'bootstrap_deps: offline-check: third_party/flutter_skill missing',
+    );
+    return 1;
+  }
+  if (!File('$repoRoot/third_party/record_android/pubspec.yaml').existsSync()) {
+    stderr.writeln(
+      'bootstrap_deps: offline-check: third_party/record_android missing',
     );
     return 1;
   }
