@@ -101,9 +101,102 @@ Future<int> _b2GroupProfileSendBinds(Inst a) async {
     try {
       await _leaveAllGroups(a);
       await returnToChatsHome(a, rounds: 3);
-      await a.unmarkAccountTest();
     } on Object catch (e) {
       print('[pair] group_profile_send_binds cleanup: $e');
+    } finally {
+      try {
+        await a.unmarkAccountTest();
+      } on Object catch (_) {}
+    }
+  }
+}
+
+/// global_search_group_opens_chat (#10b) — searching a group's name in
+/// GLOBAL search must open and BIND its chat via a real result-row tap:
+/// the SDK groups row (`search_result_group:<gid>`) when the joined-list
+/// snapshot has it, else the CONVERSATION fallback row (fresh groups can
+/// miss the snapshot — recorded product debt; both onTaps navigate).
+Future<bool> _b2GlobalSearchGroupOpensChat(
+  Inst a, {
+  bool manageMarker = true,
+}) async {
+  // Marker ownership is CALLER-controlled (codex High): the c2c sweep
+  // pre-marks both accounts, and the marker is set-membership — an inner
+  // unmark would revoke the outer grant mid-sweep.
+  if (manageMarker && !await a.markAccountTest()) {
+    print('[pair] global_search_group_opens_chat: markAccountTest failed');
+    return false;
+  }
+  var gid = '';
+  final name = 'RUIGSRCH${DateTime.now().millisecondsSinceEpoch % 1000000}';
+  try {
+    final created = await a.l3('l3_create_group', {
+      'name': name,
+      'type': 'private',
+    });
+    gid = (created['groupId'] ?? '').toString();
+    if (created['ok'] != true || gid.isEmpty) {
+      print('[pair] global_search_group_opens_chat: create failed $created');
+      return false;
+    }
+    await returnToChatsHome(a, rounds: 4);
+    if (!await _openGlobalSearch(a)) {
+      print('[pair] global_search_group_opens_chat: search did not open');
+      return false;
+    }
+    await a.focusType('message_search_field', name);
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    // A FRESH group can miss the SDK groups section (joined-list cache) and
+    // surface via the CONVERSATION fallback instead (live: "CONVERSATIONS /
+    // ID: tox_1") — both rows open the group chat, so accept either.
+    String? rowKey;
+    for (final k in [
+      'search_result_group:$gid',
+      'search_result_conversation:group_$gid',
+    ]) {
+      if (await a.waitKey(k, timeoutSecs: 4)) {
+        rowKey = k;
+        break;
+      }
+    }
+    final rowShown = rowKey != null;
+    final tapped = rowShown && await a.tapKeyCenter(rowKey!, timeoutSecs: 6);
+    final surface = await _chatSurfaceReady(a, 'group_$gid', timeoutSecs: 10);
+    // Poll the facade bind through the readiness window (codex Medium): a
+    // legitimate late bind must not false-fail a single early sample.
+    var bound = false;
+    for (var i = 0; i < 10 && !bound; i++) {
+      bound =
+          ((await a.dumpState())['currentConversation']
+              as Map?)?['conversationID'] ==
+          'group_$gid';
+      if (!bound) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+    }
+    await a.shot('/tmp/ui_b2_gsearch_${a.name}.png');
+    print(
+      '[pair] global_search_group_opens_chat: gid=$gid rowShown=$rowShown '
+      'tapped=$tapped bound=$bound surface=$surface',
+    );
+    return rowShown && tapped && bound && surface;
+  } finally {
+    try {
+      if (await a.waitKey('message_search_field', timeoutSecs: 1)) {
+        await _closeGlobalSearch(a);
+      }
+      await _leaveAllGroups(a);
+      await returnToChatsHome(a, rounds: 3);
+    } on Object catch (e) {
+      print('[pair] global_search_group_opens_chat cleanup: $e');
+    } finally {
+      // Unmark independently (codex High): a cleanup throw above must not
+      // leak the broad L3 marker.
+      if (manageMarker) {
+        try {
+          await a.unmarkAccountTest();
+        } on Object catch (_) {}
+      }
     }
   }
 }

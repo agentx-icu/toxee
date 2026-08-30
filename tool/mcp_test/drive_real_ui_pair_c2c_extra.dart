@@ -1,10 +1,8 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
-// Focused C2C real-UI expansion. The existing `rui-conv` / `rui-chat` sweeps
-// already cover message send, row menus, confirm-delete, copy/forward/delete,
-// media bubbles, history scroll, unread and preview. This small campaign fills
-// common safe-path gaps: contact search -> chat entry, destructive-dialog
+// Focused C2C real-UI expansion: fills safe-path gaps the rui-conv/rui-chat
+// sweeps skip — search -> chat entry, destructive-dialog
 // Cancel branches, and profile/chat round-trips.
 
 const _c2cExtraCases = {
@@ -13,6 +11,7 @@ const _c2cExtraCases = {
   'c2c_profile_clear_history_cancel',
   'c2c_delete_friend_cancel',
   'c2c_header_profile_send_back',
+  'global_search_group_opens_chat',
 };
 
 bool _isC2cExtraCaseScenario(String scenario) =>
@@ -47,6 +46,7 @@ Future<int> runC2cExtraCase(
     ),
     'c2c_delete_friend_cancel' => await _c2ceDeleteFriendCancel(a, toxB),
     'c2c_header_profile_send_back' => await _c2ceHeaderProfileSendBack(a, toxB),
+    'global_search_group_opens_chat' => await _b2GlobalSearchGroupOpensChat(a),
     _ => throw ArgumentError('unsupported C2C extra: $scenario'),
   };
   await _c2ceNormalize(a);
@@ -101,9 +101,8 @@ Future<int> runC2cExtraSweep(Inst a, Inst b, String nickA, String nickB) async {
 
   var endFriends = false;
   try {
-    // Mark BOTH accounts test so the gated nav/clear tools work (mirrors
-    // sweep_conv). The WHOLE marked window is wrapped so the finally ALWAYS
-    // revokes — no test-account leak into the next bundle step (codex).
+    // Mark BOTH accounts test (gated nav/clear tools); the whole window is
+    // wrapped so the finally ALWAYS revokes (codex).
     final aMarked = await a.markAccountTest();
     final bMarked = await b.markAccountTest();
     print(
@@ -127,6 +126,11 @@ Future<int> runC2cExtraSweep(Inst a, Inst b, String nickA, String nickB) async {
     await hard(
       'c2c_header_profile_send_back',
       () => _c2ceHeaderProfileSendBack(a, toxB),
+    );
+    await hard(
+      'global_search_group_opens_chat',
+      // manageMarker:false — the sweep pre-marks; do not revoke (codex).
+      () => _b2GlobalSearchGroupOpensChat(a, manageMarker: false),
     );
 
     await _seedConvRow(
@@ -194,8 +198,7 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
   String friendNickName,
 ) async {
   await returnToChatsHome(inst, rounds: 4);
-  // Accept CONVERSATION or CONTACT rows (fresh handshake has no conv yet);
-  // both open the chat. Query = tox-id prefix (self-name skips loopback).
+  // CONV or CONTACT rows both open the chat; query = tox-id prefix.
   final pk = _pubkey(toxFriend);
   final full = toxFriend.trim();
   if (!await _openGlobalSearch(inst)) {
@@ -260,8 +263,7 @@ Future<bool> _c2ceGlobalSearchContactOpensChat(
 
 Future<bool> _c2ceConvDeleteCancel(Inst inst, String toxFriend) async {
   final convId = _c2cConvId(toxFriend);
-  // Clear any leftover pushed overlay so the conv list is ONSTAGE (else the
-  // row resolves `key_offstage_only` behind it).
+  // Clear leftover overlays so the conv list is ONSTAGE.
   if (await inst.waitKey('message_search_field', timeoutSecs: 1)) {
     await _closeGlobalSearch(inst);
   }
@@ -276,9 +278,8 @@ Future<bool> _c2ceConvDeleteCancel(Inst inst, String toxFriend) async {
     print('[pair] c2c_conv_delete_cancel: real row menu did not open');
     return false;
   }
-  // Overlay-aware: the context menu item renders in an Overlay.insert entry
-  // that whole-tree waitKey doesn't traverse (codex) — use the element-tree
-  // resolver, matching the tapKeyCenter below.
+  // Overlay-aware: whole-tree waitKey doesn't traverse Overlay entries —
+  // use the element-tree resolver (codex).
   if (!await inst.waitKeyCenter(
     'conversation_context_menu_delete_item',
     timeoutSecs: 4,
@@ -524,8 +525,7 @@ Future<bool> _c2ceHeaderProfileSendBack(Inst inst, String toxFriend) async {
   final returned =
       sendTapped &&
       await _chatSurfaceReady(inst, _c2cConvId(toxFriend), timeoutSecs: 12);
-  // BIND PROOF (#9): the FACADE field directly — _currentConversationId
-  // falls back to shell state (anti-vacuous, codex High).
+  // BIND PROOF (#9): FACADE field directly (anti-vacuous, codex).
   final bound =
       ((await inst.dumpState())['currentConversation']
           as Map?)?['conversationID'] ==
