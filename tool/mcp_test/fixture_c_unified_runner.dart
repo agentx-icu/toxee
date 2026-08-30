@@ -251,10 +251,9 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   // launch ends friends with a visible row). Case 53 (presence) is a SKIP inside
   // the chain — the friend online flag is un-seedable on a reused launch.
   'rui-conv': ['sweep_conv'],
-  // Batch 6 — chat surface C2C (the whole 16-case chain on one TWO-PROCESS
-  // launch; one handshake at the top, marks both accounts test to unblock l3
-  // SEEDING). Case 68 (chat_offline_pending_then_deliver) is the SKIP on EVERY
-  // platform. Case 62 (chat_reply_quote_roundtrip) is NO LONGER a SKIP — it
+  // Batch 6 — chat surface C2C (16-case chain, one TWO-PROCESS launch, one
+  // handshake; marks both accounts test for l3 SEEDING). Case 68 is the
+  // every-platform SKIP. Case 62 (chat_reply_quote_roundtrip) is no SKIP — it
   // injects a custom inbound bubble and drives the real message menu's Reply
   // item (only the test-mark seam being unavailable degrades it). On the MOBILE
   // shell the second unconditional SKIP is case 65
@@ -1434,6 +1433,7 @@ String _requiredRealUiState(String scenario) {
     case 'chat_file_bubble_present_open':
     // Focused C2C extra individual cases require an existing friendship.
     case 'c2c_global_search_contact_opens_chat':
+    case 'global_search_group_opens_chat':
     case 'c2c_conv_delete_cancel':
     case 'c2c_profile_clear_history_cancel':
     case 'c2c_delete_friend_cancel':
@@ -1807,6 +1807,7 @@ String _resultRealUiState(String scenario) {
     // avoid deleting/clearing, and the sweep re-seeds a visible row at the end.
     case 'sweep_c2c_extra':
     case 'c2c_global_search_contact_opens_chat':
+    case 'global_search_group_opens_chat':
     case 'c2c_conv_delete_cancel':
     case 'c2c_profile_clear_history_cancel':
     case 'c2c_delete_friend_cancel':
@@ -2500,8 +2501,7 @@ Future<int> _executeRealUiEntry(_PlannedEntry planned) async {
 
 /// Total attempts (initial + retries) allowed for a real-UI scenario.
 ///
-/// The old shape (`if no-friend -> 2; if friends -> 2; return 1`) LOOKED like a
-/// selective retry policy but the trailing `return 1` was dead code:
+/// The old branchy shape looked selective but its trailing `return 1` was dead:
 /// [_requiredRealUiState] only ever returns [_realUiStateNoFriend] or
 /// [_realUiStateFriends] and throws for anything else, so every scenario always
 /// got a free second attempt whose first failure vanished from the report. The

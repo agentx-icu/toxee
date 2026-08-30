@@ -149,6 +149,7 @@ const realUiScenarioNames = <String>{
   // chat/conv sweeps: search entry, cancel branches, and profile send-back.
   'sweep_c2c_extra',
   'c2c_global_search_contact_opens_chat',
+  'global_search_group_opens_chat',
   'c2c_conv_delete_cancel',
   'c2c_profile_clear_history_cancel',
   'c2c_delete_friend_cancel',
