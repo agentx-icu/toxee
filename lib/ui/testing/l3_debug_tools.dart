@@ -6909,6 +6909,7 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
     }
     final callState = FakeUIKit.instance.callStateNotifier;
     if (callState != null) {
+      final csm = FakeUIKit.instance.callServiceManager;
       params['call'] = {
         'state': callState.state.name,
         'mode': callState.mode.name,
@@ -6922,21 +6923,15 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         'callDurationSeconds': callState.callDuration.inSeconds,
         'isReconnecting': callState.isReconnecting,
         'callQuality': callState.callQuality.name,
-        // Monotonic count of permission-DENIED call notices (grows only) — lets a
-        // real-UI test assert a call attempt raised the denial UI without racing
-        // the transient SnackBar. + the last notice's offerSettings flag.
+        // Monotonic DENIED-notice count (grows only — no SnackBar race) + the
+        // last notice's offerSettings flag; then the camera observability.
         'permissionDeniedNoticeCount':
-            FakeUIKit
-                .instance
-                .callServiceManager
-                ?.debugPermissionDeniedNoticeCount ??
-            0,
+            csm?.debugPermissionDeniedNoticeCount ?? 0,
         'lastPermissionNoticeOffersSettings':
-            FakeUIKit
-                .instance
-                .callServiceManager
-                ?.debugLastPermissionNoticeOffersSettings ??
-            false,
+            csm?.debugLastPermissionNoticeOffersSettings ?? false,
+        'cameraLens': csm?.debugActiveCameraLens,
+        'cameraName': csm?.debugActiveCameraName,
+        'cameraCount': csm?.debugCameraCount,
       };
     }
     // #4: the conversation list the sidebar renders (C2C + group) for

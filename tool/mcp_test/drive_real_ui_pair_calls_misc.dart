@@ -1,7 +1,7 @@
 // ignore_for_file: avoid_print
 part of 'drive_real_ui_pair.dart';
 
-// Batch 8 of the real-UI sweep campaign — "Calls + misc" (10 cases, FINAL write
+// Batch 8 of the real-UI sweep campaign — "Calls + misc" (11 cases, FINAL write
 // batch). See tool/mcp_test/REAL_UI_GATES.md.
 //
 // `sweep_calls_misc` drives BOTH instances. ONE handshake at the top establishes
@@ -9,51 +9,37 @@ part of 'drive_real_ui_pair.dart';
 // (a voice block then a video block) so the campaign reuses ringing/inCall
 // transitions instead of tearing every call fully down between cases:
 //
-//   86 mute-toggle-in-voice-call  — start a voice call (B calls A, A accepts →
-//        both inCall), DON'T hang up → toggle mute on/off via the keyed dock
-//        button (`call_mic_mute_button`), asserting `call.isMuted` flips both
-//        ways (REAL state signal, not a log grep).
-//   89 callee-hangup              — A (the callee) ends THIS same call via the
-//        keyed `call_hangup_button` → BOTH sides settle to idle.
-//   90 call-record-bubble-renders — after that completed call, A's chat history
-//        carries a `mediaKind=='call_record'` bubble (the FakeUIKit call-record
-//        insert path) — assert it renders.
-//   88 missed-record              — B calls A, B cancels BEFORE A answers
-//        (`_startVoiceCallUntilRinging` then B hangs up while A still ringing) →
+//   86 mute-toggle-in-voice-call  — B calls A, A accepts, DON'T hang up →
+//        toggle `call_mic_mute_button`; `call.isMuted` flips both ways.
+//   89 callee-hangup — A ends the SAME call (`call_hangup_button`) → idle.
+//   90 call-record-bubble-renders — that completed call's `call_record`
+//        bubble renders in A's chat history.
+//   88 missed-record              — B calls A and cancels BEFORE A answers →
 //        A's missed-call record (`actionType==2` cancel) renders.
-//   85 video-call-accept-hangup   — `chat_call_video_button` → A accepts → both
-//        inCall + mode==video → hangup → idle.
-//   87 camera-toggle-in-video-call— DURING that same video call (before 85's
-//        hangup) toggle the camera off/on via `call_camera_toggle_button`,
-//        asserting `call.isVideoEnabled` flips both ways.
+//   85 video-accept-hangup — video button → accept → inCall video → hangup.
+//   87 camera-toggle-in-video-call— same call: `call_camera_toggle_button`,
+//        `call.isVideoEnabled` flips both ways.
+//   87b camera-switch-in-video-call — same call: desktop asserts the switch
+//        button ABSENT; Android/iOS REAL-tap it, `call.cameraLens` flips.
 //
 // Then the misc cases (single-instance unless noted):
-//   91 home-tabs-cycle            — chats→contacts→settings→chats with a chat
-//        open; the IndexedStack retains the open chat (dump homeShellTab +
-//        the offstage-aware waits).
+//   91 home-tabs-cycle            — tab round-trip with a chat open; the
+//        IndexedStack retains it (offstage-aware waits).
 //   92 theme-switch-chat-open     — open the C2C chat, flip dark/light via the
 //        real settings control, assert the chat re-renders (bubbles intact + no
 //        crash), flip back.
-//   94 search-window-open         — seed a unique message term, open the global
-//        search overlay (Cmd+Ctrl+F — the only entry), type the term → the
-//        message-result row renders → tap it → the in-conversation
-//        SearchChatHistoryWindow mounts (the surface the brief names).
-//   93 window-resize-responsive   — LAST. Narrow the macOS window past the 720pt
-//        bottom-nav breakpoint via osascript → assert the mobile layout-swap
-//        signal (`home_bottom_nav` appears) → restore the width. SKIP(resize
-//        refused) honestly if the raw-launched window won't size-script.
+//   94 search-window-open        — seed a unique term, global search
+//        (Cmd+Ctrl+F) → result row → tap → SearchChatHistoryWindow mounts.
+//   93 window-resize-responsive  — LAST. Narrow past the 720pt breakpoint
+//        (osascript) → `home_bottom_nav` appears → restore. SKIP if refused.
 //
-// State contract (registered in fixture_c_unified_runner.dart):
-//   required = no-friend  (the sweep does its OWN handshake, reusing Batch-4's
-//                          `_establishFriendshipForSweep`)
-//   result   = friends    (no case deletes the friend; the calls end idle, the
-//                          conversation row stays alive; the end-guard lands
-//                          both on the chats home and recomputes endFriends)
+// State contract (fixture_c_unified_runner.dart): required=no-friend (own
+// handshake via `_establishFriendshipForSweep`) / result=friends (nothing
+// deletes the friend; the end-guard lands home + recomputes endFriends).
 //
-// CALL-ISOLATION DISCIPLINE: every call case asserts BOTH sides are idle before
-// the next call begins (the documented lesson behind the earlier "double-invite
-// miscount"). The voice block (86→89) and the video block (87/85) each settle to
-// idle before the next block starts; `_ensureBothIdle` is the guard.
+// CALL-ISOLATION DISCIPLINE: every call case asserts BOTH sides idle before
+// the next call begins (the "double-invite miscount" lesson); the voice and
+// video blocks each settle to idle first — `_ensureBothIdle` is the guard.
 //
 // CALL DOCK KEYS (verified in the fork + lib/call):
 //   - chat header start buttons: `chat_call_voice_button` / `chat_call_video_button`
@@ -607,13 +593,13 @@ Future<bool?> _windowResizeResponsiveBody(Inst inst) async {
 }
 
 // ===========================================================================
-// sweep_calls_misc — Batch 8: chain all 10 calls/misc cases on ONE launch.
+// sweep_calls_misc — Batch 8: chain all 11 calls/misc cases on ONE launch.
 // ===========================================================================
 /// Order (call-isolation + state-poison-aware): handshake once → voice block
 /// (86 mute-toggle-in-call, leaves the call inCall → 89 callee-hangup ends it →
 /// 90 call-record bubble reads the completed call) → 88 missed-record (B cancels
-/// an unanswered ring) → video block (85 video-call + 87 camera-toggle, driven
-/// together so the camera toggle runs DURING the same video call) → misc (91
+/// an unanswered ring) → video block (85 video-call + 87 camera-toggle +
+/// 87b camera-switch, all DURING the same live video call) → misc (91
 /// home-tabs-cycle → 92 theme-switch-with-chat-open → 94 search-window-open → 93
 /// window-resize LAST, SKIP-able). The friendship is never deleted → ends
 /// FRIENDS. A `finally` end-guard restores the window size + lands both home.
@@ -698,6 +684,7 @@ Future<int> runCallsMiscSweep(
     'call_missed_record_row',
     'call_video_accept_hangup',
     'call_camera_toggle_incall',
+    'call_camera_switch_incall',
   ];
 
   try {
@@ -772,20 +759,25 @@ Future<int> runCallsMiscSweep(
         // --- VIDEO BLOCK: 85 + 87 driven together (camera toggle DURING the
         // same video call). Tally each separately. ---
         final video = await _callVideoWithCameraToggle(a, b, toxA);
-        // A capability SKIP covers BOTH cases: with no video entry point there
-        // is no video call to accept and no in-call camera to toggle.
+        // A capability SKIP covers all THREE cases (no video entry point =
+        // nothing to accept/toggle/switch); the switch leg can also SKIP
+        // alone (single-camera device -> null).
         final videoSkip = video.skipReason;
-        for (final id in const [
-          'call_video_accept_hangup',
-          'call_camera_toggle_incall',
+        for (final (id, ok, legSkip) in [
+          ('call_video_accept_hangup', video.videoCall, false),
+          ('call_camera_toggle_incall', video.cameraToggle, false),
+          (
+            'call_camera_switch_incall',
+            video.cameraSwitch ?? false,
+            video.cameraSwitch == null,
+          ),
         ]) {
-          final ok = id == 'call_video_accept_hangup'
-              ? video.videoCall
-              : video.cameraToggle;
-          if (videoSkip != null) {
+          if (videoSkip != null || legSkip) {
             skipped++;
             results[id] = 'SKIP';
-            print('[sweep] $id: SKIP ($videoSkip)');
+            print(
+              '[sweep] $id: SKIP${videoSkip != null ? ' ($videoSkip)' : ''}',
+            );
           } else if (ok) {
             passed++;
             results[id] = 'PASS';
@@ -866,11 +858,12 @@ Future<int> runCallsMiscSweep(
 // ===========================================================================
 // Individual-case dispatch (each builds its OWN minimal precondition).
 // ===========================================================================
-/// Whether [scenario] is one of the 10 Batch-8 calls/misc cases.
+/// Whether [scenario] is one of the 11 Batch-8 calls/misc cases.
 bool _isCallsMiscCaseScenario(String scenario) => const {
   'call_video_accept_hangup',
   'call_mute_toggle_incall',
   'call_camera_toggle_incall',
+  'call_camera_switch_incall',
   'call_missed_record_row',
   'call_callee_hangup',
   'call_record_bubble_renders',
@@ -886,6 +879,7 @@ bool _isCallsMiscFriendshipCase(String scenario) => const {
   'call_video_accept_hangup',
   'call_mute_toggle_incall',
   'call_camera_toggle_incall',
+  'call_camera_switch_incall',
   'call_missed_record_row',
   'call_callee_hangup',
   'call_record_bubble_renders',
@@ -962,6 +956,15 @@ Future<int> runCallsMiscCase(
         return (await _callVideoWithCameraToggle(a, b, cToxA)).cameraToggle
             ? 0
             : 1;
+      case 'call_camera_switch_incall':
+        {
+          final r = (await _callVideoWithCameraToggle(
+            a,
+            b,
+            cToxA,
+          )).cameraSwitch;
+          return r == null ? _realUiSkipExitCodeForBatch8 : (r ? 0 : 1);
+        }
       case 'home_tabs_cycle_state_retained':
         {
           // null -> SKIP (non-master-detail shell), false -> FAIL, true -> PASS.
