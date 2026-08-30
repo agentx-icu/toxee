@@ -411,10 +411,11 @@ const realUiScenarioNames = <String>{
   // KEYED-BUT-NEVER-DRIVEN batch #4. Re-derived from scratch (registry keys +
   // every ValueKey literal under lib/ui, lib/call and the fork, MINUS every
   // string that appears in non-comment driver code): 33 keys were genuinely
-  // undriven, and these ten cases drive 16 of them.
+  // undriven; these eleven cases drive 16 of them (the mention-deletion
+  // pin rides already-driven keys).
   //
   // `sweep_keyed_gaps4` is TWO-PROCESS, required=no-friend (own handshake,
-  // reuses an existing one) / result=friends — the two @-mention cases share
+  // reuses an existing one) / result=friends — the four @-mention cases share
   // ONE throwaway group that the shared `_kg3WithGroup` cleanup leaves.
   // `sweep_keyed_gaps4_login` is SINGLE-instance and
   // required=no-friend / result=no-friend: its case logs out, registers a
@@ -442,6 +443,7 @@ const realUiScenarioNames = <String>{
   'mobile_chat_back_clears_active_peer',
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
+  'mobile_mention_deletion_clears_token',
   'mobile_mention_at_all_inserts',
   'mobile_search_contact_back_unbinds',
   'login_account_delete_confirm_removes_card',

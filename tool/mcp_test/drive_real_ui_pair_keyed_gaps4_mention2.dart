@@ -242,3 +242,161 @@ Future<bool?> _kg4SearchContactBindsBack(
     if (aMarked) await a.unmarkAccountTest();
   }
 }
+
+/// Shared mobile @-picker flow, ending at the EXIT tap (codex: the common
+/// flow ends at confirm; insertion/deletion callers diverge after it, so no
+/// send-path plumbing). Seam-sets [prefix] then appends the single '@' (the
+/// controller listener pushes the picker route), waits for the route, then
+/// waits for [member]'s row to render (BOTH legs assert row visibility, as
+/// before the refactor), then either taps it and CONFIRM
+/// ([selectAndConfirm]) or leaves the selection empty and taps BACK.
+/// Returns null after printing the failed step (popped to root); otherwise
+/// whether the route left the tree.
+Future<({bool routeGone})?> _kg4DrivePickerFlow(
+  Inst a, {
+  required String label,
+  required String prefix,
+  required ({String userId, String nickName}) member,
+  required bool selectAndConfirm,
+}) async {
+  const backKey = 'mention_member_list_back_button';
+  const confirmKey = 'mention_member_list_confirm_button';
+  if (!await _kg4SetComposerText(a, prefix)) return null;
+  if (!await _kg4SetComposerText(a, '$prefix@')) return null;
+  final routeUp =
+      await a.waitKeyCenter(confirmKey, timeoutSecs: 12) &&
+      await a.waitKeyCenter(backKey, timeoutSecs: 4);
+  if (!routeUp) {
+    await a.shot('/tmp/ui_kg4_mention_noroute_${a.name}.png');
+    await _kg3PopToRoot(a);
+    print(
+      '[pair] $label: the @-mention picker route never mounted after the '
+      'composer gained a single "@" — `_onTextChanged` should have called '
+      '`onChooseGroupMembers()` and pushed TencentCloudChatAtGroupMemberList',
+    );
+    return null;
+  }
+  final rowKey = 'mention_member:${member.userId}';
+  if (!await a.waitKeyCenter(rowKey, timeoutSecs: 8)) {
+    await a.shot('/tmp/ui_kg4_mention_norow_${a.name}.png');
+    await a.tapKeyCenter(backKey, timeoutSecs: 6);
+    await _kg3PopToRoot(a);
+    print(
+      '[pair] $label: the picker mounted but member row $rowKey did not — '
+      'the list is built from `_dataProvider.groupMemberList` minus self, '
+      'and l3_group_member_list reported this member as a non-self peer',
+    );
+    return null;
+  }
+  if (selectAndConfirm && !await a.tapKeyCenter(rowKey, timeoutSecs: 6)) {
+    await a.tapKeyCenter(backKey, timeoutSecs: 6);
+    await _kg3PopToRoot(a);
+    print('[pair] $label: the member row could not be tapped');
+    return null;
+  }
+  final exitKey = selectAndConfirm ? confirmKey : backKey;
+  if (!await a.tapKeyCenter(exitKey, timeoutSecs: 8)) {
+    await _kg3PopToRoot(a);
+    print('[pair] $label: $exitKey could not be tapped');
+    return null;
+  }
+  final routeGone =
+      await _kg4WaitKeyCenterGone(a, confirmKey, timeoutSecs: 10) &&
+      await _kg4WaitKeyCenterGone(a, backKey, timeoutSecs: 6);
+  return (routeGone: routeGone);
+}
+
+/// mobile_mention_deletion_clears_token (#10c) — the composer's ATOMIC
+/// mention TEXT deletion: one REAL backspace anywhere inside the inserted
+/// "@<label> " removes the WHOLE token from the text
+/// (tencent_cloud_chat_message_input_mobile.dart `!isAddText` branch — the
+/// code the iPhone `_replaceAtTag` fix hardened). That branch also prunes
+/// `_mentionedUsers`, but toxee's wire carries no groupAtUserList, so the
+/// pruning is UNOBSERVABLE end-to-end — a focused widget test on the fork
+/// input is the recorded follow-up; this case pins the TEXT contract only.
+/// Composer text has no read seam, so the pin is what the GROUP receives:
+/// exactly the prefix, with no '@' or label residue. The backspace must be a
+/// REAL OS key event; only Android can inject one (adb keyevent 67) — other
+/// shells SKIP.
+Future<bool?> _kg4MentionDeletionClearsToken(
+  Inst a,
+  _EstablishedGroup est,
+) async {
+  const label = 'mobile_mention_deletion_clears_token';
+  final gid = est.groupIdA;
+  await openGroupChat(
+    a,
+    groupId: gid,
+    groupName: est.groupName,
+    viaL3Seam: true,
+  );
+  // Per the keyed-gaps4 contract (sweep_tally doc): DESKTOP is the honest
+  // SKIP; an UNKNOWN composer means the chat surface is missing — a FAIL.
+  final composer = await _kg4ComposerKind(a);
+  if (composer == _Kg4Composer.desktop) {
+    print(
+      '[pair] $label: SKIP — desktop composer resolves mentions through the '
+      'inline panel (sweep_group_mention territory).',
+    );
+    return null;
+  }
+  if (composer != _Kg4Composer.mobile) {
+    print('[pair] $label: composer state $composer — chat surface missing');
+    return false;
+  }
+  if (!a.isAndroid) {
+    print(
+      '[pair] $label: SKIP — the atomic-deletion contract needs a REAL OS '
+      'backspace, only injectable on Android (adb keyevent 67).',
+    );
+    return null;
+  }
+  final member = await _kg4PickPeerMember(a, gid, label);
+  if (member == null) return false;
+  final nonce = DateTime.now().microsecondsSinceEpoch % 1000000;
+  final prefix = 'KG4DEL$nonce';
+  final flow = await _kg4DrivePickerFlow(
+    a,
+    label: label,
+    prefix: prefix,
+    member: member,
+    selectAndConfirm: true,
+  );
+  if (flow == null) return false;
+  await Future<void>.delayed(const Duration(milliseconds: 900));
+  // The seam-driven insertion leaves no REAL focus/caret for OS key events
+  // (live: the first DEL was a no-op). Give the field a real tap, force the
+  // caret to LINE END (single-line prefix, so line end == text end; a
+  // mis-landed caret false-FAILS, never false-passes), then one backspace
+  // lands on the trailing space — inside the token window.
+  if (!await a.tapKeyCenter('chat_input_text_field', timeoutSecs: 6)) {
+    print('[pair] $label: composer field tap failed');
+    return false;
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 600));
+  if (!await _androidKeyEvent(a, _kcAndroidMoveEnd)) {
+    print('[pair] $label: MOVE_END injection failed');
+    return false;
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (!await _androidKeyEvent(a, _kcAndroidDel)) {
+    print('[pair] $label: adb backspace injection failed');
+    return false;
+  }
+  await Future<void>.delayed(const Duration(milliseconds: 900));
+  await a.l3('l3_composer_send', const {});
+  final sent = await _kg4WaitGroupTextStartingWith(a, gid, prefix);
+  await a.shot('/tmp/ui_kg4_mentiondel_${a.name}.png');
+  if (sent == null) {
+    print('[pair] $label: the composer message never reached the group');
+    return false;
+  }
+  // ATOMIC contract: the whole "@<label> " went with one backspace — the
+  // received text is EXACTLY the prefix.
+  final clean = sent == prefix;
+  print(
+    '[pair] $label: member=${member.userId} nick="${member.nickName}" '
+    'sent="$sent" cleanDeletion=$clean',
+  );
+  return clean;
+}

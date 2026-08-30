@@ -34,7 +34,7 @@ part of 'drive_real_ui_pair.dart';
 //
 // SHAPE. `sweep_keyed_gaps4` is TWO-PROCESS, `required=no-friend` (it runs its
 // own handshake and REUSES an existing one) / `result=friends` (nothing here
-// deletes the friend; the two @-mention cases share ONE throwaway group that
+// deletes the friend; the four @-mention cases share ONE throwaway group that
 // the shared `_kg3WithGroup` helper leaves in cleanup). `sweep_keyed_gaps4_login`
 // is SINGLE-instance (A only) and `required=no-friend` / `result=no-friend`
 // because its one case logs out, provisions a THROWAWAY account and deletes it
@@ -160,6 +160,7 @@ const _keyedGaps4Cases = {
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
   'mobile_mention_at_all_inserts',
+  'mobile_mention_deletion_clears_token',
   'mobile_search_contact_back_unbinds',
   'login_account_delete_confirm_removes_card',
 };
@@ -171,6 +172,7 @@ const _keyedGaps4GroupCases = <String>[
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
   'mobile_mention_at_all_inserts',
+  'mobile_mention_deletion_clears_token',
 ];
 
 /// The friendship-only (non-group, non-login) cases, in sweep execution order.
@@ -263,12 +265,12 @@ Future<int> runKeyedGaps4Case(
   };
 }
 
-/// Twelve cases (nine flat + three group) on ONE launch, ONE friendship and
-/// ONE group.
+/// Thirteen cases (nine flat + four group) on ONE launch, ONE friendship
+/// and ONE group.
 ///
 /// ORDER: the friendship-only cases first (cheap, none of them mutates group
-/// state), then the three group cases (both @-mention picker legs + @All)
-/// inside a single `_kg3WithGroup`. `_kg4Normalize` runs between every case
+/// state), then the four group cases (both @-mention picker legs, @All, and
+/// the atomic deletion) inside a single `_kg3WithGroup`. `_kg4Normalize` runs between every case
 /// so a half-finished one cannot strand a modal onto the next.
 Future<int> runKeyedGaps4Sweep(
   Inst a,
@@ -376,6 +378,10 @@ Future<bool?> _kg4RunGroupCase(
   'mobile_mention_picker_confirm_inserts' => _kg4MentionPickerConfirm(a, est),
   'mobile_mention_picker_back_empty_selection' => _kg4MentionPickerBack(a, est),
   'mobile_mention_at_all_inserts' => _kg4MentionAtAllInserts(a, est),
+  'mobile_mention_deletion_clears_token' => _kg4MentionDeletionClearsToken(
+    a,
+    est,
+  ),
   _ => throw ArgumentError('unsupported keyed-gaps4 group case: $scenario'),
 };
 

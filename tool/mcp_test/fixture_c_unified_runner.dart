@@ -190,9 +190,7 @@ String? _forcedIosDeviceType;
 /// reserved here.
 const _realUiSkipExitCode = 75;
 
-// ---------------------------------------------------------------------------
-// Real-UI outcome tallies (accountability for the final summary).
-//
+// Real-UI outcome tallies (final-summary accountability).
 // Two mechanisms used to make a green run meaningless:
 //   1. A SKIP was `continue`d with a single stdout line and NO counter, so a
 //      chain whose every scenario skipped still exited 0 and read as a pass.
@@ -1733,6 +1731,7 @@ String _requiredRealUiState(String scenario) {
     case 'mobile_mention_picker_confirm_inserts':
     case 'mobile_mention_picker_back_empty_selection':
     case 'mobile_mention_at_all_inserts':
+    case 'mobile_mention_deletion_clears_token':
     case 'mobile_search_contact_back_unbinds':
     case 'login_account_delete_confirm_removes_card':
       return _realUiStateNoFriend;
@@ -1936,6 +1935,7 @@ String _resultRealUiState(String scenario) {
     case 'mobile_mention_picker_confirm_inserts':
     case 'mobile_mention_picker_back_empty_selection':
     case 'mobile_mention_at_all_inserts':
+    case 'mobile_mention_deletion_clears_token':
     case 'mobile_search_contact_back_unbinds':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
