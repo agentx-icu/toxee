@@ -10,17 +10,14 @@ part of 'drive_real_ui_pair.dart';
 // actually having capture hardware — see [_videoCallEntryReason].
 
 /// Null when this device DOES offer a video-call entry point; otherwise the
-/// SKIP reason. The header's video button is gated on `useVideoCall` (from
-/// `CallMediaCapabilities.supportsVideoCapture()`); hiding it on a
-/// camera-less device is CORRECT product behaviour (offering it raised an
-/// unanswerable system camera sheet on the iOS Simulator). The honest SKIP
-/// needs TWO guards, because a missing video button alone is ambiguous:
-///  1. the sibling VOICE button must be present ("hidden on purpose", not
-///     "chat never opened");
-///  2. `videoCaptureSupported == false` AND the env self-identifies as
-///     camera-less-BY-DESIGN (`iosSimulator` or `androidEmulatorHarness`) —
-///     else a real-hardware capture OUTAGE would be swallowed as SKIP. On
-///     physical hardware a missing video button stays a FAILURE.
+/// SKIP reason. The header's video button is gated on `useVideoCall`
+/// (`supportsVideoCapture()`); hiding it on a camera-less device is CORRECT
+/// product behaviour. The honest SKIP needs TWO guards (a missing video
+/// button alone is ambiguous): 1. the sibling VOICE button present ("hidden
+/// on purpose", not "chat never opened"); 2. `videoCaptureSupported ==
+/// false` AND a camera-less-BY-DESIGN env (`iosSimulator` /
+/// `androidEmulatorHarness`) — else a real-hardware capture OUTAGE would be
+/// swallowed as SKIP; on physical hardware it stays a FAILURE.
 Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   await openChat(caller, calleeId, preferConversationList: true);
   await caller.foreground();
@@ -55,19 +52,14 @@ Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   }
   return 'no video-call entry on this device: the chat header renders '
       'chat_call_voice_button but NOT chat_call_video_button, and the app '
-      'itself reports videoCaptureSupported=false in a '
-      'camera-less-by-design environment (iOS Simulator or Android '
-      'emulator). '
-      'useVideoCall is gated on CallMediaCapabilities.supportsVideoCapture() '
-      '(lib/runtime/session_runtime_coordinator.dart:283); the Simulator has no '
-      'camera, availableCameras() returns [] and the app logs "capture devices '
-      'enumerated: count=0 deviceHasCamera=false". Re-run on hardware with a '
-      'camera to exercise these two cases.';
+      'reports videoCaptureSupported=false in a camera-less-by-design env '
+      '(iOS Simulator / Android emulator; useVideoCall gates on '
+      'supportsVideoCapture, session_runtime_coordinator.dart:283). Re-run '
+      'on hardware with a camera to exercise these cases.';
 }
 
-/// Start a VIDEO call from [caller] to [callee] and wait until [callee] sees the
-/// ring. Mirrors `_startVoiceCallUntilRinging` but taps the chat header's
-/// `chat_call_video_button`. Returns whether the callee reached ringing/incoming.
+/// Start a VIDEO call ([caller] taps `chat_call_video_button`) and wait for
+/// [callee] to reach ringing/incoming (mirrors `_startVoiceCallUntilRinging`).
 Future<bool> _startVideoCallUntilRinging(
   Inst caller,
   Inst callee,
@@ -411,26 +403,41 @@ Future<bool> _callMissedRecordRow(
 // ===========================================================================
 // case 85 + 87 — video call with camera toggle (S66 + S75)  [two-process]
 // ===========================================================================
-/// Start a VIDEO call (B calls A, A accepts → both inCall + mode==video),
-/// toggle the camera off/on (case 87, `call.isVideoEnabled` flips), then hang
-/// up (case 85). Returns both case outcomes for separate tallies.
-Future<({bool videoCall, bool cameraToggle, String? skipReason})>
+/// Video call (B calls A, A accepts → inCall video), camera toggle (87),
+/// camera SWITCH (87b, part file …video2), hangup (85); separate tallies.
+Future<
+  ({bool videoCall, bool cameraToggle, bool? cameraSwitch, String? skipReason})
+>
 _callVideoWithCameraToggle(Inst a, Inst b, String toxA) async {
   if (!await _ensureBothIdle(a, b)) {
     print('[pair] video call: a prior call did not settle to idle');
-    return (videoCall: false, cameraToggle: false, skipReason: null);
+    return (
+      videoCall: false,
+      cameraToggle: false,
+      cameraSwitch: false,
+      skipReason: null,
+    );
   }
-  // Camera-less devices deliberately render no video button — a genuine
-  // capability SKIP, not a failure (see [_videoCallEntryReason]).
+  // Camera-less devices render no video button (see [_videoCallEntryReason]).
   final entryProblem = await _videoCallEntryReason(b, toxA);
   if (entryProblem != null) {
     print('[pair] video call: SKIP — $entryProblem');
-    return (videoCall: false, cameraToggle: false, skipReason: entryProblem);
+    return (
+      videoCall: false,
+      cameraToggle: false,
+      cameraSwitch: null,
+      skipReason: entryProblem,
+    );
   }
   final ringing = await _startVideoCallUntilRinging(b, a, toxA);
   if (!ringing) {
     print('[pair] video call: incoming video call never rang');
-    return (videoCall: false, cameraToggle: false, skipReason: null);
+    return (
+      videoCall: false,
+      cameraToggle: false,
+      cameraSwitch: false,
+      skipReason: null,
+    );
   }
   await a.foreground();
   await a.tapKey('call_accept_button');
@@ -445,7 +452,12 @@ _callVideoWithCameraToggle(Inst a, Inst b, String toxA) async {
       'mode=${await _callField(a, 'mode')})',
     );
     await _ensureBothIdle(a, b);
-    return (videoCall: false, cameraToggle: false, skipReason: null);
+    return (
+      videoCall: false,
+      cameraToggle: false,
+      cameraSwitch: false,
+      skipReason: null,
+    );
   }
   // --- case 87: camera toggle DURING the video call ---
   await a.foreground();
@@ -465,6 +477,8 @@ _callVideoWithCameraToggle(Inst a, Inst b, String toxA) async {
     print('[pair] call_camera_toggle_incall: camera button not tappable');
   }
   await a.shot('/tmp/ui_b8_camera_A.png');
+  // --- camera SWITCH during the same call (part file …_video2) ---
+  final cameraSwitch = await _cameraSwitchLeg(a);
   // --- case 85: hang up the video call → both idle ---
   await a.foreground();
   await a.tapKeyCenter('call_hangup_button', timeoutSecs: 8);
@@ -477,5 +491,10 @@ _callVideoWithCameraToggle(Inst a, Inst b, String toxA) async {
     '[pair] call_video_accept_hangup: inCall=$inCallA/$inCallB modeVideo=$modeVideo '
     'endedA=$endedA endedB=$endedB bothIdle=$idle => videoCall=$videoCall',
   );
-  return (videoCall: videoCall, cameraToggle: cameraToggle, skipReason: null);
+  return (
+    videoCall: videoCall,
+    cameraToggle: cameraToggle,
+    cameraSwitch: cameraSwitch,
+    skipReason: null,
+  );
 }

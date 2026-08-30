@@ -123,8 +123,7 @@ class _Yuv420Frame {
   _Yuv420Frame(this.width, this.height, this.y, this.u, this.v);
 }
 
-/// Top-level function: convert YUV420 to RGBA in an Isolate.
-/// Must be top-level (not a closure/method) for compute() to work.
+/// Top-level (required by compute()): YUV420 → RGBA in an Isolate.
 Uint8List _convertYuv420ToRgba(_Yuv420Frame frame) {
   final width = frame.width;
   final height = frame.height;
@@ -155,8 +154,7 @@ Uint8List _convertYuv420ToRgba(_Yuv420Frame frame) {
   return rgba;
 }
 
-/// Chooses a selfie-friendly initial camera while preserving a deterministic
-/// fallback for devices that expose only rear or external lenses.
+/// Selfie-first initial camera; deterministic fallback without a front lens.
 CameraDescription preferredInitialMobileCamera(
   List<CameraDescription> cameras,
 ) {
@@ -169,8 +167,7 @@ CameraDescription preferredInitialMobileCamera(
   );
 }
 
-/// Chooses the next mobile camera, preferring a front/back lens transition
-/// over cycling between multiple lenses facing the same direction.
+/// Next camera: prefer the front/back flip over same-direction cycling.
 CameraDescription nextMobileCamera(
   List<CameraDescription> cameras,
   CameraDescription current,
@@ -195,10 +192,7 @@ CameraDescription nextMobileCamera(
   return cameras[(currentIndex + 1) % cameras.length];
 }
 
-/// Tracks the selected mobile camera within one call session.
-///
-/// Temporary capture stops keep the current selection. A completed call
-/// resets the controller so the next call prefers the front camera again.
+/// Keeps the in-call camera selection; a completed call resets to front.
 class MobileCameraSelectionController {
   CameraDescription? _selected;
 
@@ -230,15 +224,10 @@ class MobileCameraSelectionController {
 /// Video capture (camera → YUV420 → ToxAV) and receive (YUV420 → display).
 /// Extends ChangeNotifier so UI can react to camera initialization.
 ///
-/// Lifecycle invariants:
-///   - [startCapture] and [stop] must not race. Concurrent calls are
-///     serialized via [_startFuture] / [_stopFuture]; a `stop` issued mid-init
-///     waits for init to settle before tearing down, and a `startCapture`
-///     issued before the previous `stop` finishes waits for it to complete.
-///   - After [dispose] (or [disposeAsync]), [_disposed] is `true` and all
-///     mutating operations short-circuit; [notifyListeners] is suppressed so
-///     a late-arriving `notifyListeners` from in-flight stop work cannot
-///     throw against the disposed listenable.
+/// Lifecycle invariants: [startCapture]/[stop] never race — they serialize
+/// via [_startFuture]/[_stopFuture] (a mid-init `stop` waits for init; a
+/// `startCapture` waits for the prior `stop`). After [dispose]/[disposeAsync]
+/// all mutating ops short-circuit and [notifyListeners] is suppressed.
 class VideoHandler extends ChangeNotifier {
   ToxAVService? _avService;
   int _friendNumber = 0;
@@ -254,9 +243,7 @@ class VideoHandler extends ChangeNotifier {
   bool _usingMacOSCamera = false;
   int? _macosTextureId;
 
-  /// Throttle: skip frames to reduce CPU/bandwidth usage. Derived from
-  /// [_codecProfile.videoFps] so an adaptive bitrate downgrade can also
-  /// drop frame rate, not just bit rate.
+  /// Frame throttle from [_codecProfile.videoFps] (downgrades drop fps too).
   DateTime _lastFrameTime = DateTime.fromMillisecondsSinceEpoch(0);
   CallCodecProfile _codecProfile = CallCodecProfile.defaultProfile;
   Duration get _minFrameInterval => _codecProfile.minFrameInterval;
@@ -402,10 +389,6 @@ class VideoHandler extends ChangeNotifier {
         debugPrint('[VideoHandler] startCapture macOS camera_macos error: $e');
         AppLogger.log(
           '[VideoHandler] startCapture macOS camera_macos error: $e',
-        );
-        debugPrint(
-          '[VideoHandler] On macOS: ensure Camera is allowed in '
-          'System Settings → Privacy & Security.',
         );
         AppLogger.log(
           '[VideoHandler] On macOS: ensure Camera is allowed in '
@@ -572,8 +555,7 @@ class VideoHandler extends ChangeNotifier {
     }
   }
 
-  /// Called when ToxAV receives a video frame (YUV420).
-  /// Converts to RGBA in an Isolate via compute(), then updates [remoteImage].
+  /// ToxAV video frame in: RGBA-convert in an Isolate → [remoteImage].
   void onVideoReceived(
     int friendNumber,
     int width,
@@ -623,17 +605,13 @@ class VideoHandler extends ChangeNotifier {
     return CameraPreview(_controller!);
   }
 
-  /// Stop capture and release camera resources.
-  ///
-  /// Coalesces concurrent calls onto the in-flight future and waits for any
-  /// in-flight [startCapture] to settle before tearing down, so a `stop`
-  /// issued mid-init reliably releases the camera handle.
+  /// Stop capture + release the camera. Coalesces concurrent calls and waits
+  /// for an in-flight [startCapture], so a mid-init stop releases the handle.
   Future<void> stop() async {
     final inFlight = _stopFuture;
     if (inFlight != null) return inFlight;
-    // Let any in-flight start finish before tearing down. Otherwise stop's
-    // teardown can race with the start path that's still attaching the
-    // image stream / writing _controller.
+    // Await an in-flight start first — teardown must not race the start
+    // path still attaching the stream / writing _controller.
     final pendingStart = _startFuture;
     if (pendingStart != null) {
       try {
@@ -712,16 +690,38 @@ class VideoHandler extends ChangeNotifier {
     );
   }
 
-  /// Marks a hard call-session boundary without disturbing temporary capture
-  /// stops inside the current call.
+  /// L3 seam: ACTIVE capture lens name ('front'/'back'/'external'); null
+  /// while capture is not LIVE. Mobile backend: gated on [_capturing] + an
+  /// initialized controller (a failed restart reads null, never a stale
+  /// lens). macOS/camera_macos has NO controller — [_capturing] alone gates
+  /// the 'external' report there (backend-specific liveness, codex Spec).
+  String? get activeCameraLensName {
+    if (!_capturing) return null;
+    if (_usingMacOSCamera) return 'external';
+    final c = _controller;
+    return c != null && c.value.isInitialized
+        ? c.description.lensDirection.name
+        : null;
+  }
+
+  /// L3 seam: ACTIVE camera's unique device name (same liveness gate; two
+  /// same-direction devices still differ). Null on the macOS backend.
+  String? get activeCameraName {
+    if (!_capturing || _usingMacOSCamera) return null;
+    final c = _controller;
+    return c != null && c.value.isInitialized ? c.description.name : null;
+  }
+
+  /// L3 seam: MOBILE-backend device count (null on macOS + before a probe).
+  int? get availableCameraCount => _cameras?.length;
+
+  /// Hard call-session boundary; in-call temporary stops keep the selection.
   void resetCameraSelectionForNextCall() {
     _mobileCameraSelection.resetForNextCall();
   }
 
-  /// Async-safe disposal: awaits any in-flight start/stop before disposing.
-  /// Prefer this in lifecycle owners that can await (e.g. `CallServiceManager`
-  /// teardown). The sync [dispose] override is retained for compatibility with
-  /// the [ChangeNotifier] contract.
+  /// Async-safe disposal: awaits in-flight start/stop first. The sync
+  /// [dispose] override stays for the [ChangeNotifier] contract.
   Future<void> disposeAsync() async {
     if (_disposed) return;
     _disposed = true;

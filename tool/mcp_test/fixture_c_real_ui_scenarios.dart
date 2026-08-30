@@ -184,7 +184,7 @@ const realUiScenarioNames = <String>{
   'conf_row_menu_surface',
   'conf_member_list_renders',
   // Batch 8 — calls / misc (FINAL batch; MIXED two-process + single-instance).
-  // sweep_calls_misc chains all 10 on one launch: required=no-friend (it does
+  // sweep_calls_misc chains all 11 on one launch: required=no-friend (it does
   // its OWN handshake) and result=friends (no case deletes the friend; the
   // calls end idle, the conversation row stays alive). The call cases + the
   // chat-open misc cases (91/92/94) are friendship-dependent (the standalone
@@ -194,6 +194,7 @@ const realUiScenarioNames = <String>{
   'call_video_accept_hangup',
   'call_mute_toggle_incall',
   'call_camera_toggle_incall',
+  'call_camera_switch_incall',
   'call_missed_record_row',
   'call_callee_hangup',
   'call_record_bubble_renders',

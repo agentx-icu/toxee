@@ -274,7 +274,7 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   // Case 78 kicks B from the group, case 75 leaves the group, but the A<->B
   // friendship stays intact, so the launch ends FRIENDS.
   'rui-group2': ['sweep_group2'],
-  // Batch 8 — calls / misc (the whole 10-case chain on one TWO-PROCESS launch;
+  // Batch 8 — calls / misc (the whole 11-case chain on one TWO-PROCESS launch;
   // one handshake at the top, the call state chained — voice block then video
   // block — then the misc cases. The friendship is never deleted, so the launch
   // ends FRIENDS. Case 93 (window-resize) is a SKIP inside the chain when the
@@ -1458,12 +1458,12 @@ String _requiredRealUiState(String scenario) {
     case 'group_member_role_reopen_surface':
     case 'group_member_remove_receiver_state':
     case 'conference_bidirectional_message_lifecycle':
-    // Batch 8 — the call cases + the chat-open misc cases need a friendship (the
-    // call signaling + the C2C chat); the runner restores paired_for_e2e for the
-    // standalone dispatch.
+    // Batch 8 — call + chat-open misc cases need a friendship (paired_for_e2e
+    // restored for the standalone dispatch).
     case 'call_video_accept_hangup':
     case 'call_mute_toggle_incall':
     case 'call_camera_toggle_incall':
+    case 'call_camera_switch_incall':
     case 'call_missed_record_row':
     case 'call_callee_hangup':
     case 'call_record_bubble_renders':
@@ -1850,13 +1850,12 @@ String _resultRealUiState(String scenario) {
     case 'attachment_entry_buttons_render':
     case 'notification_tap_routes_to_c2c':
     case 'system_back_unbinds_chat':
-    // Batch 8 — sweep_calls_misc ends FRIENDS (no case deletes the friend; the
-    // calls end idle and the conversation row stays alive). The call cases + the
-    // chat-open misc cases also leave the friendship intact.
+    // Batch 8 — sweep + cases end FRIENDS (calls end idle; row stays alive).
     case 'sweep_calls_misc':
     case 'call_video_accept_hangup':
     case 'call_mute_toggle_incall':
     case 'call_camera_toggle_incall':
+    case 'call_camera_switch_incall':
     case 'call_missed_record_row':
     case 'call_callee_hangup':
     case 'call_record_bubble_renders':

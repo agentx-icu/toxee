@@ -191,9 +191,8 @@ class CallServiceManager
     );
   }
 
-  /// Elevate the Android foreground service to `phoneCall` mode for the
-  /// duration of the active call. Idempotent. Localized via the user's
-  /// currently-selected locale (no [BuildContext] needed at this layer).
+  /// Elevate the Android foreground service to `phoneCall` mode while the
+  /// call is active. Idempotent; localized without a [BuildContext].
   void _elevateForegroundForCall() {
     final usesCamera = _foregroundCallUsesCamera();
     if (_foregroundElevated && _foregroundUsesCamera == usesCamera) return;
@@ -1740,6 +1739,11 @@ class CallServiceManager
     );
   }
 
+  /// L3-seam observability: active capture lens/name + camera count.
+  String? get debugActiveCameraLens => _videoHandler.activeCameraLensName;
+  String? get debugActiveCameraName => _videoHandler.activeCameraName;
+  int? get debugCameraCount => _videoHandler.availableCameraCount;
+
   bool _avPollBoosted = false;
 
   void _syncAvPollBoost() {
@@ -1754,11 +1758,8 @@ class CallServiceManager
 
   Timer? _peerTransportWatchdog;
 
-  /// True when the *watchdog* moved the call into reconnecting. The watchdog
-  /// may only auto-clear a reconnecting state it set itself: external
-  /// callers (the L3 harness's synthetic network_drop) mark reconnecting
-  /// while the peer transport is genuinely up, and auto-clearing their state
-  /// within a second would break the driven state machine.
+  /// True when the WATCHDOG set reconnecting — it may only auto-clear its
+  /// own mark (an external network_drop mark must not be cleared for it).
   bool _watchdogMarkedReconnecting = false;
 
   void _syncReconnectWatchdog() {
@@ -1782,9 +1783,8 @@ class CallServiceManager
     if (friendNumber == null) return;
     final status = _avService?.getFriendConnectionStatus(friendNumber) ?? -1;
     if (status == 0 && _callState.state == CallUIState.inCall) {
-      // Offline EDGE only: markReconnecting re-arms its grace timer on every
-      // call, so invoking it each tick while the peer stays offline would
-      // push the deadline out forever and the call would never time out.
+      // Offline EDGE only: per-tick markReconnecting would re-arm the grace
+      // timer forever and the call could never time out.
       AppLogger.warn(
         '[CallServiceManager] peer transport lost (friend=$friendNumber) — reconnecting',
       );

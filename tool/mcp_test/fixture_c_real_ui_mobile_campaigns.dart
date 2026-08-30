@@ -208,7 +208,7 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // Conversation list C2C: 10 cases, two-process,
   // required=no-friend / result=friends.
   'rui-ios-conv': ['sweep_conv'],
-  // Calls + misc: 10 cases, two-process, required=no-friend / result=friends.
+  // Calls + misc: 11 cases, two-process, required=no-friend / result=friends.
   // Includes window_resize_responsive, which SKIPs on a Simulator (no window to
   // size-script) — expected, not a regression.
   'rui-ios-calls-misc': ['sweep_calls_misc'],
@@ -331,7 +331,7 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // required=no-friend / result=friends. On iPad the row tap binds the
   // master-detail right pane instead of pushing a route.
   'rui-ipad-conv': ['sweep_conv'],
-  // Calls + misc: 10 cases, two-process, required=no-friend / result=friends.
+  // Calls + misc: 11 cases, two-process, required=no-friend / result=friends.
   'rui-ipad-calls-misc': ['sweep_calls_misc'],
   // Contacts / friend profile: 15 cases, two-process,
   // required=no-friend / result=NO-FRIEND (deletes the friend last).
@@ -452,8 +452,8 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // friends. restore_import_entry_guard ships its fixture via the seam's
   // contentB64 (a driver-side /tmp path is unreadable in the app sandbox).
   'rui-android-boundary-guards': ['sweep_native_boundary_guards'],
-  // Calls + misc: 10 cases, two-process, no-friend -> friends. The video
-  // pair SKIPs when the app reports videoCaptureSupported=false on an
+  // Calls + misc: 11 cases, two-process, no-friend -> friends. The video
+  // trio SKIPs when the app reports videoCaptureSupported=false on an
   // emulator-class environment (iOS Simulator self-report, or Android via
   // the driver-side platform check); AVDs WITH emulated cameras run them
   // for real. Expect 3 honest SKIPs otherwise (tabs-cycle, search-overlay,

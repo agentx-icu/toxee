@@ -15,8 +15,7 @@
 //   * `flutter_skill.enterText{key}` only matches an *editable* widget carrying
 //     the key; our keys sit on TextFormField wrappers, so use focusType =
 //     tap{key} (general widget search) then enterText{no key} into the focus.
-//   * `flutter_skill.screenshot` returns {image:<base64 png>} but only when the
-//     window is foreground (else empty).
+//   * `flutter_skill.screenshot` → {image:<base64 png>}; foreground-only.
 //
 // Usage:
 //   dart run tool/mcp_test/drive_real_ui_pair.dart <scenario> \
@@ -191,6 +190,7 @@ part 'drive_real_ui_pair_optimized.dart';
 part 'drive_real_ui_pair_group2.dart';
 part 'drive_real_ui_pair_calls_misc.dart';
 part 'drive_real_ui_pair_calls_misc_video.dart';
+part 'drive_real_ui_pair_calls_misc_video2.dart';
 part 'drive_real_ui_pair_boundary2.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
@@ -879,7 +879,7 @@ Future<int> _main(List<String> args) async {
       return await runGroup2Case(a, b, nickA, nickB, scenario);
     }
     // Batch 8 — calls / misc (TWO-PROCESS for the call + chat-open cases,
-    // single-instance for window-resize). sweep_calls_misc chains all 10 on one
+    // single-instance for window-resize). sweep_calls_misc chains all 11 on one
     // launch (the canonical entry; one handshake at the top, the call state
     // chained efficiently — voice block then video block — and the friendship
     // never deleted so the launch ends friends). The individual cases are
