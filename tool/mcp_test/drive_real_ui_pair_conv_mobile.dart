@@ -33,10 +33,8 @@ Future<bool> _keyOnstage(Inst inst, String key) async {
   }
 }
 
-/// MOBILE two-step Search-Chat-History layout: the window first lists
-/// CONVERSATIONS; the keyed `search_history_message_*` rows only exist after
-/// tapping a conversation into `_showMobileDetail`. Desktop shows both panels
-/// at once, so this is a compact-only extra step.
+/// MOBILE two-step Search-Chat-History layout: tap the conversation row to
+/// reach the keyed `search_history_message_*` detail (compact-only step).
 Future<bool> _openSearchHistoryMobileDetail(Inst inst, String convId) async {
   if (!inst.isMobileShell) return false;
   if (!await inst.tapKeyCenter(
@@ -116,7 +114,14 @@ Future<String?> _androidDeviceIdFor(Inst inst) async {
   }
 }
 
-Future<bool> _androidBackKey(Inst inst) async {
+/// Android keycodes for [_androidKeyEvent] callers.
+const _kcAndroidBack = 4;
+const _kcAndroidDel = 67;
+const _kcAndroidMoveEnd = 123;
+
+/// Inject a REAL OS key event on an Android instance via adb (device id from
+/// pair.json).
+Future<bool> _androidKeyEvent(Inst inst, int code) async {
   final device = await _androidDeviceIdFor(inst);
   if (device == null) return false;
   try {
@@ -126,19 +131,20 @@ Future<bool> _androidBackKey(Inst inst) async {
       'shell',
       'input',
       'keyevent',
-      '4',
+      '$code',
     ]);
     return r.exitCode == 0;
   } on Object catch (e) {
-    print('[${inst.name}] _androidBackKey failed: $e');
+    print('[${inst.name}] _androidKeyEvent($code) failed: $e');
     return false;
   }
 }
 
-/// Package owning the focused window on [inst]'s device, or null. POSITIVE
-/// adb evidence (codex High): onstage probes cannot distinguish "covered by a
-/// native activity" from a legitimately blank Flutter root, and a paused
-/// Flutter tree may still report the wizard "onstage" behind DocumentsUI.
+Future<bool> _androidBackKey(Inst inst) =>
+    _androidKeyEvent(inst, _kcAndroidBack);
+
+/// Package owning the focused window on [inst]'s device, or null — the
+/// POSITIVE evidence that a NATIVE activity covers the Flutter one (codex).
 Future<String?> _androidTopFocusPackage(Inst inst) async {
   final device = await _androidDeviceIdFor(inst);
   if (device == null) return null;

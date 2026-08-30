@@ -350,8 +350,6 @@ Future<bool?> _kg4MentionPicker(
   required bool confirm,
   required String label,
 }) async {
-  const backKey = 'mention_member_list_back_button';
-  const confirmKey = 'mention_member_list_confirm_button';
   final gid = est.groupIdA;
   await openGroupChat(
     a,
@@ -374,51 +372,15 @@ Future<bool?> _kg4MentionPicker(
 
   final nonce = DateTime.now().microsecondsSinceEpoch % 1000000;
   final prefix = confirm ? 'KG4MENT$nonce' : 'KG4BACK$nonce';
-  if (!await _kg4SetComposerText(a, prefix)) return false;
-  if (!await _kg4SetComposerText(a, '$prefix@')) return false;
-
-  final routeUp =
-      await a.waitKeyCenter(confirmKey, timeoutSecs: 12) &&
-      await a.waitKeyCenter(backKey, timeoutSecs: 4);
-  if (!routeUp) {
-    await a.shot('/tmp/ui_kg4_mention_noroute_${a.name}.png');
-    await _kg3PopToRoot(a);
-    print(
-      '[pair] $label: the @-mention picker route never mounted after the '
-      'composer gained a single "@" — `_onTextChanged` should have called '
-      '`onChooseGroupMembers()` and pushed TencentCloudChatAtGroupMemberList',
-    );
-    return false;
-  }
-  final rowKey = 'mention_member:${member.userId}';
-  final rowUp = await a.waitKeyCenter(rowKey, timeoutSecs: 8);
-  if (!rowUp) {
-    await a.shot('/tmp/ui_kg4_mention_norow_${a.name}.png');
-    await a.tapKeyCenter(backKey, timeoutSecs: 6);
-    await _kg3PopToRoot(a);
-    print(
-      '[pair] $label: the picker mounted but member row $rowKey did not — the '
-      'list is built from `_dataProvider.groupMemberList` minus self, and '
-      'l3_group_member_list reported this member as a non-self peer',
-    );
-    return false;
-  }
-
-  if (confirm && !await a.tapKeyCenter(rowKey, timeoutSecs: 6)) {
-    await a.tapKeyCenter(backKey, timeoutSecs: 6);
-    await _kg3PopToRoot(a);
-    print('[pair] $label: the member row could not be tapped');
-    return false;
-  }
-  final exitKey = confirm ? confirmKey : backKey;
-  if (!await a.tapKeyCenter(exitKey, timeoutSecs: 8)) {
-    await _kg3PopToRoot(a);
-    print('[pair] $label: $exitKey could not be tapped');
-    return false;
-  }
-  final routeGone =
-      await _kg4WaitKeyCenterGone(a, confirmKey, timeoutSecs: 10) &&
-      await _kg4WaitKeyCenterGone(a, backKey, timeoutSecs: 6);
+  final flow = await _kg4DrivePickerFlow(
+    a,
+    label: label,
+    prefix: prefix,
+    member: member,
+    selectAndConfirm: confirm,
+  );
+  if (flow == null) return false;
+  final routeGone = flow.routeGone;
   await Future<void>.delayed(const Duration(milliseconds: 800));
 
   // The composer text is not readable through any seam, so the insertion is

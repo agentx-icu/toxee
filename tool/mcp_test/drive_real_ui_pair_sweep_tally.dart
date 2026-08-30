@@ -67,7 +67,7 @@ const _keyedGaps3ExpectedSkipCases = <String>{
   'msgmenu_read_receipt_group_gating',
 };
 
-/// keyed-gaps #4 — all nine gate on the running LAYOUT TIER:
+/// keyed-gaps #4 — all ten gate on the running LAYOUT TIER:
 ///   * the three composer-shaped cases gate on `_kg4ComposerKind` (mobile vs
 ///     desktop input builder) — an `unknown` composer is a FAIL, not a skip;
 ///   * `mobile_chats_unread_badge_flips` gates on `_msPhoneShell`
@@ -76,7 +76,7 @@ const _keyedGaps3ExpectedSkipCases = <String>{
 ///   * `mobile_chat_back_clears_active_peer` gates on `_msPhoneShell` too: a
 ///     master-detail shell rebinds its right pane instead of pushing the chat
 ///     route, so there is no route pop for the observer to react to;
-///   * the three @-mention cases (both picker legs + @All) gate on
+///   * the four @-mention cases (picker legs, @All, deletion) gate on
 ///     `_kg4ComposerKind` too — the desktop composer resolves mentions
 ///     through an inline panel and never pushes
 ///     `TencentCloudChatAtGroupMemberList`;
@@ -95,6 +95,8 @@ const _keyedGaps4ExpectedSkipCases = <String>{
   'mobile_chat_back_clears_active_peer',
   'mobile_mention_picker_confirm_inserts',
   'mobile_mention_picker_back_empty_selection',
+  // Deletion case: gates on _kg4ComposerKind AND Android (real backspace).
+  'mobile_mention_deletion_clears_token',
 };
 
 class _MobileShellTally {
