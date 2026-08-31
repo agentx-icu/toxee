@@ -31,9 +31,10 @@
 # the `debug.toxee.*` system-property fallbacks read by ToxManager.cpp (an app
 # process cannot be handed env vars): A gets debug.toxee.tcp_relay_port, both
 # get debug.toxee.force_tcp_only, and the relay is plumbed B-guest ->
-# (adb reverse) -> host -> (adb forward) -> A-guest on TOXEE_ANDROID_TCP_RELAY_
-# PORT (default 3389 — the port add_bootstrap_node's tcp_add_tcp_relay probe
-# already tries, so the driver's wireFullMeshBootstrap needs no android branch).
+# (adb reverse on RELAY_HOST_PORT) -> host:RELAY_HOST_PORT -> (adb forward) ->
+# A-guest:TCP_RELAY_PORT. The driver's wireFullMeshBootstrap passes the host
+# port as its TCP-relay fallback (the knobs block below explains why the host
+# side must NOT be 3389).
 #
 # Scope / honest limits:
 #   - The native libirc_client.so is not built for Android, so the
@@ -85,9 +86,16 @@ if [[ -n "$FIXTURE_RESTORE_MODE" ]]; then
     }
 fi
 
-# TCP relay topology knob (see header). The relay port must stay on 3389 unless
-# the tox_add_tcp_relay probe list in tim2tox_ffi.cpp add_bootstrap_node changes.
+# TCP relay topology knobs (see header). A-guest's relay LISTENER stays on
+# TCP_RELAY_PORT (3389). Everything else rides RELAY_HOST_PORT: the host
+# middle port AND B-guest's loopback connect target (the driver's full-mesh
+# fallback tells B to dial 127.0.0.1:RELAY_HOST_PORT). It MUST NOT be 3389:
+# an unrelated host listener can hijack it silently (measured 2026-08-31: a
+# legacy qemu VM's hostfwd ate both adb mappings for weeks and the pairs
+# quietly rode PUBLIC relays — the likely NGC-join flakiness root).
+# Mirrored by fixtureCTcpRelayHostPort() in fixture_c_bootstrap.dart.
 TCP_RELAY_PORT="${TOXEE_ANDROID_TCP_RELAY_PORT:-3389}"
+RELAY_HOST_PORT="${TOXEE_ANDROID_RELAY_HOST_PORT:-33390}"
 
 if [[ "$MODE" != "debug" ]]; then
     # kDebugMode tree-shakes the L3 + flutter_skill driving surface out of
@@ -264,15 +272,19 @@ launch_android_instance() {
     adb -s "$device_id" shell setprop debug.toxee.force_tcp_only 1 >/dev/null 2>&1 || true
     if [[ "$name" == "A" ]]; then
         adb -s "$device_id" shell setprop debug.toxee.tcp_relay_port "$TCP_RELAY_PORT" >/dev/null 2>&1 || true
-        # host:PORT -> A-guest:PORT (B's reverse below completes the chain).
-        adb -s "$device_id" forward "tcp:$TCP_RELAY_PORT" "tcp:$TCP_RELAY_PORT" >/dev/null 2>&1 \
-            || echo "launch_android_fixture_c_pair.sh: WARN adb forward $TCP_RELAY_PORT failed on $device_id (A relay unreachable from host)" >&2
+        # host:RELAY_HOST_PORT -> A-guest:TCP_RELAY_PORT (B's reverse below
+        # completes the chain; the driver's full-mesh relay fallback and any
+        # host-side extra instance dial RELAY_HOST_PORT).
+        adb -s "$device_id" forward "tcp:$RELAY_HOST_PORT" "tcp:$TCP_RELAY_PORT" >/dev/null 2>&1 \
+            || echo "launch_android_fixture_c_pair.sh: WARN adb forward $RELAY_HOST_PORT failed on $device_id (A relay unreachable from host)" >&2
     else
         adb -s "$device_id" shell setprop debug.toxee.tcp_relay_port '' >/dev/null 2>&1 || true
-        # B-guest 127.0.0.1:PORT -> host:PORT (-> A's relay via A's forward), so
-        # B's add_bootstrap_node(127.0.0.1,...) relay probe lands on A.
-        adb -s "$device_id" reverse "tcp:$TCP_RELAY_PORT" "tcp:$TCP_RELAY_PORT" >/dev/null 2>&1 \
-            || echo "launch_android_fixture_c_pair.sh: WARN adb reverse $TCP_RELAY_PORT failed on $device_id (B cannot reach A's relay)" >&2
+        # B-guest 127.0.0.1:RELAY_HOST_PORT -> host:RELAY_HOST_PORT (-> A's
+        # relay via A's forward): the driver's full-mesh relay fallback has B
+        # add_bootstrap_node(127.0.0.1, RELAY_HOST_PORT, A-dht) — the native
+        # add issues tox_add_tcp_relay on the GIVEN port (tim2tox_ffi.cpp).
+        adb -s "$device_id" reverse "tcp:$RELAY_HOST_PORT" "tcp:$RELAY_HOST_PORT" >/dev/null 2>&1 \
+            || echo "launch_android_fixture_c_pair.sh: WARN adb reverse $RELAY_HOST_PORT failed on $device_id (B cannot reach A's relay)" >&2
     fi
     # adb reverse so the device's 127.0.0.1:<port> tunnels to this host's
     # LocalIrcServer (used by irc_join_channel_loopback_live). Harmless for other

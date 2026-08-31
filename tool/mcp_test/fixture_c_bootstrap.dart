@@ -16,6 +16,7 @@
 
 // ignore_for_file: depend_on_referenced_packages, avoid_print
 
+import 'dart:io';
 import 'package:vm_service/vm_service.dart';
 
 /// The L3 extensions a bootstrap target must expose. Each driver should
@@ -35,34 +36,63 @@ const List<String> fixtureCBootstrapExtensions = <String>[
 /// `add_bootstrap_node(peer.host, peer.udpPort, peer.dhtId)` with a routable
 /// address instead of loopback — the only thing that differs from same-host.
 class BootstrapTarget {
-  BootstrapTarget(this.name, this.vm, this.isolateId, {this.host = '127.0.0.1'});
+  BootstrapTarget(
+    this.name,
+    this.vm,
+    this.isolateId, {
+    this.host = '127.0.0.1',
+  });
   final String name;
   final VmService vm;
   final String isolateId;
   final String host;
 }
 
+/// The HOST-side TCP-relay port for TCP-only pairs (Android star): adb maps
+/// it to A's guest relay. Mirrors RELAY_HOST_PORT in
+/// launch_android_fixture_c_pair.sh — NOT 3389, which an unrelated host
+/// listener can hijack silently (measured: a legacy qemu VM's hostfwd).
+int fixtureCTcpRelayHostPort() =>
+    int.tryParse(Platform.environment['TOXEE_ANDROID_RELAY_HOST_PORT'] ?? '') ??
+    33390;
+
 /// Full-mesh loopback bootstrap across [targets]: each instance bootstraps to
 /// every OTHER on 127.0.0.1 + the peer's `l3_dht_info` endpoint, then settles.
 /// Tolerant — logs but does NOT throw on a missing endpoint (the downstream
 /// scenario assertion is the authoritative gate). [log] defaults to `print`.
+///
+/// TCP-only pairs report udpPort=0; when [tcpRelayFallbackPort] is given,
+/// those peers get a TCP-RELAY fallback add instead (given-port
+/// tox_add_tcp_relay via add_bootstrap_node). OPT-IN because the port is
+/// TOPOLOGY-specific (Android star = fixtureCTcpRelayHostPort; iOS pairs use
+/// their own fixed listeners) — before 2026-08-31 TCP-only peers were
+/// silently skipped and the "local star" actually rode PUBLIC relays.
 Future<void> wireFullMeshBootstrap(
   List<BootstrapTarget> targets, {
   void Function(String)? log,
   Duration settle = const Duration(seconds: 6),
+  int? tcpRelayFallbackPort,
 }) async {
   final emit = log ?? print;
-  // 1. Gather each instance's local DHT endpoint.
+  // 1. Gather each instance's local DHT endpoint. A FRESH instance can race
+  // this with its tox bring-up and report an empty dhtId — retry briefly, or
+  // its peers get no wiring at all (seen live: attempt-1 A->B/A->C missing).
   final endpoints = <String, ({int port, String dhtId})>{};
   for (final t in targets) {
-    final resp = await t.vm.callServiceExtension(
-      'ext.mcp.toolkit.l3_dht_info',
-      isolateId: t.isolateId,
-      args: const <String, String>{},
-    );
-    final j = (resp.json ?? const <String, dynamic>{}).cast<String, dynamic>();
-    final port = (j['udpPort'] as num?)?.toInt() ?? 0;
-    final dhtId = (j['dhtId']?.toString() ?? '').trim();
+    var port = 0;
+    var dhtId = '';
+    for (var i = 0; i < 12 && dhtId.isEmpty; i++) {
+      if (i > 0) await Future<void>.delayed(const Duration(seconds: 1));
+      final resp = await t.vm.callServiceExtension(
+        'ext.mcp.toolkit.l3_dht_info',
+        isolateId: t.isolateId,
+        args: const <String, String>{},
+      );
+      final j = (resp.json ?? const <String, dynamic>{})
+          .cast<String, dynamic>();
+      port = (j['udpPort'] as num?)?.toInt() ?? 0;
+      dhtId = (j['dhtId']?.toString() ?? '').trim();
+    }
     endpoints[t.name] = (port: port, dhtId: dhtId);
     emit('[fixture-c-bootstrap] ${t.name} DHT endpoint ${t.host}:$port');
   }
@@ -72,27 +102,47 @@ Future<void> wireFullMeshBootstrap(
     for (final peer in targets) {
       if (identical(target, peer)) continue;
       final ep = endpoints[peer.name]!;
-      if (ep.port <= 0 || ep.dhtId.isEmpty) {
-        emit('[fixture-c-bootstrap] WARN ${peer.name} has no usable DHT endpoint');
+      if (ep.dhtId.isEmpty) {
+        emit('[fixture-c-bootstrap] WARN ${peer.name} has no DHT id');
         continue;
+      }
+      final relayFallback = ep.port <= 0;
+      if (relayFallback && tcpRelayFallbackPort == null) {
+        emit(
+          '[fixture-c-bootstrap] WARN ${peer.name} has no UDP endpoint and '
+          'no TCP-relay fallback port was given',
+        );
+        continue;
+      }
+      final port = relayFallback ? tcpRelayFallbackPort! : ep.port;
+      if (relayFallback) {
+        emit(
+          '[fixture-c-bootstrap] ${target.name} -> ${peer.name} TCP-relay '
+          'fallback :$port (peer has no UDP endpoint)',
+        );
       }
       final resp = await target.vm.callServiceExtension(
         'ext.mcp.toolkit.l3_add_bootstrap_node',
         isolateId: target.isolateId,
         args: <String, String>{
           'host': hostByName[peer.name] ?? '127.0.0.1',
-          'port': '${ep.port}',
+          'port': '$port',
           'pubkey': ep.dhtId,
         },
       );
-      final ok = ((resp.json ?? const <String, dynamic>{})
+      final ok =
+          ((resp.json ?? const <String, dynamic>{})
               .cast<String, dynamic>())['ok'] ==
           true;
-      emit('[fixture-c-bootstrap] ${target.name} -> ${peer.name} '
-          '@${hostByName[peer.name] ?? '127.0.0.1'} bootstrap ok=$ok');
+      emit(
+        '[fixture-c-bootstrap] ${target.name} -> ${peer.name} '
+        '@${hostByName[peer.name] ?? '127.0.0.1'} bootstrap ok=$ok',
+      );
     }
   }
-  emit('[fixture-c-bootstrap] full-mesh wired; settling '
-      '${settle.inSeconds}s for local DHT');
+  emit(
+    '[fixture-c-bootstrap] full-mesh wired; settling '
+    '${settle.inSeconds}s for local DHT',
+  );
   await Future<void>.delayed(settle);
 }

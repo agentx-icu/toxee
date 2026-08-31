@@ -6,27 +6,22 @@
 // exercises the actual buttons/fields a user touches ("直接驱动 UI 控件").
 //
 // Hard-won harness facts (see /tmp diagnostics + REAL_UI_GATES notes):
-//   * The instances are raw-launched (`launch_toxee_instance.sh`, direct exec).
-//     An UNFOCUSED macOS window does NOT pump frames / service platform
-//     channels, so any async UI step (route push, SharedPreferences read) STALLS
-//     while backgrounded. FIX: osascript-foreground the target pid before each
-//     UI phase. Data/DHT keeps running on native threads regardless, so the
-//     other instance can be backgrounded between phases.
-//   * `flutter_skill.enterText{key}` only matches an *editable* widget carrying
-//     the key; our keys sit on TextFormField wrappers, so use focusType =
-//     tap{key} (general widget search) then enterText{no key} into the focus.
+//   * The instances are raw-launched (`launch_toxee_instance.sh`). An
+//     UNFOCUSED macOS window does NOT pump frames, so async UI steps STALL —
+//     FIX: osascript-foreground the pid before each UI phase (data/DHT keeps
+//     running on native threads; the other instance can stay backgrounded).
+//   * `flutter_skill.enterText{key}` only matches an *editable* widget; our
+//     keys sit on wrappers, so focusType = tap{key} then enterText{no key}.
 //   * `flutter_skill.screenshot` → {image:<base64 png>}; foreground-only.
 //
 // Usage:
 //   dart run tool/mcp_test/drive_real_ui_pair.dart <scenario> \
 //       [--boot-restored] <wsA> <pidA> <nickA> <wsB> <pidB> <nickB>
 // scenarios:
-//   handshake         S26 + S61 — B sends an add-friend request, A ACCEPTS via
-//                     the INLINE row button (contact_application_accept_button);
-//                     asserts friendship + nickname propagation both directions.
-//   handshake_detail  S108 — same, but A accepts via the pushed application-
-//                     DETAIL screen (contact_application_detail_accept_button),
-//                     the distinct UI entry point S26 does NOT exercise.
+//   handshake         S26 + S61 — B requests, A accepts via the INLINE row
+//                     button; asserts friendship + nick propagation both ways.
+//   handshake_detail  S108 — same, but A accepts on the pushed application-
+//                     DETAIL screen (the entry point S26 does NOT exercise).
 //   decline           S27 — A DECLINES the inbound request; asserts the
 //                     application cleared and no friendship formed.
 //   message           S62 + S64 — bidirectional message delivery through the
@@ -192,6 +187,7 @@ part 'drive_real_ui_pair_calls_misc.dart';
 part 'drive_real_ui_pair_calls_misc_video.dart';
 part 'drive_real_ui_pair_calls_misc_video2.dart';
 part 'drive_real_ui_pair_boundary2.dart';
+part 'drive_real_ui_pair_mention_multi.dart';
 part 'drive_real_ui_pair_p1_single.dart';
 part 'drive_real_ui_pair_p1_chat.dart';
 part 'drive_real_ui_pair_p1_relaunch.dart';
@@ -887,6 +883,10 @@ Future<int> _main(List<String> args) async {
     // runner's restored paired_for_e2e); window-resize is single-instance.
     if (scenario == 'sweep_calls_misc') {
       return await runCallsMiscSweep(a, b, nickA, nickB);
+    }
+    // Three-instance @-mention multi-select (own campaign; see the part file).
+    if (scenario == 'mobile_mention_multi_select_inserts') {
+      return await runMentionMultiCase(a, b, nickA, nickB);
     }
     if (_isCallsMiscCaseScenario(scenario)) {
       return await runCallsMiscCase(

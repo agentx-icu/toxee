@@ -160,10 +160,14 @@ Behavior to know:
     properties (`adb shell setprop`; ToxManager.cpp `read_harness_knob` falls
     back to them on Android because a device app cannot be handed env vars).
     The relay is plumbed B-guest → (`adb reverse`) → host → (`adb forward`) →
-    A-guest on `TOXEE_ANDROID_TCP_RELAY_PORT` (default 3389, the port
-    `add_bootstrap_node`'s `tox_add_tcp_relay` probe already tries).
+    A-guest. Since 2026-08-31 the HOST middle leg and B-guest's loopback ride
+    `RELAY_HOST_PORT` (default 33390, mirrored by `fixtureCTcpRelayHostPort()`)
+    while A-guest's listener stays on `TCP_RELAY_PORT` (3389); the driver's
+    `wireFullMeshBootstrap` passes the host port as its TCP-relay fallback for
+    udpPort=0 peers — host 3389 is AVOIDED (an unrelated legacy-VM listener
+    hijacked it silently for weeks; the pairs quietly rode PUBLIC relays).
     `stop_android_fixture_c_pair.sh` clears the props (they persist to reboot)
-    and removes the tunnels.
+    and removes BOTH ports' tunnels.
   - **form-factor coverage vs. reuse** — until the `sweep_mobile_shell` /
     `sweep_tablet_layout` additions (below) every `rui-ios-*` / `rui-ipad-*`
     campaign only RE-RAN the desktop sweeps on a smaller screen. That is layout
@@ -550,6 +554,27 @@ Notes if you extend it:
   `rui-ios-account-settings`, `rui-ipad-account-settings` and `rui-android-main`,
   and is a step inside `sweep_single_app_optimized`. `rui-keyed-gaps` /
   `rui-android-keyed-gaps` exist only for focused debugging.
+
+### Three-instance cases (2026-08-31)
+
+`mobile_mention_multi_select_inserts` (campaign `rui-android-mention-multi`)
+is the first THREE-instance case: the mobile @-mention picker's multi-select
+contract (two ticked rows + confirm insert BOTH "@<label> " tokens) needs a
+group with 2 non-self members, and NGC membership is a live peer list (no
+seam can fake a member). The case launches a macOS **C** instance in-case
+via `launch_toxee_instance.sh C` (own ditto'd app copy;
+`l3_register_account`), then uses the PROVEN friend-link machinery: mutual
+`l3_seed_friend`, friend-ONLINE gates, a PRIVATE group and
+`l3_invite_to_group` auto-joins. Public join-by-chat-id was abandoned —
+NGC public discovery under TCP-only is onion-over-relay and never converged
+in 90s. On the Android pair the local relay star runs host-port
+`fixtureCTcpRelayHostPort()` (33390) mapped to A-guest:3389 — NOT host
+3389, which an unrelated listener can hijack silently (measured: a legacy
+qemu VM's hostfwd ate it for weeks and every pair quietly rode PUBLIC
+relays). Result state: FRIENDS (seeded A<->B persists; A<->C is deleted
+before C stops). Own campaign by design: the extra-instance lifecycle
+(launch + teardown in `finally`) must not leak into chained sweeps — the
+standing-agreement exception for conflicting state contracts.
 
 ### Verify-first exclusions from this batch (do NOT "fix" by writing a case)
 

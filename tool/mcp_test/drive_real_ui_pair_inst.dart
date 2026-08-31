@@ -193,15 +193,11 @@ class Inst {
       (Platform.environment['TOXEE_REAL_UI_HOST_$name'] ?? '127.0.0.1').trim();
 
   /// Instance-scoped headless flag — SHADOWS the top-level [_isHeadlessRealUi]
-  /// within [Inst] so every osa*/window/foreground site below becomes
-  /// per-instance-aware. A HETEROGENEOUS macOS-A ↔ Linux-B cross-host pair keeps
-  /// the GLOBAL platform 'macos' (so peer A stays on the osascript path) while the
-  /// Linux peer B — reachable only over its (tunneled) VM service, never by host
-  /// osascript — must drive purely via synthetic flutter_skill RPC + L3 seams,
-  /// exactly like the headless Windows/Android peers. Adds ONLY `|| isLinux`, so
-  /// every existing run is byte-identical (no current run has a `platform=='linux'`
-  /// instance); top-level scenario checks still see the global value. Computed from
-  /// `_realUiPlatform` (not the top-level getter) to avoid self-recursion.
+  /// inside [Inst] so osa*/window/foreground sites are per-instance-aware: a
+  /// macOS-A ↔ Linux-B cross-host pair keeps GLOBAL platform 'macos' while
+  /// the Linux peer drives purely via synthetic flutter_skill + L3 seams
+  /// (like Windows/Android). Adds only `|| isLinux` — existing runs are
+  /// byte-identical. Reads `_realUiPlatform` directly (no self-recursion).
   bool get _isHeadlessRealUi =>
       _realUiPlatform == 'windows' || _realUiPlatform == 'android' || isLinux;
 
@@ -1175,3 +1171,8 @@ class Inst {
     print('[$name] shot -> $outPath');
   }
 }
+
+/// Android-star relay fallback for [wireFullMeshBootstrap] sites (null
+/// elsewhere — iOS pairs have their OWN fixed listener ports).
+int? _pairTcpRelayFallbackPort(Inst a, Inst b) =>
+    (a.isAndroid || b.isAndroid) ? fixtureCTcpRelayHostPort() : null;

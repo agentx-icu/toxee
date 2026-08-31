@@ -765,7 +765,7 @@ Future<int> runGroupMessage(
   await wireFullMeshBootstrap([
     BootstrapTarget('A', a.vm, a.iso),
     BootstrapTarget('B', b.vm, b.iso),
-  ]);
+  ], tcpRelayFallbackPort: _pairTcpRelayFallbackPort(a, b));
 
   final nonce = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   // PRIVATE group: peers connect over the existing FRIEND connection (reliable

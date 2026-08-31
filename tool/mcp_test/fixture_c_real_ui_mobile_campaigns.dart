@@ -212,6 +212,9 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // Includes window_resize_responsive, which SKIPs on a Simulator (no window to
   // size-script) — expected, not a regression.
   'rui-ios-calls-misc': ['sweep_calls_misc'],
+  // Three-instance @-mention multi-select on iOS: same case; C is a macOS
+  // process on the host (Simulators share the host loopback for the relay).
+  'rui-ios-mention-multi': ['mobile_mention_multi_select_inserts'],
   // Contacts / friend profile: 15 cases, two-process,
   // required=no-friend / result=NO-FRIEND (the chain deletes the friend last).
   // LONGEST chain in the whole mobile matrix — KEEP_SIMULATOR_FRONT is
@@ -459,4 +462,10 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // for real. Expect 3 honest SKIPs otherwise (tabs-cycle, search-overlay,
   // window-resize).
   'rui-android-calls-misc': ['sweep_calls_misc'],
+  // Three-instance @-mention multi-select: 1 case, required=no-friend /
+  // result=friends (the case SEEDS the A<->B friendship; A<->C is deleted).
+  // Launches a macOS C instance in-case; C is invited over the seeded
+  // friend link (host relay port: fixtureCTcpRelayHostPort). Own campaign —
+  // the extra-instance lifecycle must not leak into chained sweeps.
+  'rui-android-mention-multi': ['mobile_mention_multi_select_inserts'],
 };

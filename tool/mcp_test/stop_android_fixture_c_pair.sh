@@ -11,6 +11,7 @@ RUNTIME_ROOT="${TOXEE_ANDROID_RUNTIME_ROOT:-$MCP_DIR/.android_runtime}"
 APP_PACKAGE_ID="com.toxee.app"
 IRC_LOOPBACK_PORT="${TOXEE_IRC_LOOPBACK_PORT:-16667}"
 TCP_RELAY_PORT="${TOXEE_ANDROID_TCP_RELAY_PORT:-3389}"
+RELAY_HOST_PORT="${TOXEE_ANDROID_RELAY_HOST_PORT:-33390}"
 
 stop_android_instance() {
     local name="$1"
@@ -47,6 +48,8 @@ stop_android_instance() {
         adb -s "$device_id" shell setprop debug.toxee.tcp_relay_port '' >/dev/null 2>&1 || true
         adb -s "$device_id" forward --remove "tcp:$TCP_RELAY_PORT" >/dev/null 2>&1 || true
         adb -s "$device_id" reverse --remove "tcp:$TCP_RELAY_PORT" >/dev/null 2>&1 || true
+        adb -s "$device_id" forward --remove "tcp:$RELAY_HOST_PORT" >/dev/null 2>&1 || true
+        adb -s "$device_id" reverse --remove "tcp:$RELAY_HOST_PORT" >/dev/null 2>&1 || true
     fi
 }
 

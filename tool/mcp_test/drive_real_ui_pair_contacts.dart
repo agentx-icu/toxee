@@ -1287,11 +1287,11 @@ Future<void> _wireSweepLoopbackBootstrap(Inst a, Inst b) async {
       BootstrapTarget('A', a.vm, a.iso, host: a.bootstrapHost),
       BootstrapTarget('B', b.vm, b.iso, host: b.bootstrapHost),
     ],
+        // Android star: TCP-only peers need the host-port relay fallback.
+        tcpRelayFallbackPort: _pairTcpRelayFallbackPort(a, b),
         log: (m) => print('[sweep] $m'),
-        // Same-host DHTs need more than the default 6s to actually CONNECT
-        // before a friend request routes between them (the addBootstrapNode
-        // call returns immediately; the DHT handshake follows). The send loop in
-        // _establishFriendshipForSweep re-submits if it's still not enough.
+        // Same-host DHTs need more than 6s to CONNECT (addBootstrapNode
+        // returns immediately); _establishFriendshipForSweep re-submits.
         // The Windows VM's same-host onion convergence is markedly slower than
         // macOS's rich/low-latency public DHT (root-caused live: the friend
         // application DOES arrive, but ~3-4 min after the first send), so give
