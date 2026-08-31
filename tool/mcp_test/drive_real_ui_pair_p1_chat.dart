@@ -32,19 +32,12 @@ part of 'drive_real_ui_pair.dart';
 //    (fork's onReceiveMessageRecalled is a no-op; the honest B gate is the
 //    DATA deletion, which IS asserted).
 //
-// 2. READ RECEIPT ✓✓ (read_receipt_double_tick) — NOT WIRED for C2C;
-//    NEGATIVE product-gap gate (flips positive when fixed). UI half exists
-//    (own-bubble done/done_all icon + the automation key
-//    `message_send_status:<msgID>:<state>`); data half is unwired twice:
-//    (a) B's chat-open marks read LOCAL-ONLY (markConversationRead — no
-//    _sendReceipt; l3_mark_read drives the SAME local-only path and
-//    markC2CMessageAsRead has no UI caller; group receipts only fire with
-//    needReadReceipt), and
-//    (b) receipt matching cannot correlate — receipts carry the RECEIVER's
-//    locally generated msgID while the Tox wire carries none, so the
-//    sender's exact-match lookup never hits (S63 live: isReceived never
-//    flips). Fix needs a tim2tox msgID round-trip + a C2C receipt trigger
-//    on chat-open; the CODE wins over the inventory row's stale ✓✓ claim.
+// 2. READ RECEIPT ✓✓ (read_receipt_double_tick) — POSITIVE end-to-end gate
+//    since the 2026-09-01 receipt overhaul: receipts hash-echo the CONTENT
+//    (`bind:<sha256(text)>` — no cross-instance id hand-off), B's chat-open
+//    wires READ receipts, and A matches by hash → isReceived+isRead flip +
+//    the `message_send_status:<msgID>:read` icon. Formerly a NEGATIVE
+//    product-gap pin.
 //
 // 3. FORWARD→GROUP (forward_to_group_target) — wired; the sweep pre-creates
 //    a PRIVATE group via the REAL AddGroupDialog. B does NOT need to join:
@@ -448,16 +441,13 @@ Future<bool> _p1cRecallMessage(
 }
 
 // ===========================================================================
-// case p1c-2 — read_receipt_double_tick (P1#4) — NEGATIVE product-gap pin
+// case p1c-2 — read_receipt_double_tick (P1#4) — POSITIVE ✓✓ gate
 // ===========================================================================
-/// Pins the verified CURRENT behavior: a delivered own C2C message renders the
-/// single-tick state and NEVER flips to peer-read when B opens the chat via a
-/// REAL row tap, because (a) B's chat-open path is local-only (no wire 'read'
-/// receipt) and (b) receipt msgIDs cannot correlate across instances (no
-/// round-trip). PASS == gap present (baseline not-read + still not-read after
-/// B's open + the state-suffixed icon key stays ':sent'). When tim2tox lands
-/// the msgID round-trip + a C2C read trigger, this case FAILS loudly — flip it
-/// to the positive ✓✓ gate then (the fork key is already in place for that).
+/// End-to-end C2C read receipt: A sends, B receives UNREAD, B opens via the
+/// REAL row tap (production mark-read path) — A's OWN row must flip
+/// isReceived+isRead via the wire hash-echo 'read' receipt, with the
+/// own-bubble `message_send_status:<msgID>:read` icon rendering. Baseline
+/// asserts the pre-open single-tick so the flip is evidential.
 Future<bool> _p1cReadReceiptDoubleTick(
   Inst a,
   Inst b,
@@ -465,10 +455,8 @@ Future<bool> _p1cReadReceiptDoubleTick(
   String toxB,
 ) async {
   // Park B OFF the conversation first so A's send lands UNREAD on B — the
-  // pre-open unread>=1 → post-open unread==0 transition is the proof that B's
-  // real row tap exercised the production local-read path (codex P1: without
-  // it the negative pin is meaningless; the active-conversation rule
-  // auto-zeroes unread, so only the >=1 BEFORE makes the 0 AFTER evidential).
+  // unread >=1 -> 0 transition proves B's real row tap drove the production
+  // read path (the active-conversation rule would auto-zero it otherwise).
   await b.foreground();
   await returnToChatsHome(b, rounds: 4);
   try {
@@ -546,38 +534,49 @@ Future<bool> _p1cReadReceiptDoubleTick(
     );
     return false;
   }
-  // Bounded observation window for a wire 'read' receipt that current code
-  // can never send (10s is generous for the same-host poll loop).
-  await Future<void>.delayed(const Duration(seconds: 10));
-  final after = await _p1cOwnEntry(a, toxB, msgId);
-  final stillNotRead = after != null && after['isRead'] != true;
+  // POSITIVE gate: B's real open sent the wire READ hash-receipt — poll
+  // A's row until BOTH flags flip ('read' sets isReceived+isRead).
+  var isReadAfter = false;
+  Map<String, dynamic>? after;
+  for (var i = 0; i < 30 && !isReadAfter; i++) {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    after = await _p1cOwnEntry(a, toxB, msgId);
+    isReadAfter = after?['isRead'] == true;
+  }
+  final isReceivedAfter = after?['isReceived'] == true;
   await a.foreground();
+  // DESKTOP (master-detail) live-refresh gap, recorded follow-up: the open
+  // pane's bubble misses the receipt event (sdk_fake buffer updates, the
+  // mounted list doesn't) — a REAL conversation rebind reloads from history
+  // (converter maps isPeerRead). Mobile re-opens the route and stays live.
+  if (!a.isAndroid && !a.isIos) {
+    try {
+      await a.clearActiveConversation();
+    } on DriveError catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+  }
   await _ensureChatOpen(a, toxB);
-  final sentIconAfter = await a.waitKey(
-    'message_send_status:$msgId:sent',
-    timeoutSecs: 6,
-  );
   final readIconAfter = await a.waitKey(
     'message_send_status:$msgId:read',
-    timeoutSecs: 1,
+    timeoutSecs: 10,
   );
   await a.shot('/tmp/ui_p1c_tick_A.png');
+  final diagA = (await a.dumpState())['receiptDiag'];
+  final diagB = (await b.dumpState())['receiptDiag'];
   print(
-    '[pair] read_receipt_double_tick: NEGATIVE-PIN baselineNotRead='
+    '[pair] read_receipt_double_tick: POSITIVE baselineNotRead='
     '$baselineNotRead sentIcon=$sentIcon readIconBefore=$readIconBefore '
-    'bLocallyRead=$bLocallyRead stillNotReadAfterBOpen=$stillNotRead '
-    'sentIconAfter=$sentIconAfter readIconAfter=$readIconAfter '
-    '(breadcrumb isReceived=${after?['isReceived']}) — product gap: no C2C '
-    'wire read receipt + no msgID round-trip; flip to the positive ✓✓ gate '
-    'when fixed',
+    'bLocallyRead=$bLocallyRead isReadAfter=$isReadAfter '
+    'isReceivedAfter=$isReceivedAfter readIconAfter=$readIconAfter '
+    'diagA=$diagA diagB=$diagB',
   );
   return baselineNotRead &&
       sentIcon &&
       !readIconBefore &&
       bLocallyRead &&
-      stillNotRead &&
-      sentIconAfter &&
-      !readIconAfter;
+      isReadAfter &&
+      isReceivedAfter &&
+      readIconAfter;
 }
 
 // ===========================================================================

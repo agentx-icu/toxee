@@ -6907,6 +6907,8 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         params['friendApplicationsError'] = e.toString();
       }
     }
+    final ffiSvc = FakeUIKit.instance.im?.ffi;
+    if (ffiSvc != null) params['receiptDiag'] = ffiSvc.receiptDiag;
     final callState = FakeUIKit.instance.callStateNotifier;
     if (callState != null) {
       final csm = FakeUIKit.instance.callServiceManager;
