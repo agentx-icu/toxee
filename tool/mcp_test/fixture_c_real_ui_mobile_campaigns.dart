@@ -462,6 +462,10 @@ const mobileRealUiCampaigns = <String, List<String>>{
   // for real. Expect 3 honest SKIPs otherwise (tabs-cycle, search-overlay,
   // window-resize).
   'rui-android-calls-misc': ['sweep_calls_misc'],
+  // P1 chat cases on Android (first added for the 2026-09-01 read-receipt
+  // positive flip — the hash-echo receipt fix is shared Dart, this proves
+  // it on the mobile shell): 8 cases, two-process, no-friend -> friends.
+  'rui-android-p1-chat': ['sweep_p1_chat'],
   // Three-instance @-mention multi-select: 1 case, required=no-friend /
   // result=friends (the case SEEDS the A<->B friendship; A<->C is deleted).
   // Launches a macOS C instance in-case; C is invited over the seeded
