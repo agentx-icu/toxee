@@ -195,6 +195,8 @@ const realUiScenarioNames = <String>{
   'call_mute_toggle_incall',
   'call_camera_toggle_incall',
   'call_camera_switch_incall',
+  // Three-instance @-mention multi-select (own campaign; C launched in-case).
+  'mobile_mention_multi_select_inserts',
   'call_missed_record_row',
   'call_callee_hangup',
   'call_record_bubble_renders',

@@ -1431,12 +1431,11 @@ Future<int> runGroup2Sweep(Inst a, Inst b, String nickA, String nickB) async {
       await wireFullMeshBootstrap([
         BootstrapTarget('A', a.vm, a.iso),
         BootstrapTarget('B', b.vm, b.iso),
-      ]);
+      ], tcpRelayFallbackPort: _pairTcpRelayFallbackPort(a, b));
       bPriorAutoAccept = await _getAutoAcceptGroupInvites(b);
       autoAcceptMutated = true;
-      // Best-effort here (NOT an abort): the 1i cases (71/72/73/74/75/76/80/82/
-      // 83/84) don't need auto-accept, and the 2p cases give it more time via
-      // case-77's 90s member-count poll + retries. If it never propagates, the
+      // Best-effort (NOT an abort): the 1i cases don't need auto-accept; the
+      // 2p cases add case-77's 90s member poll + retries. If it never lands the
       // 2p cases honestly FAIL on their own member-count gate (no false pass).
       // Re-issues the account-scoped set per round (see the helper).
       if (!await _ensureAutoAcceptGroupInvitesLive(b)) {
@@ -1837,7 +1836,7 @@ Future<int> runGroup2Case(
     await wireFullMeshBootstrap([
       BootstrapTarget('A', a.vm, a.iso),
       BootstrapTarget('B', b.vm, b.iso),
-    ]);
+    ], tcpRelayFallbackPort: _pairTcpRelayFallbackPort(a, b));
     final bPrior = await _getAutoAcceptGroupInvites(b);
     // Hard gate (codex P2): B's auto-accept must actually be LIVE before the
     // invite, else B silently misses the auto-join and the case false-FAILs.

@@ -1689,9 +1689,8 @@ String _requiredRealUiState(String scenario) {
     case 'msg_select_delete_cancel_keeps_message':
     case 'msg_select_delete_for_me_removes_row':
     case 'msg_select_forward_surface':
-    // Keyed-gaps batch #2: single-instance, A only. Nothing needs a friend, so
-    // a fresh no-friend pair launch is enough (no paired_for_e2e restore),
-    // which is what keeps these runnable on iOS/Android too.
+    // Keyed-gaps batch #2: single-instance, A only — fresh no-friend launch
+    // suffices (no restore), which keeps these iOS/Android-runnable.
     case 'sweep_keyed_gaps':
     case 'add_group_type_selector_hint_switches':
     case 'irc_channel_dialog_cancel_discards':
@@ -1701,10 +1700,8 @@ String _requiredRealUiState(String scenario) {
     case 'register_confirm_match_icon_flips':
     case 'register_confirm_visibility_toggle_flips':
     case 'register_strength_segments_ramp':
-    // Keyed-gaps batch #3: two-process. The sweep and every case establish (or
-    // reuse) the A<->B friendship themselves and create their own throwaway
-    // group, so a fresh no-friend pair launch is enough — no paired_for_e2e
-    // restore, which keeps them runnable on iOS/Android too.
+    // Keyed-gaps batch #3: two-process; each case forms its own friendship +
+    // throwaway group — fresh no-friend launch, iOS/Android-runnable.
     case 'sweep_keyed_gaps3':
     case 'contact_application_detail_decline_removes_row':
     case 'friendprof_copy_toxid_snackbar':
@@ -1734,6 +1731,8 @@ String _requiredRealUiState(String scenario) {
     case 'mobile_mention_deletion_clears_token':
     case 'mobile_search_contact_back_unbinds':
     case 'login_account_delete_confirm_removes_card':
+    // 3-instance mention multi-select: SEEDS its own A<->B — fresh no-friend.
+    case 'mobile_mention_multi_select_inserts':
       return _realUiStateNoFriend;
   }
   throw ArgumentError('unsupported real-UI scenario: $scenario');
@@ -1936,6 +1935,8 @@ String _resultRealUiState(String scenario) {
     case 'mobile_mention_at_all_inserts':
     case 'mobile_mention_deletion_clears_token':
     case 'mobile_search_contact_back_unbinds':
+    // 3-instance mention multi-select: seeded A<->B persists (A<->C deleted).
+    case 'mobile_mention_multi_select_inserts':
       return _realUiStateFriends;
     case 'sweep_p1_relaunch':
     case 'relaunch_history_autologin':
