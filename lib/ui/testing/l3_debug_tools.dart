@@ -927,11 +927,12 @@ MCPCallEntry _l3InjectC2cCustomEntry() => MCPCallEntry.tool(
     if (groupReject != null) return groupReject;
 
     try {
-      final ingested = ffi.ingestInboundC2cCustom(from: fromUserId, data: data);
+      // forceEmit: an injected row has no native-listener delivery to
+      // suppress against, and must still render live in the open chat.
+      final ingested = ffi.ingestInboundC2cCustom(
+          from: fromUserId, data: data, forceEmit: true);
       AppLogger.info(
-        '[L3] l3_inject_c2c_custom: from=$fromUserId '
-        'ingested=$ingested',
-      );
+          '[L3] l3_inject_c2c_custom: from=$fromUserId ingested=$ingested');
       return MCPCallResult(
         message: ingested ? 'c2c custom ingested' : 'skipped (blocked)',
         parameters: {
