@@ -359,6 +359,20 @@ Future<bool> _p1cRecallMessage(
     );
     return false;
   }
+  // B keeps the chat OPEN through the recall: the fork's plain
+  // onReceiveMessageRecalled handler (previously a no-op — the recorded
+  // B-live-bubble gap) must tombstone the mounted bubble LIVE, and that is
+  // only provable on a pane that was rendered BEFORE the revoke arrived.
+  await b.foreground();
+  await openChat(b, toxA);
+  if (!await b.waitText(text, timeoutSecs: 10)) {
+    print(
+      '[pair] chat_recall_message: B pane never rendered "$text" before '
+      'the recall — live-tombstone assertion would be vacuous',
+    );
+    return false;
+  }
+  await a.foreground();
   if (!await _openMessageMenuReal(a, msgId)) {
     print('[pair] chat_recall_message: real message menu did not open');
     return false;
@@ -431,13 +445,25 @@ Future<bool> _p1cRecallMessage(
     final msgs = await _c2cMessages(b, toxA);
     bGone = !msgs.any((m) => m['text']?.toString() == text);
   }
+  // B-side LIVE bubble: the pane B kept open must tombstone from the plain
+  // onRecvMessageRevoked fan-out alone (the previously recorded fork no-op
+  // gap, now closed). No revoker profile rides the Tox transport, so accept
+  // either tip wording; the unique nonce ties any tip to THIS recall.
+  await b.foreground();
+  var bTombstone = false;
+  for (var i = 0; i < 20 && !bTombstone; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    bTombstone = (await _p1cTextContaining(b, 'Recalled a Message')) != null ||
+        (await _p1cTextContaining(b, 'Message recalled')) != null;
+  }
+  await b.shot('/tmp/ui_p1c_recall_B.png');
+  await a.foreground();
   await a.shot('/tmp/ui_p1c_recall_A.png');
   print(
     '[pair] chat_recall_message: tombstone=$tombstone aGone=$aGone bGone=$bGone '
-    '(soft originalGone=$originalGone; B live-bubble tombstone NOT asserted — '
-    'fork onReceiveMessageRecalled is a no-op; recorded gap)',
+    'bTombstone=$bTombstone (soft originalGone=$originalGone)',
   );
-  return tombstone && aGone && bGone;
+  return tombstone && aGone && bGone && bTombstone;
 }
 
 // ===========================================================================
@@ -502,14 +528,36 @@ Future<bool> _p1cReadReceiptDoubleTick(
   }
   final baselineNotRead = baseline['isRead'] != true;
   await _ensureChatOpen(a, toxB);
-  final sentIcon = await a.waitKey(
-    'message_send_status:$msgId:sent',
-    timeoutSecs: 10,
-  );
-  final readIconBefore = await a.waitKey(
-    'message_send_status:$msgId:read',
-    timeoutSecs: 1,
-  );
+  // The BUBBLE's msgID can diverge from the dump row's primary id: under
+  // hybrid traffic the binary send path back-fills the real/native id and the
+  // rendered row is replaced under that alias, so the keyed icon must be
+  // accepted under ANY of the row's ids (msgID + altMsgIds) — waiting on the
+  // primary id alone goes red exactly in long-lived sweeps where the alias
+  // rebind has happened.
+  Set<String> iconIds(Map<String, dynamic>? entry) => <String>{
+        msgId,
+        ...?(entry?['altMsgIds'] as List?)?.map((e) => e.toString()),
+      };
+  Future<bool> anyIcon(
+    Set<String> ids,
+    String state, {
+    required int timeoutSecs,
+  }) async {
+    final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
+    while (true) {
+      for (final id in ids) {
+        if (await a.waitKey('message_send_status:$id:$state',
+            timeoutSecs: 1)) {
+          return true;
+        }
+      }
+      if (!DateTime.now().isBefore(deadline)) return false;
+    }
+  }
+
+  final sentIcon = await anyIcon(iconIds(baseline), 'sent', timeoutSecs: 10);
+  final readIconBefore =
+      await anyIcon(iconIds(baseline), 'read', timeoutSecs: 1);
   // B opens the chat via the REAL conversation-row tap (the production
   // mark-read path: cleanConversationUnreadMessageCount → markConversationRead).
   await b.foreground();
@@ -545,21 +593,32 @@ Future<bool> _p1cReadReceiptDoubleTick(
   }
   final isReceivedAfter = after?['isReceived'] == true;
   await a.foreground();
-  // DESKTOP (master-detail) live-refresh gap, recorded follow-up: the open
-  // pane's bubble misses the receipt event (sdk_fake buffer updates, the
-  // mounted list doesn't) — a REAL conversation rebind reloads from history
-  // (converter maps isPeerRead). Mobile re-opens the route and stays live.
-  if (!a.isAndroid && !a.isIos) {
-    try {
-      await a.clearActiveConversation();
-    } on DriveError catch (_) {}
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-  }
+  // NO desktop rebind here — deliberately. The master-detail pane's bubble
+  // must flip to ✓✓ LIVE from the receipt event alone: the fork's C2C
+  // receipt handler now REPLACES flipped rows instead of mutating them in
+  // place (an in-place flip mutated "previous" and "next" simultaneously, so
+  // the list container's identity-based change detection saw no difference
+  // and never rebuilt — the recorded desktop live-refresh gap, closed). If
+  // this case goes red on desktop again, that regression is back.
   await _ensureChatOpen(a, toxB);
-  final readIconAfter = await a.waitKey(
-    'message_send_status:$msgId:read',
-    timeoutSecs: 10,
-  );
+  final readIconAfter =
+      await anyIcon(iconIds(after ?? baseline), 'read', timeoutSecs: 10);
+  if (!readIconAfter) {
+    // Diagnostic: enumerate every send-status key actually on stage so an
+    // id-alias divergence between the dump row and the rendered bubble is
+    // visible in the log instead of a bare key_not_found.
+    try {
+      final tree = await a.skill('getWidgetTree', {'maxDepth': '400'});
+      final onStage = RegExp(r'message_send_status:[^\x27"\]]+')
+          .allMatches(jsonEncode(tree))
+          .map((m) => m.group(0))
+          .toSet();
+      print('[pair] read_receipt_double_tick: on-stage send-status keys='
+          '$onStage wanted=${iconIds(after ?? baseline)}');
+    } catch (e) {
+      print('[pair] read_receipt_double_tick: key-diagnostic failed: $e');
+    }
+  }
   await a.shot('/tmp/ui_p1c_tick_A.png');
   final diagA = (await a.dumpState())['receiptDiag'];
   final diagB = (await b.dumpState())['receiptDiag'];
@@ -568,7 +627,7 @@ Future<bool> _p1cReadReceiptDoubleTick(
     '$baselineNotRead sentIcon=$sentIcon readIconBefore=$readIconBefore '
     'bLocallyRead=$bLocallyRead isReadAfter=$isReadAfter '
     'isReceivedAfter=$isReceivedAfter readIconAfter=$readIconAfter '
-    'diagA=$diagA diagB=$diagB',
+    'msgId=$msgId diagA=$diagA diagB=$diagB',
   );
   return baselineNotRead &&
       sentIcon &&
