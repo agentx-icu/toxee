@@ -169,7 +169,7 @@ tool/mcp_test/drive_real_ui_pair_high_value_extra.dart:1481
 tool/mcp_test/drive_real_ui_pair_inst.dart:1178
 tool/mcp_test/drive_real_ui_pair_login.dart:1300
 tool/mcp_test/drive_real_ui_pair_message_call.dart:855
-tool/mcp_test/drive_real_ui_pair_p1_chat.dart:1714
+tool/mcp_test/drive_real_ui_pair_p1_chat.dart:1772
 tool/mcp_test/drive_real_ui_pair_p1_relaunch.dart:846
 # [2026-08-15] 1245 -> 1253: +8 lines, all of it the FIX and its evidence for a
 # live iPad red, not new logic. (a) `_p1SelectHomeTab` resolved the home-tab key

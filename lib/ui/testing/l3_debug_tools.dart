@@ -7179,6 +7179,8 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
                 'isSelf': m.isSelf,
                 'elemType': m.elemType,
                 'timestamp': m.timestamp,
+                'isPeerRead': m.isPeerRead,
+                'status': m.status,
                 'renderKey': key,
                 // Reply/forward metadata as the RENDER-layer V2TimMessage carries
                 // it. After a chat reopen this reflects the cold-reload path

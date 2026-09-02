@@ -285,7 +285,15 @@ build_flutter() {
   fi
 
   echo -e "${YELLOW}==> Building Flutter app (DEBUG)...${NC}"
-  (cd "$FLUTTER_APP_DIR" && flutter "${flutter_build_args[@]}") >> "$FLUTTER_BUILD_LOG" 2>&1
+  # FAIL HARD on a compile error. This used to ignore the exit status and
+  # only check that the bundle DIRECTORY exists — which a previous build
+  # already created — so a broken build printed "Built:" and every later
+  # launch ran a STALE bundle (classic symptom: l3_* tools "never
+  # registered", or a fix that "doesn't work" because it was never built).
+  if ! (cd "$FLUTTER_APP_DIR" && flutter "${flutter_build_args[@]}") >> "$FLUTTER_BUILD_LOG" 2>&1; then
+    echo -e "${RED}    flutter build FAILED — see ${FLUTTER_BUILD_LOG}. The previous bundle at ${APP_BUNDLE} is STALE; do not launch it.${NC}" >&2
+    return 1
+  fi
 
   if [[ ! -d "$APP_EXE_DIR" ]]; then
     echo -e "${RED}macOS app bundle not found at ${APP_BUNDLE}${NC}"; return 1
