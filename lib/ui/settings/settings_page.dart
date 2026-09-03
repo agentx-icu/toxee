@@ -158,6 +158,7 @@ class SettingsPage extends StatefulWidget {
     required this.onAutoAcceptFriendsChanged,
     required this.autoAcceptGroupInvites,
     required this.onAutoAcceptGroupInvitesChanged,
+    this.scrollController,
     this.teardownSession,
     this.switchAccountFn,
     this.pickImportFileFn,
@@ -176,6 +177,7 @@ class SettingsPage extends StatefulWidget {
 
   /// Test seam for logout teardown; defaults to
   /// [AccountService.teardownCurrentSession]. See [SettingsTeardownSessionFn].
+  final ScrollController? scrollController; // bottom-nav re-tap → top
   final SettingsTeardownSessionFn? teardownSession;
 
   /// Test seam for account switching; defaults to
@@ -385,18 +387,15 @@ class _SettingsPageState extends State<SettingsPage> {
       final difference = now.difference(dateTime);
 
       if (difference.inDays > 0) {
-        return AppLocalizations.of(
-          context,
-        )!.daysAgo(difference.inDays, difference.inDays > 1 ? 's' : '');
+        // The ARB carries the ICU plural now; this site used to hand-build an
+        // English "s", which was wrong in every non-English locale.
+        return AppLocalizations.of(context)!.daysAgo(difference.inDays);
       } else if (difference.inHours > 0) {
+        return AppLocalizations.of(context)!.hoursAgo(difference.inHours);
+      } else if (difference.inMinutes > 0) {
         return AppLocalizations.of(
           context,
-        )!.hoursAgo(difference.inHours, difference.inHours > 1 ? 's' : '');
-      } else if (difference.inMinutes > 0) {
-        return AppLocalizations.of(context)!.minutesAgo(
-          difference.inMinutes,
-          difference.inMinutes > 1 ? 's' : '',
-        );
+        )!.minutesAgo(difference.inMinutes);
       } else {
         return AppLocalizations.of(context)!.justNow;
       }
@@ -1506,6 +1505,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     return ListView(
       key: UiKeys.settingsScrollView,
+      controller: widget.scrollController,
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
         Card(

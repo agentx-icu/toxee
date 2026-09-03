@@ -1124,31 +1124,25 @@ class _LoginPageState extends State<LoginPage> {
                                               dateTime,
                                             );
 
-                                            // TODO(i18n): replace daysAgo/hoursAgo/minutesAgo with
-                                            // ICU {count, plural, ...} forms in next round. Passing
-                                            // an empty string for the {plural} placeholder so RTL/Arabic
-                                            // doesn't render a stray ASCII "s" inside the localized
-                                            // string. English degrades to "1 day ago / 2 day ago"
-                                            // (the singular "day" baked into the en string) until ICU
-                                            // plural support is wired up.
+                                            // Real ICU plurals now: the en
+                                            // template selects the form, so
+                                            // there is no {plural} argument to
+                                            // pass and no stray ASCII "s" for
+                                            // locales that don't inflect.
                                             if (difference.inDays > 0) {
                                               return AppLocalizations.of(
                                                 context,
-                                              )!.daysAgo(difference.inDays, '');
+                                              )!.daysAgo(difference.inDays);
                                             } else if (difference.inHours > 0) {
                                               return AppLocalizations.of(
                                                 context,
-                                              )!.hoursAgo(
-                                                difference.inHours,
-                                                '',
-                                              );
+                                              )!.hoursAgo(difference.inHours);
                                             } else if (difference.inMinutes >
                                                 0) {
                                               return AppLocalizations.of(
                                                 context,
                                               )!.minutesAgo(
                                                 difference.inMinutes,
-                                                '',
                                               );
                                             } else {
                                               return AppLocalizations.of(
@@ -1355,8 +1349,9 @@ class _LoginPageState extends State<LoginPage> {
                                         ),
                                         AppSpacing.verticalLg,
                                         Text(
-                                          // TODO(l10n): key=appTagline
-                                          'A private, peer-to-peer messenger',
+                                          AppLocalizations.of(
+                                            context,
+                                          )!.appTagline,
                                           style: Theme.of(context)
                                               .textTheme
                                               .bodyMedium

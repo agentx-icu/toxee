@@ -1167,17 +1167,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get justNow => '刚刚';
 
   @override
-  String daysAgo(int count, String plural) {
+  String daysAgo(int count) {
     return '$count 天前';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
+  String hoursAgo(int count) {
     return '$count 小时前';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
+  String minutesAgo(int count) {
     return '$count 分钟前';
   }
 
@@ -1628,6 +1628,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return '与 $name 通话中';
   }
+
+  @override
+  String get appTagline => '私密的点对点通讯工具';
+
+  @override
+  String get noBootstrapNodes => '没有引导节点';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2769,17 +2775,17 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get justNow => '刚刚';
 
   @override
-  String daysAgo(int count, String plural) {
+  String daysAgo(int count) {
     return '$count 天前';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
+  String hoursAgo(int count) {
     return '$count 小时前';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
+  String minutesAgo(int count) {
     return '$count 分钟前';
   }
 
@@ -3007,6 +3013,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return '与 $name 通话中';
   }
+
+  @override
+  String get appTagline => '私密的点对点通讯工具';
+
+  @override
+  String get noBootstrapNodes => '没有引导节点';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4147,17 +4159,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get justNow => '剛剛';
 
   @override
-  String daysAgo(int count, String plural) {
+  String daysAgo(int count) {
     return '$count 天前';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
+  String hoursAgo(int count) {
     return '$count 小時前';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
+  String minutesAgo(int count) {
     return '$count 分鐘前';
   }
 
@@ -4385,4 +4397,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return '與 $name 通話中';
   }
+
+  @override
+  String get appTagline => '私密的點對點通訊工具';
+
+  @override
+  String get noBootstrapNodes => '沒有引導節點';
 }

@@ -112,10 +112,17 @@ Future<int> _b2GroupProfileSendBinds(Inst a) async {
 }
 
 /// global_search_group_opens_chat (#10b) — searching a group's name in
-/// GLOBAL search must open and BIND its chat via a real result-row tap:
-/// the SDK groups row (`search_result_group:<gid>`) when the joined-list
-/// snapshot has it, else the CONVERSATION fallback row (fresh groups can
-/// miss the snapshot — recorded product debt; both onTaps navigate).
+/// GLOBAL search must open and BIND its chat via a real result-row tap on the
+/// SDK GROUPS row (`search_result_group:<gid>`).
+///
+/// This used to accept the CONVERSATION fallback row too, because a fresh
+/// group could miss the groups section (recorded product debt). The cause was
+/// native: V2TIMGroupManagerImpl::SearchGroups matched the keyword against the
+/// name cached in `group_info_`, which on a node that joined is only the
+/// `groupName = groupID` placeholder EnsureGroupInfoExists seeds — so a name
+/// search quietly degraded into an id search. SearchGroups now resolves the
+/// live NGC name (auto_tests scenario_group_search_by_name_test), so the
+/// groups row is required and the fallback no longer counts as a pass.
 Future<bool> _b2GlobalSearchGroupOpensChat(
   Inst a, {
   bool manageMarker = true,
@@ -146,21 +153,21 @@ Future<bool> _b2GlobalSearchGroupOpensChat(
     }
     await a.focusType('message_search_field', name);
     await Future<void>.delayed(const Duration(milliseconds: 1400));
-    // A FRESH group can miss the SDK groups section (joined-list cache) and
-    // surface via the CONVERSATION fallback instead (live: "CONVERSATIONS /
-    // ID: tox_1") — both rows open the group chat, so accept either.
-    String? rowKey;
-    for (final k in [
-      'search_result_group:$gid',
-      'search_result_conversation:group_$gid',
-    ]) {
-      if (await a.waitKey(k, timeoutSecs: 4)) {
-        rowKey = k;
-        break;
-      }
+    // The SDK GROUPS row is the assertion. If only the conversation fallback
+    // is present, that is the native name-resolution regression coming back,
+    // so report it as such instead of quietly passing on the other row.
+    final rowKey = 'search_result_group:$gid';
+    final rowShown = await a.waitKey(rowKey, timeoutSecs: 6);
+    if (!rowShown &&
+        await a.waitKey('search_result_conversation:group_$gid',
+            timeoutSecs: 2)) {
+      print(
+        '[pair] global_search_group_opens_chat: only the CONVERSATION '
+        'fallback row is present — the groups section did not match the '
+        'name (native SearchGroups name resolution)',
+      );
     }
-    final rowShown = rowKey != null;
-    final tapped = rowShown && await a.tapKeyCenter(rowKey!, timeoutSecs: 6);
+    final tapped = rowShown && await a.tapKeyCenter(rowKey, timeoutSecs: 6);
     final surface = await _chatSurfaceReady(a, 'group_$gid', timeoutSecs: 10);
     // Poll the facade bind through the readiness window (codex Medium): a
     // legitimate late bind must not false-fail a single early sample.

@@ -1230,39 +1230,30 @@
   "@justNow": {
     "description": "Text for just logged in"
   },
-  "daysAgo": "{count} day{plural} ago",
+  "daysAgo": "{count, plural, =1{1 day ago} other{{count} days ago}}",
   "@daysAgo": {
     "description": "Text for days ago",
     "placeholders": {
       "count": {
         "type": "int"
-      },
-      "plural": {
-        "type": "String"
       }
     }
   },
-  "hoursAgo": "{count} hour{plural} ago",
+  "hoursAgo": "{count, plural, =1{1 hour ago} other{{count} hours ago}}",
   "@hoursAgo": {
     "description": "Text for hours ago",
     "placeholders": {
       "count": {
         "type": "int"
-      },
-      "plural": {
-        "type": "String"
       }
     }
   },
-  "minutesAgo": "{count} minute{plural} ago",
+  "minutesAgo": "{count, plural, =1{1 minute ago} other{{count} minutes ago}}",
   "@minutesAgo": {
     "description": "Text for minutes ago",
     "placeholders": {
       "count": {
         "type": "int"
-      },
-      "plural": {
-        "type": "String"
       }
     }
   },
@@ -1672,5 +1663,13 @@
     "placeholders": {
       "name": {"type": "String"}
     }
+  },
+  "appTagline": "A private, peer-to-peer messenger",
+  "@appTagline": {
+    "description": "Short product tagline shown under the app name on the login screen"
+  },
+  "noBootstrapNodes": "No bootstrap nodes",
+  "@noBootstrapNodes": {
+    "description": "Empty state title on the bootstrap nodes settings page"
   }
 }

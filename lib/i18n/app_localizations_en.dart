@@ -1210,18 +1210,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get justNow => 'Just now';
 
   @override
-  String daysAgo(int count, String plural) {
-    return '$count day$plural ago';
+  String daysAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days ago',
+      one: '1 day ago',
+    );
+    return '$_temp0';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
-    return '$count hour$plural ago';
+  String hoursAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count hours ago',
+      one: '1 hour ago',
+    );
+    return '$_temp0';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
-    return '$count minute$plural ago';
+  String minutesAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count minutes ago',
+      one: '1 minute ago',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -1692,4 +1710,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return 'Call with $name';
   }
+
+  @override
+  String get appTagline => 'A private, peer-to-peer messenger';
+
+  @override
+  String get noBootstrapNodes => 'No bootstrap nodes';
 }

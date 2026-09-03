@@ -1206,18 +1206,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get justNow => 'الآن';
 
   @override
-  String daysAgo(int count, String plural) {
-    return 'منذ $count يوم$plural';
+  String daysAgo(int count) {
+    return 'منذ $count يوم';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
-    return 'منذ $count ساعة$plural';
+  String hoursAgo(int count) {
+    return 'منذ $count ساعة';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
-    return 'منذ $count دقيقة$plural';
+  String minutesAgo(int count) {
+    return 'منذ $count دقيقة';
   }
 
   @override
@@ -1683,4 +1683,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return 'مكالمة مع $name';
   }
+
+  @override
+  String get appTagline => 'مراسلة خاصة عبر الند للند';
+
+  @override
+  String get noBootstrapNodes => 'لا توجد عقد تمهيد';
 }

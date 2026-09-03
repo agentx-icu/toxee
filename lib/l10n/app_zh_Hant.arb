@@ -815,5 +815,7 @@
     "placeholders": {
       "name": {"type": "String"}
     }
-  }
+  },
+  "appTagline": "私密的點對點通訊工具",
+  "noBootstrapNodes": "沒有引導節點"
 }

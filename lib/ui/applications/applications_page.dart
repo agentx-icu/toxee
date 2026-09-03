@@ -186,11 +186,18 @@ class LiveApplicationsIrcController implements ApplicationsIrcController {
 
 /// Applications page for extension apps
 class ApplicationsPage extends StatefulWidget {
-  const ApplicationsPage({super.key, this.service, this.ircController})
-    : assert(service != null || ircController != null);
+  const ApplicationsPage({
+    super.key,
+    this.service,
+    this.ircController,
+    this.scrollController,
+  }) : assert(service != null || ircController != null);
 
   final FfiChatService? service;
   final ApplicationsIrcController? ircController;
+
+  /// Host-owned controller for the scroll view (bottom-nav re-tap → top).
+  final ScrollController? scrollController;
 
   @override
   State<ApplicationsPage> createState() => _ApplicationsPageState();
@@ -750,8 +757,8 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     }
 
     return CustomScrollView(
-      // ListView used `physics: default`; keep AlwaysScrollable so
-      // RefreshIndicator continues to work on short content.
+      controller: widget.scrollController,
+      // Keep AlwaysScrollable so RefreshIndicator works on short content.
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         // Top breathing room above the grid (matches the original

@@ -71,6 +71,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../call/call_media_capabilities.dart';
 import '../../call/permission_helper.dart';
+import 'l3_group_receipt_tools.dart';
 import 'l3_presentation_tools.dart';
 import '../../navigation/app_navigation.dart';
 import '../../notifications/notification_service.dart';
@@ -388,6 +389,7 @@ void registerL3DebugToolsIfEnabled() {
   addMcpTool(_l3SetCallPermissionEntry());
   addMcpTool(_l3SetConnectionEntry());
   registerL3PresentationTools(isTestAccount: _activeAccountIsTest);
+  registerL3GroupReceiptTools(isTestAccount: _activeAccountIsTest);
   addMcpTool(_l3InviteToGroupEntry());
   addMcpTool(_l3KickGroupMemberEntry());
   addMcpTool(_l3GroupMemberListEntry());

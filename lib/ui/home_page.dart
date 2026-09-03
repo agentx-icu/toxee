@@ -259,6 +259,24 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _index = 0;
+
+  /// Scroll controllers for the first-party tab pages, so a re-tap on the
+  /// active bottom-nav tab can send them back to the top (tabs 0 and 1 use
+  /// their UIKit component controllers instead).
+  final ScrollController _applicationsScrollController = ScrollController();
+  final ScrollController _settingsScrollController = ScrollController();
+
+  /// Animates [controller] to the top, matching what the UIKit component
+  /// controllers do for tabs 0 and 1. A no-op when that page is not mounted.
+  Future<void> _scrollToTop(ScrollController controller) async {
+    if (!controller.hasClients) return;
+    await controller.animateTo(
+      0,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
   bool _globalAdapterInited = false;
   StreamSubscription? _friendsSub;
   StreamSubscription? _appsSub;
@@ -652,6 +670,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     _disposed = true;
+
+    _applicationsScrollController.dispose();
+    _settingsScrollController.dispose();
 
     _refreshTimer?.cancel();
     _refreshTimer = null;
@@ -1586,18 +1607,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           currentIndex: _index,
           onTap: (i) {
             if (i == _index) {
-              // Re-tap on the active tab — iOS/Android convention: scroll
-              // the active list back to the top. UIKit exposes the
-              // conversation list scroll controller via the controller
-              // singleton; other tabs (contacts/applications/settings) don't
-              // expose theirs yet — leave them as TODO.
-              if (i == 0) {
-                unawaited(
-                  TencentCloudChatConversationController.instance.scrollToTop(),
-                );
-              }
-              // TODO: scroll-to-top for tabs 1 (contacts), 2 (applications),
-              // 3 (settings) — needs controller hooks from those widgets.
+              // Re-tap on the active tab — iOS/Android convention: scroll the
+              // active list back to the top. Tabs 0 and 1 go through their
+              // UIKit component controller (the fork now exposes the contacts
+              // one the same way it always exposed conversations); tabs 2 and
+              // 3 are first-party pages, so HomePage owns their controllers
+              // and passes them down. No GlobalKey reach-in anywhere.
+              unawaited(switch (i) {
+                0 => TencentCloudChatConversationController.instance
+                    .scrollToTop(),
+                1 => TencentCloudChatContactManager.controller.scrollToTop(),
+                2 => _scrollToTop(_applicationsScrollController),
+                3 => _scrollToTop(_settingsScrollController),
+                _ => Future<void>.value(),
+              });
               return;
             }
             setState(() {
@@ -1742,6 +1765,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         builder: (context, locale, _) => ApplicationsPage(
           key: ValueKey('applications-${locale.languageCode}'),
           service: widget.service,
+          scrollController: _applicationsScrollController,
         ),
       ),
       // Settings tab gets a proper top header bar (title "Settings") so its
@@ -1777,6 +1801,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Expanded(
                 child: SettingsPage(
                   service: widget.service,
+                  scrollController: _settingsScrollController,
                   connectionStatusStream: widget.service.connectionStatusStream,
                   autoAcceptFriends: _autoAcceptFriends,
                   onAutoAcceptFriendsChanged: _setAutoAcceptFriends,

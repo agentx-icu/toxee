@@ -2281,20 +2281,20 @@ abstract class AppLocalizations {
   /// Text for days ago
   ///
   /// In en, this message translates to:
-  /// **'{count} day{plural} ago'**
-  String daysAgo(int count, String plural);
+  /// **'{count, plural, =1{1 day ago} other{{count} days ago}}'**
+  String daysAgo(int count);
 
   /// Text for hours ago
   ///
   /// In en, this message translates to:
-  /// **'{count} hour{plural} ago'**
-  String hoursAgo(int count, String plural);
+  /// **'{count, plural, =1{1 hour ago} other{{count} hours ago}}'**
+  String hoursAgo(int count);
 
   /// Text for minutes ago
   ///
   /// In en, this message translates to:
-  /// **'{count} minute{plural} ago'**
-  String minutesAgo(int count, String plural);
+  /// **'{count, plural, =1{1 minute ago} other{{count} minutes ago}}'**
+  String minutesAgo(int count);
 
   /// Message when trying to switch to current account
   ///
@@ -3081,6 +3081,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Call with {name}'**
   String runtimeForegroundCallBodyWithCaller(String name);
+
+  /// Short product tagline shown under the app name on the login screen
+  ///
+  /// In en, this message translates to:
+  /// **'A private, peer-to-peer messenger'**
+  String get appTagline;
+
+  /// Empty state title on the bootstrap nodes settings page
+  ///
+  /// In en, this message translates to:
+  /// **'No bootstrap nodes'**
+  String get noBootstrapNodes;
 }
 
 class _AppLocalizationsDelegate
