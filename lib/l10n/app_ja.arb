@@ -772,5 +772,7 @@
     "placeholders": {
       "name": {"type": "String"}
     }
-  }
+  },
+  "appTagline": "プライベートなP2Pメッセンジャー",
+  "noBootstrapNodes": "ブートストラップノードがありません"
 }

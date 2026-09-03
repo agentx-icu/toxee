@@ -336,8 +336,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
               : _error != null
               ? EmptyStateWidget(
                   icon: Icons.cloud_off,
-                  // TODO(l10n): key=failedToLoadNodes
-                  title: 'Failed to load nodes',
+                  title: appL10n.failedToLoadBootstrapNodes,
                   subtitle: _error,
                   action: ElevatedButton(
                     onPressed: _loadNodes,
@@ -347,8 +346,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
               : _nodes.isEmpty
               ? EmptyStateWidget(
                   icon: Icons.dns_outlined,
-                  // TODO(l10n): key=noBootstrapNodes
-                  title: 'No bootstrap nodes',
+                  title: appL10n.noBootstrapNodes,
                   action: ElevatedButton(
                     onPressed: _loadNodes,
                     child: Text(appL10n.retry),

@@ -316,9 +316,9 @@
   "passwordsDoNotMatch": "كلمات المرور غير متطابقة",
   "never": "أبداً",
   "justNow": "الآن",
-  "daysAgo": "منذ {count} يوم{plural}",
-  "hoursAgo": "منذ {count} ساعة{plural}",
-  "minutesAgo": "منذ {count} دقيقة{plural}",
+  "daysAgo": "منذ {count} يوم",
+  "hoursAgo": "منذ {count} ساعة",
+  "minutesAgo": "منذ {count} دقيقة",
   "thisAccountIsAlreadyLoggedIn": "هذا الحساب مسجل دخول بالفعل",
   "noServicesFound": "لم يتم العثور على خدمات",
   "addIrcChannel": "إضافة قناة",
@@ -833,5 +833,7 @@
     "placeholders": {
       "name": {"type": "String"}
     }
-  }
+  },
+  "appTagline": "مراسلة خاصة عبر الند للند",
+  "noBootstrapNodes": "لا توجد عقد تمهيد"
 }

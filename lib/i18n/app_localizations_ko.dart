@@ -1179,17 +1179,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get justNow => '방금';
 
   @override
-  String daysAgo(int count, String plural) {
+  String daysAgo(int count) {
     return '$count일 전';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
+  String hoursAgo(int count) {
     return '$count시간 전';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
+  String minutesAgo(int count) {
     return '$count분 전';
   }
 
@@ -1653,4 +1653,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return '$name님과 통화 중';
   }
+
+  @override
+  String get appTagline => '프라이빗 P2P 메신저';
+
+  @override
+  String get noBootstrapNodes => '부트스트랩 노드가 없습니다';
 }

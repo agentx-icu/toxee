@@ -1179,17 +1179,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get justNow => 'たった今';
 
   @override
-  String daysAgo(int count, String plural) {
+  String daysAgo(int count) {
     return '$count 日前';
   }
 
   @override
-  String hoursAgo(int count, String plural) {
+  String hoursAgo(int count) {
     return '$count 時間前';
   }
 
   @override
-  String minutesAgo(int count, String plural) {
+  String minutesAgo(int count) {
     return '$count 分前';
   }
 
@@ -1653,4 +1653,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String runtimeForegroundCallBodyWithCaller(String name) {
     return '$name と通話中';
   }
+
+  @override
+  String get appTagline => 'プライベートなP2Pメッセンジャー';
+
+  @override
+  String get noBootstrapNodes => 'ブートストラップノードがありません';
 }

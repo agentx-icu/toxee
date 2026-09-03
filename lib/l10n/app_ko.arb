@@ -772,5 +772,7 @@
     "placeholders": {
       "name": {"type": "String"}
     }
-  }
+  },
+  "appTagline": "프라이빗 P2P 메신저",
+  "noBootstrapNodes": "부트스트랩 노드가 없습니다"
 }

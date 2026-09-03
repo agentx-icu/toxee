@@ -50,7 +50,13 @@ lib/sdk_fake/fake_msg_provider_routing.dart:906
 lib/sdk_fake/fake_provider.dart:1110
 lib/ui/add_friend_dialog.dart:709
 lib/ui/add_group_dialog.dart:845
-lib/ui/applications/applications_page.dart:1453
+# [2026-09-03] +7 (1453 -> 1460): the page now accepts a host-owned
+# ScrollController so a bottom-nav re-tap can scroll it to the top (the same
+# convention tabs 0/1 get from their UIKit component controllers). The change
+# is four functional lines — parameter, field, constructor entry, `controller:`
+# — the rest is the formatter expanding the constructor's parameter list one
+# per line. A re-pin, not an amnesty.
+lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:935
 lib/ui/home_page.dart:2449
 lib/ui/home_page_bootstrap.dart:1640
@@ -74,7 +80,12 @@ lib/util/prefs.dart:2393
 # - settings_page_build.dart: grew 500→570 with the settings actions-row
 #   rework; next settings refactor should re-split it.
 #   [2026-08-07] Done — it is back down to 474 LOC, so its entry was removed.
-lib/ui/testing/l3_debug_tools.dart:7242
+#   [2026-09-02] +2 (7242 -> 7244): the group read-receipt seam went into its
+#   OWN file (lib/ui/testing/l3_group_receipt_tools.dart), following the
+#   l3_presentation_tools.dart precedent; only the import + registration line
+#   land here. A re-pin, not an amnesty — the feature itself did not grow this
+#   file.
+lib/ui/testing/l3_debug_tools.dart:7244
 lib/util/placeholder_account_migration.dart:664
 # Appended 2026-06-15 (these crossed 500 LOC after the 05-20 baseline via the
 # real-UI automation campaigns; each is just over the cap and is test/login
