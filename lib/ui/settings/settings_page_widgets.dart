@@ -76,8 +76,12 @@ class _AccountCardItemState extends State<_AccountCardItem> {
             ),
           ),
           child: ListTile(
-            leading: CircleAvatar(
+            // Shared self-avatar widget (same fallback as every other
+            // self-avatar surface).
+            leading: UserAvatarCircle(
               key: ValueKey('account-card-avatar-$avatarPath'),
+              size: 40,
+              initial: UserAvatarCircle.initialFor(accountNickname),
               // Non-current accounts get a neutral slate fill (20% alpha on
               // the brightness-aware secondary text token) so they read as
               // "another identity" rather than a pressed/selected primary
@@ -88,22 +92,13 @@ class _AccountCardItemState extends State<_AccountCardItem> {
                             ? AppThemeConfig.secondaryTextColorDark
                             : AppThemeConfig.secondaryTextColorLight)
                         .withValues(alpha: 0.20),
-              foregroundImage: avatarFile != null
-                  ? FileImage(avatarFile)
-                  : null,
-              child: Text(
-                accountNickname.isNotEmpty
-                    ? accountNickname[0].toUpperCase()
-                    : 'A',
-                style: TextStyle(
-                  color: widget.isCurrentAccount
-                      ? widget.colorTheme.onPrimary
-                      : (Theme.of(context).brightness == Brightness.dark
-                            ? AppThemeConfig.primaryTextColorDark
-                            : AppThemeConfig.primaryTextColorLight),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              foregroundColor: widget.isCurrentAccount
+                  ? widget.colorTheme.onPrimary
+                  : (Theme.of(context).brightness == Brightness.dark
+                        ? AppThemeConfig.primaryTextColorDark
+                        : AppThemeConfig.primaryTextColorLight),
+              avatarPath: avatarPath,
+              avatarFileExists: avatarFile != null,
             ),
             title: Text(
               accountNickname.isNotEmpty ? accountNickname : 'Unnamed Account',

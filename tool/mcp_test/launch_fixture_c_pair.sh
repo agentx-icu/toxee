@@ -165,9 +165,15 @@ launch_pair_once() (
     A_TCP_ENV=()
     B_TCP_ENV=()
     if [[ "${TOXEE_PAIR_TCP_ONLY:-}" == "1" || "${TOXEE_PAIR_TCP_ONLY:-}" == "true" ]]; then
-        A_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="${TOXEE_PAIR_TCP_RELAY_PORT:-3389}")
-        B_TCP_ENV=(TOX_FORCE_TCP_ONLY=1)
-        echo "launch_fixture_c_pair.sh: TCP-only same-host mode ON (A relay port ${TOXEE_PAIR_TCP_RELAY_PORT:-3389})" >&2
+        # Each side hosts its own relay (B = A + 1) so each connects through the
+        # PEER's relay with the peer's key; with A's relay alone the A -> B wire
+        # dialed A's own port with B's key (wrong server key) and A only became
+        # "connected" through a public relay (slow, flaky "A connected" waits).
+        _relay_a="${TOXEE_PAIR_TCP_RELAY_PORT:-3389}"
+        _relay_b=$((_relay_a + 1))
+        A_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="$_relay_a")
+        B_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="$_relay_b")
+        echo "launch_fixture_c_pair.sh: TCP-only same-host mode ON (A relay port $_relay_a, B relay port $_relay_b)" >&2
     fi
 
     env ${A_TCP_ENV[@]+"${A_TCP_ENV[@]}"} "$MCP_DIR/launch_toxee_instance.sh" A

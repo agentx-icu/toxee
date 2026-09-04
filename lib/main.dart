@@ -382,7 +382,10 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
               // of binding a master-detail pane, and nothing used to clear the
               // binding on the way back — which suppressed that peer's unread
               // count indefinitely. See the observer's doc comment.
-              navigatorObservers: [ActiveConversationRouteObserver()],
+              navigatorObservers: [
+                ActiveConversationRouteObserver(),
+                DesktopWindowFrame.modalBarrierObserver,
+              ],
               theme: buildLightTheme(),
               darkTheme: buildDarkTheme(),
               themeMode: themeMode,

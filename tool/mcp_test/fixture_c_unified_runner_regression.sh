@@ -912,9 +912,9 @@ if run_runner --plan-json --class=2proc-ui --real-ui-platform=windows \
     >"$WINDOWS_IRC_PLAN" 2>"$TMP_ROOT/windows_irc.err"; then
     WINDOWS_CMDS="$TMP_ROOT/windows_irc_cmds.txt"
     jq -r '.groups[0].commands[]' "$WINDOWS_IRC_PLAN" >"$WINDOWS_CMDS" 2>/dev/null || true
-    if grep -q '^powershell -ExecutionPolicy Bypass -File tool/mcp_test/launch_windows_fixture_c_pair.ps1$' "$WINDOWS_CMDS" \
+    if grep -q '^TOXEE_PAIR_TCP_ONLY=1 powershell -ExecutionPolicy Bypass -File tool/mcp_test/launch_windows_fixture_c_pair.ps1$' "$WINDOWS_CMDS" \
         && grep -q '^powershell -ExecutionPolicy Bypass -File tool/mcp_test/stop_windows_fixture_c_pair.ps1$' "$WINDOWS_CMDS" \
-        && grep -q 'TOXEE_REAL_UI_PAIR_JSON=tool/mcp_test/.windows_runtime/pair.json' "$WINDOWS_CMDS" \
+        && grep -q 'TOXEE_REAL_UI_PAIR_JSON=build/windows_runtime/pair.json' "$WINDOWS_CMDS" \
         && grep -q 'TOXEE_REAL_UI_PLATFORM=windows' "$WINDOWS_CMDS" \
         && ! grep -q 'TOXEE_IRC_LOOPBACK_PORT' "$WINDOWS_CMDS"; then
         pass "windows real-UI plan launches the A/B pair via PowerShell (host-local IRC, no reverse)"

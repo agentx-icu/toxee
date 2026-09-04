@@ -9,7 +9,6 @@ import 'uikit_data_facade.dart';
 import 'fake_event_bus.dart';
 import 'fake_managers.dart' show buildConversationsFromFriends;
 import 'fake_models.dart';
-import 'uikit_data_facade.dart';
 
 class FakeIM {
   FakeIM(this.ffi, this.bus);
@@ -24,6 +23,7 @@ class FakeIM {
   static const topicContacts = 'FakeContacts';
   static const topicFriendApps = 'FakeFriendApps';
   static const topicFriendDeleted = 'FakeFriendDeleted';
+  static const topicFriendAdded = 'FakeFriendAdded';
   static const topicGroupDeleted = 'FakeGroupDeleted';
 
   Timer? _refreshTimer;
@@ -34,6 +34,8 @@ class FakeIM {
   StreamSubscription<dynamic>? _friendDeletedSub;
   final Map<String, bool> _typingPrev = {};
   Set<String> _previousFriendIds = {};
+  // Baseline exists (restore or first Tox diff); NOT "previous non-empty" — deleting the sole friend empties it.
+  bool _friendBaselineKnown = false;
   Set<String> _previousGroupIds = {};
   List<FakeUser>?
   _previousContactList; // Cache previous contact list for deduplication
@@ -235,14 +237,9 @@ class FakeIM {
       );
     });
 
-    // Single steady-state poller. Previously we ran three overlapping timers
-    // (500ms fast × 20, 2s slow × 10, and 5s steady), but the fast/slow tier
-    // only re-emitted contacts when "any friend is online" — a broken
-    // heuristic that fired every cycle once anyone connected, doing 20-30
-    // redundant emits during the first 30s without actually improving
-    // online-status detection latency. Now: one 5s timer doing the full
-    // refresh. Event-driven streams (avatarUpdated, nicknameUpdated,
-    // messages) handle the latency-sensitive cases.
+    // Single 5 s steady-state poller (the old 500 ms/2 s fast tiers only
+    // produced 20-30 redundant emits at startup). Event-driven streams
+    // (avatarUpdated, nicknameUpdated, messages) cover the latency-sensitive cases.
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       unawaited(
@@ -255,8 +252,6 @@ class FakeIM {
         }),
       );
     });
-    // Also emit contacts immediately after friend operations to ensure UI updates
-    // This is handled by the periodic timer, but we can also trigger it manually if needed
     // Listen messages
     // Track conversationID for self messages by checking which peer's history contains the message
     _messagesSub = ffi.messages.listen(
@@ -368,6 +363,7 @@ class FakeIM {
     _refreshTimer = null;
     _typingPrev.clear();
     _previousFriendIds.clear();
+    _friendBaselineKnown = false;
     _previousGroupIds.clear();
     _previousContactList = null;
     _emitContactsRunning = false;
@@ -558,6 +554,7 @@ class FakeIM {
       // partial list against this restored set, and during the grace window we
       // suppress deletions to avoid wiping not-yet-loaded friends.
       _previousFriendIds = normalizedLocalFriends;
+      _friendBaselineKnown = true;
       _coldStartRestoreAt = DateTime.now();
       return;
     }
@@ -615,25 +612,19 @@ class FakeIM {
         ? _previousFriendIds.difference(visibleToxFriendIds)
         : <String>{};
 
-    // Cold-start grace: Tox may return friends incrementally for the first
-    // few seconds after restore. During that window, do NOT treat
-    // "previously known, not in Tox yet" as deletion — render those friends
-    // from Prefs cache instead so they don't disappear from the UI.
+    // Cold-start grace: Tox returns friends incrementally after restore, so
+    // "previously known, not in Tox yet" is NOT a deletion (render from Prefs).
     final inColdStartGrace =
         _coldStartRestoreAt != null &&
         DateTime.now().difference(_coldStartRestoreAt!) < _kColdStartGrace;
-    // X9: a friend that's currently pending (recent accept/add, Tox not yet
-    // confirmed) must NOT be flagged for deletion. Removing it would emit
-    // topicFriendDeleted and wipe its prefs/avatar, defeating the whole
-    // purpose of the pending buffer.
+    // X9: a pending (accepted, Tox-unconfirmed) friend must not be flagged as
+    // deleted — that would emit topicFriendDeleted and wipe its prefs/avatar.
     final deletedFriendIds = inColdStartGrace
         ? <String>{}
         : missingFromTox.difference(livePending);
 
     if (inColdStartGrace && missingFromTox.isNotEmpty) {
-      // Re-hydrate missing friends from cache so the UI stays stable while
-      // Tox finishes loading. They will be marked offline.
-      // Parallel-fetch nickname/status/avatar instead of 3N sequential awaits.
+      // Re-hydrate missing friends from cache (offline) while Tox loads; parallel fetch.
       final toHydrate = missingFromTox
           .where((pendingId) => !friendMap.containsKey(pendingId))
           .toList();
@@ -699,7 +690,15 @@ class FakeIM {
     // next-poll deletion detection doesn't treat the still-pending entries as
     // "previously known, missing now" (they would otherwise become a
     // false-positive deletion the moment they expire).
+    // (Re)appeared friends: lift the FakeChatDataProvider delete tombstone,
+    // or the re-added friend's entry is skipped by every rebuild (stale/0).
+    if (_friendBaselineKnown) {
+      for (final addedId in authoritativeIds.difference(_previousFriendIds)) {
+        bus.emit(topicFriendAdded, FakeFriendAdded(userID: addedId));
+      }
+    }
     _previousFriendIds = authoritativeIds;
+    _friendBaselineKnown = true;
 
     // Emit merged list only if it actually changed
     final list = friendMap.values.toList();

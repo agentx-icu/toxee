@@ -130,18 +130,17 @@ Future<double?> _keyedCenterY(Inst inst, String key) async {
 /// these values back. These are PLAIN TextFields, so the synthetic `enterText`
 /// substitution the headless/iOS shells apply to `osa*` does reach them.
 Future<void> _fillFieldViaKeystrokes(Inst inst, String key, String text) async {
-  // Tap the field at its CURRENT on-screen center. Deliberately does NOT reset
-  // the scroll first: a `dy:-6000` reset COLLAPSES the just-expanded manual-node
-  // form, tearing down the very fields we're about to fill. The caller
-  // guarantees the field is already in band.
-  if (!await inst.tapKeyCenter(key)) {
-    await inst.tapKeyAt(key);
+  // Delegates to the canonical keyed primitive: real pointer focus at the
+  // field's CURRENT centre (no scroll reset — a `dy:-6000` reset would
+  // COLLAPSE the just-expanded manual-node form), real clear + atomic PASTE
+  // (IME-immune, unlike keystrokes under a CJK input source), then a
+  // getTextValue READ-BACK with a keyed enterText fallback. The former
+  // unverified tap+clear+paste left a stale pubkey in place when the clear
+  // chord missed (Windows OS-input), so half 1 of the add-node differential
+  // never saw the validator refuse.
+  if (!await inst.focusType(key, text)) {
+    print('[pair] _fillFieldViaKeystrokes: "$key" did not take "$text"');
   }
-  await Future<void>.delayed(const Duration(milliseconds: 250));
-  await inst.osaClear();
-  // PASTE, don't keystroke: under a CJK host input source keystroke letters
-  // enter the IME composition and commit as hanzi. Paste is atomic + IME-immune.
-  await inst.osaPaste(text);
   await Future<void>.delayed(const Duration(milliseconds: 150));
 }
 
@@ -475,22 +474,17 @@ Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
   // A distinct in-range value (1..10000 per _saveAutoDownloadSizeLimit) that
   // differs from `before` so the change is observable.
   final target = before == 42 ? 37 : 42;
-  // Focus via flutter_skill's tap{key}, which ESTABLISHES the text input
-  // connection (a raw tapAt does NOT, and enterText without one SIGSEGVs macOS's
-  // FlutterTextInputPlugin). RETRY the whole cycle: under 2-process foreground
-  // contention the enterText or the save tap intermittently doesn't land.
+  // Type through the canonical keyed primitive (`focusType`: real paste on
+  // macOS / Windows-OS-input, atomic keyed enterText elsewhere, read-back
+  // verified with a keyed fallback). The former hand-rolled tapKey + osaClear
+  // + focused enterText lost the text-input connection on Windows after the
+  // real clear chord ("No focused TextField found") and never typed. RETRY the
+  // whole cycle: under 2-process foreground contention the save tap
+  // intermittently doesn't land.
   var saved = false;
   for (var attempt = 0; attempt < 3 && !saved; attempt++) {
-    await inst.tapKey('settings_download_limit_field');
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    try {
-      await inst.osaClear();
-    } on DriveError {
-      // best-effort; enterText below replaces typical short content anyway
-    }
-    final typed = await inst.skill('enterText', {'text': '$target'});
-    if (typed['success'] != true) {
-      print('[pair] settings_download_limit: enterText failed: $typed');
+    if (!await inst.focusType('settings_download_limit_field', '$target')) {
+      print('[pair] settings_download_limit: focusType failed (attempt $attempt)');
       continue;
     }
     // The Save button is a FilledButton (no text input) — tapKeyCenter is safe.
@@ -505,14 +499,7 @@ Future<bool> _settingsDownloadLimitEdit(Inst inst) async {
   // Restore the prior cap and ENFORCE it (an un-restored value poisons reruns).
   var restored = true;
   if (saved) {
-    await inst.tapKey('settings_download_limit_field');
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    try {
-      await inst.osaClear();
-    } on DriveError {
-      // best-effort
-    }
-    await inst.skill('enterText', {'text': '$before'});
+    await inst.focusType('settings_download_limit_field', '$before');
     await inst.tapKeyCenter('settings_download_limit_save_button');
     restored = await _waitFieldWhere(
       inst,

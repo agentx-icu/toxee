@@ -674,7 +674,7 @@ Future<bool> sendComposerMessage(
   // never lands and send returns false. `inst.isLinux` is per-instance so it
   // also covers a cross-host macOS-host + Linux-peer-B pair. Android is
   // excluded here (it keeps the mobile real-send-button path below).
-  if (_isWindowsRealUi || inst.isLinux) {
+  if ((_isWindowsRealUi && !_winOsInput) || inst.isLinux) {
     return _sendComposerMessageHeadlessDesktop(
       inst,
       text,

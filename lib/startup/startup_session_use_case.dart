@@ -8,6 +8,7 @@ import '../util/account_export_service.dart';
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_paths.dart';
+import '../util/default_avatar_installer.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
 import '../util/safe_diagnostics.dart';
@@ -202,6 +203,9 @@ class StartupSessionUseCase {
           statusMessage: statusMsg ?? '',
           updateLastLogin: false,
         );
+        // Legacy path bypasses AccountService.initializeServiceForAccount,
+        // so apply the same self-avatar guarantee here (see that method).
+        await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
       }
 
       final currentService = service;

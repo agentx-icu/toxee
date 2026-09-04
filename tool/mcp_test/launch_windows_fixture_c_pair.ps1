@@ -46,8 +46,14 @@ param(
 $ErrorActionPreference = "Continue"
 
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $ScriptDir "win_instance_identity.ps1")
 $RepoRoot    = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
-$RuntimeRoot = if ($env:TOXEE_WINDOWS_RUNTIME_ROOT) { $env:TOXEE_WINDOWS_RUNTIME_ROOT } else { Join-Path $ScriptDir ".windows_runtime" }
+# Runtime root defaults under build\ (like the Linux launcher's
+# build/linux_runtime): always LOCAL and writable, including on a share-shim
+# checkout (tool\vmtest\make_shim.ps1) where tool\ is a symlink into the Mac
+# share — the old tool\mcp_test\.windows_runtime default wrote every instance's
+# app_support/profiles/logs back INTO the Mac working tree over the share.
+$RuntimeRoot = if ($env:TOXEE_WINDOWS_RUNTIME_ROOT) { $env:TOXEE_WINDOWS_RUNTIME_ROOT } else { Join-Path $RepoRoot "build\windows_runtime" }
 $PairJson    = Join-Path $RuntimeRoot "pair.json"
 # Relative (resolved under the Push-Location $RepoRoot below) so `dart run` picks
 # up the repo's package config, matching the .sh launchers' proven invocation.
@@ -182,7 +188,10 @@ try {
     (Join-Path $RepoRoot "third_party\tim2tox\build\ci-windows\ffi\Release"),
     (Join-Path $RepoRoot "third_party\tim2tox\build\ffi")
   )
-  foreach ($dep in @("pthreadVC3.dll", "libsodium.dll")) {
+  # opus.dll: the ToxAV audio codec runtime tim2tox_ffi.dll links dynamically
+  # (build_tim2tox.sh captures it next to the FFI); without it the FFI fails to
+  # load (126) and registration never reaches sessionReady.
+  foreach ($dep in @("pthreadVC3.dll", "libsodium.dll", "opus.dll")) {
     if (Test-Path (Join-Path $debugDir $dep)) { continue }
     foreach ($d in $ffiDepDirs) {
       $src = Join-Path $d $dep
@@ -210,8 +219,18 @@ try {
   # TOXEE_PAIR_TCP_ONLY=1 (the unified runner sets it for the desktop VM
   # platforms). Empty when not opted in → identical to the previous default.
   $TcpOnly = ($env:TOXEE_PAIR_TCP_ONLY -eq "1") -or ($env:TOXEE_PAIR_TCP_ONLY -eq "true")
-  $TcpRelayPort = if ($env:TOXEE_PAIR_TCP_RELAY_PORT) { $env:TOXEE_PAIR_TCP_RELAY_PORT } else { "3389" }
-  if ($TcpOnly) { Info "TCP-only same-host mode ON (A relay port $TcpRelayPort)" }
+  # Default 33390, NOT the 3389 the macOS/Linux launchers use: on Windows 3389
+  # is the Remote Desktop listener (svchost, 0.0.0.0:3389 whenever RDP is on —
+  # it is on the win11_ltsc VM), so A's tox_new failed to allocate its TCP
+  # server and the pair never reached sessionReady. The driver adds the relay
+  # explicitly (_pairTcpRelayFallbackPort mirrors this default).
+  $TcpRelayPort = if ($env:TOXEE_PAIR_TCP_RELAY_PORT) { $env:TOXEE_PAIR_TCP_RELAY_PORT } else { "33390" }
+  # Each side hosts its own localhost relay (B = A + 1) so BOTH connect
+  # through the PEER's relay with the peer's key. With only A's relay, the
+  # A -> B wire dialed A's own port with B's key (wrong server key), so A only
+  # became "connected" via a public relay (slow, flaky "A connected" waits).
+  $TcpRelayPortB = [string]([int]$TcpRelayPort + 1)
+  if ($TcpOnly) { Info "TCP-only same-host mode ON (A relay port $TcpRelayPort, B relay port $TcpRelayPortB)" }
 
   function Start-ToxeeInstance([string]$name, [int]$vmPort) {
     $instDir   = Join-Path $RuntimeRoot $name
@@ -246,7 +265,7 @@ try {
     # relay var on B (PowerShell env vars persist across the two calls).
     if ($TcpOnly) {
       $env:TOX_FORCE_TCP_ONLY = "1"
-      if ($name -eq "A") { $env:TOX_TCP_RELAY_PORT = $TcpRelayPort } else { Remove-Item Env:\TOX_TCP_RELAY_PORT -ErrorAction SilentlyContinue }
+      $env:TOX_TCP_RELAY_PORT = $(if ($name -eq "A") { $TcpRelayPort } else { $TcpRelayPortB })
     } else {
       Remove-Item Env:\TOX_FORCE_TCP_ONLY, Env:\TOX_TCP_RELAY_PORT -ErrorAction SilentlyContinue
     }
@@ -254,7 +273,11 @@ try {
     $proc = Start-Process -FilePath (Join-Path $debugDir "toxee.exe") `
               -RedirectStandardOutput $stdio -RedirectStandardError $stdioErr `
               -PassThru -WindowStyle Normal
-    return @{ name = $name; pid = $proc.Id; vmPort = $vmPort; stdio = $stdio; stdioErr = $stdioErr; instDir = $instDir }
+    return @{
+      name = $name; pid = $proc.Id; vmPort = $vmPort; stdio = $stdio; stdioErr = $stdioErr
+      instDir = $instDir; supportDir = $supportDir; exe = (Join-Path $debugDir "toxee.exe")
+      tcpOnly = $TcpOnly; tcpRelayPort = $(if (-not $TcpOnly) { "" } elseif ($name -eq "A") { $TcpRelayPort } else { $TcpRelayPortB })
+    }
   }
 
   function Resolve-WsUri($inst) {
@@ -288,11 +311,20 @@ try {
       format_version        = 1
       instance_name         = $inst.name
       pid                   = $inst.pid
+      start_time            = (Get-ProcessStartTimeIso $inst.pid)
       home_override_dir     = $inst.instDir
       stdio_log             = $inst.stdio
       vm_uri                = $vmUri
       ws_uri                = $wsUri
       app_support_log_exists = $false
+      # Relaunch contract (launch_toxee_instance.ps1 re-creates the SAME
+      # instance — same exe, VM port, support dir and TCP topology — for the
+      # relaunch scenarios; the .sh twin derives these from its own layout).
+      exe                   = $inst.exe
+      vm_port               = $inst.vmPort
+      support_dir           = $inst.supportDir
+      tcp_only              = $inst.tcpOnly
+      tcp_relay_port        = $inst.tcpRelayPort
     }
     Write-NoBom (Join-Path $inst.instDir "instance.json") ($doc | ConvertTo-Json -Depth 5)
   }

@@ -530,18 +530,18 @@ class AccountService {
         await Prefs.setNickname(nickname);
         await Prefs.setStatusMessage(statusMessage ?? '');
       }
-      // Pull avatarPath from the per-account record (the source of truth for
-      // multi-account avatar mappings) and mirror it to the global pref so
-      // every consumer of `Prefs.getAvatarPath()` (sidebar, settings page,
-      // home page header, fake msg provider) sees the new account's avatar
-      // without each one having to learn about per-account records.
-      final accountRecord = await Prefs.getAccountByToxId(activeToxId);
-      final accountAvatarPath = accountRecord?['avatarPath'];
-      await Prefs.setAvatarPath(
-        accountAvatarPath is String && accountAvatarPath.isNotEmpty
-            ? accountAvatarPath
-            : null,
-      );
+      // Make sure the account has a self avatar and that both stores agree
+      // on it: the account_list row (what `Prefs.getAvatarPath()` and every
+      // toxee surface — sidebar, settings, profile, QR card — read) and the
+      // service-scoped `self_avatar_path_<prefix>` key (what Tim2Tox reads
+      // for message bubbles and the avatar push to friends). Only
+      // `register()` installs the bundled default; recovered, imported,
+      // restored and legacy-login accounts never got one and showed a
+      // stock-photo / initial / silhouette mix across the UI. This is the
+      // single activation choke point (auto-login, manual login, account
+      // switch, L3 boot), so no account can stay in that state. Never
+      // throws; on failure the stores keep whatever they had.
+      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: activeToxId);
       initSucceeded = true;
       return service;
     } catch (e) {

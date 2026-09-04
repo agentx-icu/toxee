@@ -193,7 +193,7 @@ Future<bool?> _p2vPasteImageIntoComposer(
   await png.writeAsBytes(base64Decode(pngB64), flush: true);
 
   try {
-    if (_isWindowsRealUi) {
+    if (_isWindowsRealUi && !_winOsInput) {
       // Headless Windows: the OS clipboard + Ctrl+V aren't drivable (the
       // driver's clipboard lives in a different window-station, invisible to the
       // app). Stage the SAME image through the production paste handler via
@@ -219,9 +219,14 @@ Future<bool?> _p2vPasteImageIntoComposer(
         return false;
       }
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      await a._osa(
-        'tell application "System Events" to keystroke "v" using command down',
-      );
+      if (_winOsInput) {
+        // Real Ctrl+V into the real composer (Windows OS-input mode).
+        await a._winScanKey('v', mods: const ['ctrl']);
+      } else {
+        await a._osa(
+          'tell application "System Events" to keystroke "v" using command down',
+        );
+      }
     }
 
     if (!await a.waitKey(
@@ -314,6 +319,31 @@ Future<bool?> _p2vPasteImageIntoComposer(
 }
 
 Future<bool> _p2vSetClipboardImage(File png) async {
+  if (_winOsInput) {
+    // Real OS clipboard image on Windows (System.Windows.Forms needs an STA
+    // thread, hence a dedicated `powershell -STA` rather than _winPsRun).
+    final ps =
+        'Add-Type -AssemblyName System.Windows.Forms; '
+        'Add-Type -AssemblyName System.Drawing; '
+        '\$img = [System.Drawing.Image]::FromFile(${_psLiteral(png.path)}); '
+        '[System.Windows.Forms.Clipboard]::SetImage(\$img); \$img.Dispose()';
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-STA',
+      '-Command',
+      ps,
+    ]);
+    if (r.exitCode != 0) {
+      print(
+        '[pair] paste_image_into_composer: Windows image clipboard failed '
+        'exit=${r.exitCode} stderr=${r.stderr}',
+      );
+      return false;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return true;
+  }
   final script =
       'set the clipboard to (read POSIX file "${_p2vAppleScriptLiteral(png.path)}" '
       'as «class PNGf»)';

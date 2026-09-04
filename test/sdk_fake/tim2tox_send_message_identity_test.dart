@@ -18,6 +18,8 @@ typedef _TextSendCall = ({
   String? clientMessageID,
 });
 
+typedef _MediaSendCall = ({String? userID, String? groupID, String path});
+
 class _RecordingChatMessageProvider
     implements ChatMessageProviderWithSendResult {
   _RecordingChatMessageProvider(this.result);
@@ -69,6 +71,33 @@ class _RecordingChatMessageProvider
     required String filePath,
     String? fileName,
   }) async {}
+
+  /// Media twin of [sendTextWithResult]; null when the transport produced no
+  /// echo (the platform must then keep the optimistic identity).
+  ChatMessageSendResult? mediaResult;
+  final List<_MediaSendCall> mediaCalls = <_MediaSendCall>[];
+
+  @override
+  Future<ChatMessageSendResult?> sendImageWithResult({
+    String? userID,
+    String? groupID,
+    required String imagePath,
+    String? imageName,
+  }) async {
+    mediaCalls.add((userID: userID, groupID: groupID, path: imagePath));
+    return mediaResult;
+  }
+
+  @override
+  Future<ChatMessageSendResult?> sendFileWithResult({
+    String? userID,
+    String? groupID,
+    required String filePath,
+    String? fileName,
+  }) async {
+    mediaCalls.add((userID: userID, groupID: groupID, path: filePath));
+    return mediaResult;
+  }
 
   @override
   Future<void> deleteMessages({
@@ -148,6 +177,33 @@ class _InspectableChatMessageProvider
     required String filePath,
     String? fileName,
   }) async {}
+
+  /// Media twin of [sendTextWithResult]; null when the transport produced no
+  /// echo (the platform must then keep the optimistic identity).
+  ChatMessageSendResult? mediaResult;
+  final List<_MediaSendCall> mediaCalls = <_MediaSendCall>[];
+
+  @override
+  Future<ChatMessageSendResult?> sendImageWithResult({
+    String? userID,
+    String? groupID,
+    required String imagePath,
+    String? imageName,
+  }) async {
+    mediaCalls.add((userID: userID, groupID: groupID, path: imagePath));
+    return mediaResult;
+  }
+
+  @override
+  Future<ChatMessageSendResult?> sendFileWithResult({
+    String? userID,
+    String? groupID,
+    required String filePath,
+    String? fileName,
+  }) async {
+    mediaCalls.add((userID: userID, groupID: groupID, path: filePath));
+    return mediaResult;
+  }
 
   @override
   Future<void> deleteMessages({
@@ -231,6 +287,8 @@ V2TimMessage _optimisticMessage({
   V2TimFaceElem? faceElem,
   V2TimLocationElem? locationElem,
   V2TimCustomElem? customElem,
+  V2TimImageElem? imageElem,
+  V2TimFileElem? fileElem,
   String? cloudCustomData,
 }) {
   return V2TimMessage(
@@ -242,6 +300,8 @@ V2TimMessage _optimisticMessage({
     faceElem: faceElem,
     locationElem: locationElem,
     customElem: customElem,
+    imageElem: imageElem,
+    fileElem: fileElem,
     isSelf: true,
     sender: 'test-self',
     cloudCustomData: cloudCustomData,
@@ -627,6 +687,129 @@ void main() {
         callbacks.map((callback) => callback.data!.messageInfo!.msgID),
         ids,
       );
+    });
+  }, skip: skipReason);
+
+  // Media twin of the text identity contract. Before it existed the image /
+  // file branches returned void, the UIKit's optimistic `created_temp_id-*`
+  // bubble kept its temp id, and the transport's echo (real id) arriving on
+  // the message stream rendered as a SECOND bubble — one stuck "sending",
+  // one delivered — on every image/file send (QR-card share included).
+  group('Tim2ToxSdkPlatform media send identity', () {
+    late AccountExportTestEnv env;
+    late FfiChatService ffi;
+    late Tim2ToxSdkPlatform platform;
+    late _RecordingChatMessageProvider provider;
+    late ChatMessageProvider? previousProvider;
+
+    setUp(() async {
+      env = await setUpAccountExportTestEnv();
+      ffi = FfiChatService(
+        historyDirectory: '${env.root.path}/history',
+        queueFilePath: '${env.root.path}/offline_queue.json',
+      );
+      platform = Tim2ToxSdkPlatform(ffiService: ffi);
+      provider = _RecordingChatMessageProvider(
+        ChatMessageSendResult(messageID: 'unused', isPending: false),
+      );
+      previousProvider = ChatMessageProviderRegistry.provider;
+      ChatMessageProviderRegistry.provider = provider;
+      TencentCloudChat.instance.dataInstance.messageData.messageListMap = {};
+    });
+
+    tearDown(() async {
+      ChatMessageProviderRegistry.provider = previousProvider;
+      TencentCloudChat.instance.dataInstance.messageData.messageListMap = {};
+      platform.dispose();
+      await ffi.dispose();
+      await env.dispose();
+    });
+
+    test('image: the pending echo identity replaces the temp id', () async {
+      const peerID = 'image-peer';
+      const tempID = 'created_temp_id-2';
+      const echoID = '1788443340336_1_self';
+      final optimistic = _optimisticMessage(
+        messageID: tempID,
+        elemType: MessageElemType.V2TIM_ELEM_TYPE_IMAGE,
+        imageElem: V2TimImageElem(path: '/tmp/contact_card.png'),
+      );
+      provider.mediaResult = ChatMessageSendResult(
+        messageID: echoID,
+        isPending: true,
+      );
+      _seedMessage(peerID, optimistic);
+
+      final callback = await platform.sendMessage(
+        id: tempID,
+        receiver: peerID,
+        groupID: '',
+      );
+
+      expect(callback.code, 0);
+      expect(callback.data, same(optimistic));
+      expect(provider.mediaCalls.single.path, '/tmp/contact_card.png');
+      expect(provider.mediaCalls.single.userID, peerID);
+      expect(callback.data!.id, echoID);
+      expect(callback.data!.msgID, echoID);
+      expect(callback.data!.status, MessageStatus.V2TIM_MSG_STATUS_SENDING);
+    });
+
+    test(
+      'file: a delivered echo reconciles to SEND_SUCC with its id',
+      () async {
+        const peerID = 'file-peer';
+        const tempID = 'created_temp_id-3';
+        const echoID = '1788443340337_2_self';
+        final optimistic = _optimisticMessage(
+          messageID: tempID,
+          elemType: MessageElemType.V2TIM_ELEM_TYPE_FILE,
+          fileElem: V2TimFileElem(
+            path: '/tmp/payload.bin',
+            fileName: 'payload.bin',
+          ),
+        );
+        provider.mediaResult = ChatMessageSendResult(
+          messageID: echoID,
+          isPending: false,
+        );
+        _seedMessage(peerID, optimistic);
+
+        final callback = await platform.sendMessage(
+          id: tempID,
+          receiver: peerID,
+          groupID: '',
+        );
+
+        expect(callback.code, 0);
+        expect(provider.mediaCalls.single.path, '/tmp/payload.bin');
+        expect(callback.data!.id, echoID);
+        expect(callback.data!.msgID, echoID);
+        expect(callback.data!.status, MessageStatus.V2TIM_MSG_STATUS_SEND_SUCC);
+      },
+    );
+
+    test('media with no echo keeps the optimistic id and succeeds', () async {
+      const peerID = 'no-echo-peer';
+      const tempID = 'created_temp_id-4';
+      final optimistic = _optimisticMessage(
+        messageID: tempID,
+        elemType: MessageElemType.V2TIM_ELEM_TYPE_IMAGE,
+        imageElem: V2TimImageElem(path: '/tmp/no_echo.png'),
+      );
+      provider.mediaResult = null;
+      _seedMessage(peerID, optimistic);
+
+      final callback = await platform.sendMessage(
+        id: tempID,
+        receiver: peerID,
+        groupID: '',
+      );
+
+      expect(callback.code, 0);
+      expect(callback.data!.id, tempID);
+      expect(callback.data!.msgID, tempID);
+      expect(callback.data!.status, MessageStatus.V2TIM_MSG_STATUS_SEND_SUCC);
     });
   }, skip: skipReason);
 }

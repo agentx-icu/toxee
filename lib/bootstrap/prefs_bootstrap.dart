@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'app_bootstrap_result.dart';
+import 'isolated_prefs_store.dart';
 import '../util/logger.dart';
 import '../util/harness_environment.dart';
 import '../util/platform_utils.dart';
@@ -20,6 +24,7 @@ class PrefsBootstrap {
     if (prefix != null && prefix.isNotEmpty) {
       SharedPreferences.setPrefix(prefix);
     }
+    installIsolatedStoreIfOverridden();
     final prefs = await SharedPreferences.getInstance();
     await Prefs.initialize(prefs);
     // The LAN bootstrap service is purely in-process state; if we crashed
@@ -71,4 +76,18 @@ class PrefsBootstrap {
     }
     return null;
   }
+}
+
+/// Keep the prefs file under `TOXEE_APP_SUPPORT_DIR` on Windows/Linux when that
+/// override is set (multi-instance harness), see [IsolatedPrefsStore]. macOS
+/// keeps the platform plugin: NSUserDefaults merges per key, and the key prefix
+/// already isolates the instances there.
+void installIsolatedStoreIfOverridden() {
+  if (!(Platform.isWindows || Platform.isLinux)) return;
+  final dir = HarnessEnvironment.value(HarnessEnvironment.appSupportDirKey);
+  if (dir == null || dir.isEmpty) return;
+  SharedPreferencesStorePlatform.instance = IsolatedPrefsStore(
+    File('$dir${Platform.pathSeparator}shared_preferences.json'),
+  );
+  AppLogger.log('[PrefsBootstrap] prefs store isolated under $dir');
 }

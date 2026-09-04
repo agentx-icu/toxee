@@ -6,6 +6,8 @@ import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_method_channel.dar
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
 import 'package:tim2tox_dart/utils/binary_replacement_history_hook.dart';
+import 'package:tim2tox_dart/models/chat_message.dart';
+import 'package:tencent_cloud_chat_common/external/chat_data_provider.dart';
 
 import '../adapters/conversation_manager_adapter.dart';
 import '../adapters/event_bus_adapter.dart';
@@ -15,9 +17,12 @@ import '../call/call_media_capabilities.dart';
 import '../notifications/badge_service.dart';
 import '../notifications/notification_message_listener.dart';
 import '../notifications/notification_service.dart';
+import '../sdk_fake/fake_models.dart';
+import '../sdk_fake/fake_provider.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/uikit_data_facade.dart';
 import '../util/logger.dart';
+import '../util/tox_utils.dart';
 import '../util/safe_diagnostics.dart';
 import 'runtime_foreground_service.dart';
 
@@ -362,6 +367,39 @@ class SessionRuntimeCoordinator {
     _installBinaryReplacementHistoryHook();
   }
 
+  /// See [BinaryReplacementHistoryHook.onInboundMessagePersisted].
+  static void _forwardInboundToConversationList(
+    String conversationId,
+    ChatMessage message,
+  ) {
+    final provider = ChatDataProviderRegistry.provider;
+    if (provider is! FakeChatDataProvider) return;
+    final groupId = message.groupId;
+    final convId = (groupId != null && groupId.isNotEmpty)
+        ? 'group_$groupId'
+        : 'c2c_${normalizeToxId(conversationId)}';
+    unawaited(
+      provider.noteInboundMessagePersisted(
+        FakeMessage(
+          msgID: message.msgID ??
+              '${message.timestamp.millisecondsSinceEpoch}_${message.fromUserId}',
+          conversationID: convId,
+          fromUser: message.fromUserId,
+          text: message.text,
+          timestampMs: message.timestamp.millisecondsSinceEpoch,
+          filePath: message.filePath,
+          fileName: message.fileName,
+          fileSize: message.fileSize,
+          mediaKind: message.mediaKind,
+          cloudCustomData: message.cloudCustomData,
+          isPending: message.isPending,
+          isReceived: message.isReceived,
+          isRead: message.isRead,
+        ),
+      ),
+    );
+  }
+
   /// Installs the binary-replacement history hook as a standalone, independent
   /// V2TimAdvancedMsgListener that persists every received/modified message
   /// exactly once. This listener does NOT wrap or replace any UIKit listener,
@@ -398,6 +436,11 @@ class SessionRuntimeCoordinator {
       // also drops inbound C2C from a blocked sender (the same guard lives in
       // FfiChatService._appendHistory, which this direct-persist path bypasses).
       BinaryReplacementHistoryHook.isBlockedPredicate = service.isBlocked;
+      // Product inbound -> conversation list: lift a delete tombstone and
+      // rebuild that entry as soon as the row is persisted (the hook path is
+      // silent on FfiChatService.messages, so nothing else does this).
+      BinaryReplacementHistoryHook.onInboundMessagePersisted =
+          _forwardInboundToConversationList;
       _hookInstalled = true;
       AppLogger.debug(
         '[SessionRuntimeCoordinator] BinaryReplacementHistoryHook installed (standalone, selfId=${selfId.isEmpty ? "<deferred>" : "<set>"})',

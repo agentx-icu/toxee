@@ -210,11 +210,11 @@ class Inst {
   /// iOS fell through to [_osa]'s defensive `return`: the driver believed the
   /// type/paste/Return happened, the app never saw it, and the case died on a
   /// later unrelated assertion (or passed vacuously when weakly asserted).
-  /// Deliberately SEPARATE from [_isHeadlessRealUi] rather than widening it —
-  /// that flag also decides window geometry, foregrounding and blank-shell
-  /// recovery, where iOS needs DIFFERENT answers (see [foreground],
-  /// [resizeWindow], [forceHomeRoot]).
-  bool get _usesSyntheticInput => isIos || _isHeadlessRealUi;
+  /// Deliberately SEPARATE from [_isHeadlessRealUi] (which also decides window
+  /// geometry / foregrounding / blank-shell recovery). Windows leaves the set
+  /// under `TOXEE_WIN_OS_INPUT=1` ([_winOsInput]: real scan-coded keys/clipboard).
+  bool get _usesSyntheticInput =>
+      isIos || (_isHeadlessRealUi && !_winOsInput);
 
   late VmService vm;
   late String iso;
@@ -440,25 +440,22 @@ class Inst {
   /// macOS-foreground this instance's window. Required before any UI phase on
   /// desktop (osascript keystroke/Return helpers need the window frontmost).
   ///
-  /// On iOS this is a deliberate NO-OP: real-UI driving is purely VM-service
-  /// (flutter_skill / L3), so it never needs the Simulator window focused, and
-  /// the user directive forbids stealing the host's focus/mouse or topping the
-  /// Simulator window. In sim↔sim runs there is no macOS peer foregrounding to
-  /// suspend the sim app, and App Nap is disabled on the Simulator, so the iOS
-  /// VM service stays up in the background without any osascript activate.
+  /// iOS: deliberate NO-OP (purely VM-service driven; the user directive
+  /// forbids topping the Simulator window). Windows OS-input mode: verified foreground.
   Future<void> foreground() async {
+    if (_winOsInput) {
+      // Windows real OS input: verified Set-ToxeeForeground (see _winRun).
+      await _winRun('', what: 'foreground');
+      return;
+    }
     if (_isHeadlessRealUi) {
-      // Headless Windows drives purely via synthetic flutter_skill RPC, which is
-      // window-station / OS-focus independent; bringing the window forward is
-      // both unnecessary and impossible from a non-interactive SSH session.
+      // Synthetic flutter_skill RPC is OS-focus independent; foregrounding is
+      // unnecessary (and impossible from a non-interactive SSH session).
       return;
     }
     if (isIos) {
-      // iOS real-UI driving is purely VM-service; synthetic input needs no window
-      // focus. Activating Simulator.app does NOT foreground the iOS scene
-      // (didBecomeActive doesn't fire) and only disrupts the VM-service driving,
-      // so it is a deliberate no-op. (Whether a backgrounded sim survives a long
-      // sweep is an OS-level limit handled by the launcher topology, not here.)
+      // Purely VM-service driven; activating Simulator.app does NOT foreground
+      // the iOS scene and only disrupts the driving — deliberate no-op.
       return;
     }
     if (_mixedMacosIos) {
@@ -748,8 +745,8 @@ class Inst {
   /// resolvable bounds yet. Clears any existing content (Cmd+A, Delete) first so
   /// re-entry replaces rather than appends.
   Future<bool> focusType(String key, String text) async {
-    if (isIos || _isHeadlessRealUi || _mixedMacosIos) {
-      // iOS: System Events can't reach the sim. Windows: no host osascript.
+    if (_usesSyntheticInput || _mixedMacosIos) {
+      // iOS: System Events can't reach the sim. Headless Windows/Linux: no OS input.
       // Mixed macOS peer: avoid osascript entirely so the Simulator stays
       // frontmost. All use flutter_skill synthetic input (enterText), which sets
       // the field text atomically (no char mangling). Safe on regular TextFields
@@ -775,9 +772,15 @@ class Inst {
     // wants. The legacy length-thresholded keystroke path is gone — it was the
     // root of the self-add / handshake-id corruption and the remark corruption.
     if (text.isEmpty) {
-      // osaClear already emptied the field; a paste of "" is a no-op.
+      // osaClear already emptied the field; a paste of "" is a no-op. Verify
+      // like the non-empty path and fall back to the keyed synthetic clear —
+      // a clear chord that silently misses leaves the OLD value in place and
+      // every later "cleared" assertion false-fails (Windows keyed_gaps).
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      return true;
+      final cleared = (await skill('getTextValue', {'key': key}))['value'];
+      if (cleared == null || cleared == '') return true;
+      final r = await skill('enterText', {'key': key, 'text': ''});
+      return r['success'] == true;
     }
     await osaPaste(text);
     await Future<void>.delayed(const Duration(milliseconds: 150));
@@ -1172,7 +1175,4 @@ class Inst {
   }
 }
 
-/// Android-star relay fallback for [wireFullMeshBootstrap] sites (null
-/// elsewhere — iOS pairs have their OWN fixed listener ports).
-int? _pairTcpRelayFallbackPort(Inst a, Inst b) =>
-    (a.isAndroid || b.isAndroid) ? fixtureCTcpRelayHostPort() : null;
+// `_pairTcpRelayFallbackPort` lives in drive_real_ui_pair_instance_ctl.dart.

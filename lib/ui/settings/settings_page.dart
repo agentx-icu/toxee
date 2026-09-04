@@ -9,7 +9,7 @@ import 'dart:io';
 import '../../util/app_paths.dart';
 import '../../util/ffi_chat_service_account_key.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
-
+import '../widgets/user_avatar_circle.dart';
 import 'dart:async';
 import 'dart:math';
 import '../../util/app_spacing.dart';
@@ -31,6 +31,7 @@ import '../../util/account_switcher.dart';
 import '../../util/feature_flags.dart';
 
 import '../../util/account_service.dart';
+import '../../util/default_avatar_installer.dart';
 import '../../util/tox_utils.dart';
 import '../../util/logger.dart';
 import '../../util/responsive_layout.dart';
@@ -1000,6 +1001,9 @@ class _SettingsPageState extends State<SettingsPage> {
       if (isZip) {
         await AccountExportService.finalizeFullBackupImport(toxId: toxId);
       }
+      // After the finalize so a restored self avatar is adopted, not
+      // shadowed by a fresh default (see LoginPageController).
+      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
 
       // Only .tox import passwords are account passwords. Full-backup .zip
       // passwords decrypt the archive and must not silently become the
@@ -1476,30 +1480,19 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }
 
+    // Mobile counterpart of the desktop sidebar avatar: the same shared
+    // widget, so phone and desktop show the same fallback for one account.
     Widget avatar() {
-      final nickname = _currentNickname ?? '';
-      return CircleAvatar(
-        radius: 28,
+      return UserAvatarCircle(
+        size: 56,
+        initial: UserAvatarCircle.initialFor(_currentNickname),
         backgroundColor: colorTheme.primaryColor,
-        child:
+        foregroundColor: colorTheme.onPrimary,
+        avatarPath: _avatarPath,
+        avatarFileExists:
             _avatarPath != null &&
-                _avatarPath!.isNotEmpty &&
-                File(_avatarPath!).existsSync()
-            ? ClipOval(
-                child: Image.file(
-                  File(_avatarPath!),
-                  width: 56,
-                  height: 56,
-                  fit: BoxFit.cover,
-                ),
-              )
-            : Text(
-                (nickname.isNotEmpty ? nickname[0] : 'U').toUpperCase(),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: colorTheme.onPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+            _avatarPath!.isNotEmpty &&
+            File(_avatarPath!).existsSync(),
       );
     }
 

@@ -39,37 +39,19 @@ part of 'drive_real_ui_pair.dart';
 //    the `message_send_status:<msgID>:read` icon. Formerly a NEGATIVE
 //    product-gap pin.
 //
-// 3. FORWARD→GROUP (forward_to_group_target) — wired; the sweep pre-creates
-//    a PRIVATE group via the REAL AddGroupDialog. B does NOT need to join:
-//    the assert is A's real picker → group target → Send → text lands in
-//    A's `group_<gid>` conversation (dump); no same-host NGC join needed.
-//
-// 4. DRAFT (draft_restore_on_conv_switch) — POSITIVE contract gate: both
-//    composers drive `TencentCloudChatMessageDraftCoordinator` persisting via
-//    the durable `ChatDraftProvider` (shared-fork Dart — mobile parity free),
-//    so typed-but-unsent text survives a real switch-away/back, proven by
-//    Return sending the probe (positive controls around it). The premise
-//    needs a genuine OS keyboard → `_p1cRealKeyboardCapable`-false SKIPs.
+// 3. FORWARD→GROUP (forward_to_group_target) — wired; the sweep pre-creates a
+//    PRIVATE group via the REAL AddGroupDialog (B need not join): A's real
+//    picker → group target → Send → text lands in `group_<gid>` (dump).
+// 4. DRAFT (draft_restore_on_conv_switch) — POSITIVE gate: typed-but-unsent
+//    text survives a real switch-away/back (`ChatDraftProvider`, shared-fork
+//    Dart), proven by Return sending the probe; needs a genuine OS keyboard.
 //
 // 5. TYPING (typing_indicator_render) — NO UI surface AND no production sender;
-//    DOUBLE-NEGATIVE product-gap gate:
-//    - Zero files in the fork mention typing (grep typing|Typing in
-//      third_party/chat-uikit-flutter → no UI consumer; no input-field sender).
-//    - The DATA half exists and is asserted as the seeded condition:
-//      l3_set_typing → FfiChatService.sendTyping → tox_self_set_typing; the
-//      peer surfaces `friends[].isTyping` (l3_debug_tools.dart:4897, ~3s
-//      expiry). Gate: (a) B's REAL composer keystrokes produce NO typing
-//      signal on A (friends[].isTyping stays false — sentinel: the friend
-//      entry itself must exist); (b) with the signal SEEDED true via
-//      l3_set_typing, A renders NO typing indicator anywhere (text scan) and
-//      does not crash.
-//
+//    DOUBLE-NEGATIVE gate: (a) B's REAL keystrokes produce NO typing signal on
+//    A; (b) with the signal SEEDED true, A renders NO typing indicator.
 // 6. UNREAD BADGE (unread_badge_total_sidebar) — wired:
-//    - Desktop sidebar Chats tab badge: lib/ui/settings/sidebar.dart:610-677,
-//      fed by TencentCloudChatConversationTotalUnreadCount (conversation-data
-//      events); renders ONLY when totalUnreadCount > 0. This batch keys the
-//      badge Text (`sidebar_chats_unread_badge`; mobile bottom-nav twin
-//      `home_chats_unread_badge` in home_page.dart — parity).
+//    - Desktop sidebar Chats tab badge (sidebar.dart) renders ONLY when
+//      totalUnreadCount > 0; keyed `sidebar_chats_unread_badge` (mobile twin `home_chats_unread_badge`).
 //    - Aggregation semantics (read first, per the brief): C2C unread derives
 //      from persistence + lastView barrier; GROUP unread is the in-memory
 //      counter (ffi_chat_service.dart:908-931); the UIKit store sums them. So
@@ -145,7 +127,7 @@ Future<bool> _p1cTypeIntoComposerNoSend(Inst inst, String text) async {
     return false;
   }
   await Future<void>.delayed(const Duration(milliseconds: 300));
-  await inst.tapAt(_composerX, _composerY);
+  await _tapDesktopComposer(inst); // key-resolved; the raw constant missed on Windows
   await Future<void>.delayed(const Duration(milliseconds: 450));
   await inst.osaClear();
   await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -171,7 +153,7 @@ Future<bool> _p1cTypeIntoComposerNoSend(Inst inst, String text) async {
 /// premise is "text was really typed but NOT sent" is unconstructible there and
 /// must SKIP — a vacuous pass would report coverage that never ran.
 bool _p1cRealKeyboardCapable(Inst inst) =>
-    !inst.isMobileShell && !inst.isLinux && !_isHeadlessRealUi;
+    !inst.isMobileShell && !inst.isLinux && !inst._usesSyntheticInput;
 
 /// Best-effort READBACK of the open composer's live content: the keyed field's
 /// `text` from interactiveStructured, else flutter_skill's text finder (which
@@ -189,7 +171,7 @@ Future<bool> _p1cComposerShowsText(Inst inst, String text) async {
 /// restored, this Return would SEND it.
 Future<void> _p1cComposerReturn(Inst inst) async {
   await inst.foreground();
-  await inst.tapAt(_composerX, _composerY);
+  await _tapDesktopComposer(inst);
   await Future<void>.delayed(const Duration(milliseconds: 450));
   await inst.osaReturn();
   await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -513,6 +495,19 @@ Future<bool> _p1cReadReceiptDoubleTick(
     }
   }
   if (bUnreadBefore < 1) {
+    final bState = await b.dumpState();
+    final convIds = (bState['conversations'] as List? ?? const [])
+        .map((c) => c is Map ? '${c['conversationID']}:${c['unreadCount']}' : '$c')
+        .join(',');
+    final convState = await b.dumpState(conversationId: _c2cConvId(toxA));
+    final tick = ((convState['messages'] as List?) ?? const [])
+        .whereType<Map>()
+        .where((m) => m['text'] == text);
+    print('[pair] read_receipt_double_tick: B conversations now=[$convIds] '
+        'activePeer=${bState['activePeerId']} '
+        'shellConv=${bState['homeShellCurrentConversationId']} '
+        'persistenceUnread=${convState['unreadCount']} '
+        'tick=${tick.map((m) => 'isRead=${m['isRead']} isSelf=${m['isSelf']}').join(';')}');
     print(
       '[pair] read_receipt_double_tick: B unread never reached >=1 '
       '(got $bUnreadBefore) — cannot prove the open marks it read',
@@ -828,7 +823,7 @@ Future<bool?> _p1cDraftRestoreOnConvSwitch(
   // Defensive normalization: clear any leftover composer content so a FAILED
   // restore (probe still sitting unsent) can't poison later cases.
   try {
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
     await Future<void>.delayed(const Duration(milliseconds: 300));
     await a.osaClear();
   } on DriveError {
@@ -855,7 +850,7 @@ Future<bool?> _p1cDraftRestoreOnConvSwitch(
     // The post-control text may have landed but not sent — don't leave it in
     // the composer for the next case to send by accident.
     try {
-      await a.tapAt(_composerX, _composerY);
+      await _tapDesktopComposer(a);
       await a.osaClear();
     } on DriveError {
       // best-effort
@@ -958,7 +953,7 @@ Future<bool> _p1cTypingIndicatorRender(
   } else {
     for (var attempt = 0; attempt < 4 && !bKeystrokesProven; attempt++) {
       await b.foreground();
-      await b.tapAt(_composerX, _composerY);
+      await _tapDesktopComposer(b);
       await Future<void>.delayed(const Duration(milliseconds: 450));
       await b.osaReturn();
       await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -971,14 +966,14 @@ Future<bool> _p1cTypingIndicatorRender(
   if (!bKeystrokesProven) {
     // Don't leave half-typed text behind for later cases.
     try {
-      await b.tapAt(_composerX, _composerY);
+      await _tapDesktopComposer(b);
       await Future<void>.delayed(const Duration(milliseconds: 300));
       await b.osaClear();
     } on DriveError {
       // best-effort
     }
   }
-  // (b) SEED the signal (l3_set_typing, ~3s expiry → re-send while polling).
+  // (b) SEED the signal (l3_set_typing; held until cleared, 30 s safety cap).
   var seededFlagOn = false;
   for (var i = 0; i < 8 && !seededFlagOn; i++) {
     final r = await b.l3('l3_set_typing', {'userId': toxA, 'on': 'true'});
@@ -997,11 +992,8 @@ Future<bool> _p1cTypingIndicatorRender(
     );
     return false;
   }
-  // While the flag IS on, A's UI renders no typing affordance anywhere.
-  // The flag expires ~3s after the last signal (codex P1: a one-shot seed
-  // would expire before the scan), so RE-SEND right before the scan and
-  // re-assert the flag immediately AFTER it — the absence verdict only counts
-  // if the seeded condition held THROUGH the scan.
+  // While the flag IS on, A's UI renders no typing affordance anywhere. The
+  // absence verdict only counts if the seeded condition held THROUGH the scan.
   await a.foreground();
   final chatAlive = await a.waitKey(
     'message_header_profile_avatar',
@@ -1009,11 +1001,14 @@ Future<bool> _p1cTypingIndicatorRender(
   );
   await b.l3('l3_set_typing', {'userId': toxA, 'on': 'true'});
   await Future<void>.delayed(const Duration(milliseconds: 600));
+  // The seeded flag follows tox STATE now (kept until B clears it or goes
+  // offline, 30 s safety cap), so the slow full-tree text scan cannot outlive
+  // it; sample the entry AFTER the scan so it really means "held through".
   final typingTextSeen = await _p1cTextContaining(a, 'typing');
   final entryDuringScan = await _p1cFriendEntry(a, toxB);
   final flagHeldThroughScan =
       entryDuringScan != null && entryDuringScan['isTyping'] == true;
-  // Stop the seeded signal; the flag expires (~3s) — no crash, chat alive.
+  // Stop the seeded signal (cleared on arrival) — no crash, chat alive.
   await b.l3('l3_set_typing', {'userId': toxA, 'on': 'false'});
   var flagCleared = false;
   for (var i = 0; i < 10 && !flagCleared; i++) {
@@ -1374,14 +1369,11 @@ Future<bool> _p1cImagePreviewOpenHardened(
     print('[pair] image_preview_open_hardened: bubble row never rendered');
     return false;
   }
-  // Give the async image decode a beat, then tap the fork's KEYED bubble target
-  // (`message_image_bubble:<msgID>` on the GestureDetector itself). The old
-  // row-fraction ladder read its bounds from flutter_skill's
-  // `interactiveStructured`, which never reports the row's non-interactive
-  // container — so it aimed nowhere and dispatched zero taps. The ladder is kept
-  // as a fallback, now fed by `_keyBox` (centre + extent) and corrected to be
+  // Let the image decode settle and scroll the bubble into the viewport, then
+  // tap the fork's KEYED bubble target (`message_image_bubble:<msgID>`). The
+  // row-fraction ladder stays as a fallback, fed by `_keyBox` (centre + extent),
   // left-edge relative. See `_kg4ViewerSaveAndZoom` for the full diagnosis.
-  await Future<void>.delayed(const Duration(milliseconds: 1200));
+  await _ensureKeyInViewport(a, 'message_image_bubble:$imageMsgId');
   var viewerMounted = false;
   final bubbleKey = 'message_image_bubble:$imageMsgId';
   const fractions = <double>[0.18, 0.28, 0.40, 0.50, 0.22, 0.33];

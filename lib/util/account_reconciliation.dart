@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import 'account_export/tox_file_io.dart';
 import 'app_paths.dart';
+import 'default_avatar_installer.dart';
 import 'logger.dart';
 import 'prefs.dart';
 
@@ -87,11 +88,21 @@ abstract final class AccountReconciliation {
           }
 
           final nickname = 'Recovered ${toxId.substring(0, 8)}';
+          // updateLastLogin: false — a recovered account has never been
+          // logged into on this install; stamping "now" made the account
+          // list read "Last Login: Just now" for it (product screenshots,
+          // 2026-09-03). The real timestamp lands on its first login.
           await Prefs.addAccount(
             toxId: toxId,
             nickname: nickname,
             autoLogin: false,
+            updateLastLogin: false,
           );
+          // Give the recovered account the same bundled default avatar that
+          // `register()` installs, so the account picker and the first login
+          // show it like any other account instead of a per-surface
+          // fallback. Best effort: it never throws and never blocks recovery.
+          await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
           recovered++;
           AppLogger.warn(
             '[AccountReconciliation] recovered orphaned profile: '

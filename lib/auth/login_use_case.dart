@@ -5,6 +5,7 @@ import '../adapters/bootstrap_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../adapters/shared_prefs_adapter.dart';
 import '../util/account_service.dart';
+import '../util/default_avatar_installer.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
 
@@ -94,20 +95,20 @@ class LoginUseCase {
       await Prefs.setNickname(nickname);
       await Prefs.setStatusMessage(statusMessage);
 
-      final avatarForAccount = account != null
-          ? (account['avatarPath'] ?? '')
-          : '';
       // Use toxIdForLogin (existing account key) so we update the list entry instead of
       // being treated as a new account; service.selfId may differ in format (e.g. 76 vs 64 chars).
       // Skip the lastLoginTime bump here; the caller is responsible for
       // calling Prefs.touchAccountLoginTime() once AppBootstrapCoordinator.boot
       // has actually succeeded — otherwise a failed boot would still surface
       // this account as "recently logged in" in the picker.
+      // Deliberately no `avatarPath` here: initializeServiceForAccount has just
+      // run DefaultAvatarInstaller.ensureSelfAvatar on the row, and writing the
+      // PRE-init value back would undo that repair (e.g. re-persist a stale
+      // path whose file is gone over the freshly installed default).
       await Prefs.addAccount(
         toxId: toxIdForLogin,
         nickname: nickname,
         statusMessage: statusMessage,
-        avatarPath: avatarForAccount.isNotEmpty ? avatarForAccount : null,
         updateLastLogin: false,
       );
 
@@ -176,6 +177,9 @@ class LoginUseCase {
       statusMessage: statusMessage,
       updateLastLogin: false,
     );
+    // Legacy path bypasses AccountService.initializeServiceForAccount, so
+    // apply the same self-avatar guarantee here (see that method).
+    await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
     // Caller (e.g. login page) must call AppBootstrapCoordinator.boot(service) before navigating to HomePage
     return LoginSuccess(service: legacyService);
   }

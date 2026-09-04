@@ -678,28 +678,28 @@ class FakeMessageManager {
     );
   }
 
-  Future<void> sendFile(String conversationID, String filePath) async {
+  /// Returns the identity of the echo `FfiChatService.sendFile` emitted on
+  /// `ffi.messages` (like [sendText]); null when there is none (group path).
+  Future<ChatMessageSendResult?> sendFile(
+    String conversationID,
+    String filePath,
+  ) async {
     if (conversationID.startsWith('c2c_')) {
       final uid = conversationID.substring(4);
       await Prefs.setFriendActivity(uid, DateTime.now());
-      await _ffi.sendFile(uid, filePath);
-      // Note: Local echo will be emitted by FfiChatService.sendFile via ffi.messages stream
-      // No need to emit here to avoid duplicates
+      final sent = await _ffi.sendFile(uid, filePath);
+      final messageID = sent?.msgID;
+      if (messageID == null || messageID.isEmpty) return null;
+      return ChatMessageSendResult(messageID: messageID, isPending: sent!.isPending);
     } else if (conversationID.startsWith('group_')) {
-      final gid = conversationID.substring(6);
-      await _ffi.sendGroupFile(gid, filePath);
-      // Don't emit local echo for group messages - Tox will echo it back via ffi.messages.listen
-      // This prevents duplicate messages in the chat window
+      await _ffi.sendGroupFile(conversationID.substring(6), filePath);
     }
+    return null;
   }
 
-  /// Delete messages by their IDs
-  /// This is called by UIKit when user deletes messages
+  /// Delete messages by their IDs (called by UIKit when the user deletes).
   Future<void> deleteMessages(List<String> msgIDs) async {
     await _ffi.deleteMessages(msgIDs);
-    // Emit a message deletion event to notify listeners
-    // Note: We don't have a specific deletion event, but the UI should refresh
-    // The FakeChatMessageProvider will handle the UI update by re-emitting the message list
   }
 
   /// Send message read receipts

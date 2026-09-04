@@ -13,67 +13,13 @@ import 'fake_im.dart';
 import 'fake_models.dart';
 import 'uikit_data_facade.dart';
 import 'c2c_recv_opt_cache.dart';
+import 'package:toxee/util/tox_utils.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
+import 'fake_conversation_merge.dart';
 
-V2TimConversation mergeExternalConversationUpdate({
-  V2TimConversation? existing,
-  required V2TimConversation refreshed,
-}) {
-  if (existing == null) return refreshed;
+// Kept exported here: callers (and tests) historically imported it from this file.
+export 'fake_conversation_merge.dart' show mergeExternalConversationUpdate;
 
-  // Display fields: treat EMPTY strings as absent, not just null. Sparse/minimal
-  // native emits (the recvOpt mute push, post-send / pin / draft notifies built
-  // without a cached snapshot) fill these with "" placeholders, which must not
-  // clobber known values.
-  if (refreshed.faceUrl == null || refreshed.faceUrl!.isEmpty) {
-    refreshed.faceUrl = existing.faceUrl;
-  }
-  if (refreshed.showName == null || refreshed.showName!.isEmpty) {
-    refreshed.showName = existing.showName;
-  }
-  refreshed.lastMessage ??= existing.lastMessage;
-  // Scalars: sparse emits carry 0/false placeholders here too, but per-field
-  // ownership is ambiguous (the pin notify legitimately owns isPinned while the
-  // mute push does not), so keep null-coalescing. A placeholder that slips
-  // through is transient: the ~5s FakeConversation rebuild restores the real
-  // values from Prefs/FfiChatService.
-  refreshed.orderkey ??= existing.orderkey;
-  refreshed.unreadCount ??= existing.unreadCount;
-  refreshed.isPinned ??= existing.isPinned;
-  final groupId =
-      refreshed.groupID ??
-      existing.groupID ??
-      refreshed.conversationID.replaceFirst('group_', '');
-  final existingGroupType = resolveFakeConversationGroupType(
-    groupId: groupId,
-    authoritativeGroupType: existing.groupType,
-  );
-  final refreshedGroupType = resolveFakeConversationGroupType(
-    groupId: groupId,
-    authoritativeGroupType: refreshed.groupType,
-  );
-  final normalizedExistingGroupType = existingGroupType.trim().toLowerCase();
-  final normalizedRefreshedGroupType = refreshedGroupType.trim().toLowerCase();
-  final preserveExistingGroupType =
-      (normalizedExistingGroupType == 'av_conference' &&
-          normalizedRefreshedGroupType != 'av_conference') ||
-      (normalizedExistingGroupType == 'conference' &&
-          normalizedRefreshedGroupType == 'group') ||
-      (normalizedExistingGroupType == 'public' &&
-          normalizedRefreshedGroupType == 'group') ||
-      (normalizedExistingGroupType == 'meeting' &&
-          normalizedRefreshedGroupType == 'group') ||
-      (normalizedExistingGroupType == 'community' &&
-          normalizedRefreshedGroupType == 'group');
-  if (preserveExistingGroupType) {
-    refreshed.groupType = existing.groupType;
-  } else {
-    refreshed.groupType ??= existing.groupType;
-  }
-  refreshed.draftText ??= existing.draftText;
-  refreshed.draftTimestamp ??= existing.draftTimestamp;
-  return refreshed;
-}
 
 class FakeChatDataProvider implements ChatDataProvider {
   final _convCtrl = StreamController<List<V2TimConversation>>.broadcast();
@@ -95,6 +41,7 @@ class FakeChatDataProvider implements ChatDataProvider {
   StreamSubscription? _unreadSub;
   StreamSubscription? _messageSub;
   StreamSubscription? _friendDeletedSub;
+  StreamSubscription? _friendAddedSub;
   StreamSubscription? _groupDeletedSub;
   V2TimConversationListener? _sdkConvListener;
   final FfiChatService?
@@ -233,190 +180,19 @@ class FakeChatDataProvider implements ChatDataProvider {
         });
 
     // Listen for new messages to update conversation lastMessage
-    _messageSub = FakeUIKit.instance.eventBusInstance.on<FakeMessage>(FakeIM.topicMessage).listen((
-      msg,
-    ) async {
-      // R-3 / U-1 / U-2: never let raw control-signal payloads
-      // (`__revoke__:`, `__face__:`, `__custom__:`, `__location__:`) end
-      // up as the visible "last message" preview in the conversation
-      // list. `__revoke__:` is dropped entirely; the others fall through
-      // (FakeChatMessageProvider's routing layer has already rewritten
-      // the bubble text by the time we read FfiChatService.lastMessages,
-      // but we still mask out the raw-JSON preview here for messages
-      // that arrive through this listener directly).
-      if ((msg.mediaKind == null || msg.mediaKind!.isEmpty) &&
-          msg.text.isNotEmpty &&
-          msg.text.startsWith('__')) {
-        if (msg.text.startsWith('__revoke__:')) {
-          return; // Swallow revoke signals.
-        }
-      }
-      // When a new message arrives for a previously-deleted conversation, allow it to
-      // be recreated (e.g. friend was re-added, or a new message from re-joined group).
-      // Remove from _sdkDeletedConvIds so the conversation can reappear.
-      _sdkDeletedConvIds.remove(msg.conversationID);
-      // When a new message arrives, update the corresponding conversation's lastMessage
-      // CRITICAL: Even if conversation doesn't exist in _convMap, we should still process it
-      // This is especially important for failed messages that need to appear in the conversation list
-      final peerId = msg.conversationID.startsWith('c2c_')
-          ? msg.conversationID.substring(4)
-          : (msg.conversationID.startsWith('group_')
-                ? msg.conversationID.substring(6)
-                : msg.conversationID);
-      // Use a microtask to ensure _lastByPeer has been updated in FfiChatService
-      // This ensures that when we access lastMessages, the message has already been added
-      await Future.microtask(() async {
-        // CRITICAL: First check if message is in failed persistence list
-        // This must be done BEFORE building lastMessage, so we know if we should use FakeMessage directly
-        bool isFailedMessage = false;
-        try {
-          final userID = msg.conversationID.startsWith('c2c_') ? peerId : null;
-          final groupID = msg.conversationID.startsWith('group_')
-              ? peerId
-              : null;
-          final currentToxId = await Prefs.getCurrentAccountToxId();
-          final failedMessagesData =
-              await Tim2ToxFailedMessagePersistence.loadFailedMessages(
-                userID: userID,
-                groupID: groupID,
-                accountToxId: currentToxId,
-              );
+    _messageSub = FakeUIKit.instance.eventBusInstance
+        .on<FakeMessage>(FakeIM.topicMessage)
+        .listen(_applyMessageToConversation);
 
-          // Check if this message is in the failed list
-          for (final failedMsgData in failedMessagesData) {
-            final failedMsgID = failedMsgData['msgID'] as String?;
-            final failedID = failedMsgData['id'] as String?;
-
-            if ((failedMsgID != null && failedMsgID == msg.msgID) ||
-                (failedID != null && failedID == msg.msgID)) {
-              // Message is in failed list
-              isFailedMessage = true;
-              break;
-            }
-          }
-        } catch (e) {
-          AppLogger.warn(
-            '[FakeChatDataProvider] failed-message check failed, continuing with normal mapping: ${e.runtimeType}',
-          );
-        }
-
-        // Try to get the message from lastMessages first
-        final lastMsg = _ffiService?.lastMessages[peerId];
-
-        V2TimMessage lastMessage;
-        // CRITICAL: If message is failed, always build from FakeMessage directly
-        // This ensures we have the correct text and status, even if lastMessages doesn't contain it
-        if (isFailedMessage || lastMsg == null) {
-          // Build from FakeMessage directly (for failed messages or when lastMsg is null)
-          // Check if fromUser matches selfId to determine isSelf
-          final isSelf = _ffiService?.selfId == msg.fromUser;
-          // Create a temporary ChatMessage-like object from FakeMessage
-          final tempChatMsg = ChatMessage(
-            text: msg.text,
-            fromUserId: msg.fromUser,
-            isSelf: isSelf,
-            timestamp: DateTime.fromMillisecondsSinceEpoch(msg.timestampMs),
-            groupId: msg.conversationID.startsWith('group_') ? peerId : null,
-            msgID: msg.msgID,
-            filePath: msg.filePath,
-            mediaKind: msg.mediaKind,
-          );
-          lastMessage = _chatMessageToV2TimMessage(
-            tempChatMsg,
-            peerId,
-            msg.conversationID.startsWith('group_'),
-          );
-          // Set failed status if message is in failed list
-          if (isFailedMessage) {
-            lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
-          }
-        } else {
-          // Use the message from lastMessages (preferred, as it has all fields including isSelf)
-          lastMessage = _chatMessageToV2TimMessage(
-            lastMsg,
-            peerId,
-            msg.conversationID.startsWith('group_'),
-          );
-          // Still check if it's in failed list (in case lastMessages has it but it's actually failed)
-          if (isFailedMessage) {
-            lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
-          }
-        }
-
-        // If conversation doesn't exist, create it (especially important for failed messages)
-        if (!_convMap.containsKey(msg.conversationID)) {
-          // Load conversation title and avatar
-          String? title;
-          String? faceUrl;
-          if (msg.conversationID.startsWith('c2c_')) {
-            title =
-                peerId; // Use peerId as title (friend name can be loaded later if needed)
-            faceUrl = await Prefs.getFriendAvatarPath(peerId);
-          } else if (msg.conversationID.startsWith('group_')) {
-            title = await Prefs.getGroupName(peerId) ?? peerId;
-            faceUrl = await Prefs.getGroupAvatar(peerId);
-          } else {
-            title = peerId;
-          }
-
-          // New conv for incoming message: unread at least 1 from FfiChatService
-          final newConvUnread = _ffiService?.getUnreadOf(peerId) ?? 1;
-          final newConv = FakeConversation(
-            conversationID: msg.conversationID,
-            title: title,
-            faceUrl: faceUrl,
-            unreadCount: newConvUnread,
-            isGroup: msg.conversationID.startsWith('group_'),
-            isPinned: false,
-            groupType: msg.conversationID.startsWith('group_')
-                ? _resolveRebuiltGroupType(peerId)
-                : null,
-          );
-          _convMap[msg.conversationID] = await _mapConv(newConv);
-        }
-
-        // Load avatar path for conversation
-        String? faceUrl = _convMap[msg.conversationID]?.faceUrl;
-        if (faceUrl == null) {
-          if (msg.conversationID.startsWith('c2c_')) {
-            faceUrl = await Prefs.getFriendAvatarPath(peerId);
-          } else if (msg.conversationID.startsWith('group_')) {
-            final groupId = msg.conversationID.substring(6);
-            faceUrl = await Prefs.getGroupAvatar(groupId);
-          }
-        }
-        // Use FfiChatService unread so sidebar and conversation list show correct count when new message arrives
-        final unread =
-            _ffiService?.getUnreadOf(peerId) ??
-            _convMap[msg.conversationID]?.unreadCount ??
-            0;
-        final conv = FakeConversation(
-          conversationID: msg.conversationID,
-          title: _convMap[msg.conversationID]?.showName ?? peerId,
-          faceUrl: faceUrl,
-          unreadCount: unread,
-          isGroup: msg.conversationID.startsWith('group_'),
-          isPinned: _convMap[msg.conversationID]?.isPinned ?? false,
-          groupType: msg.conversationID.startsWith('group_')
-              ? _resolveRebuiltGroupType(
-                  peerId,
-                  existingGroupType: _convMap[msg.conversationID]?.groupType,
-                )
-              : null,
-        );
-        // CRITICAL: Pass lastMessage to _mapConv to ensure it's preserved
-        // This ensures that failed messages are not overridden by _mapConv's logic
-        final updatedConv = await _mapConv(
-          conv,
-          overrideLastMessage: lastMessage,
-        );
-        _convMap[msg.conversationID] = mergeExternalConversationUpdate(
-          existing: _convMap[msg.conversationID],
-          refreshed: updatedConv,
-        );
-        _scheduleConvListEmit();
-      });
-    });
+    // A friend re-added after a delete: lift the tombstone the
+    // FakeFriendDeleted handler below leaves, or its conversation would be
+    // skipped by every 5 s rebuild (entry stuck at unread 0 / stale preview).
+    _friendAddedSub = FakeUIKit.instance.eventBusInstance
+        .on<FakeFriendAdded>(FakeIM.topicFriendAdded)
+        .listen((event) {
+          _sdkDeletedConvIds.remove('c2c_${event.userID}');
+          _sdkDeletedConvIds.remove('c2c_${normalizeToxId(event.userID)}');
+        });
 
     // Listen for friend deletion events
     _friendDeletedSub = FakeUIKit.instance.eventBusInstance
@@ -535,6 +311,210 @@ class FakeChatDataProvider implements ChatDataProvider {
   }
 
   /// Emit current _convMap to conversationStream (and unread). Used after debounce.
+  /// Apply one message (own send, poll-path inbound, or a hook-persisted
+  /// inbound via [noteInboundMessagePersisted]) to its conversation entry:
+  /// lifts a delete tombstone, rebuilds lastMessage/unread, re-emits the list.
+  Future<void> _applyMessageToConversation(FakeMessage msg) async {
+    // R-3 / U-1 / U-2: never let raw control-signal payloads
+    // (`__revoke__:`, `__face__:`, `__custom__:`, `__location__:`) end
+    // up as the visible "last message" preview in the conversation
+    // list. `__revoke__:` is dropped entirely; the others fall through
+    // (FakeChatMessageProvider's routing layer has already rewritten
+    // the bubble text by the time we read FfiChatService.lastMessages,
+    // but we still mask out the raw-JSON preview here for messages
+    // that arrive through this listener directly).
+    if ((msg.mediaKind == null || msg.mediaKind!.isEmpty) &&
+        msg.text.isNotEmpty &&
+        msg.text.startsWith('__')) {
+      if (msg.text.startsWith('__revoke__:')) {
+        return; // Swallow revoke signals.
+      }
+    }
+    // When a new message arrives for a previously-deleted conversation, allow it to
+    // be recreated (e.g. friend was re-added, or a new message from re-joined group).
+    // Remove from _sdkDeletedConvIds so the conversation can reappear.
+    _sdkDeletedConvIds.remove(msg.conversationID);
+    // When a new message arrives, update the corresponding conversation's lastMessage
+    // CRITICAL: Even if conversation doesn't exist in _convMap, we should still process it
+    // This is especially important for failed messages that need to appear in the conversation list
+    final peerId = msg.conversationID.startsWith('c2c_')
+        ? msg.conversationID.substring(4)
+        : (msg.conversationID.startsWith('group_')
+              ? msg.conversationID.substring(6)
+              : msg.conversationID);
+    // Use a microtask to ensure _lastByPeer has been updated in FfiChatService
+    // This ensures that when we access lastMessages, the message has already been added
+    await Future.microtask(() async {
+      // CRITICAL: First check if message is in failed persistence list
+      // This must be done BEFORE building lastMessage, so we know if we should use FakeMessage directly
+      bool isFailedMessage = false;
+      try {
+        final userID = msg.conversationID.startsWith('c2c_') ? peerId : null;
+        final groupID = msg.conversationID.startsWith('group_')
+            ? peerId
+            : null;
+        final currentToxId = await Prefs.getCurrentAccountToxId();
+        final failedMessagesData =
+            await Tim2ToxFailedMessagePersistence.loadFailedMessages(
+              userID: userID,
+              groupID: groupID,
+              accountToxId: currentToxId,
+            );
+
+        // Check if this message is in the failed list
+        for (final failedMsgData in failedMessagesData) {
+          final failedMsgID = failedMsgData['msgID'] as String?;
+          final failedID = failedMsgData['id'] as String?;
+
+          if ((failedMsgID != null && failedMsgID == msg.msgID) ||
+              (failedID != null && failedID == msg.msgID)) {
+            // Message is in failed list
+            isFailedMessage = true;
+            break;
+          }
+        }
+      } catch (e) {
+        AppLogger.warn(
+          '[FakeChatDataProvider] failed-message check failed, continuing with normal mapping: ${e.runtimeType}',
+        );
+      }
+
+      // Try to get the message from lastMessages first
+      final lastMsg = _ffiService?.lastMessages[peerId];
+
+      V2TimMessage lastMessage;
+      // CRITICAL: If message is failed, always build from FakeMessage directly
+      // This ensures we have the correct text and status, even if lastMessages doesn't contain it
+      if (isFailedMessage || lastMsg == null) {
+        // Build from FakeMessage directly (for failed messages or when lastMsg is null)
+        // Check if fromUser matches selfId to determine isSelf
+        final isSelf = _ffiService?.selfId == msg.fromUser;
+        // Create a temporary ChatMessage-like object from FakeMessage
+        final tempChatMsg = ChatMessage(
+          text: msg.text,
+          fromUserId: msg.fromUser,
+          isSelf: isSelf,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(msg.timestampMs),
+          groupId: msg.conversationID.startsWith('group_') ? peerId : null,
+          msgID: msg.msgID,
+          filePath: msg.filePath,
+          mediaKind: msg.mediaKind,
+        );
+        lastMessage = _chatMessageToV2TimMessage(
+          tempChatMsg,
+          peerId,
+          msg.conversationID.startsWith('group_'),
+        );
+        // Set failed status if message is in failed list
+        if (isFailedMessage) {
+          lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
+        }
+      } else {
+        // Use the message from lastMessages (preferred, as it has all fields including isSelf)
+        lastMessage = _chatMessageToV2TimMessage(
+          lastMsg,
+          peerId,
+          msg.conversationID.startsWith('group_'),
+        );
+        // Still check if it's in failed list (in case lastMessages has it but it's actually failed)
+        if (isFailedMessage) {
+          lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
+        }
+      }
+
+      // If conversation doesn't exist, create it (especially important for failed messages)
+      if (!_convMap.containsKey(msg.conversationID)) {
+        // Load conversation title and avatar
+        String? title;
+        String? faceUrl;
+        if (msg.conversationID.startsWith('c2c_')) {
+          title =
+              peerId; // Use peerId as title (friend name can be loaded later if needed)
+          faceUrl = await Prefs.getFriendAvatarPath(peerId);
+        } else if (msg.conversationID.startsWith('group_')) {
+          title = await Prefs.getGroupName(peerId) ?? peerId;
+          faceUrl = await Prefs.getGroupAvatar(peerId);
+        } else {
+          title = peerId;
+        }
+
+        // New conv for incoming message: unread at least 1 from FfiChatService
+        final newConvUnread = _ffiService?.getUnreadOf(peerId) ?? 1;
+        final newConv = FakeConversation(
+          conversationID: msg.conversationID,
+          title: title,
+          faceUrl: faceUrl,
+          unreadCount: newConvUnread,
+          isGroup: msg.conversationID.startsWith('group_'),
+          isPinned: false,
+          groupType: msg.conversationID.startsWith('group_')
+              ? _resolveRebuiltGroupType(peerId)
+              : null,
+        );
+        _convMap[msg.conversationID] = await _mapConv(newConv);
+      }
+
+      // Load avatar path for conversation
+      String? faceUrl = _convMap[msg.conversationID]?.faceUrl;
+      if (faceUrl == null) {
+        if (msg.conversationID.startsWith('c2c_')) {
+          faceUrl = await Prefs.getFriendAvatarPath(peerId);
+        } else if (msg.conversationID.startsWith('group_')) {
+          final groupId = msg.conversationID.substring(6);
+          faceUrl = await Prefs.getGroupAvatar(groupId);
+        }
+      }
+      // Use FfiChatService unread so sidebar and conversation list show correct count when new message arrives
+      final unread =
+          _ffiService?.getUnreadOf(peerId) ??
+          _convMap[msg.conversationID]?.unreadCount ??
+          0;
+      final conv = FakeConversation(
+        conversationID: msg.conversationID,
+        title: _convMap[msg.conversationID]?.showName ?? peerId,
+        faceUrl: faceUrl,
+        unreadCount: unread,
+        isGroup: msg.conversationID.startsWith('group_'),
+        isPinned: _convMap[msg.conversationID]?.isPinned ?? false,
+        groupType: msg.conversationID.startsWith('group_')
+            ? _resolveRebuiltGroupType(
+                peerId,
+                existingGroupType: _convMap[msg.conversationID]?.groupType,
+              )
+            : null,
+      );
+      // CRITICAL: Pass lastMessage to _mapConv to ensure it's preserved
+      // This ensures that failed messages are not overridden by _mapConv's logic
+      final updatedConv = await _mapConv(
+        conv,
+        overrideLastMessage: lastMessage,
+      );
+      _convMap[msg.conversationID] = mergeExternalConversationUpdate(
+        existing: _convMap[msg.conversationID],
+        refreshed: updatedConv,
+      );
+      _scheduleConvListEmit();
+    });
+  }
+
+  /// Product inbound path. In hybrid mode the binary-replacement hook persists
+  /// an inbound message DIRECTLY and `FfiChatService.messages` stays silent
+  /// (`_emitInboundMessage` suppresses the second delivery), so the
+  /// `topicMessage` listener never runs for it: the entry only caught up on
+  /// the ~5 s rebuild — and a conversation tombstoned by a delete (friend or
+  /// conversation) is skipped by that rebuild, so it stayed hidden / at unread
+  /// 0 until the user opened it or sent something (Windows real-UI
+  /// read_receipt_double_tick on a reused pair: persistence unread 1, entry 0).
+  /// Wired from `BinaryReplacementHistoryHook.onInboundMessagePersisted`, i.e.
+  /// AFTER the row is in persistence, so `getUnreadOf` already counts it.
+  Future<void> noteInboundMessagePersisted(FakeMessage msg) async {
+    _sdkDeletedConvIds.remove(msg.conversationID);
+    // The hook bypassed FfiChatService._appendHistory, so its last-message
+    // cache (the preview source below) is stale until refreshed.
+    _ffiService?.refreshConversationCacheFromHistory(msg.conversationID);
+    await _applyMessageToConversation(msg);
+  }
+
   void _emitConvList() {
     if (_convCtrl.isClosed) return;
     final updatedList = _convMap.values.toList();
@@ -823,7 +803,12 @@ class FakeChatDataProvider implements ChatDataProvider {
       }
     }
 
-    final msg = V2TimMessage(elemType: elemType);
+    // fromJson, not the constructor: the constructor calls the native
+    // getServerTime() for a client-time stamp that only ever reaches toJson,
+    // while `timestamp` is set explicitly below. Keeps this preview builder
+    // pure Dart (no native round-trip per conversation row; unit-testable).
+    final msg = V2TimMessage.fromJson(<String, dynamic>{});
+    msg.elemType = elemType;
     msg.msgID = chatMsg.msgID;
     msg.userID = chatMsg.fromUserId;
     msg.sender = chatMsg
@@ -1090,6 +1075,7 @@ class FakeChatDataProvider implements ChatDataProvider {
     _unreadSub?.cancel();
     _messageSub?.cancel();
     _friendDeletedSub?.cancel();
+    _friendAddedSub?.cancel();
     _groupDeletedSub?.cancel();
     final listener = _sdkConvListener;
     if (listener != null) {

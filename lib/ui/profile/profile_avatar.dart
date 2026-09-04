@@ -1,8 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../util/app_theme_config.dart';
 import '../testing/ui_keys.dart';
+import '../widgets/user_avatar_circle.dart';
 
 /// Circular avatar with optional online dot + camera-edit affordance.
 ///
@@ -39,45 +39,17 @@ class ProfileAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bool hasCustomAvatar =
-        avatarPath != null && avatarPath!.isNotEmpty && avatarFileExists;
-    // 3× DPR target so the decoded image is sized for hi-DPI displays without
-    // wasting memory on full-res source files.
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheDim = (size * dpr).ceil();
-
-    final fallback = Text(
-      displayInitial,
-      style: TextStyle(
-        fontSize: size * 0.36,
-        color: onPrimary,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.5,
-      ),
-    );
-    final Widget avatar = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: hasCustomAvatar ? Colors.transparent : primaryColor,
-        border: Border.all(color: scheme.outlineVariant, width: 1),
-      ),
-      alignment: Alignment.center,
-      child: hasCustomAvatar
-          ? ClipOval(
-              child: Image.file(
-                File(avatarPath!),
-                key: ValueKey('avatar-$avatarVersion'),
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                cacheWidth: cacheDim,
-                cacheHeight: cacheDim,
-                errorBuilder: (_, __, ___) => fallback,
-              ),
-            )
-          : fallback,
+    // The circle itself is the shared self-avatar widget, so this page can
+    // never drift from the sidebar / settings / login fallback again.
+    final Widget avatar = UserAvatarCircle(
+      size: size,
+      initial: displayInitial,
+      backgroundColor: primaryColor,
+      foregroundColor: onPrimary,
+      avatarPath: avatarPath,
+      avatarFileExists: avatarFileExists,
+      avatarVersion: avatarVersion,
+      border: Border.all(color: scheme.outlineVariant, width: 1),
     );
 
     final stackChildren = <Widget>[
@@ -91,47 +63,51 @@ class ProfileAvatar extends StatelessWidget {
     ];
 
     if (showOnlineDot) {
-      stackChildren.add(PositionedDirectional(
-        end: 2,
-        bottom: 2,
-        child: Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: isConnected
-                ? AppThemeConfig.successColor
-                : scheme.outlineVariant,
-            shape: BoxShape.circle,
-            border: Border.all(color: scheme.surface, width: 2),
-          ),
-        ),
-      ));
-    }
-
-    if (isEditable) {
-      stackChildren.add(PositionedDirectional(
-        end: 0,
-        bottom: 0,
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: UiKeys.profileAvatarEditButton,
-            onTap: onTap,
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: primaryColor,
-                shape: BoxShape.circle,
-                border: Border.all(color: scheme.surface, width: 2),
-              ),
-              child: Icon(Icons.camera_alt, size: 14, color: onPrimary),
+      stackChildren.add(
+        PositionedDirectional(
+          end: 2,
+          bottom: 2,
+          child: Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: isConnected
+                  ? AppThemeConfig.successColor
+                  : scheme.outlineVariant,
+              shape: BoxShape.circle,
+              border: Border.all(color: scheme.surface, width: 2),
             ),
           ),
         ),
-      ));
+      );
+    }
+
+    if (isEditable) {
+      stackChildren.add(
+        PositionedDirectional(
+          end: 0,
+          bottom: 0,
+          child: Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: UiKeys.profileAvatarEditButton,
+              onTap: onTap,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: scheme.surface, width: 2),
+                ),
+                child: Icon(Icons.camera_alt, size: 14, color: onPrimary),
+              ),
+            ),
+          ),
+        ),
+      );
     }
 
     if (stackChildren.length == 1) {

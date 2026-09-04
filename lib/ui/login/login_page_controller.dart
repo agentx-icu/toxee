@@ -7,6 +7,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../../auth/login_use_case.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
+import '../../util/default_avatar_installer.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
@@ -133,24 +134,6 @@ typedef RollbackFullBackupImportFn = Future<void> Function({String? toxId});
 typedef RollbackImportedAccountFn =
     Future<void> Function({required String toxId, required String logContext});
 
-Future<void> _defaultAddAccount({
-  required String toxId,
-  required String nickname,
-  required String statusMessage,
-  required bool autoLogin,
-  required bool autoAcceptFriends,
-  required bool notificationSoundEnabled,
-}) {
-  return Prefs.addAccount(
-    toxId: toxId,
-    nickname: nickname,
-    statusMessage: statusMessage,
-    autoLogin: autoLogin,
-    autoAcceptFriends: autoAcceptFriends,
-    notificationSoundEnabled: notificationSoundEnabled,
-  );
-}
-
 Future<bool> _defaultEncryptProfileFile(
   String profileFilePath,
   String password,
@@ -186,7 +169,9 @@ class LoginPageController {
        _readFullBackupMetadataFn =
            readFullBackupMetadataFn ??
            AccountExportService.readFullBackupMetadata,
-       _addAccountFn = addAccountFn ?? _defaultAddAccount,
+       // `Prefs.addAccount` satisfies `AddAccountFn` directly (its extra
+       // named params are optional), so no forwarding wrapper is needed.
+       _addAccountFn = addAccountFn ?? Prefs.addAccount,
        _setAccountPasswordFn = setAccountPasswordFn ?? Prefs.setAccountPassword,
        _encryptProfileFileFn =
            encryptProfileFileFn ?? _defaultEncryptProfileFile,
@@ -370,6 +355,9 @@ class LoginPageController {
       if (isZip) {
         await _finalizeFullBackupImportFn(toxId: toxId);
       }
+      // After the .zip finalize so a restored self avatar is adopted, not
+      // shadowed by a fresh default; the picker then has an avatar pre-login.
+      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
       if (!isZip && password != null && password.isNotEmpty) {
         final persisted = await _setAccountPasswordFn(toxId, password);
         if (!persisted) {
@@ -534,6 +522,7 @@ class LoginPageController {
         autoAcceptFriends: false,
         notificationSoundEnabled: true,
       );
+      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
       if (password != null && password.isNotEmpty) {
         final persisted = await _setAccountPasswordFn(toxId, password);
         if (!persisted) {

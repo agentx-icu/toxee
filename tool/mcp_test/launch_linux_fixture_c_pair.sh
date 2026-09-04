@@ -155,8 +155,14 @@ fi
 # ----- Same-host TCP-only mode (mirrors the macOS launcher) -----------------
 A_TCP_ENV=(); B_TCP_ENV=()
 if [[ "${TOXEE_PAIR_TCP_ONLY:-}" == "1" || "${TOXEE_PAIR_TCP_ONLY:-}" == "true" ]]; then
-    A_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="${TOXEE_PAIR_TCP_RELAY_PORT:-3389}")
-    B_TCP_ENV=(TOX_FORCE_TCP_ONLY=1)
+    # Each side hosts its own relay (B = A + 1) so each connects through the
+    # PEER's relay with the peer's key; with A's relay alone the A -> B wire
+    # dialed A's own port with B's key (wrong server key) and A only became
+    # "connected" through a public relay.
+    _relay_a="${TOXEE_PAIR_TCP_RELAY_PORT:-3389}"
+    _relay_b=$((_relay_a + 1))
+    A_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="$_relay_a")
+    B_TCP_ENV=(TOX_FORCE_TCP_ONLY=1 TOX_TCP_RELAY_PORT="$_relay_b")
     info "TCP-only same-host mode ON (A relay port ${TOXEE_PAIR_TCP_RELAY_PORT:-3389})"
 fi
 
@@ -208,13 +214,19 @@ launch_instance() { # name port tcp_env...
     local vm_uri="${ws/ws:/http:}"; vm_uri="${vm_uri%/ws}"
     local log_exists=false
     [[ -f "$support/flutter_client.log" ]] && log_exists=true
+    # tcp_relay_port: the relay THIS instance hosts (from its TOX_TCP_RELAY_PORT
+    # env entry, "" when none) so re-wires can dial the PEER's relay.
+    local relay_port=""
+    local kv; for kv in "$@"; do [[ "$kv" == TOX_TCP_RELAY_PORT=* ]] && relay_port="${kv#TOX_TCP_RELAY_PORT=}"; done
     jq -n \
         --arg name "$name" --argjson pid "$pid" --arg inst "$inst" \
         --arg stdio "$stdio" --arg vm "$vm_uri" --arg ws "$ws" \
+        --arg relay "$relay_port" \
         --argjson logx "$log_exists" \
         '{format_version: 1, instance_name: $name, pid: $pid,
           home_override_dir: $inst, stdio_log: $stdio,
-          vm_uri: $vm, ws_uri: $ws, app_support_log_exists: $logx}' \
+          vm_uri: $vm, ws_uri: $ws, tcp_relay_port: $relay,
+          app_support_log_exists: $logx}' \
         > "$inst/instance.json"
     info "$name pid=$pid ws_uri=$ws"
 }

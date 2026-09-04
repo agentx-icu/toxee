@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../util/platform_utils.dart';
 import '../../util/responsive_layout.dart';
+import 'modal_barrier_mirror.dart';
 
 /// Height of the transparent draggable strip at the top of the frameless window.
 /// Single source of truth lives in [ResponsiveLayout.desktopTitleBarDragHeight]
@@ -26,6 +27,11 @@ class DesktopWindowFrame extends StatefulWidget {
   const DesktopWindowFrame({super.key, required this.child});
 
   final Widget child;
+
+  /// Register in `MaterialApp.navigatorObservers`: lets the caption strip dim
+  /// with the app's modal barriers (see [ModalBarrierMirror]).
+  static final ModalBarrierObserver modalBarrierObserver =
+      ModalBarrierObserver();
 
   @override
   State<DesktopWindowFrame> createState() => _DesktopWindowFrameState();
@@ -117,27 +123,32 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
           Positioned(
             top: 0,
             right: 0,
-            child: Material(
-              color: Theme.of(context).colorScheme.surface,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _WindowControlButton(
-                    icon: Icons.remove_rounded,
-                    onPressed: () => windowManager.minimize(),
-                  ),
-                  _WindowControlButton(
-                    icon: _isMaximized
-                        ? Icons.filter_none_rounded
-                        : Icons.crop_square_rounded,
-                    onPressed: _toggleMaximize,
-                  ),
-                  _WindowControlButton(
-                    icon: Icons.close_rounded,
-                    danger: true,
-                    onPressed: () => windowManager.close(),
-                  ),
-                ],
+            // Dims with the app's modal barrier: this strip sits ABOVE the
+            // Navigator, where ModalBarrier can never reach it.
+            child: ModalBarrierMirror(
+              observer: DesktopWindowFrame.modalBarrierObserver,
+              child: Material(
+                color: Theme.of(context).colorScheme.surface,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _WindowControlButton(
+                      icon: Icons.remove_rounded,
+                      onPressed: () => windowManager.minimize(),
+                    ),
+                    _WindowControlButton(
+                      icon: _isMaximized
+                          ? Icons.filter_none_rounded
+                          : Icons.crop_square_rounded,
+                      onPressed: _toggleMaximize,
+                    ),
+                    _WindowControlButton(
+                      icon: Icons.close_rounded,
+                      danger: true,
+                      onPressed: () => windowManager.close(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

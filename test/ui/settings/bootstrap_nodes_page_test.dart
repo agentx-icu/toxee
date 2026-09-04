@@ -328,4 +328,114 @@ void main() {
       findsNothing,
     );
   });
+
+  // --- "Switch node" affordance -------------------------------------------
+  // The row's trailing action used to be a bare dimmed chevron (and a second
+  // paper plane after a successful probe), which read as "open details". It
+  // is now an explicit labelled button; these lock its contract.
+
+  testWidgets('switch button is labelled, enabled online, and confirms', (
+    tester,
+  ) async {
+    await Prefs.setCurrentBootstrapNode(
+      _original.host,
+      _original.port,
+      _original.pubkey,
+    );
+    final service = _RecordingService();
+    await _pumpPage(
+      tester,
+      service: service,
+      fetchNodes: () async => [_candidate],
+    );
+
+    final button = find.byKey(
+      ValueKey('bootstrap_node_switch_${_candidate.publicKey}'),
+    );
+    expect(button, findsOneWidget);
+    expect(find.byIcon(Icons.swap_horiz), findsOneWidget);
+    // Wide layout: the intent is spelled out on the button itself.
+    expect(find.text('Switch Node'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    final filled = tester.widget<FilledButton>(
+      find.descendant(of: button, matching: find.byType(FilledButton)),
+    );
+    expect(filled.onPressed, isNotNull);
+
+    await tester.tap(button);
+    await tester.pump();
+    // Same confirm dialog as the row tap ("Switch Node" title + OK).
+    expect(find.text('Switch Node'), findsNWidgets(2));
+    await tester.tap(find.text('OK'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(service.added, hasLength(1));
+    _expectCurrentNode((
+      host: _candidate.ipv4,
+      port: _candidate.port,
+      pubkey: _candidate.publicKey,
+    ));
+  });
+
+  testWidgets('switch button is disabled for an offline node with the reason', (
+    tester,
+  ) async {
+    final offline = BootstrapNode(
+      ipv4: '192.0.2.21',
+      ipv6: '',
+      port: 33445,
+      publicKey: 'E' * 64,
+      status: 'OFFLINE',
+    );
+    await _pumpPage(
+      tester,
+      service: _RecordingService(),
+      fetchNodes: () async => [offline],
+    );
+
+    final button = find.byKey(
+      ValueKey('bootstrap_node_switch_${offline.publicKey}'),
+    );
+    expect(button, findsOneWidget);
+    final filled = tester.widget<FilledButton>(
+      find.descendant(of: button, matching: find.byType(FilledButton)),
+    );
+    expect(filled.onPressed, isNull);
+    expect(find.byTooltip('Can only select online nodes'), findsOneWidget);
+  });
+
+  testWidgets('switch button collapses to an icon on phone widths', (
+    tester,
+  ) async {
+    // The card reads MediaQuery.sizeOf, which comes from the test VIEW
+    // (setSurfaceSize only changes the root layout constraints).
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _harness(
+        service: _RecordingService(),
+        fetchNodes: () async => [_candidate],
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final button = find.byKey(
+      ValueKey('bootstrap_node_switch_${_candidate.publicKey}'),
+    );
+    expect(button, findsOneWidget);
+    expect(
+      find.descendant(of: button, matching: find.byType(FilledButton)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: button, matching: find.byIcon(Icons.swap_horiz)),
+      findsOneWidget,
+    );
+    // The intent survives as the tooltip.
+    expect(find.byTooltip('Switch Node'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

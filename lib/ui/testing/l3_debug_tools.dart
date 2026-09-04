@@ -467,18 +467,12 @@ Future<bool> _activeAccountIsTest() async {
   return _isL3SeedToxId(toxId);
 }
 
-/// codex Item B: each C2C-only tool rejects an explicit `group_` id, but that
-/// guard runs BEFORE the `ffi.activePeerId` fallback — and the active id is
-/// already normalized (its `group_` prefix stripped), so a group conversation
-/// could slip into a C2C-only tool via the fallback. Re-check the RESOLVED bare
-/// id against ALL group sources (all normalized/prefix-less):
-///   - [liveGroups] = `ffi.knownGroups` — AUTHORITATIVE in-memory joined set
-///     (one receive path adds without persisting immediately, so
-///     `Prefs.getGroups` alone misses freshly-joined groups);
-///   - [quitGroups] = `ffi.quitGroups` — a JUST-QUIT group is removed from
-///     knownGroups but `activePeerId` is NOT cleared on quit, so a quit-but-
-///     still-active group id could otherwise slip through as fake C2C
-///     (codex re-review caught this);
+/// codex Item B: the `group_` guard runs BEFORE the `ffi.activePeerId`
+/// fallback (already prefix-less), so re-check the RESOLVED bare id against ALL
+/// group sources (all normalized/prefix-less):
+///   - [liveGroups] = `ffi.knownGroups` (authoritative; `Prefs.getGroups`
+///     alone misses freshly-joined groups);
+///   - [quitGroups] = `ffi.quitGroups` (`activePeerId` is NOT cleared on quit);
 ///   - `Prefs.getGroups()` — persisted backstop.
 /// Returns a rejection result if [bareUserId] is any kind of group, else null.
 Future<MCPCallResult?> _rejectIfGroupTarget(
@@ -2346,6 +2340,11 @@ MCPCallEntry _l3ClearActiveConversationEntry() => MCPCallEntry.tool(
     final previousActivePeerId = ffi.activePeerId;
     ffi.setActivePeer(null);
     UikitDataFacade.currentConversation = null;
+    // Desktop master-detail: the HomePage detail pane stays mounted and marks
+    // inbound messages read — re-apply the shell tab (the product's deselect path).
+    final shellApplier = _l3HomeShellApplier;
+    final shellTab = _l3HomeShellSnapshotReader?.call()['tab']?.toString();
+    if (shellApplier != null && shellTab != null) await shellApplier(shellTab);
     AppLogger.info(
       '[L3] l3_clear_active_conversation: cleared '
       '${previousConversationId ?? previousActivePeerId ?? 'none'}',
@@ -6297,8 +6296,8 @@ MCPCallEntry _l3AddBootstrapNodeEntry() => MCPCallEntry.tool(
 
 /// S63 (typing leg): send a C2C typing indicator via the real
 /// `FfiChatService.sendTyping` → `tox_self_set_typing` path. The peer observes
-/// it as `l3_dump_state.friends[].isTyping` (true while the received typing:1 is
-/// unexpired, ~3s). The read-receipt half of S63 is a documented no-op
+/// it as `l3_dump_state.friends[].isTyping` (true until typing:0 arrives, the
+/// peer goes offline, or the 30 s safety cap). The read-receipt half of S63 is a documented no-op
 /// (`_sendReceipt` early-returns). MUTATING, C2C-only, test/seed account.
 MCPCallEntry _l3SetTypingEntry() => MCPCallEntry.tool(
   handler: (request) async {
@@ -6767,10 +6766,10 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
       'selfId': ffi?.selfId,
       'activePeerId': ffi?.activePeerId,
       'isConnected': ffi?.isConnected,
+      'isTestAccount': await _activeAccountIsTest(), // gated-tool eligibility
       'nickname': await Prefs.getNickname(),
-      // S8/B10: the account's own status message (self-profile). Account Prefs
-      // (Prefs.getStatusMessage), coerced null→'' so the unset state is a stable
-      // '' (not null) — lets a gate assert an empty-status START invariant via
+      // S8/B10: own status message; null→'' so the unset state is a stable ''
+      // (not null) — lets a gate assert an empty-status START invariant via
       // state_equals and round-trip via state{contains|notContains}.
       'statusMessage': (await Prefs.getStatusMessage()) ?? '',
       // The current account's persisted self-avatar path (Prefs). '' when unset.
