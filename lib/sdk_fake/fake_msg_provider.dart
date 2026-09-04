@@ -460,26 +460,24 @@ class FakeChatMessageProvider
     String? groupID,
     required String imagePath,
     String? imageName,
+  }) => sendImageWithResult(
+    userID: userID,
+    groupID: groupID,
+    imagePath: imagePath,
+    imageName: imageName,
+  );
+
+  @override
+  Future<ChatMessageSendResult?> sendImageWithResult({
+    String? userID,
+    String? groupID,
+    required String imagePath,
+    String? imageName,
   }) async {
-    final conv = (groupID != null && groupID.isNotEmpty)
-        ? 'group_$groupID'
-        : 'c2c_$userID';
-    final mgr = FakeUIKit.instance.messageManager;
-    if (mgr == null) {
-      return;
-    }
-
-    // P1-19: pre-check group transfers. The Tox group layer does not
-    // support file transfer; failing fast here prevents UIKit from
-    // inserting a SENDING bubble that will never resolve.
-    if (groupID != null && groupID.isNotEmpty) {
-      throw StateError('Group file transfer is not supported in toxee');
-    }
-
     // P1-21 (degraded): no compression / no EXIF strip (would require new
     // pubspec deps for a real fix). Surface large images in the log so
     // ops can spot the situation; rely on Tox's file_transfer flow
-    // otherwise.
+    // otherwise. The size check itself is best-effort.
     try {
       final size = await File(imagePath).length();
       if (size > 5 * 1024 * 1024) {
@@ -487,18 +485,8 @@ class FakeChatMessageProvider
           '[sendImage] large image (${size ~/ 1024}KB) sent without compression — TODO(P1-21)',
         );
       }
-    } catch (_) {
-      // File-size check is best-effort.
-    }
-
-    // C2C offline is handled inside FfiChatService.sendFile: it queues the
-    // transfer and surfaces a pending bubble. Drain runs when the friend's
-    // status flips online.
-    try {
-      await mgr.sendFile(conv, imagePath);
-    } catch (e) {
-      rethrow;
-    }
+    } catch (_) {}
+    return _sendMediaWithResult(userID: userID, groupID: groupID, path: imagePath);
   }
 
   @override
@@ -507,30 +495,41 @@ class FakeChatMessageProvider
     String? groupID,
     required String filePath,
     String? fileName,
-  }) async {
-    final conv = (groupID != null && groupID.isNotEmpty)
-        ? 'group_$groupID'
-        : 'c2c_$userID';
-    final mgr = FakeUIKit.instance.messageManager;
-    if (mgr == null) {
-      return;
-    }
+  }) => sendFileWithResult(
+    userID: userID,
+    groupID: groupID,
+    filePath: filePath,
+    fileName: fileName,
+  );
 
+  @override
+  Future<ChatMessageSendResult?> sendFileWithResult({
+    String? userID,
+    String? groupID,
+    required String filePath,
+    String? fileName,
+  }) => _sendMediaWithResult(userID: userID, groupID: groupID, path: filePath);
+
+  /// Image and file sends share one transport. Returns the echo identity
+  /// (real msgID + pending state) so the platform reconciles the UIKit's
+  /// `created_temp_id-*` optimistic bubble with the echo on the message
+  /// stream, as text always did — media not doing it rendered every send
+  /// twice. C2C offline is handled inside FfiChatService.sendFile (queued
+  /// transfer + pending bubble; drained when the friend comes online).
+  Future<ChatMessageSendResult?> _sendMediaWithResult({
+    required String? userID,
+    required String? groupID,
+    required String path,
+  }) async {
+    final mgr = FakeUIKit.instance.messageManager;
+    if (mgr == null) return null;
     // P1-19: pre-check group transfers. The Tox group layer does not
     // support file transfer; failing fast here prevents UIKit from
     // inserting a SENDING bubble that will never resolve.
     if (groupID != null && groupID.isNotEmpty) {
       throw StateError('Group file transfer is not supported in toxee');
     }
-
-    // C2C offline is handled inside FfiChatService.sendFile: it queues the
-    // transfer and surfaces a pending bubble. Drain runs when the friend's
-    // status flips online.
-    try {
-      await mgr.sendFile(conv, filePath);
-    } catch (e) {
-      rethrow;
-    }
+    return mgr.sendFile('c2c_$userID', path);
   }
 
   /// Find a message by msgID across all conversation buffers

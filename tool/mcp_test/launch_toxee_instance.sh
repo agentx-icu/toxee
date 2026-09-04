@@ -50,6 +50,20 @@ BUILD_DIR="$INSTANCE_DIR/build"
 STDIO_LOG="$BUILD_DIR/toxee_stdio.log"
 VM_URI_FILE="$BUILD_DIR/vm_service_uri.txt"
 JSON_FILE="$INSTANCE_DIR/instance.json"
+# Relaunch of a TCP-only instance (drive_real_ui_pair_instance_ctl.dart stops
+# then launches with a bare env): restore TOX_FORCE_TCP_ONLY / TOX_TCP_RELAY_PORT
+# from the record stop_toxee_instance.sh retired, unless the caller set either
+# variable explicitly. Without this the relaunched side came back UDP/DHT-only
+# with no relay and could not reach its TCP-only peer.
+RETIRED_JSON="$JSON_FILE.stopped"
+if [[ -z "${TOX_FORCE_TCP_ONLY+x}" && -z "${TOX_TCP_RELAY_PORT+x}" && -f "$RETIRED_JSON" ]]; then
+    if [[ "$(jq -r 'if .tcp_only == true then "1" else "" end' "$RETIRED_JSON" 2>/dev/null)" == "1" ]]; then
+        export TOX_FORCE_TCP_ONLY=1
+        restored_relay_port="$(jq -r '.tcp_relay_port // ""' "$RETIRED_JSON" 2>/dev/null)"
+        [[ -n "$restored_relay_port" ]] && export TOX_TCP_RELAY_PORT="$restored_relay_port"
+        echo "launch_toxee_instance.sh: restored TCP-only contract from $RETIRED_JSON (relay=${restored_relay_port:-none})"
+    fi
+fi
 APP_SUPPORT_LOG="$APP_SUPPORT_OVERRIDE_DIR/flutter_client.log"
 APP_SUPPORT_LOG_DIR="$APP_SUPPORT_OVERRIDE_DIR/logs"
 PRE_LAUNCH_APP_LOGS_FILE="$BUILD_DIR/prelaunch_app_logs.txt"
@@ -223,7 +237,9 @@ python3 "$INSTANCE_JSON_WRITER" \
     --vm-uri "$vm_uri" \
     --ws-uri "$ws_uri" \
     --app-support-log "$APP_SUPPORT_LOG" \
-    --default-support-log "$DEFAULT_SUPPORT_LOG"
+    --default-support-log "$DEFAULT_SUPPORT_LOG" \
+    --tcp-relay-port "${TOX_TCP_RELAY_PORT:-}" \
+    --tcp-only "${TOX_FORCE_TCP_ONLY:-}"
 
 LAUNCHED_PID=""
 trap - EXIT

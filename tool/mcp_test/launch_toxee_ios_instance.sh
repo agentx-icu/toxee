@@ -240,7 +240,8 @@ python3 "$INSTANCE_JSON_WRITER" \
   --vm-uri "$vm_uri" \
   --ws-uri "$ws_uri" \
   --app-support-log "$APP_SUPPORT_LOG" \
-  --default-support-log "$DEFAULT_SUPPORT_LOG"
+  --default-support-log "$DEFAULT_SUPPORT_LOG" \
+  --tcp-relay-port "${TOXEE_IOS_TCP_RELAY_PORT:-}"
 
 echo "OK: launched iOS $INSTANCE_NAME pid=$LAUNCH_PID ws_uri=$ws_uri simulator=$SIMULATOR_ID"
 echo "json: $JSON_FILE"

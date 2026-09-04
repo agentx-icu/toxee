@@ -203,14 +203,14 @@ part 'drive_real_ui_pair_p3.dart';
 part 'drive_real_ui_pair_app_entry_extra.dart';
 part 'drive_real_ui_pair_group_mention.dart';
 part 'drive_real_ui_pair_mobile_shell.dart';
-//   sweep_tally — the shared PASS/FAIL/SKIP verdict rule (net shrink: extracted
-//   out of mobile_shell once four unrelated sweeps started sharing it).
 part 'drive_real_ui_pair_sweep_tally.dart';
+//   instance_ctl — per-platform stop/relaunch of ONE peer (relaunch cases).
+part 'drive_real_ui_pair_instance_ctl.dart';
 //   msg_select(+_cases) — MESSAGE MULTI-SELECT surface + `dispatchFormFactor`.
 part 'drive_real_ui_pair_msg_select.dart';
 part 'drive_real_ui_pair_msg_select_cases.dart';
-//   keyed_gaps(+_register/_irc) — keyed-but-never-driven batch #2, dispatched
-//   from `dispatchFormFactor` so this file needs no new dispatch lines.
+//   keyed_gaps(+_register/_irc) — keyed-but-never-driven batch #2 (dispatched
+//   from `dispatchFormFactor`).
 part 'drive_real_ui_pair_keyed_gaps.dart';
 part 'drive_real_ui_pair_keyed_gaps_register.dart';
 part 'drive_real_ui_pair_keyed_gaps_irc.dart';

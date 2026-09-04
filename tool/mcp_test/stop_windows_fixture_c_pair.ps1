@@ -11,17 +11,20 @@ $ErrorActionPreference = "Continue"
 
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot    = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
-$RuntimeRoot = if ($env:TOXEE_WINDOWS_RUNTIME_ROOT) { $env:TOXEE_WINDOWS_RUNTIME_ROOT } else { Join-Path $ScriptDir ".windows_runtime" }
+$RuntimeRoot = if ($env:TOXEE_WINDOWS_RUNTIME_ROOT) { $env:TOXEE_WINDOWS_RUNTIME_ROOT } else { Join-Path $RepoRoot "build\windows_runtime" }
 $PairJson    = Join-Path $RuntimeRoot "pair.json"
 $BuildRunnerParent = Join-Path $RepoRoot "build\windows"
+
+. (Join-Path $ScriptDir "win_instance_identity.ps1")
 
 function Stop-ToxeeInstance([string]$name) {
   $json = Join-Path (Join-Path $RuntimeRoot $name) "instance.json"
   if (Test-Path $json) {
     try {
-      $procPid = (Get-Content $json -Raw | ConvertFrom-Json).pid
-      if ($procPid) {
-        & taskkill /F /T /PID $procPid 2>$null | Out-Null
+      # Identity-checked (exe + start time): a reused pid is never killed.
+      $proc = Get-ToxeeInstanceProcess (Get-Content $json -Raw | ConvertFrom-Json)
+      if ($proc) {
+        & taskkill /F /T /PID $proc.Id 2>$null | Out-Null
       }
     } catch {
       # best-effort

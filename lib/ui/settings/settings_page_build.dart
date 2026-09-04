@@ -41,36 +41,19 @@ extension _SettingsPageBuild on _SettingsPageState {
                 if (_currentNickname != null) ...[
                   Row(
                     children: [
-                      CircleAvatar(
+                      // Shared self-avatar widget — same fallback as the
+                      // sidebar rail and the profile page.
+                      UserAvatarCircle(
                         key: ValueKey('settings-avatar-$_avatarPath'),
-                        radius: 20,
+                        size: 40,
+                        initial: UserAvatarCircle.initialFor(_currentNickname),
                         backgroundColor: colorTheme.primaryColor,
-                        child:
+                        foregroundColor: colorTheme.onPrimary,
+                        avatarPath: _avatarPath,
+                        avatarFileExists:
                             _avatarPath != null &&
-                                _avatarPath!.isNotEmpty &&
-                                File(_avatarPath!).existsSync()
-                            ? ClipOval(
-                                child: Image.file(
-                                  File(_avatarPath!),
-                                  key: ValueKey(
-                                    'settings-avatar-img-$_avatarPath',
-                                  ),
-                                  width: 40,
-                                  height: 40,
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : Text(
-                                (_currentNickname!.isNotEmpty
-                                        ? _currentNickname![0]
-                                        : 'U')
-                                    .toUpperCase(),
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(
-                                      color: colorTheme.onPrimary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
+                            _avatarPath!.isNotEmpty &&
+                            File(_avatarPath!).existsSync(),
                       ),
                       AppSpacing.horizontalMd,
                       Expanded(

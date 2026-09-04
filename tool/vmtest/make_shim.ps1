@@ -21,6 +21,13 @@ if (-not (Test-Path (Join-Path $Src "pubspec.yaml"))) { throw "$Src does not loo
 New-Item -ItemType Directory -Force -Path $Dst | Out-Null
 
 $SkipTop = @(".git", "build", ".dart_tool", "Thumbs.db")
+# EVERY Flutter platform runner dir gets the "real dir + local flutter\ephemeral"
+# treatment, not just the platform being built: `flutter pub get` writes
+# <platform>\flutter\ephemeral\.plugin_symlinks for every platform dir the
+# project has (verified: building windows died creating
+# linux\flutter\ephemeral\.plugin_symlinks — ERROR_INVALID_FUNCTION, a symlink
+# cannot be created inside a share-backed directory).
+$PlatformDirs = @("windows", "linux", "macos", "android", "ios", "web")
 
 function Link-OrCopy([string]$srcEntry, [string]$dstEntry) {
   if (Test-Path -LiteralPath $srcEntry -PathType Container) {
@@ -35,6 +42,14 @@ function Link-OrCopy([string]$srcEntry, [string]$dstEntry) {
     New-Item -ItemType SymbolicLink -Path $dstEntry -Target $srcEntry | Out-Null
   } else {
     Copy-Item -LiteralPath $srcEntry -Destination $dstEntry -Force
+    # The Parallels share exposes dotfiles (.flutter-plugins-dependencies,
+    # .metadata, .gitignore, …) with the HIDDEN attribute, and Copy-Item keeps
+    # it. The flutter tool then cannot rewrite them — Windows refuses to
+    # truncate/recreate a hidden file ("Flutter failed to write to a file at
+    # …\.flutter-plugins-dependencies … cannot access the file") and `flutter
+    # pub get` dies on the very first run. Normalize every copied file to a
+    # plain writable file (also drops a read-only bit a read-only share adds).
+    Set-ItemProperty -LiteralPath $dstEntry -Name Attributes -Value ([IO.FileAttributes]::Archive)
   }
 }
 
@@ -65,10 +80,15 @@ foreach ($e in (Get-ChildItem -LiteralPath $Src -Force)) {
     }
     continue
   }
-  if ($n -eq $Platform -and $e.PSIsContainer) {
+  if (($PlatformDirs -contains $n) -and $e.PSIsContainer) {
     # Platform runner dir: real dir; flutter\ real (generated_* written locally),
     # flutter\ephemeral left absent for the flutter tool to create locally.
     $platDst = Join-Path $Dst $n
+    # Migration: an earlier shim symlinked the non-target platform dirs
+    # wholesale; replace such a link with a real dir.
+    if ((Test-Path -LiteralPath $platDst) -and ((Get-Item -LiteralPath $platDst -Force).LinkType)) {
+      (Get-Item -LiteralPath $platDst -Force).Delete()
+    }
     New-Item -ItemType Directory -Force -Path $platDst | Out-Null
     foreach ($e2 in (Get-ChildItem -LiteralPath $e.FullName -Force)) {
       if ($e2.Name -eq "flutter" -and $e2.PSIsContainer) {

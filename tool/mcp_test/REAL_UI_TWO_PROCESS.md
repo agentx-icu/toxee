@@ -1512,6 +1512,276 @@ trees into `<runtime>\support\A|B` and the instances boot them via
 Android-only. OpenSSL runtime DLLs for `libirc_client.dll` are staged from
 `build\native-artifacts\windows\` (produced by `--with-irc`).
 
+## Windows — aligned with macOS (2026-09-04, win11_ltsc Parallels VM)
+
+Windows used to be the "headless" desktop: every `osa*` primitive was
+substituted by an l3 / flutter_skill seam, the relaunch sweeps could not run
+(they shelled out to the macOS `.sh` single-instance launchers), and nothing
+had been run on the VM since the 2026-07 restore work. It now has the same
+three things macOS has — a REAL OS-input layer, peer process control, and a
+campaign catalog — plus a runbook that works from an SSH session.
+
+### Real OS input (`TOXEE_WIN_OS_INPUT=1`)
+
+`drive_real_ui_pair_inst_os_input.dart` gained a Windows backend: every
+`osa*` wrapper (type / paste / Return / Shift+Return / Escape / clear /
+clipboard) runs a PowerShell step through `tool/mcp_test/win_os_input.ps1`
+(passed as `-EncodedCommand`; `-Command <text>` strips embedded double
+quotes), serialized on the same chain as osascript so two peers' key events
+never interleave. Each step starts with `Enter-ToxeeInput`: release stuck
+modifiers, `Set-ToxeeForeground` (verified with `GetForegroundWindow`; the
+`AttachThreadInput` bypass is what actually wins against the peer's foreground
+lock), then `FocusFlutterView` (Win32 focus on the engine's `FLUTTERVIEW`
+child). Keys go through `Send-ScanText` / `Send-ScanKey` — `SendInput` WITH
+real scan codes, Shift held across shifted runs, 25 ms per key. `focusType`
+takes the real paste path (with the `getTextValue` verify + `enterText`
+fallback macOS has), the composer send / multiline / "typed but not sent" /
+real Ctrl+V image-paste (`System.Windows.Forms.Clipboard.SetImage`) cases run
+their genuine keystroke paths, and `_usesSyntheticInput` is false for Windows
+under the flag. It is OPT-IN because it needs the interactive window station:
+the driver must run INSIDE the console session (see runbook); without the flag
+Windows keeps the documented synthetic contract byte-for-byte. Still
+substituted even with the flag: the three Cmd+Ctrl chords (search / new
+conversation / settings) — the app binds them with `meta` = the Windows key —
+so they stay on their l3 intent seams.
+
+Why not `WScript.Shell.AppActivate` + `SendKeys` (the first cut, 2026-09-04,
+diagnosed with `probe_win_composer_input.dart`, runs 9-18):
+
+- **`SendKeys` never reached Flutter at all.** It injects virtual keys with
+  scan code 0; the Windows embedder maps every such key to the same physical
+  key (`0x1600000000`), the first key-up mismatches the logical key recorded
+  for it, `HardwareKeyboard` asserts (`'!_pressedKeys.containsKey(...)'`, 68
+  times in one run) and from then on EVERY KeyDown is rejected before text
+  input. Notepad took the same keys happily, so only a Flutter-side view of
+  the app log exposed it. Scan-coded `SendInput` produces zero assertions.
+- **`AppActivate(pid)` returned `True` while the peer stayed foreground.** B
+  is launched last and holds the input lock; `SetForegroundWindow` from a
+  third process is ignored (`SwitchToThisWindow` too, here). Keys therefore
+  went to B. And on an already-foreground window `AppActivate` moves Win32
+  focus from `FLUTTERVIEW` to the runner frame, where WM_CHAR is dropped.
+- **Toggling Shift per character dropped characters** (`REALNICK` → `R`,
+  `RE`, `REALN` at 6-40 ms); holding it across the shifted run and pacing
+  25 ms per key typed everything. Lower-case text was always intact.
+- **Cases must not type into a composer that is still settling** — the
+  draft coordinator reloads the field when the conversation context settles
+  and drops text typed before that (the probe's first typing step vanished;
+  the driver's `openChat` waits for the surface, so cases are unaffected).
+
+### Native crash the VM exposed: toxcore API calls raced `tox_iterate` (fixed in tim2tox)
+
+The first full `rui-win-os-input` runs died between sweeps: toxee A vanished during
+`reset_friendship` (Windows Application log: `tim2tox_ffi.dll` 0xc0000005 at 05:29:17,
+and an earlier `ntdll` 0xc0000374 heap corruption at 02:32). A's log showed the
+Tox event thread's `HandleFriendConnectionStatus` callback interleaved INSIDE the
+Dart thread's `tox_friend_delete`. tim2tox drives `tox_iterate()` from its own
+`event_thread_` but every FFI-side API call (`tox_friend_delete`, `tox_friend_add`,
+group/file APIs, ~300 sites) hit the same `Tox*` unserialized — toxcore is
+single-threaded per instance by contract (`tox.h`), and `ToxManager::iterate_mutex_`
+only ever guarded iterate vs shutdown. macOS runs the same code; the ARM64 VM's
+x64 emulation just widens the window (3 of 5 runs crashed there).
+
+Fix (tim2tox, shared native code, so mobile too): enable toxcore's own per-instance
+lock — `tox_options_set_experimental_thread_safety(opts, true)` in
+`ToxManager::initialize` (and the throwaway restore instance). toxcore takes the lock
+per API call and RELEASES it around every user callback, so callbacks may call tox
+APIs and take tim2tox mutexes without a lock-order cycle. The few toxcore entry
+points that bypass that lock (`tox_callback_*` registration, `toxav_new`/`toxav_kill`)
+now run under the new `ToxManager::lockIterate()` (no-op on the iterating thread).
+Symbols for the next crash: `TIM2TOX_NATIVE_BUILD_TYPE=RelWithDebInfo` (honoured by
+`tool/ci/build_tim2tox.sh`, PDB captured next to the DLL) + WER `LocalDumps` for
+`toxee.exe` into `C:\vmtest\dumps` + the SDK's `cdb` (`Debuggers\arm64\cdb.exe`
+reads x64 dumps).
+
+### Case fixes from the first Windows real-input runs
+
+- `image_preview_open_hardened` — two layers. (1) Harness: the keyed image bubble
+  resolved a centre BELOW the fold (Windows' default window is ≈625 logical px tall
+  and the freshly received image row hung under the composer), so the keyed tap hit
+  the composer; `_ensureKeyInViewport` (drive_real_ui_pair_geom.dart) wheel-scrolls
+  the list until the bubble sits above the composer. (2) PRODUCT, Tim2Tox Dart: the
+  bubble then showed the error placeholder because a received file was NEVER attached
+  to its message on Windows — `FfiChatService` validated native paths with
+  `startsWith('/')` (`progress_recv: WARNING - actualPath is invalid`, `file_done:
+  ERROR - Invalid local path`), which rejects every `C:\...` path; the completed
+  file sat in `file_recv/` while the message kept the `receiving_…` placeholder.
+  Now `_isAbsoluteLocalPath` (`package:path` `isAbsolute`); mobile/macOS paths start
+  with `/` and are unaffected.
+- `sweep_p1_relaunch` — two layers. (1) Harness: `_runInstanceCtl` captured the
+  single-instance launcher's stdio; the toxee.exe it starts inherits that pipe, so
+  the driver blocked until the app EXITED (25 min at "relaunching instance") — on
+  Windows it now spawns with `inheritStdio`. (2) Harness isolation, product side:
+  `shared_preferences_windows` rewrites ONE per-user JSON file from each process's
+  in-memory map, so A and B clobbered each other's keys on disk and the relaunched A
+  read back only B's (`l3_force_home_root refused — non-test account`); macOS'
+  NSUserDefaults merges per key, which is why the key prefix sufficed there. When
+  `TOXEE_APP_SUPPORT_DIR` is set on Windows/Linux, `PrefsBootstrap` now installs
+  `IsolatedPrefsStore` (`<dir>/shared_preferences.json`, serialized write-then-rename),
+  the same switch that isolates every other store.
+- `group_at_all_send` / `draft_restore_on_conv_switch` / `typing_indicator_render`
+  (real-keystroke premises) now run and pass on Windows under the flag.
+
+### Second pass — the leftovers, root-caused (2026-09-04, later)
+
+- **`read_receipt_double_tick` on a REUSED pair** — two layers. (1) Harness seam
+  gap on desktop: `l3_clear_active_conversation` cleared the FFI active peer and
+  the facade's current conversation but NOT the HomePage's detail pane, which
+  stays mounted in the master-detail layout and marks inbound read as it arrives;
+  the seam now re-applies the current shell tab (the product's own deselect
+  path). (2) The PRODUCT defect that remained (repro_rr8, B log): after
+  `reset_friendship` the `FakeFriendDeleted` handler tombstones `c2c_A` in
+  `FakeChatDataProvider._sdkDeletedConvIds`; the 5 s rebuild skips tombstoned
+  ids, and the only thing that lifted the tombstone was a `topicMessage` event —
+  which the product's inbound path never emits (the binary-replacement hook
+  persists directly and `_emitInboundMessage` stays silent). So after the
+  re-add, A's messages landed in persistence (`persistenceUnread=1`) while B's
+  sidebar entry (native-push placeholder) stayed at unread 0 / stale preview
+  until B opened the chat or sent something. Same for "delete conversation, peer
+  writes again". Fix: the hook now fires `onInboundMessagePersisted` after the
+  row is stored; toxee lifts the tombstone and rebuilds that one entry
+  (`FakeChatDataProvider.noteInboundMessagePersisted`), and FakeIM emits
+  `FakeFriendAdded` on the friend-list diff so a re-add lifts it too. Shared
+  Dart — covers mobile. Regression: `test/sdk_fake/fake_provider_inbound_tombstone_test.dart`.
+- **`sweep_p1_relaunch` flake (offline_pending / presence_dot after B's relaunch)**
+  — every relaunch log, passing or failing, shows the post-relaunch re-wire
+  returning `bootstrap ok=false` both ways: `l3_add_bootstrap_node` is
+  test-account gated and the relaunched side comes back without the seed
+  marker, so the re-wire was always refused and B only reconnected through the
+  relay its savedata still held. With per-peer relays (the restarted peer's
+  relay has a NEW DHT key, so A's stored entry is dead) that became a coin
+  flip. `_p1rReseedMutualBootstrap` now marks both sides for the wiring window
+  (and restores the non-test state), like the launch-time seed.
+- **`typing_indicator_render` flake** — Tim2Tox expired a received typing flag
+  3 s after arrival although tox typing is STATE (transmitted only on change);
+  any slow receiver dropped a still-typing peer. Now kept until the peer clears it
+  or goes offline (30 s safety cap); the case seeds once and samples after its scan.
+- **"A connected" timeouts (TCP-only pairs)** — A hosted the only relay, and the
+  A -> B wire dialed that same port with B's DHT key (a handshake against the
+  wrong server key), so A reached "connected" only through a public relay
+  (minutes, or never). Both launchers now give each side its own relay
+  (B = A + 1, recorded per instance in pair.json) and `wireFullMeshBootstrap`
+  connects each side to the PEER's relay (`pairInstanceTcpRelayPort`).
+- **Native log lines printed `{}` / `%zu` literally** — the legacy
+  `V2TIM_LOG(level, fmt, args...)` overload dropped every argument; it now
+  substitutes both placeholder styles (`V2TIMLog::legacyFormat`), so
+  `add_bootstrap_node host=127.0.0.1 port=33391 err=0` reads as such.
+- **`DeleteFriend` global callback threw** `List<dynamic> is not a subtype of
+  String` on every friend deletion (all platforms): SDK patch 0019 routes
+  `friend_id_array` through `_getGlobalCallbackJsonString`.
+- **`libirc_client.dll` missing on the Windows shim** — built once with
+  `build_tim2tox.sh --target windows --with-irc` (vcpkg openssl); captured next to
+  the FFI in `build/native-artifacts/windows`, bundled by the launcher.
+- **Recall-notice row overflow (screenshot 2026-09-04 14:09)** — the desktop
+  message row placed the tips item as a bare child of a max-size `Row`, so it got
+  UNBOUNDED width, capped itself to the WINDOW and overflowed the narrower pane.
+  The row now wraps it in `Flexible` (`tencent_cloud_chat_message_row.dart`) and the
+  tip caps to its pane constraints minus the margin
+  (`tencent_cloud_chat_message_tips_common.dart`). Regression test through the REAL
+  row: `test/ui/chat/message_tips_pane_width_test.dart` (fails on the old row with
+  `RenderFlex overflowed by 784 pixels`).
+
+### Live results (win11_ltsc, 2026-09-04, `TOXEE_WIN_OS_INPUT=1`)
+
+Re-derive rather than trust; one day's runs on an emulated-x64 ARM VM.
+
+| bundle / sweep | result | notes |
+| --- | --- | --- |
+| rui-win-os-input / sweep_group_mention | 2/0/0 (5 runs) | real `@` typing, incl. the previously SKIPped @All render check |
+| rui-win-os-input / sweep_p1_chat | 8/0 on the reused pair (repro_rr9 + full bundle), 8/0 fresh | `read_receipt_double_tick` on the REUSED pair after `reset_friendship` was the conversation-tombstone product defect (see "Second pass"); green since the hook→provider inbound notify + FakeFriendAdded fix |
+| rui-win-p2-verify / sweep_p2_verify | 1/0/0 | real Ctrl+V image paste into the composer |
+| rui-win-account-settings | login 9/0 · keyed_gaps 8/0 · keyed_gaps4_login 1/0 · settings2 13/0 · profile 8/0 | first attempt, no retries (was 6/2 · 11/13 before the scan-code input) |
+| rui-win-relaunch / sweep_p1_relaunch | 3/0/2 first attempt, post-relaunch re-wire `bootstrap ok=true` both ways | was flaky (0/3, 1/2, 3/0, 1/2→retry) until the reseed ran under the test marker (see "Second pass"); the 2 SKIPs are the same same-host limits macOS records (call ring, public NGC chat-id) |
+| rui-win-relaunch / sweep_p2_keys | 2/0/1 | the SKIP is by design (presence_dot_relaunch is owned by the p1 sweep) |
+
+Flakes seen and their causes: `typing_indicator_render` (typing flag expires 3 s after
+arrival; the case now reads the entry before the slow text scan), `chat_recall_message`
+"foreground failed (exit 124)" (per-process `Add-Type` csc compile took >25 s; the helper
+now caches its assembly, load ≈0.4 s), one fresh relaunch where A never reached
+`isConnected` within the wait (TCP-relay bootstrap timing).
+
+### Peer process control (relaunch sweeps)
+
+`stop_toxee_instance.ps1` / `launch_toxee_instance.ps1` are the PowerShell
+twins of the macOS single-instance scripts. The pair launcher now records each
+instance's contract in `instance.json` (`exe`, `vm_port`, `support_dir`,
+`tcp_only`, `tcp_relay_port`), and the relaunch twin re-creates the SAME
+instance from it (no build, no wipe → the relaunched process autologs into the
+stopped account). `drive_real_ui_pair_instance_ctl.dart` picks the scripts +
+runtime dir per platform, so `sweep_p1_relaunch` / `presence_dot_relaunch`
+run unchanged.
+
+### Campaign catalog (`rui-win-*`)
+
+`fixture_c_real_ui_windows_campaigns.dart` — the desktop `sweep_*` catalog
+grouped into launch-sized bundles: nine HEADLESS-SAFE bundles (honest with or
+without the flag) and two REAL-OS-INPUT bundles (`rui-win-os-input` =
+group_mention + p1_chat + p2_verify; `rui-win-relaunch` = p1_relaunch +
+p2_keys) that need the flag + console session. `--list-real-ui-campaigns`
+prints them; `--plan-json --real-ui-platform=windows` plans them.
+
+### Runbook (from the Linux VM, via `ssh mac2` → `ssh win11_ltsc`)
+
+The VM (`win11_ltsc`, ARM64 Win11, Flutter x64 3.41.9 at `C:\dev\flutter`,
+VS 2022 BuildTools 14.44, vcpkg x64-windows + arm64-windows, Git for Windows,
+Strawberry cmake/ninja) sees the Mac working tree as `\\Mac\bin.gao\chat-uikit\toxee`
+(`Y:` in the console session only). Build from a share-shim, run in the
+console session:
+
+```powershell
+# 1. shim (sources symlinked to the share; build/, .dart_tool/, every
+#    <platform>\flutter\ephemeral local) — tool\vmtest\make_shim.ps1
+# 2. vcvarsall arm64_amd64 + CC=cl CXX=cl, TIM2TOX_NATIVE_BUILD_ROOT under
+#    build\ (NOT the share), VCPKG_ROOT=C:\vcpkg, TOXEE_PAIR_TCP_ONLY=1
+# 3. one campaign inside session 1 (real OS input):
+powershell -File tool\vmtest\win_run_interactive.ps1 -WorkingDirectory C:\vmtest\toxee-win `
+  -EnvFile <env.ps1 with the above + TOXEE_WIN_OS_INPUT=1> -LogPath C:\vmtest\logs\x.log `
+  -Command "dart run tool/mcp_test/fixture_c_unified_runner.dart --class=2proc-ui --real-ui-platform=windows --real-ui-campaign=rui-win-account-settings"
+```
+
+`win_run_interactive.ps1` registers a one-shot INTERACTIVE scheduled task
+(`schtasks /IT`) as the logged-in user — an OpenSSH session is session 0
+(no desktop, no `Y:`, `AppActivate`/`SendKeys` dead), the console session has
+all of it — waits on a done marker and streams the log. The user must be
+logged in at the VM console (locked = keys don't land).
+
+### Traps found bringing the VM up (all fixed at the source)
+
+- **Share dotfiles are HIDDEN** — `Copy-Item` kept the attribute and the
+  flutter tool cannot rewrite a hidden `.flutter-plugins-dependencies`
+  ("cannot access the file") → `make_shim.ps1` normalizes copied files.
+- **Every platform dir needs a local `flutter\ephemeral`** — `flutter pub get`
+  writes `.plugin_symlinks` for `linux\` too, and a symlink cannot be created
+  inside a share-backed dir (ERROR_INVALID_FUNCTION) → both shims treat all
+  six platform dirs as real dirs.
+- **Runtime root was on the share** — `tool\mcp_test\.windows_runtime` under a
+  `tool\` symlink wrote every instance's profiles/logs INTO the Mac tree →
+  default is now `build\windows_runtime` (runner + launcher + stop script).
+- **Strawberry g++ won the CMake compiler search** (GCC 13 fails on
+  `std::thread::id`) and a stale non-MSVC CMake cache then pinned it → run
+  under vcvars with `CC=cl CXX=cl` and drop `build\tim2tox-native` when its
+  cache names another compiler.
+- **`opus.dll` was never bundled** — the ToxAV build links it dynamically;
+  without it `tim2tox_ffi.dll` fails LoadLibrary (126) and registration never
+  reaches sessionReady → `windows/CMakeLists.txt` installs it (product fix)
+  and the launcher copies it (harness fix).
+- **3389 is the RDP listener on Windows** → A's relay could not bind, tox_new
+  failed → Windows launcher default relay port 33390; the driver now adds the
+  desktop relay EXPLICITLY (`_pairTcpRelayFallbackPort`) instead of relying on
+  toxcore's default-port probing.
+- **`pid` inside an extension is `dart:io`'s** — `AppActivate(<driver pid>)`;
+  the macOS `tell process` had the same latent bug → `this.pid`.
+- **`powershell -Command <text>` re-parses the text and strips embedded double
+  quotes** (`Write-Output ("x=" + $y)` becomes `Write-Output (x= + $y)` and a
+  silent non-zero exit) → the driver passes every step as `-EncodedCommand`,
+  the probe writes a temp `.ps1` and runs `-File`.
+- A PowerShell pipeline that captures the launcher's output blocks until the
+  launched `toxee.exe` children exit (inherited console handles); the runner
+  is fine (`Process.start(inheritStdio)` + exitCode), scripts must redirect
+  through `cmd /c … > file` instead of `| Tee-Object`.
+- `V2TIM_LOG` `{}` placeholders are printed literally in `flutter_client.log`
+  (e.g. `Failed to create Tox instance, error: {} ({})`) — the native error
+  code never reaches the log. Pre-existing, cross-platform, NOT fixed here.
+
 ## Full five-surface matrix — macOS / iPhone / iPad / Android (2026-08-22/23)
 
 First run of EVERY registered real-UI sweep on all four device surfaces

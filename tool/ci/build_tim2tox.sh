@@ -14,6 +14,10 @@ LIBSODIUM_1_0_20_SHA256="ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc
 
 TARGET=""
 MODE="release"
+# Desktop CMake configuration. Override with TIM2TOX_NATIVE_BUILD_TYPE=RelWithDebInfo
+# to get a PDB / DWARF symbols for crash-dump analysis without changing the
+# optimized code paths (the real-UI Windows VM does this; see REAL_UI_TWO_PROCESS.md).
+NATIVE_BUILD_TYPE="${TIM2TOX_NATIVE_BUILD_TYPE:-Release}"
 WINDOWS_ARCH="${TIM2TOX_WINDOWS_ARCH:-x64}" # x64|arm64
 # ToxAV (calling) is ON by default with MUST_BUILD_TOXAV mirroring it, so a
 # missing opus/vpx is a HARD configure error instead of a silent feature drop.
@@ -702,11 +706,11 @@ build_desktop_target() {
           "${generator_args[@]}" \
           -DCMAKE_TOOLCHAIN_FILE="$toolchain_file" \
           -DVCPKG_TARGET_TRIPLET="$vcpkg_triplet" \
-          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_BUILD_TYPE="$NATIVE_BUILD_TYPE" \
           "${configure_args[@]}"
       else
         cmake -S "$source_dir_win" -B "$build_dir_win" "${generator_args[@]}" \
-          -DCMAKE_BUILD_TYPE=Release "${configure_args[@]}"
+          -DCMAKE_BUILD_TYPE="$NATIVE_BUILD_TYPE" "${configure_args[@]}"
       fi
       ;;
     *)
@@ -714,13 +718,18 @@ build_desktop_target() {
       ;;
   esac
 
-  ci_log "Building tim2tox_ffi for $target"
-  cmake --build "$build_dir" --config Release --target tim2tox_ffi --parallel "$(ci_cpu_count)"
+  ci_log "Building tim2tox_ffi for $target ($NATIVE_BUILD_TYPE)"
+  cmake --build "$build_dir" --config "$NATIVE_BUILD_TYPE" --target tim2tox_ffi --parallel "$(ci_cpu_count)"
 
   built_lib="$(find "$build_dir" -type f -name "$lib_pattern" | head -n 1 || true)"
   [[ -n "$built_lib" ]] || ci_die "Failed to locate $lib_pattern under $build_dir"
   cp "$built_lib" "$OUTPUT_DIR/"
   ci_log "Captured native library: $built_lib"
+  if [[ "$target" == "windows" && -f "${built_lib%.dll}.pdb" ]]; then
+    # Symbols for crash-dump analysis (present for Debug/RelWithDebInfo).
+    cp "${built_lib%.dll}.pdb" "$OUTPUT_DIR/"
+    ci_log "Captured native symbols: ${built_lib%.dll}.pdb"
+  fi
 
   if [[ "$ENABLE_IRC" -eq 1 ]]; then
     ci_log "Building irc_client for $target"

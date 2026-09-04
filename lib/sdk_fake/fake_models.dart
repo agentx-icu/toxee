@@ -131,6 +131,13 @@ class FakeFriendDeleted {
   final String userID;
 }
 
+/// A friend that (re)appeared in the Tox friend list since the previous poll.
+/// Lifts the conversation tombstone a [FakeFriendDeleted] left behind.
+class FakeFriendAdded {
+  FakeFriendAdded({required this.userID});
+  final String userID;
+}
+
 class FakeGroupDeleted {
   FakeGroupDeleted({required this.groupID});
   final String groupID;

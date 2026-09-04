@@ -197,3 +197,19 @@ if(DEFINED ENV{VCPKG_ROOT})
     "$ENV{VCPKG_ROOT}/installed/${_TIM2TOX_VCPKG_TRIPLET}/bin/pthreadVC3.dll")
 endif()
 toxee_install_newest_existing("pthreadVC3.dll" ${_TIM2TOX_PTHREAD_DLL_CANDIDATES})
+
+# ToxAV: tim2tox_ffi.dll is built with BUILD_TOXAV (tool/ci/build_tim2tox.sh
+# --target windows) and dynamically links the vcpkg opus runtime (opus.dll;
+# libvpx is linked statically). Same failure mode as the two above when it is
+# missing — LoadLibrary error 126 and the app starts without any Tox backend
+# (a real-UI registration then never reaches sessionReady). Bundle it from the
+# captured native-artifacts or the vcpkg bin dir; a stub (--no-toxav) build has
+# no opus.dll anywhere and the install is simply skipped.
+set(_TIM2TOX_OPUS_DLL_CANDIDATES
+  "${_TIM2TOX_NATIVE_ARTIFACTS_DIR}/opus.dll"
+)
+if(DEFINED ENV{VCPKG_ROOT})
+  list(APPEND _TIM2TOX_OPUS_DLL_CANDIDATES
+    "$ENV{VCPKG_ROOT}/installed/${_TIM2TOX_VCPKG_TRIPLET}/bin/opus.dll")
+endif()
+toxee_install_newest_existing("opus.dll" ${_TIM2TOX_OPUS_DLL_CANDIDATES})

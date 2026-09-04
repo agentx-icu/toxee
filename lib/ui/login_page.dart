@@ -24,6 +24,7 @@ import 'widgets/app_snackbar.dart';
 import 'widgets/bottom_sheet_handle.dart';
 import 'widgets/error_banner.dart';
 import 'widgets/stagger_list_item.dart';
+import 'widgets/user_avatar_circle.dart';
 import '../util/prefs.dart';
 import '../i18n/app_localizations.dart';
 import '../util/responsive_layout.dart';
@@ -235,26 +236,19 @@ class _LoginPageState extends State<LoginPage> {
     dynamic colorTheme,
   ) {
     final avatarPath = account['avatarPath'];
-    final hasAvatar =
-        avatarPath != null &&
-        avatarPath.isNotEmpty &&
-        File(avatarPath).existsSync();
-    if (hasAvatar) {
-      return CircleAvatar(
-        backgroundImage: FileImage(File(avatarPath)),
-        radius: 24,
-      );
-    }
-    return CircleAvatar(
+    // Shared self-avatar widget — same initial-letter fallback the sidebar,
+    // settings header and profile page use, so an account looks the same in
+    // the picker as it does once logged in.
+    return UserAvatarCircle(
+      size: 48,
+      initial: UserAvatarCircle.initialFor(nickname),
       backgroundColor: colorTheme.primaryColor,
-      radius: 24,
-      child: Text(
-        nickname.isNotEmpty ? nickname[0].toUpperCase() : 'A',
-        style: TextStyle(
-          color: colorTheme.onPrimary,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+      foregroundColor: colorTheme.onPrimary,
+      avatarPath: avatarPath,
+      avatarFileExists:
+          avatarPath != null &&
+          avatarPath.isNotEmpty &&
+          File(avatarPath).existsSync(),
     );
   }
 

@@ -89,6 +89,13 @@ void main() {
       // autoLogin should be disabled on recovered accounts so we don't
       // surprise-login to a half-recovered account on next launch.
       expect(accounts.first['autoLogin'], 'false');
+      // A recovered account gets the same bundled default avatar that
+      // register() installs, so it does not render as a per-surface fallback
+      // (stock photo in the sidebar, initial in the profile page, …).
+      final avatarPath = accounts.first['avatarPath'] ?? '';
+      expect(avatarPath, isNotEmpty);
+      expect(p.basename(avatarPath), 'avatar_${extractedToxId}_default.png');
+      expect(await File(avatarPath).exists(), isTrue);
     }, skip: skipReason);
 
     test('idempotent: running twice does not duplicate the account',

@@ -63,7 +63,7 @@ void main() {
     final sourceFile = File('${tempRoot.path}/payload.bin');
     await sourceFile.writeAsBytes(List<int>.generate(123, (index) => index));
 
-    await service.sendFile(peerId, sourceFile.path);
+    final echo = await service.sendFile(peerId, sourceFile.path);
     await persistence.flushPendingSaves();
     final reloaded = MessageHistoryPersistence(
       historyDirectory: historyDirectory,
@@ -74,6 +74,13 @@ void main() {
     expect(row?.fileName, 'payload.bin');
     expect(row?.fileSize, 123);
     expect(row?.mediaKind, 'file');
+    // sendFile hands back the pending echo it queued, and its identity is
+    // the persisted row's — the id the UI must adopt for its optimistic
+    // bubble (otherwise the echo renders as a second bubble).
+    expect(echo, isNotNull);
+    expect(echo!.isPending, isTrue);
+    expect(echo.msgID, isNotEmpty);
+    expect(row?.msgID, echo.msgID);
   }, skip: skipReason);
 
   test(

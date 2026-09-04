@@ -3,6 +3,7 @@ import 'dart:async';
 // ignore: directives_ordering
 import '../widgets/safe_dialog_pop.dart';
 import '../widgets/app_dialog.dart';
+import '../widgets/user_avatar_circle.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../util/app_spacing.dart';
@@ -436,39 +437,20 @@ class _UserAvatarState extends State<_UserAvatar> {
                           alignment: Alignment.center,
                           clipBehavior: Clip.none,
                           children: [
-                            // Use CircleAvatar; when no avatar, use same default as chat (UIKit)
-                            CircleAvatar(
-                              radius: 22,
+                            // Same widget (and therefore the same initial-
+                            // letter fallback) as the profile page, settings
+                            // header and login picker. This used to fall back
+                            // to the UIKit's stock "hand holding a phone"
+                            // photo, so an account without an avatar showed a
+                            // photo here and an initial everywhere else.
+                            UserAvatarCircle(
+                              size: 44,
+                              initial: UserAvatarCircle.initialFor(_nickname),
                               backgroundColor: colorTheme.primaryColor,
-                              child:
-                                  _avatarPath != null &&
-                                      _avatarPath!.isNotEmpty &&
-                                      _avatarFileExists
-                                  ? ClipOval(
-                                      child: Image.file(
-                                        File(_avatarPath!),
-                                        key: ValueKey(
-                                          'sidebar-avatar-${_avatarPath!}-$_avatarVersion',
-                                        ),
-                                        width: 44,
-                                        height: 44,
-                                        fit: BoxFit.cover,
-                                        // 44pt × 3× DPR = 132px raster — caps the
-                                        // decoded buffer instead of decoding the
-                                        // source avatar file at full resolution.
-                                        cacheWidth: 132,
-                                        cacheHeight: 132,
-                                      ),
-                                    )
-                                  : ClipOval(
-                                      child: Image.asset(
-                                        'images/default_user_icon.png',
-                                        package: 'tencent_cloud_chat_common',
-                                        width: 44,
-                                        height: 44,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
+                              foregroundColor: colorTheme.onPrimary,
+                              avatarPath: _avatarPath,
+                              avatarFileExists: _avatarFileExists,
+                              avatarVersion: _avatarVersion,
                             ),
                             // Status indicator — sits on the bottom-right edge of
                             // the avatar. Avatar radius is 28 (diameter 56); the

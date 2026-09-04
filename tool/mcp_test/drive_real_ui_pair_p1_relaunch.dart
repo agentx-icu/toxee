@@ -91,19 +91,10 @@ Future<int> runP1RelaunchSweep(
   var passed = 0;
   var failed = 0;
   var skipped = 0;
-  // `skipWin` skips ONLY on the headless Windows VM (kept for
-  // relaunch_history_autologin, which has no in-driver Windows app-relaunch path
-  // but PASSES on macOS). `skipEnv` (below) is the cross-platform env skip used
-  // for cases that are un-constructible on ANY single-host real-UI run —
-  // offline_pending_relaunch, call_from_profile_tiles, group_join_by_id_real_ui
-  // — verified live (offlineData=false / "callee never rang" / chat-id "").
-  // Both return true iff the case was skipped (so the caller doesn't run it).
-  bool skipWin(String id, String why) {
-    if (!_isWindowsRealUi) return false;
-    skipped++;
-    print('[pair] sweep_p1_relaunch SKIP: $id — $why');
-    return true;
-  }
+  // Windows now has an in-driver peer stop+relaunch path
+  // (stop_toxee_instance.ps1 / launch_toxee_instance.ps1 via _instanceCtl), so
+  // the former headless-Windows-only `skipWin` gate is gone and the relaunch
+  // cases run on every desktop platform.
   // Env-structural skip that applies to ANY single-host real-UI run (macOS AND
   // Windows), not just Windows. These cases genuinely cannot be constructed when
   // both peers share one host with a reused launch: they require stopping/taking
@@ -133,35 +124,25 @@ Future<int> runP1RelaunchSweep(
     }
   }
 
-  if (!skipWin('relaunch_history_autologin',
-      'peer stop+relaunch has no in-driver Windows path')) {
-    await tally('relaunch_history_autologin', () async {
-      toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
-      toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
-      return _p1rHistoryAutologin(a, b, toxA, toxB, nickA);
-    });
-  }
-  // offline_pending_relaunch + presence_dot_relaunch DO run on macOS (a local
-  // process stop+relaunch of B): the peer is taken offline by killing its
-  // process, and A's real toxcore then detects it offline (the cases now WAIT
-  // for that detection before asserting). They stay skipped on the headless
-  // Windows VM, which has no in-driver app-relaunch path.
-  if (!skipWin('offline_pending_relaunch',
-      'peer stop+relaunch has no in-driver Windows path')) {
-    await tally('offline_pending_relaunch', () async {
-      toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
-      toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
-      return _p1rOfflinePendingRelaunch(a, b, toxA, toxB, nickB);
-    });
-  }
-  if (!skipWin('presence_dot_relaunch',
-      'peer stop+relaunch has no in-driver Windows path')) {
-    await tally('presence_dot_relaunch', () async {
-      toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
-      toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
-      return _p1rPresenceDotRelaunch(a, b, toxA, toxB, nickB);
-    });
-  }
+  await tally('relaunch_history_autologin', () async {
+    toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
+    toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
+    return _p1rHistoryAutologin(a, b, toxA, toxB, nickA);
+  });
+  // offline_pending_relaunch + presence_dot_relaunch: a local process
+  // stop+relaunch of B — the peer is taken offline by killing its process, and
+  // A's real toxcore then detects it offline (the cases WAIT for that
+  // detection before asserting). Windows uses the PowerShell twins.
+  await tally('offline_pending_relaunch', () async {
+    toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
+    toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
+    return _p1rOfflinePendingRelaunch(a, b, toxA, toxB, nickB);
+  });
+  await tally('presence_dot_relaunch', () async {
+    toxA = (await a.dumpState())['currentAccountToxId']?.toString() ?? toxA;
+    toxB = (await b.dumpState())['currentAccountToxId']?.toString() ?? toxB;
+    return _p1rPresenceDotRelaunch(a, b, toxA, toxB, nickB);
+  });
   // ToxAV ringing across two same-host sandboxed processes does not reach the
   // callee ("callee never rang" live), even over TCP-only — a real second
   // host/device is required. (Works on the Windows VM where the comment below
@@ -377,10 +358,22 @@ Future<bool> _p1rOfflinePendingRelaunch(
 /// convergence (mirrors the fixture-c bootstrap the sweeps use at launch).
 /// Best-effort — the online-poll that follows is the authoritative gate.
 Future<void> _p1rReseedMutualBootstrap(Inst a, Inst b) async {
+  // `l3_add_bootstrap_node` is test-account gated and the relaunched side comes
+  // back WITHOUT the seed marker, so every post-relaunch re-wire was refused
+  // ("bootstrap ok=false" in every relaunch log) and B only ever reconnected
+  // through whatever relay its savedata still held — a coin flip once each
+  // side hosts its own relay (the restarted peer's relay has a NEW DHT key, so
+  // A's stored entry for it is dead). Mark both sides for the wiring window
+  // and restore the non-test state afterwards, exactly like the launch seed.
+  final marked = <Inst>[];
   try {
     for (final ext in fixtureCBootstrapExtensions) {
       await a.waitExt(ext);
       await b.waitExt(ext);
+    }
+    for (final inst in [a, b]) {
+      final wasTest = (await inst.dumpState())['isTestAccount'] == true;
+      if (!wasTest && await inst.markAccountTest()) marked.add(inst);
     }
     await wireFullMeshBootstrap([
       BootstrapTarget('A', a.vm, a.iso),
@@ -388,6 +381,17 @@ Future<void> _p1rReseedMutualBootstrap(Inst a, Inst b) async {
     ]);
   } on Object catch (e) {
     print('[pair] presence reseed bootstrap best-effort failed: $e');
+  } finally {
+    // Independently guarded: one failed restore must not skip the other side.
+    for (final inst in marked) {
+      try {
+        if (!await inst.unmarkAccountTest()) {
+          print('[pair] WARN reseed: could not restore non-test state on ${inst.name}');
+        }
+      } on Object catch (e) {
+        print('[pair] WARN reseed: unmark on ${inst.name} threw: $e');
+      }
+    }
   }
 }
 
@@ -770,15 +774,10 @@ Future<void> _p1rStopInstanceOnly(Inst inst) async {
   try {
     await inst.dispose();
   } catch (_) {}
-  final r = await Process.run('tool/mcp_test/stop_toxee_instance.sh', [
-    inst.name,
-  ]);
-  if (r.exitCode != 0) {
-    throw DriveError(
-      '[${inst.name}] stop_toxee_instance.sh failed '
-      '(exit ${r.exitCode}): ${r.stderr}',
-    );
-  }
+  await _runInstanceCtl(
+    _instanceCtl(inst.name).stop,
+    what: '[${inst.name}] stop_toxee_instance',
+  );
 }
 
 Future<void> _p1rRelaunchInstance(
@@ -800,15 +799,10 @@ Future<void> _p1rLaunchStoppedInstance(
   required String nick,
 }) async {
   print('[${inst.name}] relaunching instance');
-  final launch = await Process.run('tool/mcp_test/launch_toxee_instance.sh', [
-    inst.name,
-  ]);
-  if (launch.exitCode != 0) {
-    throw DriveError(
-      '[${inst.name}] launch_toxee_instance.sh failed '
-      '(exit ${launch.exitCode}): ${launch.stderr}',
-    );
-  }
+  await _runInstanceCtl(
+    _instanceCtl(inst.name).launch,
+    what: '[${inst.name}] launch_toxee_instance',
+  );
   final meta = await _p1rReadInstanceRuntime(inst.name);
   inst.pid = meta.pid;
   inst.ws = meta.ws;
@@ -820,9 +814,7 @@ Future<void> _p1rLaunchStoppedInstance(
 }
 
 Future<({int pid, String ws})> _p1rReadInstanceRuntime(String name) async {
-  final file = File(
-    'tool/mcp_test/.multi_instance_runtime/$name/instance.json',
-  );
+  final file = File('${_instanceCtl(name).runtimeDir}/instance.json');
   if (!await file.exists()) {
     throw DriveError('[$name] instance.json missing after relaunch');
   }

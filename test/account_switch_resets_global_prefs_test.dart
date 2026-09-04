@@ -135,13 +135,23 @@ void main() {
       expect(await Prefs.getCurrentAccountToxId(),
           equalsIgnoringCase(fixtureB.toxId),
           reason: 'current account pointer must advance to account B');
-      // Avatar half: B has no avatar, so after the switch the avatar getter
-      // must return null — NOT A's stale avatar. getAvatarPath() is
+      // Avatar half: B had no avatar, so after the switch the avatar getter
+      // must NOT return A's stale avatar. Since the self-avatar guarantee
+      // (DefaultAvatarInstaller.ensureSelfAvatar, run by the switch path) an
+      // activated account always has one: B gets its own bundled default,
+      // installed under B's account_data directory. getAvatarPath() is
       // per-account-scoped and deliberately refuses to fall back to the global
-      // _kAvatarPath (prefs.dart:393-401); this asserts that no-leak property,
-      // which is the avatar side of the identity-confusion bug.
-      expect(await Prefs.getAvatarPath(), isNull,
+      // _kAvatarPath; together these assert the no-leak property, which is the
+      // avatar side of the identity-confusion bug.
+      final avatarAfterSwitch = await Prefs.getAvatarPath();
+      expect(avatarAfterSwitch, isNotNull,
+          reason: 'an activated account always has a self avatar');
+      expect(avatarAfterSwitch, isNot(avatarA),
           reason: 'no stale previous-account avatar may leak after switch');
+      expect(avatarAfterSwitch,
+          startsWith(await AppPaths.getAccountAvatarsPath(fixtureB.toxId)),
+          reason: "the post-switch avatar must live in B's own avatars dir");
+      expect(await File(avatarAfterSwitch!).exists(), isTrue);
     }, skip: skipReason);
   });
 }

@@ -16,6 +16,7 @@
 
 // ignore_for_file: depend_on_referenced_packages, avoid_print
 
+import 'dart:convert';
 import 'dart:io';
 import 'package:vm_service/vm_service.dart';
 
@@ -74,6 +75,14 @@ Future<void> wireFullMeshBootstrap(
   int? tcpRelayFallbackPort,
 }) async {
   final emit = log ?? print;
+  // Desktop TCP-only pairs (TOXEE_PAIR_TCP_ONLY=1: Windows/Linux real-UI) have
+  // NO UDP endpoint, so every re-wire — not just the launch one — must add the
+  // relay; callers that re-seed after a relaunch used to omit it and the peer
+  // never came back (sweep_p1_relaunch on Windows, 2026-09-04).
+  // Precedence: an EXPLICIT port (topology-aware, e.g. the adb-reverse host
+  // port on Android) > the peer's own relay from pair.json > the desktop env
+  // default — see the fallback below.
+  final envRelayPort = desktopTcpRelayFallbackPortFromEnv();
   // 1. Gather each instance's local DHT endpoint. A FRESH instance can race
   // this with its tox bring-up and report an empty dhtId — retry briefly, or
   // its peers get no wiring at all (seen live: attempt-1 A->B/A->C missing).
@@ -107,14 +116,23 @@ Future<void> wireFullMeshBootstrap(
         continue;
       }
       final relayFallback = ep.port <= 0;
-      if (relayFallback && tcpRelayFallbackPort == null) {
+      // Without an explicit port, prefer the PEER's own relay (recorded per
+      // instance in pair.json by the launchers) over the env default: with one
+      // shared port this dialed 127.0.0.1:<A's relay> carrying B's DHT key — a
+      // handshake against the wrong server key — so A never got a working
+      // relay from the pair and reached "connected" only through the public
+      // bootstrap list (minutes, or never on a slow VM).
+      final resolvedRelayPort = tcpRelayFallbackPort ??
+          (relayFallback ? pairInstanceTcpRelayPort(peer.name) : null) ??
+          envRelayPort;
+      if (relayFallback && resolvedRelayPort == null) {
         emit(
           '[fixture-c-bootstrap] WARN ${peer.name} has no UDP endpoint and '
           'no TCP-relay fallback port was given',
         );
         continue;
       }
-      final port = relayFallback ? tcpRelayFallbackPort! : ep.port;
+      final port = relayFallback ? resolvedRelayPort! : ep.port;
       if (relayFallback) {
         emit(
           '[fixture-c-bootstrap] ${target.name} -> ${peer.name} TCP-relay '
@@ -145,4 +163,39 @@ Future<void> wireFullMeshBootstrap(
     '${settle.inSeconds}s for local DHT',
   );
   await Future<void>.delayed(settle);
+}
+
+/// The pair's localhost TCP-relay port when the desktop pair runs TCP-only
+/// (`TOXEE_PAIR_TCP_ONLY=1`), else null. `TOXEE_PAIR_TCP_RELAY_PORT` overrides;
+/// the Windows launcher defaults to 33390 (3389 is RDP there), others 3389.
+int? desktopTcpRelayFallbackPortFromEnv() {
+  final env = Platform.environment;
+  final tcpOnly = env['TOXEE_PAIR_TCP_ONLY'];
+  if (tcpOnly != '1' && tcpOnly != 'true') return null;
+  return int.tryParse(env['TOXEE_PAIR_TCP_RELAY_PORT'] ?? '') ??
+      ((env['TOXEE_REAL_UI_PLATFORM'] ?? '') == 'windows' || Platform.isWindows
+          ? 33390
+          : 3389);
+}
+
+/// The localhost TCP-relay port instance [name] HOSTS, from the launcher's
+/// pair.json (`instances.<name>.tcp_relay_port`, TOXEE_REAL_UI_PAIR_JSON or
+/// the desktop default path); null when unknown or not a TCP-only pair.
+int? pairInstanceTcpRelayPort(String name) {
+  final path = Platform.environment['TOXEE_REAL_UI_PAIR_JSON'] ??
+      (Platform.isWindows
+          ? 'build/windows_runtime/pair.json'
+          : Platform.isLinux
+              ? 'build/linux_runtime/pair.json'
+              : 'tool/mcp_test/.multi_instance_runtime/pair.json');
+  try {
+    final file = File(path);
+    if (!file.existsSync()) return null;
+    final doc = jsonDecode(file.readAsStringSync());
+    final inst = (doc as Map)['instances']?[name];
+    final raw = inst is Map ? inst['tcp_relay_port'] : null;
+    return int.tryParse('${raw ?? ''}');
+  } on Object {
+    return null;
+  }
 }

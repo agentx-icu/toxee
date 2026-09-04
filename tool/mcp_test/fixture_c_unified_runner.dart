@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'fixture_c_real_ui_mobile_campaigns.dart';
 import 'fixture_c_real_ui_scenarios.dart';
+import 'fixture_c_real_ui_windows_campaigns.dart';
 
 part 'fixture_c_restore_preflight.dart';
 
@@ -58,10 +59,8 @@ Platform support (all five have A/B real-UI pair launchers wired in):
                         + two devices/emulators; the loopback IRC server is made
                         reachable via `adb reverse`)
   windows               launch_windows_fixture_c_pair.ps1 (run the runner ON the
-                        Windows host; two flutter-run instances share its loopback)
-  linux                 launch_linux_fixture_c_pair.sh (run the runner ON the
-                        Linux host; implements paired_for_e2e restore, so
-                        friendship-dependent scenarios are launchable)
+                        Windows host; TOXEE_WIN_OS_INPUT=1 = real OS input)
+  linux                 launch_linux_fixture_c_pair.sh (run ON the Linux host)
   Note: the irc_join_channel_loopback_live JOIN needs the native libirc_client
   library (bundled on macOS); irc_join_channel_real_controls is pure-Dart and
   portable. See tool/mcp_test/REAL_UI_TWO_PROCESS.md.
@@ -71,7 +70,8 @@ const _pairManifest = 'tool/mcp_test/fixtures/paired_for_e2e_manifest.json';
 const _macosPairJson = 'tool/mcp_test/.multi_instance_runtime/pair.json';
 const _iosPairJson = 'tool/mcp_test/.ios_runtime/pair.json';
 const _androidPairJson = 'tool/mcp_test/.android_runtime/pair.json';
-const _windowsPairJson = 'tool/mcp_test/.windows_runtime/pair.json';
+// Under build/ like Linux (local + writable on a share-shim checkout).
+const _windowsPairJson = 'build/windows_runtime/pair.json';
 // Linux keeps its runtime under build/ (always locally writable, including on
 // a share-shim checkout where tool/ is a read-only symlink into the Mac share).
 const _linuxPairJson = 'build/linux_runtime/pair.json';
@@ -82,18 +82,14 @@ const _defaultRealUiNickB = 'RealUiBob';
 /// runs on a device/emulator, so the host-side LocalIrcServer (started by the
 /// driver) is only reachable through `adb reverse tcp:<port> tcp:<port>`, which
 /// the Android pair launcher sets up BEFORE the driver picks a port — hence a
-/// known fixed value rather than an ephemeral one. The runner injects this into
-/// both the launch env (so the launcher reverses it) and the driver env (so
-/// `LocalIrcServer.startFromEnv` binds it). macOS / iOS / Windows share the host
-/// loopback and keep the ephemeral default (no reverse-forward needed).
+/// known fixed value rather than an ephemeral one, injected into both the launch
+/// env (the launcher reverses it) and the driver env (`LocalIrcServer.startFromEnv`
+/// binds it). macOS / iOS / Windows share the host loopback (ephemeral default).
 const _androidIrcLoopbackPort = '16667';
 
-/// Per-platform wiring for the real-UI A/B pair: where the runtime pair.json
-/// lands, which launch/stop scripts produce + tear it down, how those scripts
-/// are invoked (bash vs PowerShell), whether the runner builds the app on the
-/// host before launching, and the fixed IRC loopback port (Android only). This
-/// replaces the scattered `_realUiPlatform == 'ios' ? ... : ...` branches so a
-/// new platform is one map entry.
+/// Per-platform wiring for the real-UI A/B pair (pair.json location, launch /
+/// stop scripts and how they are invoked, host prebuild, fixed IRC loopback
+/// port for Android) — one map entry per platform instead of scattered branches.
 class _RealUiPlatformConfig {
   const _RealUiPlatformConfig({
     required this.pairJson,
@@ -543,6 +539,7 @@ const _sharedRealUiCampaigns = <String, List<String>>{
 final _realUiCampaigns = <String, List<String>>{
   ..._sharedRealUiCampaigns,
   ...mobileRealUiCampaigns,
+  ...windowsRealUiCampaigns,
 };
 const _realUiStateNoFriend = 'no-friend';
 const _realUiStateFriends = 'friends';
@@ -2166,6 +2163,10 @@ List<String> _realUiScriptExecCommand(String script) =>
 
 Map<String, String> _realUiDriverEnv() => {
   ...Platform.environment,
+  // The desktop launcher is forced TCP-only (see _launchRealUiPairCommand);
+  // drivers must see the same flag so post-relaunch re-wires add the relay.
+  if (_realUiPlatform == 'windows' || _realUiPlatform == 'linux')
+    'TOXEE_PAIR_TCP_ONLY': Platform.environment['TOXEE_PAIR_TCP_ONLY'] ?? '1',
   'TOXEE_REAL_UI_PAIR_JSON': _realUiPairJson(),
   'TOXEE_REAL_UI_PLATFORM': _realUiPlatform,
   if (_realUiConfig.ircLoopbackPort != null)
@@ -2181,21 +2182,20 @@ String _launchPairCommand({String? restore, bool tcpOnly = false}) {
       'tool/mcp_test/launch_fixture_c_pair.sh';
 }
 
-/// Symbolic command for the canonical pair boot+verify driver (used as the
-/// up-front boot step for the media group, whose call driver does not self-boot).
+/// Symbolic command for the canonical pair boot+verify driver (media group).
 String _pairBootCommand() =>
     'dart run tool/mcp_test/drive_fixture_c_pair.dart "\$A_WS" "\$B_WS" '
     '--fixture-manifest $_pairManifest';
 
 String _launchRealUiPairCommand({String? restore}) {
-  // The symbolic env prefix uses bash `VAR=value cmd` convention (the runner's
-  // own host context) even for the PowerShell launch invocation; live execution
-  // passes these via the process environment (`_launchRealUiPair`), not a shell
-  // prefix, so the representation stays faithful in WHAT is set, if not in
-  // copy-paste syntax. The Android launch ALSO receives TOXEE_IRC_LOOPBACK_PORT
-  // live (for adb reverse), so include it here too.
+  // Symbolic `VAR=value cmd` prefix; live execution passes the SAME vars via
+  // the process env (`_launchRealUiPair`) — keep the two lists in sync.
   final ircPort = _realUiConfig.ircLoopbackPort;
   var prefix = ircPort != null ? 'TOXEE_IRC_LOOPBACK_PORT=$ircPort ' : '';
+  if ((_realUiPlatform == 'windows' || _realUiPlatform == 'linux') &&
+      !Platform.environment.containsKey('TOXEE_PAIR_TCP_ONLY')) {
+    prefix = '${prefix}TOXEE_PAIR_TCP_ONLY=1 ';
+  }
   if (_forcedIosDeviceType != null) {
     prefix = '${prefix}TOXEE_IOS_DEVICE_TYPE=$_forcedIosDeviceType ';
   }

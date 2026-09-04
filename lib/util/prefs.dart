@@ -495,8 +495,12 @@ class Prefs {
       final account = await getAccountByToxId(current);
       final path = account?['avatarPath'];
       if (path != null && path.isNotEmpty) return path;
-      // Do not fall back to global _kAvatarPath: it may be another account's avatar.
-      return null;
+      // Second store: the service-scoped `self_avatar_path_<prefix>` key (see
+      // DefaultAvatarInstaller.ensureSelfAvatar, which writes both). Never
+      // the global _kAvatarPath: it may be another account's avatar.
+      final p = await _getPrefs();
+      final scoped = p.getString(_scopedKey(_kAvatarPath, current));
+      return (scoped != null && scoped.isNotEmpty) ? scoped : null;
     }
     final p = await _getPrefs();
     return p.getString(_kAvatarPath);
@@ -2095,11 +2099,7 @@ class Prefs {
     String nickname,
   ) async {
     final accounts = await getAccountList();
-    try {
-      return accounts.firstWhere((acc) => acc['nickname'] == nickname);
-    } catch (e) {
-      return null;
-    }
+    return accounts.firstWhereOrNull((acc) => acc['nickname'] == nickname);
   }
 
   // Account password management — secure-storage backed since S1 review.

@@ -61,11 +61,14 @@ for e in "$SRC"/*; do
         link_or_copy "$e2" "$DST/lib/$n2"
       fi
     done
-  elif [ "$n" = "$PLAT" ] && [ -d "$e" ]; then
-    # Platform runner dir: real dir; inner entries linked/copied, except
-    # flutter/ (real dir whose generated_* files must be locally writable)
-    # and flutter/ephemeral (left absent — the flutter tool creates it and
-    # fills it with plugin symlinks, which must live on a local filesystem).
+  elif [ -d "$e" ] && case "$n" in windows|linux|macos|android|ios|web) true ;; *) false ;; esac; then
+    # EVERY Flutter platform runner dir (not just $PLAT): real dir; inner
+    # entries linked/copied, except flutter/ (real dir whose generated_* files
+    # must be locally writable) and flutter/ephemeral (left absent — the
+    # flutter tool creates it and fills it with plugin symlinks for EVERY
+    # platform dir the project has, and those must live on a local
+    # filesystem). Migration: replace a wholesale link from an older shim.
+    [ -L "$DST/$n" ] && rm "$DST/$n"
     mkdir -p "$DST/$n"
     for e2 in "$e"/*; do
       n2="$(basename "$e2")"

@@ -624,7 +624,7 @@ Future<bool> _chatMultilineSend(
   // newline is carried in the message body, exactly what this case asserts
   // cross-delivers). Mobile has no Shift+Enter concept anyway — a multiline
   // body from the soft keyboard takes this same send path.
-  if (_isHeadlessRealUi || a.isIos) {
+  if (a._usesSyntheticInput) {
     // Direct single set-text+send per attempt, then assert via the REAL message
     // text (not the conversation preview, which may collapse the newline). Retry
     // only when the message did not deliver, so a slow verify can't trigger a

@@ -69,3 +69,40 @@ Future<({double x, double y, double w, double h})?> _keyBox(
     return null;
   }
 }
+
+/// Wheel-scroll the open chat's list until [key]'s box sits fully ABOVE the
+/// composer, i.e. inside the visible viewport. `ui_key_center` resolves an
+/// onstage box even when it hangs below the fold: on Windows' shorter default
+/// window (≈625 logical px) a freshly received image bubble was clipped that
+/// way and the keyed tap landed on the composer instead of the bubble
+/// (image_preview_open_hardened, 2026-09-04). [settleMs] first lets an async
+/// image decode finish so the box measured is the final one.
+Future<void> _ensureKeyInViewport(
+  Inst inst,
+  String key, {
+  int settleMs = 1200,
+}) async {
+  await Future<void>.delayed(Duration(milliseconds: settleMs));
+  final composer = await _keyBox(inst, 'chat_input_text_field');
+  if (composer == null) return;
+  final listBottom = composer.y - composer.h / 2;
+  for (var step = 0; step < 6; step++) {
+    final box = await _keyBox(inst, key);
+    if (box == null) return;
+    final overflow = box.y + box.h / 2 - listBottom;
+    if (overflow <= 0) return;
+    try {
+      // Positive dy = wheel down (toward the newest rows); scroll over the
+      // list viewport, well above the composer.
+      await inst.scrollAtCoords(
+        composer.x,
+        (listBottom - 200).clamp(80.0, listBottom),
+        dy: overflow + 24,
+      );
+    } on DriveError catch (e) {
+      print('[${inst.name}] WARN _ensureKeyInViewport: ${e.message}');
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+  }
+}

@@ -128,14 +128,13 @@ Future<int> runGroupMentionSweep(
       '[sweep] sweep_group_mention ${ok ? 'PASS' : 'FAIL'}: group_at_member_send',
     );
 
-    // group_at_all_send — REAL gate now (the @All identity blocker is fixed:
-    // real-tox-id currentUser + normalized admin match → @All renders for the
-    // owner). Reuses the same group. WINDOWS SKIP: this case's whole point is
-    // proving the ADMIN-GATED @All entry RENDERS in the mention panel, which
-    // only appears from real char-by-char "@" typing through onChanged — the
-    // l3_mention_send seam used for @member would just inject the @All sentinel
-    // and BYPASS the render check (a fake pass), so it stays SKIP-with-reason.
-    if (_isWindowsRealUi) {
+    // group_at_all_send — REAL gate (the @All identity blocker is fixed: real
+    // tox-id currentUser + normalized admin match). Reuses the same group.
+    // HEADLESS WINDOWS SKIP: the point is proving the ADMIN-GATED @All entry
+    // RENDERS, which only real char-by-char "@" typing produces — the
+    // l3_mention_send seam would inject the sentinel and BYPASS the render
+    // check. With TOXEE_WIN_OS_INPUT=1 the "@" IS typed, so the case runs.
+    if (_isWindowsRealUi && !_winOsInput) {
       skipped++;
       print(
         '[sweep] sweep_group_mention SKIP: group_at_all_send — verifies the '
@@ -323,7 +322,7 @@ Future<String> _gmTypeMentionAndSend(
   await openGroupChat(a, groupId: gidA, groupName: gname, viaL3Seam: true);
   await a.foreground();
   await Future<void>.delayed(const Duration(milliseconds: 400));
-  await a.tapAt(_composerX, _composerY);
+  await _tapDesktopComposer(a);
   await Future<void>.delayed(const Duration(milliseconds: 500));
   await a.osaClear();
   // Typing "@" raises the fork's mention panel (onChanged detects '@').
@@ -333,7 +332,7 @@ Future<String> _gmTypeMentionAndSend(
   var inserted = false;
   for (var attempt = 0; attempt < 3 && !inserted; attempt++) {
     if (attempt > 0) {
-      await a.tapAt(_composerX, _composerY);
+      await _tapDesktopComposer(a);
       await Future<void>.delayed(const Duration(milliseconds: 300));
       await a.osaClear();
     }
@@ -341,10 +340,11 @@ Future<String> _gmTypeMentionAndSend(
     // unfocus, refocus, type '@', tap a STABLE row center, VERIFY the insert.
     await a.hideKeyboard(); // soft: swallows DriveError internally
     if (attempt > 0) {
-      await a.tapAt(_composerX, _composerY - 250);
+      final c = await a.keyCenter('chat_input_text_field'); // list, above composer
+      await a.tapAt(c?.x ?? _composerX, (c?.y ?? _composerY) - 250);
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
     await Future<void>.delayed(const Duration(milliseconds: 300));
     await a.osaType('@');
     if (!await a.waitKeyCenter(mentionKey, timeoutSecs: 8)) {
@@ -370,7 +370,7 @@ Future<String> _gmTypeMentionAndSend(
     return '';
   }
   await a.foreground();
-  await a.tapAt(_composerX, _composerY);
+  await _tapDesktopComposer(a);
   await Future<void>.delayed(const Duration(milliseconds: 300));
   // PASTE the nonce (atomic), never keystroke it: when the host Mac's input
   // source is a CJK IME (this is a zh user's daily driver), `System Events
@@ -386,7 +386,7 @@ Future<String> _gmTypeMentionAndSend(
   final convId = 'group_$gidA';
   for (var attempt = 0; attempt < 6; attempt++) {
     await a.foreground();
-    await a.tapAt(_composerX, _composerY);
+    await _tapDesktopComposer(a);
     await Future<void>.delayed(const Duration(milliseconds: 450));
     await a.osaReturn();
     await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -411,9 +411,10 @@ Future<bool> _gmAtMemberSend(
   }
   final nonce = ' atmem${DateTime.now().microsecondsSinceEpoch}';
   String last;
-  if (_isWindowsRealUi) {
-    // The mention panel only renders from real char-by-char "@" typing through
-    // the composer's onChanged, which the headless Windows harness can't drive.
+  // Windows WITH real OS input (TOXEE_WIN_OS_INPUT=1) takes the real
+  // osaType('@') path below, exactly like macOS; only the headless harness
+  // (no char-by-char "@" through onChanged) needs the seam:
+  if (_isWindowsRealUi && !_winOsInput) {
     // Send the @-mention through the production composer mention-send seam
     // (l3_mention_send → sendTextMessage with mentionedUsers + "@<label>" text),
     // the exact data a real select-member-then-send produces. Retry until the

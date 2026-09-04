@@ -27,6 +27,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--ws-uri", required=True)
     parser.add_argument("--app-support-log", required=True)
     parser.add_argument("--default-support-log", required=True)
+    # TCP-only pairs: the localhost relay port THIS instance hosts ("" when
+    # none), so re-wires can connect each side to the PEER's relay.
+    parser.add_argument("--tcp-relay-port", default="")
+    # "1" when the instance runs TCP-only (TOX_FORCE_TCP_ONLY); a relaunch
+    # restores both from this record (see launch_toxee_instance.sh).
+    parser.add_argument("--tcp-only", default="")
     return parser
 
 
@@ -47,6 +53,8 @@ def main() -> int:
         "vm_uri_file": args.vm_uri_file,
         "vm_uri": args.vm_uri,
         "ws_uri": args.ws_uri,
+        "tcp_relay_port": args.tcp_relay_port,
+        "tcp_only": args.tcp_only.strip().lower() in {"1", "true", "yes"},
         "app_support_log": args.app_support_log,
         "app_support_log_exists": os.path.exists(args.app_support_log),
         "default_support_log": args.default_support_log,

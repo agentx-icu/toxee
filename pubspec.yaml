@@ -26,6 +26,9 @@ dependencies:
   tencent_cloud_chat_sound_to_text: ^4.1.0
   provider: ^6.0.5
   shared_preferences: ^2.2.2
+  # Direct dep: PrefsBootstrap installs a SharedPreferencesStorePlatform
+  # (IsolatedPrefsStore) when TOXEE_APP_SUPPORT_DIR is set on Windows/Linux.
+  shared_preferences_platform_interface: ^2.3.0
   flutter_secure_storage: ^9.2.2
   file_picker: ^9.2.3
   # OS-level app icon / dock unread badge. Full support on iOS + macOS (dock
