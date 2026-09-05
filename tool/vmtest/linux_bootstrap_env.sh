@@ -25,7 +25,15 @@ sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1 apt
   build-essential clang libgtk-3-dev libsecret-1-dev libsodium-dev libopus-dev \
   libvpx-dev libssl-dev libsqlite3-dev patchelf xvfb liblzma-dev mesa-utils \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good >/dev/null
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gnome-keyring libsecret-tools dbus-x11 xdotool x11-utils xclip >/dev/null
+# Why the last line: a headless toxee needs a Secret Service with a WRITABLE
+# DEFAULT collection (gnome-keyring; libsecret-tools + dbus-x11 are how
+# tool/mcp_test/_linux_headless_env.sh builds and PROVES one) — without it
+# flutter_secure_storage's *_sync store blocks the GTK platform thread forever.
+# xdotool + x11-utils + xclip are the real-OS-input layer
+# (TOXEE_LINUX_OS_INPUT=1); xclip is what owns the X clipboard selection for
+# the paste verbs, which have no fallback without it.
 log "apt done (rc=$?)"
 
 if [ -x "$FLUTTER_HOME/bin/flutter" ]; then

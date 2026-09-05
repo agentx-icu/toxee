@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'fixture_c_real_ui_linux_campaigns.dart';
 import 'fixture_c_real_ui_mobile_campaigns.dart';
 import 'fixture_c_real_ui_scenarios.dart';
 import 'fixture_c_real_ui_windows_campaigns.dart';
@@ -532,14 +533,13 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   ],
 };
 
-/// The full campaign catalog: the shared/desktop entries above plus the mobile
-/// matrix. Keys are asserted unique by construction — a mobile campaign that
-/// reused a shared name would silently win the spread, so keep the
-/// `rui-ios-` / `rui-ipad-` / `rui-android-` / `rui-mobile-` prefixes.
+/// The full campaign catalog: shared/desktop + mobile + per-desktop-platform
+/// families (keep `rui-<platform>-` prefixes: a reused key wins the spread).
 final _realUiCampaigns = <String, List<String>>{
   ..._sharedRealUiCampaigns,
   ...mobileRealUiCampaigns,
   ...windowsRealUiCampaigns,
+  ...linuxRealUiCampaigns,
 };
 const _realUiStateNoFriend = 'no-friend';
 const _realUiStateFriends = 'friends';

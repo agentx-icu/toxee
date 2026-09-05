@@ -1443,17 +1443,17 @@ Future<bool> _hveRestoreImportEntryGuard(Inst inst, String primaryToxId) async {
       'login_page_import_account_card',
       timeoutSecs: 4,
     );
-    // Windows headless: a coordinate tap (tapKeyAt) does NOT fire the card's
-    // InkWell.onTap, so _restoreFromToxFile never runs and no error surfaces.
-    // flutter_skill `tap` (tryTapKey) invokes the onTap callback directly.
+    // Headless desktops (Windows AND Linux): a coordinate tap does NOT fire the
+    // card's InkWell.onTap, so nothing runs; flutter_skill `tap` does.
     final restoreTapped =
         restoreCard &&
-        (_isWindowsRealUi
+        ((_isWindowsRealUi || inst.isLinux)
             ? await inst.tryTapKey('login_page_restore_from_tox_file')
             : await inst.tapKeyAt('login_page_restore_from_tox_file'));
+    final bannerSecs = _isHeadlessRealUi ? 25 : 10;
     final restoreErrorShown =
         restoreTapped &&
-        await inst.waitKey('login_page_error_banner', timeoutSecs: 10);
+        await inst.waitKey('login_page_error_banner', timeoutSecs: bannerSecs);
     await inst.shot('/tmp/ui_hve_restore_import_entries_${inst.name}.png');
     ok = restoreCard && importCard && restoreTapped && restoreErrorShown;
     print(

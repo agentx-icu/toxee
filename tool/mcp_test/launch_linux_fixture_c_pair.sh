@@ -19,9 +19,11 @@
 #     drivers boot them via l3_boot_existing_account);
 #   * TOXEE_PAIR_TCP_ONLY=1 mirrors the macOS launcher's same-host TCP-only
 #     mode (A becomes a localhost TCP relay) for NGC/group traffic determinism;
-#   * headless hosts (SSH, no $DISPLAY): a throwaway Xvfb display is started
-#     automatically — real-UI driving is synthetic flutter_skill RPC, which
-#     needs a live GTK surface but not a physical screen.
+#   * headless hosts (SSH, no $DISPLAY): a throwaway Xvfb display AND a private
+#     Secret Service with a writable default collection are started
+#     automatically (see _linux_headless_env.sh) — real-UI driving needs a live
+#     GTK surface but not a physical screen, and a prompting libsecret store
+#     would block the GTK platform thread forever;
 #
 # The runtime root defaults under build/ (always locally writable, including on
 # a share-shim checkout where tool/ is a read-only symlink into the Mac share).
@@ -88,32 +90,15 @@ elif [[ -n "$RESTORE_MODE" ]]; then
     die "unsupported TOXEE_FIXTURE_C_RESTORE=$RESTORE_MODE (paired|paired_for_e2e)"
 fi
 
-# ----- Headless fallback: private Xvfb display ------------------------------
-XVFB_PID=""
-if [[ -z "${DISPLAY:-}" ]]; then
-    if command -v Xvfb >/dev/null 2>&1; then
-        export DISPLAY=":99"
-        if ! ls /tmp/.X11-unix/X99 >/dev/null 2>&1; then
-            info "No \$DISPLAY - starting Xvfb $DISPLAY (1920x1080)"
-            Xvfb "$DISPLAY" -screen 0 1920x1080x24 >/dev/null 2>&1 &
-            XVFB_PID=$!
-            echo "$XVFB_PID" > "$RUNTIME_ROOT/xvfb.pid"
-            sleep 1
-        fi
-    else
-        warn "No \$DISPLAY and no Xvfb - the GTK app will fail to open a surface"
-    fi
-    # Headless keyring: flutter_secure_storage (libsecret) retries forever on a
-    # locked session keyring, wedging the first widget build (blank window,
-    # zero elements). Empty-password unlocked keyring = standard headless-CI
-    # recipe; gated to the no-DISPLAY branch to keep real desktops untouched.
-    if command -v gnome-keyring-daemon >/dev/null 2>&1; then
-        rm -f "$HOME/.local/share/keyrings/"*.keyring 2>/dev/null || true
-        keyring_env="$(printf '' | gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null || true)"
-        [[ -n "$keyring_env" ]] && eval "$keyring_env" && export GNOME_KEYRING_CONTROL 2>/dev/null || true
-        info "Headless keyring unlocked for libsecret"
-    fi
-fi
+# ----- Headless session prerequisites (Xvfb + Secret Service) ---------------
+# X display AND a writable default keyring collection; see
+# _linux_headless_env.sh for why the keyring half is a HARD requirement (a
+# prompting libsecret store blocks the GTK platform thread forever and every
+# l3_* call then times out as "app isolate unresponsive").
+# shellcheck source=tool/mcp_test/_linux_headless_env.sh
+source "$MCP_DIR/_linux_headless_env.sh"
+toxee_linux_headless_env "$RUNTIME_ROOT" \
+    || die "headless session prerequisites failed (see above)"
 
 # ----- Bootstrap + build ONCE ----------------------------------------------
 cd "$REPO_ROOT"
@@ -218,14 +203,24 @@ launch_instance() { # name port tcp_env...
     # env entry, "" when none) so re-wires can dial the PEER's relay.
     local relay_port=""
     local kv; for kv in "$@"; do [[ "$kv" == TOX_TCP_RELAY_PORT=* ]] && relay_port="${kv#TOX_TCP_RELAY_PORT=}"; done
+    # exe / vm_port / support_dir / tcp_only are the RELAUNCH contract:
+    # launch_toxee_linux_instance.sh re-reads them to bring this same instance
+    # back with the same account, port and topology (Linux twin of the Windows
+    # instance.json contract).
+    local tcp_only=false
+    for kv in "$@"; do [[ "$kv" == TOX_FORCE_TCP_ONLY=1 ]] && tcp_only=true; done
     jq -n \
         --arg name "$name" --argjson pid "$pid" --arg inst "$inst" \
         --arg stdio "$stdio" --arg vm "$vm_uri" --arg ws "$ws" \
         --arg relay "$relay_port" \
+        --arg exe "$EXE" --argjson vmport "$port" --arg support "$support" \
+        --argjson tcponly "$tcp_only" \
         --argjson logx "$log_exists" \
         '{format_version: 1, instance_name: $name, pid: $pid,
           home_override_dir: $inst, stdio_log: $stdio,
           vm_uri: $vm, ws_uri: $ws, tcp_relay_port: $relay,
+          exe: $exe, vm_port: $vmport, support_dir: $support,
+          tcp_only: $tcponly,
           app_support_log_exists: $logx}' \
         > "$inst/instance.json"
     info "$name pid=$pid ws_uri=$ws"

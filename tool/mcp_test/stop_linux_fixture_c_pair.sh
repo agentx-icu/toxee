@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tear down the Linux Fixture C pair started by launch_linux_fixture_c_pair.sh:
 # kill both instances (pair.json pids + pid files + path-scoped pkill sweep)
-# and the private Xvfb display if the launcher started one.
+# and the private Xvfb display / session bus / keyring daemon if the launcher
+# started them.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,8 +21,10 @@ pkill -f "$REPO_ROOT/build/linux/.*/debug/bundle/toxee" 2>/dev/null || true
 sleep 1
 pkill -9 -f "$REPO_ROOT/build/linux/.*/debug/bundle/toxee" 2>/dev/null || true
 
-if [[ -f "$RUNTIME_ROOT/xvfb.pid" ]]; then
-    kill "$(cat "$RUNTIME_ROOT/xvfb.pid")" 2>/dev/null || true
-    rm -f "$RUNTIME_ROOT/xvfb.pid"
-fi
+# Xvfb + the private session bus / gnome-keyring the launcher started (killing
+# the bus takes its keyring client with it; nothing outside this runtime root
+# is touched).
+# shellcheck source=tool/mcp_test/_linux_headless_env.sh
+source "$REPO_ROOT/tool/mcp_test/_linux_headless_env.sh"
+toxee_linux_headless_env_stop "$RUNTIME_ROOT"
 echo "stopped Linux Fixture C pair (runtime root: $RUNTIME_ROOT)"

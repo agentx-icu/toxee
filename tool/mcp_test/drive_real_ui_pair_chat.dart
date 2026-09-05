@@ -1014,11 +1014,8 @@ Future<bool?> _chatCopyMessageClipboardOrSkip(Inst a, String toxB) async {
 /// contains the exact bubble text (asserted via `pbpaste` — a genuine OS read).
 ///
 /// DESKTOP ONLY — call [_chatCopyMessageClipboardOrSkip] instead so a mobile
-/// shell SKIPs rather than asserting against the wrong pasteboard. (The
-/// single-scenario dispatcher in drive_real_ui_pair.dart still calls this
-/// directly with a `bool` contract; on a mobile shell that path reports FAIL,
-/// never a false PASS — switching it to the tri-state form is a one-line change
-/// in that file.)
+/// shell SKIPs rather than asserting against the wrong pasteboard (the
+/// single-scenario dispatcher still calls this one directly: FAIL, never PASS).
 Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
   final nonce = DateTime.now().microsecondsSinceEpoch;
   final text = 'RUIB6COPY-$nonce';
@@ -1062,6 +1059,8 @@ Future<bool> _chatCopyMessageClipboard(Inst a, String toxB) async {
 /// Windows (no pbpaste there — running it throws ProcessException and would
 /// crash the whole sweep).
 Future<String> _pbpaste() async {
+  // Linux has no `pbpaste`; read the X CLIPBOARD the app itself owns.
+  if (_linuxRealUiHost) return linuxClipboardGet();
   if (Platform.isWindows) {
     final r = await Process.run('powershell', const [
       '-NoProfile',
@@ -1075,8 +1074,9 @@ Future<String> _pbpaste() async {
 }
 
 /// Seed the OS clipboard (sentinel pre-clear): `pbcopy` on macOS, `clip` on
-/// Windows.
+/// Windows, the X CLIPBOARD selection on Linux.
 Future<void> _pbcopy(String text) async {
+  if (_linuxRealUiHost) return linuxClipboardSet(text);
   final p = await Process.start(
     Platform.isWindows ? 'clip' : 'pbcopy',
     const [],
@@ -1409,15 +1409,15 @@ Future<bool> _chatDeleteMessageGone(Inst a, String toxB) async {
 /// The production list auto-loads older history with a `lastMsgID` cursor when
 /// scrolled toward the top (message_history_load_more_real_ui_test.dart).
 ///
-/// Returns null (SKIP) on MOBILE shells: their message list keeps every seeded
-/// row MOUNTED in the element tree after the in-chat seeding (keepAlive /
-/// full-mount — verified live on the iOS 2-sim sweep 2026-07-12: the earliest
-/// of 44 seeded rows satisfied waitKey on a fresh reopen while the screenshot
-/// showed a bottom-anchored lazy viewport), so the desktop proof shape — "the
+/// Returns null (SKIP) on MOBILE shells AND on LINUX: their message list keeps
+/// every seeded row MOUNTED in the element tree after the in-chat seeding
+/// (keepAlive / full-mount — iOS 2-sim sweep 2026-07-12; re-measured on the
+/// Linux VM 2026-09-05, where a 44-message seed with only 11 rows in the
+/// viewport STILL satisfied waitKey on the earliest row after a fresh reopen,
+/// which no lazily-built list could do), so the desktop proof shape — "the
 /// earliest ROW is not mounted until scroll-up pages it in" — cannot establish
 /// its non-vacuous baseline there. The paging logic itself has hermetic L1
-/// coverage (message_history_load_more_real_ui_test.dart); the real-UI seam is
-/// proven on the desktop platforms.
+/// coverage. OPEN: whether macOS differs is unmeasured.
 Future<bool?> _chatHistoryScrollLoadMore(
   Inst a,
   Inst b,
@@ -1426,12 +1426,12 @@ Future<bool?> _chatHistoryScrollLoadMore(
   required String earliestText,
   required String earliestId,
 }) async {
-  if (a.isMobileShell) {
+  if (a.isMobileShell || a.isLinux) {
     print(
-      '[pair] chat_history_scroll_load_more: SKIP — mobile message list '
-      'keeps seeded rows mounted (keepAlive), so the row-mount baseline '
-      'cannot prove scroll-paging here; L1 covers the paging logic and the '
-      'desktop 2-proc case covers the real-UI seam',
+      '[pair] chat_history_scroll_load_more: SKIP — this shell keeps every '
+      'seeded row mounted (measured on Linux: 44 seeded, 11 in view, earliest '
+      'still resolvable), so the row-mount baseline cannot prove scroll-paging '
+      'here; L1 covers the paging logic itself',
     );
     return null;
   }

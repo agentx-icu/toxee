@@ -2,22 +2,19 @@
 part of 'drive_real_ui_pair.dart';
 
 // VIDEO-call half of the calls_misc sweep (cases 85 + 87), plus the device
-// capability probe that decides whether they can run at all.
-//
-// Split out of `drive_real_ui_pair_calls_misc.dart` along a real seam: the
-// parent file drives VOICE calls and the misc shell cases, which need no
-// camera and run everywhere. Everything here is conditional on the device
-// actually having capture hardware — see [_videoCallEntryReason].
+// capability probe that decides whether they can run at all. Split out of
+// `drive_real_ui_pair_calls_misc.dart` along a real seam: the parent drives
+// VOICE calls and misc shell cases, which need no camera and run everywhere.
+// Everything here is conditional on capture support — [_videoCallEntryReason].
 
 /// Null when this device DOES offer a video-call entry point; otherwise the
 /// SKIP reason. The header's video button is gated on `useVideoCall`
 /// (`supportsVideoCapture()`); hiding it on a camera-less device is CORRECT
-/// product behaviour. The honest SKIP needs TWO guards (a missing video
-/// button alone is ambiguous): 1. the sibling VOICE button present ("hidden
-/// on purpose", not "chat never opened"); 2. `videoCaptureSupported ==
-/// false` AND a camera-less-BY-DESIGN env (`iosSimulator` /
-/// `androidEmulatorHarness`) — else a real-hardware capture OUTAGE would be
-/// swallowed as SKIP; on physical hardware it stays a FAILURE.
+/// product behaviour. The honest SKIP needs TWO guards (a missing video button
+/// alone is ambiguous): 1. the sibling VOICE button present ("hidden on
+/// purpose", not "chat never opened"); 2. `videoCaptureSupported == false` AND
+/// a camera-less-BY-DESIGN env — else a real-hardware capture OUTAGE would be
+/// swallowed as SKIP; on capture-capable hardware it stays a FAILURE.
 Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   await openChat(caller, calleeId, preferConversationList: true);
   await caller.foreground();
@@ -31,12 +28,16 @@ Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
   }
   final state = await caller.dumpState();
   final capable = state['videoCaptureSupported'];
-  // Camera-less-BY-DESIGN environments: the iOS Simulator (self-reported)
-  // and Android EMULATORS (the launcher stamps TOXEE_ANDROID_EMULATOR=true
-  // only for emulator-* adb serials — a physical device only ever receives
-  // it as false), surfaced as androidEmulatorHarness.
+  // Camera-less-BY-DESIGN: the iOS Simulator (self-reported), an Android
+  // EMULATOR (androidEmulatorHarness), and the Linux/Windows DESKTOPS — which
+  // have no camera plugin at all (CallMediaCapabilities.supportsVideoCapture:
+  // "Windows and Linux have NO camera plugin implementation"), so a hidden
+  // video button there is the product as designed, not a capture outage.
   final cameraLessByDesign =
-      state['iosSimulator'] == true || state['androidEmulatorHarness'] == true;
+      state['iosSimulator'] == true ||
+      state['androidEmulatorHarness'] == true ||
+      caller.isLinux ||
+      _isWindowsRealUi;
   if (capable != false || !cameraLessByDesign) {
     print(
       '[pair] video-call entry is ABSENT but this is NOT the expected '
@@ -50,12 +51,11 @@ Future<String?> _videoCallEntryReason(Inst caller, String calleeId) async {
     );
     return null;
   }
-  return 'no video-call entry on this device: the chat header renders '
+  return 'no video-call entry on this device: the header renders '
       'chat_call_voice_button but NOT chat_call_video_button, and the app '
       'reports videoCaptureSupported=false in a camera-less-by-design env '
-      '(iOS Simulator / Android emulator; useVideoCall gates on '
-      'supportsVideoCapture, session_runtime_coordinator.dart:283). Re-run '
-      'on hardware with a camera to exercise these cases.';
+      '(iOS Simulator / Android emulator / Linux+Windows desktop, which have '
+      'no camera plugin). Re-run on a platform with capture support.';
 }
 
 /// Start a VIDEO call ([caller] taps `chat_call_video_button`) and wait for

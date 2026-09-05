@@ -158,6 +158,7 @@ import 'local_irc_server.dart';
 //                   keystroke path (a silent no-op on iOS/Android).
 part 'drive_real_ui_pair_inst.dart';
 part 'drive_real_ui_pair_inst_os_input.dart';
+part 'drive_real_ui_pair_inst_linux_input.dart';
 part 'drive_real_ui_pair_keyed_gaps4_mobile_nav.dart';
 part 'drive_real_ui_pair_keyed_gaps4_mention2.dart';
 // Tap / key-resolution diagnostics (keeps the raw skill('tap') payload).

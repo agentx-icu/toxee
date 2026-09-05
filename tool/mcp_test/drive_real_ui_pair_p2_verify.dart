@@ -134,10 +134,12 @@ Future<bool?> _p2vPasteImageIntoComposer(
   String toxB,
 ) async {
   // Platform gate. The case needs a DESKTOP clipboard/paste surface: macOS (the
-  // host seeds the real clipboard via osascript and drives a real Cmd+V) or the
+  // host seeds the real clipboard via osascript and drives a real Cmd+V), the
   // Windows real-UI platform (l3_paste_image stages through the same production
-  // sendImageOnDesktop handler). iOS / Android / Linux peers have no such
-  // surface at all.
+  // sendImageOnDesktop handler), or Linux UNDER REAL OS INPUT (xclip owns an
+  // `image/png` clipboard selection on the SAME display as the app and xdotool
+  // sends a real Ctrl+V). Linux without that flag, and iOS / Android, have no
+  // such surface at all.
   //
   // This used to `return false` here, which callers reported as a FAIL — a
   // permanent, unfixable red that constantly depressed the Linux/Android/iOS
@@ -146,11 +148,14 @@ Future<bool?> _p2vPasteImageIntoComposer(
   // HOST, and the iOS/Android launchers drive from a macOS host, so the old
   // host-only check let those platforms fall through into the osascript path.
   final hasDesktopPasteSurface =
-      (Platform.isMacOS && a.platform == 'macos') || _isWindowsRealUi;
+      (Platform.isMacOS && a.platform == 'macos') ||
+      _isWindowsRealUi ||
+      _linuxOsInput;
   if (!hasDesktopPasteSurface) {
     print(
       '[pair] paste_image_into_composer: SKIP — no desktop clipboard/paste '
-      'surface for peer platform "${a.platform}" (macOS/Windows only)',
+      'surface for peer platform "${a.platform}" (macOS / Windows / Linux '
+      'under TOXEE_LINUX_OS_INPUT=1)',
     );
     return null;
   }
@@ -222,6 +227,9 @@ Future<bool?> _p2vPasteImageIntoComposer(
       if (_winOsInput) {
         // Real Ctrl+V into the real composer (Windows OS-input mode).
         await a._winScanKey('v', mods: const ['ctrl']);
+      } else if (_linuxOsInput) {
+        // Real Ctrl+V through XTEST (Linux OS-input mode).
+        await a._linuxKey('ctrl+v');
       } else {
         await a._osa(
           'tell application "System Events" to keystroke "v" using command down',
@@ -319,6 +327,18 @@ Future<bool?> _p2vPasteImageIntoComposer(
 }
 
 Future<bool> _p2vSetClipboardImage(File png) async {
+  if (_linuxOsInput) {
+    // Through the helper, NOT a bare xclip: the helper resolves the display the
+    // app renders on (the driver's own environment has no $DISPLAY) and keeps
+    // the selection owner's fds off our pipes. It verifies the clipboard really
+    // offers `image/png` before returning.
+    final r = await _linuxHelperRun(['clipimage', '0', png.path]);
+    if (r.exitCode != 0) {
+      print('[pair] paste_image_into_composer: clipimage failed: ${r.stderr}');
+      return false;
+    }
+    return true;
+  }
   if (_winOsInput) {
     // Real OS clipboard image on Windows (System.Windows.Forms needs an STA
     // thread, hence a dedicated `powershell -STA` rather than _winPsRun).
