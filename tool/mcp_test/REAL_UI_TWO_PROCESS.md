@@ -1488,7 +1488,7 @@ each rebuild-gated. Those are the concrete next "problems to solve".
 | ios     | `launch_ios_fixture_c_pair.sh`      | via macOS container restore  | synthetic VM-service |
 | android | `launch_android_fixture_c_pair.sh`  | `adb exec-in run-as ... tar -x` into the debug app sandbox (2026-07-12; the pair DOES reach the business layer — see "Android status" — but no scenario-level green run is on record) | synthetic VM-service (l3/skill substitutes for `osa*`) |
 | windows | `launch_windows_fixture_c_pair.ps1` | `restore_fixture_c_pair.ps1` (PowerShell-native, no bash/jq) | synthetic VM-service (headless) |
-| linux   | `launch_linux_fixture_c_pair.sh`    | `restore_fixture_c_pair.sh` (portable: tox_profile + JSON history) | synthetic VM-service (headless) |
+| linux   | `launch_linux_fixture_c_pair.sh`    | `restore_fixture_c_pair.sh` (portable: tox_profile + JSON history) | synthetic VM-service, or REAL XTEST keys with `TOXEE_LINUX_OS_INPUT=1` |
 
 Linux specifics (added with the 2026-07-11 VM campaign):
 
@@ -1781,6 +1781,266 @@ logged in at the VM console (locked = keys don't land).
 - `V2TIM_LOG` `{}` placeholders are printed literally in `flutter_client.log`
   (e.g. `Failed to create Tox instance, error: {} ({})`) — the native error
   code never reaches the log. Pre-existing, cross-platform, NOT fixed here.
+
+## Linux — aligned with macOS (2026-09-05, Parallels Ubuntu 24.04 ARM64 VM)
+
+Linux had the launcher, the portable fixture restore and a place in the runner
+since the 2026-07-11 pass, but it was the same "headless" desktop Windows was:
+every `osa*` primitive substituted, no peer process control, no campaign
+catalog — and, as it turned out, a pair that had never actually rendered on the
+Xvfb anyone believed it was using. It now has the same three things macOS has
+(REAL OS input, peer process control, a campaign catalog) and needs LESS
+ceremony than Windows to run them.
+
+### The two blockers, root-caused on the VM
+
+Both were found by driving the real thing, not by reading code, and both were
+INVISIBLE from the app's own logs:
+
+- **A prompting libsecret store froze the GTK platform thread.** The first
+  sweep died with `l3_dump_state timed out after 45s (app isolate
+  unresponsive)` right after registration, with the app log ending mid-startup
+  and no error anywhere. A `gdb -p` backtrace of the wedged process showed
+  thread 1 in `secret_password_storev_sync → g_main_loop_run` inside
+  flutter_secure_storage's `SecretStorage::warmupKeyring`. The old headless
+  recipe (`gnome-keyring-daemon --replace --unlock --components=secrets` fed an
+  empty password) LOOKED healthy — exit 0, daemon up, `org.freedesktop.secrets`
+  on the bus — but produced only the in-memory `session` collection: no login
+  keyring, no `default` alias. flutter_secure_storage stores into the DEFAULT
+  collection, so the very first store asked to CREATE it, got a `Prompt` back,
+  and blocked forever on a box with no prompter. A blocked platform thread
+  takes every platform channel and every VM-service extension with it, which is
+  why the driver saw a dead isolate and the app saw nothing worth logging.
+  `--login` (the PAM entry point) is the mode that creates + unlocks the login
+  keyring and aliases it `default`; `--unlock` only unlocks one that exists.
+- **The "headless" pair was rendering on the console user's Wayland
+  compositor.** `xwininfo -root -tree` on the Xvfb showed **0 children** while
+  the app was demonstrably alive and taking taps. `strace -e trace=connect`
+  settled it: the app connects to `/run/user/1000/wayland-0`. GDK tries Wayland
+  FIRST and its Wayland backend falls back to the well-known socket name in
+  `$XDG_RUNTIME_DIR` even when `$WAYLAND_DISPLAY` is unset — which every SSH
+  session on a machine with a logged-in desktop has. So Xvfb sat empty, two
+  real windows opened on somebody's desktop, and there was no X window for an
+  input layer to attach to. `GDK_BACKEND=x11` is the fix.
+
+`tool/mcp_test/_linux_headless_env.sh` now owns both, shared by the pair
+launcher, the single-instance launcher and `run_toxee_linux.sh` (each of which
+carried its own copy of the broken recipe). It starts Xvfb, pins GDK to x11
+where X is actually required, and brings up a PRIVATE session bus + a PRIVATE
+keyring home under the runtime root — the old code `--replace`d the desktop's
+daemon and `rm -f`'d `~/.local/share/keyrings/*.keyring`, i.e. hijacked and
+then deleted a real user's keyring. It PROBES the result
+(`ReadAlias("default")`, plus a real `secret-tool store` when available) and
+fails LOUDLY at launch instead of wedging the app a minute later.
+
+### Real OS input (`TOXEE_LINUX_OS_INPUT=1`)
+
+`drive_real_ui_pair_inst_linux_input.dart` + `tool/mcp_test/linux_os_input.sh`:
+every `osa*` wrapper (type / paste / Return / Shift+Return / Escape / clear /
+clipboard / foreground) runs an xdotool verb against THIS instance's X window,
+serialized on the same chain as osascript so two peers' key events cannot
+interleave. Text crosses as base64 (argv-safe, like the Windows
+`-EncodedCommand`). It is opt-in only because of its host prerequisites
+(xdotool, and an app pinned to the x11 backend).
+
+Two things are EASIER here than on Windows, and one is harder:
+
+- **No console session.** XTEST reaches an Xvfb display from an SSH login, so
+  the OS-input campaigns run in the same place as everything else — the Windows
+  twin has to go through an interactive scheduled task. XTEST also injects real
+  keycodes, so none of the scan-code-0 breakage that made `SendKeys` useless
+  ever appears.
+- **The three global chords are NOT real — and that is a product finding.**
+  Driving Super+Ctrl+F for real made `search_empty_state` (sweep_p1_chat) fail
+  on both attempts ("search overlay did not open"); the identical launch
+  through the l3 seam PASSES. The keys are not the problem: `xev` shows XTEST
+  delivering Super_L (state -> Mod4 0x40), Control_L (0x44) and `f` (0x44)
+  perfectly, and Ctrl/Shift from the same helper are what make real-input
+  registration type a correct nickname (`osaClear` uses `ctrl+shift+Home`).
+  The `meta` half is the obvious suspect (X11 carries Super on **Mod4** while
+  GDK's META mask is **Mod1** here — `xmodmap -pm`: `mod1 Alt_L, Alt_R,
+  Meta_L`), but that mechanism is NOT proven: Flutter maps Super to
+  `LogicalKeyboardKey.meta*` and `SingleActivator` matches on
+  `HardwareKeyboard.logicalKeysPressed`, not on a GDK mask, so focus context or
+  modifier-state synchronisation are equally live explanations — settling it
+  needs a key-event dump from inside the app. The harness keeps those three on
+  the l3 intent seams either way, exactly as Windows does. It does leave a
+  PRODUCT question open: `home_page.dart` binds the four desktop shortcuts as
+  `SingleActivator(key, meta: true, control: true)` under the comment "Setting
+  both `meta` and `control` ... works for macOS and Win/Linux without a
+  per-platform branch" — `SingleActivator` ANDs those flags, so on Linux the
+  binding literally is Ctrl+Super+<key>, which is not a platform convention and
+  (per the run above) does not fire. Choosing the right Windows/Linux bindings
+  is a UX call, deliberately left open.
+- **Focus is `windowfocus`, not `windowactivate`.** `windowactivate` sends the
+  EWMH `_NET_ACTIVE_WINDOW` message, which needs a window manager; the headless
+  Xvfb has none. The helper uses XSetInputFocus (with `windowactivate` first
+  when a WM *is* present) and VERIFIES the result — keys sent to a window that
+  is not ours would land in the peer instance. Window resolution is by
+  `xdotool search --pid` picking the WIDEST toplevel: GTK also owns a 10x10
+  group-leader window and 1x1 helpers, and the title is "Toxee" only after
+  window_manager applies it.
+
+One trap cost six minutes of hang before it was understood: **X11 has no
+clipboard daemon**, so `xclip -i` forks a server child that stays alive to own
+the selection — and that child inherits the helper's stdout/stderr. The Dart
+side reads the helper's pipes to EOF, so it blocked long after the helper had
+exited. The helper redirects the whole invocation to `/dev/null`, and
+`_linuxHelperRun` also gives the stream joins their own short timeout so no
+future leaked fd can wedge a run.
+
+### One session, adopted — not rebuilt per process
+
+`_linux_headless_env.sh` records DISPLAY / GDK_BACKEND /
+DBUS_SESSION_BUS_ADDRESS / GNOME_KEYRING_CONTROL in
+`<runtime_root>/headless.env`, and ADOPTS that session when it is still usable
+(X server alive + default collection writable) instead of building a second
+one. That is not tidiness, it is what makes RELAUNCH correct: the relaunch
+launcher runs in a fresh shell the driver spawns with a bare environment, and
+left to build its own session it would wipe the private keyring home out from
+under the LIVE peer and hand the relaunched instance a different Secret Service
+than the account was registered against. Teardown kills only the pids we
+recorded, identity-checked against `/proc/<pid>/comm` — `dbus-daemon --fork`
+does not carry its address in argv, so the first cut's `pkill -f "guid=..."`
+would have matched nothing (and could have matched an unrelated process that
+did).
+
+### Peer process control (relaunch sweeps)
+
+`stop_toxee_linux_instance.sh` / `launch_toxee_linux_instance.sh`, the Linux
+twins of the PowerShell pair. Before them, `_instanceCtl` fell through to the
+**macOS** scripts on Linux, which are wrong twice over: they launch `Toxee.app`
+and they write under `tool/mcp_test/.multi_instance_runtime`, a READ-ONLY
+symlink into the Mac share on a shim checkout. The Linux pair launcher now
+records the same relaunch contract Windows does in each `instance.json`
+(`exe`, `vm_port`, `support_dir`, `tcp_only`, `tcp_relay_port`) and the twin
+re-creates the SAME instance from it — no build, no wipe, so the relaunched
+process autologs into the stopped account. Both do the pid-reuse identity check
+(`/proc/<pid>/exe`) the Windows pair learned to do.
+
+### The reds a full `rui-linux-*` pass turned up (2026-09-05)
+
+Every one was root-caused; none was "Linux is different, lower the bar". Six
+were HARNESS gaps that had simply never been exercised on this target, one was
+a product-shaped race the slower real-keyboard path exposed, and three were a
+capability guard that did not know about desktop Linux.
+
+- **`chat_copy_message_clipboard` could never have passed** —
+  `_pbpaste`/`_pbcopy` knew `pbpaste`/`pbcopy` (macOS) and PowerShell
+  (Windows), so Linux raised `ProcessException: No such file or directory`.
+  They now delegate to `linuxClipboardGet/Set`, which read and write the X
+  CLIPBOARD selection through the helper (which is what knows the app's
+  display). Deliberately NOT gated on `TOXEE_LINUX_OS_INPUT`: the app owns the
+  selection either way. The case now does a genuine OS clipboard round-trip.
+- **`profile_edit_nickname_persists` / `profile_edit_status_persists`** — a
+  REAL race, not a Linux quirk. `_handleSave` awaits `onSave` and only
+  afterwards `setState(_editMode = false)`, so the dumped `nickname` already
+  matched while the doomed field was STILL mounted; the caller re-entered edit
+  mode, `waitKey` succeeded on the dying field, and `focusType` then died with
+  "Element not found for tap". `_editProfileFieldAndSave` now RETURNS the
+  `waitKeyGone` — the disappearance is the barrier, and a timeout is a failure.
+  Only the slower real-keyboard path lost the race; the hole was universal.
+- **`account_switch_second_account`** — `_quickLoginNoPassword` already
+  retried on Windows/mobile with a comment saying the FFI re-init churn is
+  platform-independent and a slower target just needs more attempts. Linux is a
+  slower target and was not in the set. Added.
+- **`conv_search_filter_clear`** — the case pinned
+  `search_result_conversation:c2c_<pubkey>`, but `custom_search.dart` builds
+  the conversation FALLBACK list only when contacts AND groups AND messages all
+  come back empty. Wherever `searchContacts` does resolve the friend (Linux),
+  the hit renders as `search_result_contact:<uid>` instead — a working search
+  reported as a red. Both shapes are now accepted; the clear-check requires all
+  of them gone.
+- **`call_video_accept_hangup` / `call_camera_toggle_incall` /
+  `call_camera_switch_incall`** — "incoming video call never rang".
+  `CallMediaCapabilities.supportsVideoCapture` says in so many words that
+  "Windows and Linux have NO camera plugin implementation", so the video button
+  is correctly hidden; but `_videoCallEntryReason`'s `cameraLessByDesign` guard
+  only recognised the iOS Simulator and Android emulators, so a BY-DESIGN
+  absence was treated as a capture outage and the sweep tried to place a video
+  call anyway. The guard now covers the Linux/Windows desktops too — and still
+  requires `videoCaptureSupported == false` plus a mounted voice button, so a
+  real capture outage on capable hardware stays a FAILURE.
+- **`chat_history_scroll_load_more` is a SKIP here, and it is measured.** With
+  the seed raised to 44 and only 11 rows in the viewport, `waitKey` STILL
+  resolved the earliest row after a fresh reopen — which no lazily-built list
+  can do. The case's non-vacuous baseline ("the earliest ROW is not mounted
+  until scroll-up pages it in") is therefore unconstructible on this shell,
+  exactly as on mobile, so it SKIPs with that evidence instead of failing. The
+  seed-depth change was reverted, since it does not help. OPEN: whether macOS
+  differs, or a desktop list that mounts every loaded row is a product
+  observation of its own, is unmeasured.
+- **One transient window miss killed a whole sweep.** `resolve_window` had no
+  retry, so a moment where B's toplevel was not resolvable (during its
+  registration) aborted `sweep_group2`; and once an app lost its window
+  mid-sweep, every later step failed with a message blaming GDK. It now retries
+  for 6 s and distinguishes a DEAD process (exit 4) from a live one with no
+  mapped window (exit 3 — hidden to tray?). `_linuxRun` treats exit 3 as
+  recoverable: it asks the app to un-hide through the production
+  `l3_window_state {state: show}` seam and retries once (best-effort; that tool
+  is test-account gated). The retry is safe because exit 3 happens during
+  pre-dispatch resolution, before any verb has typed or clicked anything.
+
+`group_kick_member_ui` was NOT one of these: it failed once and passed on the
+retry with `before=2 after=1`, i.e. the known same-host NGC flakiness, not a
+Linux defect.
+
+### Campaign catalog (`rui-linux-*`)
+
+`fixture_c_real_ui_linux_campaigns.dart` — the desktop `sweep_*` catalog in
+launch-sized bundles: nine HEADLESS-SAFE bundles (honest with or without the
+flag) and three that want `TOXEE_LINUX_OS_INPUT=1` (`rui-linux-os-input` =
+group_mention + p1_chat + p2_verify, `rui-linux-p2-verify`,
+`rui-linux-relaunch` = p1_relaunch + p2_keys). Same
+exclusions as Windows: no `*_optimized` re-orchestration, no mobile/tablet
+form-factor sweeps.
+
+### Live results (Ubuntu 24.04 ARM64 VM, 2026-09-05, `TOXEE_LINUX_OS_INPUT=1`)
+
+Every campaign below ended `rc=0` after the fixes above; the SKIPs are the
+declared, evidenced kind, not silence.
+
+| campaign | result |
+| --- | --- |
+| `rui-linux-os-input` | 3/3 sweeps, **0 skip** — group_mention 2/0, p1_chat 8/0/0, p2_verify (real Ctrl+V image paste) 1/0 |
+| `rui-linux-relaunch` | p1_relaunch 3/0/2, p2_keys 2/0/1 (the 2 skips are the documented same-host ToxAV / public-NGC limits) |
+| `rui-linux-account-settings` | login 9/0, keyed_gaps 8/0, keyed_gaps4_login 1/0, settings2 13/0, profile 7/0/1 — no flakes |
+| `rui-linux-contacts-conv` | contacts 15/0/0, conv 9/0/1 |
+| `rui-linux-chat` | chat 14/0/2, c2c_extra 6/0, msg_select 4/0, keyed_gaps3 9/0/1, keyed_gaps4 4/0/9 |
+| `rui-linux-group` | group2 14/0 |
+| `rui-linux-p1` / `rui-linux-p2` | p1_single 5/0, p1_extra 2/0; p2_reply 1/0, p3_writable 1/0 |
+| `rui-linux-calls-misc` | 8/0/3 — the 3 skips are the camera-less-by-design video cases |
+| `rui-linux-account-extra` | account_conf_extra 6/0, account_deep_extra 1/0, app_entry_extra 8/0 |
+| `rui-linux-c2c-deep` | c2c_deep_extra 1/0, native_boundary_guards 6/0/2 |
+
+Every campaign in the catalog has now run green. What remains is
+flaky-on-first-attempt and green on the runner's own retry, all of it the known
+same-host friendship/NGC timing class rather than anything Linux-specific:
+`sweep_group2` (`group_kick_member_ui` — `before=2 after=1` on the retry),
+`sweep_keyed_gaps3` (`msgmenu_read_receipt_group_gating`, "A's composer message
+never reached the group") and `sweep_native_boundary_guards` (a reused-launch
+"handshake failed" that a fresh relaunch cleared).
+
+### Runbook (from the Linux VM, via `ssh mac2` → the Ubuntu guest)
+
+The guest (`parallels@10.211.55.6`, Ubuntu 24.04 ARM64, Flutter 3.41.9 from a
+git clone — the stable tarballs are x64-only) sees the Mac working tree at
+`/media/psf/bin.gao/chat-uikit/toxee`. Build from a share-shim so build output
+stays on the guest disk:
+
+```bash
+bash tool/vmtest/linux_bootstrap_env.sh                    # one-time apt + flutter
+bash tool/vmtest/make_shim.sh /media/psf/bin.gao/chat-uikit/toxee ~/toxee-linux linux
+cd ~/toxee-linux && flutter pub get
+bash tool/ci/build_tim2tox.sh --target linux --with-irc    # libtim2tox_ffi.so + libirc_client.so
+# one campaign (unset DISPLAY: the launcher then owns the Xvfb):
+TOXEE_LINUX_OS_INPUT=1 dart run tool/mcp_test/fixture_c_unified_runner.dart \
+  --class=2proc-ui --real-ui-platform=linux --real-ui-campaign=rui-linux-os-input
+```
+
+Cheap and fast compared with the Windows lane: a debug `flutter build linux`
+is ~25 s and the whole native build ~90 s on 2 cores, the pair launches
+headless in ~12 s, and nothing needs a logged-in console user.
 
 ## Full five-surface matrix — macOS / iPhone / iPad / Android (2026-08-22/23)
 

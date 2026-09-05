@@ -152,8 +152,13 @@ Future<bool> _p1cTypeIntoComposerNoSend(Inst inst, String text) async {
 /// `l3_composer_send` over whatever the field ALREADY holds. Any case whose
 /// premise is "text was really typed but NOT sent" is unconstructible there and
 /// must SKIP — a vacuous pass would report coverage that never ran.
+/// `isLinux` used to be listed here as its own exclusion, from when Linux had
+/// no OS-input backend. It is now WRONG as a blanket rule and cost real
+/// coverage: under `TOXEE_LINUX_OS_INPUT=1` a Linux peer types through XTEST
+/// and `_usesSyntheticInput` is false, so the clause below already admits
+/// exactly the shells that can really type.
 bool _p1cRealKeyboardCapable(Inst inst) =>
-    !inst.isMobileShell && !inst.isLinux && !inst._usesSyntheticInput;
+    !inst.isMobileShell && !inst._usesSyntheticInput;
 
 /// Best-effort READBACK of the open composer's live content: the keyed field's
 /// `text` from interactiveStructured, else flutter_skill's text finder (which

@@ -290,9 +290,15 @@ void main() {
     expect(source, contains('!inst.isMobileShell'));
     expect(source, contains('final onScreen = inst.isMobileShell'));
     expect(source, contains('_openMobileAccountManagement(inst)'));
-    // Keep the separately justified iOS retry policy scoped to iOS until it is
-    // independently validated on Android.
-    expect(source, contains('(_isWindowsRealUi || inst.isMobileShell)'));
+    // The quick-login retry set stays DELIBERATELY narrow: every member is a
+    // target measured to need it (the Windows VM, the mobile shells, and the
+    // Linux VM — where `account_switch_second_account` failed both attempts of
+    // one run and passed in another, 2026-09-05). macOS has never flaked here
+    // and must stay on a single attempt, so widening this needs evidence.
+    expect(
+      source,
+      contains('(_isWindowsRealUi || inst.isMobileShell || inst.isLinux)'),
+    );
   });
 
   test('Android group chat opening validates the compact route identity', () {

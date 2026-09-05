@@ -123,35 +123,16 @@ if [[ "$SKIP_PUB_GET" != "true" ]]; then
   fi
 fi
 
-# ----- Headless fallback: private Xvfb display ------------------------
-# Mirrors launch_linux_fixture_c_pair.sh: on an SSH/CI host with no $DISPLAY
-# the GTK app cannot open a surface; L3 driving is synthetic VM-service input,
-# which needs a live surface but not a physical screen.
-if [[ -z "${DISPLAY:-}" ]]; then
-  if command -v Xvfb >/dev/null 2>&1; then
-    export DISPLAY=":99"
-    if ! ls /tmp/.X11-unix/X99 >/dev/null 2>&1; then
-      info "No \$DISPLAY - starting Xvfb $DISPLAY (1920x1080)"
-      Xvfb "$DISPLAY" -screen 0 1920x1080x24 >/dev/null 2>&1 &
-      echo $! > "$BUILD_DIR/xvfb.pid"
-      sleep 1
-    fi
-  else
-    warn "No \$DISPLAY and no Xvfb - flutter run -d linux will fail to open a surface."
-  fi
-  # Headless keyring: flutter_secure_storage (libsecret) RETRIES FOREVER when
-  # the session keyring is locked (no GUI login), wedging the whole first
-  # widget build — the app runs its Tox session with a blank, element-less
-  # window. Start an EMPTY-PASSWORD unlocked keyring for this session
-  # (standard headless-CI recipe). Gated to the no-DISPLAY branch so a real
-  # desktop user's keyring is never touched.
-  if command -v gnome-keyring-daemon >/dev/null 2>&1; then
-    rm -f "$HOME/.local/share/keyrings/"*.keyring 2>/dev/null || true
-    keyring_env="$(printf '' | gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null || true)"
-    [[ -n "$keyring_env" ]] && eval "$keyring_env" && export GNOME_KEYRING_CONTROL 2>/dev/null || true
-    info "Headless keyring unlocked for libsecret"
-  fi
-fi
+# ----- Headless session prerequisites (Xvfb + Secret Service) ---------
+# Shared with launch_linux_fixture_c_pair.sh: on an SSH/CI host the GTK app
+# needs a live X surface (not a physical screen) AND a Secret Service whose
+# DEFAULT collection can be written without a prompt — otherwise
+# flutter_secure_storage's *_sync store blocks the GTK platform thread forever
+# and the app runs its Tox session behind a dead window.
+# shellcheck source=tool/mcp_test/_linux_headless_env.sh
+source "$SCRIPT_DIR/tool/mcp_test/_linux_headless_env.sh"
+toxee_linux_headless_env "$BUILD_DIR" \
+  || { error "headless session prerequisites failed (see above)"; exit 1; }
 
 # ----- Launch via `flutter run -d linux` -----------------------------
 : > "$STDIO_LOG"

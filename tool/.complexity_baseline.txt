@@ -11,6 +11,12 @@
 # (rewrites the pins in place and preserves these comments).
 # Threshold: > 500 LOC. Aim to shrink this list, not grow it.
 #
+#
+# [2026-09-05] drive_real_ui_pair.dart 1289 -> 1290: the ONE line is the `part`
+# declaration for drive_real_ui_pair_inst_linux_input.dart, i.e. the cost of a
+# deliberate SPLIT (the Linux xdotool backend would otherwise have pushed
+# drive_real_ui_pair_inst_os_input.dart past the 500-LOC cap). The split file
+# and every other file the Linux real-UI work touched came in at net zero.
 # [2026-08-16] STALE-PIN SWEEP. Twelve pins that had drifted above their file's
 # real size were ratcheted back down BY HAND (never `--write-baseline`, which
 # would also have rewritten entries owned by an in-flight device lane). A pin
@@ -161,7 +167,7 @@ tool/mcp_test/drive_fixture_c_network_drop.dart:522
 # so its expected/unexpected-SKIP contract could grow without pushing
 # mobile_shell past its own pin — the split IS the reason mobile_shell shrank
 # 903 -> 894 below.
-tool/mcp_test/drive_real_ui_pair.dart:1289
+tool/mcp_test/drive_real_ui_pair.dart:1290
 tool/mcp_test/drive_real_ui_pair_app_entry_extra.dart:796
 tool/mcp_test/drive_real_ui_pair_c2c_extra.dart:546
 tool/mcp_test/drive_real_ui_pair_calls_misc.dart:996

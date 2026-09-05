@@ -131,15 +131,15 @@ Future<String> _logoutToLoginPage(Inst inst) async {
 /// Quick-login the saved-account card for [toxId] on a NO-PASSWORD account and
 /// wait for the session to be ready (HomePage). Returns whether it logged in.
 Future<bool> _quickLoginNoPassword(Inst inst, String toxId) async {
-  // On the Windows VM AND the iOS simulator a no-password quick-login can race
-  // the FFI re-init churn left by a just-registered/switched account: the login
-  // starts but sessionReady lags past the poll window (observed on iPad: the
-  // switch-back to the primary account after registering account #2 flaked once
-  // with ready=false, then passed on the fresh retry). The churn is
-  // platform-independent — a slower target just needs more attempts — so retry
-  // the real card tap, and treat currentAccountToxId == toxId as success even if
-  // the ready poll lagged.
-  final attempts = (_isWindowsRealUi || inst.isMobileShell) ? 3 : 1;
+  // On the Windows VM, the iOS simulator AND the Linux VM a no-password
+  // quick-login races the FFI re-init churn a just-registered/switched account
+  // leaves behind: the login starts but sessionReady lags past the poll window
+  // (iPad flaked once on the switch-back after registering account #2; Linux
+  // 2026-09-05: `account_switch_second_account` failed both attempts of one
+  // run, passed on another). Platform-independent — a slower target just needs
+  // more attempts. macOS has never flaked here and keeps a single attempt.
+  final attempts =
+      (_isWindowsRealUi || inst.isMobileShell || inst.isLinux) ? 3 : 1;
   for (var attempt = 0; attempt < attempts; attempt++) {
     final ok = await _quickLoginNoPasswordOnce(inst, toxId);
     if (ok) return true;

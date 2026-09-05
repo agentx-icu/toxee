@@ -37,6 +37,23 @@ part of 'drive_real_ui_pair.dart';
           : '$root${Platform.pathSeparator}$name',
     );
   }
+  if (_realUiPlatform == 'linux') {
+    // Linux twins. The macOS scripts below are unusable here twice over: they
+    // launch `Toxee.app` (no such thing on Linux) and they write under
+    // `tool/mcp_test/.multi_instance_runtime`, which on a share-shim checkout
+    // is a READ-ONLY symlink into the Mac share. The Linux pair keeps its
+    // runtime under `build/linux_runtime/<name>/` like Windows does.
+    final root = (Platform.environment['TOXEE_LINUX_RUNTIME_ROOT'] ?? '')
+        .trim();
+    // Explicit `bash`, not the script as the executable: a checkout made over
+    // the CIFS/Parallels share can lose the exec bit, and a relaunch that dies
+    // with EACCES mid-sweep is a confusing way to learn that.
+    return (
+      stop: ['bash', 'tool/mcp_test/stop_toxee_linux_instance.sh', name],
+      launch: ['bash', 'tool/mcp_test/launch_toxee_linux_instance.sh', name],
+      runtimeDir: root.isEmpty ? 'build/linux_runtime/$name' : '$root/$name',
+    );
+  }
   return (
     stop: ['tool/mcp_test/stop_toxee_instance.sh', name],
     launch: ['tool/mcp_test/launch_toxee_instance.sh', name],

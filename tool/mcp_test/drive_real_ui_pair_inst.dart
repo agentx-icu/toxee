@@ -212,9 +212,9 @@ class Inst {
   /// later unrelated assertion (or passed vacuously when weakly asserted).
   /// Deliberately SEPARATE from [_isHeadlessRealUi] (which also decides window
   /// geometry / foregrounding / blank-shell recovery). Windows leaves the set
-  /// under `TOXEE_WIN_OS_INPUT=1` ([_winOsInput]: real scan-coded keys/clipboard).
+  /// under `TOXEE_WIN_OS_INPUT=1` and Linux under `TOXEE_LINUX_OS_INPUT=1`.
   bool get _usesSyntheticInput =>
-      isIos || (_isHeadlessRealUi && !_winOsInput);
+      isIos || (_isHeadlessRealUi && !_winOsInput && !_linuxOsInput);
 
   late VmService vm;
   late String iso;
@@ -441,11 +441,11 @@ class Inst {
   /// desktop (osascript keystroke/Return helpers need the window frontmost).
   ///
   /// iOS: deliberate NO-OP (purely VM-service driven; the user directive
-  /// forbids topping the Simulator window). Windows OS-input mode: verified foreground.
+  /// forbids topping the Simulator window). Windows/Linux OS input: verified.
   Future<void> foreground() async {
-    if (_winOsInput) {
-      // Windows real OS input: verified Set-ToxeeForeground (see _winRun).
-      await _winRun('', what: 'foreground');
+    if (_winOsInput || _linuxOsInput) {
+      // Real OS input: verified foreground (see [_osInputForeground]).
+      await _osInputForeground();
       return;
     }
     if (_isHeadlessRealUi) {

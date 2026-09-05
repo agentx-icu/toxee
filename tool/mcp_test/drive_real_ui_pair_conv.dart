@@ -560,42 +560,41 @@ Future<bool> _waitConvLastMessage(
 // ===========================================================================
 /// Open the global conversation search overlay via the REAL Cmd+Ctrl+F keyboard
 /// shortcut (`_OpenSearchIntent` → pushes `CustomSearch`; there is NO visible
-/// search button on the home page, the shortcut is the only entry). Type a
-/// filter matching the friend → the friend's CONTACT result row
-/// (`search_result_contact:<uid>`) renders through the real
-/// `_matchesKeywordCaseInsensitive` filter; clear → the result rows empty
-/// (EmptyStateWidget); a fresh matching query restores the row. Close the
-/// overlay (ESC / close icon) afterwards.
+/// search button, the shortcut is the only entry). Type a filter matching the
+/// friend → the friend's result row renders through the real
+/// `_matchesKeywordCaseInsensitive` filter; clear → the rows empty
+/// (EmptyStateWidget); a fresh query restores the row; then close the overlay.
 Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
     String friendNickName) async {
   await returnToChatsHome(inst, rounds: 4);
   await inst.foreground();
-  // B surfaces in global search as a CONVERSATION result (A has a C2C conv with
-  // B), keyed by its conversationID `c2c_<pubkey>` — NOT a `search_result_contact`
-  // row (the CONTACTS section only lists a separate contact entry that may not
-  // render when a conversation already matches). Match the conversation result,
-  // which is what actually appears (verified by screenshot).
+  // B surfaces EITHER as a CONVERSATION result (keyed by its conversationID
+  // `c2c_<pubkey>`, the fallback shape) OR as a CONTACT result (`<uid>`) —
+  // which one depends on whether the contact search resolved the friend, so
+  // accept both (see the filter note below).
   final fullKey = 'search_result_conversation:c2c_${toxFriend.trim()}';
   final shortKey = 'search_result_conversation:c2c_${_pubkey(toxFriend)}';
+  final contactKey = 'search_result_contact:${_pubkey(toxFriend)}';
+  Future<bool> friendRowShown() async =>
+      await inst.waitKey(shortKey, timeoutSecs: 6) ||
+      await inst.waitKey(fullKey, timeoutSecs: 2) ||
+      await inst.waitKey(contactKey, timeoutSecs: 2);
   // Open the global search overlay via the real Cmd+Ctrl+F shortcut.
   if (!await _openGlobalSearch(inst)) {
     print('[pair] conv_search_filter_clear: search overlay did not open');
     return false;
   }
-  // 1) Matching filter — the first hex chars of the tox id (contactMatchesQuery
-  // matches on userID). We search the ID prefix, NOT the nickname, because in
-  // the same-host 2-process environment the peer's self-name does not propagate
-  // over the loopback friend connection (a c-toxcore name-exchange artifact,
-  // distinct from the working message channel — deep-diagnosed 2026-06-14), so
-  // A displays B by its tox id, which is exactly what a user searches for here.
-  // This still exercises the real contact-search FILTER + clear, which is the
-  // case's intent.
+  // 1) Matching filter — the first hex chars of the tox id, which the real
+  // filter matches on `userID` for BOTH result shapes. Which shape renders is
+  // an implementation detail: `custom_search.dart` falls back to CONVERSATION
+  // rows only when contacts AND groups AND messages come back empty, so where
+  // contact search does resolve the friend (Linux) the hit is a CONTACT row —
+  // pinning the conversation key alone made that a false red.
   final matchQuery = _pubkey(toxFriend).substring(0, 6);
   await inst.focusType('message_search_field', matchQuery);
   // The search debounces 300ms then runs the async FFI-backed search.
   await Future<void>.delayed(const Duration(milliseconds: 1400));
-  final rowMatches = await inst.waitKey(shortKey, timeoutSecs: 6) ||
-      await inst.waitKey(fullKey, timeoutSecs: 2);
+  final rowMatches = await friendRowShown();
   // 2) Clear → the keyword is empty → the result rows empty out.
   await inst.tapKey('message_search_field');
   await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -606,14 +605,14 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
   }
   await Future<void>.delayed(const Duration(milliseconds: 1200));
   final rowGoneOnClear = await inst.waitKeyGone(shortKey, timeoutSecs: 4) &&
-      await inst.waitKeyGone(fullKey, timeoutSecs: 2);
-  // 3) Re-type the matching filter → the row returns. Use focusType (osascript
-  // keystrokes), NOT raw synthetic enterText — the latter drives the macOS
-  // engine's -[FlutterTextInputPlugin setEditingState:] which SIGSEGVs the app.
+      await inst.waitKeyGone(fullKey, timeoutSecs: 2) &&
+      await inst.waitKeyGone(contactKey, timeoutSecs: 2);
+  // 3) Re-type the matching filter → the row returns. focusType (real
+  // keystrokes), NOT synthetic enterText: that drives the macOS engine's
+  // -[FlutterTextInputPlugin setEditingState:], which SIGSEGVs the app.
   await inst.focusType('message_search_field', matchQuery);
   await Future<void>.delayed(const Duration(milliseconds: 1400));
-  final rowBack = await inst.waitKey(shortKey, timeoutSecs: 6) ||
-      await inst.waitKey(fullKey, timeoutSecs: 2);
+  final rowBack = await friendRowShown();
   await inst.shot('/tmp/ui_conv_search_${inst.name}.png');
   // The overlay MUST be dismissed before this case is allowed to PASS — a
   // lingering CustomSearch route would poison the NEXT case (which expects the
@@ -623,7 +622,7 @@ Future<bool> _convSearchFilterClear(Inst inst, String toxFriend,
     '[pair] conv_search_filter_clear: rowMatches=$rowMatches '
     'rowGoneOnClear=$rowGoneOnClear rowBack=$rowBack closed=$closed '
     '(matchQuery="$matchQuery" displayName="$friendNickName" '
-    '[id-search: peer self-name does not propagate same-host])',
+    '[id-search; conversation OR contact row accepted])',
   );
   return rowMatches && rowGoneOnClear && rowBack && closed;
 }

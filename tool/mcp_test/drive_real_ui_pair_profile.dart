@@ -212,29 +212,29 @@ Future<bool> _editProfileFieldAndSave(
   String stateField,
 ) async {
   if (!await inst.waitKey(fieldKey, timeoutSecs: 3)) return false;
-  // Type via REAL OS keystrokes (focusType = tapKeyCenter focus + osaClear +
-  // osaType), NOT a synthetic `enterText`. The synthetic path drives the macOS
-  // engine's `-[FlutterTextInputPlugin setEditingState:]`, which INTERMITTENTLY
-  // SIGSEGVs the whole app when typing into these overlay edit TextFields
-  // (observed killing instance A on the self-profile status field — the FATAL
-  // backtrace's frame 2 is setEditingState). focusType replaces the field
-  // content with genuine keystrokes through AppKit's normal key path, which
-  // never touches setEditingState.
+  // Type via REAL OS keystrokes (focusType), NOT a synthetic `enterText`: the
+  // synthetic path drives the macOS engine's
+  // `-[FlutterTextInputPlugin setEditingState:]`, which INTERMITTENTLY SIGSEGVs
+  // the whole app on these overlay edit TextFields (it killed instance A on the
+  // status field; FATAL backtrace frame 2 is setEditingState).
   await inst.focusType(fieldKey, value);
   await Future<void>.delayed(const Duration(milliseconds: 200));
-  // The save FilledButton's label is the localized "Save Contact" text and
-  // flutter_skill does NOT propagate its ValueKey onto the rendered text leaf,
-  // so `interactiveStructured` reports it with key:null and `tapKeyCenter`
-  // (which matches by key over interactiveStructured) can't find its bounds.
-  // Fall back to `tapKeyAt`, which resolves the keyed FilledButton's RenderBox
-  // center via ui_drive_tools (ui_key_center) and taps there.
+  // `profile_save_button`'s ValueKey never reaches the rendered text leaf, so
+  // interactiveStructured reports key:null and tapKeyCenter cannot find its
+  // bounds; tapKeyAt resolves the RenderBox centre via ui_key_center instead.
   if (!await inst.tapKeyCenter('profile_save_button', timeoutSecs: 4)) {
     if (!await inst.tapKeyAt('profile_save_button')) {
       print('[pair] profile edit: save button not tappable');
       return false;
     }
   }
-  return _waitStringState(inst, stateField, value);
+  if (!await _waitStringState(inst, stateField, value)) return false;
+  // Then wait for edit mode to ACTUALLY exit: `_handleSave` awaits `onSave` and
+  // only afterwards `setState(_editMode = false)`, so the dumped value matches
+  // while the doomed field is STILL MOUNTED — a caller re-entering edit mode saw
+  // waitKey succeed on it, then died in focusType ("Element not found"). That
+  // disappearance IS the barrier, so a timeout here is a FAILURE.
+  return inst.waitKeyGone(fieldKey, timeoutSecs: 6);
 }
 
 /// case 15 — profile_edit_nickname_persists (S8): open the self profile, enter

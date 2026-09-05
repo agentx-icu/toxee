@@ -169,12 +169,13 @@ extension InstOsInput on Inst {
     // stray host keystroke into whatever is frontmost. A skip here means a
     // MISSING branch, never an intended no-op.
     if (_usesSyntheticInput) return;
-    if (_winOsInput) {
-      // No osascript on Windows: reaching here means a wrapper has no Windows
-      // branch. Loud, so the gap is fixed rather than silently skipped.
+    if (_winOsInput || _linuxOsInput) {
+      // No osascript on Windows/Linux: reaching here means a wrapper has no
+      // branch for that backend. Loud, so the gap is fixed rather than
+      // silently skipped.
       throw DriveError(
-        '[$name] osascript reached under TOXEE_WIN_OS_INPUT — '
-        'wrapper lacks a Windows branch: $script',
+        '[$name] osascript reached under real-OS-input mode — '
+        'wrapper lacks a ${_winOsInput ? 'Windows' : 'Linux'} branch: $script',
       );
     }
     final r = await _osaRun(['-e', script]);
@@ -210,6 +211,10 @@ extension InstOsInput on Inst {
       await _winScanText(text);
       return;
     }
+    if (_linuxOsInput) {
+      await _linuxType(text);
+      return;
+    }
     if (_usesSyntheticInput) {
       // Synthetic text entry — sets the focused EditableText's value in one shot
       // (verbatim on Windows/Linux/Android, no SIGSEGV unlike macOS). iOS shares
@@ -232,6 +237,10 @@ extension InstOsInput on Inst {
   Future<void> osaPaste(String text) async {
     if (_winOsInput) {
       await _winPaste(text);
+      return;
+    }
+    if (_linuxOsInput) {
+      await _linuxPaste(text);
       return;
     }
     if (_usesSyntheticInput) {
@@ -261,6 +270,10 @@ extension InstOsInput on Inst {
       await _winScanKey('ENTER');
       return;
     }
+    if (_linuxOsInput) {
+      await _linuxKey('Return');
+      return;
+    }
     if (_usesSyntheticInput) {
       // The desktop composer's Enter-to-send rides FocusNode.onKey
       // (RawKeyDownEvent), un-reachable by synthetic enterText and by any
@@ -285,6 +298,10 @@ extension InstOsInput on Inst {
       await _winScanKey('ENTER', mods: const ['shift']);
       return;
     }
+    if (_linuxOsInput) {
+      await _linuxKey('shift+Return');
+      return;
+    }
     if (_usesSyntheticInput) {
       // Multiline insert (Shift+Enter) has no pure-synthetic equivalent; the few
       // multiline cases must enterText the full "a\nb" body in one shot instead.
@@ -299,6 +316,10 @@ extension InstOsInput on Inst {
   Future<void> osaEscape() async {
     if (_winOsInput) {
       await _winScanKey('ESC');
+      return;
+    }
+    if (_linuxOsInput) {
+      await _linuxKey('Escape');
       return;
     }
     if (_usesSyntheticInput) {
@@ -318,9 +339,12 @@ extension InstOsInput on Inst {
   /// overlay; there is no visible search button). A genuine OS key chord, so the
   /// production `Shortcuts`/`Actions` path runs.
   Future<void> osaSearchShortcut() async {
-    if (_usesSyntheticInput || _winOsInput) {
-      // No OS chord is deliverable (iOS has no Cmd+Ctrl+F at all); open the same
-      // overlay through its l3 intent seam.
+    if (_usesSyntheticInput || _winOsInput || _linuxOsInput) {
+      // No usable OS chord on ANY of these: iOS has no Cmd+Ctrl+F at all,
+      // Windows binds `meta` to the shell's own key, and on Linux the chord
+      // reaches the X server but the app does not act on it (evidence in
+      // drive_real_ui_pair_inst_linux_input.dart) — open the same overlay
+      // through its l3 intent seam instead.
       await l3('l3_open_global_search');
       return;
     }
@@ -331,7 +355,7 @@ extension InstOsInput on Inst {
   /// in home_page.dart) which opens the Add-Friend dialog. Genuine OS chord so the
   /// production `Shortcuts`/`Actions` path runs (mirrors [osaSearchShortcut]).
   Future<void> osaNewConversationShortcut() async {
-    if (_usesSyntheticInput || _winOsInput) {
+    if (_usesSyntheticInput || _winOsInput || _linuxOsInput) {
       // As [osaSearchShortcut]: chord undeliverable, use the l3 intent seam.
       await l3('l3_open_add_friend_dialog');
       return;
@@ -343,7 +367,7 @@ extension InstOsInput on Inst {
   /// home_page.dart) which switches the home shell to the Settings tab
   /// (`setState(() => _index = 3)`).
   Future<void> osaOpenSettingsShortcut() async {
-    if (_usesSyntheticInput || _winOsInput) {
+    if (_usesSyntheticInput || _winOsInput || _linuxOsInput) {
       // Synthetic-input equivalent: jump the home shell to the Settings tab. Use
       // the self-healing forceHomeRoot (not a raw l3_force_home_root call) so a
       // non-test app-entry account doesn't silently no-op the gated tool. iOS
@@ -367,6 +391,12 @@ extension InstOsInput on Inst {
   /// Simulator) a pasteboard whose host sync is an opt-in Simulator setting with
   /// debounced, unreliable propagation.
   Future<void> setClipboard(String text) async {
+    if (_linuxOsInput) {
+      // Same X display as the app: the real CLIPBOARD selection, which the
+      // in-app paste button reads through Flutter's Clipboard.getData.
+      await _linuxRun(['clipboard', _b64(text)], what: 'set clipboard');
+      return;
+    }
     if (_winOsInput) {
       // Same desktop session as the app: the real OS clipboard, which the
       // in-app paste button reads through Flutter's Clipboard.getData.
@@ -398,6 +428,10 @@ extension InstOsInput on Inst {
   }
 
   Future<void> osaClear() async {
+    if (_linuxOsInput) {
+      await _linuxRun(['clear'], what: 'clear');
+      return;
+    }
     if (_winOsInput) {
       // Select everything by CARET MOVEMENT (Ctrl+End → Ctrl+Shift+Home →
       // Backspace): works for single- AND multi-line editables through plain
