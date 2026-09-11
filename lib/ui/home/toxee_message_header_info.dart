@@ -135,8 +135,16 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
         widget.userID ??
         TencentCloudChatLocalizations.of(context)?.chat ??
         '';
+    // The header slot is 60/64 px minus padding (~40 px). Two lines fit only
+    // up to ~1.1× text scale, so above that the status line is dropped and
+    // the title alone is capped at 2× (17 px × 1.15 × 2 = 39 px).
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final showStatus =
+        widget.showUserOnlineStatus && statusText.isNotEmpty && textScale <= 1.1;
     return TencentCloudChatThemeWidget(
-      build: (context, colorTheme, textStyle) => Column(
+      build: (context, colorTheme, textStyle) => MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 2.0,
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
@@ -158,7 +166,7 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
               height: 1.15,
             ),
           ),
-          if (widget.showUserOnlineStatus && statusText.isNotEmpty)
+          if (showStatus)
             Text(
               statusText,
               overflow: TextOverflow.ellipsis,
@@ -170,6 +178,7 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
               ),
             ),
         ],
+        ),
       ),
     );
   }

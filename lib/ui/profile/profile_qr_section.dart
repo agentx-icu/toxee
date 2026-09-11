@@ -153,8 +153,12 @@ class _ProfileQrSectionState extends State<ProfileQrSection> {
                     ),
                   ),
                   AppSpacing.verticalMd,
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  // Wrap: two buttons in the fixed 360-px QR column overflow
+                  // at ≥1.6× text (Windows scaling); wrapping stacks them.
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
                     children: [
                       OutlinedButton.icon(
                         style: outlinedStyle,
@@ -163,7 +167,6 @@ class _ProfileQrSectionState extends State<ProfileQrSection> {
                         onPressed: _isSaving ? null : _save,
                       ),
                       if (widget.enableCopy) ...[
-                        AppSpacing.horizontalSm,
                         OutlinedButton.icon(
                           key: UiKeys.profileQrCopyButton,
                           style: outlinedStyle,

@@ -189,10 +189,12 @@ class UpgradeRequiredScreen extends StatelessWidget {
           // single message and primary action even on tablet widths.
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
-            child: Padding(
+            // Scroll view shrink-wraps when the ~364 px block fits (Center
+            // keeps it centred) and scrolls on landscape phones / large text.
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(AppSpacing.xl),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Tinted-primary chip for the status icon — same visual

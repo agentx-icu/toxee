@@ -292,14 +292,17 @@ class ProfileToxIdSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(
-              label,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: secondaryTextColor,
-                letterSpacing: 0.3,
+            // Expanded (not Spacer): a bare label + copy button overflow the
+            // 216-px wide-layout column at ~1.15× text.
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: secondaryTextColor,
+                  letterSpacing: 0.3,
+                ),
               ),
             ),
-            const Spacer(),
             TextButton.icon(
               key: UiKeys.profileToxIdCopyButton,
               style: TextButton.styleFrom(

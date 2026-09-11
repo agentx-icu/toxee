@@ -262,6 +262,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
+            // Scroll view shrink-wraps (Center keeps the block centred) and
+            // only scrolls when a 2× wrapped step label pushes it past a
+            // landscape phone's height; `isSmall` alone could not guarantee.
+            child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -316,6 +320,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                   ),
                 ),
               ],
+            ),
             ),
           ),
         );
@@ -379,8 +384,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }
 
   Widget _buildErrorContent(ThemeData theme, AppLocalizations l10n) {
+    // Scrolls: the diagnostic message is routinely 3–6 lines and the block
+    // exceeds a landscape phone's ~340 px.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,

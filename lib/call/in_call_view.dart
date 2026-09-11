@@ -1,7 +1,6 @@
 import 'dart:async';
 
 // ignore: directives_ordering
-import '../ui/widgets/safe_dialog_pop.dart';
 import 'dart:ui' as ui;
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -10,7 +9,8 @@ import '../i18n/app_localizations.dart';
 import '../ui/testing/ui_keys.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
-import 'call_audio_platform.dart';
+import '../util/responsive_layout.dart';
+import 'call_audio_route_sheet.dart';
 import 'call_state_notifier.dart';
 import 'call_media_capabilities.dart';
 import 'call_ui_shell.dart';
@@ -42,14 +42,6 @@ const Color _kCallAmberAccent = Color(0xFFF59E0B);
 
 /// Slate-400 (quality "unknown" chip accent, sheet copy de-emphasis).
 const Color _kCallSlate400 = Color(0xFF94A3B8);
-
-/// Slate-700 (bottom-sheet drag handle in dark — matches the global sheet
-/// handle but locked to dark since call sheets are dark-only).
-const Color _kCallSheetHandleDark = Color(0xFF334155);
-
-/// Slate-300 (bottom-sheet drag handle in light — only reachable from the
-/// system-light theme variant of audio-route picker).
-const Color _kCallSheetHandleLight = Color(0xFFCBD5E1);
 
 /// Legibility scrim color over remote video. 55% black at the top under the
 /// status bar and at the bottom under the action dock keeps the overlaid
@@ -105,7 +97,13 @@ class InCallView extends StatelessWidget {
     // the back gesture for every call-state surface (single source of truth)
     // and routes back into minimize() for inCall + reconnecting. Hang-up
     // remains an explicit user action via the call_end button in the dock.
+    // Video floats the bars over an edge-to-edge stage; audio uses the Column
+    // shell so the identity block can never sit under the dock (see shell).
+    // On phones the five video actions (5×80 + 4×16 = 464 px) wrap to two
+    // rows over the remote frame, so the dock drops its labels there.
+    final compactDock = isVideo && ResponsiveLayout.isMobile(context);
     return CallSceneShell(
+      overlayBars: isVideo,
       topBar: CallTopStatusBar(
         key: const ValueKey('call-top-bar'),
         title: name,
@@ -117,6 +115,7 @@ class InCallView extends StatelessWidget {
       bottomBar: CallActionDock(
         key: const ValueKey('call-action-dock'),
         actions: _buildDockActions(context, l10n, isVideo),
+        showLabels: !compactDock,
       ),
       child: isVideo
           ? CallVideoStage(
@@ -167,6 +166,8 @@ class InCallView extends StatelessWidget {
           ),
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: accent,
               fontSize: 11,
@@ -219,7 +220,12 @@ class InCallView extends StatelessWidget {
           key: UiKeys.callAudioRouteButton,
           icon: Icons.route,
           label: l10n.routeSelection,
-          onPressed: () => _showAudioRouteSheet(context, l10n),
+          onPressed: () => showCallAudioRouteSheet(
+            context,
+            manager,
+            l10n,
+            callState: callState,
+          ),
         )
       else if (!showSpeakerToggle && !supportsRouteSelection)
         // Desktop (and other platforms where the OS owns the audio route):
@@ -247,103 +253,6 @@ class InCallView extends StatelessWidget {
     return actions;
   }
 
-  void _showAudioRouteSheet(BuildContext context, AppLocalizations l10n) {
-    final state = manager.audioState.value;
-    if (!state.canSelectRoutes) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
-        ),
-      ),
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const _CallSheetHandle(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.sm,
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                ),
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(
-                    l10n.routeSelection,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-              for (final route in state.routes)
-                ListTile(
-                  // toxee automation anchor: lets a case pick a SPECIFIC
-                  // route deterministically instead of tapping by label.
-                  key: UiKeys.callAudioRouteOption(route.id),
-                  leading: Icon(
-                    _iconForRoute(route.kind),
-                    color: route.selected
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                  ),
-                  title: Text(
-                    route.label,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: route.selected
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurface,
-                      fontWeight: route.selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                    ),
-                  ),
-                  trailing: route.selected
-                      ? Icon(
-                          Icons.check,
-                          size: 20,
-                          color: theme.colorScheme.primary,
-                        )
-                      : null,
-                  onTap: () async {
-                    popDialogIfCurrent(ctx);
-                    await manager.selectAudioRoute(route.id);
-                  },
-                ),
-              const SizedBox(height: AppSpacing.sm),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  IconData _iconForRoute(CallAudioRouteKind? kind) {
-    switch (kind) {
-      case CallAudioRouteKind.speaker:
-        return Icons.speaker_phone;
-      case CallAudioRouteKind.bluetooth:
-        return Icons.bluetooth_audio;
-      case CallAudioRouteKind.wired:
-        return Icons.headset;
-      case CallAudioRouteKind.earpiece:
-        return Icons.phone_in_talk;
-      case CallAudioRouteKind.unknown:
-      case null:
-        return Icons.route;
-    }
-  }
-
   Widget _buildRemoteContent(AppLocalizations l10n) {
     return ValueListenableBuilder<ui.Image?>(
       valueListenable: manager.remoteVideo,
@@ -357,7 +266,10 @@ class InCallView extends StatelessWidget {
                 ),
               );
         // Pure-black video pane with top + bottom legibility gradients so the
-        // overlaid controls stay readable against bright frames.
+        // overlaid controls stay readable against bright frames. The stage is
+        // edge-to-edge, so each scrim also spans the system inset behind the
+        // floating bar it backs.
+        final insets = MediaQuery.paddingOf(context);
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -368,7 +280,7 @@ class InCallView extends StatelessWidget {
               child: Align(
                 alignment: Alignment.topCenter,
                 child: Container(
-                  height: _kCallScrimTopHeight,
+                  height: _kCallScrimTopHeight + insets.top,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -387,7 +299,7 @@ class InCallView extends StatelessWidget {
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Container(
-                  height: _kCallScrimBottomHeight,
+                  height: _kCallScrimBottomHeight + insets.bottom,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
@@ -414,12 +326,14 @@ class InCallView extends StatelessWidget {
       listenable: manager.previewListenable,
       builder: (context, _) {
         final preview = manager.localPreview;
-        // Offset by the system safe-area top so the preview card clears
-        // notch / Dynamic Island when an ancestor hasn't already absorbed it.
-        final topInset = MediaQuery.paddingOf(context).top;
+        // The video stage is edge-to-edge (overlayBars), so clear BOTH the
+        // system inset and the floating top bar here — exactly once.
+        final topInset = MediaQuery.paddingOf(context).top +
+            CallSceneShell.topBarHeight(context);
         return Positioned(
           top: AppSpacing.lg + topInset,
-          right: AppSpacing.lg,
+          // Edge-to-edge stage: keep clear of a landscape notch on the right.
+          right: AppSpacing.lg + MediaQuery.paddingOf(context).right,
           child: KeyedSubtree(
             key: const ValueKey('call-local-preview-card'),
             child: Container(
@@ -464,26 +378,6 @@ class InCallView extends StatelessWidget {
         name: name,
         radius: radius,
         fontSize: fontSize,
-      ),
-    );
-  }
-}
-
-/// 32×4 drag handle for call-screen bottom sheets. Matches the global
-/// `_BottomSheetHandle` used in `login_page.dart`.
-class _CallSheetHandle extends StatelessWidget {
-  const _CallSheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: 32,
-      height: 4,
-      margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: isDark ? _kCallSheetHandleDark : _kCallSheetHandleLight,
-        borderRadius: BorderRadius.circular(2),
       ),
     );
   }

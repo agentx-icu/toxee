@@ -14,6 +14,7 @@ import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_host.dart';
 import '../../util/pairing/pairing_lan.dart';
+import 'pairing_centered_message.dart';
 import 'pairing_status_indicator.dart';
 
 /// Maximum content width for the pairing flow on wide screens. Above this we
@@ -253,7 +254,7 @@ class _PairingHostPageState extends State<PairingHostPage> {
 
   Widget _buildBody(AppLocalizations l10n) {
     if (_completed) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.connected,
         message: l10n.pairingHostCompleted,
         actionLabel: l10n.done,
@@ -261,7 +262,7 @@ class _PairingHostPageState extends State<PairingHostPage> {
       );
     }
     if (_error != null) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.error,
         message: _error!,
         actionLabel: l10n.cancel,
@@ -269,7 +270,7 @@ class _PairingHostPageState extends State<PairingHostPage> {
       );
     }
     if (_startingUp || _qrUrl == null) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.scanning,
         message: l10n.pairingWaitingForPeer,
       );
@@ -450,46 +451,16 @@ class _StatusRow extends StatelessWidget {
       children: [
         PairingStatusIndicator(state: state, size: 18),
         AppSpacing.horizontalSm,
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
-    );
-  }
-}
-
-class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage({
-    required this.state,
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
-  final PairingState state;
-  final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PairingStatusIndicator(state: state, size: 56),
-          AppSpacing.verticalLg,
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
+        // Flexible: "Waiting for the other device…" is ~270 px and would
+        // overflow a 320-px phone as a bare Row child.
+        Flexible(
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          if (actionLabel != null && onAction != null) ...[
-            AppSpacing.verticalLg,
-            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

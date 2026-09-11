@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../util/app_tray.dart';
@@ -43,14 +46,40 @@ class _WindowStateListener with WindowListener {
 class DesktopShellBootstrap {
   DesktopShellBootstrap._();
 
+  /// Primary display work area in logical pixels, or null when it cannot be
+  /// determined (headless CI, exotic WMs).
+  static Future<Size?> _workArea() async {
+    try {
+      final display = await screenRetriever.getPrimaryDisplay();
+      return display.visibleSize ?? display.size;
+    } catch (e) {
+      AppLogger.warn('[DesktopShell] primary display lookup failed: $e');
+      return null;
+    }
+  }
+
+  /// [preferred] clamped to the work area. At Windows 150 % on a 1366×768
+  /// panel (911×512 logical) or 200 % on 1920×1080 (960×540) the unclamped
+  /// 960×600 minimum was larger than the screen, so the OS clipped the
+  /// window's own top bar / caption buttons. Below 720 px the app falls back
+  /// to its bottom-nav tier, which stays usable.
+  static Size _fitWorkArea(Size preferred, Size? work) {
+    if (work == null) return preferred;
+    return Size(
+      math.min(preferred.width, work.width),
+      math.min(preferred.height, work.height),
+    );
+  }
+
   static Future<void> initializeIfNeeded() async {
     if (!PlatformUtils.isDesktop) return;
 
     await windowManager.ensureInitialized();
-    const minSize = Size(960, 600);
+    final work = await _workArea();
+    final minSize = _fitWorkArea(const Size(960, 600), work);
     await windowManager.setMinimumSize(minSize);
-    const defaultSize = Size(1280, 800);
-    const windowOptions = WindowOptions(
+    final defaultSize = _fitWorkArea(const Size(1280, 800), work);
+    final windowOptions = WindowOptions(
       size: defaultSize,
       minimumSize: minSize,
       title: 'Toxee',
@@ -69,12 +98,14 @@ class DesktopShellBootstrap {
     // multi-display API, so we reject obviously-off-screen origins (e.g.
     // the user unplugged the secondary monitor between sessions) and fall
     // back to the centered default rather than restoring an invisible window.
+    // A saved size larger than today's work area (display swapped, DPI
+    // scaling raised) would also come up clipped: fall back to the default.
     final validBounds =
         savedBounds != null &&
         savedBounds.width >= minSize.width &&
         savedBounds.height >= minSize.height &&
-        savedBounds.width <= 4096 &&
-        savedBounds.height <= 4096 &&
+        savedBounds.width <= (work?.width ?? 4096) &&
+        savedBounds.height <= (work?.height ?? 4096) &&
         savedBounds.left > -savedBounds.width + 100 &&
         savedBounds.top > -100 &&
         savedBounds.left < 10000 &&

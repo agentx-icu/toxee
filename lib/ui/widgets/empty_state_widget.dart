@@ -21,7 +21,9 @@ class EmptyStateWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final secondaryColor = theme.colorScheme.onSurface.withValues(alpha: 0.38);
     return Center(
-      child: Padding(
+      // Scroll view shrink-wraps (stays centred) and only scrolls when a
+      // wrapping subtitle at large text exceeds a short host slot.
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,

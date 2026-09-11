@@ -20,6 +20,7 @@ import '../../util/app_paths.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../testing/ui_keys.dart';
+import 'group_display_name.dart';
 import 'group_name_edit_dialog.dart';
 
 /// Capture+install+restore for toxee's group-profile builder overrides.
@@ -619,14 +620,16 @@ class _ToxeeGroupProfileContentState
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    groupName,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: textStyle.fontsize_24,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      groupDisplayName(groupName, widget.groupInfo.groupID),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: textStyle.fontsize_24,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   FloatingActionButton.small(
@@ -634,11 +637,7 @@ class _ToxeeGroupProfileContentState
                     onPressed: _changeGroupName,
                     elevation: 0,
                     backgroundColor: colorTheme.contactBackgroundColor,
-                    child: Icon(
-                      Icons.border_color_rounded,
-                      color: colorTheme.contactBackButtonColor,
-                      size: getSquareSize(15),
-                    ),
+                    child: Icon(Icons.border_color_rounded, color: colorTheme.contactBackButtonColor, size: getSquareSize(15)),
                   ),
                 ],
               ),

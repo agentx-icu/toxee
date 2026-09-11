@@ -64,16 +64,12 @@ class _GroupNameEditDialogState extends State<GroupNameEditDialog> {
     return AlertDialog(
       key: UiKeys.groupProfileEditNameDialog,
       title: Text(tL10n.setGroupName),
-      // `TextField.scrollPadding` only nudges the field's own internal cursor
-      // scroll — it does NOT move the AlertDialog out from under the soft
-      // keyboard. Pad the content by the bottom view-insets so the field (and
-      // the action buttons AlertDialog lays out from the content's measured
-      // size) sit above the keyboard on small phones. Cap maxLines so very
-      // long names don't push the buttons off-screen.
+      // Dialog already lifts itself above the soft keyboard (it pads by the
+      // view insets and zeroes them for its subtree); padding here again — the
+      // insets read from THIS context are the real ones — only added a
+      // keyboard-sized blank under the field. The scroll view stays so a very
+      // long name can't push the buttons off-screen.
       content: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
         child: TextField(
           key: UiKeys.groupProfileEditNameField,
           controller: _controller,

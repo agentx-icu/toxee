@@ -33,6 +33,12 @@ import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localiz
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_controller.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_attachment_options.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobile/tencent_cloud_chat_message_input_mobile.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_layout/tencent_cloud_chat_message_layout.dart';
+import 'package:tencent_cloud_chat_message/model/tencent_cloud_chat_message_separate_data.dart';
+import 'package:tencent_cloud_chat_message/model/tencent_cloud_chat_message_separate_data_notifier.dart';
+import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_builders.dart';
+import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 
 // Wrap a child so the UIKit fork's i18n singleton (`tL10n`) is initialized from
@@ -113,6 +119,7 @@ class _RecordingMethods {
 
 MessageInputBuilderData _data({
   List<TencentCloudChatMessageGeneralOptionItem> attachmentOptions = const [],
+  V2TimMessage? repliedMessage,
 }) {
   return MessageInputBuilderData(
     // userID/groupID intentionally null: the composer's _updateDraft early
@@ -127,6 +134,7 @@ MessageInputBuilderData _data({
     enableReplyWithMention: false,
     status: TencentCloudChatMessageInputStatus.canSendMessage,
     selectedMessages: const [],
+    repliedMessage: repliedMessage,
     desktopMentionBoxPositionX: 0,
     desktopMentionBoxPositionY: 0,
     isGroupAdmin: false,
@@ -181,6 +189,112 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
   }
+
+  testWidgets(
+    'mobile composer inside the REAL message layout keeps its fixed content '
+    'with the keyboard up (landscape phone, reply bar + multi-line text)',
+    (tester) async {
+      // Layout-overflow audit M-M1 / codex round 2: the layout bounds the
+      // input so the list keeps a strip, but a keyboard-shrunk body (~114 px
+      // on a landscape phone) must go to the composer's fixed content — the
+      // old unconditional 96-px reservation left it 18 px. Mounted through
+      // the real TencentCloudChatMessageLayout (the host that applies the
+      // cap); the other cases in this file mount the input directly.
+      tester.view.physicalSize = const Size(844, 390);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 216);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      TencentCloudChatScreenAdapter.deviceScreenType = DeviceScreenType.mobile;
+      TencentCloudChatScreenAdapter.hasInitialized = true;
+      addTearDown(() {
+        TencentCloudChatScreenAdapter.deviceScreenType = null;
+        TencentCloudChatScreenAdapter.hasInitialized = false;
+      });
+
+      final methods = _RecordingMethods();
+      // fromJson: the V2TimMessage constructor asks TIMManager for the server
+      // time, which needs the native SDK library (absent under flutter test).
+      final replied = V2TimMessage.fromJson({})
+        ..msgID = 'reply-1'
+        ..elemType = 1
+        ..timestamp = 1
+        ..sender = 'peer'
+        ..nickName = 'Peer';
+      const listKey = ValueKey('layout-test-list');
+      // Production always has the message data provider above the composer;
+      // the reply bar reads it in didChangeDependencies and renders through
+      // its stock builders (without them the bar would be an empty Container
+      // and add no height, weakening the gate).
+      final provider = TencentCloudChatMessageSeparateDataProvider()
+        ..messageBuilders = TencentCloudChatMessageBuilders();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageDataProviderInherited(
+            dataProvider: provider,
+            child: TencentCloudChatMessageLayout(
+            data: MessageLayoutBuilderData(
+              currentConversationShowName: 'Friend One',
+              desktopMentionBoxPositionX: 0,
+              desktopMentionBoxPositionY: 0,
+              activeMentionIndex: -1,
+              currentFilteredMembersListForMention: const [],
+              desktopStickerBoxPositionX: 0,
+              desktopStickerBoxPositionY: 0,
+              hasStickerPlugin: false,
+            ),
+            methods: MessageLayoutBuilderMethods(
+              sendTextMessage:
+                  ({required String text, List<String>? mentionedUsers}) {},
+              sendImageMessage:
+                  ({String? imagePath, String? imageName, dynamic inputElement}) {},
+              sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
+              sendFileMessage:
+                  ({String? filePath, String? fileName, dynamic inputElement}) {},
+              sendVoiceMessage:
+                  ({required String voicePath, required int duration}) {},
+              desktopInputMemberSelectionPanelScroll: AutoScrollController(),
+              onSelectMember: (_) {},
+              closeSticker: () {},
+            ),
+            widgets: MessageLayoutBuilderWidgets(
+              header: AppBar(title: const Text('Friend One')),
+              messageListView: const ColoredBox(
+                key: listKey,
+                color: Colors.white,
+                child: SizedBox.expand(),
+              ),
+              messageInput: TencentCloudChatMessageInputMobile(
+                inputData: _data(repliedMessage: replied),
+                inputMethods: methods.build(),
+              ),
+            ),
+          ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: 'the composer must fit the keyboard-shrunk body');
+
+      await _focusComposerAndEnterText(tester, 'line one\nline two\nline three');
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull,
+          reason: 'a multi-line draft under a reply bar must still fit');
+
+      final field = tester.getRect(find.byType(ExtendedTextField));
+      final list = tester.getRect(find.byKey(listKey));
+      expect(field.height, greaterThan(0));
+      expect(list.bottom, lessThanOrEqualTo(field.top + 0.01),
+          reason: 'the list yields; it never paints over the composer');
+      // Reply bar + three lines exceed the ~118-px body: the composer scrolls
+      // anchored at the text field, which must stay fully above the keyboard.
+      expect(field.bottom, lessThanOrEqualTo(390 - 216 + 0.01),
+          reason: 'the text field stays visible above the keyboard');
+    },
+  );
 
   testWidgets(
     'mobile composer: empty field shows mic, typing reveals send button, tap drives sendTextMessage',

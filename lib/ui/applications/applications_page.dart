@@ -735,7 +735,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             crossAxisCount: columnCount,
             mainAxisSpacing: AppSpacing.md,
             crossAxisSpacing: AppSpacing.md,
-            childAspectRatio: 1.4,
+            mainAxisExtent: MediaQuery.textScalerOf(context).scale(220),
           ),
           delegate: SliverChildBuilderDelegate(
             (context, index) => _buildAppCard(
@@ -903,15 +903,14 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
 
     if (horizontal) {
       // Full-width app-store style row: icon | title+desc (expanded) | actions.
+      // Wrap in a capped slot (35% of window, always < row): stacks, no overflow.
       final Widget actions = !data.isInstalled
           ? installButton
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                uninstallButton,
-                AppSpacing.horizontalSm,
-                addChannelButton,
-              ],
+          : Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              alignment: WrapAlignment.end,
+              children: [uninstallButton, addChannelButton],
             );
       return _HoverableAppCard(
         key: data.id == 'irc' ? UiKeys.applicationsIrcCard : null,
@@ -943,7 +942,8 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 ),
               ),
               AppSpacing.horizontalLg,
-              actions,
+              ConstrainedBox(constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.35),
+                  child: actions),
             ],
           ),
         ),

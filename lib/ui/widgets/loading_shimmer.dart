@@ -73,7 +73,14 @@ class _LoadingShimmerState extends State<LoadingShimmer>
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        return Column(
+        // Non-scrolling ListView instead of a Column: hosts often hand this
+        // a bounded slot shorter than itemCount × 72 px (landscape phone,
+        // desktop min height), and a Column would paint overflow stripes
+        // during loading. The list simply clips.
+        return ListView(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+          physics: const NeverScrollableScrollPhysics(),
           children: List.generate(widget.itemCount, (index) {
             return Padding(
               padding: const EdgeInsets.symmetric(

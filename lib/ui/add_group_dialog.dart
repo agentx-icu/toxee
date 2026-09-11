@@ -264,12 +264,9 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
             ),
             maxWidth: _dialogMaxWidth(context),
             maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            // No viewInsets padding: Dialog already lifts itself above the
+            // keyboard and zeroes the insets for its subtree.
             child: SingleChildScrollView(
-              // Push bottom padding above the soft keyboard so Submit and
-              // create-card actions stay reachable on small phones.
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.viewInsetsOf(context).bottom,
-              ),
               child: Padding(
                 padding: const EdgeInsets.all(AppSpacing.xl),
                 child: Column(
@@ -527,7 +524,9 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                         ),
                       ),
                     ),
-                    icon: const Icon(Icons.public),
+                    // Phones: no segment icons — they leave ~33 px per label
+                    // and FittedBox shrank the text to ~7 px.
+                    icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.public),
                   ),
                   ButtonSegment(
                     value: 'privateGroup',
@@ -548,7 +547,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                         ),
                       ),
                     ),
-                    icon: const Icon(Icons.lock),
+                    icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.lock),
                   ),
                   ButtonSegment(
                     value: 'conference',
@@ -561,10 +560,11 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                         child: Text(AppLocalizations.of(context)!.conference),
                       ),
                     ),
-                    icon: const Icon(Icons.forum),
+                    icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.forum),
                   ),
                 ],
                 selected: {_selectedGroupType},
+                showSelectedIcon: !ResponsiveLayout.isMobile(context),
                 onSelectionChanged: (Set<String> newSelection) {
                   setState(() {
                     _selectedGroupType = newSelection.first;

@@ -104,13 +104,19 @@ class _BootstrapNodeCard extends StatelessWidget {
               if (testResult != null) ...[
                 AppSpacing.verticalXs,
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(resultIcon, size: 14, color: resultColor),
                     AppSpacing.horizontalXs,
-                    Text(
-                      testResult!,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: resultColor,
+                    // Expanded: the UDP / error verdicts are long sentences
+                    // and the subtitle is ~160 px on a 360-px phone.
+                    Expanded(
+                      child: Text(
+                        testResult!,
+                        softWrap: true,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: resultColor,
+                        ),
                       ),
                     ),
                   ],
