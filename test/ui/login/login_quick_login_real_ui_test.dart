@@ -101,21 +101,12 @@ Widget _pumpableLoginPage({LoginPageController? loginPageController}) {
 }
 
 /// Pump the LoginPage and drain its async post-initState Prefs reads.
-/// Swallows the two documented `_LoginActionCard` RenderFlex overflow
-/// assertions so behavioral assertions still run (the overflow is a known,
-/// non-functional layout issue tracked in login_page_widget_test.dart).
+/// Strict: any RenderFlex overflow fails the test (the historical swallow
+/// hid live login-page overflows; see the 2026-09-11 layout audit, H5, and
+/// login_page_widget_test.dart).
 Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
   await tester.binding.setSurfaceSize(const Size(1024, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final originalOnError = FlutterError.onError;
-  addTearDown(() => FlutterError.onError = originalOnError);
-  FlutterError.onError = (FlutterErrorDetails details) {
-    if (details.exception.toString().contains('A RenderFlex overflowed')) {
-      return;
-    }
-    final fallback = originalOnError;
-    if (fallback != null) fallback(details);
-  };
   await tester.pumpWidget(root);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 50));

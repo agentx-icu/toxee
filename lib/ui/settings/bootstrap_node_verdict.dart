@@ -127,23 +127,35 @@ class StatusPill extends StatelessWidget {
         color: color.withValues(alpha: 0.10),
         shape: const StadiumBorder(),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          AppSpacing.horizontalXs,
-          Text(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final text = Text(
             label,
+            softWrap: true,
             style: theme.textTheme.labelMedium?.copyWith(
               color: color,
               fontWeight: FontWeight.w600,
             ),
-          ),
-        ],
+          );
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              AppSpacing.horizontalXs,
+              // Flexible: an outer Wrap/Align bounds the pill, but this inner
+              // Row would still hand the label unbounded width and overflow on
+              // long verdicts ("Node test needs UDP; …" is ~340 px). Under an
+              // unbounded host (a bare Row) a flex child cannot help and may
+              // trip the flex assertion, so use the plain Text there — the
+              // host is then at fault for the overflow.
+              if (constraints.hasBoundedWidth) Flexible(child: text) else text,
+            ],
+          );
+        },
       ),
     );
   }

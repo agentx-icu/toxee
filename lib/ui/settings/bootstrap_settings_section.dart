@@ -1132,9 +1132,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                           ),
                           AppSpacing.verticalMd,
                           if (_manualNodeTestResult != null) ...[
-                            Row(
-                              children: [
-                                BootstrapVerdictUi.pillFor(
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: BootstrapVerdictUi.pillFor(
                                   context,
                                   _manualNodeTestResult,
                                   successLabel: l10n.nodeTestSuccess,
@@ -1142,8 +1142,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                                   unavailableLabel: l10n.nodeTestUnavailable,
                                   failedLabel: l10n.nodeTestFailed,
                                   successColor: AppThemeConfig.successColor,
-                                ),
-                              ],
+                              ),
                             ),
                             AppSpacing.verticalMd,
                           ],
@@ -1359,11 +1358,12 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
             segments: [
               ButtonSegment<String>(
                 value: 'manual',
+                // No segment icons on phones: they cost 26 px each and left
+                // "Auto (Fetch from Web)" wrapping to two lines at ≤430 px.
                 label: KeyedSubtree(
                   key: UiKeys.settingsBootstrapModeManual,
                   child: Text(l10n.manualMode),
                 ),
-                icon: const Icon(Icons.tune, size: 18),
               ),
               ButtonSegment<String>(
                 value: 'auto',
@@ -1371,7 +1371,6 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                   key: UiKeys.settingsBootstrapModeAuto,
                   child: Text(l10n.autoMode),
                 ),
-                icon: const Icon(Icons.public, size: 18),
               ),
             ],
             selected: {selected},

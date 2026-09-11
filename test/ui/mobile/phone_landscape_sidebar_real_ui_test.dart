@@ -286,4 +286,48 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'landscape phone: the rail scrolls instead of overflowing when the body is '
+    'shorter than its ~334 pt of fixed content (360-dp device, keyboard up)',
+    (WidgetTester tester) async {
+      final service = _SidebarHarnessService();
+      addTearDown(service.disposeStub);
+      // Galaxy-class 360-dp phone in landscape (800×360) with a 200-px soft
+      // keyboard reported as a view inset: the Scaffold shrinks the body to
+      // ~160 pt, far below the rail's ~334 pt of fixed content. Audit H1.
+      tester.view.physicalSize = const Size(800, 360);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+
+      final tapped = <int>[];
+      await tester.pumpWidget(_app(railHost(service, tapped.add)));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull,
+          reason: 'the rail Column must scroll, not overflow');
+      expect(find.byKey(UiKeys.sidebarChats), findsOneWidget);
+      // Settings is the last item; on a short rail it lives below the fold and
+      // must be reachable — and tappable — by scrolling the rail itself.
+      await tester.scrollUntilVisible(
+        find.byKey(UiKeys.sidebarSettings),
+        80,
+        scrollable: find.descendant(
+          of: find.byKey(_railHostKey),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      // Let the drag's ballistic scroll finish: a Scrollable ignores
+      // pointers while a scroll activity is running, which ate the tap.
+      await _settle(tester);
+      await tester.tap(find.byKey(UiKeys.sidebarSettings));
+      await tester.pump();
+      expect(tapped, <int>[3],
+          reason: 'the scrolled-into-view Settings entry must hit-test');
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

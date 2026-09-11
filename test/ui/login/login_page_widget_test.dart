@@ -38,6 +38,7 @@ import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/responsive_layout.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
@@ -191,38 +192,12 @@ Widget _pumpableLoginPage({
 
 /// Pump the LoginPage and resolve its async post-initState Prefs reads.
 ///
-/// `_LoginActionCard` has a known minor overflow (~6.2px) at the constrained
-/// 360pt card width — the Row doesn't use Flexible/Expanded around the label
-/// text, so titleSmall + chevron exceeds the available space when the card is
-/// painted inside the welcome state's 360pt ConstrainedBox. The overflow is
-/// non-functional (chevron clips off the trailing edge by ≈6px) but Flutter
-/// surfaces it as an unexpected layout exception, which fails the test.
-///
-/// We surface the same bug in the report and consume the layout-overflow
-/// exception here so behavioral assertions can still run. The fix belongs in
-/// `lib/ui/login_page.dart` (wrap the label `Text` in `Expanded` or trim the
-/// chevron to a fixed-width tail) and is out of scope for this test PR.
+/// Strict: a RenderFlex overflow fails the test. This helper used to swallow
+/// every `A RenderFlex overflowed` error for two long-fixed rows, which then
+/// hid the live saved-account meta-row overflow (2026-09-11 audit, H5).
 Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
   await tester.binding.setSurfaceSize(const Size(1024, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  // Intercept FlutterError.onError BEFORE pumping so individual exceptions
-  // are inspected as they're thrown — at this layer we have the full
-  // FlutterErrorDetails (with the inner exception) for each error. By the
-  // time they reach `tester.takeException()` they may have been collapsed
-  // into a single "Multiple exceptions (N)" summary whose toString does NOT
-  // include the inner exception text, making string-matching ambiguous
-  // between "all overflows" and "overflow + real bug".
-  final originalOnError = FlutterError.onError;
-  addTearDown(() => FlutterError.onError = originalOnError);
-  FlutterError.onError = (FlutterErrorDetails details) {
-    final asString = details.exception.toString();
-    // Swallow the two documented login_page.dart Row overflow assertions
-    // (line 1040 welcome card + line 832 saved-account chevron). Anything
-    // else surfaces via the original handler so the test fails loudly.
-    if (asString.contains('A RenderFlex overflowed')) return;
-    final fallback = originalOnError;
-    if (fallback != null) fallback(details);
-  };
   await tester.pumpWidget(root);
   // Three pumps drain: build → microtask for the awaited Prefs.* reads → the
   // setState that surfaces _accountList. pumpAndSettle would also work but
@@ -234,10 +209,25 @@ Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
 
 Future<Object?> _pumpAndLoadStrictNarrow(
   WidgetTester tester,
-  Widget root,
-) async {
-  await tester.binding.setSurfaceSize(const Size(360, 800));
-  addTearDown(() => tester.binding.setSurfaceSize(null));
+  Widget root, {
+  Size size = const Size(360, 800),
+  double textScale = 1.0,
+  bool phonePlatform = false,
+}) async {
+  // The test host is a desktop OS, which pins the ResponsiveLayout tier to
+  // desktop; phone cases opt out so they get the phone paddings/reserves.
+  if (phonePlatform) {
+    ResponsiveLayout.debugIsDesktopPlatformOverride = () => false;
+    addTearDown(() => ResponsiveLayout.debugIsDesktopPlatformOverride = null);
+  }
+  // Physical size (not setSurfaceSize) so MediaQuery.sizeOf and the
+  // ResponsiveLayout tier see the phone width too.
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   await tester.pumpWidget(root);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 50));
@@ -453,6 +443,33 @@ void main() {
   });
 
   group('LoginPage - saved-account picker', () {
+    for (final scale in const [1.0, 1.5, 2.0]) {
+      testWidgets(
+        'saved-account card fits a 320-px phone at text ${scale}x',
+        (tester) async {
+          // Audit H5: the "User ID: … • last login" Row held two bare Texts,
+          // ~193 px in the 176 px left beside the avatar on a 320-px phone.
+          await _initPrefsWithSavedAccount(
+            nickname: 'Alice With A Long Nickname',
+            toxId: 'A' * 64,
+            statusMessage: 'Away for a while',
+          );
+          final exception = await _pumpAndLoadStrictNarrow(
+            tester,
+            _pumpableLoginPage(),
+            size: const Size(320, 568),
+            textScale: scale,
+            phonePlatform: true,
+          );
+          expect(exception, isNull, reason: 'no RenderFlex overflow');
+          expect(
+            find.byKey(UiKeys.loginPageAccountCard('A' * 64)),
+            findsOneWidget,
+          );
+        },
+      );
+    }
+
     testWidgets('renders Saved accounts header + entry from prefs', (
       tester,
     ) async {

@@ -173,8 +173,13 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                     ),
                   ),
                   AppSpacing.verticalXl,
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  // OverflowBar: wraps instead of overflowing the 240-px
+                  // content width of a 320-px phone at large text.
+                  OverflowBar(
+                    alignment: MainAxisAlignment.end,
+                    overflowAlignment: OverflowBarAlignment.end,
+                    spacing: AppSpacing.sm,
+                    overflowSpacing: AppSpacing.xs,
                     children: [
                       TextButton(
                         key: UiKeys.ircChannelDialogCancelButton,
@@ -188,7 +193,6 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                         ),
                         child: Text(appL10n?.cancel ?? 'Cancel'),
                       ),
-                      AppSpacing.horizontalSm,
                       ElevatedButton(
                         key: UiKeys.ircChannelDialogJoinButton,
                         onPressed: () {

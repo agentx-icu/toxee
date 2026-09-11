@@ -232,7 +232,13 @@ class CallTopStatusBar extends StatelessWidget {
             ),
           ),
           if (qualityIndicator != null) ...[
-            qualityIndicator!,
+            // Capped (not a loose Flexible, which halved the title and pulled
+            // the minimize button inward): a long localized label ellipsizes
+            // inside 140 px instead of overflowing a 320-px phone.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: qualityIndicator!,
+            ),
             SizedBox(width: padding),
           ],
           if (trailingIcon != null)
@@ -256,9 +262,19 @@ class CallTopStatusBar extends StatelessWidget {
 /// solid errorColor surface when destructive. The dock itself has no chrome —
 /// each button sits on the call surface directly, in the Telegram/Meet style.
 class CallActionDock extends StatelessWidget {
-  const CallActionDock({super.key, required this.actions});
+  const CallActionDock({
+    super.key,
+    required this.actions,
+    this.showLabels = true,
+  });
 
   final List<CallDockAction> actions;
+
+  /// `false` renders icon-only buttons (label kept as tooltip + semantics) in
+  /// a tighter slot with `sm` spacing: five 56-px video actions = 312 px, which
+  /// fits the 327 px a 375-px phone leaves after shell + dock padding, instead
+  /// of wrapping to a second row over the remote frame.
+  final bool showLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -269,28 +285,52 @@ class CallActionDock extends StatelessWidget {
       desktop: 64,
     );
 
+    final spacing = showLabels ? AppSpacing.lg : AppSpacing.sm;
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
         vertical: AppSpacing.sm,
       ),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: AppSpacing.lg,
-        runSpacing: AppSpacing.md,
-        children: actions
-            .map((a) => _CallDockButton(action: a, diameter: buttonSize))
-            .toList(),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Icon-only mode must stay a single run so the video scrim (fixed
+          // height) keeps covering it: on a 320-px phone five 56-px buttons
+          // need 312 px but only 280 are left, so shrink them to what fits
+          // (never below the 44-px accessibility target).
+          var diameter = buttonSize;
+          if (!showLabels && constraints.hasBoundedWidth && actions.isNotEmpty) {
+            final fit = (constraints.maxWidth - (actions.length - 1) * spacing) /
+                actions.length;
+            diameter = fit.clamp(44.0, buttonSize).toDouble();
+          }
+          return Wrap(
+            alignment: WrapAlignment.center,
+            spacing: spacing,
+            runSpacing: AppSpacing.md,
+            children: actions
+                .map((a) => _CallDockButton(
+                      action: a,
+                      diameter: diameter,
+                      showLabel: showLabels,
+                    ))
+                .toList(),
+          );
+        },
       ),
     );
   }
 }
 
 class _CallDockButton extends StatefulWidget {
-  const _CallDockButton({required this.action, required this.diameter});
+  const _CallDockButton({
+    required this.action,
+    required this.diameter,
+    required this.showLabel,
+  });
 
   final CallDockAction action;
   final double diameter;
+  final bool showLabel;
 
   @override
   State<_CallDockButton> createState() => _CallDockButtonState();
@@ -365,7 +405,7 @@ class _CallDockButtonState extends State<_CallDockButton> {
         : null;
 
     final Widget content = SizedBox(
-      width: widget.diameter + 24,
+      width: widget.diameter + (widget.showLabel ? 24 : 0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -407,23 +447,27 @@ class _CallDockButtonState extends State<_CallDockButton> {
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            a.label,
-            style: textTheme.labelSmall?.copyWith(
-              color: labelColor,
-              fontWeight: FontWeight.w500,
+          if (widget.showLabel) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              a.label,
+              style: textTheme.labelSmall?.copyWith(
+                color: labelColor,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
+          ],
         ],
       ),
     );
 
-    final Widget tooltipped = a.tooltip != null
-        ? Tooltip(message: a.tooltip!, child: content)
+    // Icon-only buttons surface the label as a tooltip instead.
+    final tooltip = a.tooltip ?? (widget.showLabel ? null : a.label);
+    final Widget tooltipped = tooltip != null
+        ? Tooltip(message: tooltip, child: content)
         : content;
 
     return Semantics(
@@ -455,11 +499,25 @@ class CallIdentityStage extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Center(
+    // The shell bounds this stage between the bars (~151 px on a landscape
+    // phone). The avatar is the only part that can give up height, so on a
+    // short stage it shrinks first and name + timer stay visible at 1×; the
+    // shrink-wrapping scroll view is the last resort at large text.
+    return LayoutBuilder(builder: (context, constraints) {
+      Widget avatarBox = avatar;
+      if (constraints.hasBoundedHeight && constraints.maxHeight < 260) {
+        final double fit = constraints.maxHeight * 0.28;
+        avatarBox = SizedBox.square(
+          dimension: fit < 44 ? 44 : fit,
+          child: FittedBox(fit: BoxFit.scaleDown, child: avatar),
+        );
+      }
+      return Center(
+      child: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          avatar,
+          avatarBox,
           const SizedBox(height: AppSpacing.lg),
           Text(
             title,
@@ -497,7 +555,9 @@ class CallIdentityStage extends StatelessWidget {
           ],
         ],
       ),
+      ),
     );
+    });
   }
 }
 
@@ -520,96 +580,6 @@ class CallVideoStage extends StatelessWidget {
         remoteContent,
         if (localPreviewCard != null) localPreviewCard!,
       ],
-    );
-  }
-}
-
-/// Compact card for floating call window: title, subtitle, optional leading, hang-up action.
-class CallCompactCard extends StatelessWidget {
-  const CallCompactCard({
-    super.key,
-    required this.title,
-    required this.subtitle,
-    this.leading,
-    this.thumbnail,
-    required this.onHangUp,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget? leading;
-  final Widget? thumbnail;
-  final VoidCallback onHangUp;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          if (leading != null) ...[leading!, AppSpacing.horizontalSm],
-          if (thumbnail != null && leading == null) ...[
-            thumbnail!,
-            AppSpacing.horizontalSm,
-          ],
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: (textTheme.bodyMedium ?? const TextStyle()).copyWith(
-                    color: _kCallForeground,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  subtitle,
-                  style: (textTheme.bodySmall ?? const TextStyle()).copyWith(
-                    color: _kCallMutedForeground,
-                    fontSize: 11,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          // Compact end-call button — matches the destructive dock-button feel
-          // but sized down for the floating widget footprint. Wrapped in a
-          // 44×44 hit target (accessibility min touch size) with the 36px
-          // visual circle centered inside.
-          SizedBox(
-            width: 44,
-            height: 44,
-            child: Center(
-              child: Material(
-                color: AppThemeConfig.errorColor,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: onHangUp,
-                  child: const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: Icon(Icons.call_end, color: Colors.white, size: 18),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

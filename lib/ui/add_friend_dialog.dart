@@ -371,15 +371,10 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
               // SingleChildScrollView lets the form scroll when the keyboard
               // pushes content up on small screens — without it, the bottom
               // (counter, action row) would be clipped on iPhone SE-class
-              // viewports. Adding viewInsets.bottom to the bottom padding keeps
-              // Submit + counter reachable when the keyboard is up.
+              // viewports. No viewInsets padding: Dialog already lifts itself
+              // above the keyboard and zeroes the insets for its subtree.
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  AppSpacing.xl,
-                  AppSpacing.xl,
-                  AppSpacing.xl,
-                  AppSpacing.xl + MediaQuery.viewInsetsOf(context).bottom,
-                ),
+                padding: const EdgeInsets.all(AppSpacing.xl),
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -508,8 +503,13 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
       'addContact',
       fallback: 'Add Contact',
     );
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+    // OverflowBar wraps to two lines when both buttons no longer fit the
+    // 240-px content width of a 320-px phone (large text / long locales).
+    return OverflowBar(
+      alignment: MainAxisAlignment.end,
+      overflowAlignment: OverflowBarAlignment.end,
+      spacing: AppSpacing.sm,
+      overflowSpacing: AppSpacing.xs,
       children: [
         TextButton(
           key: UiKeys.addFriendCancelButton,
@@ -518,7 +518,6 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
               : () => Navigator.of(context).maybePop(),
           child: Text(cancelLabel),
         ),
-        AppSpacing.horizontalSm,
         Tooltip(
           message: _isSubmitting
               ? _localeText(context, 'sending', fallback: 'Sending...')

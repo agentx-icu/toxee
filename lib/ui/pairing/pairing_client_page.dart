@@ -13,6 +13,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_client.dart';
+import 'pairing_centered_message.dart';
 import 'pairing_status_indicator.dart';
 
 /// Max horizontal width for the pairing client surface — mirrors the host
@@ -223,7 +224,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
 
   Widget _buildBody(AppLocalizations l10n) {
     if (_completedToxId != null) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.connected,
         message: l10n.pairingClientCompleted,
         actionLabel: l10n.done,
@@ -231,7 +232,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
       );
     }
     if (_error != null) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.error,
         message: _error!,
         actionLabel: l10n.cancel,
@@ -242,7 +243,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
       return _buildSasView(l10n);
     }
     if (_connecting) {
-      return _CenteredMessage(
+      return PairingCenteredMessage(
         state: PairingState.connecting,
         message: l10n.pairingClientCompleted, // generic "working" string
       );
@@ -252,7 +253,10 @@ class _PairingClientPageState extends State<PairingClientPage> {
 
   Widget _buildScannerOrPaste(AppLocalizations l10n) {
     final theme = Theme.of(context);
-    return Column(
+    // LayoutBuilder: the cap must come from the body the Scaffold leaves
+    // above the keyboard, not from the whole screen.
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
       children: [
         if (_supportsCameraScan && _scannerController != null)
           Expanded(
@@ -298,10 +302,19 @@ class _PairingClientPageState extends State<PairingClientPage> {
               style: theme.textTheme.bodyMedium,
             ),
           ),
-        Padding(
+        // The form is ~196 px of fixed content. With the keyboard up on a
+        // landscape phone the body is ~100 px, so the Expanded scanner above
+        // would collapse to zero and the Column overflow; bounding the form
+        // to a slice of the height and scrolling inside it keeps both alive.
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: constraints.maxHeight * 0.6,
+          ),
+          child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (_supportsCameraScan)
                 Text(
@@ -342,17 +355,22 @@ class _PairingClientPageState extends State<PairingClientPage> {
               ),
             ],
           ),
+          ),
         ),
       ],
+      ),
     );
   }
 
   Widget _buildSasView(AppLocalizations l10n) {
     final theme = Theme.of(context);
-    return Padding(
+    // ~330 px of fixed content vs ~280 px on a landscape phone: scroll, and
+    // let Center keep it vertically centred whenever it does fit.
+    return Center(
+      child: SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           const PairingStatusIndicator(state: PairingState.connecting, size: 48),
           AppSpacing.verticalLg,
@@ -391,49 +409,12 @@ class _PairingClientPageState extends State<PairingClientPage> {
           ),
         ],
       ),
+      ),
     );
   }
 
   String _formatSasForDisplay(String sas) {
     if (sas.length != 6) return sas;
     return '${sas.substring(0, 3)} ${sas.substring(3)}';
-  }
-}
-
-class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage({
-    required this.state,
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
-  final PairingState state;
-  final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PairingStatusIndicator(state: state, size: 56),
-            AppSpacing.verticalLg,
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            if (actionLabel != null && onAction != null) ...[
-              AppSpacing.verticalLg,
-              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -259,6 +259,7 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
+          scrollable: true,
           title: Text(title),
           content: TextField(
             // Stable automation anchor for the saved-account quick-login /
@@ -802,6 +803,8 @@ class _LoginPageState extends State<LoginPage> {
       builder: (ctx) {
         final inputController = TextEditingController();
         return AlertDialog(
+          // Keyboard + landscape leave <300 px; the Column must scroll.
+          scrollable: true,
           title: Text(AppLocalizations.of(ctx)!.deleteAccount),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1046,6 +1049,11 @@ class _LoginPageState extends State<LoginPage> {
                       child: Form(
                         key: _formKey,
                         child: SingleChildScrollView(
+                          // Phones: keep the first card clear of the floating
+                          // settings chip when the content outgrows the view.
+                          padding: EdgeInsets.only(
+                            top: ResponsiveLayout.isMobile(context) ? 44 : 0,
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -1245,37 +1253,32 @@ class _LoginPageState extends State<LoginPage> {
                                                               ],
                                                               AppSpacing
                                                                   .verticalXs,
+                                                              // Both labels are flex children: a bare Text in a Row
+                                                              // gets unbounded width and overflows 320-px phones.
                                                               Row(
                                                                 children: [
-                                                                  Text(
-                                                                    '${AppLocalizations.of(context)!.userId}: $toxIdPrefix…',
-                                                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                                      fontFamily:
-                                                                          'monospace',
-                                                                      color: Theme.of(context)
-                                                                          .colorScheme
-                                                                          .onSurface
-                                                                          .withValues(
-                                                                            alpha:
-                                                                                0.5,
-                                                                          ),
+                                                                  Flexible(
+                                                                    child: Text(
+                                                                      '${AppLocalizations.of(context)!.userId}: $toxIdPrefix…',
+                                                                      maxLines: 1,
+                                                                      overflow: TextOverflow.ellipsis,
+                                                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                                        fontFamily: 'monospace',
+                                                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                                                      ),
                                                                     ),
                                                                   ),
                                                                   AppSpacing
                                                                       .horizontalSm,
-                                                                  Text(
-                                                                    '• ${formatLastLogin(lastLogin)}',
-                                                                    style: Theme.of(context)
-                                                                        .textTheme
-                                                                        .labelSmall
-                                                                        ?.copyWith(
-                                                                          color:
-                                                                              Theme.of(
-                                                                                context,
-                                                                              ).colorScheme.onSurface.withValues(
-                                                                                alpha: 0.5,
-                                                                              ),
-                                                                        ),
+                                                                  Flexible(
+                                                                    child: Text(
+                                                                      '• ${formatLastLogin(lastLogin)}',
+                                                                      maxLines: 1,
+                                                                      overflow: TextOverflow.ellipsis,
+                                                                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                                                      ),
+                                                                    ),
                                                                   ),
                                                                 ],
                                                               ),

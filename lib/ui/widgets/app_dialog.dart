@@ -107,7 +107,20 @@ class _AppDialogState extends State<AppDialog> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanUpdate: _draggable
-            ? (details) => setState(() => _offset += details.delta)
+            ? (details) {
+                // Stop following the pointer once it leaves the window: the
+                // grab point sits on this title bar, so the bar (and its close
+                // button) can never be dragged fully off-screen.
+                final size = MediaQuery.sizeOf(context);
+                final p = details.globalPosition;
+                if (p.dx < 0 ||
+                    p.dy < 0 ||
+                    p.dx > size.width ||
+                    p.dy > size.height) {
+                  return;
+                }
+                setState(() => _offset += details.delta);
+              }
             : null,
         child: Container(
           height: 48,

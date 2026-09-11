@@ -142,7 +142,11 @@ class _Banner extends StatelessWidget {
       ],
     );
 
-    final body = SizedBox(height: 32, child: row);
+    // minHeight, not a fixed 32: bodySmall at ≥1.7× text is taller than that.
+    final body = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 32),
+      child: row,
+    );
     if (isOffline) {
       return Material(
         color: bg,

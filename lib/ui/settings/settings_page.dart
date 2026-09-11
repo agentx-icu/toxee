@@ -1182,6 +1182,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(title),
         content: TextField(
           controller: passwordController,
@@ -1223,6 +1224,8 @@ class _SettingsPageState extends State<SettingsPage> {
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        // Landscape + keyboard leaves ~140 px for two fields: must scroll.
+        scrollable: true,
         title: Text(title),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1292,6 +1295,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           hasPassword
               ? AppLocalizations.of(context)!.changePassword

@@ -1367,8 +1367,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       if (PlatformUtils.isDesktop ||
                           ResponsiveLayout.isDesktop(context))
                         Positioned(
-                          top: 0,
-                          left: 0,
+                          // Clear the rail (it used to paint over the avatar)
+                          // and, on macOS only — where the body opts out of the
+                          // top SafeArea — the traffic-light inset. Elsewhere the
+                          // SafeArea below already consumed it; this context sits
+                          // ABOVE that SafeArea, so reading padding here would
+                          // count it twice.
+                          top: PlatformUtils.isDesktop && PlatformUtils.isMacOS
+                              ? MediaQuery.paddingOf(context).top
+                              : 0,
+                          left: useSidebar
+                              ? ResponsiveLayout.responsiveSidebarWidth(
+                                    context,
+                                  ) +
+                                  1
+                              : 0,
                           right: 0,
                           // Asymmetric enter/exit: snappy 250ms in (easeOut) so the
                           // banner shows up quickly when the LAN service comes
@@ -1778,7 +1791,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                height: 52,
+                constraints: const BoxConstraints(minHeight: 52),
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 decoration: BoxDecoration(
@@ -1790,6 +1803,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 child: Text(
                   TencentCloudChatLocalizations.of(context)?.settings ??
                       'Settings',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w600,

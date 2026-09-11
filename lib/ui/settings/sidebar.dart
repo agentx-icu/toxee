@@ -223,7 +223,16 @@ Widget buildSidebar({
           color: railColor,
           border: Border(right: BorderSide(color: dividerColor, width: 1)),
         ),
-        child: Column(
+        // The rail is ~334 pt of fixed content. On short viewports (360-dp
+        // landscape phones, or any landscape phone with the keyboard up) that
+        // exceeds the body height, so it must scroll; SliverFillRemaining with
+        // hasScrollBody:false keeps the Spacer pinning Settings to the bottom
+        // whenever there IS room.
+        child: CustomScrollView(
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Column(
           children: [
             // macOS frameless window: the native traffic lights overlay the
             // top-left of the rail. Reserve the space INSIDE this coloured
@@ -282,6 +291,9 @@ Widget buildSidebar({
               onTap: () => onTap(3),
             ),
             AppSpacing.verticalLg,
+          ],
+              ),
+            ),
           ],
         ),
       ),

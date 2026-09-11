@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../i18n/app_localizations.dart';
+import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
 import 'call_state_notifier.dart';
 import 'ringing_call_manager.dart';
+import 'call_compact_card.dart';
 import 'call_ui_components.dart';
 
 // ──────────────────────────────────────────────
@@ -127,11 +130,18 @@ class _CallFloatingWidgetState extends State<CallFloatingWidget>
       tablet: 200,
       desktop: 240,
     );
-    final widgetHeight = ResponsiveLayout.responsiveValue<double>(
-      context,
-      mobile: 56,
-      tablet: 60,
-      desktop: 64,
+    // Height follows the rendered text: the card's two lines (~36 px at 1×)
+    // overflowed the old fixed 56 from ~1.2× on. The 44-px floor keeps the
+    // hang-up hit target at the accessibility minimum instead of squashing
+    // it to the remaining 40 px.
+    final widgetHeight = max(
+      ResponsiveLayout.responsiveValue<double>(
+        context,
+        mobile: 60,
+        tablet: 60,
+        desktop: 64,
+      ),
+      AppSpacing.sm * 2 + max(44.0, callCompactCardTextHeight(context)),
     );
 
     // Tighten the drag clamp by MediaQuery.paddingOf(context) so the widget

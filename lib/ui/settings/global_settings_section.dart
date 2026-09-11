@@ -15,6 +15,7 @@ import '../../util/theme_controller.dart';
 import '../../util/prefs.dart';
 import '../../i18n/app_localizations.dart';
 import '../testing/ui_keys.dart';
+import '../../util/responsive_layout.dart';
 import '../widgets/section_header.dart';
 import '_hoverable_settings_row.dart';
 
@@ -239,21 +240,21 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
                         segments: <ButtonSegment<ThemeMode>>[
                           ButtonSegment<ThemeMode>(
                             value: ThemeMode.system,
-                            icon: const Icon(Icons.brightness_auto),
+                            icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.brightness_auto),
                             label: Text(
                               AppLocalizations.of(context)!.themeSystem,
                             ),
                           ),
                           ButtonSegment<ThemeMode>(
                             value: ThemeMode.light,
-                            icon: const Icon(Icons.light_mode),
+                            icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.light_mode),
                             label: Text(
                               AppLocalizations.of(context)!.themeLight,
                             ),
                           ),
                           ButtonSegment<ThemeMode>(
                             value: ThemeMode.dark,
-                            icon: const Icon(Icons.dark_mode),
+                            icon: ResponsiveLayout.isMobile(context) ? null : const Icon(Icons.dark_mode),
                             label: Text(
                               AppLocalizations.of(context)!.themeDark,
                             ),

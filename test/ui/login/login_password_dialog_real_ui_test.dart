@@ -81,15 +81,6 @@ Widget _pumpableLoginPage({LoginPageController? loginPageController}) {
 Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
   await tester.binding.setSurfaceSize(const Size(1024, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final originalOnError = FlutterError.onError;
-  addTearDown(() => FlutterError.onError = originalOnError);
-  FlutterError.onError = (FlutterErrorDetails details) {
-    if (details.exception.toString().contains('A RenderFlex overflowed')) {
-      return;
-    }
-    final fallback = originalOnError;
-    if (fallback != null) fallback(details);
-  };
   await tester.pumpWidget(root);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 50));
