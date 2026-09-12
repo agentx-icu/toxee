@@ -117,25 +117,41 @@ Future<bool> restoreDataCommitted(RestoreTransactionJournal journal) async {
 
 /// What a restore's payload looks like immediately BEFORE a rollback touches it.
 ///
-/// Taken as a baseline, because the question "did the rollback remove anything?"
-/// cannot be answered after the fact. Inference does not work - a recursive
-/// delete can remove entries before it throws, so no "have I deleted yet"
-/// tracking is exact - and neither does reading the disk with nothing to compare
-/// against: for a `.zip` with no profile, an account-data root whose CHILDREN
-/// were deleted before the root delete threw still exists, and looks untouched.
+/// Taken as a baseline, because "did the rollback remove anything?" cannot be
+/// answered afterwards. Inference does not work - a recursive delete can remove
+/// entries before it throws - and neither does reading the disk with nothing to
+/// compare against.
+///
+/// The walk is RECURSIVE, and that is the whole point. Top-level names were not
+/// enough: a recursive delete of `chat_history/` removes `peer.json` first and
+/// can then fail to remove `chat_history` itself (a non-writable parent), leaving
+/// every top-level name in place while all restored history is gone. Deleting
+/// whole directories does not make deletion atomic.
 final class RollbackWitness {
-  const RollbackWitness({
-    required this.profilePresent,
-    required this.accountDataEntries,
-    required this.usable,
-  });
+  const RollbackWitness({required this.paths, required this.usable});
 
-  final bool profilePresent;
-  final Set<String> accountDataEntries;
+  /// Every descendant of the profile and account-data directories, as paths
+  /// relative to each root and prefixed with which root they came from.
+  final Set<String> paths;
 
   /// False when the baseline could not be taken, which makes every later
   /// comparison answer "something may have been removed".
   final bool usable;
+
+  static const RollbackWitness unusable = RollbackWitness(
+    paths: <String>{},
+    usable: false,
+  );
+}
+
+Future<Set<String>> _walk(String label, String root) async {
+  final dir = Directory(root);
+  if (!await dir.exists()) return <String>{};
+  final found = <String>{};
+  await for (final entry in dir.list(recursive: true, followLinks: false)) {
+    found.add('$label:${p.relative(entry.path, from: root)}');
+  }
+  return found;
 }
 
 /// Capture the baseline. Never throws: an unusable witness is a safe one.
@@ -143,54 +159,34 @@ Future<RollbackWitness> captureRollbackWitness(
   RestoreTransactionJournal journal,
 ) async {
   try {
-    final profile = File(
-      AppPaths.profileFileInDirectory(journal.profileFinalDir),
-    );
-    final root = Directory(journal.accountDataFinalDir);
-    final entries = <String>{};
-    if (await root.exists()) {
-      await for (final entry in root.list(followLinks: false)) {
-        entries.add(p.basename(entry.path));
-      }
-    }
     return RollbackWitness(
-      profilePresent: await profile.exists(),
-      accountDataEntries: entries,
+      paths: <String>{
+        ...await _walk('profile', journal.profileFinalDir),
+        ...await _walk('data', journal.accountDataFinalDir),
+      },
       usable: true,
     );
   } catch (_) {
-    return const RollbackWitness(
-      profilePresent: false,
-      accountDataEntries: <String>{},
-      usable: false,
-    );
+    return RollbackWitness.unusable;
   }
 }
 
 /// Whether a rollback that threw removed NOTHING, judged against [witness].
 ///
-/// Every part of the baseline must still be there: the profile file if it was
-/// there, every top-level account-data entry that was there, and the account row.
-/// Anything missing means a partial rollback, which must NOT be reported to the
-/// user as "your account may still be there".
+/// Every path the baseline saw must still be there, and the account row must
+/// still be published. Anything missing means a partial rollback, which must NOT
+/// be reported to the user as "your account may still be there".
 Future<bool> rollbackRemovedNothing(
   RestoreTransactionJournal journal,
   RollbackWitness witness,
 ) async {
   if (!witness.usable) return false;
   try {
-    final profile = File(
-      AppPaths.profileFileInDirectory(journal.profileFinalDir),
-    );
-    if (witness.profilePresent && !await profile.exists()) return false;
-    final root = Directory(journal.accountDataFinalDir);
-    final now = <String>{};
-    if (await root.exists()) {
-      await for (final entry in root.list(followLinks: false)) {
-        now.add(p.basename(entry.path));
-      }
-    }
-    if (!witness.accountDataEntries.every(now.contains)) return false;
+    final now = <String>{
+      ...await _walk('profile', journal.profileFinalDir),
+      ...await _walk('data', journal.accountDataFinalDir),
+    };
+    if (!witness.paths.every(now.contains)) return false;
     return await Prefs.getAccountByToxId(journal.toxId) != null;
   } catch (_) {
     // Could not tell; the safe answer is "something may have been removed",
