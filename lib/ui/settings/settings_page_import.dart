@@ -261,7 +261,13 @@ extension _SettingsImportFlow on _SettingsPageState {
       // and `ownership` are armed just before the journal write, so
       // `ImportedAccountRollback.run` would delete the password and scoped
       // preferences of the account that is ALREADY on disk under this id.
-      final admissionRefused = e is ToxImportInFlightException;
+      // BOTH refusals. `RestoreInFlightException` is the `.zip` path's version
+      // of the same thing - another restore of this account is committed and
+      // waiting to publish - and it likewise means this attempt wrote nothing.
+      // Rolling back on it deleted the LIVE owner's profile and history.
+      final admissionRefused =
+          e is ToxImportInFlightException ||
+          AccountExportService.isRestoreAdmissionRefusal(e);
       if (!admissionRefused &&
           rollbackToxId != null &&
           (rollbackFullBackup || rollbackImportedAccount)) {

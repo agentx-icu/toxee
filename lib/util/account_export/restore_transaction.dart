@@ -145,12 +145,11 @@ abstract final class FullBackupRestoreTransaction {
   static final AsyncGate _transactionGate = AsyncGate();
 
   /// The transaction whose CALLER still owns it: `restore` has returned with the
-  /// data committed, and that caller has yet to publish the account row and
-  /// finalize. The gate alone does not cover this - it releases when `restore`
-  /// returns - so a queued restore entered recovery, saw no account row for the
-  /// committed journal, and deleted the first caller's profile and history out
-  /// from under it. Process-local by design: a cold start has no owner, so
-  /// startup recovery must still resolve whatever it finds.
+  /// data committed and that caller has yet to publish the account row and
+  /// finalize. The gate releases when `restore` returns, so without this a
+  /// queued restore ran recovery, saw a committed journal with no account row,
+  /// and deleted the first caller's profile and history. Process-local: a cold
+  /// start has no owner and must still resolve whatever it finds.
   static String? _ownedTransactionId;
 
   /// For tests that abandon a transaction mid-flight.
@@ -170,8 +169,7 @@ abstract final class FullBackupRestoreTransaction {
       // would turn one abandoned transaction into a permanent outage.
       final current = await RestoreTransactionJournalStore.read();
       if (current != null && current.transactionId == _ownedTransactionId) {
-        // Committed and waiting to publish. Starting here would make this
-        // transaction's recovery undo that one.
+        // Committed, waiting to publish: our recovery would undo it.
         throw const RestoreInFlightException();
       }
       _ownedTransactionId = null;
@@ -310,6 +308,7 @@ abstract final class FullBackupRestoreTransaction {
     _ownedTransactionId = null;
   }
 
+
   /// [transactionId], when given, is the caller's OWN transaction: matching only
   /// the account would destroy whichever transaction holds the journal now. The
   /// UI paths pass no id - "undo whatever is pending here" is what they mean.
@@ -338,9 +337,16 @@ abstract final class FullBackupRestoreTransaction {
       // destroy work that is still in flight.
       return;
     }
-    await rollbackRestoreTransaction(journal);
-    if (journal.transactionId == _ownedTransactionId) {
-      _ownedTransactionId = null;
+    try {
+      await rollbackRestoreTransaction(journal);
+    } finally {
+      // Released even when the rollback THREW: both UI callers swallow that and
+      // walk away, so holding ownership past it left recovery skipping the
+      // journal and every later restore refused, permanently. The journal is
+      // deliberately kept, for recovery to retry.
+      if (journal.transactionId == _ownedTransactionId) {
+        _ownedTransactionId = null;
+      }
     }
   }
 

@@ -9,6 +9,7 @@
 // split only changes WHERE the bodies live, not WHAT they do.
 
 import 'encryption.dart' as enc;
+import 'restore_transaction_journal.dart';
 import 'exceptions.dart';
 import 'full_backup.dart' as backup;
 import 'tox_file_io.dart' as tox;
@@ -90,6 +91,13 @@ class AccountExportService {
       backup.finalizeFullBackupImport(toxId: toxId);
 
   /// Roll back a pending journaled full-backup import after a caller-side error.
+  /// Whether [error] is a refusal to ADMIT a restore - another transaction for
+  /// this account is committed and waiting to publish. It means nothing was
+  /// written, so a caller must not run its rollback: that matches on account id
+  /// alone and would undo the live owner's work.
+  static bool isRestoreAdmissionRefusal(Object error) =>
+      error is RestoreInFlightException;
+
   static Future<void> rollbackPendingFullBackupRestore({String? toxId}) =>
       backup.rollbackPendingFullBackupRestore(toxId: toxId);
 

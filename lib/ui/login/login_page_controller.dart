@@ -8,6 +8,7 @@ import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/default_avatar_installer.dart';
+import '../../util/account_export/restore_transaction_journal.dart';
 import '../../util/account_export/tox_import_journal.dart';
 import '../../util/imported_account_name.dart';
 import '../../util/imported_account_rollback.dart';
@@ -399,7 +400,12 @@ class LoginPageController {
         ).importBlockedByPendingImport,
       );
     } catch (e) {
-      if (rollbackToxId != null) {
+      // A refused admission - either journal's - wrote nothing, and rolling back
+      // on it destroys the LIVE owner's data: the rollback matches on account id
+      // alone, so it undoes whichever transaction currently holds that account.
+      final admissionRefused =
+          e is ToxImportInFlightException || e is RestoreInFlightException;
+      if (!admissionRefused && rollbackToxId != null) {
         try {
           if (rollbackFullBackup) {
             await _rollbackFullBackupImportFn(toxId: rollbackToxId);
