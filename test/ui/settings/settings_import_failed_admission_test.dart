@@ -1,43 +1,53 @@
-// Regression gate for the `admissionRefused` branch of the Settings import
-// failure path (`lib/ui/settings/settings_page_import.dart`).
+// Regression gate for the FAILED (as opposed to refused) journal write on the
+// `.tox` import path — Settings entry point
+// (`lib/ui/settings/settings_page_import.dart`) plus a source-shape gate over
+// the two login entry points that share the defect.
 //
-// THE FAILURE THIS PREVENTS — an existing account's password destroyed by an
-// import that never wrote anything.
+// THE FAILURE THIS PREVENTS — an existing account's only surviving credentials
+// deleted by an import that wrote nothing.
 //
-// `ToxImportJournal.write` REFUSES admission (throws
-// `ToxImportInFlightException`) while another account's import is still on
-// record and unrecovered. That refusal is the FIRST durable step of a `.tox`
-// import, so a refused import has created nothing: no profile, no registry row,
-// no verifier. The rollback flags, however, are armed one line earlier — and
-// the failure path used to run `ImportedAccountRollback.run` on them anyway.
-// That rollback unconditionally clears the target Tox ID's password verifier
-// and its `_<first16>`-scoped preferences, which belong to whatever is ALREADY
-// stored under that id. So pressing "Import Account" at the wrong moment
-// silently destroyed an existing account's password: the user was locked out of
-// an account the import never touched, with nothing in the UI to say so, and no
-// copy of the PBKDF2 hash left anywhere to restore it from.
+// `markToxImportStage(... profileWritten ...)` is the FIRST durable step of a
+// `.tox` import: until it returns, the import has created no profile, no
+// registry row and no verifier. It can fail two ways. A REFUSED admission
+// (`ToxImportInFlightException`, another import still on record) is recognised
+// by the failure handler and skips the rollback. An ORDINARY I/O FAILURE of
+// that same write — the journal file unwritable, its directory gone, the disk
+// full — is not: it lands in the generic `catch`, and with the rollback flags
+// armed one line too early it ran `ImportedAccountRollback.run` for an import
+// that had created nothing. That rollback unconditionally clears the target Tox
+// ID's password verifier and sweeps its `_<first16>`-scoped preferences, which
+// belong to whatever is ALREADY stored under that id. A transient write error
+// therefore locked the user out of an untouched account — permanently, because
+// the PBKDF2 hash and salt it deleted exist in no other copy.
 //
 // Why the pre-existing account below carries no registry row: the row is
-// exactly what the import's collision guard keys on
-// (`Prefs.getAccountByToxId` → "account already exists" → return), so the only
+// exactly what the import's collision guard keys on (`Prefs.getAccountByToxId`
+// → "account already exists" → return before the journal write), so the only
 // states in which the flow can reach the journal write at all are those where
 // the row is missing — a lost or never-republished registry row, the case
 // `LegacyAccountDataClaim` / `AccountReconciliation` exist to repair. That makes
 // the verifier and the scoped preferences the LAST surviving evidence of the
 // account, which is precisely what the unguarded rollback deleted.
 //
-// Mobile parity: `SettingsPage` and its import handler are shared Dart with no
-// platform fork, so this gate covers iOS/Android too.
+// How the write is made to fail: a DIRECTORY is created at the journal's exact
+// path (`<applicationSupport>/account_tox_import_journal.json`). `File.exists()`
+// is false for a directory, so the journal's admission checks all pass and it
+// proceeds to `writeBytesAtomically`, whose publishing rename onto that path
+// fails with `EISDIR`. That is an ordinary `FileSystemException`, not
+// `ToxImportInFlightException` — i.e. exactly the branch this gate is about.
+//
+// Mobile parity: `SettingsPage`, `LoginPageController` and the restore flow are
+// shared Dart with no platform fork, so this gate covers iOS/Android too.
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:toxee/ui/settings/settings_page.dart';
 import 'package:toxee/util/account_export/tox_import_journal.dart';
 import 'package:toxee/util/app_paths.dart';
-import 'package:toxee/util/imported_account_rollback.dart';
 import 'package:toxee/util/prefs.dart';
 
 import '../../account_export/test_support.dart';
@@ -47,16 +57,16 @@ import 'settings_account_test_support.dart';
 /// no 16-char prefix with [kSettingsToxId] (the signed-in account), so the
 /// `_<first16>` sweeps of the two cannot be confused.
 const _existingToxId =
-    'DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
-
-/// The unrecovered import already on record, which is what refuses admission.
-const _foreignToxId =
-    'EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE';
+    'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
 
 const _existingPassword = 'existing-account-password';
 
-/// The exact wording the refusal surfaces (`l10n.importBlockedByPendingImport`).
-const _refusalText = 'Another account import was interrupted';
+/// The wording the generic failure branch surfaces
+/// (`l10n.failedToImportAccount`), as opposed to the refusal wording.
+const _failureText = 'Failed to import account';
+
+/// The journal file the import writes first, per `ToxImportJournal._fileName`.
+const _journalFileName = 'account_tox_import_journal.json';
 
 Future<void> _pumpSettings(
   WidgetTester tester, {
@@ -99,6 +109,45 @@ Future<void> _pumpRealUntil(
     await tester.pump(const Duration(milliseconds: 20));
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
+}
+
+/// Asserts the ordering that keeps a failed journal write non-destructive:
+/// ownership is snapshotted before anything is written, but the rollback is
+/// armed only after the write has actually succeeded.
+void _expectRollbackArmedAfterJournalWrite(String path, String armMarker) {
+  final source = File(path).readAsStringSync();
+
+  final capture = source.indexOf('ImportedAccountRollback.captureOwnership(');
+  expect(capture, greaterThanOrEqualTo(0), reason: path);
+
+  // Ownership must be captured BEFORE the first write: it records what was
+  // already on disk, and capturing it afterwards would make the import claim —
+  // and later delete — a pre-existing account's directories.
+  final firstMark = source.indexOf('markToxImportStage(');
+  expect(
+    firstMark,
+    greaterThan(capture),
+    reason:
+        '$path: ownership must be snapshotted before the first journal write, '
+        'or the rollback set includes state this import did not create',
+  );
+
+  // ...and the rollback must be armed only AFTER that write returns. Arming it
+  // first makes an ordinary I/O failure of the write run a rollback for an
+  // import that created nothing, deleting the password verifier and scoped
+  // preferences of the account already stored under this id.
+  final mark = source.indexOf('markToxImportStage(', capture);
+  final arm = source.indexOf(armMarker, capture);
+  expect(mark, greaterThan(capture), reason: path);
+  expect(arm, greaterThanOrEqualTo(0), reason: '$path: `$armMarker` not found');
+  expect(
+    arm,
+    greaterThan(mark),
+    reason:
+        '$path: `$armMarker` must come AFTER the profileWritten journal write. '
+        'Armed before it, a failed write takes the destructive rollback branch '
+        'and wipes an existing account\'s credentials.',
+  );
 }
 
 void main() {
@@ -148,13 +197,13 @@ void main() {
   tearDown(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureStorageChannel, null);
-    await ToxImportJournal.clear(toxId: _foreignToxId);
     ToxImportJournal.resetUnresolved();
     await env.dispose();
   });
 
   testWidgets(
-    'a refused import leaves the existing account password and prefs intact',
+    'an import whose journal write fails leaves the existing account password '
+    'and prefs intact',
     (tester) async {
       // Hoisted: seeded inside the first `runAsync`, asserted in a later one.
       var seededSecureKeys = <String>{};
@@ -176,20 +225,22 @@ void main() {
             .toSet();
         expect(seededSecureKeys, isNotEmpty);
 
-        // Another account's import is on record and has not been recovered, so
-        // the journal refuses to admit this one.
-        await markToxImportStage(
-          toxId: _foreignToxId,
-          stage: ToxImportStage.profileWritten,
-          expectsPassword: false,
-          ownership: const ImportedAccountOwnership.none(),
+        // Block the journal write with a directory at its exact path. The
+        // admission checks read it as absent (`File.exists()` is false for a
+        // directory), so the import reaches `writeBytesAtomically`, whose
+        // publishing rename then fails with EISDIR — an ordinary I/O error, not
+        // the refusal the failure handler special-cases.
+        final journalPath = p.join(
+          await AppPaths.applicationSupportPath,
+          _journalFileName,
         );
+        await Directory(journalPath).create(recursive: true);
       });
 
       var importCalls = 0;
       await _pumpSettings(
         tester,
-        pickImportFileFn: () async => '/tmp/settings_refused_admission.tox',
+        pickImportFileFn: () async => '/tmp/settings_failed_admission.tox',
         importAccountDataFn:
             ({required String filePath, String? password}) async {
               importCalls++;
@@ -208,10 +259,16 @@ void main() {
               required bool autoAcceptFriends,
               required bool notificationSoundEnabled,
             }) async {
-              fail('a refused import must not publish an account row');
+              fail(
+                'an import that never got past the journal write must not '
+                'publish an account row',
+              );
             },
         setImportedAccountPasswordFn: (String toxId, String password) async {
-          fail('a refused import must not rewrite the account password');
+          fail(
+            'an import that never got past the journal write must not rewrite '
+            'the account password',
+          );
         },
       );
 
@@ -219,24 +276,26 @@ void main() {
         await tester.tap(_importButton());
         await _pumpRealUntil(
           tester,
-          () => find.textContaining(_refusalText).evaluate().isNotEmpty,
+          () => find.textContaining(_failureText).evaluate().isNotEmpty,
         );
       });
 
       expect(importCalls, 1);
       expect(
-        find.textContaining(_refusalText),
+        find.textContaining(_failureText),
         findsOneWidget,
-        reason: 'the refusal is reported as "restart to finish undoing it", '
-            'not as a generic import failure',
+        reason:
+            'a failed journal write is reported as a generic import failure, '
+            'which is the branch that used to run the rollback',
       );
 
       await tester.runAsync(() async {
         expect(
           await Prefs.verifyAccountPassword(_existingToxId, _existingPassword),
           isTrue,
-          reason: 'the refused import wrote nothing, so it must not clear the '
-              'password verifier of the account already under this id',
+          reason:
+              'the import wrote nothing, so it must not clear the password '
+              'verifier of the account already under this id',
         );
         expect(
           await Prefs.hasAccountPassword(_existingToxId),
@@ -257,12 +316,14 @@ void main() {
         expect(
           await Prefs.getAutoLogin(_existingToxId),
           isFalse,
-          reason: 'the account-scoped preferences must survive a refused import',
+          reason:
+              'the account-scoped preferences must survive an import that '
+              'failed before its first durable write',
         );
         expect(
           await Prefs.exportScopedPrefsForAccount(_existingToxId),
           isNotEmpty,
-          reason: 'a refused import must not sweep the `_<first16>` scope',
+          reason: 'a failed journal write must not sweep the `_<first16>` scope',
         );
         expect(
           await Prefs.getAccountByToxId(kSettingsToxId),
@@ -274,17 +335,34 @@ void main() {
             await AppPaths.getProfileDirectoryForToxId(_existingToxId),
           ).exists(),
           isFalse,
-          reason: 'admission was refused before any profile was staged',
+          reason: 'the import failed before any profile was staged',
         );
-
-        // The refused import must not clear the OTHER import's record: that
-        // record is the only pointer to leftovers the next cold start has to
-        // roll back.
-        final surviving = await ToxImportJournal.read();
-        expect(surviving, isNotNull);
-        expect(surviving!.toxId, _foreignToxId);
-        expect(surviving.stage, ToxImportStage.profileWritten);
       });
+    },
+  );
+
+  // The same one-line ordering protects all three `.tox` entry points, but only
+  // Settings is reachable from a widget test; the two login paths would
+  // otherwise regress unobserved and destroy the same credentials.
+  test(
+    'every .tox entry point arms its rollback only after the journal write '
+    'succeeds',
+    () {
+      // Settings gates its rollback on the boolean, not on `rollbackToxId`
+      // (which the shared `.zip`/`.tox` prologue sets before the collision
+      // guard), so the boolean is the line that must stay below the write.
+      _expectRollbackArmedAfterJournalWrite(
+        'lib/ui/settings/settings_page_import.dart',
+        'rollbackImportedAccount = true',
+      );
+      _expectRollbackArmedAfterJournalWrite(
+        'lib/ui/login/login_page_controller.dart',
+        'rollbackToxId = toxId',
+      );
+      _expectRollbackArmedAfterJournalWrite(
+        'lib/ui/login/login_restore_from_tox.dart',
+        'rollbackToxId = toxId',
+      );
     },
   );
 }

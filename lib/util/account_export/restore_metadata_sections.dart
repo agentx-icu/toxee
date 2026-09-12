@@ -124,6 +124,7 @@ Future<bool> restorePriorFullIdPrefs(RestoreTransactionJournal journal) async {
   if (journal.priorBlackListCaptured) {
     await Prefs.setBlackList(journal.priorBlackList.toSet(), journal.toxId);
   }
+  var queueCleared = true;
   final priorQueue = journal.priorFailedQueue;
   if (journal.priorFailedQueueCaptured) {
     // CLEAR BOTH KEY SHAPES FIRST. The queue lives under a modern full-id key
@@ -133,14 +134,20 @@ Future<bool> restorePriorFullIdPrefs(RestoreTransactionJournal journal) async {
     // LEGACY queue in place - invisible to the read-back below, which checks the
     // modern key first and is satisfied - and the runtime later merged it, so
     // the rolled-back archive's messages came back alongside the originals.
-    await Prefs.clearFailedMessageQueue(journal.toxId);
+    // The RESULT matters. `clearFailedMessageQueue` reports whether every
+    // removal took, and it is the only signal that covers the LEGACY key shape:
+    // the read-back below goes through `exportFailedMessageQueue`, which returns
+    // the modern value without ever inspecting the legacy one. A legacy removal
+    // that silently failed therefore read back as success, the journal was
+    // cleared, and the runtime later merged the archive's messages back in.
+    queueCleared = await Prefs.clearFailedMessageQueue(journal.toxId);
     if (priorQueue != null && priorQueue.isNotEmpty) {
       await Prefs.importFailedMessageQueue(journal.toxId, priorQueue);
     }
   }
 
   await (await SharedPreferences.getInstance()).reload();
-  var ok = true;
+  var ok = queueCleared;
   if (journal.priorBlackListCaptured) {
     final now = await Prefs.getBlackList(journal.toxId);
     if (!const SetEquality<String>().equals(

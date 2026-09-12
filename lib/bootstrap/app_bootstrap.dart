@@ -30,6 +30,14 @@ class AppBootstrap {
 
   static Future<AppBootstrapResult> initialize() async {
     await LoggingBootstrap.initialize();
+    // BEFORE the preferences guard and the recovery phase, because it must not
+    // depend on either. A decrypted profile copy stranded by a kill is a
+    // plaintext private key; placed after them, a failed preferences upgrade
+    // (which returns early) or an unreadable journal (which raises the blocked
+    // screen) meant it survived every subsequent start. Nothing else removes it:
+    // account deletion does not know these directories exist, and discovery may
+    // never run again.
+    await _sweepStrandedScratchCopies();
     final prefsResult = await PrefsBootstrap.initialize();
     if (prefsResult != null) {
       return prefsResult;
@@ -123,6 +131,20 @@ class AppBootstrap {
     return const AppBootstrapSuccess();
   }
 
+  /// Never lets a cleanup failure stop the app: a stranded copy is a problem,
+  /// an app that will not start is a bigger one.
+  static Future<void> _sweepStrandedScratchCopies() async {
+    try {
+      await sweepPlaceholderDiscoveryScratch();
+    } catch (e, st) {
+      AppLogger.logError(
+        '[AppBootstrap] stranded scratch sweep failed; continuing',
+        e,
+        st,
+      );
+    }
+  }
+
   /// Best-effort cold-start cleanup. Storage maintenance must never prevent
   /// the login flow from starting.
   static Future<void> cleanupScratchAtColdStart({
@@ -154,10 +176,6 @@ class AppBootstrap {
           // which a kill does not run).
           await AccountExportService.recoverPendingFullBackupRestore();
           await ToxImportJournal.recoverPendingImport();
-          // A decrypted profile copy stranded by a kill is a plaintext private
-          // key that nothing else removes: account deletion does not know about
-          // these directories and discovery may never run again.
-          await sweepPlaceholderDiscoveryScratch();
         };
     final reconcile =
         reconcileAccounts ??

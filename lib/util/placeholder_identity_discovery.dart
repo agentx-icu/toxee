@@ -10,6 +10,7 @@ import '../adapters/logger_adapter.dart';
 import '../adapters/shared_prefs_adapter.dart';
 import 'account_export_service.dart';
 import 'app_paths.dart';
+import 'async_gate.dart';
 import 'logger.dart';
 import 'placeholder_account_migration.dart';
 import 'prefs.dart';
@@ -28,7 +29,25 @@ import 'prefs.dart';
 // unprotected — see the comment at the guard for why reading the id from the
 // bytes instead is NOT a safe substitute.
 
+/// Serializes discovery.
+///
+/// Not for throughput - for the sweep. [sweepPlaceholderDiscoveryScratch] cannot
+/// tell a stray copy from one a concurrent call is USING, and deleting a live
+/// one is not a lost temp file: a native init that finds no profile does not
+/// fail, it mints a FRESH identity, and the migration would then re-key the
+/// existing account's data to it. One discovery at a time, plus the active-set
+/// check in the sweep, is what makes "delete everything matching" safe.
+final AsyncGate _discoveryGate = AsyncGate();
+
+/// Scratch directories currently in use. The sweep skips these.
+final Set<String> _activeScratch = <String>{};
+
 Future<String?> discoverPlaceholderRealToxId([
+  String? authenticatedPassword,
+]) =>
+    _discoveryGate.run(() => _discoverUnguarded(authenticatedPassword));
+
+Future<String?> _discoverUnguarded([
   String? authenticatedPassword,
 ]) async {
   // FIRST, before any guard can return: a copy stranded by a previous kill is a
@@ -134,6 +153,7 @@ Future<String?> discoverPlaceholderRealToxId([
         ),
       );
       await scratch.create(recursive: true);
+      _activeScratch.add(scratch.path);
       final copy = AppPaths.profileFileInDirectory(scratch.path);
       await File(profileFile).copy(copy);
       await AccountExportService.decryptProfileFile(copy, password);
@@ -186,6 +206,8 @@ Future<void> sweepPlaceholderDiscoveryScratch() async {
     await for (final entry in root.list(followLinks: false)) {
       if (entry is! Directory) continue;
       if (!p.basename(entry.path).startsWith(_scratchDirPrefix)) continue;
+      // Never a copy a discovery is still reading from: see [_discoveryGate].
+      if (_activeScratch.contains(entry.path)) continue;
       await _deleteScratch(entry);
     }
   } catch (e, st) {
@@ -199,6 +221,7 @@ Future<void> sweepPlaceholderDiscoveryScratch() async {
 
 Future<void> _deleteScratch(Directory? scratch) async {
   if (scratch == null) return;
+  _activeScratch.remove(scratch.path);
   try {
     if (await scratch.exists()) await scratch.delete(recursive: true);
   } catch (e, st) {

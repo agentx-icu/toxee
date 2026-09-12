@@ -208,7 +208,15 @@ abstract final class RestoreTransactionJournalStore {
 
   static Future<void> _writeUnguarded(RestoreTransactionJournal journal) async {
     final existing = await _readUnguarded();
-    if (existing != null && !compareToxIds(existing.toxId, journal.toxId)) {
+    if (existing != null &&
+        (!compareToxIds(existing.toxId, journal.toxId) ||
+            existing.transactionId != journal.transactionId)) {
+      // Same account is NOT enough. A rollback that could not verify its
+      // preference writes keeps its journal so the next start retries; a RETRY
+      // of that same account carries a new transaction id, and admitting it
+      // overwrote the retained snapshot - the only surviving copy of the
+      // originals that rollback had just failed to put back. Advancing an
+      // existing transaction through its states keeps its id and is unaffected.
       throw const RestoreInFlightException();
     }
     final file = await _journalFile();
