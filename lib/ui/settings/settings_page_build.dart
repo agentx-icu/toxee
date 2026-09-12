@@ -397,6 +397,26 @@ extension _SettingsPageBuild on _SettingsPageState {
                         ),
                         onPressed: _importInProgress ? null : _importAccount,
                       ),
+                      // Desktop needs this too. The affordance first landed only
+                      // in the mobile account card, which left the
+                      // encrypted-legacy recovery path unreachable on the
+                      // platform where day-to-day development (and most
+                      // upgrades-in-place) happen.
+                      if (_hasUnclaimedLegacyData)
+                        OutlinedButton.icon(
+                          key: const Key(
+                            'settings_recover_legacy_data_button_desktop',
+                          ),
+                          icon: const Icon(Icons.restore, size: 18),
+                          label: Text(
+                            AppLocalizations.of(
+                              context,
+                            )!.recoverLegacyDataAction,
+                          ),
+                          onPressed: _legacyRecoveryInProgress
+                              ? null
+                              : _recoverLegacyData,
+                        ),
                     ],
                   ),
                   if (FeatureFlags.enableQRPairing) ...[

@@ -87,17 +87,11 @@ class StartupSessionUseCase {
       // session paths. Idempotent and safe to call when nothing needs
       // migrating (returns null and exits in microseconds).
       //
-      // TODO(codex-review-3): this trigger only fires in the auto-login path
-      // and only after the `nickname/autoLogin` early returns above. The
-      // manual login path in `LoginUseCase` never invokes the migration, so
-      // a user whose account is encrypted and who toggles off auto-login can
-      // stay stuck under the `FlutterUIKitClient` namespace indefinitely.
-      // Also, the migration's `_discoverRealToxId()` opens a discovery
-      // FfiChatService without a password, which can't unlock encrypted
-      // profile blobs. Long-term fix: thread the live `FfiChatService`'s
-      // already-resolved `getSelfToxId()` into the migration so encrypted
-      // profiles migrate post-login instead of via a separate probe. See
-      // `LoginUseCase` for the matching stub.
+      // Unauthenticated, so it migrates only an UNPROTECTED placeholder
+      // account. A protected one cannot auto-login at all (the gate below), and
+      // is migrated by `LoginUseCase` once the user's password has been
+      // verified — that is the authenticated continuation of the refusal in
+      // `placeholder_identity_discovery.dart`.
       await PlaceholderAccountMigration.migrateIfNeeded();
 
       Map<String, String>? account;
@@ -173,6 +167,29 @@ class StartupSessionUseCase {
           startPolling: false,
         );
       } else {
+        // LEGACY FALLBACK — no account row carries a toxId, so this opens the
+        // default profile to learn its identity. Gate it: the identity is
+        // unknown until after `login()`, so the only protection state we can
+        // consult beforehand is the profile's own encryption, and an encrypted
+        // one cannot be opened without a password anyway. Routing to the login
+        // page keeps this path from being the one place auto-login still opens
+        // an account it has not authenticated.
+        try {
+          final legacyProfile = await AppPaths.resolveToxProfilePath(
+            await Prefs.getCurrentAccountToxId() ?? '',
+          );
+          if (legacyProfile != null &&
+              await AccountExportService.isProfileFileEncrypted(legacyProfile)) {
+            return const StartupShowLogin();
+          }
+        } catch (probeError) {
+          SafeDiagnostics.logFailure(
+            '[StartupSessionUseCase] legacy profile probe failed; routing to '
+            'login (fail-closed)',
+            probeError,
+          );
+          return const StartupShowLogin();
+        }
         activation = await AccountActivationTransaction.begin();
         final prefs = await SharedPreferences.getInstance();
         // CR-10: mirror LoginUseCase's legacy branch — construct the adapter

@@ -9,6 +9,7 @@ import '../app_paths.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
+import 'restore_metadata_sections.dart';
 import 'restore_transaction_journal.dart';
 
 // The durable journal (model + on-disk store) lives in its own file; re-exported
@@ -139,7 +140,10 @@ abstract final class FullBackupRestoreTransaction {
     await recoverPendingRestore();
     final paths = await _RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
-    final scopedPrefs = _portableScopedPrefs(input.metadata, paths);
+    final scopedPrefs = portableScopedPrefs(
+      input.metadata,
+      paths.accountDataFinalDir,
+    );
     await _preflight(input.toxId, paths);
 
     var journal = RestoreTransactionJournal(
@@ -152,6 +156,10 @@ abstract final class FullBackupRestoreTransaction {
       accountDataFinalDir: paths.accountDataFinalDir,
       hasProfile: input.toxProfile != null,
     );
+    // Captured BEFORE anything is written: the restore overwrites both families
+    // during metadata application, so this snapshot is the only copy of what was
+    // there. See the field docs on the journal.
+    journal = await captureFullIdPrefs(journal);
     await RestoreTransactionJournalStore.write(journal);
 
     try {
@@ -195,7 +203,8 @@ abstract final class FullBackupRestoreTransaction {
       // scoped by the full Tox ID, which the `_<first16>` suffix export/import
       // does not see. Restoring it here (inside the journalled window) means a
       // rollback takes it with everything else.
-      await _restoreBlockedPeers(input);
+      await restoreBlockedPeers(input.toxId, input.metadata);
+      await restoreFailedMessageQueue(input.toxId, input.metadata);
       journal = journal.copyWith(
         state: RestoreTransactionState.scopedPrefsApplied,
       );
@@ -332,34 +341,6 @@ abstract final class FullBackupRestoreTransaction {
     }
   }
 
-  static Map<String, dynamic> _portableScopedPrefs(
-    Map<String, dynamic> metadata,
-    _RestorePaths paths,
-  ) {
-    final raw = metadata['scopedPrefs'];
-    if (raw is! Map) return <String, dynamic>{};
-    final scopedPrefs = Map<String, dynamic>.from(raw);
-    for (final key in scopedPrefs.keys.toList()) {
-      final value = scopedPrefs[key];
-      if (key.contains('avatar_path') && value is String) {
-        if (value.startsWith('@account_data/')) {
-          final relativePath = value.substring('@account_data/'.length);
-          try {
-            scopedPrefs[key] = safeBackupRestorePath(
-              baseDir: paths.accountDataFinalDir,
-              relativePath: relativePath,
-            );
-          } catch (_) {
-            scopedPrefs.remove(key);
-          }
-        } else {
-          scopedPrefs.remove(key);
-        }
-      }
-    }
-    return scopedPrefs;
-  }
-
   static void _validateArchivePaths(Archive archive, _RestorePaths paths) {
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
@@ -414,21 +395,6 @@ abstract final class FullBackupRestoreTransaction {
     return Directory(journal.accountDataFinalDir).exists();
   }
 
-  /// Restore the blocked-peer list from the backup metadata.
-  ///
-  /// Best-effort: a malformed `blockedPeers` section must not abort an otherwise
-  /// good restore, and an absent one is the normal case for older backups (and
-  /// for an account that blocked nobody).
-  static Future<void> _restoreBlockedPeers(
-    FullBackupRestoreInput input,
-  ) async {
-    final raw = input.metadata['blockedPeers'];
-    if (raw is! List || raw.isEmpty) return;
-    final peers = raw.whereType<String>().where((e) => e.isNotEmpty).toSet();
-    if (peers.isEmpty) return;
-    await Prefs.setBlackList(peers, input.toxId);
-  }
-
   static Future<void> _rollback(RestoreTransactionJournal journal) async {
     await _deleteDirectory(journal.profileStageDir);
     await _deleteDirectory(journal.accountDataStageDir);
@@ -439,9 +405,42 @@ abstract final class FullBackupRestoreTransaction {
     // `clearScopedKeysForAccount` (which matches the `_<first16>` suffix) does
     // not reach it. Without this, a rolled-back restore left the block list of
     // an account that no longer exists.
-    await Prefs.setBlackList(const <String>{}, journal.toxId);
+    // ... and the failed-message queue, written under a FULL-id key by
+    // `restoreFailedMessageQueue`, which that sweep cannot reach either. Both
+    // are put back to their PRE-TRANSACTION values rather than cleared: they
+    // outlive an account whose row and directories are gone (a shape
+    // `_preflight` accepts) and the restore overwrites them on the way in, so
+    // clearing deleted a block list and pending messages the restore never
+    // created. Restoring an empty snapshot still leaves nothing behind for the
+    // next importer, which is the invariant the clearing was there for.
+    final prefsRestored = await restorePriorFullIdPrefs(journal);
     await Prefs.removeAccount(journal.toxId);
-    await RestoreTransactionJournalStore.clear();
+    // Only once the restore is known to have landed. Clearing on a failed write
+    // discards the journal's snapshot, which is the only copy of the values it
+    // just failed to put back.
+    if (prefsRestored) await RestoreTransactionJournalStore.clear();
+  }
+
+  /// Drop a pending restore journal that names [toxId] because the account is
+  /// being DELETED.
+  ///
+  /// Not a rollback: a rollback would put the snapshotted block list and
+  /// failed-message queue BACK, and doing that after a deletion resurrects the
+  /// data the user just asked to be erased. (A finalize that failed can leave a
+  /// journal alongside a published row, so the account is deletable with the
+  /// journal still on disk, and the next startup would then act on it.) The
+  /// staging directories are removed because nothing else knows about them; the
+  /// final directories belong to the account and the deletion flow erases those.
+  static Future<void> discardForDeletedAccount(String toxId) async {
+    final journal = await RestoreTransactionJournalStore.read();
+    if (journal == null || !compareToxIds(journal.toxId, toxId)) return;
+    await _deleteDirectory(journal.profileStageDir);
+    await _deleteDirectory(journal.accountDataStageDir);
+    // Ownership is re-checked inside the clear. Reading, deciding and deleting
+    // are three steps, and a restore for ANOTHER account can publish its journal
+    // in between - after which an unchecked clear would delete that restore's
+    // only recovery record instead of the one this deletion looked at.
+    await RestoreTransactionJournalStore.clearIfOwnedBy(toxId);
   }
 
   static Future<void> _deleteDirectory(String path) async {

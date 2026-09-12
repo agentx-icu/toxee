@@ -16,6 +16,9 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import 'account_export_flow.dart';
 import '../../util/imported_account_name.dart';
+import '../../util/account_export/tox_import_journal.dart';
+import '../../util/legacy_account_data_claim.dart';
+import '../widgets/app_snackbar.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
@@ -46,6 +49,8 @@ import '../pairing/pairing_host_page.dart';
 
 part 'settings_page_widgets.dart';
 part 'settings_page_mobile_widgets.dart';
+part 'settings_page_session_actions.dart';
+part 'settings_page_import.dart';
 part 'settings_page_build.dart';
 
 /// Test seam for the logout teardown step. Production binds this to
@@ -217,6 +222,10 @@ class _SettingsPageState extends State<SettingsPage> {
   late final SettingsSwitchAccountFn _switchAccountFn;
   late final SettingsPickImportFileFn _pickImportFileFn;
   late final SettingsImportAccountDataFn _importAccountDataFn;
+  /// Whether unclaimed pre-multi-account data is on disk. Drives the
+  /// recovery affordance; see [_recoverLegacyData].
+  bool _hasUnclaimedLegacyData = false;
+  bool _legacyRecoveryInProgress = false;
   late final EncryptProfileFileFn _encryptProfileFileFn;
   late final SettingsAddImportedAccountFn _addImportedAccountFn;
   late final SettingsSetImportedAccountPasswordFn _setImportedAccountPasswordFn;
@@ -257,6 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadCurrentNickname();
     _loadAvatarPath();
     _loadAccountList();
+    unawaited(_refreshUnclaimedLegacyData());
     _startLastLoginTimeUpdateTimer();
     _avatarUpdatedSubscription = widget.service.avatarUpdated.listen((
       updatedUserId,
@@ -774,264 +784,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _importAccount() async {
-    if (_importInProgress) return;
-    setState(() => _importInProgress = true);
-    String? rollbackToxId;
-    var rollbackFullBackup = false;
-    var rollbackImportedAccount = false;
-    // What this import creates on disk. The rollback may only delete that; the
-    // target directories are keyed by the account's 16-char prefix, so one can
-    // already hold a previous account's data. See ImportedAccountRollback.
-    var ownership = const ImportedAccountOwnership.none();
-    final l10n = AppLocalizations.of(context)!;
-    try {
-      // Show file picker for .tox and .zip files
-      final filePath = await _pickImportFileFn();
-      if (filePath == null) return;
-      final isZip = filePath.toLowerCase().endsWith('.zip');
-
-      // No pre-read here on purpose. This used to slurp the ENTIRE picked file
-      // into memory to test `length >= 80` and then do nothing with it — a
-      // hundreds-of-megabytes allocation for a full-backup .zip, on the UI
-      // isolate, discarded immediately. The importers below already detect
-      // encryption themselves and raise PasswordRequiredException, which is
-      // what actually drives the password prompt.
-      String? password;
-
-      // Import account data (will check encryption and prompt for password if needed)
-      Map<String, dynamic> accountData;
-
-      if (isZip) {
-        // ZIP: check account collision before any disk writes (importFullBackup writes profile/history/avatars/prefs).
-        Map<String, String> metadata;
-        try {
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
-          if (password == null || !mounted) return;
-          if (password.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(l10n.invalidPassword),
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
-            );
-            return;
-          }
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
-        }
-        final metaToxId = metadata['toxId']!;
-        final existingAccount = await Prefs.getAccountByToxId(metaToxId);
-        final profileDir = await AppPaths.getProfileDirectoryForToxId(
-          metaToxId,
-        );
-        final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-        if (existingAccount != null || await File(profileFilePath).exists()) {
-          await _showAccountAlreadyExistsDialog(l10n);
-          return;
-        }
-        // Arm the rollback only now that the guards have passed. Arming it
-        // before them meant an exception thrown DURING those checks ran
-        // `rollbackPendingFullBackupRestore`, which — if an unfinished restore
-        // journal for this same account was on disk — deleted its committed
-        // profile and account-data directories. Matches the ordering in
-        // LoginPageController.importAccount.
-        rollbackToxId = metaToxId;
-        rollbackFullBackup = true;
-        accountData = await AccountExportService.importFullBackup(
-          filePath: filePath,
-          password: password,
-        );
-      } else {
-        try {
-          accountData = await _importAccountDataFn(
-            filePath: filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
-          if (password == null || !mounted) return;
-          try {
-            accountData = await _importAccountDataFn(
-              filePath: filePath,
-              password: password,
-            );
-          } catch (e) {
-            SafeDiagnostics.logFailure(
-              '[SettingsPage] Import password rejected',
-              e,
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(l10n.invalidPassword),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-              );
-            }
-            return;
-          }
-        }
-      }
-
-      final toxId = accountData['toxId'] as String;
-      rollbackToxId = toxId;
-      final toxProfile = accountData['toxProfile'] as Uint8List?;
-      final importedNickname = (accountData['nickname'] as String?) ?? '';
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-
-      // Collision check for .tox path only (ZIP already checked above)
-      if (!isZip) {
-        final existingAccount = await Prefs.getAccountByToxId(toxId);
-        if (existingAccount != null || await File(profileFilePath).exists()) {
-          await _showAccountAlreadyExistsDialog(l10n);
-          return;
-        }
-      }
-
-      // For .tox imports, write profile; .zip imports already wrote it in importFullBackup
-      if (!isZip && toxProfile != null) {
-        rollbackImportedAccount = true;
-        ownership = await ImportedAccountRollback.captureOwnership(toxId);
-        final parentDir = Directory(profileDir);
-        if (!await parentDir.exists()) {
-          await parentDir.create(recursive: true);
-        }
-        final toxProfileFile = File(profileFilePath);
-        await toxProfileFile.writeAsBytes(toxProfile);
-        if (password != null && password.isNotEmpty) {
-          final encrypted = await _encryptProfileFileFn(
-            profileFilePath,
-            password,
-          );
-          if (!encrypted) {
-            throw StateError('Failed to encrypt imported account profile');
-          }
-        }
-      }
-
-      // Add/update account (.zip may contain nickname, .tox does not)
-      // Uniquified: a `.tox` file carries no nickname, so every such import
-      // wants the same constant and the second one used to fail inside
-      // addAccount. See ImportedAccountName.
-      final displayNickname = await ImportedAccountName.allocate(
-        preferred: importedNickname.isNotEmpty
-            ? importedNickname
-            : l10n.importedAccount,
-        toxId: toxId,
-      );
-      if (!isZip) rollbackImportedAccount = true;
-      await _addImportedAccountFn(
-        toxId: toxId,
-        nickname: displayNickname,
-        // Carried from a `.zip` backup's metadata when present; a `.tox` file
-        // genuinely has no status message. Restore used to always pass '',
-        // which the next login then pushed to Tox, erasing what the backup had
-        // preserved.
-        statusMessage: (accountData['statusMessage'] as String?) ?? '',
-        autoLogin: false,
-        autoAcceptFriends: false,
-        notificationSoundEnabled: true,
-      );
-      if (isZip) {
-        await AccountExportService.finalizeFullBackupImport(toxId: toxId);
-      }
-      // After the finalize so a restored self avatar is adopted, not
-      // shadowed by a fresh default (see LoginPageController).
-      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
-
-      // Only .tox import passwords are account passwords. Full-backup .zip
-      // passwords decrypt the archive and must not silently become the
-      // restored account's login password.
-      if (!isZip && password != null && password.isNotEmpty) {
-        final persisted = await _setImportedAccountPasswordFn(toxId, password);
-        if (!persisted) {
-          throw StateError('Failed to persist imported account password');
-        }
-      }
-
-      // Reload account list
-      await _loadAccountList();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.accountImportedSuccessfully),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-          ),
-        );
-      }
-    } on InvalidBackupPasswordException catch (e) {
-      SafeDiagnostics.logFailure(
-        '[SettingsPage] Full-backup password rejected',
-        e,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.invalidPassword),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    } catch (e) {
-      if (rollbackToxId != null &&
-          (rollbackFullBackup || rollbackImportedAccount)) {
-        try {
-          if (rollbackFullBackup) {
-            await AccountExportService.rollbackPendingFullBackupRestore(
-              toxId: rollbackToxId,
-            );
-          } else {
-            await ImportedAccountRollback.run(
-              toxId: rollbackToxId,
-              logContext: 'SettingsPage',
-              ownership: ownership,
-            );
-          }
-        } catch (rollbackError) {
-          SafeDiagnostics.logFailure(
-            '[SettingsPage] Import rollback failed',
-            rollbackError,
-          );
-        }
-      }
-      SafeDiagnostics.logFailure('[SettingsPage] Import account failed', e);
-      if (mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(l10n.importAccount),
-            content: Text(
-              l10n.failedToImportAccount(SafeDiagnostics.describeError(e)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => popDialogIfCurrent(context),
-                child: Text(l10n.ok),
-              ),
-            ],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _importInProgress = false);
-      } else {
-        _importInProgress = false;
-      }
-    }
-  }
 
   Future<void> _setAccountPassword() async {
     final toxId = widget.service.accountKey;
@@ -1323,51 +1075,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _logout() async {
-    final homeRoute = ModalRoute.of(context);
-    final navigator = Navigator.of(context, rootNavigator: true);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.logOut),
-        content: Text(AppLocalizations.of(context)!.logOutConfirm),
-        actions: [
-          TextButton(
-            key: UiKeys.settingsLogoutCancelButton,
-            onPressed: () => popDialogIfCurrent(context, false),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            key: UiKeys.settingsLogoutConfirmButton,
-            onPressed: () => popDialogIfCurrent(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: Text(AppLocalizations.of(context)!.logOut),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      unawaited(HapticFeedback.heavyImpact());
-      if (homeRoute != null) {
-        navigator.popUntil(
-          (route) => route.isFirst || identical(route, homeRoute),
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-      }
-      await _teardownSession(service: widget.service);
-      await Prefs.setCurrentAccountToxId(null);
-
-      if (!mounted) return;
-      await navigator.pushAndRemoveUntil(
-        AppPageRoute<void>(page: const LoginPage()),
-        (route) => false,
-      );
-    }
-  }
-
   /// Used by settings_page_build.dart extension to call setState (avoids invalid_use_of_protected_member).
   void _settingsSetState(VoidCallback fn) {
     setState(fn);
@@ -1536,63 +1243,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildMobileAccountManagementCard(
-    BuildContext context,
-    dynamic colorTheme,
-  ) {
-    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
-    return Card(
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: outlineVariant),
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SectionHeader(
-              title: AppLocalizations.of(context)!.accountManagement,
-            ),
-            AppSpacing.verticalMd,
-            _buildAccountActionButtons(context),
-            AppSpacing.verticalLg,
-            Divider(height: 1, color: outlineVariant),
-            AppSpacing.verticalMd,
-            ..._accountList.map((account) {
-              final accountToxId = account['toxId'] ?? '';
-              final currentId =
-                  _currentAccountToxId ?? widget.service.accountKey;
-              final isCurrentAccount = compareToxIds(accountToxId, currentId);
-              return _AccountCardItem(
-                account: account,
-                isCurrentAccount: isCurrentAccount,
-                colorTheme: colorTheme,
-                onSwitch: () => _switchAccount(account),
-                currentChip: Chip(
-                  label: Text(AppLocalizations.of(context)!.current),
-                  backgroundColor: colorTheme.primaryColor,
-                  labelStyle: TextStyle(color: colorTheme.onPrimary),
-                ),
-                subtitle: Text(
-                  '${AppLocalizations.of(context)!.lastLogin}: ${_formatLastLoginTime(account['lastLoginTime'], context)}',
-                ),
-              );
-            }),
-            AppSpacing.verticalMd,
-            OutlinedButton.icon(
-              icon: const Icon(Icons.download, size: 18),
-              label: Text(AppLocalizations.of(context)!.importAccount),
-              onPressed: _importInProgress ? null : _importAccount,
-            ),
-          ],
-        ),
-      ),
     );
   }
 

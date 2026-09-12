@@ -26,7 +26,7 @@
 //     AFTER PlaceholderAccountMigration.migrateIfNeeded() (line 71).
 //     migrateIfNeeded() CAN spin up a short-lived discovery FfiChatService
 //     and call init()/login() (placeholder_account_migration.dart
-//     _discoverRealToxId, ~line 119) — but ONLY when there is a
+//     discoverPlaceholderRealToxId) — but ONLY when there is a
 //     placeholder-keyed account ('FlutterUIKitClient') to migrate. When no
 //     such account exists it returns null in microseconds without opening
 //     FFI (migrateIfNeeded early-return at lines 58-60). In the ambiguous

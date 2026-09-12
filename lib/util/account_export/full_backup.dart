@@ -242,12 +242,18 @@ Future<String> exportFullBackup({
     // Also include account info. `formatVersion` lets a future schema bump
     // detect and refuse incompatible backups instead of silently importing
     // mis-shaped scoped prefs.
-    // The blocked-peer list is keyed by the FULL Tox ID (`black_list_<toxId>`),
-    // not by the `_<first16>` suffix `exportScopedPrefsForAccount` sweeps, so it
-    // was silently absent from every backup and a restore quietly unblocked
-    // everyone. Carry it explicitly.
+    // Two key families are scoped by the FULL Tox ID rather than the
+    // `_<first16>` suffix `exportScopedPrefsForAccount` sweeps, so both were
+    // silently absent from every backup. Carry them explicitly.
+    //
+    //  * the blocked-peer list — a restore quietly unblocked everyone;
+    //  * the failed-message queue — messages the user believes are still
+    //    pending a resend, which a restore silently dropped.
     final blockedPeers = (await Prefs.getBlackList(normalizedToxId)).toList()
       ..sort();
+    final failedMessages = await Prefs.exportFailedMessageQueue(
+      normalizedToxId,
+    );
 
     final metadata = <String, dynamic>{
       'formatVersion': _kBackupFormatVersion,
@@ -257,6 +263,12 @@ Future<String> exportFullBackup({
       'exportDate': DateTime.now().toIso8601String(),
       'scopedPrefs': scopedPrefs,
       if (blockedPeers.isNotEmpty) 'blockedPeers': blockedPeers,
+      if (failedMessages != null) 'failedMessageQueue': failedMessages,
+      // Disclose what a full backup does NOT carry, so a restore that comes up
+      // short is explainable rather than mysterious. Received attachments are
+      // referenced by chat history but stored outside the account data this
+      // archive walks, so history entries can restore with their media missing.
+      'notIncluded': const <String>['receivedAttachments'],
     };
     final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
     final metadataBytes = utf8.encode(metadataJson);

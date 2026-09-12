@@ -101,10 +101,13 @@ class ShortToxIdBackfill {
     //    toxId would create a duplicate row — we need an in-place rewrite, so go
     //    through getAccountList / setAccountList directly.
     try {
-      final accounts = await Prefs.getAccountList();
-      final shortIdx =
-          accounts.indexWhere((a) => (a['toxId'] ?? '') == persistedToxId);
-      if (shortIdx >= 0) {
+      // `mutateAccountList` holds the registry gate across the read AND the
+      // write. Doing our own getAccountList/setAccountList pair could lose a
+      // concurrent import or removal that landed in between.
+      await Prefs.mutateAccountList((accounts) {
+        final shortIdx =
+            accounts.indexWhere((a) => (a['toxId'] ?? '') == persistedToxId);
+        if (shortIdx < 0) return;
         final existingLongIdx =
             accounts.indexWhere((a) => (a['toxId'] ?? '') == full);
         if (existingLongIdx >= 0 && existingLongIdx != shortIdx) {
@@ -118,8 +121,7 @@ class ShortToxIdBackfill {
         } else {
           accounts[shortIdx]['toxId'] = full;
         }
-        await Prefs.setAccountList(accounts);
-      }
+      });
     } catch (e, st) {
       // Nothing has moved yet, so this is a clean abort.
       AppLogger.logError(

@@ -4,10 +4,8 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
-import '../adapters/bootstrap_adapter.dart';
-import '../adapters/logger_adapter.dart';
-import '../adapters/shared_prefs_adapter.dart';
 import 'app_paths.dart';
+import 'placeholder_identity_discovery.dart';
 import 'logger.dart';
 import 'prefs.dart';
 import 'prefs/scoped_key.dart';
@@ -41,7 +39,9 @@ class PlaceholderAccountMigration {
   /// SharedPreferences keys (see `lib/util/prefs/scoped_key.dart`) and the
   /// directory-name prefix used by `AppPaths` for `account_data/` and
   /// profile dirs (see `lib/util/app_paths.dart:_accountPrefix`).
-  static String get _placeholderPrefix => placeholderToxId.length >= 16
+  /// Public so `placeholder_identity_discovery.dart` can scope the same
+  /// account-prefixed paths this class uses.
+  static String get placeholderPrefix => placeholderToxId.length >= 16
       ? placeholderToxId.substring(0, 16)
       : placeholderToxId;
 
@@ -49,7 +49,9 @@ class PlaceholderAccountMigration {
   /// Returns the real Tox ID when migration succeeded (or wasn't needed but
   /// a real ID is now in Prefs); null when no real ID could be discovered,
   /// nothing needed migrating, or the migration aborted with a rollback.
-  static Future<String?> migrateIfNeeded() async {
+  /// [authenticatedPassword] turns the "deferred to an authenticated login"
+  /// refusal in `placeholder_identity_discovery.dart` into a real continuation.
+  static Future<String?> migrateIfNeeded({String? authenticatedPassword}) async {
     final pointer = await Prefs.getCurrentAccountToxId();
     final accounts = await Prefs.getAccountList();
     final placeholderIdx =
@@ -64,7 +66,7 @@ class PlaceholderAccountMigration {
         'state (pointer=$pointerIsPlaceholder, listIdx=$placeholderIdx); '
         'discovering real Tox ID…');
 
-    final realToxId = await _discoverRealToxId();
+    final realToxId = await discoverPlaceholderRealToxId(authenticatedPassword);
     if (realToxId == null || realToxId.isEmpty) {
       AppLogger.warn(
           '[PlaceholderAccountMigration] Failed to discover real Tox ID; '
@@ -89,7 +91,7 @@ class PlaceholderAccountMigration {
     // would only happen if the placeholder string somehow shared a 16-char
     // prefix with a hex Tox ID — impossible because the placeholder starts
     // with 'F' followed by 'l', non-hex). Bail defensively.
-    if (realPrefix == _placeholderPrefix) {
+    if (realPrefix == placeholderPrefix) {
       AppLogger.warn('[PlaceholderAccountMigration] Real prefix matches '
           'placeholder prefix; aborting to avoid rename-to-self');
       return null;
@@ -117,68 +119,10 @@ class PlaceholderAccountMigration {
   /// address, then tear the service back down. The session-side service
   /// (created later by the normal startup path) will be re-instantiated
   /// against the migrated paths.
-  static Future<String?> _discoverRealToxId() async {
-    final prefs = await SharedPreferences.getInstance();
-    final accountPrefix = _placeholderPrefix;
-
-    final historyDir =
-        await AppPaths.getAccountChatHistoryPath(placeholderToxId);
-    final queuePath =
-        await AppPaths.getAccountOfflineQueueFilePath(placeholderToxId);
-    final fileRecvPath =
-        await AppPaths.getAccountFileRecvPath(placeholderToxId);
-    final avatarsPath = await AppPaths.getAccountAvatarsPath(placeholderToxId);
-    final profileDir =
-        await AppPaths.getProfileDirectoryForToxId(placeholderToxId);
-    final profileFile = AppPaths.profileFileInDirectory(profileDir);
-
-    if (!await File(profileFile).exists()) {
-      AppLogger.warn(
-          '[PlaceholderAccountMigration] Profile blob missing at $profileFile; '
-          'cannot discover real Tox ID');
-      return null;
-    }
-
-    await Directory(historyDir).create(recursive: true);
-    await Directory(avatarsPath).create(recursive: true);
-
-    FfiChatService? service;
-    try {
-      service = FfiChatService(
-        preferencesService:
-            SharedPreferencesAdapter(prefs, accountPrefix: accountPrefix),
-        loggerService: AppLoggerAdapter(),
-        bootstrapService: BootstrapNodesAdapter(prefs),
-        historyDirectory: historyDir,
-        queueFilePath: queuePath,
-        fileRecvPath: fileRecvPath,
-        avatarsPath: avatarsPath,
-      );
-      await service.init(profileDirectory: profileDir);
-      await service.login(
-          userId: placeholderToxId, userSig: 'dummy_sig');
-      return service.getSelfToxId();
-    } catch (e, st) {
-      AppLogger.logError(
-          '[PlaceholderAccountMigration] Discovery service init failed', e, st);
-      return null;
-    } finally {
-      try {
-        await service?.dispose();
-      } catch (e, st) {
-        AppLogger.logError(
-            '[PlaceholderAccountMigration] Failed to dispose discovery service '
-            '(non-fatal)',
-            e,
-            st);
-      }
-    }
-  }
-
-  /// Apply every step of the migration with a per-step rollback stack. The
-  /// first step that fails or precondition-rejects unwinds everything done
-  /// so far. Returns true only when every step succeeded and the durable
-  /// state (account list + pointer) was committed.
+  /// Resolve the placeholder account's real Tox ID.
+  ///
+  /// Implementation in `placeholder_identity_discovery.dart`, which also carries
+  /// the reason this does NOT simply open a session any more.
   static Future<bool> _runTransactionally({
     required String realToxId,
     required String realPrefix,
@@ -234,7 +178,7 @@ class PlaceholderAccountMigration {
       // every write + restore every delete.
       final scopedMoved = await _migrateScopedPrefs(
         prefs: prefs,
-        oldPrefix: _placeholderPrefix,
+        oldPrefix: placeholderPrefix,
         newPrefix: realPrefix,
       );
       if (scopedMoved == null) {
@@ -295,7 +239,7 @@ class PlaceholderAccountMigration {
 
       // Step 3c: blacklist. `black_list_<toxId>` is scoped by the FULL id (see
       // `Prefs._blackListKey` / `SharedPreferencesAdapter._blackListKey`), NOT
-      // by the 16-char prefix, so Step 3's `endsWith('_$_placeholderPrefix')`
+      // by the 16-char prefix, so Step 3's `endsWith('_$placeholderPrefix')`
       // scan does not see it and the list would be stranded once the account
       // is re-keyed to its real Tox ID. Previously that went unnoticed because
       // tim2tox ALSO read the list under the placeholder (it passed the login

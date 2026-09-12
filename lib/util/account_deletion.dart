@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'account_deletion_journal.dart';
+import 'account_export/restore_transaction.dart';
 export 'account_deletion_journal.dart';
 
 import 'app_paths.dart';
@@ -88,6 +89,13 @@ abstract final class AccountDeletionCoordinator {
         return _pending(toxId, stage, e, st, tombstone);
       }
     }
+
+    // A pending full-backup restore for THIS account is stale the moment the
+    // user deletes it, and leaving it would let the next startup roll it back -
+    // which restores the block list and failed-message queue it snapshotted,
+    // i.e. resurrects data this deletion is about to erase. Discarded before any
+    // stage runs, and idempotent, so a resumed deletion cannot skip it.
+    await FullBackupRestoreTransaction.discardForDeletedAccount(toxId);
 
     final serviceResult = await runStage(
       AccountDeletionStage.serviceData,

@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'logger.dart';
 import 'tox_utils.dart';
 import '../models/account_summary.dart';
+import 'async_gate.dart';
 import 'auto_download_policy.dart';
 import 'prefs/draft_prefs.dart';
 import 'prefs/password_verifier.dart';
@@ -28,6 +29,8 @@ part 'prefs/account_prefs.dart';
 part 'prefs/chat_prefs.dart';
 part 'prefs/password_key_migration.dart';
 part 'prefs/account_secure_secrets.dart';
+part 'prefs/account_registry.dart';
+part 'prefs/failed_message_queue.dart';
 
 /// Static facade for app preferences. New code should prefer repository instances
 /// ([PrefsImpl] or [prefs_interfaces.dart] interfaces) for testability and bounded context.
@@ -1616,6 +1619,49 @@ class Prefs {
     await Future.wait(keysToRemove.map((key) => p.remove(key)));
   }
 
+  /// The account's pending failed-message queue as a portable string, or null.
+  /// Implementation in `prefs/failed_message_queue.dart`.
+  static Future<String?> exportFailedMessageQueue(String toxId) =>
+      exportFailedMessageQueueImpl(toxId);
+
+  /// Restore a queue captured by [exportFailedMessageQueue].
+  static Future<void> importFailedMessageQueue(String toxId, String payload) =>
+      importFailedMessageQueueImpl(toxId, payload);
+
+  /// Remove the queue in every shape; returns whether every removal took.
+  static Future<bool> clearFailedMessageQueue(String toxId) =>
+      clearFailedMessageQueueImpl(toxId);
+
+  /// Whether [toxId]'s registry row is gone ON DISK.
+  ///
+  /// Reloads the backing store first. `SharedPreferences` updates its own cache
+  /// before the platform write completes, and the registry write discards the
+  /// returned bool, so a REFUSED removal reads back as "gone" from the cache —
+  /// which would let a rollback verification pass over a row that is still
+  /// there. Anything establishing that cleanup actually happened must use this.
+  static Future<bool> accountRowGoneOnDisk(String toxId) async {
+    final p = await _getPrefs();
+    try {
+      await p.reload();
+    } catch (_) {
+      // Cannot confirm; report NOT gone so the caller keeps its journal.
+      return false;
+    }
+    _cachedCurrentAccountToxId = null;
+    _accountToxIdCached = false;
+    try {
+      return await getAccountByToxId(toxId) == null;
+    } on AccountRegistryUnreadableException {
+      // An unreadable registry is not evidence the row is gone.
+      return false;
+    }
+  }
+
+  /// Remove the account's failed-message queue in every shape it can be stored
+  /// in (modern full-id key and the legacy 16-char one).
+  ///
+  /// Needed by full-backup rollback: the modern key is full-id scoped, so the
+  /// `_<first16>` sweeps cannot see it.
   static String? _legacyFailedMessagesKeyForToxId(String toxId) {
     if (toxId.length < 16) return null;
     return '${_kFailedMessagesBase}_${toxId.substring(0, 16)}';
@@ -1915,6 +1961,10 @@ class Prefs {
     return raw.map(AccountSummary.fromMap).toList(growable: false);
   }
 
+  /// Forget any queued registry mutation. Tests only - see [AsyncGate.reset].
+  @visibleForTesting
+  static void resetRegistryGate() => _accountRegistryGate.reset();
+
   /// Replace the account registry.
   ///
   /// REFUSES to publish over a payload that cannot be read. Every mutating
@@ -1925,13 +1975,44 @@ class Prefs {
   /// by `AccountReconciliation`, so that loss is permanent. Surfacing
   /// [AccountRegistryUnreadableException] instead keeps the original bytes (and
   /// the backup `_getAccountListImpl` took) intact for recovery.
-  static Future<void> setAccountList(List<Map<String, String>> accounts) async {
+  static Future<void> setAccountList(List<Map<String, String>> accounts) {
+    return _serializedRegistry(() => _setAccountListUnguarded(accounts));
+  }
+
+  /// Write the registry WITHOUT taking the serialization gate.
+  ///
+  /// For use only from code already holding it (see [_serializedRegistry]).
+  static Future<void> _setAccountListUnguarded(
+    List<Map<String, String>> accounts,
+  ) async {
     final p = await _getPrefs();
     // The guard lives in `_setAccountListGuarded`: it refuses when the current
     // payload is unreadable, and also when reading it DROPPED rows that could
     // not be durably preserved — publishing a reconstruction over those would
     // erase them.
     return _setAccountListGuarded(p, accounts);
+  }
+
+  /// Read the registry, apply [mutate], and write the result — atomically with
+  /// respect to every other registry mutation.
+  ///
+  /// The only safe way to do a read-modify-write from OUTSIDE this class.
+  /// `ShortToxIdBackfill` rewrites a row's primary key in place and previously
+  /// did its own `getAccountList` / `setAccountList` pair, which could lose a
+  /// concurrent import.
+  /// [mutate] MUST be synchronous. The signature enforces it: returning a
+  /// `Future` from a `void`-returning callback is discarded rather than awaited,
+  /// and awaiting anything that re-enters a gated mutator (`addAccount`,
+  /// `setAvatarPath`, ...) would wait on the gate this call already holds —
+  /// a deadlock. Mutate the list in place and let this method do the writing.
+  static Future<void> mutateAccountList(
+    void Function(List<Map<String, String>> accounts) mutate,
+  ) {
+    return _serializedRegistry(() async {
+      final accounts = await getAccountList();
+      mutate(accounts);
+      await _setAccountListUnguarded(accounts);
+    });
   }
 
   /// Add or update an account in the list
@@ -1947,107 +2028,26 @@ class Prefs {
     bool? autoAcceptGroupInvites,
     bool? notificationSoundEnabled,
     bool updateLastLogin = true,
-  }) async {
+  }) {
     if (toxId.isEmpty) {
       throw ArgumentError('toxId cannot be empty');
     }
-    final accounts = await getAccountList();
-    final normalizedNickname = nickname?.trim();
-    if (normalizedNickname != null && normalizedNickname.isNotEmpty) {
-      // Use `compareToxIds` here too — after F12 backfill rewrites a row from
-      // 64 to 76 chars, callers (`AccountSwitcher`, `LoginUseCase`) keep
-      // passing the pre-backfill 64-char value. A raw `!=` check then treats
-      // the same account as "another account" and rejects an otherwise valid
-      // nickname update with `Nickname already used by another account`. The
-      // fuzzy comparator matches the same equivalence the existing-row lookup
-      // below uses, so the self-vs-other distinction stays consistent.
-      final duplicate = accounts.any(
-        (acc) =>
-            !compareToxIds(acc['toxId'] ?? '', toxId) &&
-            (acc['nickname'] ?? '').trim() == normalizedNickname,
-      );
-      if (duplicate) {
-        throw StateError('Nickname already used by another account');
-      }
-    }
-    // Find existing account by Tox ID (primary key). Use `compareToxIds`
-    // so the lookup is robust to length differences — after the F12
-    // backfill (`ShortToxIdBackfill`) rewrites an imported account's row
-    // from 64 to 76 chars, callers like `AccountSwitcher` still pass the
-    // pre-backfill 64-char value and an exact-match would silently create
-    // a duplicate row. `compareToxIds` matches when one ID is a 16-char
-    // prefix of the other, or when both normalize to the same 64-char
-    // public-key form — which is exactly the equivalence we want.
-    final existingIndex = accounts.indexWhere(
-      (acc) => compareToxIds(acc['toxId'] ?? '', toxId),
+    // Serialized: read-modify-write on the registry. A concurrent
+    // `touchAccountLoginTime` from the Settings timer would otherwise read the
+    // pre-add list and write it back, dropping this account.
+    return _serializedRegistry(
+      () => addAccountUnguarded(
+        toxId: toxId,
+        nickname: nickname,
+        statusMessage: statusMessage,
+        avatarPath: avatarPath,
+        autoLogin: autoLogin,
+        autoAcceptFriends: autoAcceptFriends,
+        autoAcceptGroupInvites: autoAcceptGroupInvites,
+        notificationSoundEnabled: notificationSoundEnabled,
+        updateLastLogin: updateLastLogin,
+      ),
     );
-    Map<String, String> account;
-
-    if (existingIndex >= 0) {
-      // Update existing account
-      account = accounts[existingIndex];
-      if (updateLastLogin) {
-        account['lastLoginTime'] = DateTime.now().toIso8601String();
-      }
-      // Update nickname if provided (allows nickname changes)
-      if (nickname != null && nickname.isNotEmpty) {
-        account['nickname'] = nickname;
-      }
-      if (statusMessage != null) {
-        account['statusMessage'] = statusMessage;
-      }
-      if (avatarPath != null) {
-        account['avatarPath'] = avatarPath;
-      }
-      if (autoLogin != null) {
-        account['autoLogin'] = autoLogin.toString();
-      }
-      if (autoAcceptFriends != null) {
-        account['autoAcceptFriends'] = autoAcceptFriends.toString();
-      }
-      if (autoAcceptGroupInvites != null) {
-        account['autoAcceptGroupInvites'] = autoAcceptGroupInvites.toString();
-      }
-      if (notificationSoundEnabled != null) {
-        account['notificationSoundEnabled'] = notificationSoundEnabled
-            .toString();
-      }
-      accounts[existingIndex] = account;
-    } else {
-      // Add new account
-      account = <String, String>{
-        'toxId': toxId,
-        'nickname': nickname ?? '',
-        'statusMessage': statusMessage ?? '',
-        if (updateLastLogin) 'lastLoginTime': DateTime.now().toIso8601String(),
-      };
-      if (avatarPath != null && avatarPath.isNotEmpty) {
-        account['avatarPath'] = avatarPath;
-      }
-      if (autoLogin != null) {
-        account['autoLogin'] = autoLogin.toString();
-      } else {
-        account['autoLogin'] = 'true'; // Default to true
-      }
-      if (autoAcceptFriends != null) {
-        account['autoAcceptFriends'] = autoAcceptFriends.toString();
-      } else {
-        account['autoAcceptFriends'] = 'false'; // Default to false
-      }
-      if (autoAcceptGroupInvites != null) {
-        account['autoAcceptGroupInvites'] = autoAcceptGroupInvites.toString();
-      } else {
-        account['autoAcceptGroupInvites'] = 'false'; // Default to false
-      }
-      if (notificationSoundEnabled != null) {
-        account['notificationSoundEnabled'] = notificationSoundEnabled
-            .toString();
-      } else {
-        account['notificationSoundEnabled'] = 'true'; // Default to true
-      }
-      accounts.add(account);
-    }
-    await setAccountList(accounts);
   }
 
   /// Update `lastLoginTime` for an existing account to now. No-op when the
@@ -2055,65 +2055,27 @@ class Prefs {
   /// defer the timestamp bump until after a full boot succeeds, instead of
   /// marking an account as "recently logged in" while a later init step
   /// (e.g. AppBootstrapCoordinator.boot) may still throw.
-  static Future<void> touchAccountLoginTime(String toxId) async {
-    if (toxId.isEmpty) return;
-    final normalized = toxId.trim();
-    if (normalized.isEmpty) return;
-    final accounts = await getAccountList();
-    // Fuzzy match — mirrors [getAccountByToxId] so callers can pass any of
-    // the formats that flow through the system (76-char service.selfId,
-    // 64-char toxIdForLogin, 16-char prefix) and still hit the same row.
-    int index = accounts.indexWhere(
-      (acc) => (acc['toxId']?.trim() ?? '') == normalized,
-    );
-    if (index < 0) {
-      final lowered = normalized.toLowerCase();
-      index = accounts.indexWhere(
-        (acc) => (acc['toxId']?.trim() ?? '').toLowerCase() == lowered,
-      );
-    }
-    if (index < 0 && normalized.length >= 64) {
-      final prefix = normalized.substring(0, 64);
-      index = accounts.indexWhere((acc) {
-        final accToxId = acc['toxId']?.trim() ?? '';
-        return accToxId.length >= 64 && accToxId.substring(0, 64) == prefix;
-      });
-    }
-    if (index < 0) {
-      index = accounts.indexWhere(
-        (acc) => compareToxIds(acc['toxId']?.trim() ?? '', normalized),
-      );
-    }
-    if (index < 0) return;
-    accounts[index]['lastLoginTime'] = DateTime.now().toIso8601String();
-    await setAccountList(accounts);
+  static Future<void> touchAccountLoginTime(String toxId) {
+    if (toxId.isEmpty) return Future<void>.value();
+    // Serialized: this is the concurrent writer — the Settings page fires it on
+    // a five minute timer, which could land between an import's read and write.
+    return _serializedRegistry(() => touchAccountLoginTimeUnguarded(toxId));
   }
 
   /// Remove an account from the list by Tox ID
-  static Future<void> removeAccount(String toxId) async {
-    final accounts = await getAccountList();
-    accounts.removeWhere((acc) => compareToxIds(acc['toxId'] ?? '', toxId));
-    await setAccountList(accounts);
-    // Revoke any L3 seed-account marker so a deleted account can't leave the
-    // debug mutating-tool grant behind for a reused/recreated identity.
-    await removeL3SeedToxId(toxId);
+  static Future<void> removeAccount(String toxId) {
+    // Serialized: a concurrent timestamp refresh could otherwise resurrect the
+    // removed row by writing back the list it read before the removal.
+    return _serializedRegistry(() => removeAccountUnguarded(toxId));
   }
 
   /// Update only the avatar path for an existing account (by toxId).
   /// No-op if account not found.
-  static Future<void> setAccountAvatarPath(String toxId, String? path) async {
-    if (toxId.isEmpty) return;
-    final accounts = await getAccountList();
-    final index = accounts.indexWhere(
-      (acc) => compareToxIds(acc['toxId'] ?? '', toxId),
+  static Future<void> setAccountAvatarPath(String toxId, String? path) {
+    if (toxId.isEmpty) return Future<void>.value();
+    return _serializedRegistry(
+      () => setAccountAvatarPathUnguarded(toxId, path),
     );
-    if (index < 0) return;
-    if (path == null || path.isEmpty) {
-      accounts[index].remove('avatarPath');
-    } else {
-      accounts[index]['avatarPath'] = path;
-    }
-    await setAccountList(accounts);
   }
 
   /// Get account info by Tox ID (primary key).

@@ -7,6 +7,8 @@ import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
 import '../util/account_deletion_journal.dart';
+import '../util/account_export/tox_import_journal.dart';
+import '../util/placeholder_identity_discovery.dart';
 import '../util/account_reconciliation.dart';
 import '../util/account_scratch_storage.dart';
 import '../util/account_service.dart';
@@ -144,7 +146,19 @@ class AppBootstrap {
   }) async {
     final recover =
         recoverPendingRestore ??
-        AccountExportService.recoverPendingFullBackupRestore;
+        () async {
+          // Both journalled import paths, before anything can expose an
+          // account. The `.zip` restore has had a journal since its own review;
+          // the single-file `.tox` path is journalled too now (it wrote the same
+          // durable state in the same order with only an in-process catch,
+          // which a kill does not run).
+          await AccountExportService.recoverPendingFullBackupRestore();
+          await ToxImportJournal.recoverPendingImport();
+          // A decrypted profile copy stranded by a kill is a plaintext private
+          // key that nothing else removes: account deletion does not know about
+          // these directories and discovery may never run again.
+          await sweepPlaceholderDiscoveryScratch();
+        };
     final reconcile =
         reconcileAccounts ??
         () async {
@@ -168,6 +182,28 @@ class AppBootstrap {
       throw StateError(
         'unattributable account deletion record(s): ${unattributable.length}',
       );
+    }
+    // Same reasoning for an interrupted `.tox` import whose rollback could not be
+    // established: a half-imported profile may still be on disk, and
+    // `reconcile()` below would publish it as an account.
+    final unresolvedImports = ToxImportJournal.unresolved;
+    if (unresolvedImports.isNotEmpty) {
+      throw StateError(
+        'unresolved interrupted account import(s): ${unresolvedImports.length}',
+      );
+    }
+    // An UNREADABLE import journal names no account, so blocking the whole app
+    // would be a dead end — the user's existing accounts are fine and they could
+    // do nothing about it. Skip only orphan adoption, so no leftover profile from
+    // that interrupted import gets published as an account, and let everything
+    // else start. The journal file stays on disk, so this holds across restarts
+    // until an import completes or is verifiably rolled back.
+    if (ToxImportJournal.hasUnreadableJournal) {
+      AppLogger.warn(
+        '[AppBootstrap] an interrupted account import cannot be attributed; '
+        'skipping orphaned-profile adoption this run',
+      );
+      return;
     }
     await reconcile();
   }

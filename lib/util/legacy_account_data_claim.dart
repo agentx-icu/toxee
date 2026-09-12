@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'account_export/tox_file_io.dart';
 import 'app_paths.dart';
+import 'async_gate.dart';
 import 'logger.dart';
 import 'tox_utils.dart';
 
@@ -55,7 +56,11 @@ abstract final class LegacyAccountDataClaim {
   /// ownership against the same blob, and both migrate — and more importantly a
   /// future relaxation of the proof rules would silently reintroduce the
   /// double-claim. Cheap: contention here is a login racing a registration.
-  static Future<void> _claimGate = Future<void>.value();
+  ///
+  /// [AsyncGate] and not a `_tail.then(...)` chain: chaining onto the previous
+  /// caller's future would run the claim in THAT caller's zone, which inside a
+  /// widget test means it does not run at all until the test is over.
+  static final AsyncGate _claimGate = AsyncGate();
 
   /// Whether [toxId] may absorb the legacy global data.
   ///
@@ -63,14 +68,13 @@ abstract final class LegacyAccountDataClaim {
   /// that record actually persisted. Never throws: this runs inside account
   /// initialization and must not be able to block a login.
   static Future<bool> claim(String toxId) {
-    final pending = _claimGate.then((_) => _claimUnsynchronized(toxId));
-    // Keep the gate alive regardless of outcome so a failed claim cannot wedge
-    // every later one.
-    _claimGate = pending.then((_) {}, onError: (_) {});
-    return pending;
+    return _claimGate.run(() => _claimUnsynchronized(toxId));
   }
 
-  static Future<bool> _claimUnsynchronized(String toxId) async {
+  static Future<bool> _claimUnsynchronized(
+    String toxId, {
+    bool userAuthorized = false,
+  }) async {
     final normalized = toxId.trim();
     if (normalized.isEmpty) return false;
     try {
@@ -87,7 +91,9 @@ abstract final class LegacyAccountDataClaim {
         return compareToxIds(existing, normalized);
       }
 
-      if (!await _ownsLegacyData(normalized)) {
+      // An explicit user request substitutes for cryptographic proof — see
+      // [claimByUserRequest]. Exclusivity is still enforced above.
+      if (!userAuthorized && !await _ownsLegacyData(normalized)) {
         AppLogger.log(
           '[LegacyAccountDataClaim] refused: ownership of the legacy global '
           'data is not proven for this account; leaving it for its owner',
@@ -127,6 +133,61 @@ abstract final class LegacyAccountDataClaim {
       );
       return false;
     }
+  }
+
+  /// Whether unclaimed legacy global data is sitting on disk.
+  ///
+  /// Used by the UI to offer an explicit recovery action. Making ownership
+  /// provable-only closed a real data-bleed, but it also means an upgrader whose
+  /// legacy profile is ENCRYPTED gets no automatic migration — the passphrase is
+  /// not available at the point the claim runs, so neither proof applies. Their
+  /// history is intact on disk with nothing pointing at it, which is exactly the
+  /// situation that needs a user-visible door rather than silence.
+  static Future<bool> hasUnclaimedLegacyData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final existing = prefs.getString(claimedByKey);
+      if (existing != null && existing.isNotEmpty) return false;
+      return await _legacyGlobalDataExists();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Claim the legacy data for [toxId] on the user's explicit instruction.
+  ///
+  /// This is the ONE path that does not require cryptographic proof of
+  /// ownership, because the proof is the user: they are logged into the account
+  /// and have asked for the data. It is still exclusive — the claim is recorded
+  /// exactly as an automatic one is, so no second account can take it
+  /// afterwards.
+  ///
+  /// Returns whether the claim was granted (false when something else already
+  /// owns it, or the record could not be persisted).
+  static Future<bool> claimByUserRequest(String toxId) {
+    final normalized = toxId.trim();
+    if (normalized.isEmpty) return Future<bool>.value(false);
+    return _claimGate.run(
+      () => _claimUnsynchronized(normalized, userAuthorized: true),
+    );
+  }
+
+  /// Whether any of the legacy global files exist.
+  static Future<bool> _legacyGlobalDataExists() async {
+    for (final probe in <Future<bool> Function()>[
+      () async =>
+          Directory(await AppPaths.chatHistoryPath).exists().then((e) => e),
+      () async => File(await AppPaths.offlineMessageQueueFilePath).exists(),
+      () async => Directory(await AppPaths.avatarsPath).exists(),
+    ]) {
+      try {
+        if (await probe()) return true;
+      } catch (_) {
+        // Keep probing; an unreadable path is not evidence either way.
+      }
+    }
+    return false;
   }
 
   /// Whether [toxId] is demonstrably the pre-multi-account identity.
@@ -215,12 +276,26 @@ Future<void> migrateLegacyAccountDataIfClaimed(String toxId) async {
     }
   }
 
+  // The offline queue is a SINGLE file, so "skip when the destination exists"
+  // discards the entire legacy queue the moment the account has one of its own —
+  // which one offline send is enough to create. Keep the legacy copy alongside
+  // instead of dropping it, so nothing is silently lost; `.legacy.json` is inert
+  // to the runtime and recoverable by hand or by a future merge.
   final legacyQueueFile = File(legacyQueuePath);
   if (await legacyQueueFile.exists()) {
     await Directory(accountRoot).create(recursive: true);
     final destQueue = File(accountQueuePath);
     if (!await destQueue.exists()) {
       await legacyQueueFile.copy(accountQueuePath);
+    } else {
+      final preserved = File('$accountQueuePath.legacy.json');
+      if (!await preserved.exists()) {
+        await legacyQueueFile.copy(preserved.path);
+        AppLogger.warn(
+          '[LegacyAccountDataClaim] the account already had an offline queue; '
+          'the legacy one was preserved alongside it rather than discarded',
+        );
+      }
     }
   }
 

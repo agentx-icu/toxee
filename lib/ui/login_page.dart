@@ -39,6 +39,7 @@ import '../util/feature_flags.dart';
 import '../util/safe_diagnostics.dart';
 import '../auth/login_use_case.dart';
 import 'login/delete_account_confirm_dialog.dart';
+import 'login/login_password_gate.dart';
 import 'login/login_page_controller.dart';
 import 'login/password_prompt_dialog.dart';
 import 'pairing/pairing_client_page.dart';
@@ -288,6 +289,33 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Show a login error in both places the page surfaces one: the inline
+  /// `_error` line and a snackbar. Was duplicated at every failure branch.
+  void _showLoginError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = message;
+    });
+    AppSnackBar.showError(context, message);
+  }
+
+  /// Resolve the password for a saved account. See [resolveAccountPassword].
+  Future<PasswordGateOutcome> _resolveAccountPassword({
+    required String toxId,
+    required String nickname,
+  }) {
+    return resolveAccountPassword(
+      toxId: toxId,
+      cachedVerifiedPassword: _verifiedPasswordToxId == toxId
+          ? _verifiedPassword
+          : null,
+      promptForPassword: () => _showPasswordDialog(
+        AppLocalizations.of(context)!.enterPasswordForAccount(nickname),
+      ),
+    );
+  }
+
   Future<void> _quickLogin(Map<String, String> account) async {
     final toxId = account['toxId'];
     if (toxId == null || toxId.isEmpty) return;
@@ -306,44 +334,27 @@ class _LoginPageState extends State<LoginPage> {
     Map<String, String> account,
     String toxId,
   ) async {
-    final cachedVerifiedPassword = _verifiedPasswordToxId == toxId
-        ? _verifiedPassword
-        : null;
-    // Check if account has password
-    final hasPassword =
-        (cachedVerifiedPassword != null && cachedVerifiedPassword.isNotEmpty)
-        ? true
-        : await Prefs.hasAccountPassword(toxId);
-    if (hasPassword) {
-      String? password = cachedVerifiedPassword;
-      final usedCachedVerifiedPassword =
-          password != null && password.isNotEmpty;
-      if (!usedCachedVerifiedPassword) {
-        password = await _showPasswordDialog(
-          AppLocalizations.of(
-            context,
-          )!.enterPasswordForAccount(account['nickname'] ?? ''),
-        );
-        if (password == null) return; // User cancelled
-        final isValid = await Prefs.verifyAccountPassword(toxId, password);
-        if (!isValid) {
-          _verifiedPassword = null;
-          _verifiedPasswordToxId = null;
-          if (mounted) {
-            setState(() {
-              _error = AppLocalizations.of(context)!.invalidPassword;
-            });
-            AppSnackBar.showError(
-              context,
-              AppLocalizations.of(context)!.invalidPassword,
-            );
-          }
-          return;
-        }
-      }
-      // Store verified password so _login() won't prompt again
-      _verifiedPassword = password;
-      _verifiedPasswordToxId = toxId;
+    final outcome = await _resolveAccountPassword(
+      toxId: toxId,
+      nickname: account['nickname'] ?? '',
+    );
+    switch (outcome.result) {
+      case PasswordGateResult.cancelled:
+        return;
+      case PasswordGateResult.storeUnavailable:
+        _showLoginError(AppLocalizations.of(context)!.secureStorageUnavailable);
+        return;
+      case PasswordGateResult.invalid:
+        _verifiedPassword = null;
+        _verifiedPasswordToxId = null;
+        _showLoginError(AppLocalizations.of(context)!.invalidPassword);
+        return;
+      case PasswordGateResult.verified:
+        // Cached so `_login()` does not prompt a second time.
+        _verifiedPassword = outcome.password;
+        _verifiedPasswordToxId = toxId;
+      case PasswordGateResult.notRequired:
+        break;
     }
 
     // Fill controllers for _login() without expanding the nickname/signature form
@@ -426,46 +437,28 @@ class _LoginPageState extends State<LoginPage> {
     }
     final toxIdForLogin = account?['toxId'];
     if (toxIdForLogin != null && toxIdForLogin.isNotEmpty) {
-      final cachedVerifiedPassword = _verifiedPasswordToxId == toxIdForLogin
-          ? _verifiedPassword
-          : null;
-      final hasPassword =
-          (cachedVerifiedPassword != null && cachedVerifiedPassword.isNotEmpty)
-          ? true
-          : await Prefs.hasAccountPassword(toxIdForLogin);
-      if (hasPassword) {
-        password = cachedVerifiedPassword;
-        _verifiedPassword = null;
-        _verifiedPasswordToxId = null;
-        if (password == null || password.isEmpty) {
-          if (!mounted) {
-            return;
-          }
-          password = await _showPasswordDialog(
-            l10n.enterPasswordForAccount(account?['nickname'] ?? nickname),
-          );
-          if (password == null || password.isEmpty) {
-            if (mounted) {
-              setState(() {
-                _error = l10n.invalidPassword;
-                _busy = false;
-              });
-              AppSnackBar.showError(context, l10n.invalidPassword);
-            }
-            return;
-          }
-          final ok = await Prefs.verifyAccountPassword(toxIdForLogin, password);
-          if (!ok) {
-            if (mounted) {
-              setState(() {
-                _error = l10n.invalidPassword;
-                _busy = false;
-              });
-              AppSnackBar.showError(context, l10n.invalidPassword);
-            }
-            return;
-          }
-        }
+      final outcome = await _resolveAccountPassword(
+        toxId: toxIdForLogin,
+        nickname: account?['nickname'] ?? nickname,
+      );
+      // The cache is single-use: consumed here (or invalidated on any failure)
+      // so a stale verified password cannot be replayed on a later attempt.
+      _verifiedPassword = null;
+      _verifiedPasswordToxId = null;
+      switch (outcome.result) {
+        case PasswordGateResult.cancelled:
+          if (mounted) setState(() => _busy = false);
+          return;
+        case PasswordGateResult.storeUnavailable:
+          _showLoginError(l10n.secureStorageUnavailable);
+          return;
+        case PasswordGateResult.invalid:
+          _showLoginError(l10n.invalidPassword);
+          return;
+        case PasswordGateResult.verified:
+          password = outcome.password;
+        case PasswordGateResult.notRequired:
+          break;
       }
     }
 

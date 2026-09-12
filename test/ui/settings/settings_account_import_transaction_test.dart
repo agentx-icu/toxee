@@ -668,8 +668,11 @@ void main() {
   test(
     'mobile and desktop controls share the import transaction handler',
     () async {
+      // The mobile account section moved out of `settings_page.dart` into
+      // `settings_page_mobile_widgets.dart` when the page was split for the
+      // complexity gate; the handler it must share is unchanged.
       final mobileSource = await File(
-        'lib/ui/settings/settings_page.dart',
+        'lib/ui/settings/settings_page_mobile_widgets.dart',
       ).readAsString();
       final desktopSource = await File(
         'lib/ui/settings/settings_page_build.dart',

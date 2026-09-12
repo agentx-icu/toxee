@@ -63,17 +63,10 @@ class LoginUseCase {
       throw Exception('Nickname cannot be empty');
     }
 
-    // TODO(codex-review-3): manual login path also needs the placeholder
-    // migration trigger — auto-login path runs it from `StartupSessionUseCase`
-    // before any account lookup, but a user who toggles off auto-login and
-    // logs in manually never runs it. Calling it here pre-lookup mirrors the
-    // auto-login ordering so the nickname resolves to the migrated record.
-    // Current limitation: `_discoverRealToxId()` opens an unauthenticated
-    // discovery service, so encrypted profiles cannot be decrypted at this
-    // point. The proper fix is to invoke a post-login variant that takes the
-    // live, already-decrypted `FfiChatService` and reads its
-    // `getSelfToxId()` — see `placeholder_account_migration.dart`. For now
-    // this is a best-effort pre-lookup call that no-ops on encrypted state.
+    // Pre-lookup, mirroring the auto-login ordering in
+    // `StartupSessionUseCase`, so the nickname resolves to the migrated record.
+    // This call is UNAUTHENTICATED, so it deliberately does nothing for a
+    // protected account; that case is handled after verification below.
     await PlaceholderAccountMigration.migrateIfNeeded();
 
     final account = await Prefs.getUniqueAccountByNickname(nickname);
@@ -87,7 +80,7 @@ class LoginUseCase {
       }
     }
 
-    final toxIdForLogin = account?['toxId'];
+    var toxIdForLogin = account?['toxId'];
     if (toxIdForLogin != null && toxIdForLogin.isNotEmpty) {
       await AccountService.throwIfAccountDeleting(toxIdForLogin);
       // Fail closed on an unreadable secure store. `hasAccountPassword` already
@@ -108,6 +101,29 @@ class LoginUseCase {
         final ok = await Prefs.verifyAccountPassword(toxIdForLogin, password);
         if (!ok) {
           throw Exception('Invalid password');
+        }
+      }
+
+      // THE authenticated continuation for a protected placeholder-keyed
+      // account. Identity discovery has to open the account, so the pre-lookup
+      // `migrateIfNeeded()` above refuses to touch a protected one - and until
+      // this existed, that refusal was permanent: the account logged in as
+      // `FlutterUIKitClient` forever, its blocked-peer list read under an id
+      // nothing writes to, and its session password cached under the
+      // placeholder while teardown looks under the real address, so even a
+      // clean logout stopped re-encrypting the profile.
+      //
+      // It runs BEFORE `initializeServiceForAccount` because the migration
+      // renames the account's data and profile DIRECTORIES; doing that under a
+      // live session would pull them out from under it (this is why it cannot
+      // ride along with `ShortToxIdBackfill`, which only ever rewrites ids whose
+      // 16-char directory prefix is unchanged).
+      if (toxIdForLogin == PlaceholderAccountMigration.placeholderToxId) {
+        final migrated = await PlaceholderAccountMigration.migrateIfNeeded(
+          authenticatedPassword: params.password,
+        );
+        if (migrated != null && migrated.isNotEmpty) {
+          toxIdForLogin = migrated;
         }
       }
 
