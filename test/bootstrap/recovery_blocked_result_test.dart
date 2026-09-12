@@ -9,6 +9,7 @@
 // `AppBootstrapRecoveryBlocked` result the app can render.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:toxee/bootstrap/app_bootstrap.dart';
 import 'package:toxee/bootstrap/app_bootstrap_result.dart';
 import 'package:toxee/util/account_deletion_journal.dart';
 import 'package:toxee/util/app_paths.dart';
@@ -27,6 +28,7 @@ void main() {
   });
 
   tearDown(() async {
+    AccountDeletionJournalStore.resetQuarantineState();
     await env.dispose();
   });
 
@@ -88,16 +90,62 @@ void main() {
               'is quarantined rather than destroyed');
       expect(await File(p.join(dir.path, 'garbage.json')).exists(), isFalse,
           reason: 'and moved aside so it is not re-scanned forever');
-      expect(AccountDeletionJournalStore.quarantined, contains('garbage.json'),
-          reason: 'reported so startup can surface it');
     });
 
-    test('an unreadable tombstone cannot gate an unrelated account', () async {
+    test(
+        'a corrupt tombstone whose NAME identifies the account keeps gating it',
+        () async {
+      // The gate is what stops a half-deleted account being opened — e.g. one
+      // whose deletion stopped after the password was removed but before the
+      // profile was. Renaming the file aside without replacing the gate made
+      // that account readable again from this startup onward. The filename is
+      // `<toxId>.json`, so the account is still identifiable.
+      final dir = await tombstoneDir();
+      final toxId = 'D' * 76;
+      await File(p.join(dir.path, '$toxId.json')).writeAsString('{ truncated');
+
+      expect(await AccountDeletionJournalStore.hasPendingForToxId(toxId), isTrue,
+          reason: 'a minimal tombstone is rebuilt from the filename, so the '
+              'account stays blocked and recovery re-runs the idempotent stages');
+      expect(await File(p.join(dir.path, '$toxId.json.corrupt')).exists(),
+          isTrue,
+          reason: 'and the original bytes are still preserved');
+      expect(AccountDeletionJournalStore.unattributableQuarantine, isEmpty,
+          reason: 'this case IS attributable, so startup need not refuse');
+    });
+
+    test(
+        'a corrupt tombstone that cannot be attributed makes startup refuse',
+        () async {
       final dir = await tombstoneDir();
       await File(p.join(dir.path, 'garbage.json')).writeAsString('{ not json');
 
-      // A tombstone we cannot parse names no account, so it must not block one.
-      // Throwing here (the old behaviour) blocked EVERY account instead.
+      await AccountDeletionJournalStore.readAll();
+
+      // No account can be derived, so no gate can be rebuilt. Carrying on would
+      // leave some account half-deleted with nothing blocking it, so startup
+      // refuses to expose any account instead of guessing.
+      expect(AccountDeletionJournalStore.unattributableQuarantine,
+          contains('garbage.json'));
+      await expectLater(
+        AppBootstrap.recoverPendingRestoreBeforeAccountExposure(
+          recoverPendingRestore: () async {},
+          recoverPendingDeletions: () async {},
+          reconcileAccounts: () async =>
+              fail('reconciliation must not run with an unattributable record'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('an unattributable record does not gate an unrelated account',
+        () async {
+      final dir = await tombstoneDir();
+      await File(p.join(dir.path, 'garbage.json')).writeAsString('{ not json');
+
+      // It cannot name an account, so it must not block a specific one — the
+      // process-wide refusal above is the correct instrument, not a per-account
+      // block that would hit the wrong account.
       await expectLater(
         AccountDeletionJournalStore.hasPendingForToxId('B' * 76),
         completion(isFalse),

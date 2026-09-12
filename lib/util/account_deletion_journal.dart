@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'account_export/atomic_file_write.dart';
 import 'app_paths.dart';
+import 'logger.dart';
 import 'safe_diagnostics.dart';
 import 'tox_utils.dart';
 
@@ -243,40 +245,108 @@ abstract final class AccountDeletionJournalStore {
         }
         tombstones.add(AccountDeletionTombstone.fromJson(decoded));
       } catch (e) {
-        await _quarantine(entry, e);
+        // A rebuilt tombstone must join THIS scan's results. The directory
+        // listing is already in flight, so it would otherwise be invisible until
+        // the next scan — and `hasPendingForToxId` answers from this call, which
+        // is precisely the gate we are rebuilding.
+        final rebuilt = await _quarantine(entry, e);
+        if (rebuilt != null) tombstones.add(rebuilt);
       }
     }
     return tombstones;
   }
 
-  /// Tombstone files quarantined during this process' lifetime, by basename.
+  /// Quarantined files whose account could NOT be identified, by basename.
   ///
-  /// Exposed so startup can report that a deletion record was unreadable
-  /// instead of silently carrying on as if none existed.
-  static Set<String> get quarantined => Set.unmodifiable(_quarantined);
-  static final Set<String> _quarantined = <String>{};
+  /// This is the only genuinely unsafe case: an unreadable record that we cannot
+  /// attribute means an account somewhere may be half-deleted and nothing gates
+  /// it. Startup consults this and refuses to expose any account rather than
+  /// guess — see `AppBootstrap.recoverPendingRestoreBeforeAccountExposure`.
+  ///
+  /// Attributable corruption does NOT land here: [_quarantine] rebuilds a
+  /// minimal tombstone from the filename, so the gate survives.
+  static Set<String> get unattributableQuarantine =>
+      Set.unmodifiable(_unattributable);
+  static final Set<String> _unattributable = <String>{};
 
-  /// Rename an unparseable tombstone out of the way, preserving it.
+  @visibleForTesting
+  static void resetQuarantineState() => _unattributable.clear();
+
+  /// Filenames are `<sanitized toxId>.json` (see [_fileForTombstone]), and the
+  /// sanitizer only rewrites characters a hex Tox ID does not contain — so for
+  /// any tombstone this code wrote, the basename IS the account id.
+  static final RegExp _toxIdFileName = RegExp(r'^[A-Fa-f0-9]{16,76}$');
+
+  /// Move an unparseable tombstone aside, and REPLACE the gate it was providing.
   ///
-  /// Best-effort: if the rename itself fails the file stays, and the next scan
-  /// will try again — which is survivable now that a parse failure no longer
-  /// aborts the scan.
-  static Future<void> _quarantine(File entry, Object cause) async {
+  /// Renaming alone was not enough. `hasPendingForToxId` is what stops a
+  /// half-deleted account being opened, and it answers from these files — so
+  /// dropping a corrupt `<toxId>.json` made that account readable again from
+  /// this startup onward, even though its deletion may have stopped after the
+  /// password was removed but before the profile was. The bytes survived; the
+  /// usable record did not.
+  ///
+  /// The filename still identifies the account, so a minimal tombstone is
+  /// written in its place. Re-running the deletion from stage 0 is safe: every
+  /// stage is idempotent (delete-if-exists, remove-if-present).
+  ///
+  /// When the name cannot be attributed, the account is unknown and no gate can
+  /// be rebuilt — that is recorded in [unattributableQuarantine] for startup to
+  /// refuse on.
+  /// Returns the rebuilt tombstone when the account could be identified, so the
+  /// caller can include it in the scan it is already performing.
+  static Future<AccountDeletionTombstone?> _quarantine(
+    File entry,
+    Object cause,
+  ) async {
     final name = p.basename(entry.path);
-    _quarantined.add(name);
+    final candidate = name.endsWith('.json')
+        ? name.substring(0, name.length - '.json'.length)
+        : '';
+    final attributable = _toxIdFileName.hasMatch(candidate);
     SafeDiagnostics.logFailure(
-      '[AccountDeletionJournalStore] quarantining an unreadable tombstone '
-      '(it cannot identify an account, so it cannot gate one)',
+      '[AccountDeletionJournalStore] unreadable tombstone '
+      '(attributable=$attributable)',
       cause,
     );
+    var renamed = false;
     try {
       await entry.rename('${entry.path}.corrupt');
+      renamed = true;
     } catch (renameError) {
       SafeDiagnostics.logFailure(
-        '[AccountDeletionJournalStore] could not quarantine the unreadable '
-        'tombstone; it will be skipped again next scan',
+        '[AccountDeletionJournalStore] could not move the unreadable tombstone '
+        'aside',
         renameError,
       );
+    }
+    if (!attributable) {
+      _unattributable.add(name);
+      return null;
+    }
+    // Rebuild the gate. If the rename failed the original is still in place and
+    // writing now would clobber the corrupt bytes we are trying to preserve, so
+    // only do this once it is safely aside.
+    if (!renamed) return null;
+    final rebuilt = AccountDeletionTombstone.initial(toxId: candidate);
+    try {
+      await write(rebuilt);
+      AppLogger.warn(
+        '[AccountDeletionJournalStore] rebuilt a minimal tombstone from the '
+        'filename so the deletion gate survives; recovery will re-run the '
+        'stages (all idempotent)',
+      );
+      return rebuilt;
+    } catch (writeError) {
+      // Could not rebuild it either. Treat as unattributable: something must
+      // refuse to expose accounts rather than proceed with no gate at all.
+      _unattributable.add(name);
+      SafeDiagnostics.logFailure(
+        '[AccountDeletionJournalStore] could not rebuild the tombstone; '
+        'startup will refuse to expose any account',
+        writeError,
+      );
+      return null;
     }
   }
 
@@ -306,6 +376,9 @@ abstract final class AccountDeletionJournalStore {
         if (decoded is! Map<String, dynamic>) continue;
         tombstone = AccountDeletionTombstone.fromJson(decoded);
       } catch (e) {
+        // The rebuilt tombstone (if any) is deliberately ignored here: `clear`
+        // is removing records for [toxId], and a record it could not read is not
+        // one it can claim to have cleared.
         await _quarantine(entry, e);
         continue;
       }

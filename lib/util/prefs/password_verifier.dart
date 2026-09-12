@@ -137,6 +137,10 @@ class PasswordVerifier {
     //
     // Migration only removes the legacy entry when the secure write actually
     // persisted, so an unavailable store cannot lose the hash here.
+    // `_readHashWithMigration` covers the legacy plain-prefs entry AND the
+    // 64-char public-key alias. Both must count as "protected" here, or a
+    // half-migrated account would read as unprotected and the auto-login gate
+    // would wave it through.
     final legacy = await _readHashWithMigration(toxId);
     if (legacy != null && legacy.isNotEmpty) {
       return AccountProtectionState.protected;
@@ -331,6 +335,17 @@ class PasswordVerifier {
     final secureKey = secureHashKey(toxId);
     final fromSecure = await _secureStorage.read(secureKey);
     if (fromSecure != null && fromSecure.isNotEmpty) return fromSecure;
+    // Alias: the 64-char public-key form of a 76-char address.
+    //
+    // `ShortToxIdBackfill` rewrites an imported account's id from the 64-char
+    // public key to the 76-char address, and it cannot move the registry row and
+    // the credential keys in one atomic step. It now moves the ROW first
+    // precisely so the surviving mismatch is this one — row at 76, keys still at
+    // 64 — because 64 is derivable from 76 by truncation while the reverse is
+    // not (nospam+checksum are not recoverable). Looking under the alias makes
+    // that window benign instead of leaving the account unverifiable.
+    final alias = await _readAliasHash(toxId);
+    if (alias != null) return alias;
     // Migrate from legacy SharedPreferences (S1: was plain-text on disk).
     // Only remove the legacy entry once the secure write actually persisted —
     // a swallowed keychain failure here would lose the user's password hash.
@@ -345,6 +360,42 @@ class PasswordVerifier {
     return null;
   }
 
+  /// The 64-char public-key form of a 76-char Tox address, or null when [toxId]
+  /// is not a full address (so there is no distinct alias to try).
+  static String? _publicKeyAlias(String toxId) {
+    final normalized = toxId.trim();
+    if (normalized.length <= 64) return null;
+    return normalized.substring(0, 64);
+  }
+
+  /// Hash stored under the public-key alias, migrated to the canonical key.
+  ///
+  /// Migration is opportunistic and only removes the alias entry once the
+  /// canonical write actually persisted — the same rule the legacy plain-prefs
+  /// migration follows, for the same reason.
+  Future<String?> _readAliasHash(String toxId) async {
+    final alias = _publicKeyAlias(toxId);
+    if (alias == null) return null;
+    final value = await _secureStorage.read(secureHashKey(alias));
+    if (value == null || value.isEmpty) return null;
+    if (await _secureStorage.write(secureHashKey(toxId), value)) {
+      await _secureStorage.delete(secureHashKey(alias));
+    }
+    return value;
+  }
+
+  /// Salt stored under the public-key alias. See [_readAliasHash].
+  Future<String?> _readAliasSalt(String toxId) async {
+    final alias = _publicKeyAlias(toxId);
+    if (alias == null) return null;
+    final value = await _secureStorage.read(secureSaltKey(alias));
+    if (value == null || value.isEmpty) return null;
+    if (await _secureStorage.write(secureSaltKey(toxId), value)) {
+      await _secureStorage.delete(secureSaltKey(alias));
+    }
+    return value;
+  }
+
   /// Read salt from secure storage, migrating from legacy plain prefs when
   /// present. Returns null when no salt is stored.
   Future<String?> _readSaltWithMigration(String toxId) async {
@@ -352,6 +403,10 @@ class PasswordVerifier {
     final secureKey = secureSaltKey(toxId);
     final fromSecure = await _secureStorage.read(secureKey);
     if (fromSecure != null && fromSecure.isNotEmpty) return fromSecure;
+    // Salt must follow the hash through the alias, or a half-migrated account
+    // would pair a found hash with a missing salt and fail to verify.
+    final alias = await _readAliasSalt(toxId);
+    if (alias != null) return alias;
     final legacy = await _legacyStore.readLegacySalt(toxId);
     if (legacy != null && legacy.isNotEmpty) {
       // Only drop the legacy salt once the secure write actually persisted —

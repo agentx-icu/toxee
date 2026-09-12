@@ -179,15 +179,25 @@ class LoginUseCase {
 
   /// Tear down a service this use case still owns, swallowing failures.
   ///
-  /// The original error is what the caller needs; a disposal problem on top of
-  /// it must not replace it.
+  /// Uses the full account-teardown contract, NOT a bare `dispose()`. By this
+  /// point `initializeServiceForAccount` has decrypted `tox_profile.tox` in
+  /// place and populated `SessionPasswordStore`; disposing alone would leave the
+  /// profile plaintext on disk with the password still cached, and nobody else
+  /// is responsible — the caller receives a failure with no service in it.
+  /// `teardownCurrentSession` re-encrypts (gated on the native instance being
+  /// provably stopped), clears the session password, and unregisters
+  /// `ActiveSession`.
+  ///
+  /// The original error is what the caller needs, so a teardown problem on top
+  /// of it is logged rather than thrown.
   static Future<void> _disposeQuietly(FfiChatService service) async {
     try {
-      await service.dispose();
+      await AccountService.teardownCurrentSession(service: service);
     } catch (e, st) {
       AppLogger.logError(
-        '[LoginUseCase] could not dispose the service after a failed login; a '
-        'later init may adopt this native instance',
+        '[LoginUseCase] could not tear down the service after a failed login; '
+        'the profile may remain decrypted and a later init may adopt this '
+        'native instance',
         e,
         st,
       );

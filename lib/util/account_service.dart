@@ -16,6 +16,8 @@ import 'prefs_upgrader.dart';
 import 'account_deletion.dart';
 import 'account_registration_rollback.dart';
 import 'account_scoped_service_factory.dart';
+import 'account_session_cleanup.dart';
+import 'account_teardown_failure.dart';
 import 'account_scratch_storage.dart';
 import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
@@ -34,6 +36,8 @@ import 'tox_utils.dart';
 // re-exported: `AccountActivationTransaction` is part of the account-lifecycle
 // API callers reach for through `account_service.dart`.
 export 'account_activation_transaction.dart';
+// Teardown stage/failure types.
+export 'account_teardown_failure.dart';
 // `calculateTextLength` used to live here despite being a pure text-width
 // helper for form validation. Re-exported so the register-page form's existing
 // import keeps resolving.
@@ -53,36 +57,6 @@ class RegisterResult {
     required this.toxId,
     required this.profileDirectory,
   });
-}
-
-enum AccountTeardownStage {
-  runtimeDisposal,
-  providerRegistryCleanup,
-  singletonCacheCleanup,
-  ircSessionShutdown,
-  serviceDisposal,
-  profileReEncryption,
-  sessionPasswordClear,
-}
-
-final class AccountTeardownFailure implements Exception {
-  const AccountTeardownFailure({
-    required this.toxId,
-    required this.stage,
-    required this.cause,
-    required this.stackTrace,
-  });
-
-  final String toxId;
-  final AccountTeardownStage stage;
-  final Object cause;
-  final StackTrace stackTrace;
-
-  @override
-  String toString() {
-    return 'Account teardown failed stage=${stage.name} '
-        '${SafeDiagnostics.describeError(cause)}';
-  }
 }
 
 /// Centralized account lifecycle management.
@@ -883,17 +857,21 @@ class AccountService {
   /// Failures leave the tombstone pending for cold-start retry, and account-list
   /// visibility is removed only after password, prefs, profile, and account-data
   /// cleanup all succeed.
+  ///
+  /// The session-cleanup stage (which must tear the session down even when
+  /// clearing account data fails — see `account_session_cleanup.dart`) lives
+  /// next door.
   static Future<AccountDeletionResult> deleteAccountCompletely({
     required FfiChatService service,
     required String toxId,
   }) async {
     final result = await AccountDeletionCoordinator.deleteAccount(
       toxId: toxId,
-      serviceCleanup: () async {
-        await service.clearAllAccountData();
-        await teardownCurrentSession(service: service, reEncryptProfile: false);
-        SessionPasswordStore.clear(toxId);
-      },
+      serviceCleanup: () => clearAndTearDownForDeletion(
+        service: service,
+        toxId: toxId,
+        teardown: teardownCurrentSession,
+      ),
     );
     _throwIfDeletionPending(result);
     return result;
@@ -930,6 +908,10 @@ class AccountService {
       // Settings handler). Nothing was torn down.
       return false;
     }
+    // `serviceData` is the stage that tears the session down, and it now ALWAYS
+    // attempts the teardown (in a `finally`) even when clearing the account's
+    // data failed first — so reaching or passing that stage means the session is
+    // gone. Only a tombstone-write failure happens before any of it.
     return error.stage != AccountDeletionStage.tombstone;
   }
 

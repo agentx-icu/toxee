@@ -6,6 +6,7 @@ import 'package:tencent_cloud_chat_common/widgets/avatar/tencent_cloud_chat_avat
 import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
+import '../util/account_deletion_journal.dart';
 import '../util/account_reconciliation.dart';
 import '../util/account_scratch_storage.dart';
 import '../util/account_service.dart';
@@ -45,15 +46,19 @@ class AppBootstrap {
     try {
       await recoverPendingRestoreBeforeAccountExposure();
     } catch (e, st) {
+      // Sanitize at the LOG too, not just on the screen. `AppLogger.logError`
+      // interpolates the error verbatim, and these are filesystem and JSON
+      // exceptions: the former carry journal paths (which embed the account's
+      // public-key prefix and the absolute app-support layout), the latter can
+      // carry journal contents. The stack is kept — it has no payload.
+      final detail = SafeDiagnostics.describeError(e);
       AppLogger.logError(
         '[AppBootstrap] account recovery could not be completed; refusing to '
-        'expose any account',
-        e,
+        'expose any account: $detail',
+        null,
         st,
       );
-      return AppBootstrapRecoveryBlocked(
-        detail: SafeDiagnostics.describeError(e),
-      );
+      return AppBootstrapRecoveryBlocked(detail: detail);
     }
     // If the previous run crashed while the LAN bootstrap service was active,
     // the running-flag plus pre-LAN snapshot may still be on disk while no
@@ -153,6 +158,17 @@ class AppBootstrap {
 
     await recover();
     await recoverDeletions();
+    // A deletion record we could neither parse NOR attribute to an account means
+    // some account may be half-deleted with nothing gating it. There is no safe
+    // guess, so refuse to expose any account — the caller turns this into the
+    // blocking recovery screen. Attributable corruption does not reach here:
+    // `_quarantine` rebuilds the tombstone from the filename.
+    final unattributable = AccountDeletionJournalStore.unattributableQuarantine;
+    if (unattributable.isNotEmpty) {
+      throw StateError(
+        'unattributable account deletion record(s): ${unattributable.length}',
+      );
+    }
     await reconcile();
   }
 }
