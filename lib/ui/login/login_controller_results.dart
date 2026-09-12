@@ -41,6 +41,13 @@ enum ImportFailureKind {
   cancelled,
   invalidPassword,
   accountAlreadyExists,
+
+  /// The import failed AFTER the account row was published, and its rollback was
+  /// never started - so the account may still be there and startup recovery will
+  /// finish it. Distinct from [generalError] because the user has to be told to
+  /// look at their account list rather than simply retry, and because the list
+  /// they are being sent to must be refreshed first.
+  mayRemainImported,
   generalError,
 }
 

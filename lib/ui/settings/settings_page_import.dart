@@ -303,10 +303,13 @@ extension _SettingsImportFlow on _SettingsPageState {
             }
           }
         } catch (rollbackError) {
-          // The rollback declined to half-undo the transaction, so the account
-          // may still be there and startup recovery will finish it. Reporting
-          // only the original failure left the user believing nothing happened.
-          rollbackDeclined = true;
+          // ONLY the typed signal. Any rollback exception used to set this, but
+          // the journal delete can throw AFTER the account row and payload are
+          // already gone - and then "your account may still be there" sends the
+          // user looking for something that is not there.
+          rollbackDeclined = AccountExportService.isRollbackNotStarted(
+            rollbackError,
+          );
           SafeDiagnostics.logFailure(
             '[SettingsPage] Import rollback failed',
             rollbackError,

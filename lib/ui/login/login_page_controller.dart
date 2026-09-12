@@ -430,7 +430,10 @@ class LoginPageController {
             }
           }
         } catch (rollbackError) {
-          rollbackDeclined = true;
+          // Only an unstarted rollback means the account may remain; a cleanup
+          // that failed later may well have removed everything already.
+          rollbackDeclined =
+              rollbackError is RestoreRollbackNotStartedException;
           SafeDiagnostics.logFailure(
             '[LoginPageController] Import rollback failed',
             rollbackError,
@@ -438,13 +441,12 @@ class LoginPageController {
         }
       }
       SafeDiagnostics.logFailure('[LoginPageController] Import failed', e);
+      if (rollbackDeclined) {
+        return const ImportFailure(ImportFailureKind.mayRemainImported);
+      }
       return ImportFailure(
         ImportFailureKind.generalError,
-        detail: rollbackDeclined
-            ? lookupAppLocalizations(
-                AppLocale.locale.value,
-              ).importMayHaveCompleted
-            : SafeDiagnostics.describeError(e),
+        detail: SafeDiagnostics.describeError(e),
       );
     }
   }

@@ -184,6 +184,24 @@ final class RestoreInFlightException implements Exception {
       'is recorded as unresolved and must be recovered first';
 }
 
+/// The rollback was NOT started, because its intent could not be recorded.
+///
+/// Distinct from a rollback that ran and then failed partway: nothing was
+/// removed, the transaction is whole, and recovery will finish the restore. The
+/// UI needs that difference - "your account may still be there" is the right
+/// guidance for this, and misleading for a cleanup that failed after the account
+/// row and payload were already gone.
+final class RestoreRollbackNotStartedException implements Exception {
+  const RestoreRollbackNotStartedException(this.cause);
+
+  final Object cause;
+
+  @override
+  String toString() =>
+      'RestoreRollbackNotStartedException: rollback intent could not be '
+      'recorded (${cause.runtimeType})';
+}
+
 abstract final class RestoreTransactionJournalStore {
   RestoreTransactionJournalStore._();
 

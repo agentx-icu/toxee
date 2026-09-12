@@ -326,7 +326,7 @@ abstract final class FullBackupRestoreTransaction {
         e,
       );
       if (_ownership.holds(journal.transactionId)) _ownership.release();
-      rethrow;
+      throw RestoreRollbackNotStartedException(e);
     }
     try {
       await rollbackRestoreTransaction(journal);

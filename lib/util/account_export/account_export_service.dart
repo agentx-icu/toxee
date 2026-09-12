@@ -98,6 +98,13 @@ class AccountExportService {
   static bool isRestoreAdmissionRefusal(Object error) =>
       error is RestoreInFlightException;
 
+  /// Whether [error] means the rollback was never STARTED, so the restore is
+  /// intact and startup recovery will finish it. A rollback that ran and then
+  /// failed may already have removed everything, which is why the two cannot
+  /// share a message.
+  static bool isRollbackNotStarted(Object error) =>
+      error is RestoreRollbackNotStartedException;
+
   static Future<void> rollbackPendingFullBackupRestore({String? toxId}) =>
       backup.rollbackPendingFullBackupRestore(toxId: toxId);
 
