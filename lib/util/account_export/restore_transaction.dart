@@ -6,10 +6,12 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../app_paths.dart';
+import '../async_gate.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
 import 'restore_metadata_sections.dart';
+import 'restore_paths.dart';
 import 'restore_transaction_journal.dart';
 
 // The durable journal (model + on-disk store) lives in its own file; re-exported
@@ -55,7 +57,7 @@ enum RestoreDestinationKind {
 /// All four destinations are derived from the account's own identity:
 /// `AppPaths.getProfileDirectoryForToxId` and `AppPaths.getAccountDataRoot`
 /// name them `p_<first 16 hex chars of the Tox ID>` / `account_data/<same
-/// prefix>`, and [_RestorePaths.resolve] reuses that prefix for the staging
+/// prefix>`, and [RestorePaths.resolve] reuses that prefix for the staging
 /// directories. Interpolating one publishes the account's public-key prefix
 /// *and* the absolute application-support layout (which contains the OS user
 /// name on desktop). It would not stay local either: an aborted restore
@@ -134,11 +136,22 @@ final class FullBackupRestoreInput {
 abstract final class FullBackupRestoreTransaction {
   FullBackupRestoreTransaction._();
 
-  static Future<Map<String, dynamic>> restore(
+  /// Serializes whole restore WORKFLOWS. The journal store's own gate protects
+  /// each read or write, not a transaction's ownership across the steps between
+  /// them: two restores of one account could both pass recovery and preflight,
+  /// the second replacing the first's journal mid-staging, and the first's catch
+  /// would then roll back the SECOND transaction. NOT re-entrant - everything
+  /// inside uses the `Unguarded` bodies.
+  static final AsyncGate _transactionGate = AsyncGate();
+
+  static Future<Map<String, dynamic>> restore(FullBackupRestoreInput input) =>
+      _transactionGate.run(() => _restoreUnguarded(input));
+
+  static Future<Map<String, dynamic>> _restoreUnguarded(
     FullBackupRestoreInput input,
   ) async {
-    await recoverPendingRestore();
-    final paths = await _RestorePaths.resolve(input.toxId);
+    await _recoverPendingRestoreUnguarded();
+    final paths = await RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
     final scopedPrefs = portableScopedPrefs(
       input.metadata,
@@ -230,12 +243,18 @@ abstract final class FullBackupRestoreTransaction {
       };
     } catch (e) {
       if (e is FullBackupRestoreCrashSimulation) rethrow;
-      await rollbackPendingRestore(toxId: input.toxId);
+      await _rollbackPendingRestoreUnguarded(
+        toxId: input.toxId,
+        transactionId: journal.transactionId,
+      );
       rethrow;
     }
   }
 
-  static Future<void> finalizePendingRestore({required String toxId}) async {
+  static Future<void> finalizePendingRestore({required String toxId}) =>
+      _transactionGate.run(() => _finalizePendingRestoreUnguarded(toxId));
+
+  static Future<void> _finalizePendingRestoreUnguarded(String toxId) async {
     var journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
     if (!compareToxIds(journal.toxId, toxId)) {
@@ -257,16 +276,41 @@ abstract final class FullBackupRestoreTransaction {
     await RestoreTransactionJournalStore.clear();
   }
 
-  static Future<void> rollbackPendingRestore({String? toxId}) async {
+  /// [transactionId], when given, is the caller's OWN transaction: matching only
+  /// the account would destroy whichever transaction holds the journal now. The
+  /// UI paths pass no id - "undo whatever is pending here" is what they mean.
+  static Future<void> rollbackPendingRestore({
+    String? toxId,
+    String? transactionId,
+  }) =>
+      _transactionGate.run(
+        () => _rollbackPendingRestoreUnguarded(
+          toxId: toxId,
+          transactionId: transactionId,
+        ),
+      );
+
+  static Future<void> _rollbackPendingRestoreUnguarded({
+    String? toxId,
+    String? transactionId,
+  }) async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
     if (toxId != null && !compareToxIds(journal.toxId, toxId)) {
       throw StateError('Pending restore belongs to a different account');
     }
+    if (transactionId != null && journal.transactionId != transactionId) {
+      // Someone else's transaction now holds the journal; undoing it would
+      // destroy work that is still in flight.
+      return;
+    }
     await _rollback(journal);
   }
 
-  static Future<void> recoverPendingRestore() async {
+  static Future<void> recoverPendingRestore() =>
+      _transactionGate.run(_recoverPendingRestoreUnguarded);
+
+  static Future<void> _recoverPendingRestoreUnguarded() async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
     final accountVisible = await Prefs.getAccountByToxId(journal.toxId) != null;
@@ -277,7 +321,7 @@ abstract final class FullBackupRestoreTransaction {
     await _rollback(journal);
   }
 
-  static Future<void> _preflight(String toxId, _RestorePaths paths) async {
+  static Future<void> _preflight(String toxId, RestorePaths paths) async {
     if (await Prefs.getAccountByToxId(toxId) != null) {
       throw StateError('Account already exists');
     }
@@ -304,7 +348,7 @@ abstract final class FullBackupRestoreTransaction {
 
   static Future<void> _stagePayload(
     FullBackupRestoreInput input,
-    _RestorePaths paths,
+    RestorePaths paths,
   ) async {
     if (input.toxProfile != null) {
       await Directory(paths.profileStageDir).create(recursive: true);
@@ -345,7 +389,7 @@ abstract final class FullBackupRestoreTransaction {
     }
   }
 
-  static void _validateArchivePaths(Archive archive, _RestorePaths paths) {
+  static void _validateArchivePaths(Archive archive, RestorePaths paths) {
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
       if (entry.name.startsWith('chat_history/')) {
@@ -400,10 +444,10 @@ abstract final class FullBackupRestoreTransaction {
   }
 
   static Future<void> _rollback(RestoreTransactionJournal journal) async {
-    await _deleteDirectory(journal.profileStageDir);
-    await _deleteDirectory(journal.accountDataStageDir);
-    await _deleteDirectory(journal.profileFinalDir);
-    await _deleteDirectory(journal.accountDataFinalDir);
+    await deleteRestoreDirectory(journal.profileStageDir);
+    await deleteRestoreDirectory(journal.accountDataStageDir);
+    await deleteRestoreDirectory(journal.profileFinalDir);
+    await deleteRestoreDirectory(journal.accountDataFinalDir);
     await Prefs.clearScopedKeysForAccount(journal.toxId);
     // The blocked-peer list is keyed by the full Tox ID, so
     // `clearScopedKeysForAccount` (which matches the `_<first16>` suffix) does
@@ -435,11 +479,14 @@ abstract final class FullBackupRestoreTransaction {
   /// journal still on disk, and the next startup would then act on it.) The
   /// staging directories are removed because nothing else knows about them; the
   /// final directories belong to the account and the deletion flow erases those.
-  static Future<void> discardForDeletedAccount(String toxId) async {
+  static Future<void> discardForDeletedAccount(String toxId) =>
+      _transactionGate.run(() => _discardForDeletedAccountUnguarded(toxId));
+
+  static Future<void> _discardForDeletedAccountUnguarded(String toxId) async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null || !compareToxIds(journal.toxId, toxId)) return;
-    await _deleteDirectory(journal.profileStageDir);
-    await _deleteDirectory(journal.accountDataStageDir);
+    await deleteRestoreDirectory(journal.profileStageDir);
+    await deleteRestoreDirectory(journal.accountDataStageDir);
     // Ownership is re-checked inside the clear. Reading, deciding and deleting
     // are three steps, and a restore for ANOTHER account can publish its journal
     // in between - after which an unchecked clear would delete that restore's
@@ -447,46 +494,4 @@ abstract final class FullBackupRestoreTransaction {
     await RestoreTransactionJournalStore.clearIfOwnedBy(toxId);
   }
 
-  static Future<void> _deleteDirectory(String path) async {
-    final dir = Directory(path);
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
-    }
-  }
-}
-
-final class _RestorePaths {
-  const _RestorePaths({
-    required this.transactionId,
-    required this.profileStageDir,
-    required this.profileFinalDir,
-    required this.accountDataStageDir,
-    required this.accountDataFinalDir,
-  });
-
-  final String transactionId;
-  final String profileStageDir;
-  final String profileFinalDir;
-  final String accountDataStageDir;
-  final String accountDataFinalDir;
-
-  static Future<_RestorePaths> resolve(String toxId) async {
-    final profileFinalDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-    final accountDataFinalDir = await AppPaths.getAccountDataRoot(toxId);
-    final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-    final transactionId = DateTime.now().microsecondsSinceEpoch.toString();
-    return _RestorePaths(
-      transactionId: transactionId,
-      profileFinalDir: profileFinalDir,
-      accountDataFinalDir: accountDataFinalDir,
-      profileStageDir: p.join(
-        p.dirname(profileFinalDir),
-        '.full_backup_restore_profile_${prefix}_$transactionId',
-      ),
-      accountDataStageDir: p.join(
-        p.dirname(accountDataFinalDir),
-        '.full_backup_restore_data_${prefix}_$transactionId',
-      ),
-    );
-  }
 }

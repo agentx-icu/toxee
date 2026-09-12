@@ -268,15 +268,37 @@ abstract final class RestoreTransactionJournalStore {
         if (!compareToxIds(existing.toxId, journal.toxId)) {
           throw const RestoreInFlightException();
         }
+        // EXACT id, not `compareToxIds`. That comparator accepts the 64- and
+        // 76-char forms of one identity, and addresses that differ only in
+        // nospam - but `black_list_<toxId>` and the modern failed-queue key use
+        // the id VERBATIM. Carrying a snapshot taken under one spelling into a
+        // record that names another would have the rollback write those values
+        // into keys nothing reads, while the namespace they came from loses its
+        // recovery information entirely. Same account, different namespace: the
+        // new transaction starts from its own capture.
+        final sameNamespace = existing.toxId == journal.toxId;
+        // Per FAMILY, not both-or-neither. The families are captured
+        // independently (an unreadable block list must not discard a good queue
+        // snapshot), so an `||` that carried both whenever EITHER was captured
+        // would overwrite a newly successful capture with `Captured: false` -
+        // and the next failed rollback would then leave that family's
+        // overwritten values in place.
+        final carryBlackList = sameNamespace && existing.priorBlackListCaptured;
+        final carryQueue = sameNamespace && existing.priorFailedQueueCaptured;
         // One atomic write replaces the old record with one that contains its
         // snapshot, so there is no window in which neither holds it.
-        final carried = existing.priorBlackListCaptured ||
-                existing.priorFailedQueueCaptured
+        final carried = (carryBlackList || carryQueue)
             ? journal.copyWith(
-                priorBlackListCaptured: existing.priorBlackListCaptured,
-                priorBlackList: existing.priorBlackList,
-                priorFailedQueueCaptured: existing.priorFailedQueueCaptured,
-                priorFailedQueue: existing.priorFailedQueue,
+                priorBlackListCaptured:
+                    carryBlackList ? true : journal.priorBlackListCaptured,
+                priorBlackList: carryBlackList
+                    ? existing.priorBlackList
+                    : journal.priorBlackList,
+                priorFailedQueueCaptured:
+                    carryQueue ? true : journal.priorFailedQueueCaptured,
+                priorFailedQueue: carryQueue
+                    ? existing.priorFailedQueue
+                    : journal.priorFailedQueue,
               )
             : journal;
         final file = await _journalFile();
