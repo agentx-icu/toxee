@@ -137,15 +137,22 @@ while IFS=$'\t' read -r name sub_path sub_url_cfg; do
     continue
   fi
 
-  # Step 2: ask the submodule's own working clone to fetch the SHA.
-  # Only possible if the submodule dir is initialised.
+  # Step 2: refresh the submodule's remote-tracking refs, then ask whether any
+  # of them CONTAINS the pinned commit (ls-remote only reports ref tips, so a
+  # commit further back in a pushed branch needs this).
+  #
+  # This used to fetch the SHA into a temp ref and treat success as proof. That
+  # is unsound: git can satisfy `fetch origin <sha>:<ref>` from the LOCAL object
+  # store, and a gitlink's commit is always present locally in an initialised
+  # submodule - so the step passed for a commit that had never been pushed. The
+  # gate reported "All submodule pointers reachable" for exactly the state it
+  # exists to catch, and CI then failed at checkout with
+  # `upload-pack: not our ref`.
   if [ -d "$sub_path/.git" ] || [ -f "$sub_path/.git" ]; then
-    tmp_ref="refs/_remotes/_check/$sha"
-    if git "${GIT_NET_OPTS[@]}" -C "$sub_path" fetch --quiet origin "$sha:$tmp_ref" 2>/dev/null; then
-      git -C "$sub_path" update-ref -d "$tmp_ref" 2>/dev/null || true
+    git "${GIT_NET_OPTS[@]}" -C "$sub_path" fetch --quiet origin 2>/dev/null || true
+    if [ -n "$(git -C "$sub_path" branch -r --contains "$sha" 2>/dev/null)" ]; then
       continue
     fi
-    git -C "$sub_path" update-ref -d "$tmp_ref" 2>/dev/null || true
   fi
 
   FAILED=$((FAILED + 1))
