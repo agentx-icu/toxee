@@ -17,6 +17,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'ui/login_page.dart';
 import 'ui/home_page.dart';
 import 'ui/startup_loading_screen.dart';
+import 'ui/recovery_blocked_screen.dart';
 import 'ui/upgrade_required_screen.dart';
 import 'ui/testing/l3_debug_tools.dart';
 import 'ui/testing/ui_drive_tools.dart';
@@ -186,6 +187,11 @@ Future<void> main() async {
               currentVersion: currentVersion,
             ),
           );
+        case AppBootstrapRecoveryBlocked(:final detail):
+          // Still `runApp`: no account is exposed, but the user gets a screen
+          // that explains why and tells them not to re-register or wipe data.
+          // This case previously threw past `runApp` and rendered nothing.
+          runApp(RecoveryBlockedApp(detail: detail));
       }
     },
     (Object error, StackTrace stack) {

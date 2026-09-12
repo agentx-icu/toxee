@@ -15,6 +15,7 @@ import 'prefs.dart';
 import 'prefs_upgrader.dart';
 import 'account_deletion.dart';
 import 'account_registration_rollback.dart';
+import 'account_scoped_service_factory.dart';
 import 'account_scratch_storage.dart';
 import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
@@ -599,55 +600,6 @@ class AccountService {
     }
   }
 
-  /// Creates an [FfiChatService] with account-scoped paths (history, queue,
-  /// fileRecv, avatars). Caller must call [FfiChatService.startPolling] if needed.
-  static Future<FfiChatService> _createAccountScopedService({
-    required SharedPreferences prefs,
-    required String toxId,
-    required String profileDirectory,
-  }) async {
-    await AppPaths.migrateAccountDataFromLegacy(toxId);
-    final historyDirectory = await AppPaths.getAccountChatHistoryPath(toxId);
-    final queueFilePath = await AppPaths.getAccountOfflineQueueFilePath(toxId);
-    final fileRecvPath = await AppPaths.getAccountFileRecvPath(toxId);
-    final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
-    final scratchStorage = await _scratchStorageForAccount(toxId);
-
-    await Directory(historyDirectory).create(recursive: true);
-    await Directory(avatarsPath).create(recursive: true);
-
-    final accountPrefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-    final svc = FfiChatService(
-      preferencesService: SharedPreferencesAdapter(
-        prefs,
-        accountPrefix: accountPrefix,
-      ),
-      loggerService: AppLoggerAdapter(),
-      bootstrapService: BootstrapNodesAdapter(prefs),
-      historyDirectory: historyDirectory,
-      queueFilePath: queueFilePath,
-      fileRecvPath: fileRecvPath,
-      avatarsPath: avatarsPath,
-      scratchFileService: scratchStorage,
-    );
-    try {
-      await svc.init(profileDirectory: profileDirectory);
-      await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
-      return svc;
-    } catch (_) {
-      try {
-        await svc.dispose();
-      } catch (disposeError) {
-        SafeDiagnostics.logFailure(
-          '[AccountService] registration_rollback_failed '
-          'stage=scoped_service_disposal',
-          disposeError,
-        );
-      }
-      rethrow;
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Registration
   // ---------------------------------------------------------------------------
@@ -849,7 +801,7 @@ class AccountService {
         await AccountExportService.decryptProfileFile(profilePath, password);
 
         final prefsForNew = await SharedPreferences.getInstance();
-        final newService = await _createAccountScopedService(
+        final newService = await createAccountScopedService(
           prefs: prefsForNew,
           toxId: tid,
           profileDirectory: profileDir,
@@ -876,7 +828,7 @@ class AccountService {
       await svc.dispose();
       service = null;
       final prefsForScoped = await SharedPreferences.getInstance();
-      final scopedService = await _createAccountScopedService(
+      final scopedService = await createAccountScopedService(
         prefs: prefsForScoped,
         toxId: tid,
         profileDirectory: profileDir,
@@ -960,6 +912,25 @@ class AccountService {
     }
     _throwIfDeletionPending(result);
     return result;
+  }
+
+  /// Whether [error] came from a deletion that had already torn the session
+  /// down, so the caller's Home/Settings tree is now driving a disposed service
+  /// and must be abandoned.
+  ///
+  /// `AccountDeletionCoordinator` runs `serviceData` FIRST (that stage calls
+  /// `clearAllAccountData` and then `teardownCurrentSession`), so every stage
+  /// after it fails with the session already gone. Only a failure IN that first
+  /// stage can leave the session usable — and even then `clearAllAccountData`
+  /// may have run, so treating it as usable would be optimistic. Hence: any
+  /// deletion failure past the tombstone means "abandon the session".
+  static bool sessionWasTornDownBy(Object error) {
+    if (error is! AccountDeletionFailure) {
+      // Not a staged deletion failure at all (e.g. the no-identity guard in the
+      // Settings handler). Nothing was torn down.
+      return false;
+    }
+    return error.stage != AccountDeletionStage.tombstone;
   }
 
   static Future<List<AccountDeletionResult>> recoverPendingAccountDeletions() {

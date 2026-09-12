@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../ui/widgets/safe_dialog_pop.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import '../models/account_summary.dart';
 import '../ui/home_page.dart';
+import '../ui/login/password_prompt_dialog.dart';
 import '../ui/login_page.dart';
 import '../ui/widgets/app_page_route.dart';
 import '../i18n/app_localizations.dart';
@@ -274,37 +274,20 @@ class AccountSwitcher {
         .then<void>((_) {});
   }
 
+  /// Prompt for the target account's password.
+  ///
+  /// Delegates to [PasswordPromptDialog], which owns and DISPOSES its
+  /// controller. The previous inline version created a `TextEditingController`
+  /// here and never disposed it, so every account switch that hit a
+  /// password-protected target leaked one.
   static Future<String?> _showPasswordDialog(
     BuildContext context,
     String nickname,
-  ) async {
-    final passwordController = TextEditingController();
+  ) {
     return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          AppLocalizations.of(context)!.enterPasswordForAccount(nickname),
-        ),
-        content: TextField(
-          controller: passwordController,
-          obscureText: true,
-          textAlignVertical: TextAlignVertical.center,
-          decoration: InputDecoration(
-            labelText: AppLocalizations.of(context)!.password,
-          ),
-          onSubmitted: (value) => popDialogIfCurrent(context, value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () =>
-                popDialogIfCurrent(context, passwordController.text),
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
+      builder: (context) => PasswordPromptDialog(
+        title: AppLocalizations.of(context)!.enterPasswordForAccount(nickname),
       ),
     );
   }

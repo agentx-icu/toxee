@@ -1688,22 +1688,26 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     try {
-      // Get current account toxId before clearing state
-      final toxId = await Prefs.getCurrentAccountToxId();
+      // Prefer the LIVE identity. `_showDeleteAccountConfirmation` gated on
+      // `widget.service.accountKey`, so authenticating against one id and then
+      // deleting whatever the pointer happens to say is a mismatch; and when
+      // the pointer was null this fell through to a plain logout, navigated to
+      // the login page, and reported nothing — the user asked to delete their
+      // account and was silently signed out with the account intact.
+      final liveToxId = widget.service.getSelfToxId();
+      final toxId = (liveToxId != null && liveToxId.isNotEmpty)
+          ? liveToxId
+          : await Prefs.getCurrentAccountToxId();
 
-      // Comprehensive account deletion via AccountService
-      if (toxId != null && toxId.isNotEmpty) {
-        await AccountService.deleteAccountCompletely(
-          service: widget.service,
-          toxId: toxId,
-        );
-      } else {
-        // Fallback: just teardown session
-        await AccountService.teardownCurrentSession(
-          service: widget.service,
-          reEncryptProfile: false,
-        );
+      if (toxId == null || toxId.isEmpty) {
+        // No identity to delete. Say so rather than logging out and implying
+        // success.
+        throw StateError('no account identity resolved for deletion');
       }
+      await AccountService.deleteAccountCompletely(
+        service: widget.service,
+        toxId: toxId,
+      );
 
       // Close loading dialog
       if (!mounted) return;
@@ -1720,16 +1724,28 @@ class _SettingsPageState extends State<SettingsPage> {
       // Close loading dialog
       if (!mounted) return;
       Navigator.of(context).pop();
+      if (!mounted) return;
 
-      // Show error message
+      // Deletion tears the session down as its FIRST stage, so by the time a
+      // later stage fails the Home/Settings tree behind this dialog is driving
+      // a disposed service. Leaving the user there (the old behaviour: dismiss
+      // the spinner, show a snackbar, stay put) means every subsequent action
+      // operates on a dead session. Return to the login page and surface the
+      // failure there; the deletion tombstone stays pending and cold-start
+      // recovery retries it.
+      final message = AppLocalizations.of(
+        context,
+      )!.deleteAccountFailed(SafeDiagnostics.describeError(e));
+      if (AccountService.sessionWasTornDownBy(e)) {
+        Navigator.of(context).pushAndRemoveUntil(
+          AppPageRoute<void>(page: const LoginPage()),
+          (route) => false,
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            AppLocalizations.of(
-              context,
-            )!.deleteAccountFailed(SafeDiagnostics.describeError(e)),
-          ),
+          content: Text(message),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );

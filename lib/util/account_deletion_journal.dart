@@ -214,21 +214,70 @@ abstract final class AccountDeletionJournalStore {
     return null;
   }
 
+  /// Every readable tombstone.
+  ///
+  /// UNREADABLE FILES ARE QUARANTINED, NOT FATAL. This used to abort the whole
+  /// scan on the first file it could not parse, and that scan sits on three hot
+  /// paths: cold-start recovery, `throwIfDeleting` (every login and every
+  /// account switch), and `clear`. So one stray or truncated `.json` in this
+  /// directory blocked deletion recovery, blocked every login, and — because
+  /// cold-start recovery runs before `runApp` — left a black screen.
+  ///
+  /// A tombstone we cannot parse tells us nothing about which account it names,
+  /// so it cannot gate anything: keeping it would block every account forever
+  /// rather than the one it was about. It is renamed to `.corrupt` (preserved,
+  /// not deleted — it is the only record that a deletion was in progress) and
+  /// reported through [quarantined] so the caller can surface it.
   static Future<List<AccountDeletionTombstone>> readAll() async {
     final dir = await _directory();
     if (!await dir.exists()) return const <AccountDeletionTombstone>[];
     final tombstones = <AccountDeletionTombstone>[];
     await for (final entry in dir.list()) {
       if (entry is! File || !entry.path.endsWith('.json')) continue;
-      final decoded = json.decode(await entry.readAsString());
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException(
-          'Account deletion tombstone is not an object',
-        );
+      try {
+        final decoded = json.decode(await entry.readAsString());
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException(
+            'Account deletion tombstone is not an object',
+          );
+        }
+        tombstones.add(AccountDeletionTombstone.fromJson(decoded));
+      } catch (e) {
+        await _quarantine(entry, e);
       }
-      tombstones.add(AccountDeletionTombstone.fromJson(decoded));
     }
     return tombstones;
+  }
+
+  /// Tombstone files quarantined during this process' lifetime, by basename.
+  ///
+  /// Exposed so startup can report that a deletion record was unreadable
+  /// instead of silently carrying on as if none existed.
+  static Set<String> get quarantined => Set.unmodifiable(_quarantined);
+  static final Set<String> _quarantined = <String>{};
+
+  /// Rename an unparseable tombstone out of the way, preserving it.
+  ///
+  /// Best-effort: if the rename itself fails the file stays, and the next scan
+  /// will try again — which is survivable now that a parse failure no longer
+  /// aborts the scan.
+  static Future<void> _quarantine(File entry, Object cause) async {
+    final name = p.basename(entry.path);
+    _quarantined.add(name);
+    SafeDiagnostics.logFailure(
+      '[AccountDeletionJournalStore] quarantining an unreadable tombstone '
+      '(it cannot identify an account, so it cannot gate one)',
+      cause,
+    );
+    try {
+      await entry.rename('${entry.path}.corrupt');
+    } catch (renameError) {
+      SafeDiagnostics.logFailure(
+        '[AccountDeletionJournalStore] could not quarantine the unreadable '
+        'tombstone; it will be skipped again next scan',
+        renameError,
+      );
+    }
   }
 
   static Future<bool> hasPendingForToxId(String toxId) async {
@@ -248,9 +297,18 @@ abstract final class AccountDeletionJournalStore {
     if (!await dir.exists()) return;
     await for (final entry in dir.list()) {
       if (entry is! File || !entry.path.endsWith('.json')) continue;
-      final decoded = json.decode(await entry.readAsString());
-      if (decoded is! Map<String, dynamic>) continue;
-      final tombstone = AccountDeletionTombstone.fromJson(decoded);
+      // Same policy as `readAll`: a file we cannot parse must not abort the
+      // sweep, or one bad file would keep a COMPLETED deletion's tombstone
+      // alive forever and re-run its stages on every cold start.
+      AccountDeletionTombstone tombstone;
+      try {
+        final decoded = json.decode(await entry.readAsString());
+        if (decoded is! Map<String, dynamic>) continue;
+        tombstone = AccountDeletionTombstone.fromJson(decoded);
+      } catch (e) {
+        await _quarantine(entry, e);
+        continue;
+      }
       if (compareToxIds(tombstone.toxId, toxId)) {
         await entry.delete();
       }

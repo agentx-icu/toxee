@@ -16,6 +16,7 @@ import '../../util/feature_flags.dart';
 import '../../util/logger.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
+import '../../util/session_password_store.dart';
 import '../../util/safe_diagnostics.dart';
 
 part 'first_run_backup_wizard_parts.dart';
@@ -129,6 +130,33 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
   static const int _totalSteps = 1;
   static const int _currentStep = 1;
 
+  /// The password this export must be encrypted with, or null for an
+  /// unprotected account.
+  ///
+  /// The wizard runs immediately after registration, and at that moment a
+  /// password-protected account's `tox_profile.tox` is PLAINTEXT on disk —
+  /// `registerNewAccount` encrypts it, verifies, then reopens the scoped service
+  /// against the decrypted file. So exporting the raw bytes produced an
+  /// UNENCRYPTED backup of an account the user had just chosen to protect, and
+  /// on mobile that copy also stayed in app storage. Reuse the live session
+  /// password so the backup carries the same protection the account does.
+  ///
+  /// Returns null when the account has no password. Throws when it HAS one but
+  /// the session password is unavailable (which should not happen this soon
+  /// after registration) — refusing beats silently writing a plaintext backup;
+  /// Settings' export prompts for the password and is the recovery path.
+  Future<String?> _exportPassword() async {
+    if (!await Prefs.hasAccountPassword(widget.toxId)) return null;
+    final sessionPassword = SessionPasswordStore.get(widget.toxId);
+    if (sessionPassword == null || sessionPassword.isEmpty) {
+      throw StateError(
+        'refusing to write an unencrypted backup of a password-protected '
+        'account: the session password is unavailable',
+      );
+    }
+    return sessionPassword;
+  }
+
   Future<void> _exportNow() async {
     if (_busy) return;
     final l10n = AppLocalizations.of(context)!;
@@ -187,7 +215,10 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
               }
               return path;
             }
-            return AccountExportService.exportAccountData(toxId: widget.toxId);
+            return AccountExportService.exportAccountData(
+              toxId: widget.toxId,
+              password: await _exportPassword(),
+            );
           },
           dialogTitle: l10n.firstRunBackupWizardTitle,
           fileName: defaultFileName,
@@ -217,6 +248,7 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       } else {
         await AccountExportService.exportAccountData(
           toxId: widget.toxId,
+          password: await _exportPassword(),
           filePath: outputPath,
         );
       }

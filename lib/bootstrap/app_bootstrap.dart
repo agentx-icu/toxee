@@ -12,6 +12,7 @@ import '../util/account_service.dart';
 import '../util/app_paths.dart';
 import '../util/lan_bootstrap_service.dart';
 import '../util/logger.dart';
+import '../util/safe_diagnostics.dart';
 import 'app_bootstrap_result.dart';
 import 'app_runtime_bootstrap.dart';
 import 'desktop_shell_bootstrap.dart';
@@ -33,7 +34,27 @@ class AppBootstrap {
     await cleanupScratchAtColdStart();
     // Fail closed: journaled restore recovery must finish before account
     // reconciliation or any later auto-login path can expose partial state.
-    await recoverPendingRestoreBeforeAccountExposure();
+    //
+    // "Fail closed" means no account is exposed — NOT that the app refuses to
+    // render. This used to throw straight past `runApp` in `main()`, so an
+    // unparseable journal (a truncated write is precisely what these journals
+    // exist to survive) produced a black screen with no message and no way in.
+    // Convert it into a blocking recovery screen instead, which preserves the
+    // guarantee the recovery-order test pins while leaving the user something
+    // actionable.
+    try {
+      await recoverPendingRestoreBeforeAccountExposure();
+    } catch (e, st) {
+      AppLogger.logError(
+        '[AppBootstrap] account recovery could not be completed; refusing to '
+        'expose any account',
+        e,
+        st,
+      );
+      return AppBootstrapRecoveryBlocked(
+        detail: SafeDiagnostics.describeError(e),
+      );
+    }
     // If the previous run crashed while the LAN bootstrap service was active,
     // the running-flag plus pre-LAN snapshot may still be on disk while no
     // native instance exists. Restore the prior bootstrap node and clear the

@@ -1459,6 +1459,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importCancelled => '已取消';
 
   @override
+  String get recoveryBlockedTitle => '账号恢复未完成';
+
+  @override
+  String get recoveryBlockedBody =>
+      'toxee 发现一个未完成的账号恢复或删除操作，且无法读取其记录，因此没有打开任何账号——继续可能会破坏数据。\n\n你的账号及其文件仍在本机。请不要重新注册，也不要清除应用数据，否则数据会永久丢失。请反馈下方信息以便修复。';
+
+  @override
   String get accountRegistryUnreadable =>
       '无法读取已保存的账号列表。账号文件仍在本机，请不要重新注册；请反馈此问题以便修复账号列表。';
 

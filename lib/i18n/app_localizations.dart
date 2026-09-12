@@ -2782,6 +2782,18 @@ abstract class AppLocalizations {
   /// **'Cancelled'**
   String get importCancelled;
 
+  /// No description provided for @recoveryBlockedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Account recovery incomplete'**
+  String get recoveryBlockedTitle;
+
+  /// No description provided for @recoveryBlockedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.'**
+  String get recoveryBlockedBody;
+
   /// No description provided for @accountRegistryUnreadable.
   ///
   /// In en, this message translates to:

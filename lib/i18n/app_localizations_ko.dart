@@ -1474,6 +1474,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get importCancelled => 'Cancelled';
 
   @override
+  String get recoveryBlockedTitle => 'Account recovery incomplete';
+
+  @override
+  String get recoveryBlockedBody =>
+      'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.';
+
+  @override
   String get accountRegistryUnreadable =>
       'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.';
 

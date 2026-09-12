@@ -81,6 +81,18 @@ Future<MobileExportSaveResult> saveMobileExportCopy({
     fileName: fileName,
     bytes: bytes,
   );
+  if (userSelectedPath != null) {
+    // The internal copy was STAGING for the save sheet, and the user now has
+    // their own. Keeping it left a second copy of the account's Tox profile —
+    // its private key — inside app storage indefinitely, and on iOS that
+    // directory is exposed by `UIFileSharingEnabled`. Nothing reads it after
+    // this point, so remove it.
+    //
+    // A CANCELLED save deliberately keeps it (see
+    // [MobileExportSaveResult.cancellationNotice]): the user asked for a backup
+    // and that copy is the only one that exists.
+    await _deleteQuietly(internalFilePath);
+  }
   return MobileExportSaveResult(
     disposition: userSelectedPath == null
         ? MobileExportSaveDisposition.cancelled
@@ -88,6 +100,19 @@ Future<MobileExportSaveResult> saveMobileExportCopy({
     internalFilePath: internalFilePath,
     userSelectedPath: userSelectedPath,
   );
+}
+
+/// Remove a staging file, ignoring failures.
+///
+/// The export already succeeded from the user's point of view; failing it now
+/// over a leftover temp file would be worse than the leftover.
+Future<void> _deleteQuietly(String path) async {
+  try {
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+  } catch (_) {
+    // Best effort.
+  }
 }
 
 Future<MobileExportSaveResult> createAndSaveMobileExportCopy({

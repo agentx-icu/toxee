@@ -27,6 +27,7 @@ part 'prefs/security_prefs.dart';
 part 'prefs/account_prefs.dart';
 part 'prefs/chat_prefs.dart';
 part 'prefs/password_key_migration.dart';
+part 'prefs/account_secure_secrets.dart';
 
 /// Static facade for app preferences. New code should prefer repository instances
 /// ([PrefsImpl] or [prefs_interfaces.dart] interfaces) for testability and bounded context.
@@ -276,16 +277,38 @@ class Prefs {
     return _cachedCurrentAccountToxId;
   }
 
+  /// Point the app at [toxId] as the active account, or clear the pointer.
+  ///
+  /// The in-process cache is updated to match what was actually PERSISTED. It
+  /// used to be updated unconditionally, while `setString`/`remove` return a
+  /// bool that was discarded — so a refused write left the cache claiming a
+  /// pointer the next cold start would not see. That mismatch is exactly the
+  /// kind of disagreement between the pointer, `account_list` and the profile
+  /// directory that the deletion and activation paths cannot reason about.
+  ///
+  /// A failed write is logged and the cache is INVALIDATED rather than
+  /// poisoned, so the next read goes back to the store and observes the truth.
   static Future<void> setCurrentAccountToxId(String? toxId) async {
     final p = await _getPrefs();
+    final bool wrote;
+    final String? intended;
     if (toxId == null || toxId.isEmpty) {
-      await p.remove(_kCurrentAccountToxId);
-      _cachedCurrentAccountToxId = null;
+      wrote = await p.remove(_kCurrentAccountToxId);
+      intended = null;
     } else {
-      final trimmed = toxId.trim();
-      await p.setString(_kCurrentAccountToxId, trimmed);
-      _cachedCurrentAccountToxId = trimmed;
+      intended = toxId.trim();
+      wrote = await p.setString(_kCurrentAccountToxId, intended);
     }
+    if (!wrote) {
+      AppLogger.warn(
+        '[Prefs] current-account pointer write was refused; invalidating the '
+        'cache so reads fall back to the store',
+      );
+      _cachedCurrentAccountToxId = null;
+      _accountToxIdCached = false;
+      return;
+    }
+    _cachedCurrentAccountToxId = intended;
     _accountToxIdCached = true;
   }
 
@@ -1814,40 +1837,12 @@ class Prefs {
 
   /// Delete every SECURE-STORAGE secret owned by [toxId].
   ///
-  /// Account deletion otherwise misses these entirely. Its cleanup stages sweep
-  /// SharedPreferences (by the `_<first16>` suffix) and remove the account's
-  /// password verifier — but IRC channel passwords live in the Keychain /
-  /// Keystore / libsecret / DPAPI under
-  /// `irc_channel_password_<channel>_<first16>`, and nothing enumerated secure
-  /// storage. Deleting an account left its channel passwords on the device
-  /// indefinitely.
-  ///
-  /// Takes an explicit [toxId] rather than reading the active account: deletion
-  /// runs for non-current accounts too (the login-page path has no session at
-  /// all), and the every-other-IRC-getter "current account" convention would
-  /// then purge the wrong scope — or nothing.
-  ///
-  /// MUST run before the prefs stage clears `irc_channels_<prefix>`, because
-  /// that list is the only record of which channels to look up.
-  ///
-  /// Returns false when any delete was refused, so the caller can leave the
-  /// deletion tombstone pending and retry rather than declaring success over
-  /// secrets that are still on disk.
-  static Future<bool> purgeAccountSecureSecrets(String toxId) async {
-    final normalized = toxId.trim();
-    if (normalized.isEmpty) return true;
-    final p = await _getPrefs();
-    final channels = await _getIrcChannelsImpl(
-      p,
-      _scopedKey(_kIrcChannels, normalized),
-    );
-    var allDeleted = true;
-    for (final channel in channels) {
-      final key = _scopedKey(_ircChannelPasswordKey(channel), normalized);
-      if (!await _secureDelete(key)) allDeleted = false;
-    }
-    return allDeleted;
-  }
+  /// Account deletion sweeps SharedPreferences and removes the account's
+  /// password verifier, but nothing enumerated the Keychain / Keystore — so IRC
+  /// channel passwords outlived the account. Implementation and the ordering
+  /// constraint are in `prefs/account_secure_secrets.dart`.
+  static Future<bool> purgeAccountSecureSecrets(String toxId) =>
+      purgeAccountSecureSecretsImpl(toxId);
 
   static Future<void> removeIrcChannelPassword(String channel) async {
     final current = await getCurrentAccountToxId();

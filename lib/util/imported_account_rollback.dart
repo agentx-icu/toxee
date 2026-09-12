@@ -25,15 +25,24 @@ abstract final class ImportedAccountRollback {
   static Future<ImportedAccountOwnership> captureOwnership(String toxId) async {
     final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
     final accountDataRoot = await AppPaths.getAccountDataRoot(toxId);
+    final profileFile = File(AppPaths.profileFileInDirectory(profileDir));
     return ImportedAccountOwnership(
       ownsProfileDirectory: !await Directory(profileDir).exists(),
       ownsAccountDataRoot: !await Directory(accountDataRoot).exists(),
+      ownsProfileFile: !await profileFile.exists(),
     );
   }
 
-  /// Roll back the prefs/registry rows unconditionally (they are keyed by the
-  /// full toxId, so they are unambiguously this import's), and the directories
-  /// only when [ownership] says this import created them.
+  /// Roll back the prefs/registry rows unconditionally, and the on-disk state
+  /// only where [ownership] says this import created it.
+  ///
+  /// The prefs cleanup is NOT as cleanly attributable as the registry row:
+  /// `Prefs.clearAccountData` also sweeps `_<first16>`-scoped keys, and that
+  /// prefix is shared by any account with the same leading 16 hex chars. It is
+  /// still run unconditionally because the import is the only thing that could
+  /// have written those keys for a brand-new account, and a stale scoped pref is
+  /// recoverable where a deleted profile is not — but directory ownership does
+  /// not imply ownership of the prefs, so do not use one to justify the other.
   ///
   /// [ownership] defaults to "we own nothing on disk", which is the safe
   /// reading for a caller that could not capture it — prefs are still cleaned
@@ -63,6 +72,23 @@ abstract final class ImportedAccountRollback {
         },
         logContext: logContext,
         stage: 'profile_directory',
+      );
+    } else if (ownership.ownsProfileFile) {
+      // The directory pre-existed but `tox_profile.tox` did not, so the import
+      // created just the file. Leaving it behind made every later import of the
+      // same account report "account already exists" (both entry points guard on
+      // that file), and `AccountReconciliation` cannot rescue it either — it
+      // skips profiles whose identity it cannot extract, which includes the
+      // encrypted ones this path writes. Remove the file we created without
+      // touching the directory, which is not ours.
+      await _attempt(
+        () async {
+          final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+          final file = File(AppPaths.profileFileInDirectory(profileDir));
+          if (await file.exists()) await file.delete();
+        },
+        logContext: logContext,
+        stage: 'profile_file',
       );
     }
     if (ownership.ownsAccountDataRoot) {
@@ -100,13 +126,21 @@ final class ImportedAccountOwnership {
   const ImportedAccountOwnership({
     required this.ownsProfileDirectory,
     required this.ownsAccountDataRoot,
+    this.ownsProfileFile = false,
   });
 
   /// "This import created nothing on disk" — the safe default.
   const ImportedAccountOwnership.none()
     : ownsProfileDirectory = false,
-      ownsAccountDataRoot = false;
+      ownsAccountDataRoot = false,
+      ownsProfileFile = false;
 
   final bool ownsProfileDirectory;
   final bool ownsAccountDataRoot;
+
+  /// True when `tox_profile.tox` did not exist at capture time, so the import
+  /// created it. Tracked separately from the directory: the directory can
+  /// pre-exist (holding a previous account's data) while the profile file does
+  /// not, and in that case only the FILE is ours to remove.
+  final bool ownsProfileFile;
 }
