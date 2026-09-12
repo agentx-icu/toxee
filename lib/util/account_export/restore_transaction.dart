@@ -7,7 +7,6 @@ import 'package:path/path.dart' as p;
 
 import '../app_paths.dart';
 import '../prefs.dart';
-import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
 import 'restore_metadata_sections.dart';
@@ -139,16 +138,6 @@ abstract final class FullBackupRestoreTransaction {
     FullBackupRestoreInput input,
   ) async {
     await recoverPendingRestore();
-    // A journal that SURVIVED recovery is one this process cannot resolve, and
-    // the transaction-id fence would then refuse every later restore forever.
-    // See `RestoreTransactionJournalStore.archiveUnresolved`.
-    if (await RestoreTransactionJournalStore.archiveUnresolved() != null) {
-      SafeDiagnostics.logFailure(
-        '[RestoreTransaction] an earlier restore could not be undone; its '
-        'record was archived so a new one can start',
-        StateError('unresolved restore journal archived'),
-      );
-    }
     final paths = await _RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
     final scopedPrefs = portableScopedPrefs(
@@ -171,7 +160,11 @@ abstract final class FullBackupRestoreTransaction {
     // during metadata application, so this snapshot is the only copy of what was
     // there. See the field docs on the journal.
     journal = await captureFullIdPrefs(journal);
-    await RestoreTransactionJournalStore.write(journal);
+    // A journal that SURVIVED recovery belongs to a rollback this process could
+    // not verify. Admitting this transaction CARRIES its snapshot forward, so
+    // the fence still protects those originals while the user is not locked out
+    // of restoring ever again. See `admitCarryingForward`.
+    journal = await RestoreTransactionJournalStore.admitCarryingForward(journal);
 
     try {
       await _stagePayload(input, paths);

@@ -250,6 +250,21 @@ class PasswordVerifier {
     if (!hashDeleted || !saltDeleted) {
       return false;
     }
+    // The 64-char public-key alias too. `ShortToxIdBackfill` re-keys an
+    // account's verifier from its 64-char public key to its 76-char address,
+    // and an interrupted migration (or a source delete that was swallowed)
+    // leaves the alias copy behind. `_lookup` resolves that copy exactly like a
+    // canonical one, so a removal that reported success would be undone by the
+    // next lookup - which migrates the alias back, reinstating a password the
+    // user has already revoked. Best-effort: the canonical delete above is what
+    // decides the return value.
+    final alias = _publicKeyAlias(toxId);
+    if (alias != null) {
+      await _secureStorage.delete(secureHashKey(alias));
+      await _secureStorage.delete(secureSaltKey(alias));
+      await _legacyStore.removeLegacyHash(alias);
+      await _legacyStore.removeLegacySalt(alias);
+    }
     await Future.wait([
       _legacyStore.removeLegacyHash(toxId),
       _legacyStore.removeLegacySalt(toxId),
@@ -357,6 +372,26 @@ class PasswordVerifier {
       }
       return legacy;
     }
+    // And the LEGACY store under the alias. Looking for the alias only in
+    // secure storage left a fail-OPEN gap: a pre-S1 install whose credential is
+    // still `account_password_<64char>`, and whose `ShortToxIdBackfill` rewrote
+    // the registry row but did not finish `migrateAccountPasswordKeys`, has its
+    // row at 76 and its only hash at legacy-64. Secure storage answers (with
+    // nothing), so `protectionState` reports `none` rather than `unknown` and
+    // the auto-login gate opens an account whose password is still on disk.
+    // `short_tox_id_backfill.dart` justifies continuing past a failed key
+    // migration with "the credential stays under the alias, which
+    // PasswordVerifier resolves" - true for secure entries, and now true here.
+    final aliasId = _publicKeyAlias(toxId);
+    if (aliasId != null) {
+      final aliasLegacy = await _legacyStore.readLegacyHash(aliasId);
+      if (aliasLegacy != null && aliasLegacy.isNotEmpty) {
+        if (await _secureStorage.write(secureKey, aliasLegacy)) {
+          await _legacyStore.removeLegacyHash(aliasId);
+        }
+        return aliasLegacy;
+      }
+    }
     return null;
   }
 
@@ -416,6 +451,19 @@ class PasswordVerifier {
         await _legacyStore.removeLegacySalt(toxId);
       }
       return legacy;
+    }
+    // The salt follows the hash through the LEGACY alias too, for the same
+    // reason it follows it through the secure one: a hash found under the alias
+    // and a salt that was not looked for there verify against nothing.
+    final aliasId = _publicKeyAlias(toxId);
+    if (aliasId != null) {
+      final aliasLegacy = await _legacyStore.readLegacySalt(aliasId);
+      if (aliasLegacy != null && aliasLegacy.isNotEmpty) {
+        if (await _secureStorage.write(secureKey, aliasLegacy)) {
+          await _legacyStore.removeLegacySalt(aliasId);
+        }
+        return aliasLegacy;
+      }
     }
     return null;
   }

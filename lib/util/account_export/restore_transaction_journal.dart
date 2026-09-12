@@ -236,25 +236,55 @@ abstract final class RestoreTransactionJournalStore {
         await _clearUnguarded();
       });
 
-  /// Move an UNRESOLVED record aside instead of deleting or overwriting it.
+  /// Admit a NEW transaction for [journal]'s account, CARRYING FORWARD the
+  /// snapshot of any record it replaces.
   ///
   /// The transaction-id fence protects a journal that a failed rollback kept for
-  /// retry - but a rollback that can never verify its preference writes keeps it
-  /// forever, and then every later restore is refused with no way out: the
-  /// rollback already removed the account row, so the user cannot even select
-  /// that account for the deletion path that discards journals. Archiving keeps
-  /// the snapshot on disk (it is the only copy of the originals that rollback
-  /// failed to put back) while releasing the fence.
+  /// retry. Without a way past it, a rollback whose preference writes can never
+  /// verify keeps that journal forever and every later restore is refused - and
+  /// the same rollback already removed the account row, so the account cannot
+  /// even be selected for the deletion path that discards journals.
   ///
-  /// Returns the archived file's path, or null when there was nothing to move.
-  static Future<String?> archiveUnresolved() =>
+  /// Moving the old record to a side file was the first attempt and was worse:
+  /// nothing reads those files, so a SINGLE temporary write refusal would have
+  /// removed a recoverable snapshot from startup recovery permanently, and the
+  /// files outlived account deletion carrying a blocked-peer list and message
+  /// payloads with them. Carrying the snapshot into the new record instead needs
+  /// no new files, no lifecycle and no cleanup: the retained values predate both
+  /// transactions, so they are the ones the user actually wants back, and the
+  /// new transaction's own rollback restores them.
+  ///
+  /// Returns the journal as written. Refuses a record belonging to ANOTHER
+  /// account - that snapshot is not ours to carry or discard.
+  static Future<RestoreTransactionJournal> admitCarryingForward(
+    RestoreTransactionJournal journal,
+  ) =>
       _gate.run(() async {
+        final existing = await _readUnguarded();
+        if (existing == null) {
+          await _writeUnguarded(journal);
+          return journal;
+        }
+        if (!compareToxIds(existing.toxId, journal.toxId)) {
+          throw const RestoreInFlightException();
+        }
+        // One atomic write replaces the old record with one that contains its
+        // snapshot, so there is no window in which neither holds it.
+        final carried = existing.priorBlackListCaptured ||
+                existing.priorFailedQueueCaptured
+            ? journal.copyWith(
+                priorBlackListCaptured: existing.priorBlackListCaptured,
+                priorBlackList: existing.priorBlackList,
+                priorFailedQueueCaptured: existing.priorFailedQueueCaptured,
+                priorFailedQueue: existing.priorFailedQueue,
+              )
+            : journal;
         final file = await _journalFile();
-        if (!await file.exists()) return null;
-        final stamp = DateTime.now().millisecondsSinceEpoch;
-        final target = '${file.path}.unresolved-$stamp';
-        await file.rename(target);
-        return target;
+        await writeBytesAtomically(
+          file,
+          utf8.encode(jsonEncode(carried.toJson())),
+        );
+        return carried;
       });
 
   static Future<void> _clearUnguarded() async {
