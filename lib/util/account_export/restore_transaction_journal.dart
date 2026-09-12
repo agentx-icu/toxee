@@ -7,7 +7,6 @@ import '../app_paths.dart';
 import '../async_gate.dart';
 import '../tox_utils.dart';
 import 'atomic_file_write.dart';
-import 'restore_transaction.dart';
 
 // Durable journal for a full-backup restore: the state model and its on-disk
 // store. Split out of `restore_transaction.dart` (complexity-gate pin); the
@@ -195,10 +194,12 @@ final class RestoreInFlightException implements Exception {
 /// The rollback was NOT started, because its intent could not be recorded.
 ///
 /// Distinct from a rollback that ran and then failed partway: nothing was
-/// removed, the transaction is whole, and recovery will finish the restore. The
-/// UI needs that difference - "your account may still be there" is the right
-/// guidance for this, and misleading for a cleanup that failed after the account
-/// row and payload were already gone.
+/// removed and the transaction is whole. What recovery does next depends on how
+/// far this got - with the intent already recorded it RETRIES the rollback,
+/// without it the restore stands - but either way the account is still there,
+/// which is what the user has to be told. "Your account may still be there" is
+/// right for this and misleading for a cleanup that failed after the account row
+/// and payload were already gone.
 final class RestoreRollbackNotStartedException implements Exception {
   const RestoreRollbackNotStartedException(this.cause);
 

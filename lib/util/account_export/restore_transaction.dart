@@ -302,11 +302,12 @@ abstract final class FullBackupRestoreTransaction {
       if (_ownership.holds(journal.transactionId)) _ownership.release();
       throw RestoreRollbackNotStartedException(e);
     }
+    // Baseline BEFORE anything is touched; see `captureRollbackWitness`.
+    final witness = await captureRollbackWitness(journal);
     try {
       await rollbackRestoreTransaction(journal);
     } catch (e) {
-      // Classified by asking the DISK; see `restoreLooksUntouched`.
-      if (await restoreLooksUntouched(journal)) {
+      if (await rollbackRemovedNothing(journal, witness)) {
         throw RestoreRollbackNotStartedException(e);
       }
       rethrow;
