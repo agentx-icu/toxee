@@ -185,7 +185,11 @@ def check_ui_anchors() -> None:
             'settings account-switch confirm attachment',
         ),
         (
-            'lib/ui/settings/settings_page.dart',
+            # Moved out of settings_page.dart when the logout handler was split
+            # into ask (`_logout`) and do (`_performLogout`) so the legacy-data
+            # recovery flow could end the session without a second, cancellable
+            # confirmation. The anchor itself is unchanged.
+            'lib/ui/settings/settings_page_session_actions.dart',
             'key: UiKeys.settingsLogoutConfirmButton',
             'settings logout confirm attachment',
         ),
