@@ -11,13 +11,16 @@ import '../prefs.dart';
 import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
+import 'restore_input.dart';
 import 'restore_metadata_sections.dart';
+import 'restore_ownership.dart';
 import 'restore_paths.dart';
 import 'restore_test_hooks.dart';
 import 'restore_transaction_journal.dart';
 
 // The durable journal (model + on-disk store) lives in its own file; re-exported
 // so existing importers of this one keep resolving it.
+export 'restore_input.dart';
 export 'restore_test_hooks.dart';
 export 'restore_transaction_journal.dart';
 
@@ -85,44 +88,20 @@ final class RestoreDestinationExistsError extends StateError {
 
 
 
-final class FullBackupRestoreInput {
-  const FullBackupRestoreInput({
-    required this.toxId,
-    required this.nickname,
-    required this.archive,
-    required this.metadata,
-    required this.toxProfile,
-  });
-
-  final String toxId;
-  final String nickname;
-  final Archive archive;
-  final Map<String, dynamic> metadata;
-  final Uint8List? toxProfile;
-}
 
 abstract final class FullBackupRestoreTransaction {
   FullBackupRestoreTransaction._();
 
-  /// Serializes whole restore WORKFLOWS. The journal store's own gate protects
+  /// Serializes whole restore WORKFLOWS: the journal store's own gate protects
   /// each read or write, not a transaction's ownership across the steps between
-  /// them: two restores of one account could both pass recovery and preflight,
-  /// the second replacing the first's journal mid-staging, and the first's catch
-  /// would then roll back the SECOND transaction. NOT re-entrant - everything
-  /// inside uses the `Unguarded` bodies.
+  /// them. NOT re-entrant - everything inside uses the `Unguarded` bodies.
   static final AsyncGate _transactionGate = AsyncGate();
 
-  /// The transaction whose CALLER still owns it: `restore` has returned with the
-  /// data committed and that caller has yet to publish the account row and
-  /// finalize. The gate releases when `restore` returns, so without this a
-  /// queued restore ran recovery, saw a committed journal with no account row,
-  /// and deleted the first caller's profile and history. Process-local: a cold
-  /// start has no owner and must still resolve whatever it finds.
-  static String? _ownedTransactionId;
+  static final RestoreOwnership _ownership = RestoreOwnership();
 
   /// For tests that abandon a transaction mid-flight.
   @visibleForTesting
-  static void resetOwnership() => _ownedTransactionId = null;
+  static void resetOwnership() => _ownership.reset();
 
   static Future<Map<String, dynamic>> restore(FullBackupRestoreInput input) =>
       _transactionGate.run(() => _restoreUnguarded(input));
@@ -130,17 +109,16 @@ abstract final class FullBackupRestoreTransaction {
   static Future<Map<String, dynamic>> _restoreUnguarded(
     FullBackupRestoreInput input,
   ) async {
-    if (_ownedTransactionId != null) {
+    if (_ownership.isHeld) {
       // Ownership means something only while the journal it names is still on
-      // disk. A caller that finished (or whose journal was resolved some other
-      // way) must not leave every later restore in this process refused - that
-      // would turn one abandoned transaction into a permanent outage.
+      // disk: one abandoned transaction must not refuse every later restore in
+      // the process.
       final current = await RestoreTransactionJournalStore.read();
-      if (current != null && current.transactionId == _ownedTransactionId) {
+      if (current != null && _ownership.holds(current.transactionId)) {
         // Committed, waiting to publish: our recovery would undo it.
         throw const RestoreInFlightException();
       }
-      _ownedTransactionId = null;
+      _ownership.release();
     }
     await _recoverPendingRestoreUnguarded();
     final paths = await RestorePaths.resolve(input.toxId);
@@ -225,7 +203,10 @@ abstract final class FullBackupRestoreTransaction {
       // Ownership passes to the CALLER here: it still has to publish the
       // account row and finalize, and until it does, nothing else may recover
       // or replace this transaction. Released by finalize and by rollback.
-      _ownedTransactionId = journal.transactionId;
+      _ownership.claim(
+        transactionId: journal.transactionId,
+        toxId: input.toxId,
+      );
       return <String, dynamic>{
         'toxId': input.toxId,
         'nickname': input.nickname,
@@ -253,7 +234,7 @@ abstract final class FullBackupRestoreTransaction {
   static Future<void> _finalizePendingRestoreUnguarded(String toxId) async {
     var journal = await RestoreTransactionJournalStore.read();
     if (journal == null) {
-      _ownedTransactionId = null;
+      _ownership.release();
       return;
     }
     if (!compareToxIds(journal.toxId, toxId)) {
@@ -273,7 +254,7 @@ abstract final class FullBackupRestoreTransaction {
       FullBackupRestoreFailurePoint.afterAccountRegistryVisible,
     );
     await RestoreTransactionJournalStore.clear();
-    _ownedTransactionId = null;
+    _ownership.release();
   }
 
 
@@ -301,9 +282,12 @@ abstract final class FullBackupRestoreTransaction {
     } catch (_) {
       // The read told us nothing, but this caller is leaving either way, and
       // holding its ownership would refuse every later restore in the process.
-      // Released only for the transaction the caller named as its own.
-      if (transactionId != null && transactionId == _ownedTransactionId) {
-        _ownedTransactionId = null;
+      // Matched on EITHER identity: the UI wrappers know only the account.
+      if (_ownership.heldByCaller(
+        transactionId: transactionId,
+        toxId: toxId,
+      )) {
+        _ownership.release();
       }
       rethrow;
     }
@@ -323,11 +307,19 @@ abstract final class FullBackupRestoreTransaction {
         journal.copyWith(rollbackRequested: true),
       );
     } catch (e) {
+      // DO NOT start a rollback we cannot record. Carrying on was worse than
+      // failing: on a read-only filesystem the deletes fail too, and recovery
+      // then reads the surviving row and payload as a success - clearing the
+      // journal and the only snapshots of the user's blocked peers and pending
+      // messages with it. Untouched, recovery FINISHES the restore instead:
+      // not what the caller asked for, but nothing is destroyed.
       SafeDiagnostics.logFailure(
-        '[RestoreTransaction] could not record rollback intent; recovery may '
-        'read a half-undone transaction as committed',
+        '[RestoreTransaction] could not record rollback intent; leaving the '
+        'transaction for recovery rather than half-undoing it',
         e,
       );
+      if (_ownership.holds(journal.transactionId)) _ownership.release();
+      rethrow;
     }
     try {
       await rollbackRestoreTransaction(journal);
@@ -336,9 +328,7 @@ abstract final class FullBackupRestoreTransaction {
       // walk away, so holding ownership past it left recovery skipping the
       // journal and every later restore refused, permanently. The journal is
       // deliberately kept, for recovery to retry.
-      if (journal.transactionId == _ownedTransactionId) {
-        _ownedTransactionId = null;
-      }
+      if (_ownership.holds(journal.transactionId)) _ownership.release();
     }
   }
 
@@ -348,7 +338,7 @@ abstract final class FullBackupRestoreTransaction {
   static Future<void> _recoverPendingRestoreUnguarded() async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
-    if (journal.transactionId == _ownedTransactionId) {
+    if (_ownership.holds(journal.transactionId)) {
       // Its caller is alive and mid-publication; only that caller may finish or
       // undo it. A cold start clears `_ownedTransactionId` by construction.
       return;
