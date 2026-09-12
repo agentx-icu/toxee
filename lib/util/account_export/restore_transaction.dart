@@ -279,7 +279,7 @@ abstract final class FullBackupRestoreTransaction {
     final RestoreTransactionJournal? journal;
     try {
       journal = await RestoreTransactionJournalStore.read();
-    } catch (_) {
+    } catch (e) {
       // The read told us nothing, but this caller is leaving either way, and
       // holding its ownership would refuse every later restore in the process.
       // Matched on EITHER identity: the UI wrappers know only the account.
@@ -289,7 +289,10 @@ abstract final class FullBackupRestoreTransaction {
       )) {
         _ownership.release();
       }
-      rethrow;
+      // Also UNSTARTED: this threw before anything was removed, so the
+      // transaction is whole. Rethrowing raw classified it as a late cleanup
+      // failure and suppressed the warning for an account that is still there.
+      throw RestoreRollbackNotStartedException(e);
     }
     if (journal == null) return;
     if (toxId != null && !compareToxIds(journal.toxId, toxId)) {

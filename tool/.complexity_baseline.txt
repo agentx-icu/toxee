@@ -66,7 +66,7 @@ lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:887
 lib/ui/home_page.dart:2449
 lib/ui/home_page_bootstrap.dart:1640
-lib/ui/login_page.dart:1551
+lib/ui/login_page.dart:1508
 lib/ui/profile_page.dart:577
 lib/ui/search/custom_search.dart:1018
 lib/ui/search/search_chat_history_window.dart:646
