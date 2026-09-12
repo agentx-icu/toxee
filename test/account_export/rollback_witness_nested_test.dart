@@ -24,10 +24,7 @@ void main() {
 
   test('nested payload loss is NOT classified as untouched', () async {
     final root = await Directory.systemTemp.createTemp('witness_nested_');
-    addTearDown(() async {
-      await Process.run('chmod', ['-R', 'u+w', root.path]);
-      await root.delete(recursive: true);
-    });
+    addTearDown(() async => root.delete(recursive: true));
     final dataRoot = Directory('${root.path}/account_data')..createSync();
     final history = Directory('${dataRoot.path}/chat_history')..createSync();
     final peer = File('${history.path}/peer.json')..writeAsStringSync('{}');
