@@ -18,6 +18,14 @@ import 'restore_transaction.dart';
 // finishing and rolling back. `RestoreTransactionState` lives with the
 // transaction because the transaction defines the ordering.
 
+enum RestoreTransactionState {
+  staged,
+  profileCommitted,
+  accountDataCommitted,
+  scopedPrefsApplied,
+  accountRegistryVisible,
+}
+
 final class RestoreTransactionJournal {
   const RestoreTransactionJournal({
     required this.transactionId,

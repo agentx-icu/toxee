@@ -6,6 +6,7 @@ import '../app_paths.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
 import 'restore_metadata_sections.dart';
+import 'restore_test_hooks.dart';
 import 'restore_transaction_journal.dart';
 
 // The staging and final directory layout of a full-backup restore, split out of
@@ -112,4 +113,52 @@ Future<bool> restoreDataCommitted(RestoreTransactionJournal journal) async {
     if (!await File(profilePath).exists()) return false;
   }
   return Directory(journal.accountDataFinalDir).exists();
+}
+
+/// Whether a rollback that threw has in fact removed NOTHING.
+///
+/// Checked rather than inferred. A recursive directory delete can remove some
+/// entries before it throws, so tracking "have I deleted anything yet" cannot
+/// answer this; and the first deletions a committed restore performs are of
+/// staging directories that are already gone, so a failure on the first
+/// EFFECTIVE delete looks identical to a failure after many. Asking the disk
+/// instead is exact: if the payload is still committed and the account row is
+/// still published, the transaction the user is being told about really is
+/// intact.
+Future<bool> restoreLooksUntouched(RestoreTransactionJournal journal) async {
+  try {
+    if (!await restoreDataCommitted(journal)) return false;
+    return await Prefs.getAccountByToxId(journal.toxId) != null;
+  } catch (_) {
+    // Could not tell; the safe answer is "something may have been removed",
+    // because promising the user an intact account that is gone is the worse
+    // half of this.
+    return false;
+  }
+}
+
+/// Commit the pending restore for [toxId]: its caller has published the account
+/// row, so the journal's work is done and the record can go.
+Future<void> finalizeRestoreTransaction(String toxId) async {
+  var journal = await RestoreTransactionJournalStore.read();
+  if (journal == null) {
+    return;
+  }
+  if (!compareToxIds(journal.toxId, toxId)) {
+    throw StateError('Pending restore belongs to a different account');
+  }
+  if (!await restoreDataCommitted(journal)) {
+    throw StateError('Cannot finalize incomplete full-backup restore');
+  }
+  if (await Prefs.getAccountByToxId(toxId) == null) {
+    throw StateError('Cannot finalize before account registry is visible');
+  }
+  journal = journal.copyWith(
+    state: RestoreTransactionState.accountRegistryVisible,
+  );
+  await RestoreTransactionJournalStore.write(journal);
+  FullBackupRestoreTestHooks.maybeCrash(
+    FullBackupRestoreFailurePoint.afterAccountRegistryVisible,
+  );
+  await RestoreTransactionJournalStore.clear();
 }

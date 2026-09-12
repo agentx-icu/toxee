@@ -24,13 +24,6 @@ export 'restore_input.dart';
 export 'restore_test_hooks.dart';
 export 'restore_transaction_journal.dart';
 
-enum RestoreTransactionState {
-  staged,
-  profileCommitted,
-  accountDataCommitted,
-  scopedPrefsApplied,
-  accountRegistryVisible,
-}
 
 
 /// Which of the four directories a restore has to claim was already occupied.
@@ -229,33 +222,11 @@ abstract final class FullBackupRestoreTransaction {
   }
 
   static Future<void> finalizePendingRestore({required String toxId}) =>
-      _transactionGate.run(() => _finalizePendingRestoreUnguarded(toxId));
+      _transactionGate.run(() async {
+        await finalizeRestoreTransaction(toxId);
+        _ownership.release();
+      });
 
-  static Future<void> _finalizePendingRestoreUnguarded(String toxId) async {
-    var journal = await RestoreTransactionJournalStore.read();
-    if (journal == null) {
-      _ownership.release();
-      return;
-    }
-    if (!compareToxIds(journal.toxId, toxId)) {
-      throw StateError('Pending restore belongs to a different account');
-    }
-    if (!await restoreDataCommitted(journal)) {
-      throw StateError('Cannot finalize incomplete full-backup restore');
-    }
-    if (await Prefs.getAccountByToxId(toxId) == null) {
-      throw StateError('Cannot finalize before account registry is visible');
-    }
-    journal = journal.copyWith(
-      state: RestoreTransactionState.accountRegistryVisible,
-    );
-    await RestoreTransactionJournalStore.write(journal);
-    FullBackupRestoreTestHooks.maybeCrash(
-      FullBackupRestoreFailurePoint.afterAccountRegistryVisible,
-    );
-    await RestoreTransactionJournalStore.clear();
-    _ownership.release();
-  }
 
 
   /// [transactionId], when given, is the caller's OWN transaction: matching only
@@ -333,6 +304,12 @@ abstract final class FullBackupRestoreTransaction {
     }
     try {
       await rollbackRestoreTransaction(journal);
+    } catch (e) {
+      // Classified by asking the DISK; see `restoreLooksUntouched`.
+      if (await restoreLooksUntouched(journal)) {
+        throw RestoreRollbackNotStartedException(e);
+      }
+      rethrow;
     } finally {
       // Released even when the rollback THREW: both UI callers swallow that and
       // walk away, so holding ownership past it left recovery skipping the
