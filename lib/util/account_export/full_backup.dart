@@ -25,6 +25,7 @@ import '../prefs.dart';
 import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'atomic_file_write.dart';
+import 'exceptions.dart';
 import 'full_backup_crypto.dart';
 import 'restore_transaction.dart';
 import 'tox_file_io.dart';
@@ -96,14 +97,27 @@ Future<String> exportFullBackup({
 
   final archive = Archive();
 
-  // 1. Add tox_profile.tox (try primary and fallback paths)
+  // 1. Add tox_profile.tox (try primary and fallback paths).
+  //
+  // FAIL, do not omit. A missing profile used to be skipped silently: the export
+  // still reported success and still wrote a .zip, but that archive contained no
+  // identity. Restoring it produced a registered account that could never log
+  // in — and the user only discovered this at the moment they were relying on
+  // the backup. An archive without the identity is not a backup of the account,
+  // so refuse to write one.
   final resolvedToxPath = await AppPaths.resolveToxProfilePath(normalizedToxId);
-  if (resolvedToxPath != null) {
-    final profileData = await File(resolvedToxPath).readAsBytes();
-    archive.addFile(
-      ArchiveFile('tox_profile.tox', profileData.length, profileData),
+  if (resolvedToxPath == null) {
+    throw const MissingBackupProfileException();
+  }
+  final profileData = await File(resolvedToxPath).readAsBytes();
+  if (profileData.isEmpty) {
+    throw const MissingBackupProfileException(
+      'the account profile on disk is empty',
     );
   }
+  archive.addFile(
+    ArchiveFile('tox_profile.tox', profileData.length, profileData),
+  );
 
   // 2. Add chat_history/ directory
   try {
@@ -228,6 +242,13 @@ Future<String> exportFullBackup({
     // Also include account info. `formatVersion` lets a future schema bump
     // detect and refuse incompatible backups instead of silently importing
     // mis-shaped scoped prefs.
+    // The blocked-peer list is keyed by the FULL Tox ID (`black_list_<toxId>`),
+    // not by the `_<first16>` suffix `exportScopedPrefsForAccount` sweeps, so it
+    // was silently absent from every backup and a restore quietly unblocked
+    // everyone. Carry it explicitly.
+    final blockedPeers = (await Prefs.getBlackList(normalizedToxId)).toList()
+      ..sort();
+
     final metadata = <String, dynamic>{
       'formatVersion': _kBackupFormatVersion,
       'toxId': normalizedToxId,
@@ -235,6 +256,7 @@ Future<String> exportFullBackup({
       'statusMessage': account?['statusMessage'] ?? '',
       'exportDate': DateTime.now().toIso8601String(),
       'scopedPrefs': scopedPrefs,
+      if (blockedPeers.isNotEmpty) 'blockedPeers': blockedPeers,
     };
     final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
     final metadataBytes = utf8.encode(metadataJson);

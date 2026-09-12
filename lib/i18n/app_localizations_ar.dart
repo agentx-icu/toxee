@@ -1504,6 +1504,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get importCancelled => 'تم الإلغاء';
 
   @override
+  String get accountRegistryUnreadable =>
+      'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.';
+
+  @override
   String get importedAccountDefaultName => 'حساب مستورد';
 
   @override

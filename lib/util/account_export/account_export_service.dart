@@ -17,7 +17,9 @@ export 'exceptions.dart'
     show
         InvalidBackupFormatException,
         InvalidBackupPasswordException,
-        PasswordRequiredException;
+        MissingBackupProfileException,
+        PasswordRequiredException,
+        UndeterminedProfileEncryptionException;
 
 /// Account export/import service for .tox file format (compatible with qTox).
 class AccountExportService {

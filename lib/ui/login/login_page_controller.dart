@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import '../../auth/login_use_case.dart';
 import '../../util/account_export_service.dart';
@@ -288,10 +287,15 @@ class LoginPageController {
         toxId: toxId,
       );
       rollbackToxId ??= toxId;
+      // A `.zip` backup carries the account's status message in its metadata.
+      // It was being exported and then dropped on restore, so both import UIs
+      // created the row with '' and the next login pushed that empty status to
+      // Tox — overwriting exactly what the backup had preserved. `.tox` files
+      // genuinely have none, hence the fallback.
       await _addAccountFn(
         toxId: toxId,
         nickname: displayNickname,
-        statusMessage: '',
+        statusMessage: (accountData['statusMessage'] as String?) ?? '',
         autoLogin: false,
         autoAcceptFriends: false,
         notificationSoundEnabled: true,

@@ -1459,6 +1459,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importCancelled => '已取消';
 
   @override
+  String get accountRegistryUnreadable =>
+      '无法读取已保存的账号列表。账号文件仍在本机，请不要重新注册；请反馈此问题以便修复账号列表。';
+
+  @override
   String get importedAccountDefaultName => '已导入账号';
 
   @override

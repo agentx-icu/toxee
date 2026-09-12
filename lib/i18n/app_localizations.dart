@@ -2782,6 +2782,12 @@ abstract class AppLocalizations {
   /// **'Cancelled'**
   String get importCancelled;
 
+  /// No description provided for @accountRegistryUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.'**
+  String get accountRegistryUnreadable;
+
   /// No description provided for @importedAccountDefaultName.
   ///
   /// In en, this message translates to:

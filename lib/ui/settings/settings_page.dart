@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import 'account_export_flow.dart';
 import '../../util/imported_account_name.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
@@ -42,7 +43,6 @@ import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
 import 'sidebar.dart' show showSelfProfile;
 import '../pairing/pairing_host_page.dart';
-import '../testing/l3_debug_tools.dart';
 
 part 'settings_page_widgets.dart';
 part 'settings_page_mobile_widgets.dart';
@@ -341,7 +341,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadAccountList() async {
-    final accounts = await Prefs.getAccountList();
+    final List<Map<String, String>> accounts;
+    try {
+      accounts = await Prefs.getAccountList();
+    } on AccountRegistryUnreadableException catch (e) {
+      // Leave whatever is already displayed rather than replacing it with an
+      // empty list that reads as "you have one account". The periodic refresh
+      // will pick the registry up again if the read was transient.
+      SafeDiagnostics.logFailure(
+        '[SettingsPage] account registry unreadable; keeping the last known '
+        'list',
+        e,
+      );
+      return;
+    }
     final currentToxId = await Prefs.getCurrentAccountToxId();
     if (mounted) {
       setState(() {
@@ -367,14 +380,26 @@ class _SettingsPageState extends State<SettingsPage> {
     ) async {
       final toxId = widget.service.accountKey;
       if (toxId.isNotEmpty && mounted) {
-        final account = await Prefs.getAccountByToxId(toxId);
-        if (account != null) {
-          await Prefs.addAccount(
-            toxId: toxId,
-            nickname: account['nickname'],
-            statusMessage: account['statusMessage'],
+        // Guarded: this is a background timestamp refresh, and an unreadable
+        // registry here would surface as an unhandled async error every five
+        // minutes for as long as the page is open. The registry's own write
+        // refusal is what protects the data; this tick can simply skip.
+        try {
+          final account = await Prefs.getAccountByToxId(toxId);
+          if (account != null) {
+            await Prefs.addAccount(
+              toxId: toxId,
+              nickname: account['nickname'],
+              statusMessage: account['statusMessage'],
+            );
+            await _loadAccountList();
+          }
+        } on AccountRegistryUnreadableException catch (e) {
+          SafeDiagnostics.logFailure(
+            '[SettingsPage] skipping the periodic last-login refresh: account '
+            'registry unreadable',
+            e,
           );
-          await _loadAccountList();
         }
       }
     });
@@ -620,61 +645,19 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
 
-      String? outputPath;
-      final isDesktopPlatform = isDesktopExportPlatform();
-      final defaultFileName = buildFullBackupExportFileName();
-      if (isDesktopPlatform) {
-        outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
-            dialogTitle: dialogTitle,
-            fileName: fileName,
-          ),
-        );
-      }
-
-      if (!shouldContinueAccountExport(
-        isDesktopPlatform: isDesktopPlatform,
-        outputPath: outputPath,
-      )) {
-        return;
-      }
-
-      late final String filePath;
-      MobileExportSaveResult? mobileSaveResult;
-      if (isDesktopPlatform) {
-        filePath = await AccountExportService.exportFullBackup(
+      final outcome = await runAccountExportFlow(
+        dialogTitle: l10n.exportAccount,
+        defaultFileName: buildFullBackupExportFileName(),
+        export: ({String? filePath}) => AccountExportService.exportFullBackup(
           toxId: toxId,
           password: exportPassword,
-          filePath: outputPath,
-        );
-      } else {
-        mobileSaveResult = await createAndSaveMobileExportCopy(
-          createInternalExport: () => AccountExportService.exportFullBackup(
-            toxId: toxId,
-            password: exportPassword,
-          ),
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile:
-              ({
-                required String dialogTitle,
-                required String fileName,
-                required Uint8List bytes,
-              }) => FilePicker.platform.saveFile(
-                dialogTitle: dialogTitle,
-                fileName: fileName,
-                bytes: bytes,
-              ),
-        );
-        filePath =
-            mobileSaveResult.userSelectedPath ??
-            mobileSaveResult.internalFilePath;
-      }
+          filePath: filePath,
+        ),
+      );
+      if (outcome == null) return;
       _showAccountExportOutcome(
-        exportedPath: filePath,
-        mobileSaveResult: mobileSaveResult,
+        exportedPath: outcome.filePath,
+        mobileSaveResult: outcome.mobileSaveResult,
       );
     } catch (e) {
       SafeDiagnostics.logFailure('Full backup export error', e);
@@ -732,68 +715,25 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
-      // Show file picker to select save location
-      String? outputPath;
-      final isDesktopPlatform = isDesktopExportPlatform();
       final account = await Prefs.getAccountByToxId(toxId);
       final nickname = account?['nickname'] ?? 'account';
-      final defaultFileName = buildAccountExportFileName(
-        toxId: toxId,
-        nickname: nickname,
-        suffix: '.tox',
-      );
-      if (isDesktopPlatform) {
-        outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
-            dialogTitle: dialogTitle,
-            fileName: fileName,
-          ),
-        );
-      }
-
-      if (!shouldContinueAccountExport(
-        isDesktopPlatform: isDesktopPlatform,
-        outputPath: outputPath,
-      )) {
-        return;
-      }
-
-      late final String filePath;
-      MobileExportSaveResult? mobileSaveResult;
-      if (isDesktopPlatform) {
-        filePath = await AccountExportService.exportAccountData(
+      final outcome = await runAccountExportFlow(
+        dialogTitle: l10n.exportAccount,
+        defaultFileName: buildAccountExportFileName(
+          toxId: toxId,
+          nickname: nickname,
+          suffix: '.tox',
+        ),
+        export: ({String? filePath}) => AccountExportService.exportAccountData(
           toxId: toxId,
           password: password,
-          filePath: outputPath,
-        );
-      } else {
-        mobileSaveResult = await createAndSaveMobileExportCopy(
-          createInternalExport: () => AccountExportService.exportAccountData(
-            toxId: toxId,
-            password: password,
-          ),
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile:
-              ({
-                required String dialogTitle,
-                required String fileName,
-                required Uint8List bytes,
-              }) => FilePicker.platform.saveFile(
-                dialogTitle: dialogTitle,
-                fileName: fileName,
-                bytes: bytes,
-              ),
-        );
-        filePath =
-            mobileSaveResult.userSelectedPath ??
-            mobileSaveResult.internalFilePath;
-      }
+          filePath: filePath,
+        ),
+      );
+      if (outcome == null) return;
       _showAccountExportOutcome(
-        exportedPath: filePath,
-        mobileSaveResult: mobileSaveResult,
+        exportedPath: outcome.filePath,
+        mobileSaveResult: outcome.mobileSaveResult,
       );
     } catch (e) {
       SafeDiagnostics.logFailure('Export account error', e);
@@ -994,7 +934,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await _addImportedAccountFn(
         toxId: toxId,
         nickname: displayNickname,
-        statusMessage: '', // .tox files don't contain status message
+        // Carried from a `.zip` backup's metadata when present; a `.tox` file
+        // genuinely has no status message. Restore used to always pass '',
+        // which the next login then pushed to Tox, erasing what the backup had
+        // preserved.
+        statusMessage: (accountData['statusMessage'] as String?) ?? '',
         autoLogin: false,
         autoAcceptFriends: false,
         notificationSoundEnabled: true,

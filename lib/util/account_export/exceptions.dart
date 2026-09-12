@@ -70,3 +70,41 @@ class InvalidBackupFormatException implements Exception {
   @override
   String toString() => 'InvalidBackupFormatException: $message';
 }
+
+/// Thrown when a full backup cannot include the account's `tox_profile.tox`.
+///
+/// The profile IS the account: its absence used to be skipped silently, so the
+/// export reported success and wrote an archive that restored into an account
+/// which could never log in. Backups fail loudly instead.
+///
+/// PRIVACY: carries no path and no Tox ID, for the same reason as
+/// [ProfileFileMissingException] — the message reaches `flutter_client.log`.
+class MissingBackupProfileException implements Exception {
+  const MissingBackupProfileException([
+    this.message = 'the account profile could not be found on this device',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() =>
+      'MissingBackupProfileException: refusing to write a backup without the '
+      'account identity ($message)';
+}
+
+/// Thrown when an export cannot determine whether the on-disk profile is
+/// already encrypted, and therefore cannot decide whether to encrypt it.
+///
+/// Both guesses are harmful: assuming "already encrypted" publishes a PLAINTEXT
+/// copy of a password-protected account (the profile is plaintext for the whole
+/// of an authenticated session), and assuming "not encrypted" produces a
+/// double-encrypted file that neither toxee nor qTox can import. So the export
+/// aborts instead.
+class UndeterminedProfileEncryptionException implements Exception {
+  const UndeterminedProfileEncryptionException();
+
+  @override
+  String toString() =>
+      'UndeterminedProfileEncryptionException: could not determine the '
+      "profile's encryption state; refusing to export rather than guess";
+}

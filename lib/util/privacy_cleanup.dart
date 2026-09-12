@@ -20,6 +20,12 @@ final class AccountPrivacyCleanup {
   static const int _publicKeyLength = 64;
   static const int _fullAddressLength = 76;
 
+  /// `Prefs._blackListKey` / `SharedPreferencesAdapter._blackListKey`.
+  static const String _blackListKeyPrefix = 'black_list_';
+
+  /// tim2tox `FfiChatService._pendingReadReceiptsKey`.
+  static const String _pendingReadReceiptsKeyPrefix = 'pending_read_receipts_';
+
   static const String _currentAccountKey = 'current_account_tox_id';
   static const String _nicknameKey = 'self_nickname';
   static const String _statusMessageKey = 'self_status_msg';
@@ -35,11 +41,90 @@ final class AccountPrivacyCleanup {
     final prefs = await SharedPreferences.getInstance();
     await _purgeDiagnosticLogs();
     await _removeFailedMessagePrefs(prefs, toxId);
+    await _removeFullIdScopedPrefs(prefs, toxId);
     await _removeLegacyCurrentAccountPrefs(
       prefs: prefs,
       toxId: toxId,
       deletedCurrentAccount: deletedCurrentAccount,
     );
+  }
+
+  /// Key families scoped by the FULL Tox ID rather than the 16-char prefix.
+  ///
+  /// `Prefs.clearScopedKeysForAccount` and `clearAccountData` only sweep keys
+  /// ENDING in `_<first16>`, so anything keyed by a 64- or 76-char id slips
+  /// past them and survives account deletion outright. Two families do:
+  ///
+  ///   * `black_list_<toxId>` — the blocked-peer set (`Prefs._blackListKey` /
+  ///     `SharedPreferencesAdapter._blackListKey`). tim2tox writes it under the
+  ///     live address (`FfiChatService.prefsAccountScopeToxId`). It is a list of
+  ///     contact Tox IDs.
+  ///   * `pending_read_receipts_<toxId>_<peerId>` — tim2tox's queue of READ
+  ///     receipts that could not be sent (`FfiChatService`
+  ///     `_pendingReadReceiptsKey`). Also per-peer, so also a contact list.
+  ///
+  /// Both are exactly the residue class [_removeFailedMessagePrefs] documents
+  /// and fixes for the failed-message queue; this applies the same treatment.
+  /// The sweep matches by *representation* rather than by one computed key,
+  /// because the deletion driver may hold a 64-char id while the session wrote
+  /// under the 76-char one (see the long note on that method).
+  static Future<void> _removeFullIdScopedPrefs(
+    SharedPreferences prefs,
+    String toxId,
+  ) async {
+    final keysToRemove = <String>{};
+    for (final key in prefs.getKeys()) {
+      final suffix = _blackListAccountSuffix(key);
+      if (suffix != null && _isSameAccount(suffix, toxId)) {
+        keysToRemove.add(key);
+        continue;
+      }
+      final receiptScope = _pendingReadReceiptsAccountScope(key);
+      if (receiptScope != null && _isSameAccount(receiptScope, toxId)) {
+        keysToRemove.add(key);
+      }
+    }
+    if (keysToRemove.isEmpty) return;
+    await Future.wait(keysToRemove.map(prefs.remove));
+  }
+
+  /// The account-ID suffix of a `black_list_<toxId>` key, or null.
+  ///
+  /// The bare `black_list` key (no suffix) is deliberately left alone: it is not
+  /// attributable to this account, exactly as with the unsuffixed
+  /// failed-messages key.
+  static String? _blackListAccountSuffix(String key) {
+    if (!key.startsWith(_blackListKeyPrefix)) return null;
+    return _accountShapedId(key.substring(_blackListKeyPrefix.length));
+  }
+
+  /// The account scope embedded in a `pending_read_receipts_<toxId>_<peerId>`
+  /// key, or null when [key] is not one.
+  ///
+  /// The scope sits in the MIDDLE, so this takes the leading run up to the next
+  /// `_` and requires it to be an account-shaped hex id. A peer id follows, and
+  /// is not examined — every peer of a deleted account goes with it.
+  static String? _pendingReadReceiptsAccountScope(String key) {
+    if (!key.startsWith(_pendingReadReceiptsKeyPrefix)) return null;
+    final rest = key.substring(_pendingReadReceiptsKeyPrefix.length);
+    final separator = rest.indexOf('_');
+    if (separator <= 0) return null;
+    return _accountShapedId(rest.substring(0, separator));
+  }
+
+  /// [candidate] when it has the shape of a Tox account id, else null.
+  ///
+  /// Pinning the shape to the three widths a real identity can produce — the
+  /// 16-char legacy prefix, the 64-char public key, the 76-char address — is
+  /// what stops the sweep truncating some longer, differently-namespaced key
+  /// and mistaking its head for this account.
+  static String? _accountShapedId(String candidate) {
+    if (candidate.length != _legacyToxIdPrefixLength &&
+        candidate.length != _publicKeyLength &&
+        candidate.length != _fullAddressLength) {
+      return null;
+    }
+    return _hexOnly.hasMatch(candidate) ? candidate : null;
   }
 
   /// Deletes the whole diagnostic-log tree, then reopens a working sink.

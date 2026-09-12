@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,8 +8,12 @@ import 'package:path/path.dart' as p;
 import '../app_paths.dart';
 import '../prefs.dart';
 import '../tox_utils.dart';
-import 'atomic_file_write.dart';
 import 'backup_path_safety.dart';
+import 'restore_transaction_journal.dart';
+
+// The durable journal (model + on-disk store) lives in its own file; re-exported
+// so existing importers of this one keep resolving it.
+export 'restore_transaction_journal.dart';
 
 enum RestoreTransactionState {
   staged,
@@ -127,106 +130,6 @@ final class FullBackupRestoreInput {
   final Uint8List? toxProfile;
 }
 
-final class RestoreTransactionJournal {
-  const RestoreTransactionJournal({
-    required this.transactionId,
-    required this.toxId,
-    required this.state,
-    required this.profileStageDir,
-    required this.profileFinalDir,
-    required this.accountDataStageDir,
-    required this.accountDataFinalDir,
-    required this.hasProfile,
-  });
-
-  final String transactionId;
-  final String toxId;
-  final RestoreTransactionState state;
-  final String profileStageDir;
-  final String profileFinalDir;
-  final String accountDataStageDir;
-  final String accountDataFinalDir;
-  final bool hasProfile;
-
-  RestoreTransactionJournal copyWith({RestoreTransactionState? state}) {
-    return RestoreTransactionJournal(
-      transactionId: transactionId,
-      toxId: toxId,
-      state: state ?? this.state,
-      profileStageDir: profileStageDir,
-      profileFinalDir: profileFinalDir,
-      accountDataStageDir: accountDataStageDir,
-      accountDataFinalDir: accountDataFinalDir,
-      hasProfile: hasProfile,
-    );
-  }
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'version': 1,
-    'transactionId': transactionId,
-    'toxId': toxId,
-    'state': state.name,
-    'profileStageDir': profileStageDir,
-    'profileFinalDir': profileFinalDir,
-    'accountDataStageDir': accountDataStageDir,
-    'accountDataFinalDir': accountDataFinalDir,
-    'hasProfile': hasProfile,
-  };
-
-  static RestoreTransactionJournal fromJson(Map<String, dynamic> json) {
-    final rawState = json['state'] as String?;
-    final state = RestoreTransactionState.values.firstWhere(
-      (value) => value.name == rawState,
-      orElse: () =>
-          throw StateError('Unknown restore journal state: $rawState'),
-    );
-    return RestoreTransactionJournal(
-      transactionId: json['transactionId'] as String,
-      toxId: json['toxId'] as String,
-      state: state,
-      profileStageDir: json['profileStageDir'] as String,
-      profileFinalDir: json['profileFinalDir'] as String,
-      accountDataStageDir: json['accountDataStageDir'] as String,
-      accountDataFinalDir: json['accountDataFinalDir'] as String,
-      hasProfile: json['hasProfile'] as bool? ?? true,
-    );
-  }
-}
-
-abstract final class RestoreTransactionJournalStore {
-  RestoreTransactionJournalStore._();
-
-  static const _fileName = 'account_export_restore_journal.json';
-
-  static Future<RestoreTransactionJournal?> read() async {
-    final file = await _journalFile();
-    if (!await file.exists()) return null;
-    final decoded = json.decode(await file.readAsString());
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Restore journal is not a JSON object');
-    }
-    return RestoreTransactionJournal.fromJson(decoded);
-  }
-
-  static Future<void> write(RestoreTransactionJournal journal) async {
-    final file = await _journalFile();
-    final bytes = utf8.encode(jsonEncode(journal.toJson()));
-    await writeBytesAtomically(file, bytes);
-  }
-
-  static Future<void> clear() async {
-    final file = await _journalFile();
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  static Future<File> _journalFile() async {
-    final root = await AppPaths.applicationSupportPath;
-    return File(p.join(root, _fileName));
-  }
-}
-
 abstract final class FullBackupRestoreTransaction {
   FullBackupRestoreTransaction._();
 
@@ -288,6 +191,11 @@ abstract final class FullBackupRestoreTransaction {
       if (scopedPrefs.isNotEmpty) {
         await Prefs.importScopedPrefsForAccount(input.toxId, scopedPrefs);
       }
+      // The blocked-peer list travels OUTSIDE scopedPrefs because its key is
+      // scoped by the full Tox ID, which the `_<first16>` suffix export/import
+      // does not see. Restoring it here (inside the journalled window) means a
+      // rollback takes it with everything else.
+      await _restoreBlockedPeers(input);
       journal = journal.copyWith(
         state: RestoreTransactionState.scopedPrefsApplied,
       );
@@ -299,6 +207,12 @@ abstract final class FullBackupRestoreTransaction {
       return <String, dynamic>{
         'toxId': input.toxId,
         'nickname': input.nickname,
+        // Carried through so the caller can persist it on the account row. The
+        // export has always written `statusMessage` into metadata, but restore
+        // dropped it and both import UIs then created the row with '' — so the
+        // next login pushed an EMPTY status to Tox, overwriting what the backup
+        // had preserved.
+        'statusMessage': input.metadata['statusMessage'] as String? ?? '',
         'toxProfile': input.toxProfile,
       };
     } catch (e) {
@@ -500,12 +414,32 @@ abstract final class FullBackupRestoreTransaction {
     return Directory(journal.accountDataFinalDir).exists();
   }
 
+  /// Restore the blocked-peer list from the backup metadata.
+  ///
+  /// Best-effort: a malformed `blockedPeers` section must not abort an otherwise
+  /// good restore, and an absent one is the normal case for older backups (and
+  /// for an account that blocked nobody).
+  static Future<void> _restoreBlockedPeers(
+    FullBackupRestoreInput input,
+  ) async {
+    final raw = input.metadata['blockedPeers'];
+    if (raw is! List || raw.isEmpty) return;
+    final peers = raw.whereType<String>().where((e) => e.isNotEmpty).toSet();
+    if (peers.isEmpty) return;
+    await Prefs.setBlackList(peers, input.toxId);
+  }
+
   static Future<void> _rollback(RestoreTransactionJournal journal) async {
     await _deleteDirectory(journal.profileStageDir);
     await _deleteDirectory(journal.accountDataStageDir);
     await _deleteDirectory(journal.profileFinalDir);
     await _deleteDirectory(journal.accountDataFinalDir);
     await Prefs.clearScopedKeysForAccount(journal.toxId);
+    // The blocked-peer list is keyed by the full Tox ID, so
+    // `clearScopedKeysForAccount` (which matches the `_<first16>` suffix) does
+    // not reach it. Without this, a rolled-back restore left the block list of
+    // an account that no longer exists.
+    await Prefs.setBlackList(const <String>{}, journal.toxId);
     await Prefs.removeAccount(journal.toxId);
     await RestoreTransactionJournalStore.clear();
   }

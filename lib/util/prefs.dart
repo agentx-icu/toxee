@@ -512,7 +512,23 @@ class Prefs {
   static Future<String?> getAvatarPath() async {
     final current = await getCurrentAccountToxId();
     if (current != null && current.isNotEmpty) {
-      final account = await getAccountByToxId(current);
+      // An unreadable registry must not break avatar DISPLAY. This read is
+      // reached from the sidebar, the profile page, the settings header and the
+      // message provider; letting `AccountRegistryUnreadableException` escape
+      // from an optional cosmetic lookup turned a registry problem into a
+      // broken screen (and, in history loading, aborted otherwise readable
+      // history). The write refusal that actually protects the registry stays
+      // strict — this only degrades a read, and the scoped key below is a
+      // complete fallback for it.
+      Map<String, String>? account;
+      try {
+        account = await getAccountByToxId(current);
+      } on AccountRegistryUnreadableException catch (e) {
+        AppLogger.warn(
+          '[Prefs.getAvatarPath] account registry unreadable; falling back to '
+          'the scoped self-avatar key: $e',
+        );
+      }
       final path = account?['avatarPath'];
       if (path != null && path.isNotEmpty) return path;
       // Second store: the service-scoped `self_avatar_path_<prefix>` key (see
@@ -530,15 +546,24 @@ class Prefs {
     final current = await getCurrentAccountToxId();
     if (current != null && current.isNotEmpty) {
       // Active account present: write ONLY to the scoped account-list entry.
+      // We deliberately do NOT also write the legacy unscoped `_kAvatarPath`:
+      // that key is global, so writing it would leak this account's avatar to
+      // whoever logs in next (or to pre-login UI). [getAvatarPath] mirrors the
+      // asymmetry by refusing to fall back to it while an account is active.
       //
-      // We deliberately do NOT also write the legacy unscoped _kAvatarPath
-      // here: that key is global, so writing it would leak the current
-      // account's avatar to whoever logs in next (or to the
-      // pre-login-account UI). The corresponding getter ([getAvatarPath])
-      // already prefers the scoped account-list entry and refuses to fall
-      // back to _kAvatarPath when an account is active, mirroring this
-      // asymmetry.
-      await setAccountAvatarPath(current, path);
+      // `setAccountAvatarPath` reads the registry to find the row, so it can
+      // throw for a reason that has nothing to do with avatars. Swallow it here:
+      // `DefaultAvatarInstaller` also writes the scoped `self_avatar_path_*` key
+      // (which `getAvatarPath` falls back to), so the avatar still resolves, and
+      // an avatar write must not be able to fail a login or a profile save.
+      try {
+        await setAccountAvatarPath(current, path);
+      } on AccountRegistryUnreadableException catch (e) {
+        AppLogger.warn(
+          '[Prefs.setAvatarPath] account registry unreadable; the avatar row '
+          'was not updated: $e',
+        );
+      }
       return;
     }
     // No active account — write to the legacy unscoped key. This branch
@@ -1787,6 +1812,43 @@ class Prefs {
     }
   }
 
+  /// Delete every SECURE-STORAGE secret owned by [toxId].
+  ///
+  /// Account deletion otherwise misses these entirely. Its cleanup stages sweep
+  /// SharedPreferences (by the `_<first16>` suffix) and remove the account's
+  /// password verifier — but IRC channel passwords live in the Keychain /
+  /// Keystore / libsecret / DPAPI under
+  /// `irc_channel_password_<channel>_<first16>`, and nothing enumerated secure
+  /// storage. Deleting an account left its channel passwords on the device
+  /// indefinitely.
+  ///
+  /// Takes an explicit [toxId] rather than reading the active account: deletion
+  /// runs for non-current accounts too (the login-page path has no session at
+  /// all), and the every-other-IRC-getter "current account" convention would
+  /// then purge the wrong scope — or nothing.
+  ///
+  /// MUST run before the prefs stage clears `irc_channels_<prefix>`, because
+  /// that list is the only record of which channels to look up.
+  ///
+  /// Returns false when any delete was refused, so the caller can leave the
+  /// deletion tombstone pending and retry rather than declaring success over
+  /// secrets that are still on disk.
+  static Future<bool> purgeAccountSecureSecrets(String toxId) async {
+    final normalized = toxId.trim();
+    if (normalized.isEmpty) return true;
+    final p = await _getPrefs();
+    final channels = await _getIrcChannelsImpl(
+      p,
+      _scopedKey(_kIrcChannels, normalized),
+    );
+    var allDeleted = true;
+    for (final channel in channels) {
+      final key = _scopedKey(_ircChannelPasswordKey(channel), normalized);
+      if (!await _secureDelete(key)) allDeleted = false;
+    }
+    return allDeleted;
+  }
+
   static Future<void> removeIrcChannelPassword(String channel) async {
     final current = await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
@@ -1839,6 +1901,12 @@ class Prefs {
   // Account list management for multiple accounts
   static const _kAccountList = 'account_list'; // JSON array of account info
 
+  /// One-time preservation slot for an `account_list` payload that could not be
+  /// parsed. Written by `_getAccountListImpl` before anything can overwrite the
+  /// live key, so a corruption is never silently destroyed. See
+  /// `prefs/account_prefs.dart`.
+  static const _kAccountListCorruptBackup = 'account_list_corrupt_backup';
+
   /// Account info structure: {toxId (required), nickname, statusMessage, lastLoginTime?, avatarPath?, autoLogin?, ...}
   /// toxId is the primary key for account identification
   static Future<List<Map<String, String>>> getAccountList() async {
@@ -1852,9 +1920,23 @@ class Prefs {
     return raw.map(AccountSummary.fromMap).toList(growable: false);
   }
 
+  /// Replace the account registry.
+  ///
+  /// REFUSES to publish over a payload that cannot be read. Every mutating
+  /// caller builds its new list from [getAccountList], so if the current
+  /// payload is unparseable the "new" list is a partial reconstruction — and
+  /// writing it would destroy the rows that failed to parse. The rows are the
+  /// only nickname -> Tox ID mapping, and an encrypted account cannot be rebuilt
+  /// by `AccountReconciliation`, so that loss is permanent. Surfacing
+  /// [AccountRegistryUnreadableException] instead keeps the original bytes (and
+  /// the backup `_getAccountListImpl` took) intact for recovery.
   static Future<void> setAccountList(List<Map<String, String>> accounts) async {
     final p = await _getPrefs();
-    return _setAccountListImpl(p, accounts);
+    // The guard lives in `_setAccountListGuarded`: it refuses when the current
+    // payload is unreadable, and also when reading it DROPPED rows that could
+    // not be durably preserved — publishing a reconstruction over those would
+    // erase them.
+    return _setAccountListGuarded(p, accounts);
   }
 
   /// Add or update an account in the list

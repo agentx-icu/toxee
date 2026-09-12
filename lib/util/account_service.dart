@@ -18,6 +18,7 @@ import 'account_registration_rollback.dart';
 import 'account_scratch_storage.dart';
 import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
+import 'account_export/tox_file_io.dart' show extractToxIdFromProfile;
 import 'account_export_service.dart';
 import 'default_avatar_installer.dart';
 import 'session_password_store.dart';
@@ -26,6 +27,7 @@ import 'irc_app_manager.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
 import 'short_tox_id_backfill.dart';
+import 'tox_utils.dart';
 
 // Split out of this file (it had grown past the complexity gate's pin) but
 // re-exported: `AccountActivationTransaction` is part of the account-lifecycle
@@ -405,15 +407,46 @@ class AccountService {
       final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
       profileFile = AppPaths.profileFileInDirectory(profileDir);
       if (!await File(profileFile).exists()) {
+        // Adopt the pre-multi-account profile ONLY after proving it is this
+        // account's. It used to be copied in unconditionally, so requesting any
+        // account whose own profile was missing installed the legacy identity
+        // under that account's directory and prefs scope — the session then ran
+        // as one identity while every durable path, scoped pref and account-list
+        // row said it was another. `AccountSwitcher` even noticed the mismatch
+        // (it compares `getSelfToxId()` against the target) but only logged it.
+        //
+        // An encrypted legacy blob cannot be attributed here (the extractor
+        // needs the passphrase this layer does not have), so it is refused
+        // rather than adopted on faith. The file stays on disk, and
+        // `AccountReconciliation` / the import UI can still recover it.
         final legacyDir = await AppPaths.toxProfileDir;
         final legacyPath = p.join(legacyDir.path, 'tox_profile.tox');
-        if (await File(legacyPath).exists()) {
-          await Directory(profileDir).create(recursive: true);
-          await File(legacyPath).copy(profileFile);
-          AppLogger.log('[AccountService] profile_migration status=completed');
-        } else {
+        if (!await File(legacyPath).exists()) {
           throw Exception('Profile not found for account');
         }
+        final legacyBytes = await File(legacyPath).readAsBytes();
+        String legacyToxId;
+        try {
+          legacyToxId = extractToxIdFromProfile(legacyBytes);
+        } catch (e) {
+          SafeDiagnostics.logFailure(
+            '[AccountService] profile_migration status=refused '
+            'reason=identity_unreadable',
+            e,
+          );
+          throw Exception('Profile not found for account');
+        }
+        if (legacyToxId.isEmpty || !compareToxIds(legacyToxId, toxId)) {
+          AppLogger.warn(
+            '[AccountService] profile_migration status=refused '
+            'reason=identity_mismatch — the legacy profile belongs to a '
+            'different account',
+          );
+          throw Exception('Profile not found for account');
+        }
+        await Directory(profileDir).create(recursive: true);
+        await File(legacyPath).copy(profileFile);
+        AppLogger.log('[AccountService] profile_migration status=completed');
       }
 
       if (password != null && password.isNotEmpty) {

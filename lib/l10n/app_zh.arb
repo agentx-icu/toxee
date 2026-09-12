@@ -622,6 +622,7 @@
   "searchResultConversationSemantics": "{name}，会话",
   "importNoFileSelected": "未选择文件",
   "importCancelled": "已取消",
+  "accountRegistryUnreadable": "无法读取已保存的账号列表。账号文件仍在本机，请不要重新注册；请反馈此问题以便修复账号列表。",
   "importedAccountDefaultName": "已导入账号",
   "failedToImport": "导入失败：{error}",
   "selectConversationEmptyState": "选择一个会话开始聊天",

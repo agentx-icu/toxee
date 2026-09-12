@@ -22,6 +22,9 @@ abstract final class AccountDeletionTestHooks {
   static Future<bool> Function(String toxId)? removePassword;
 
   @visibleForTesting
+  static Future<bool> Function(String toxId)? purgeSecureSecrets;
+
+  @visibleForTesting
   static Future<void> Function(String toxId)? clearPrefsData;
 
   @visibleForTesting
@@ -37,6 +40,7 @@ abstract final class AccountDeletionTestHooks {
   static void reset() {
     deleteDirectory = null;
     removePassword = null;
+    purgeSecureSecrets = null;
     clearPrefsData = null;
     removeAccount = null;
     setCurrentAccountToxId = null;
@@ -101,6 +105,20 @@ abstract final class AccountDeletionCoordinator {
                 Prefs.removeAccountPassword(toxId));
         if (!removed) {
           throw StateError('secure password deletion failed');
+        }
+        // Same stage, same store: the account's OTHER secure-storage secrets.
+        // IRC channel passwords live in the Keychain/Keystore and nothing else
+        // in this workflow enumerates it, so deleting an account used to leave
+        // them behind forever. This has to happen HERE — before the prefs stage
+        // clears `irc_channels_<prefix>`, which is the only record of which
+        // channels to look up. Fail-closed so the tombstone stays pending and
+        // the next attempt retries, rather than reporting a clean deletion over
+        // secrets still on disk.
+        final purgeSecrets = AccountDeletionTestHooks.purgeSecureSecrets;
+        final secretsPurged = await (purgeSecrets?.call(toxId) ??
+            Prefs.purgeAccountSecureSecrets(toxId));
+        if (!secretsPurged) {
+          throw StateError('secure account secret deletion failed');
         }
       },
     );
