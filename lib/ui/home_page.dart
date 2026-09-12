@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../bootstrap/session_shutdown.dart';
 import '../util/app_spacing.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +23,6 @@ import '../sdk_fake/fake_models.dart';
 import '../sdk_fake/fake_im.dart';
 import '../sdk_fake/fake_provider.dart';
 import '../sdk_fake/uikit_data_facade.dart';
-import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 import '../runtime/session_runtime_coordinator.dart';
 import '../runtime/tim_sdk_initializer.dart';
 import 'package:tencent_cloud_chat_common/external/chat_data_provider.dart';
@@ -34,7 +34,6 @@ import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.da
     show navigateToMessage;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
-import 'package:tencent_cloud_chat_common/tuicore/tencent_cloud_chat_core.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_controller.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
     as conv_pkg;
@@ -57,7 +56,6 @@ import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_contact_gr
 import 'contact/contact_builder_override.dart';
 import 'contact/contact_application_item_content_override.dart';
 import 'contact/friend_request_display_name.dart';
-import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile_body.dart';
 import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
@@ -69,19 +67,12 @@ import 'package:tencent_cloud_chat_common/components/component_config/tencent_cl
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_layout/special_case/tencent_cloud_chat_message_no_chat.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_header/tencent_cloud_chat_message_header.dart'
     as msg_header;
-import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_utils.dart'
-    as tcc_utils;
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart';
-import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_callback.dart';
 import 'package:tencent_cloud_chat_common/data/conversation/tencent_cloud_chat_conversation_data.dart';
 import 'package:tencent_cloud_chat_common/data/contact/tencent_cloud_chat_contact_data.dart';
 import 'package:tencent_cloud_chat_common/data/group_profile/tencent_cloud_chat_group_profile_data.dart';
 import 'group/group_builder_override.dart';
 import 'group/group_member_list_wrapper.dart';
-import 'package:tencent_cloud_chat_common/eventbus/tencent_cloud_chat_eventbus.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_group_change_info.dart';
-import 'package:tencent_cloud_chat_sdk/enum/group_member_filter_enum.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_router.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_route_names.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart';
@@ -125,7 +116,6 @@ import '../util/irc_app_manager.dart';
 import 'applications/irc_channel_dialog.dart';
 import '../util/responsive_layout.dart';
 import '../call/permission_helper.dart';
-import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_tatal_unread_count.dart';
 import 'widgets/app_page_route.dart';
 import 'widgets/app_snackbar.dart';
 import 'package:window_manager/window_manager.dart';
@@ -626,6 +616,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       unawaited(_refreshBootstrapOnResume());
     }
+  }
+
+  /// Run account teardown, then exit. Ordering matters: see the call site.
+  ///
+  /// Bounded so a wedged teardown cannot leave the user stuck on a screen whose
+  /// back button appears dead; on timeout we exit anyway and the profile is left
+  /// as it was, which the startup gate handles safely (it keys off the durable
+  /// verifier, never the file's encryption state).
+  Future<void> _tearDownAndExit() async {
+    await SessionShutdown.tearDownActiveAccount(
+      timeout: const Duration(seconds: 8),
+      logContext: 'HomePage',
+    );
+    await SystemNavigator.pop();
   }
 
   Future<void> _maybePrewarmCallPermissions() async {
@@ -1297,7 +1301,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 if (_lastBackPressTime != null &&
                     now.difference(_lastBackPressTime!) <
                         const Duration(seconds: 2)) {
-                  SystemNavigator.pop();
+                  // CONTROLLED exit — the one mobile shutdown where we still
+                  // have a budget. Tear the account down (which re-encrypts
+                  // tox_profile.tox) BEFORE popping: `AppLifecycleState.detached`
+                  // is not a usable hook, because Flutter destroys the engine
+                  // immediately after sending it on both the default Android
+                  // teardown and iOS termination, so a teardown started there
+                  // never finishes. Uncontrolled kills remain the documented
+                  // limitation, fixable only by encrypting at the savedata
+                  // persistence boundary.
+                  unawaited(_tearDownAndExit());
                   return;
                 }
                 _lastBackPressTime = now;

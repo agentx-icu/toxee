@@ -17,7 +17,7 @@ import 'package:toxee/util/prefs/password_verifier.dart';
 /// In-memory [SecureStorageFacade] for tests. Backed by a `Map<String,
 /// String>` so successful reads/writes/deletes behave like a working
 /// platform keychain.
-class FakeSecureStorageFacade implements SecureStorageFacade {
+class FakeSecureStorageFacade extends SecureStorageFacade {
   final Map<String, String> entries = <String, String>{};
 
   @override
@@ -43,7 +43,7 @@ class FakeSecureStorageFacade implements SecureStorageFacade {
 /// `removePassword` legacy-cleanup path is not gated. Used to pin the
 /// invariant "legacy verify still returns true even when the PBKDF2
 /// migration write fails — keychain failure must not lock the user out".
-class ThrowingSecureStorageFacade implements SecureStorageFacade {
+class ThrowingSecureStorageFacade extends SecureStorageFacade {
   int writeAttempts = 0;
 
   @override
@@ -66,7 +66,7 @@ class ThrowingSecureStorageFacade implements SecureStorageFacade {
 /// pair (new hash + legacy salt, or old hash + new salt) and permanently
 /// fail to verify the correct password. Reads / deletes / other-key writes
 /// go through to the backing in-memory map.
-class PartialFailSecureStorageFacade implements SecureStorageFacade {
+class PartialFailSecureStorageFacade extends SecureStorageFacade {
   PartialFailSecureStorageFacade({required this.failKey});
 
   final String failKey;

@@ -28,6 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/auth/login_use_case.dart';
 import 'package:toxee/ui/login/login_page_controller.dart';
+import 'package:toxee/util/imported_account_rollback.dart';
 import 'package:toxee/util/account_export_service.dart'
     show InvalidBackupPasswordException, PasswordRequiredException;
 import 'package:toxee/util/app_paths.dart';
@@ -594,7 +595,12 @@ void main() {
                 throw Exception('private restore registry detail');
               },
           rollbackImportedAccountFn:
-              ({required String toxId, required String logContext}) async {
+              ({
+                required String toxId,
+                required String logContext,
+                ImportedAccountOwnership ownership =
+                    const ImportedAccountOwnership.none(),
+              }) async {
                 throw StateError('private restore rollback path');
               },
         );

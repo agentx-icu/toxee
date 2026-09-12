@@ -10,6 +10,7 @@ import '../util/app_tray.dart';
 import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs.dart';
+import 'session_shutdown.dart';
 import 'windows_window_resurface.dart';
 
 class _WindowStateListener with WindowListener {
@@ -38,6 +39,14 @@ class _WindowStateListener with WindowListener {
         stackTrace,
       );
     }
+    // Closing the window terminates the app, so this is the app's real exit
+    // path and it must run the same account teardown a logout does — otherwise
+    // a password-protected profile is left in plaintext on disk. See
+    // `SessionShutdown` for the full rationale and the limits of this approach.
+    await SessionShutdown.tearDownActiveAccount(
+      timeout: const Duration(seconds: 10),
+      logContext: 'DesktopShell',
+    );
     await windowManager.destroy();
   }
 }

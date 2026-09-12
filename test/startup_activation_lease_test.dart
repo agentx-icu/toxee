@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/main.dart' show StartupGate;
@@ -25,11 +26,38 @@ void main() {
 
   late AccountExportTestEnv env;
 
+  // These tests exercise what happens AFTER the auto-login authentication gate
+  // (activation lease, teardown, rollback), so they need to get past it. The
+  // gate asks `Prefs.accountProtectionState`, which fails CLOSED when secure
+  // storage will not answer — and an unmocked keychain channel in a unit test
+  // does exactly that, so without this mock every case below lands on
+  // StartupShowLogin before the code under test runs. The store stays empty, so
+  // the staged account resolves to "not protected" and the gate lets it through,
+  // matching production for an account with no password.
+  // Protection-gate behaviour itself is covered in
+  // test/startup_auto_login_decision_test.dart.
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+
   setUp(() async {
     env = await setUpAccountExportTestEnv();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
+      switch (call.method) {
+        case 'readAll':
+          return <String, String>{};
+        case 'containsKey':
+          return false;
+        default:
+          return null;
+      }
+    });
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
     await env.dispose();
   });
 

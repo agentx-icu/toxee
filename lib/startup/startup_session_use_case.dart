@@ -9,6 +9,7 @@ import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_paths.dart';
 import '../util/default_avatar_installer.dart';
+import '../util/logger.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
 import '../util/safe_diagnostics.dart';
@@ -108,16 +109,46 @@ class StartupSessionUseCase {
       final toxIdForStartup = account?['toxId'];
 
       if (toxIdForStartup != null && toxIdForStartup.isNotEmpty) {
-        // S40 Bug 3: an encrypted profile cannot auto-login. There is no
-        // cross-process password cache (SessionPasswordStore is in-memory and
-        // empty on cold start), so initializeServiceForAccount(password: null)
-        // below would hand FFI an undecryptable blob and throw — surfacing a
-        // generic StartupShowError. Detect it up front and route to the login
-        // page instead, where tapping the account prompts for the password
-        // (LoginPage._quickLogin → LoginUseCase → init WITH the password →
-        // decrypt). Fail-open: a probe error must never block the normal init
-        // path (the probe is advisory).
+        // AUTHENTICATION GATE — read this before weakening it.
+        //
+        // A password-protected account must never be opened by auto-login:
+        // there is no cross-process password cache (SessionPasswordStore is
+        // in-memory and empty on cold start), so the user has to come through
+        // LoginPage, where tapping the account prompts and verifies
+        // (LoginPage._quickLogin → LoginUseCase → verifyAccountPassword →
+        // init WITH the password).
+        //
+        // The gate is the DURABLE verifier, not the on-disk encryption state.
+        // Gating on `isProfileFileEncrypted` alone (the previous behaviour) was
+        // an authentication bypass, because the two disagree routinely:
+        // `initializeServiceForAccount` decrypts `tox_profile.tox` in place for
+        // the whole session and only `teardownCurrentSession` re-encrypts it.
+        // Any exit that skips teardown — a crash, a force-quit, or simply
+        // closing the desktop window (`DesktopShellBootstrap.onWindowClose`
+        // destroys the window without tearing the account down) — leaves a
+        // protected account sitting in plaintext, and the next launch then
+        // auto-logged straight in with no prompt at all. Setting a password in
+        // Settings and closing the window was enough to reproduce it.
+        //
+        // FAIL-CLOSED on both axes: `unknown` (secure storage would not
+        // answer) routes to login just like `protected`, and a probe that
+        // throws also routes to login. An unnecessary password prompt is a
+        // minor annoyance; skipping one is a security failure.
         try {
+          final protection = await Prefs.accountProtectionState(
+            toxIdForStartup,
+          );
+          if (protection != AccountProtectionState.none) {
+            AppLogger.log(
+              '[StartupSessionUseCase] auto_login_gated '
+              'reason=${protection.name}',
+            );
+            return const StartupShowLogin();
+          }
+          // Belt-and-braces: an encrypted profile with no recoverable verifier
+          // (e.g. the A4 import crash window) cannot be opened without a
+          // password either, and FFI would just throw on the undecryptable
+          // blob. Route to login so the user can supply one.
           final profilePath = await AppPaths.resolveToxProfilePath(
             toxIdForStartup,
           );
@@ -127,10 +158,11 @@ class StartupSessionUseCase {
           }
         } catch (probeError) {
           SafeDiagnostics.logFailure(
-            '[StartupSessionUseCase] encrypted-profile probe failed; '
-            'continuing with init',
+            '[StartupSessionUseCase] account-protection probe failed; '
+            'routing to login (fail-closed)',
             probeError,
           );
+          return const StartupShowLogin();
         }
 
         activation = await AccountActivationTransaction.begin();

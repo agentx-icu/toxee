@@ -9,9 +9,14 @@
 // one-method stub suffices. FfiChatService's constructor opens the FFI dylib
 // (Tim2ToxFfi.open), so the stub needs the lib loadable → _ffiAvailable()
 // skip-guard, same as the sibling FFI-backed tests. No real init/login/network
-// and no secure-storage mock (no password keys are seeded — seeding one would
-// make migrateAccountPasswordKeys abort the backfill in the test environment).
+// A secure-storage mock IS required even though no password keys are seeded:
+// `migrateAccountPasswordKeys` now ABORTS when the credential store cannot be
+// read, because treating "unreadable" as "no password" let an identity rename
+// strand the verifier under the old toxId and subsequently bypass the
+// auto-login password gate. An unmocked keychain channel reports exactly that
+// unavailability, so without the mock the backfill correctly refuses to run.
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -44,11 +49,46 @@ void main() {
 
   late AccountExportTestEnv env;
 
+  // Empty but AVAILABLE secure storage: reads answer "no such key" rather than
+  // throwing MissingPluginException, which is what lets the password-key
+  // migration conclude "nothing to migrate" instead of "cannot tell".
+  final secureStore = <String, String>{};
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+
   setUp(() async {
     env = await setUpAccountExportTestEnv();
+    secureStore.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
+      final args =
+          (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
+      switch (call.method) {
+        case 'write':
+          secureStore[args['key'] as String] = args['value'] as String;
+          return null;
+        case 'read':
+          return secureStore[args['key'] as String];
+        case 'delete':
+          secureStore.remove(args['key'] as String);
+          return null;
+        case 'containsKey':
+          return secureStore.containsKey(args['key'] as String);
+        case 'readAll':
+          return Map<String, String>.from(secureStore);
+        case 'deleteAll':
+          secureStore.clear();
+          return null;
+        default:
+          return null;
+      }
+    });
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
     await env.dispose();
   });
 
@@ -115,5 +155,61 @@ void main() {
     expect(accounts.where((a) => a['toxId'] == canonical).length, 1,
         reason: 'no duplicate account_list rows after a repeated backfill');
     expect(await Prefs.getCurrentAccountToxId(), canonical);
+  }, skip: skipReason);
+
+  // SECURITY REGRESSION GUARD.
+  //
+  // Renaming an account's durable identity while the credential store is
+  // unreadable strands its verifier under the OLD toxId. Nothing then reports
+  // the account as protected under the NEW id, so once the store recovers the
+  // auto-login gate sees `none`; combined with a plaintext-at-rest profile that
+  // opened a password-protected account with no prompt. The migration must
+  // refuse, and the backfill must leave the persisted id alone.
+  test(
+      'backfill refuses to rewrite the identity when secure storage cannot be '
+      'read (verifier would be stranded under the old toxId)', () async {
+    final canonical = 'B' * 76;
+    final shortToxId = canonical.substring(0, 64);
+    final service = _StubFfiChatService(canonical);
+    addTearDown(() async {
+      try {
+        await service.dispose();
+      } catch (_) {}
+    });
+
+    await Prefs.addAccount(toxId: shortToxId, nickname: 'Imported');
+    await Prefs.setCurrentAccountToxId(shortToxId);
+
+    // Seed a verifier so there IS something to migrate, then make the store
+    // unreadable — the real-world shape is a locked keychain or a missing
+    // entitlement partway through a session.
+    expect(await Prefs.setAccountPassword(shortToxId, 'pw'), isTrue,
+        reason: 'precondition: a verifier exists under the short id');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
+
+    expect(
+      await Prefs.migrateAccountPasswordKeys(
+        fromToxId: shortToxId,
+        toToxId: canonical,
+      ),
+      PasswordMigrationOutcome.migrationFailed,
+      reason: 'an unreadable credential store must ABORT the migration, not '
+          'report migratedNothing',
+    );
+
+    final result = await ShortToxIdBackfill.backfillIfNeeded(
+      service: service,
+      persistedToxId: shortToxId,
+    );
+
+    expect(result, shortToxId,
+        reason: 'the backfill must report the UNCHANGED id so callers keep '
+            'using the namespace the verifier still lives in');
+    final accounts = await Prefs.getAccountList();
+    expect(accounts.single['toxId'], shortToxId,
+        reason: 'account_list must not advance ahead of the verifier');
+    expect(await Prefs.getCurrentAccountToxId(), shortToxId,
+        reason: 'the current-account pointer must not advance either');
   }, skip: skipReason);
 }

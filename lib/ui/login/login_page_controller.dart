@@ -8,91 +8,14 @@ import '../../auth/login_use_case.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/default_avatar_installer.dart';
+import '../../util/imported_account_name.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
 import '../testing/l3_debug_tools.dart';
+import 'login_controller_results.dart';
 
-/// Result of [LoginPageController.login].
-sealed class LoginControllerResult {
-  const LoginControllerResult();
-}
-
-final class LoginControllerSuccess extends LoginControllerResult {
-  const LoginControllerSuccess(this.service);
-  final FfiChatService service;
-}
-
-final class LoginControllerFailure extends LoginControllerResult {
-  const LoginControllerFailure(this.message);
-  final String message;
-}
-
-/// Result of [LoginPageController.importAccount].
-sealed class ImportResult {
-  const ImportResult();
-}
-
-final class ImportSuccess extends ImportResult {
-  const ImportSuccess();
-}
-
-/// Reason an import failed. The UI maps this to a localized message;
-/// keeping a kind enum (instead of stringly-typed messages) lets the UI
-/// distinguish user-initiated cancellation from genuine errors without
-/// fragile string comparisons.
-enum ImportFailureKind {
-  noFileSelected,
-  cancelled,
-  invalidPassword,
-  accountAlreadyExists,
-  generalError,
-}
-
-final class ImportFailure extends ImportResult {
-  const ImportFailure(this.kind, {this.detail});
-  final ImportFailureKind kind;
-
-  /// Sanitized runtime-type detail for [ImportFailureKind.generalError]; null
-  /// for cancellation / file-not-selected / duplicate-account cases.
-  final String? detail;
-}
-
-/// Reason a restore failed. Mirrors [ImportFailureKind] but is scoped to the
-/// .tox-only "Restore from .tox file" first-class login entry. Kept as a
-/// separate enum so the UI can show restore-specific copy ("This file doesn't
-/// look like a valid Tox profile") without bleeding restore strings into the
-/// generic import path.
-enum RestoreFailureKind {
-  noFileSelected,
-  cancelled,
-  invalidPassword,
-  accountAlreadyExists,
-  notAToxProfile,
-  generalError,
-}
-
-/// Result of [LoginPageController.restoreFromToxFile].
-sealed class RestoreResult {
-  const RestoreResult();
-}
-
-final class RestoreSuccess extends RestoreResult {
-  const RestoreSuccess({
-    required this.toxId,
-    required this.nickname,
-    this.password,
-  });
-  final String toxId;
-  final String nickname;
-  final String? password;
-}
-
-final class RestoreFailure extends RestoreResult {
-  const RestoreFailure(this.kind, {this.detail});
-  final RestoreFailureKind kind;
-  final String? detail;
-}
+export 'login_controller_results.dart';
 
 /// Orchestrates login and import flows for [LoginPage].
 /// Keeps UI to form binding, dialogs, and navigation.
@@ -132,7 +55,11 @@ typedef FinalizeFullBackupImportFn =
 
 typedef RollbackFullBackupImportFn = Future<void> Function({String? toxId});
 typedef RollbackImportedAccountFn =
-    Future<void> Function({required String toxId, required String logContext});
+    Future<void> Function({
+      required String toxId,
+      required String logContext,
+      ImportedAccountOwnership ownership,
+    });
 
 Future<bool> _defaultEncryptProfileFile(
   String profileFilePath,
@@ -145,8 +72,13 @@ Future<bool> _defaultEncryptProfileFile(
 Future<void> _defaultRollbackImportedAccount({
   required String toxId,
   required String logContext,
+  ImportedAccountOwnership ownership = const ImportedAccountOwnership.none(),
 }) {
-  return ImportedAccountRollback.run(toxId: toxId, logContext: logContext);
+  return ImportedAccountRollback.run(
+    toxId: toxId,
+    logContext: logContext,
+    ownership: ownership,
+  );
 }
 
 class LoginPageController {
@@ -226,6 +158,10 @@ class LoginPageController {
   }) async {
     String? rollbackToxId;
     bool rollbackFullBackup = false;
+    // What this import creates on disk, captured before the first write. See
+    // ImportedAccountRollback: the target directories are keyed by the 16-char
+    // prefix, so one can already hold a previous account's data.
+    var ownership = const ImportedAccountOwnership.none();
     try {
       final filePath =
           filePathOverride ??
@@ -327,6 +263,7 @@ class LoginPageController {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
         rollbackToxId = toxId;
+        ownership = await ImportedAccountRollback.captureOwnership(toxId);
         await Directory(profileDir).create(recursive: true);
         await File(profileFilePath).writeAsBytes(toxProfile);
         if (password != null && password.isNotEmpty) {
@@ -340,9 +277,16 @@ class LoginPageController {
         }
       }
 
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : importedAccountDefaultName;
+      // Allocate a name no OTHER account holds. `.tox` files carry no nickname,
+      // so every such import wants the same constant default and the second one
+      // used to die inside addAccount with an opaque error. See
+      // ImportedAccountName.
+      final displayNickname = await ImportedAccountName.allocate(
+        preferred: importedNickname.isNotEmpty
+            ? importedNickname
+            : importedAccountDefaultName,
+        toxId: toxId,
+      );
       rollbackToxId ??= toxId;
       await _addAccountFn(
         toxId: toxId,
@@ -380,6 +324,7 @@ class LoginPageController {
             await _rollbackImportedAccountFn(
               toxId: rollbackToxId,
               logContext: 'LoginPageController',
+              ownership: ownership,
             );
           }
         } catch (rollbackError) {
@@ -420,6 +365,9 @@ class LoginPageController {
   }) async {
     String? filePath;
     String? rollbackToxId;
+    // See importAccount: the rollback may only delete directories THIS restore
+    // created.
+    var ownership = const ImportedAccountOwnership.none();
     try {
       if (filePathOverride != null) {
         filePath = filePathOverride;
@@ -499,6 +447,7 @@ class LoginPageController {
         return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
       }
       rollbackToxId = toxId;
+      ownership = await ImportedAccountRollback.captureOwnership(toxId);
       await Directory(profileDir).create(recursive: true);
       await File(profileFilePath).writeAsBytes(toxProfile);
       if (password != null && password.isNotEmpty) {
@@ -511,9 +460,13 @@ class LoginPageController {
         }
       }
 
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : importedAccountDefaultName;
+      // See importAccount: uniquified so a second .tox restore cannot collide.
+      final displayNickname = await ImportedAccountName.allocate(
+        preferred: importedNickname.isNotEmpty
+            ? importedNickname
+            : importedAccountDefaultName,
+        toxId: toxId,
+      );
       await _addAccountFn(
         toxId: toxId,
         nickname: displayNickname,
@@ -540,6 +493,7 @@ class LoginPageController {
           await _rollbackImportedAccountFn(
             toxId: rollbackToxId,
             logContext: 'LoginPageController',
+            ownership: ownership,
           );
         } catch (rollbackError) {
           SafeDiagnostics.logFailure(

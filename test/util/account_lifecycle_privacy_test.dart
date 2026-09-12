@@ -215,6 +215,14 @@ void main() {
         await ImportedAccountRollback.run(
           toxId: _accountIdSecret,
           logContext: 'PrivacyTest',
+          // Claim ownership of both directories so the delete stages actually
+          // run and fail against the read-only root — that failure is what this
+          // test inspects for leaked secrets. The default is "own nothing",
+          // which skips the deletes (and would log nothing at all).
+          ownership: const ImportedAccountOwnership(
+            ownsProfileDirectory: true,
+            ownsAccountDataRoot: true,
+          ),
         );
       } finally {
         await lockedFile?.close();

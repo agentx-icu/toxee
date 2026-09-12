@@ -47,6 +47,8 @@
 // unit test. See account_password_lifecycle_test.dart Bug 3 control test for
 // the rationale.
 
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/startup/startup_outcome.dart';
 import 'package:toxee/startup/startup_session_use_case.dart';
@@ -57,12 +59,50 @@ import 'account_export/test_support.dart';
 void main() {
   late AccountExportTestEnv env;
 
+  // In-memory flutter_secure_storage. The real facade cannot reach a keychain
+  // in a unit test, and an unmocked channel now reports "unavailable" rather
+  // than "no password" — correct, but it makes every account look protected.
+  // The auth-gate group needs all three protection states, so mock the channel
+  // and let individual tests tear it down to simulate unavailability.
+  // Mirrors test/account_password_lifecycle_test.dart.
+  final secureStore = <String, String>{};
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+
   setUp(() async {
     // Mocks path_provider + SharedPreferences and runs Prefs.initialize().
     env = await setUpAccountExportTestEnv();
+    secureStore.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
+      final args =
+          (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
+      switch (call.method) {
+        case 'write':
+          secureStore[args['key'] as String] = args['value'] as String;
+          return null;
+        case 'read':
+          return secureStore[args['key'] as String];
+        case 'delete':
+          secureStore.remove(args['key'] as String);
+          return null;
+        case 'containsKey':
+          return secureStore.containsKey(args['key'] as String);
+        case 'readAll':
+          return Map<String, String>.from(secureStore);
+        case 'deleteAll':
+          secureStore.clear();
+          return null;
+        default:
+          return null;
+      }
+    });
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
     await env.dispose();
   });
 
@@ -168,6 +208,110 @@ void main() {
       expect(outcome, isNot(isA<StartupShowError>()),
           reason: 'the StateError is caught and converted to a login redirect, '
               'not surfaced as a startup error');
+    });
+  });
+
+  group('Auto-login authentication gate (password-protected accounts)', () {
+    // REGRESSION GUARD for an authentication bypass.
+    //
+    // The gate used to be `isProfileFileEncrypted(profile)` alone. That is the
+    // wrong authority: `initializeServiceForAccount` decrypts the profile in
+    // place for the whole session and ONLY `teardownCurrentSession` re-encrypts
+    // it, so any exit that skips teardown (crash, force-quit, or simply closing
+    // the desktop window) leaves a protected account in plaintext. Auto-login
+    // then saw an unencrypted file, concluded "not protected", and opened the
+    // account with no password prompt at all. Setting a password in Settings and
+    // closing the window was enough to reproduce.
+    //
+    // The gate is now the DURABLE verifier, which is true regardless of what the
+    // file on disk currently looks like. These tests seed exactly that state —
+    // a password-protected account whose profile is NOT encrypted — and require
+    // the login page.
+    // Seeds a single auto-login-eligible account and returns its toxId. No
+    // profile file is written: the old gate probed the FILE, and the whole point
+    // is that the decision must not depend on it.
+    Future<String> seedAutoLoginAccount(String fill, String nickname) async {
+      final toxId = fill * 76;
+      await Prefs.setAccountList([
+        {'toxId': toxId, 'nickname': nickname, 'statusMessage': ''},
+      ]);
+      await Prefs.setNickname(nickname);
+      await Prefs.setCurrentAccountToxId(toxId);
+      await Prefs.setAutoLogin(true);
+      return toxId;
+    }
+
+    test(
+        'protected account with NO profile ciphertext → StartupShowLogin '
+        '(the durable verifier decides, not the file)', () async {
+      final toxId = await seedAutoLoginAccount('C', 'Protected');
+      expect(await Prefs.setAccountPassword(toxId, 'correct horse'), isTrue,
+          reason: 'precondition: the durable verifier must persist');
+      expect(await Prefs.accountProtectionState(toxId),
+          AccountProtectionState.protected,
+          reason: 'precondition: the account reads back as protected');
+
+      final outcome = await run();
+
+      expect(outcome, isA<StartupShowLogin>(),
+          reason: 'a password-protected account must reach the login page so '
+              'the password is actually demanded and verified');
+      expect(outcome, isNot(isA<StartupOpenHome>()),
+          reason: 'auto-opening home here IS the authentication bypass');
+      expect(outcome, isNot(isA<StartupWaitForConnection>()),
+          reason: 'the gate must return before any service is created');
+    });
+
+    test(
+        'legacy plain-prefs verifier also gates (secure storage never consulted '
+        'successfully)', () async {
+      final toxId = await seedAutoLoginAccount('E', 'LegacyProtected');
+      // Pre-S1 installs stored the hash in SharedPreferences. It still proves
+      // the account is protected, so it must gate exactly like a modern one.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'account_password_$toxId',
+        'deadbeef' * 8, // shape-only; the gate never verifies, only detects
+      );
+
+      expect(await Prefs.accountProtectionState(toxId),
+          AccountProtectionState.protected);
+      expect(await run(), isA<StartupShowLogin>());
+    });
+
+    test(
+        'secure storage UNAVAILABLE → StartupShowLogin (fail closed, never '
+        'fail open)', () async {
+      await seedAutoLoginAccount('F', 'Unknown');
+      // Kill the mock channel so every read throws MissingPluginException —
+      // the real-world shape is a locked keychain or a missing entitlement.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(secureChannel, null);
+
+      final outcome = await run();
+
+      expect(outcome, isA<StartupShowLogin>(),
+          reason: 'an unreadable secure store means "possibly protected"; '
+              'treating it as "not protected" is the bypass');
+      expect(outcome, isNot(isA<StartupOpenHome>()));
+    });
+
+    test(
+        'CONTROL: unprotected account is not gated — it proceeds into init '
+        '(and fails there for want of FFI, not at the gate)', () async {
+      final toxId = await seedAutoLoginAccount('D', 'Open');
+      expect(await Prefs.accountProtectionState(toxId),
+          AccountProtectionState.none,
+          reason: 'precondition: no verifier, and secure storage DID answer');
+
+      // Without this control a gate that returned StartupShowLogin for every
+      // account would pass all three tests above. An unprotected account must
+      // get past the gate; it then dies in initializeServiceForAccount because
+      // there is no profile and no libtim2tox_ffi in a unit test, which surfaces
+      // as StartupShowError. That error is the proof the gate let it through.
+      expect(await run(), isA<StartupShowError>(),
+          reason: 'reaching init (and failing there) proves the protection gate '
+              'did not short-circuit an unprotected account');
     });
   });
 

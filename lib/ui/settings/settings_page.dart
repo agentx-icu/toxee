@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import '../../util/imported_account_name.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
@@ -813,12 +814,36 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Shared "this account is already on the device" notice for both import
+  /// branches (.zip metadata pre-check and .tox post-decode check), which had
+  /// identical 15-line inline dialogs.
+  Future<void> _showAccountAlreadyExistsDialog(AppLocalizations l10n) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.importAccount),
+        content: Text(l10n.accountAlreadyExists),
+        actions: [
+          TextButton(
+            onPressed: () => popDialogIfCurrent(context),
+            child: Text(l10n.ok),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _importAccount() async {
     if (_importInProgress) return;
     setState(() => _importInProgress = true);
     String? rollbackToxId;
     var rollbackFullBackup = false;
     var rollbackImportedAccount = false;
+    // What this import creates on disk. The rollback may only delete that; the
+    // target directories are keyed by the account's 16-char prefix, so one can
+    // already hold a previous account's data. See ImportedAccountRollback.
+    var ownership = const ImportedAccountOwnership.none();
     final l10n = AppLocalizations.of(context)!;
     try {
       // Show file picker for .tox and .zip files
@@ -826,22 +851,13 @@ class _SettingsPageState extends State<SettingsPage> {
       if (filePath == null) return;
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
-      // Check if file is encrypted by reading first bytes and checking magic number
+      // No pre-read here on purpose. This used to slurp the ENTIRE picked file
+      // into memory to test `length >= 80` and then do nothing with it — a
+      // hundreds-of-megabytes allocation for a full-backup .zip, on the UI
+      // isolate, discarded immediately. The importers below already detect
+      // encryption themselves and raise PasswordRequiredException, which is
+      // what actually drives the password prompt.
       String? password;
-      try {
-        final file = File(filePath);
-        final fileData = await file.readAsBytes();
-        if (fileData.length >= 80) {
-          // Import will check encryption, but we need to prompt for password first if encrypted
-          // For now, we'll let importAccountData/importFullBackup handle the encryption check
-          // If it throws an error about password, we'll catch and prompt
-        }
-      } catch (e) {
-        SafeDiagnostics.logFailure(
-          '[SettingsPage] pre-import file size probe failed; import will retry',
-          e,
-        );
-      }
 
       // Import account data (will check encryption and prompt for password if needed)
       Map<String, dynamic> accountData;
@@ -873,31 +889,23 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         }
         final metaToxId = metadata['toxId']!;
-        rollbackToxId = metaToxId;
-        rollbackFullBackup = true;
         final existingAccount = await Prefs.getAccountByToxId(metaToxId);
         final profileDir = await AppPaths.getProfileDirectoryForToxId(
           metaToxId,
         );
         final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
         if (existingAccount != null || await File(profileFilePath).exists()) {
-          if (mounted) {
-            await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(l10n.importAccount),
-                content: Text(l10n.accountAlreadyExists),
-                actions: [
-                  TextButton(
-                    onPressed: () => popDialogIfCurrent(context),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-          }
+          await _showAccountAlreadyExistsDialog(l10n);
           return;
         }
+        // Arm the rollback only now that the guards have passed. Arming it
+        // before them meant an exception thrown DURING those checks ran
+        // `rollbackPendingFullBackupRestore`, which — if an unfinished restore
+        // journal for this same account was on disk — deleted its committed
+        // profile and account-data directories. Matches the ordering in
+        // LoginPageController.importAccount.
+        rollbackToxId = metaToxId;
+        rollbackFullBackup = true;
         accountData = await AccountExportService.importFullBackup(
           filePath: filePath,
           password: password,
@@ -946,21 +954,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!isZip) {
         final existingAccount = await Prefs.getAccountByToxId(toxId);
         if (existingAccount != null || await File(profileFilePath).exists()) {
-          if (mounted) {
-            await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(l10n.importAccount),
-                content: Text(l10n.accountAlreadyExists),
-                actions: [
-                  TextButton(
-                    onPressed: () => popDialogIfCurrent(context),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-          }
+          await _showAccountAlreadyExistsDialog(l10n);
           return;
         }
       }
@@ -968,6 +962,7 @@ class _SettingsPageState extends State<SettingsPage> {
       // For .tox imports, write profile; .zip imports already wrote it in importFullBackup
       if (!isZip && toxProfile != null) {
         rollbackImportedAccount = true;
+        ownership = await ImportedAccountRollback.captureOwnership(toxId);
         final parentDir = Directory(profileDir);
         if (!await parentDir.exists()) {
           await parentDir.create(recursive: true);
@@ -986,9 +981,15 @@ class _SettingsPageState extends State<SettingsPage> {
       }
 
       // Add/update account (.zip may contain nickname, .tox does not)
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : l10n.importedAccount;
+      // Uniquified: a `.tox` file carries no nickname, so every such import
+      // wants the same constant and the second one used to fail inside
+      // addAccount. See ImportedAccountName.
+      final displayNickname = await ImportedAccountName.allocate(
+        preferred: importedNickname.isNotEmpty
+            ? importedNickname
+            : l10n.importedAccount,
+        toxId: toxId,
+      );
       if (!isZip) rollbackImportedAccount = true;
       await _addImportedAccountFn(
         toxId: toxId,
@@ -1051,6 +1052,7 @@ class _SettingsPageState extends State<SettingsPage> {
             await ImportedAccountRollback.run(
               toxId: rollbackToxId,
               logContext: 'SettingsPage',
+              ownership: ownership,
             );
           }
         } catch (rollbackError) {

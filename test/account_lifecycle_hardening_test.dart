@@ -643,7 +643,16 @@ void main() {
       },
     );
 
-    test('service dispose failure is surfaced after profile cleanup', () async {
+    // A failed dispose means we CANNOT prove the native writers have stopped.
+    // tim2tox persists savedata from native on its own timer, so encrypting the
+    // profile while an undisposed instance is still alive risks that instance
+    // overwriting our ciphertext with plaintext moments later — leaving the file
+    // unencrypted while the durable verifier still says the account is
+    // protected. This test used to assert the opposite (encrypt anyway, clear
+    // the session password); it now pins the fail-safe behaviour: skip
+    // encryption and RETAIN the session password so an in-process retry — or
+    // the next clean logout — can still re-encrypt.
+    test('service dispose failure skips profile encryption and is surfaced', () async {
       await _seedDeletableAccount(
         _toxId,
         nickname: 'Dispose failure',
@@ -677,8 +686,18 @@ void main() {
         ),
       );
 
-      expect(profileEncrypted, isTrue);
-      expect(SessionPasswordStore.get(_toxId), isNull);
+      expect(
+        profileEncrypted,
+        isFalse,
+        reason:
+            'encrypting behind a live (undisposed) Tox instance can be '
+            'overwritten with plaintext by its next autosave',
+      );
+      expect(
+        SessionPasswordStore.get(_toxId),
+        sessionPassword,
+        reason: 'retained so a retry can still re-encrypt the profile',
+      );
     });
 
     test(

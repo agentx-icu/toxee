@@ -17,10 +17,16 @@ import 'prefs/draft_prefs.dart';
 import 'prefs/password_verifier.dart';
 import 'prefs/scoped_key.dart';
 
+// Re-exported so callers gating on account protection (startup, login,
+// switch, delete, export) get the tri-state without importing the verifier's
+// implementation library.
+export 'prefs/password_verifier.dart' show AccountProtectionState;
+
 part 'prefs/window_prefs.dart';
 part 'prefs/security_prefs.dart';
 part 'prefs/account_prefs.dart';
 part 'prefs/chat_prefs.dart';
+part 'prefs/password_key_migration.dart';
 
 /// Static facade for app preferences. New code should prefer repository instances
 /// ([PrefsImpl] or [prefs_interfaces.dart] interfaces) for testability and bounded context.
@@ -129,12 +135,26 @@ class Prefs {
   /// (e.g. sandboxed macOS without the required entitlement; we don't want a
   /// missing-entitlement to take down quickLogin's auto-resume).
   static Future<String?> _secureRead(String key) async {
+    return (await _secureReadOutcome(key)).value;
+  }
+
+  /// [_secureRead] plus whether the backend answered at all.
+  ///
+  /// Any decision that changes durable identity or grants access MUST use this,
+  /// not [_secureRead]: collapsing "absent" and "refused" into null is how a
+  /// keychain outage came to look like "this account has no password". See
+  /// `SecureStorageReadOutcome` and `prefs/password_key_migration.dart`.
+  static Future<SecureStorageReadOutcome> _secureReadOutcome(
+    String key,
+  ) async {
     try {
-      return await _secureStorage.read(key: key);
+      return SecureStorageReadOutcome.answered(
+        await _secureStorage.read(key: key),
+      );
     } on MissingPluginException {
-      return null;
+      return const SecureStorageReadOutcome.unavailable();
     } on PlatformException {
-      return null;
+      return const SecureStorageReadOutcome.unavailable();
     }
   }
 
@@ -2124,8 +2144,20 @@ class Prefs {
   }
 
   /// Check if an account has a password set.
+  ///
+  /// Fail-closed: an unreadable secure store reports `true`. See
+  /// [accountProtectionState] when the caller needs to tell the two apart.
   static Future<bool> hasAccountPassword(String toxId) =>
       _verifier().hasPassword(toxId);
+
+  /// Durable protection state for an account — the authority on "does this
+  /// account require a password", independent of whether its `tox_profile.tox`
+  /// happens to be encrypted on disk right now. Callers gating access MUST NOT
+  /// infer protection from file encryption: the profile is plaintext for the
+  /// whole of an authenticated session and stays that way after any exit that
+  /// skips `AccountService.teardownCurrentSession`.
+  static Future<AccountProtectionState> accountProtectionState(String toxId) =>
+      _verifier().protectionState(toxId);
 
   /// Get account password hash (for verification). Migrates legacy plain-prefs
   /// values into secure storage on first read.
@@ -2161,144 +2193,27 @@ class Prefs {
   static Future<bool> verifyAccountPassword(String toxId, String password) =>
       _verifier().verifyPassword(toxId, password);
 
-  /// Move every password-related key (secure-storage hash + salt, plus
-  /// legacy plain-prefs hash + salt) from one toxId namespace to another.
+  /// Move every password-related key (secure-storage hash + salt, plus legacy
+  /// plain-prefs hash + salt) from one toxId namespace to another.
   ///
-  /// Used by `PlaceholderAccountMigration` when an account's identity is
-  /// being renamed from the V2TIM placeholder ("FlutterUIKitClient") to the
-  /// real 76-char Tox address. Plain `setAccountPassword(newToxId, ...)`
-  /// can't be used because we don't have the user's plaintext password —
-  /// only the stored hash and salt. So we copy the raw values verbatim
-  /// under the new key names.
+  /// Used by `PlaceholderAccountMigration` (placeholder -> real Tox address)
+  /// and by `ShortToxIdBackfill` (64-char public key -> 76-char address). Plain
+  /// [setAccountPassword] cannot be used because we hold only the stored hash
+  /// and salt, never the user's plaintext password, so the raw values are
+  /// copied verbatim under the new key names.
   ///
-  /// Returns:
-  /// - `MigratedNothing` when [fromToxId] has nothing in any of the four
-  ///   key slots (no-op success — common when the user never set a
-  ///   password).
-  /// - `MigratedFully` when every existing value was copied to the new
-  ///   namespace AND the old values were removed.
-  /// - `MigrationFailed` when any copy step refused / threw; partial
-  ///   writes are undone so the caller sees a clean rollback.
+  /// Transactional: refuses to clobber a populated destination, and unwinds
+  /// partial writes so a failure leaves "nothing changed". Idempotent —
+  /// re-running after success reports [PasswordMigrationOutcome.migratedNothing].
   ///
-  /// Idempotent: re-running after success returns `MigratedNothing`.
+  /// Implementation lives in `prefs/password_key_migration.dart`.
   static Future<PasswordMigrationOutcome> migrateAccountPasswordKeys({
     required String fromToxId,
     required String toToxId,
-  }) async {
-    if (fromToxId.isEmpty || toToxId.isEmpty || fromToxId == toToxId) {
-      return PasswordMigrationOutcome.migratedNothing;
-    }
-
-    // Snapshot source values from both storage layers.
-    final fromHashKey = PasswordVerifier.secureHashKey(fromToxId);
-    final fromSaltKey = PasswordVerifier.secureSaltKey(fromToxId);
-    final toHashKey = PasswordVerifier.secureHashKey(toToxId);
-    final toSaltKey = PasswordVerifier.secureSaltKey(toToxId);
-    final fromLegacyHashKey = PasswordVerifier.legacyHashKey(fromToxId);
-    final fromLegacySaltKey = PasswordVerifier.legacySaltKey(fromToxId);
-    final toLegacyHashKey = PasswordVerifier.legacyHashKey(toToxId);
-    final toLegacySaltKey = PasswordVerifier.legacySaltKey(toToxId);
-
-    final secureHash = await _secureRead(fromHashKey);
-    final secureSalt = await _secureRead(fromSaltKey);
-    final prefs = await _getPrefs();
-    final legacyHash = prefs.getString(fromLegacyHashKey);
-    final legacySalt = prefs.getString(fromLegacySaltKey);
-
-    final anySource =
-        secureHash != null ||
-        secureSalt != null ||
-        legacyHash != null ||
-        legacySalt != null;
-    if (!anySource) return PasswordMigrationOutcome.migratedNothing;
-
-    // Pre-flight: refuse to clobber an existing target slot. A populated
-    // target slot means a real-toxId password is already configured —
-    // overwriting would corrupt the existing account's auth.
-    final destHash = await _secureRead(toHashKey);
-    final destSalt = await _secureRead(toSaltKey);
-    final destLegacyHash = prefs.getString(toLegacyHashKey);
-    final destLegacySalt = prefs.getString(toLegacySaltKey);
-    if (destHash != null ||
-        destSalt != null ||
-        destLegacyHash != null ||
-        destLegacySalt != null) {
-      return PasswordMigrationOutcome.migrationFailed;
-    }
-
-    // Copy under new keys. Track each write so a downstream failure can
-    // unwind to "nothing changed".
-    final undoSecure = <String>[];
-    final undoLegacy = <String>[];
-    try {
-      if (secureHash != null) {
-        if (!await _secureWrite(toHashKey, secureHash)) {
-          throw StateError('secure write of $toHashKey failed');
-        }
-        undoSecure.add(toHashKey);
-      }
-      if (secureSalt != null) {
-        if (!await _secureWrite(toSaltKey, secureSalt)) {
-          throw StateError('secure write of $toSaltKey failed');
-        }
-        undoSecure.add(toSaltKey);
-      }
-      if (legacyHash != null) {
-        if (!await prefs.setString(toLegacyHashKey, legacyHash)) {
-          throw StateError('prefs write of $toLegacyHashKey failed');
-        }
-        undoLegacy.add(toLegacyHashKey);
-      }
-      if (legacySalt != null) {
-        if (!await prefs.setString(toLegacySaltKey, legacySalt)) {
-          throw StateError('prefs write of $toLegacySaltKey failed');
-        }
-        undoLegacy.add(toLegacySaltKey);
-      }
-    } catch (_) {
-      for (final k in undoSecure) {
-        try {
-          await _secureDelete(k);
-        } catch (_) {
-          /* best effort */
-        }
-      }
-      for (final k in undoLegacy) {
-        try {
-          await prefs.remove(k);
-        } catch (_) {
-          /* best effort */
-        }
-      }
-      return PasswordMigrationOutcome.migrationFailed;
-    }
-
-    // Source removal is non-fatal. The new keys are now authoritative;
-    // a lingering old key is harmless (no caller reads under the old
-    // toxId after account_list is migrated).
-    try {
-      if (secureHash != null) await _secureDelete(fromHashKey);
-    } catch (_) {
-      /* best effort */
-    }
-    try {
-      if (secureSalt != null) await _secureDelete(fromSaltKey);
-    } catch (_) {
-      /* best effort */
-    }
-    try {
-      if (legacyHash != null) await prefs.remove(fromLegacyHashKey);
-    } catch (_) {
-      /* best effort */
-    }
-    try {
-      if (legacySalt != null) await prefs.remove(fromLegacySaltKey);
-    } catch (_) {
-      /* best effort */
-    }
-
-    return PasswordMigrationOutcome.migratedFully;
-  }
+  }) => migrateAccountPasswordKeysImpl(
+    fromToxId: fromToxId,
+    toToxId: toToxId,
+  );
 
   // --- Window/layout state (desktop) ---
 

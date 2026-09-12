@@ -35,9 +35,10 @@ import '../logger.dart';
 /// exercised without driving a real Keychain.
 ///
 /// Contract:
-/// * [read] returns null on a missing key or a swallowed failure (callers
-///   cannot distinguish "absent" from "platform refused" — both mean
-///   "no usable value").
+/// * [read] returns null on a missing key or a swallowed failure. It is
+///   deliberately lossy and MUST NOT be used to decide whether an account is
+///   password-protected — use [readOutcome] for that (see
+///   [SecureStorageReadOutcome]).
 /// * [write] returns true when the value was actually persisted, false
 ///   when the underlying call was swallowed. Callers that perform a
 ///   migration MUST gate the legacy `remove(...)` on this return value —
@@ -48,6 +49,59 @@ abstract class SecureStorageFacade {
   Future<String?> read(String key);
   Future<bool> write(String key, String value);
   Future<bool> delete(String key);
+
+  /// [read] plus the one bit [read] throws away: whether the backend answered
+  /// at all.
+  ///
+  /// Why this exists: the swallow-to-null behaviour below collapses "this
+  /// account has no password" and "the Keychain/Keystore refused to answer"
+  /// into the same value. `hasPassword` then reported `false` for a
+  /// password-protected account whenever secure storage was momentarily
+  /// unavailable, and every caller that gates on it — manual login, account
+  /// switch, delete, export — skipped its password prompt entirely. An
+  /// authentication decision must fail CLOSED, which is impossible without
+  /// this distinction.
+  ///
+  /// The default implementation preserves the historical (lossy) behaviour —
+  /// "the backend answered, and this is what it said" — so an in-memory double
+  /// that `extends SecureStorageFacade` needs no change. Only a backend that
+  /// can actually be unavailable overrides it. A double that `implements` the
+  /// interface must supply its own, which is the intended friction: reporting
+  /// availability is now part of the contract.
+  Future<SecureStorageReadOutcome> readOutcome(String key) async {
+    return SecureStorageReadOutcome.answered(await read(key));
+  }
+}
+
+/// Result of a [SecureStorageFacade.readOutcome] call.
+///
+/// [unavailable] means the backend refused or was absent, so [value] carries
+/// no information. It is NOT "the key is missing" — that is
+/// `answered(null)`.
+final class SecureStorageReadOutcome {
+  const SecureStorageReadOutcome.answered(this.value) : unavailable = false;
+  const SecureStorageReadOutcome.unavailable()
+      : value = null,
+        unavailable = true;
+
+  final String? value;
+  final bool unavailable;
+
+  bool get hasValue => value != null && value!.isNotEmpty;
+}
+
+/// Whether an account is password-protected, including the third state the
+/// old boolean could not express.
+enum AccountProtectionState {
+  /// No verifier in secure storage and none in the legacy plain-prefs store.
+  none,
+
+  /// A verifier exists; the account requires a password.
+  protected,
+
+  /// Secure storage could not be consulted. Callers MUST treat this as
+  /// "possibly protected" and refuse to grant access, never as [none].
+  unknown,
 }
 
 /// Production [SecureStorageFacade] backed by a [FlutterSecureStorage].
@@ -62,12 +116,17 @@ class FlutterSecureStorageFacade implements SecureStorageFacade {
 
   @override
   Future<String?> read(String key) async {
+    return (await readOutcome(key)).value;
+  }
+
+  @override
+  Future<SecureStorageReadOutcome> readOutcome(String key) async {
     try {
-      return await _storage.read(key: key);
+      return SecureStorageReadOutcome.answered(await _storage.read(key: key));
     } on MissingPluginException {
-      return null;
+      return const SecureStorageReadOutcome.unavailable();
     } on PlatformException {
-      return null;
+      return const SecureStorageReadOutcome.unavailable();
     }
   }
 
@@ -184,11 +243,35 @@ class PasswordVerifier {
   static const String legacySaltPrefix = 'account_password_salt_';
   static String legacySaltKey(String toxId) => '$legacySaltPrefix$toxId';
 
+  /// Whether [toxId] is password-protected, distinguishing "not protected"
+  /// from "secure storage would not answer".
+  ///
+  /// Resolution order mirrors [_readHashWithMigration]: secure storage first,
+  /// then the legacy plain-prefs entry. A legacy hash is authoritative even
+  /// when secure storage is unavailable — it proves the account IS protected,
+  /// so there is nothing uncertain left to report.
+  Future<AccountProtectionState> protectionState(String toxId) async {
+    if (toxId.isEmpty) return AccountProtectionState.none;
+    final secure = await _secureStorage.readOutcome(secureHashKey(toxId));
+    if (secure.hasValue) return AccountProtectionState.protected;
+    final legacy = await _legacyStore.readLegacyHash(toxId);
+    if (legacy != null && legacy.isNotEmpty) {
+      return AccountProtectionState.protected;
+    }
+    return secure.unavailable
+        ? AccountProtectionState.unknown
+        : AccountProtectionState.none;
+  }
+
   /// Check if [toxId] has a password set (either in secure storage or
   /// migratable legacy plain prefs).
+  ///
+  /// FAIL-CLOSED: [AccountProtectionState.unknown] reports `true`. Every
+  /// caller of this method uses it to decide whether to demand a password, so
+  /// an unreadable Keychain must mean "ask" rather than "let them in". Callers
+  /// that can render a better error should read [protectionState] directly.
   Future<bool> hasPassword(String toxId) async {
-    if (toxId.isEmpty) return false;
-    return (await _readHashWithMigration(toxId)) != null;
+    return (await protectionState(toxId)) != AccountProtectionState.none;
   }
 
   /// Get the raw stored password hash for [toxId] (PBKDF2-prefixed or legacy

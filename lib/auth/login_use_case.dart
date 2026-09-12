@@ -29,6 +29,24 @@ class LoginSuccess {
   final FfiChatService service;
 }
 
+/// Thrown when the platform secure store (Keychain / Keystore / libsecret /
+/// DPAPI) could not be consulted, so whether the account is password-protected
+/// is unknown.
+///
+/// Login refuses rather than guessing: guessing "not protected" is an
+/// authentication bypass, and guessing "protected" would report the user's
+/// correct password as wrong. The condition is transient (a locked keychain, a
+/// missing entitlement, a plugin that failed to register), so the message asks
+/// for a retry.
+final class AccountProtectionUnavailableException implements Exception {
+  const AccountProtectionUnavailableException();
+
+  @override
+  String toString() =>
+      'AccountProtectionUnavailableException: secure storage unavailable, '
+      'cannot determine whether this account requires a password';
+}
+
 /// Encapsulates login business logic: account resolution, service initialization,
 /// TIMManager SDK init, and prefs persistence. UI only validates form and navigates.
 class LoginUseCase {
@@ -71,8 +89,17 @@ class LoginUseCase {
     final toxIdForLogin = account?['toxId'];
     if (toxIdForLogin != null && toxIdForLogin.isNotEmpty) {
       await AccountService.throwIfAccountDeleting(toxIdForLogin);
-      final hasPassword = await Prefs.hasAccountPassword(toxIdForLogin);
-      if (hasPassword) {
+      // Fail closed on an unreadable secure store. `hasAccountPassword` already
+      // reports true for `unknown`, so verification would be demanded and then
+      // fail against a hash we cannot read — an accurate outcome with a
+      // misleading "Invalid password" message. Branch on the tri-state so the
+      // user is told the real cause (Keychain/Keystore unavailable) instead of
+      // being told their own password is wrong.
+      final protection = await Prefs.accountProtectionState(toxIdForLogin);
+      if (protection == AccountProtectionState.unknown) {
+        throw const AccountProtectionUnavailableException();
+      }
+      if (protection == AccountProtectionState.protected) {
         final password = params.password ?? '';
         if (password.isEmpty) {
           throw Exception('Password required');
