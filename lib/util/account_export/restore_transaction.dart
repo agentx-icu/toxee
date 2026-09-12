@@ -8,14 +8,17 @@ import 'package:path/path.dart' as p;
 import '../app_paths.dart';
 import '../async_gate.dart';
 import '../prefs.dart';
+import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
 import 'restore_metadata_sections.dart';
 import 'restore_paths.dart';
+import 'restore_test_hooks.dart';
 import 'restore_transaction_journal.dart';
 
 // The durable journal (model + on-disk store) lives in its own file; re-exported
 // so existing importers of this one keep resolving it.
+export 'restore_test_hooks.dart';
 export 'restore_transaction_journal.dart';
 
 enum RestoreTransactionState {
@@ -26,13 +29,6 @@ enum RestoreTransactionState {
   accountRegistryVisible,
 }
 
-enum FullBackupRestoreFailurePoint {
-  afterStaging,
-  afterProfileCommit,
-  afterAccountDataCommit,
-  afterScopedPrefsApply,
-  afterAccountRegistryVisible,
-}
 
 /// Which of the four directories a restore has to claim was already occupied.
 enum RestoreDestinationKind {
@@ -87,35 +83,7 @@ final class RestoreDestinationExistsError extends StateError {
   final RestoreDestinationKind kind;
 }
 
-final class FullBackupRestoreCrashSimulation implements Exception {
-  const FullBackupRestoreCrashSimulation(this.point);
 
-  final FullBackupRestoreFailurePoint point;
-
-  @override
-  String toString() => 'FullBackupRestoreCrashSimulation: ${point.name}';
-}
-
-abstract final class FullBackupRestoreTestHooks {
-  FullBackupRestoreTestHooks._();
-
-  @visibleForTesting
-  static FullBackupRestoreFailurePoint? crashAt;
-
-  static String Function(Uint8List profileBytes)? profileIdentityExtractor;
-
-  @visibleForTesting
-  static void reset() {
-    crashAt = null;
-    profileIdentityExtractor = null;
-  }
-
-  static void maybeCrash(FullBackupRestoreFailurePoint point) {
-    if (crashAt == point) {
-      throw FullBackupRestoreCrashSimulation(point);
-    }
-  }
-}
 
 final class FullBackupRestoreInput {
   const FullBackupRestoreInput({
@@ -327,7 +295,18 @@ abstract final class FullBackupRestoreTransaction {
     String? toxId,
     String? transactionId,
   }) async {
-    final journal = await RestoreTransactionJournalStore.read();
+    final RestoreTransactionJournal? journal;
+    try {
+      journal = await RestoreTransactionJournalStore.read();
+    } catch (_) {
+      // The read told us nothing, but this caller is leaving either way, and
+      // holding its ownership would refuse every later restore in the process.
+      // Released only for the transaction the caller named as its own.
+      if (transactionId != null && transactionId == _ownedTransactionId) {
+        _ownedTransactionId = null;
+      }
+      rethrow;
+    }
     if (journal == null) return;
     if (toxId != null && !compareToxIds(journal.toxId, toxId)) {
       throw StateError('Pending restore belongs to a different account');
@@ -336,6 +315,19 @@ abstract final class FullBackupRestoreTransaction {
       // Someone else's transaction now holds the journal; undoing it would
       // destroy work that is still in flight.
       return;
+    }
+    // Durable intent FIRST. A rollback that dies partway leaves state that looks
+    // committed, and recovery would then clear the journal as a success.
+    try {
+      await RestoreTransactionJournalStore.write(
+        journal.copyWith(rollbackRequested: true),
+      );
+    } catch (e) {
+      SafeDiagnostics.logFailure(
+        '[RestoreTransaction] could not record rollback intent; recovery may '
+        'read a half-undone transaction as committed',
+        e,
+      );
     }
     try {
       await rollbackRestoreTransaction(journal);
@@ -359,6 +351,13 @@ abstract final class FullBackupRestoreTransaction {
     if (journal.transactionId == _ownedTransactionId) {
       // Its caller is alive and mid-publication; only that caller may finish or
       // undo it. A cold start clears `_ownedTransactionId` by construction.
+      return;
+    }
+    if (journal.rollbackRequested) {
+      // Someone already decided this transaction must be undone. However
+      // committed its leftovers look, finishing it would publish a restore the
+      // user's rollback was half-way through removing.
+      await _rollbackPendingRestoreUnguarded(toxId: journal.toxId);
       return;
     }
     final accountVisible = await Prefs.getAccountByToxId(journal.toxId) != null;

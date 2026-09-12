@@ -84,12 +84,21 @@ extension _SettingsImportFlow on _SettingsPageState {
         // journal for this same account was on disk — deleted its committed
         // profile and account-data directories. Matches the ordering in
         // LoginPageController.importAccount.
-        rollbackToxId = metaToxId;
-        rollbackFullBackup = true;
+        // ARMED ONLY AFTER the restore returns. Anything that throws before
+        // that - a missing source file, an unsupported inner format version, a
+        // refused admission because another transaction for this account is
+        // committed and waiting - wrote nothing HERE, and the rollback matches
+        // on account id alone, so running it deleted the live owner's profile,
+        // history and journal. Exempting individual exception types was the
+        // first attempt and kept missing new ones; there is nothing to undo
+        // until there is something to undo. Everything before this point is the
+        // service's own to clean up, inside its transaction.
         accountData = await AccountExportService.importFullBackup(
           filePath: filePath,
           password: password,
         );
+        rollbackToxId = metaToxId;
+        rollbackFullBackup = true;
       } else {
         try {
           accountData = await _importAccountDataFn(

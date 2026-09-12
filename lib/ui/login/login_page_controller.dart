@@ -236,12 +236,15 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
-        rollbackToxId = toxId;
-        rollbackFullBackup = true;
+        // Armed only AFTER the restore returns; see the note at the matching
+        // point in `settings_page_import.dart`. A failure before this wrote
+        // nothing here, and the rollback matches on account id alone.
         accountData = await _importFullBackupFn(
           filePath: filePath,
           password: password,
         );
+        rollbackToxId = toxId;
+        rollbackFullBackup = true;
       } else {
         try {
           accountData = await _importAccountDataFn(

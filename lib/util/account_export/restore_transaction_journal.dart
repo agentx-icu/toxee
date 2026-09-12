@@ -28,6 +28,7 @@ final class RestoreTransactionJournal {
     required this.accountDataStageDir,
     required this.accountDataFinalDir,
     required this.hasProfile,
+    this.rollbackRequested = false,
     this.priorBlackListCaptured = false,
     this.priorBlackList = const <String>[],
     this.priorFailedQueueCaptured = false,
@@ -65,6 +66,16 @@ final class RestoreTransactionJournal {
   /// existed, or for a family whose read failed. Ownership is then UNKNOWN, and
   /// unknown ownership must not authorize deletion: rollback leaves that family
   /// exactly as it finds it.
+  /// Set durably BEFORE a rollback runs, so recovery cannot mistake a rollback
+  /// that failed partway for a restore that succeeded.
+  ///
+  /// Without it: after the account row is published, a finalize failure triggers
+  /// a rollback; if a directory delete then throws before the committed payload
+  /// is gone, the row and the payload both survive - and recovery reads exactly
+  /// that as "this transaction committed", clears the journal, and takes the only
+  /// snapshots of the user's blocked peers and pending messages with it.
+  final bool rollbackRequested;
+
   final bool priorBlackListCaptured;
   final List<String> priorBlackList;
   final bool priorFailedQueueCaptured;
@@ -81,6 +92,7 @@ final class RestoreTransactionJournal {
 
   RestoreTransactionJournal copyWith({
     RestoreTransactionState? state,
+    bool? rollbackRequested,
     bool? priorBlackListCaptured,
     List<String>? priorBlackList,
     bool? priorFailedQueueCaptured,
@@ -95,6 +107,7 @@ final class RestoreTransactionJournal {
       accountDataStageDir: accountDataStageDir,
       accountDataFinalDir: accountDataFinalDir,
       hasProfile: hasProfile,
+      rollbackRequested: rollbackRequested ?? this.rollbackRequested,
       priorBlackListCaptured:
           priorBlackListCaptured ?? this.priorBlackListCaptured,
       priorBlackList: priorBlackList ?? this.priorBlackList,
@@ -116,6 +129,7 @@ final class RestoreTransactionJournal {
     'accountDataStageDir': accountDataStageDir,
     'accountDataFinalDir': accountDataFinalDir,
     'hasProfile': hasProfile,
+    'rollbackRequested': rollbackRequested,
     'priorBlackListCaptured': priorBlackListCaptured,
     'priorBlackList': priorBlackList,
     'priorFailedQueueCaptured': priorFailedQueueCaptured,
@@ -142,6 +156,7 @@ final class RestoreTransactionJournal {
       // unknown, and rollback must then not touch either family. Defaulting the
       // other way (assuming we own them) is what caused the data loss in the
       // first place, and it would reappear exactly once, during the upgrade.
+      rollbackRequested: json['rollbackRequested'] as bool? ?? false,
       priorBlackListCaptured: json['priorBlackListCaptured'] as bool? ?? false,
       priorFailedQueueCaptured:
           json['priorFailedQueueCaptured'] as bool? ?? false,
