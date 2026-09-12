@@ -68,8 +68,13 @@ void main() {
       }
     });
 
-    test('materializes inbound custom data as a C2C custom message', () {
+    test('materializes inbound custom data as a C2C custom message', () async {
       final service = _TestFfiChatService();
+      // Disposed before the teardown pulls the path_provider mock. Ingesting
+      // arms a 200 ms history-save timer, and a timer that fires after the mock
+      // is gone throws a late `MissingPluginException` that fails this test
+      // under full-suite load while passing in isolation.
+      addTearDown(() async => service.dispose());
       const sender = 'peer_pubkey_custom';
       const data = '{"type":"reply_probe","body":"quotable"}';
 

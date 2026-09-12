@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
+import 'active_session.dart';
 import 'bootstrap_node_ensurer.dart';
 import 'irc_app_manager.dart';
 import 'ios_backup_policy.dart';
@@ -88,6 +89,11 @@ class AppBootstrapCoordinator {
       await IosPostLoginBackupExcluder(isIos: true).apply(toxId);
       _wireIosBgRefresh(service);
     }
+
+    // Publish the live session LAST, so only a fully booted service is visible
+    // to shutdown paths that have no other handle on it (desktop window close).
+    // See `ActiveSession` for why that registry exists.
+    ActiveSession.set(service);
   }
 
   static Future<void> _runCoreStartupSequence({

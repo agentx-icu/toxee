@@ -14,6 +14,11 @@ import 'dart:async';
 import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
+import 'account_export_flow.dart';
+import '../../util/imported_account_name.dart';
+import '../../util/account_export/tox_import_journal.dart';
+import '../../util/legacy_account_data_claim.dart';
+import '../widgets/app_snackbar.dart';
 import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
@@ -41,10 +46,11 @@ import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
 import 'sidebar.dart' show showSelfProfile;
 import '../pairing/pairing_host_page.dart';
-import '../testing/l3_debug_tools.dart';
 
 part 'settings_page_widgets.dart';
 part 'settings_page_mobile_widgets.dart';
+part 'settings_page_session_actions.dart';
+part 'settings_page_import.dart';
 part 'settings_page_build.dart';
 
 /// Test seam for the logout teardown step. Production binds this to
@@ -216,6 +222,10 @@ class _SettingsPageState extends State<SettingsPage> {
   late final SettingsSwitchAccountFn _switchAccountFn;
   late final SettingsPickImportFileFn _pickImportFileFn;
   late final SettingsImportAccountDataFn _importAccountDataFn;
+  /// Whether unclaimed pre-multi-account data is on disk. Drives the
+  /// recovery affordance; see [_recoverLegacyData].
+  bool _hasUnclaimedLegacyData = false;
+  bool _legacyRecoveryInProgress = false;
   late final EncryptProfileFileFn _encryptProfileFileFn;
   late final SettingsAddImportedAccountFn _addImportedAccountFn;
   late final SettingsSetImportedAccountPasswordFn _setImportedAccountPasswordFn;
@@ -256,6 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadCurrentNickname();
     _loadAvatarPath();
     _loadAccountList();
+    unawaited(_refreshUnclaimedLegacyData());
     _startLastLoginTimeUpdateTimer();
     _avatarUpdatedSubscription = widget.service.avatarUpdated.listen((
       updatedUserId,
@@ -340,7 +351,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadAccountList() async {
-    final accounts = await Prefs.getAccountList();
+    final List<Map<String, String>> accounts;
+    try {
+      accounts = await Prefs.getAccountList();
+    } on AccountRegistryUnreadableException catch (e) {
+      // Leave whatever is already displayed rather than replacing it with an
+      // empty list that reads as "you have one account". The periodic refresh
+      // will pick the registry up again if the read was transient.
+      SafeDiagnostics.logFailure(
+        '[SettingsPage] account registry unreadable; keeping the last known '
+        'list',
+        e,
+      );
+      return;
+    }
     final currentToxId = await Prefs.getCurrentAccountToxId();
     if (mounted) {
       setState(() {
@@ -366,14 +390,26 @@ class _SettingsPageState extends State<SettingsPage> {
     ) async {
       final toxId = widget.service.accountKey;
       if (toxId.isNotEmpty && mounted) {
-        final account = await Prefs.getAccountByToxId(toxId);
-        if (account != null) {
-          await Prefs.addAccount(
-            toxId: toxId,
-            nickname: account['nickname'],
-            statusMessage: account['statusMessage'],
+        // Guarded: this is a background timestamp refresh, and an unreadable
+        // registry here would surface as an unhandled async error every five
+        // minutes for as long as the page is open. The registry's own write
+        // refusal is what protects the data; this tick can simply skip.
+        try {
+          final account = await Prefs.getAccountByToxId(toxId);
+          if (account != null) {
+            await Prefs.addAccount(
+              toxId: toxId,
+              nickname: account['nickname'],
+              statusMessage: account['statusMessage'],
+            );
+            await _loadAccountList();
+          }
+        } on AccountRegistryUnreadableException catch (e) {
+          SafeDiagnostics.logFailure(
+            '[SettingsPage] skipping the periodic last-login refresh: account '
+            'registry unreadable',
+            e,
           );
-          await _loadAccountList();
         }
       }
     });
@@ -619,61 +655,19 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
 
-      String? outputPath;
-      final isDesktopPlatform = isDesktopExportPlatform();
-      final defaultFileName = buildFullBackupExportFileName();
-      if (isDesktopPlatform) {
-        outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
-            dialogTitle: dialogTitle,
-            fileName: fileName,
-          ),
-        );
-      }
-
-      if (!shouldContinueAccountExport(
-        isDesktopPlatform: isDesktopPlatform,
-        outputPath: outputPath,
-      )) {
-        return;
-      }
-
-      late final String filePath;
-      MobileExportSaveResult? mobileSaveResult;
-      if (isDesktopPlatform) {
-        filePath = await AccountExportService.exportFullBackup(
+      final outcome = await runAccountExportFlow(
+        dialogTitle: l10n.exportAccount,
+        defaultFileName: buildFullBackupExportFileName(),
+        export: ({String? filePath}) => AccountExportService.exportFullBackup(
           toxId: toxId,
           password: exportPassword,
-          filePath: outputPath,
-        );
-      } else {
-        mobileSaveResult = await createAndSaveMobileExportCopy(
-          createInternalExport: () => AccountExportService.exportFullBackup(
-            toxId: toxId,
-            password: exportPassword,
-          ),
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile:
-              ({
-                required String dialogTitle,
-                required String fileName,
-                required Uint8List bytes,
-              }) => FilePicker.platform.saveFile(
-                dialogTitle: dialogTitle,
-                fileName: fileName,
-                bytes: bytes,
-              ),
-        );
-        filePath =
-            mobileSaveResult.userSelectedPath ??
-            mobileSaveResult.internalFilePath;
-      }
+          filePath: filePath,
+        ),
+      );
+      if (outcome == null) return;
       _showAccountExportOutcome(
-        exportedPath: filePath,
-        mobileSaveResult: mobileSaveResult,
+        exportedPath: outcome.filePath,
+        mobileSaveResult: outcome.mobileSaveResult,
       );
     } catch (e) {
       SafeDiagnostics.logFailure('Full backup export error', e);
@@ -731,68 +725,25 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
-      // Show file picker to select save location
-      String? outputPath;
-      final isDesktopPlatform = isDesktopExportPlatform();
       final account = await Prefs.getAccountByToxId(toxId);
       final nickname = account?['nickname'] ?? 'account';
-      final defaultFileName = buildAccountExportFileName(
-        toxId: toxId,
-        nickname: nickname,
-        suffix: '.tox',
-      );
-      if (isDesktopPlatform) {
-        outputPath = await runL3AwareExportSaveFilePicker(
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile: (dialogTitle, fileName) => FilePicker.platform.saveFile(
-            dialogTitle: dialogTitle,
-            fileName: fileName,
-          ),
-        );
-      }
-
-      if (!shouldContinueAccountExport(
-        isDesktopPlatform: isDesktopPlatform,
-        outputPath: outputPath,
-      )) {
-        return;
-      }
-
-      late final String filePath;
-      MobileExportSaveResult? mobileSaveResult;
-      if (isDesktopPlatform) {
-        filePath = await AccountExportService.exportAccountData(
+      final outcome = await runAccountExportFlow(
+        dialogTitle: l10n.exportAccount,
+        defaultFileName: buildAccountExportFileName(
+          toxId: toxId,
+          nickname: nickname,
+          suffix: '.tox',
+        ),
+        export: ({String? filePath}) => AccountExportService.exportAccountData(
           toxId: toxId,
           password: password,
-          filePath: outputPath,
-        );
-      } else {
-        mobileSaveResult = await createAndSaveMobileExportCopy(
-          createInternalExport: () => AccountExportService.exportAccountData(
-            toxId: toxId,
-            password: password,
-          ),
-          dialogTitle: l10n.exportAccount,
-          fileName: defaultFileName,
-          saveFile:
-              ({
-                required String dialogTitle,
-                required String fileName,
-                required Uint8List bytes,
-              }) => FilePicker.platform.saveFile(
-                dialogTitle: dialogTitle,
-                fileName: fileName,
-                bytes: bytes,
-              ),
-        );
-        filePath =
-            mobileSaveResult.userSelectedPath ??
-            mobileSaveResult.internalFilePath;
-      }
+          filePath: filePath,
+        ),
+      );
+      if (outcome == null) return;
       _showAccountExportOutcome(
-        exportedPath: filePath,
-        mobileSaveResult: mobileSaveResult,
+        exportedPath: outcome.filePath,
+        mobileSaveResult: outcome.mobileSaveResult,
       );
     } catch (e) {
       SafeDiagnostics.logFailure('Export account error', e);
@@ -813,279 +764,26 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _importAccount() async {
-    if (_importInProgress) return;
-    setState(() => _importInProgress = true);
-    String? rollbackToxId;
-    var rollbackFullBackup = false;
-    var rollbackImportedAccount = false;
-    final l10n = AppLocalizations.of(context)!;
-    try {
-      // Show file picker for .tox and .zip files
-      final filePath = await _pickImportFileFn();
-      if (filePath == null) return;
-      final isZip = filePath.toLowerCase().endsWith('.zip');
-
-      // Check if file is encrypted by reading first bytes and checking magic number
-      String? password;
-      try {
-        final file = File(filePath);
-        final fileData = await file.readAsBytes();
-        if (fileData.length >= 80) {
-          // Import will check encryption, but we need to prompt for password first if encrypted
-          // For now, we'll let importAccountData/importFullBackup handle the encryption check
-          // If it throws an error about password, we'll catch and prompt
-        }
-      } catch (e) {
-        SafeDiagnostics.logFailure(
-          '[SettingsPage] pre-import file size probe failed; import will retry',
-          e,
-        );
-      }
-
-      // Import account data (will check encryption and prompt for password if needed)
-      Map<String, dynamic> accountData;
-
-      if (isZip) {
-        // ZIP: check account collision before any disk writes (importFullBackup writes profile/history/avatars/prefs).
-        Map<String, String> metadata;
-        try {
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
-          if (password == null || !mounted) return;
-          if (password.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(l10n.invalidPassword),
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
-            );
-            return;
-          }
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
-        }
-        final metaToxId = metadata['toxId']!;
-        rollbackToxId = metaToxId;
-        rollbackFullBackup = true;
-        final existingAccount = await Prefs.getAccountByToxId(metaToxId);
-        final profileDir = await AppPaths.getProfileDirectoryForToxId(
-          metaToxId,
-        );
-        final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-        if (existingAccount != null || await File(profileFilePath).exists()) {
-          if (mounted) {
-            await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(l10n.importAccount),
-                content: Text(l10n.accountAlreadyExists),
-                actions: [
-                  TextButton(
-                    onPressed: () => popDialogIfCurrent(context),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-          }
-          return;
-        }
-        accountData = await AccountExportService.importFullBackup(
-          filePath: filePath,
-          password: password,
-        );
-      } else {
-        try {
-          accountData = await _importAccountDataFn(
-            filePath: filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
-          if (password == null || !mounted) return;
-          try {
-            accountData = await _importAccountDataFn(
-              filePath: filePath,
-              password: password,
-            );
-          } catch (e) {
-            SafeDiagnostics.logFailure(
-              '[SettingsPage] Import password rejected',
-              e,
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(l10n.invalidPassword),
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                ),
-              );
-            }
-            return;
-          }
-        }
-      }
-
-      final toxId = accountData['toxId'] as String;
-      rollbackToxId = toxId;
-      final toxProfile = accountData['toxProfile'] as Uint8List?;
-      final importedNickname = (accountData['nickname'] as String?) ?? '';
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-
-      // Collision check for .tox path only (ZIP already checked above)
-      if (!isZip) {
-        final existingAccount = await Prefs.getAccountByToxId(toxId);
-        if (existingAccount != null || await File(profileFilePath).exists()) {
-          if (mounted) {
-            await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text(l10n.importAccount),
-                content: Text(l10n.accountAlreadyExists),
-                actions: [
-                  TextButton(
-                    onPressed: () => popDialogIfCurrent(context),
-                    child: Text(l10n.ok),
-                  ),
-                ],
-              ),
-            );
-          }
-          return;
-        }
-      }
-
-      // For .tox imports, write profile; .zip imports already wrote it in importFullBackup
-      if (!isZip && toxProfile != null) {
-        rollbackImportedAccount = true;
-        final parentDir = Directory(profileDir);
-        if (!await parentDir.exists()) {
-          await parentDir.create(recursive: true);
-        }
-        final toxProfileFile = File(profileFilePath);
-        await toxProfileFile.writeAsBytes(toxProfile);
-        if (password != null && password.isNotEmpty) {
-          final encrypted = await _encryptProfileFileFn(
-            profileFilePath,
-            password,
-          );
-          if (!encrypted) {
-            throw StateError('Failed to encrypt imported account profile');
-          }
-        }
-      }
-
-      // Add/update account (.zip may contain nickname, .tox does not)
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : l10n.importedAccount;
-      if (!isZip) rollbackImportedAccount = true;
-      await _addImportedAccountFn(
-        toxId: toxId,
-        nickname: displayNickname,
-        statusMessage: '', // .tox files don't contain status message
-        autoLogin: false,
-        autoAcceptFriends: false,
-        notificationSoundEnabled: true,
-      );
-      if (isZip) {
-        await AccountExportService.finalizeFullBackupImport(toxId: toxId);
-      }
-      // After the finalize so a restored self avatar is adopted, not
-      // shadowed by a fresh default (see LoginPageController).
-      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
-
-      // Only .tox import passwords are account passwords. Full-backup .zip
-      // passwords decrypt the archive and must not silently become the
-      // restored account's login password.
-      if (!isZip && password != null && password.isNotEmpty) {
-        final persisted = await _setImportedAccountPasswordFn(toxId, password);
-        if (!persisted) {
-          throw StateError('Failed to persist imported account password');
-        }
-      }
-
-      // Reload account list
-      await _loadAccountList();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.accountImportedSuccessfully),
-            backgroundColor: Theme.of(context).colorScheme.primary,
+  /// Shared "this account is already on the device" notice for both import
+  /// branches (.zip metadata pre-check and .tox post-decode check), which had
+  /// identical 15-line inline dialogs.
+  Future<void> _showAccountAlreadyExistsDialog(AppLocalizations l10n) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.importAccount),
+        content: Text(l10n.accountAlreadyExists),
+        actions: [
+          TextButton(
+            onPressed: () => popDialogIfCurrent(context),
+            child: Text(l10n.ok),
           ),
-        );
-      }
-    } on InvalidBackupPasswordException catch (e) {
-      SafeDiagnostics.logFailure(
-        '[SettingsPage] Full-backup password rejected',
-        e,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.invalidPassword),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    } catch (e) {
-      if (rollbackToxId != null &&
-          (rollbackFullBackup || rollbackImportedAccount)) {
-        try {
-          if (rollbackFullBackup) {
-            await AccountExportService.rollbackPendingFullBackupRestore(
-              toxId: rollbackToxId,
-            );
-          } else {
-            await ImportedAccountRollback.run(
-              toxId: rollbackToxId,
-              logContext: 'SettingsPage',
-            );
-          }
-        } catch (rollbackError) {
-          SafeDiagnostics.logFailure(
-            '[SettingsPage] Import rollback failed',
-            rollbackError,
-          );
-        }
-      }
-      SafeDiagnostics.logFailure('[SettingsPage] Import account failed', e);
-      if (mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(l10n.importAccount),
-            content: Text(
-              l10n.failedToImportAccount(SafeDiagnostics.describeError(e)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => popDialogIfCurrent(context),
-                child: Text(l10n.ok),
-              ),
-            ],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _importInProgress = false);
-      } else {
-        _importInProgress = false;
-      }
-    }
+        ],
+      ),
+    );
   }
+
 
   Future<void> _setAccountPassword() async {
     final toxId = widget.service.accountKey;
@@ -1377,51 +1075,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _logout() async {
-    final homeRoute = ModalRoute.of(context);
-    final navigator = Navigator.of(context, rootNavigator: true);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.logOut),
-        content: Text(AppLocalizations.of(context)!.logOutConfirm),
-        actions: [
-          TextButton(
-            key: UiKeys.settingsLogoutCancelButton,
-            onPressed: () => popDialogIfCurrent(context, false),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            key: UiKeys.settingsLogoutConfirmButton,
-            onPressed: () => popDialogIfCurrent(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: Text(AppLocalizations.of(context)!.logOut),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && mounted) {
-      unawaited(HapticFeedback.heavyImpact());
-      if (homeRoute != null) {
-        navigator.popUntil(
-          (route) => route.isFirst || identical(route, homeRoute),
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-      }
-      await _teardownSession(service: widget.service);
-      await Prefs.setCurrentAccountToxId(null);
-
-      if (!mounted) return;
-      await navigator.pushAndRemoveUntil(
-        AppPageRoute<void>(page: const LoginPage()),
-        (route) => false,
-      );
-    }
-  }
-
   /// Used by settings_page_build.dart extension to call setState (avoids invalid_use_of_protected_member).
   void _settingsSetState(VoidCallback fn) {
     setState(fn);
@@ -1593,63 +1246,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildMobileAccountManagementCard(
-    BuildContext context,
-    dynamic colorTheme,
-  ) {
-    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
-    return Card(
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: outlineVariant),
-        borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SectionHeader(
-              title: AppLocalizations.of(context)!.accountManagement,
-            ),
-            AppSpacing.verticalMd,
-            _buildAccountActionButtons(context),
-            AppSpacing.verticalLg,
-            Divider(height: 1, color: outlineVariant),
-            AppSpacing.verticalMd,
-            ..._accountList.map((account) {
-              final accountToxId = account['toxId'] ?? '';
-              final currentId =
-                  _currentAccountToxId ?? widget.service.accountKey;
-              final isCurrentAccount = compareToxIds(accountToxId, currentId);
-              return _AccountCardItem(
-                account: account,
-                isCurrentAccount: isCurrentAccount,
-                colorTheme: colorTheme,
-                onSwitch: () => _switchAccount(account),
-                currentChip: Chip(
-                  label: Text(AppLocalizations.of(context)!.current),
-                  backgroundColor: colorTheme.primaryColor,
-                  labelStyle: TextStyle(color: colorTheme.onPrimary),
-                ),
-                subtitle: Text(
-                  '${AppLocalizations.of(context)!.lastLogin}: ${_formatLastLoginTime(account['lastLoginTime'], context)}',
-                ),
-              );
-            }),
-            AppSpacing.verticalMd,
-            OutlinedButton.icon(
-              icon: const Icon(Icons.download, size: 18),
-              label: Text(AppLocalizations.of(context)!.importAccount),
-              onPressed: _importInProgress ? null : _importAccount,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // Sync UIKit locale with app locale after this frame to avoid setState during build
@@ -1742,22 +1338,26 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     try {
-      // Get current account toxId before clearing state
-      final toxId = await Prefs.getCurrentAccountToxId();
+      // Prefer the LIVE identity. `_showDeleteAccountConfirmation` gated on
+      // `widget.service.accountKey`, so authenticating against one id and then
+      // deleting whatever the pointer happens to say is a mismatch; and when
+      // the pointer was null this fell through to a plain logout, navigated to
+      // the login page, and reported nothing — the user asked to delete their
+      // account and was silently signed out with the account intact.
+      final liveToxId = widget.service.getSelfToxId();
+      final toxId = (liveToxId != null && liveToxId.isNotEmpty)
+          ? liveToxId
+          : await Prefs.getCurrentAccountToxId();
 
-      // Comprehensive account deletion via AccountService
-      if (toxId != null && toxId.isNotEmpty) {
-        await AccountService.deleteAccountCompletely(
-          service: widget.service,
-          toxId: toxId,
-        );
-      } else {
-        // Fallback: just teardown session
-        await AccountService.teardownCurrentSession(
-          service: widget.service,
-          reEncryptProfile: false,
-        );
+      if (toxId == null || toxId.isEmpty) {
+        // No identity to delete. Say so rather than logging out and implying
+        // success.
+        throw StateError('no account identity resolved for deletion');
       }
+      await AccountService.deleteAccountCompletely(
+        service: widget.service,
+        toxId: toxId,
+      );
 
       // Close loading dialog
       if (!mounted) return;
@@ -1774,16 +1374,28 @@ class _SettingsPageState extends State<SettingsPage> {
       // Close loading dialog
       if (!mounted) return;
       Navigator.of(context).pop();
+      if (!mounted) return;
 
-      // Show error message
+      // Deletion tears the session down as its FIRST stage, so by the time a
+      // later stage fails the Home/Settings tree behind this dialog is driving
+      // a disposed service. Leaving the user there (the old behaviour: dismiss
+      // the spinner, show a snackbar, stay put) means every subsequent action
+      // operates on a dead session. Return to the login page and surface the
+      // failure there; the deletion tombstone stays pending and cold-start
+      // recovery retries it.
+      final message = AppLocalizations.of(
+        context,
+      )!.deleteAccountFailed(SafeDiagnostics.describeError(e));
+      if (AccountService.sessionWasTornDownBy(e)) {
+        Navigator.of(context).pushAndRemoveUntil(
+          AppPageRoute<void>(page: const LoginPage()),
+          (route) => false,
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            AppLocalizations.of(
-              context,
-            )!.deleteAccountFailed(SafeDiagnostics.describeError(e)),
-          ),
+          content: Text(message),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );

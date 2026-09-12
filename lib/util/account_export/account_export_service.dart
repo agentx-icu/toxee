@@ -9,6 +9,7 @@
 // split only changes WHERE the bodies live, not WHAT they do.
 
 import 'encryption.dart' as enc;
+import 'restore_transaction_journal.dart';
 import 'exceptions.dart';
 import 'full_backup.dart' as backup;
 import 'tox_file_io.dart' as tox;
@@ -17,7 +18,9 @@ export 'exceptions.dart'
     show
         InvalidBackupFormatException,
         InvalidBackupPasswordException,
-        PasswordRequiredException;
+        MissingBackupProfileException,
+        PasswordRequiredException,
+        UndeterminedProfileEncryptionException;
 
 /// Account export/import service for .tox file format (compatible with qTox).
 class AccountExportService {
@@ -88,6 +91,20 @@ class AccountExportService {
       backup.finalizeFullBackupImport(toxId: toxId);
 
   /// Roll back a pending journaled full-backup import after a caller-side error.
+  /// Whether [error] is a refusal to ADMIT a restore - another transaction for
+  /// this account is committed and waiting to publish. It means nothing was
+  /// written, so a caller must not run its rollback: that matches on account id
+  /// alone and would undo the live owner's work.
+  static bool isRestoreAdmissionRefusal(Object error) =>
+      error is RestoreInFlightException;
+
+  /// Whether [error] means the rollback was never STARTED, so the restore is
+  /// intact and startup recovery will finish it. A rollback that ran and then
+  /// failed may already have removed everything, which is why the two cannot
+  /// share a message.
+  static bool isRollbackNotStarted(Object error) =>
+      error is RestoreRollbackNotStartedException;
+
   static Future<void> rollbackPendingFullBackupRestore({String? toxId}) =>
       backup.rollbackPendingFullBackupRestore(toxId: toxId);
 

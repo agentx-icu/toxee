@@ -12,4 +12,6 @@ export 'account_export/account_export_service.dart'
         AccountExportService,
         InvalidBackupFormatException,
         InvalidBackupPasswordException,
-        PasswordRequiredException;
+        MissingBackupProfileException,
+        PasswordRequiredException,
+        UndeterminedProfileEncryptionException;

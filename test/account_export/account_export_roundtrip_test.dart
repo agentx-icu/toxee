@@ -457,6 +457,20 @@ void main() {
         const avatarFileName = 'friend_${friendId}_avatar_1700000000000.png';
 
         await Prefs.addAccount(toxId: toxId, nickname: 'Avatar Owner');
+
+        // A full backup without `tox_profile.tox` is no longer written at all:
+        // it used to be produced silently and restored into an account that
+        // could never log in. This test is about avatar-pref DISCOVERY, so give
+        // it a profile to carry — placeholder bytes plus the identity hook,
+        // since the pure-Dart tests deliberately avoid the FFI extractor.
+        final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+        await Directory(profileDir).create(recursive: true);
+        await File(
+          AppPaths.profileFileInDirectory(profileDir),
+        ).writeAsBytes(<int>[0x01, 0x02, 0x03, 0x04]);
+        FullBackupRestoreTestHooks.profileIdentityExtractor = (_) => toxId;
+        addTearDown(FullBackupRestoreTestHooks.reset);
+
         final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
         await Directory(avatarsPath).create(recursive: true);
         await File(
@@ -471,6 +485,9 @@ void main() {
         await Directory(
           await AppPaths.getAccountDataRoot(toxId),
         ).delete(recursive: true);
+        // Also clear the profile directory seeded above: the restore transaction
+        // pre-flight refuses to overwrite an occupied destination.
+        await Directory(profileDir).delete(recursive: true);
         await Prefs.clearScopedKeysForAccount(toxId);
         await Prefs.removeAccount(toxId);
 
@@ -491,6 +508,57 @@ void main() {
         );
       },
     );
+  });
+
+  group('full backup must contain the identity (A11)', () {
+    late AccountExportTestEnv env;
+    setUp(() async {
+      env = await setUpAccountExportTestEnv();
+    });
+    tearDown(() => env.dispose());
+
+    test(
+        'export REFUSES when the account has no profile on disk instead of '
+        'writing an identity-less archive', () async {
+      const toxId =
+          'BEEF456789ABCDEFBEEF456789ABCDEFBEEF456789ABCDEFBEEF456789ABCDEF';
+      await Prefs.addAccount(toxId: toxId, nickname: 'No Profile');
+
+      // Previously this produced a .zip and reported success. Restoring it
+      // registered an account that could never log in, and the user only found
+      // out at the moment they needed the backup.
+      await expectLater(
+        AccountExportService.exportFullBackup(
+          toxId: toxId,
+          password: 'some-export-password',
+          filePath: p.join(env.extras, 'identity_less.zip'),
+        ),
+        throwsA(isA<MissingBackupProfileException>()),
+      );
+      expect(
+        await File(p.join(env.extras, 'identity_less.zip')).exists(),
+        isFalse,
+        reason: 'no half-useful archive may be left behind either',
+      );
+    });
+
+    test('export REFUSES an empty profile file', () async {
+      const toxId =
+          'CAFE456789ABCDEFCAFE456789ABCDEFCAFE456789ABCDEFCAFE456789ABCDEF';
+      await Prefs.addAccount(toxId: toxId, nickname: 'Empty Profile');
+      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+      await Directory(profileDir).create(recursive: true);
+      await File(AppPaths.profileFileInDirectory(profileDir)).writeAsBytes([]);
+
+      await expectLater(
+        AccountExportService.exportFullBackup(
+          toxId: toxId,
+          password: 'some-export-password',
+          filePath: p.join(env.extras, 'empty_identity.zip'),
+        ),
+        throwsA(isA<MissingBackupProfileException>()),
+      );
+    });
   });
 
   group('importFullBackup routing (pure-Dart)', () {

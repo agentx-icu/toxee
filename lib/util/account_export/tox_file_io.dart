@@ -182,22 +182,57 @@ Future<String> exportAccountData({
     rethrow;
   }
 
-  // Encrypt if password is provided
+  // Encrypt if a password is supplied AND the bytes are not already encrypted.
+  //
+  // The profile's encryption state depends on when the export runs: it is
+  // plaintext for the whole of an authenticated session and ciphertext once
+  // `teardownCurrentSession` has re-encrypted it. Encrypting unconditionally
+  // therefore produced a DOUBLE-encrypted `.tox` whenever the source was
+  // already ciphertext — a file that needs two passphrase rounds and so is
+  // neither importable by toxee nor readable by qTox, despite the export
+  // reporting success. Only ever produce the single-layer format.
   Uint8List finalData;
   if (password != null && password.isNotEmpty) {
-    AppLogger.log('[AccountExportService] Export: Encryption requested=true');
+    final bool alreadyEncrypted;
     try {
-      finalData = passEncrypt(toxProfileData, password);
-      AppLogger.log(
-        '[AccountExportService] Export: Encryption succeeded=true; '
-        'byteCount=${finalData.length}',
-      );
+      alreadyEncrypted = isDataEncrypted(toxProfileData);
     } catch (error) {
+      // ABORT. Do not guess.
+      //
+      // Guessing "already encrypted" here would publish the profile verbatim —
+      // and during an authenticated session that profile is PLAINTEXT, so a
+      // failed probe (FFI not loadable, symbol lookup failure) would silently
+      // produce an unencrypted export of an account the user asked to protect
+      // with a password. Guessing the other way double-encrypts. Neither is
+      // acceptable for a file the user is about to store as a backup, so refuse
+      // and let the caller surface it.
       AppLogger.error(
-        '[AccountExportService] Export: Encryption succeeded=false; '
-        'errorType=${error.runtimeType}',
+        '[AccountExportService] Export: aborted — cannot determine whether the '
+        'profile is already encrypted (errorType=${error.runtimeType})',
       );
-      rethrow;
+      throw const UndeterminedProfileEncryptionException();
+    }
+    if (alreadyEncrypted) {
+      finalData = toxProfileData;
+      AppLogger.log(
+        '[AccountExportService] Export: profile already encrypted at rest; '
+        'exported verbatim (no second layer)',
+      );
+    } else {
+      AppLogger.log('[AccountExportService] Export: Encryption requested=true');
+      try {
+        finalData = passEncrypt(toxProfileData, password);
+        AppLogger.log(
+          '[AccountExportService] Export: Encryption succeeded=true; '
+          'byteCount=${finalData.length}',
+        );
+      } catch (error) {
+        AppLogger.error(
+          '[AccountExportService] Export: Encryption succeeded=false; '
+          'errorType=${error.runtimeType}',
+        );
+        rethrow;
+      }
     }
   } else {
     finalData = toxProfileData;
@@ -363,24 +398,27 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
       128,
     ); // 64 hex chars + null terminator
 
-    ffi.Pointer<ffi.Uint8>? passphrasePtr;
+    // Allocated up front so the `finally` can always wipe and release it.
+    // It used to be freed only on the success path, so any throw — including
+    // the `toxIdLen < 0` one a few lines below — leaked a native buffer holding
+    // the user's passphrase in cleartext, for the process's lifetime.
+    final passwordBytes = passphrase == null
+        ? const <int>[]
+        : utf8.encode(passphrase);
+    final passphraseLen = passwordBytes.length;
+    final passphrasePtr = passphraseLen == 0
+        ? ffi.Pointer<ffi.Uint8>.fromAddress(0)
+        : pkgffi.malloc<ffi.Uint8>(passphraseLen);
     try {
       profilePtr.asTypedList(profileData.length).setAll(0, profileData);
-
-      int passphraseLen = 0;
-      if (passphrase != null) {
-        final passwordBytes = utf8.encode(passphrase);
-        passphrasePtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
-        passphrasePtr
-            .asTypedList(passwordBytes.length)
-            .setAll(0, passwordBytes);
-        passphraseLen = passwordBytes.length;
+      if (passphraseLen > 0) {
+        passphrasePtr.asTypedList(passphraseLen).setAll(0, passwordBytes);
       }
 
       final toxIdLen = ffiLib.extractToxIdFromProfileNative(
         profilePtr,
         profileData.length,
-        passphrasePtr ?? ffi.Pointer<ffi.Uint8>.fromAddress(0),
+        passphrasePtr,
         passphraseLen,
         toxIdBuffer,
         128,
@@ -390,15 +428,15 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
         throw Exception('Failed to extract Tox ID from profile');
       }
 
-      final toxId = toxIdBuffer.cast<pkgffi.Utf8>().toDartString(
-        length: toxIdLen,
-      );
-
-      if (passphrasePtr != null) {
+      return toxIdBuffer.cast<pkgffi.Utf8>().toDartString(length: toxIdLen);
+    } finally {
+      // Zero before releasing: `malloc.free` only returns the block to the
+      // allocator, so the passphrase would otherwise sit in reusable heap (and
+      // in any core dump) until something happened to overwrite it.
+      if (passphraseLen > 0) {
+        passphrasePtr.asTypedList(passphraseLen).fillRange(0, passphraseLen, 0);
         pkgffi.malloc.free(passphrasePtr);
       }
-      return toxId;
-    } finally {
       pkgffi.malloc.free(profilePtr);
       pkgffi.malloc.free(toxIdBuffer);
     }

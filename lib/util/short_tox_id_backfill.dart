@@ -85,39 +85,35 @@ class ShortToxIdBackfill {
         '(${persistedToxId.length} -> ${full.length} chars) for '
         'account ${_truncate(full)}');
 
-    // 1. Migrate password keys FIRST so a partial state (account_list moved
-    //    but password keys still under the short ID) can't lock the user
-    //    out. `migrateAccountPasswordKeys` is itself transactional — on
-    //    failure it rolls back partial writes and returns
-    //    `migrationFailed`, in which case we abort the backfill so
-    //    `account_list` stays consistent with where the password lives.
-    final passwordOutcome = await Prefs.migrateAccountPasswordKeys(
-      fromToxId: persistedToxId,
-      toToxId: full,
-    );
-    if (passwordOutcome == PasswordMigrationOutcome.migrationFailed) {
-      AppLogger.warn(
-          '[ShortToxIdBackfill] Password key migration failed; aborting '
-          'backfill so account_list / pointer stay consistent with the '
-          'password namespace');
-      return persistedToxId;
-    }
-
-    // 2. Update the account_list entry's primary key. addAccount() with a
-    //    new toxId would create a duplicate row — we need an in-place
-    //    rewrite, so go through getAccountList / setAccountList directly.
+    // ORDER MATTERS, and it is the opposite of what it used to be.
+    //
+    // These two writes cannot be made atomic, so one of them will survive alone
+    // if the process dies in between. Moving the credential keys first left the
+    // verifier at the 76-char id while `account_list` still said 64 — and 76 is
+    // NOT derivable from 64 (nospam and checksum are not recoverable), so the
+    // next login looked up an empty namespace and the account read as
+    // unprotected. Moving the ROW first leaves the opposite mismatch, row at 76
+    // with keys at 64, and 64 IS derivable from 76 by truncation:
+    // `PasswordVerifier` looks under that public-key alias and migrates it
+    // forward, so the window is benign.
+    //
+    // 1. Rewrite the account_list entry's primary key. addAccount() with a new
+    //    toxId would create a duplicate row — we need an in-place rewrite, so go
+    //    through getAccountList / setAccountList directly.
     try {
-      final accounts = await Prefs.getAccountList();
-      final shortIdx =
-          accounts.indexWhere((a) => (a['toxId'] ?? '') == persistedToxId);
-      if (shortIdx >= 0) {
+      // `mutateAccountList` holds the registry gate across the read AND the
+      // write. Doing our own getAccountList/setAccountList pair could lose a
+      // concurrent import or removal that landed in between.
+      await Prefs.mutateAccountList((accounts) {
+        final shortIdx =
+            accounts.indexWhere((a) => (a['toxId'] ?? '') == persistedToxId);
+        if (shortIdx < 0) return;
         final existingLongIdx =
             accounts.indexWhere((a) => (a['toxId'] ?? '') == full);
         if (existingLongIdx >= 0 && existingLongIdx != shortIdx) {
-          // A 76-char row already exists alongside the 64-char row (this
-          // would only happen if the user somehow has both representations
-          // recorded). Drop the short copy rather than create a duplicate
-          // primary key.
+          // A 76-char row already exists alongside the 64-char row (this would
+          // only happen if the user somehow has both representations recorded).
+          // Drop the short copy rather than create a duplicate primary key.
           AppLogger.warn(
               '[ShortToxIdBackfill] Both short and full ID rows present; '
               'dropping the short one');
@@ -125,15 +121,30 @@ class ShortToxIdBackfill {
         } else {
           accounts[shortIdx]['toxId'] = full;
         }
-        await Prefs.setAccountList(accounts);
-      }
+      });
     } catch (e, st) {
+      // Nothing has moved yet, so this is a clean abort.
       AppLogger.logError(
-          '[ShortToxIdBackfill] account_list rewrite failed; password keys '
-          'have already moved — manual cleanup may be required',
+          '[ShortToxIdBackfill] account_list rewrite failed; nothing was '
+          'migrated, so the account keeps its short id',
           e,
           st);
       return persistedToxId;
+    }
+
+    // 2. Move the credential keys to the new namespace. A failure here is
+    //    survivable BY DESIGN: the row already names the 76-char id and the
+    //    verifier finds the 64-char alias, so the account stays verifiable. Do
+    //    not revert the row — that would recreate the undiscoverable direction.
+    final passwordOutcome = await Prefs.migrateAccountPasswordKeys(
+      fromToxId: persistedToxId,
+      toToxId: full,
+    );
+    if (passwordOutcome == PasswordMigrationOutcome.migrationFailed) {
+      AppLogger.warn(
+          '[ShortToxIdBackfill] password key migration failed; the credential '
+          'stays under the public-key alias, which PasswordVerifier resolves. '
+          'A later login will retry the move.');
     }
 
     // 3. Update the current-account pointer if it still points at the

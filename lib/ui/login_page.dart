@@ -38,8 +38,13 @@ import '../util/app_bootstrap_coordinator.dart';
 import '../util/feature_flags.dart';
 import '../util/safe_diagnostics.dart';
 import '../auth/login_use_case.dart';
+import 'login/delete_account_confirm_dialog.dart';
+import 'login/login_password_gate.dart';
 import 'login/login_page_controller.dart';
+import 'login/password_prompt_dialog.dart';
 import 'pairing/pairing_client_page.dart';
+
+part 'login/login_import_flow.dart';
 
 typedef LoginBootSessionFn = Future<void> Function(FfiChatService service);
 typedef LoginTeardownSessionFn =
@@ -120,6 +125,9 @@ class _LoginPageState extends State<LoginPage> {
   String? _error;
   FfiChatService? _service;
   List<Map<String, String>> _accountList = [];
+  /// True when `account_list` could not be parsed. Distinguishes "no saved
+  /// accounts" from "the registry is damaged", which must not look the same.
+  bool _accountRegistryUnreadable = false;
   String?
   _verifiedPassword; // Password already verified by _quickLogin, avoids re-prompting in _login
   String? _verifiedPasswordToxId;
@@ -222,7 +230,28 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loadAccountList() async {
-    final accounts = await Prefs.getAccountList();
+    List<Map<String, String>> accounts;
+    try {
+      accounts = await Prefs.getAccountList();
+      _accountRegistryUnreadable = false;
+    } on AccountRegistryUnreadableException catch (e) {
+      // Do NOT fall back to an empty list. An empty picker is
+      // indistinguishable from "you have no accounts", and the next write
+      // would overwrite the only copy of the registry (setAccountList now
+      // refuses, but the user still deserves to know why nothing is listed
+      // instead of concluding their accounts are gone).
+      SafeDiagnostics.logFailure(
+        '[LoginPage] account registry unreadable',
+        e,
+      );
+      if (mounted) {
+        setState(() {
+          _accountRegistryUnreadable = true;
+          _accountList = const [];
+        });
+      }
+      return;
+    }
     if (mounted) {
       setState(() {
         _accountList = accounts;
@@ -252,51 +281,39 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Future<String?> _showPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
-    bool obscure = true;
+  /// Prompt for a password. Body lives in `login/password_prompt_dialog.dart`
+  /// as a StatefulWidget so its TextEditingController is actually disposed —
+  /// the previous inline version leaked one per prompt.
+  Future<String?> _showPasswordDialog(String title) {
     return showDialog<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          scrollable: true,
-          title: Text(title),
-          content: TextField(
-            // Stable automation anchor for the saved-account quick-login /
-            // re-login password prompt (the dialog has no other distinguishing
-            // key; the field is not autofocused). Lets real-UI automation type
-            // the password deterministically. Automation-only, shared Dart.
-            key: const Key('login_quick_password_field'),
-            controller: passwordController,
-            autofocus: true,
-            obscureText: obscure,
-            textAlignVertical: TextAlignVertical.center,
-            keyboardType: TextInputType.visiblePassword,
-            textInputAction: TextInputAction.done,
-            autofillHints: const [AutofillHints.password],
-            decoration: InputDecoration(
-              labelText: AppLocalizations.of(context)!.password,
-              prefixIcon: const Icon(Icons.lock_outline),
-              suffixIcon: IconButton(
-                icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
-                onPressed: () => setLocal(() => obscure = !obscure),
-                tooltip: AppLocalizations.of(context)!.passwordVisibility,
-              ),
-            ),
-            onSubmitted: (value) => popDialogIfCurrent(context, value),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => popDialogIfCurrent<String>(context),
-              child: Text(AppLocalizations.of(context)!.cancel),
-            ),
-            TextButton(
-              onPressed: () =>
-                  popDialogIfCurrent(context, passwordController.text),
-              child: Text(AppLocalizations.of(context)!.ok),
-            ),
-          ],
-        ),
+      builder: (context) => PasswordPromptDialog(title: title),
+    );
+  }
+
+  /// Show a login error in both places the page surfaces one: the inline
+  /// `_error` line and a snackbar. Was duplicated at every failure branch.
+  void _showLoginError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = message;
+    });
+    AppSnackBar.showError(context, message);
+  }
+
+  /// Resolve the password for a saved account. See [resolveAccountPassword].
+  Future<PasswordGateOutcome> _resolveAccountPassword({
+    required String toxId,
+    required String nickname,
+  }) {
+    return resolveAccountPassword(
+      toxId: toxId,
+      cachedVerifiedPassword: _verifiedPasswordToxId == toxId
+          ? _verifiedPassword
+          : null,
+      promptForPassword: () => _showPasswordDialog(
+        AppLocalizations.of(context)!.enterPasswordForAccount(nickname),
       ),
     );
   }
@@ -319,44 +336,27 @@ class _LoginPageState extends State<LoginPage> {
     Map<String, String> account,
     String toxId,
   ) async {
-    final cachedVerifiedPassword = _verifiedPasswordToxId == toxId
-        ? _verifiedPassword
-        : null;
-    // Check if account has password
-    final hasPassword =
-        (cachedVerifiedPassword != null && cachedVerifiedPassword.isNotEmpty)
-        ? true
-        : await Prefs.hasAccountPassword(toxId);
-    if (hasPassword) {
-      String? password = cachedVerifiedPassword;
-      final usedCachedVerifiedPassword =
-          password != null && password.isNotEmpty;
-      if (!usedCachedVerifiedPassword) {
-        password = await _showPasswordDialog(
-          AppLocalizations.of(
-            context,
-          )!.enterPasswordForAccount(account['nickname'] ?? ''),
-        );
-        if (password == null) return; // User cancelled
-        final isValid = await Prefs.verifyAccountPassword(toxId, password);
-        if (!isValid) {
-          _verifiedPassword = null;
-          _verifiedPasswordToxId = null;
-          if (mounted) {
-            setState(() {
-              _error = AppLocalizations.of(context)!.invalidPassword;
-            });
-            AppSnackBar.showError(
-              context,
-              AppLocalizations.of(context)!.invalidPassword,
-            );
-          }
-          return;
-        }
-      }
-      // Store verified password so _login() won't prompt again
-      _verifiedPassword = password;
-      _verifiedPasswordToxId = toxId;
+    final outcome = await _resolveAccountPassword(
+      toxId: toxId,
+      nickname: account['nickname'] ?? '',
+    );
+    switch (outcome.result) {
+      case PasswordGateResult.cancelled:
+        return;
+      case PasswordGateResult.storeUnavailable:
+        _showLoginError(AppLocalizations.of(context)!.secureStorageUnavailable);
+        return;
+      case PasswordGateResult.invalid:
+        _verifiedPassword = null;
+        _verifiedPasswordToxId = null;
+        _showLoginError(AppLocalizations.of(context)!.invalidPassword);
+        return;
+      case PasswordGateResult.verified:
+        // Cached so `_login()` does not prompt a second time.
+        _verifiedPassword = outcome.password;
+        _verifiedPasswordToxId = toxId;
+      case PasswordGateResult.notRequired:
+        break;
     }
 
     // Fill controllers for _login() without expanding the nickname/signature form
@@ -420,49 +420,47 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     String? password;
-    final account = await Prefs.getUniqueAccountByNickname(nickname);
+    // Guarded because this runs with `_busy = true`: an unreadable registry
+    // escaping here left the page permanently busy, which also disables the
+    // import and register actions the user would need to recover.
+    final Map<String, String>? account;
+    try {
+      account = await Prefs.getUniqueAccountByNickname(nickname);
+    } on AccountRegistryUnreadableException catch (e) {
+      SafeDiagnostics.logFailure('[LoginPage] account registry unreadable', e);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _accountRegistryUnreadable = true;
+          _error = AppLocalizations.of(context)!.accountRegistryUnreadable;
+        });
+      }
+      return;
+    }
     final toxIdForLogin = account?['toxId'];
     if (toxIdForLogin != null && toxIdForLogin.isNotEmpty) {
-      final cachedVerifiedPassword = _verifiedPasswordToxId == toxIdForLogin
-          ? _verifiedPassword
-          : null;
-      final hasPassword =
-          (cachedVerifiedPassword != null && cachedVerifiedPassword.isNotEmpty)
-          ? true
-          : await Prefs.hasAccountPassword(toxIdForLogin);
-      if (hasPassword) {
-        password = cachedVerifiedPassword;
-        _verifiedPassword = null;
-        _verifiedPasswordToxId = null;
-        if (password == null || password.isEmpty) {
-          if (!mounted) {
-            return;
-          }
-          password = await _showPasswordDialog(
-            l10n.enterPasswordForAccount(account?['nickname'] ?? nickname),
-          );
-          if (password == null || password.isEmpty) {
-            if (mounted) {
-              setState(() {
-                _error = l10n.invalidPassword;
-                _busy = false;
-              });
-              AppSnackBar.showError(context, l10n.invalidPassword);
-            }
-            return;
-          }
-          final ok = await Prefs.verifyAccountPassword(toxIdForLogin, password);
-          if (!ok) {
-            if (mounted) {
-              setState(() {
-                _error = l10n.invalidPassword;
-                _busy = false;
-              });
-              AppSnackBar.showError(context, l10n.invalidPassword);
-            }
-            return;
-          }
-        }
+      final outcome = await _resolveAccountPassword(
+        toxId: toxIdForLogin,
+        nickname: account?['nickname'] ?? nickname,
+      );
+      // The cache is single-use: consumed here (or invalidated on any failure)
+      // so a stale verified password cannot be replayed on a later attempt.
+      _verifiedPassword = null;
+      _verifiedPasswordToxId = null;
+      switch (outcome.result) {
+        case PasswordGateResult.cancelled:
+          if (mounted) setState(() => _busy = false);
+          return;
+        case PasswordGateResult.storeUnavailable:
+          _showLoginError(l10n.secureStorageUnavailable);
+          return;
+        case PasswordGateResult.invalid:
+          _showLoginError(l10n.invalidPassword);
+          return;
+        case PasswordGateResult.verified:
+          password = outcome.password;
+        case PasswordGateResult.notRequired:
+          break;
       }
     }
 
@@ -629,51 +627,6 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// Import a tox_profile.tox or .zip file via [LoginPageController].
-  Future<void> _importToxProfile() async {
-    if (_importInProgress) return;
-    _importInProgress = true;
-    try {
-      final l10n = AppLocalizations.of(context)!;
-      final result = await _loginController.importAccount(
-        requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
-        importedAccountDefaultName: l10n.importedAccountDefaultName,
-      );
-      if (!mounted) return;
-      switch (result) {
-        case ImportSuccess():
-          await _loadAccountList();
-          if (!mounted) return;
-          setState(() => _error = null);
-          AppSnackBar.showSuccess(
-            context,
-            AppLocalizations.of(context)!.accountImportedSuccessfully,
-          );
-          break;
-        case ImportFailure(:final kind, :final detail):
-          final localized = AppLocalizations.of(context)!;
-          final message = switch (kind) {
-            ImportFailureKind.noFileSelected => localized.importNoFileSelected,
-            ImportFailureKind.cancelled => localized.importCancelled,
-            ImportFailureKind.invalidPassword => localized.invalidPassword,
-            ImportFailureKind.accountAlreadyExists =>
-              localized.accountAlreadyExists,
-            ImportFailureKind.generalError => localized.failedToImport(
-              detail ?? '',
-            ),
-          };
-          setState(() => _error = message);
-          // Suppress the toast for user-initiated cancellation paths; surface
-          // it for genuine failures.
-          if (kind != ImportFailureKind.noFileSelected &&
-              kind != ImportFailureKind.cancelled) {
-            AppSnackBar.showError(context, message);
-          }
-          break;
-      }
-    } finally {
-      _importInProgress = false;
-    }
-  }
 
   /// Show bottom sheet menu for account management (long-press on account card
   /// on mobile, right-click on desktop). [position] is currently ignored — the
@@ -748,7 +701,36 @@ class _LoginPageState extends State<LoginPage> {
     _exportAccountInProgress = true;
     final l10n = AppLocalizations.of(context)!;
     try {
-      final internalFilePath = await _exportAccount(toxId: toxId);
+      // AUTHENTICATE FIRST, before any export copy exists.
+      //
+      // This action used to export with no password prompt and no verification,
+      // while the in-session equivalent (`SettingsPage._exportAccount`) required
+      // both. The exported `.tox` is the raw on-disk profile, so whenever that
+      // profile happened to be plaintext — which it is for the whole of a
+      // session, and stays until a teardown re-encrypts it — anyone holding the
+      // unlocked device could lift an unprotected copy of a password-protected
+      // account's private key straight off the login screen.
+      //
+      // `hasAccountPassword` fails closed, so an unreadable secure store also
+      // demands the password (and verification will then fail, which is the
+      // correct outcome for "we cannot check").
+      final hasPassword = await Prefs.hasAccountPassword(toxId);
+      String? exportPassword;
+      if (hasPassword) {
+        if (!mounted) return;
+        exportPassword = await _showPasswordDialog(l10n.enterPasswordToExport);
+        if (exportPassword == null) return;
+        if (!await Prefs.verifyAccountPassword(toxId, exportPassword)) {
+          if (mounted) {
+            AppSnackBar.showError(context, l10n.invalidPassword);
+          }
+          return;
+        }
+      }
+      final internalFilePath = await _exportAccount(
+        toxId: toxId,
+        password: exportPassword,
+      );
       var filePath = internalFilePath;
       MobileExportSaveResult? mobileSaveResult;
       if (!_isDesktopExportPlatform) {
@@ -795,104 +777,25 @@ class _LoginPageState extends State<LoginPage> {
     String toxId,
     String nickname,
   ) async {
-    // Check if account has password — require password for verification
+    // The confirmation body is a StatefulWidget in its own file
+    // (`login/delete_account_confirm_dialog.dart`) rather than an inline
+    // builder. The old inline version constructed its TextEditingController
+    // INSIDE showDialog's builder: the controller was never disposed, and
+    // because the builder re-runs on rebuild — which the soft keyboard's inset
+    // change makes routine on mobile — anything already typed was silently
+    // discarded mid-entry. `SettingsPage` had already been fixed this way; this
+    // brings the login page in line.
+    // Resolved before showDialog: the builder is synchronous, and this also
+    // keeps the (fail-closed) protection lookup out of the dialog's rebuild
+    // path. `hasAccountPassword` reports true when secure storage cannot be
+    // read, so an outage demands the password rather than offering the weaker
+    // type-a-word confirmation.
     final hasPassword = await Prefs.hasAccountPassword(toxId);
-
+    if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) {
-        final inputController = TextEditingController();
-        return AlertDialog(
-          // Keyboard + landscape leave <300 px; the Column must scroll.
-          scrollable: true,
-          title: Text(AppLocalizations.of(ctx)!.deleteAccount),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(AppLocalizations.of(ctx)!.deleteAccountConfirmMessage),
-              AppSpacing.verticalMd,
-              if (hasPassword) ...[
-                Text(
-                  AppLocalizations.of(ctx)!.deleteAccountEnterPasswordToConfirm,
-                ),
-                AppSpacing.verticalSm,
-                TextField(
-                  // Automation anchor for the delete-confirm password input.
-                  key: const Key('login_delete_account_confirm_input'),
-                  controller: inputController,
-                  obscureText: true,
-                  keyboardType: TextInputType.visiblePassword,
-                  textInputAction: TextInputAction.done,
-                  autofillHints: const [AutofillHints.password],
-                  decoration: InputDecoration(
-                    labelText: AppLocalizations.of(ctx)!.password,
-                    prefixIcon: const Icon(Icons.lock_outline),
-                  ),
-                ),
-              ] else ...[
-                Text(AppLocalizations.of(ctx)!.deleteAccountTypeWordToConfirm),
-                AppSpacing.verticalSm,
-                Text(
-                  AppLocalizations.of(
-                    ctx,
-                  )!.deleteAccountConfirmWordPrompt('delete'),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                AppSpacing.verticalSm,
-                TextField(
-                  // Same automation anchor as the password branch: tests target
-                  // the single delete-confirm input regardless of which branch
-                  // (password vs confirm-word) the account triggers.
-                  key: const Key('login_delete_account_confirm_input'),
-                  controller: inputController,
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => popDialogIfCurrent(ctx, false),
-              child: Text(AppLocalizations.of(ctx)!.cancel),
-            ),
-            TextButton(
-              // Automation anchor for the delete-confirm action button.
-              key: const Key('login_delete_account_confirm_button'),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(ctx).colorScheme.error,
-              ),
-              onPressed: () async {
-                if (hasPassword) {
-                  final ok = await Prefs.verifyAccountPassword(
-                    toxId,
-                    inputController.text,
-                  );
-                  if (!ok) {
-                    if (ctx.mounted) {
-                      AppSnackBar.showError(
-                        ctx,
-                        AppLocalizations.of(ctx)!.invalidPassword,
-                      );
-                    }
-                    return;
-                  }
-                } else {
-                  if (inputController.text.trim().toLowerCase() != 'delete') {
-                    if (ctx.mounted) {
-                      AppSnackBar.showError(
-                        ctx,
-                        AppLocalizations.of(ctx)!.deleteAccountWrongWord,
-                      );
-                    }
-                    return;
-                  }
-                }
-                popDialogIfCurrent(ctx, true);
-              },
-              child: Text(AppLocalizations.of(ctx)!.deleteAccount),
-            ),
-          ],
-        );
-      },
+      builder: (ctx) =>
+          DeleteAccountConfirmDialog(toxId: toxId, hasPassword: hasPassword),
     );
 
     if (confirmed == true) {
@@ -1057,6 +960,28 @@ class _LoginPageState extends State<LoginPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              // A damaged registry must not render as "no saved
+                              // accounts" — the user would conclude their
+                              // accounts were deleted and re-register, when the
+                              // profiles are still on disk and recoverable.
+                              if (_accountRegistryUnreadable) ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    bottom: AppSpacing.md,
+                                  ),
+                                  child: Text(
+                                    AppLocalizations.of(
+                                      context,
+                                    )!.accountRegistryUnreadable,
+                                    style: Theme.of(context).textTheme.bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                        ),
+                                  ),
+                                ),
+                              ],
                               // Saved accounts list (main content)
                               if (_accountList.isNotEmpty) ...[
                                 Padding(

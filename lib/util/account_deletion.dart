@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'account_deletion_journal.dart';
+import 'account_export/restore_transaction.dart';
 export 'account_deletion_journal.dart';
 
 import 'app_paths.dart';
@@ -22,6 +23,9 @@ abstract final class AccountDeletionTestHooks {
   static Future<bool> Function(String toxId)? removePassword;
 
   @visibleForTesting
+  static Future<bool> Function(String toxId)? purgeSecureSecrets;
+
+  @visibleForTesting
   static Future<void> Function(String toxId)? clearPrefsData;
 
   @visibleForTesting
@@ -37,6 +41,7 @@ abstract final class AccountDeletionTestHooks {
   static void reset() {
     deleteDirectory = null;
     removePassword = null;
+    purgeSecureSecrets = null;
     clearPrefsData = null;
     removeAccount = null;
     setCurrentAccountToxId = null;
@@ -85,6 +90,13 @@ abstract final class AccountDeletionCoordinator {
       }
     }
 
+    // A pending full-backup restore for THIS account is stale the moment the
+    // user deletes it, and leaving it would let the next startup roll it back -
+    // which restores the block list and failed-message queue it snapshotted,
+    // i.e. resurrects data this deletion is about to erase. Discarded before any
+    // stage runs, and idempotent, so a resumed deletion cannot skip it.
+    await FullBackupRestoreTransaction.discardForDeletedAccount(toxId);
+
     final serviceResult = await runStage(
       AccountDeletionStage.serviceData,
       AccountDeletionState.serviceDataCleared,
@@ -101,6 +113,20 @@ abstract final class AccountDeletionCoordinator {
                 Prefs.removeAccountPassword(toxId));
         if (!removed) {
           throw StateError('secure password deletion failed');
+        }
+        // Same stage, same store: the account's OTHER secure-storage secrets.
+        // IRC channel passwords live in the Keychain/Keystore and nothing else
+        // in this workflow enumerates it, so deleting an account used to leave
+        // them behind forever. This has to happen HERE — before the prefs stage
+        // clears `irc_channels_<prefix>`, which is the only record of which
+        // channels to look up. Fail-closed so the tombstone stays pending and
+        // the next attempt retries, rather than reporting a clean deletion over
+        // secrets still on disk.
+        final purgeSecrets = AccountDeletionTestHooks.purgeSecureSecrets;
+        final secretsPurged = await (purgeSecrets?.call(toxId) ??
+            Prefs.purgeAccountSecureSecrets(toxId));
+        if (!secretsPurged) {
+          throw StateError('secure account secret deletion failed');
         }
       },
     );

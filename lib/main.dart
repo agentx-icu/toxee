@@ -17,6 +17,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'ui/login_page.dart';
 import 'ui/home_page.dart';
 import 'ui/startup_loading_screen.dart';
+import 'ui/recovery_blocked_screen.dart';
 import 'ui/upgrade_required_screen.dart';
 import 'ui/testing/l3_debug_tools.dart';
 import 'ui/testing/ui_drive_tools.dart';
@@ -34,6 +35,8 @@ import 'navigation/app_navigation.dart';
 import 'ui/app_theme_data.dart';
 import 'util/app_theme_config.dart';
 import 'util/account_service.dart';
+import 'bootstrap/logging_bootstrap.dart';
+import 'bootstrap/session_shutdown.dart';
 import 'util/prefs.dart';
 import 'util/safe_diagnostics.dart';
 import 'util/send_failure_notifier.dart';
@@ -46,37 +49,6 @@ import 'bootstrap/app_bootstrap.dart';
 import 'bootstrap/app_bootstrap_result.dart';
 import 'ui/widgets/desktop_window_frame.dart';
 part 'startup/startup_gate.dart';
-
-/// Routes print() output to AppLogger. Parses TCCF lines (TencentCloudChatLog)
-/// so level and body are normalized instead of duplicating timestamp in body.
-void _routePrintToLogger(String line) {
-  // TCCF:2026-02-11 03:48:47 PM:TencentCloudChatMessageSDK:debug:{ addUIKitListener 1770796127319 }
-  final tccfMatch = RegExp(
-    r'^TCCF:(?:\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2} [AP]M):([^:]+):(debug|info|error|all):\{ (.*) \}$',
-  ).firstMatch(line);
-  if (tccfMatch != null) {
-    final component = tccfMatch.group(1)!.trim();
-    final level = tccfMatch.group(2)!;
-    final body = tccfMatch.group(3)!.trim();
-    final logBody = '$component: $body';
-    switch (level) {
-      case 'debug':
-        AppLogger.debug(logBody);
-        break;
-      case 'info':
-        AppLogger.info(logBody);
-        break;
-      case 'error':
-        AppLogger.error(logBody);
-        break;
-      case 'all':
-      default:
-        AppLogger.info(logBody);
-    }
-    return;
-  }
-  AppLogger.info(line);
-}
 
 /// Selects which Flutter MCP binding to install at startup. Compile-time
 /// const so unused branches tree-shake out of release builds. Values:
@@ -215,6 +187,11 @@ Future<void> main() async {
               currentVersion: currentVersion,
             ),
           );
+        case AppBootstrapRecoveryBlocked(:final detail):
+          // Still `runApp`: no account is exposed, but the user gets a screen
+          // that explains why and tells them not to re-register or wipe data.
+          // This case previously threw past `runApp` and rendered nothing.
+          runApp(RecoveryBlockedApp(detail: detail));
       }
     },
     (Object error, StackTrace stack) {
@@ -230,7 +207,7 @@ Future<void> main() async {
     },
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
-        _routePrintToLogger(line);
+        LoggingBootstrap.routePrintToLogger(line);
       },
     ),
   );
@@ -334,6 +311,32 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
     // `detached` is the only trace an app-initiated exit (SystemNavigator.pop,
     // a terminate request) leaves in the log; the others are cheap and rare.
     AppLogger.info('[EchoUIKitApp] lifecycle -> ${state.name}');
+    // MOBILE PARITY for the desktop window-close teardown
+    // (`DesktopShellBootstrap.onWindowClose`). iOS/Android never deliver a
+    // window-close, so `detached` is the only exit notice we get, and without
+    // acting on it a password-protected account's `tox_profile.tox` stays
+    // plaintext on disk — the session decrypts it in place and only
+    // `teardownCurrentSession` re-encrypts.
+    //
+    // This is a MITIGATION, not a guarantee: Flutter explicitly permits
+    // `detached` to be skipped, and an OS kill (the normal way a backgrounded
+    // mobile app dies) delivers nothing at all. The durable fix is to encrypt
+    // at the savedata persistence boundary so the file is never plaintext at
+    // rest; that work is tracked separately. Until then the authentication
+    // consequence is already closed elsewhere — the startup gate keys off the
+    // durable verifier, never the file's encryption state.
+    if (state == AppLifecycleState.detached) {
+      // Desktop already tore down in `onWindowClose` and only reaches here on
+      // some other exit (`SystemNavigator.pop`); the helper is idempotent, so a
+      // second pass finds nothing to do. The budget is short because `detached`
+      // carries no guarantee of one.
+      unawaited(
+        SessionShutdown.tearDownActiveAccount(
+          timeout: const Duration(seconds: 5),
+          logContext: 'EchoUIKitApp',
+        ),
+      );
+    }
     if (state == AppLifecycleState.resumed) {
       try {
         FakeUIKit.instance.im?.refreshUnreadTotal();

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,26 +6,25 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../app_paths.dart';
+import '../async_gate.dart';
 import '../prefs.dart';
+import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
-import 'atomic_file_write.dart';
 import 'backup_path_safety.dart';
+import 'restore_input.dart';
+import 'restore_metadata_sections.dart';
+import 'restore_ownership.dart';
+import 'restore_paths.dart';
+import 'restore_test_hooks.dart';
+import 'restore_transaction_journal.dart';
 
-enum RestoreTransactionState {
-  staged,
-  profileCommitted,
-  accountDataCommitted,
-  scopedPrefsApplied,
-  accountRegistryVisible,
-}
+// The durable journal (model + on-disk store) lives in its own file; re-exported
+// so existing importers of this one keep resolving it.
+export 'restore_input.dart';
+export 'restore_test_hooks.dart';
+export 'restore_transaction_journal.dart';
 
-enum FullBackupRestoreFailurePoint {
-  afterStaging,
-  afterProfileCommit,
-  afterAccountDataCommit,
-  afterScopedPrefsApply,
-  afterAccountRegistryVisible,
-}
+
 
 /// Which of the four directories a restore has to claim was already occupied.
 enum RestoreDestinationKind {
@@ -51,7 +49,7 @@ enum RestoreDestinationKind {
 /// All four destinations are derived from the account's own identity:
 /// `AppPaths.getProfileDirectoryForToxId` and `AppPaths.getAccountDataRoot`
 /// name them `p_<first 16 hex chars of the Tox ID>` / `account_data/<same
-/// prefix>`, and [_RestorePaths.resolve] reuses that prefix for the staging
+/// prefix>`, and [RestorePaths.resolve] reuses that prefix for the staging
 /// directories. Interpolating one publishes the account's public-key prefix
 /// *and* the absolute application-support layout (which contains the OS user
 /// name on desktop). It would not stay local either: an aborted restore
@@ -81,162 +79,47 @@ final class RestoreDestinationExistsError extends StateError {
   final RestoreDestinationKind kind;
 }
 
-final class FullBackupRestoreCrashSimulation implements Exception {
-  const FullBackupRestoreCrashSimulation(this.point);
 
-  final FullBackupRestoreFailurePoint point;
 
-  @override
-  String toString() => 'FullBackupRestoreCrashSimulation: ${point.name}';
-}
-
-abstract final class FullBackupRestoreTestHooks {
-  FullBackupRestoreTestHooks._();
-
-  @visibleForTesting
-  static FullBackupRestoreFailurePoint? crashAt;
-
-  static String Function(Uint8List profileBytes)? profileIdentityExtractor;
-
-  @visibleForTesting
-  static void reset() {
-    crashAt = null;
-    profileIdentityExtractor = null;
-  }
-
-  static void maybeCrash(FullBackupRestoreFailurePoint point) {
-    if (crashAt == point) {
-      throw FullBackupRestoreCrashSimulation(point);
-    }
-  }
-}
-
-final class FullBackupRestoreInput {
-  const FullBackupRestoreInput({
-    required this.toxId,
-    required this.nickname,
-    required this.archive,
-    required this.metadata,
-    required this.toxProfile,
-  });
-
-  final String toxId;
-  final String nickname;
-  final Archive archive;
-  final Map<String, dynamic> metadata;
-  final Uint8List? toxProfile;
-}
-
-final class RestoreTransactionJournal {
-  const RestoreTransactionJournal({
-    required this.transactionId,
-    required this.toxId,
-    required this.state,
-    required this.profileStageDir,
-    required this.profileFinalDir,
-    required this.accountDataStageDir,
-    required this.accountDataFinalDir,
-    required this.hasProfile,
-  });
-
-  final String transactionId;
-  final String toxId;
-  final RestoreTransactionState state;
-  final String profileStageDir;
-  final String profileFinalDir;
-  final String accountDataStageDir;
-  final String accountDataFinalDir;
-  final bool hasProfile;
-
-  RestoreTransactionJournal copyWith({RestoreTransactionState? state}) {
-    return RestoreTransactionJournal(
-      transactionId: transactionId,
-      toxId: toxId,
-      state: state ?? this.state,
-      profileStageDir: profileStageDir,
-      profileFinalDir: profileFinalDir,
-      accountDataStageDir: accountDataStageDir,
-      accountDataFinalDir: accountDataFinalDir,
-      hasProfile: hasProfile,
-    );
-  }
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'version': 1,
-    'transactionId': transactionId,
-    'toxId': toxId,
-    'state': state.name,
-    'profileStageDir': profileStageDir,
-    'profileFinalDir': profileFinalDir,
-    'accountDataStageDir': accountDataStageDir,
-    'accountDataFinalDir': accountDataFinalDir,
-    'hasProfile': hasProfile,
-  };
-
-  static RestoreTransactionJournal fromJson(Map<String, dynamic> json) {
-    final rawState = json['state'] as String?;
-    final state = RestoreTransactionState.values.firstWhere(
-      (value) => value.name == rawState,
-      orElse: () =>
-          throw StateError('Unknown restore journal state: $rawState'),
-    );
-    return RestoreTransactionJournal(
-      transactionId: json['transactionId'] as String,
-      toxId: json['toxId'] as String,
-      state: state,
-      profileStageDir: json['profileStageDir'] as String,
-      profileFinalDir: json['profileFinalDir'] as String,
-      accountDataStageDir: json['accountDataStageDir'] as String,
-      accountDataFinalDir: json['accountDataFinalDir'] as String,
-      hasProfile: json['hasProfile'] as bool? ?? true,
-    );
-  }
-}
-
-abstract final class RestoreTransactionJournalStore {
-  RestoreTransactionJournalStore._();
-
-  static const _fileName = 'account_export_restore_journal.json';
-
-  static Future<RestoreTransactionJournal?> read() async {
-    final file = await _journalFile();
-    if (!await file.exists()) return null;
-    final decoded = json.decode(await file.readAsString());
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Restore journal is not a JSON object');
-    }
-    return RestoreTransactionJournal.fromJson(decoded);
-  }
-
-  static Future<void> write(RestoreTransactionJournal journal) async {
-    final file = await _journalFile();
-    final bytes = utf8.encode(jsonEncode(journal.toJson()));
-    await writeBytesAtomically(file, bytes);
-  }
-
-  static Future<void> clear() async {
-    final file = await _journalFile();
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-
-  static Future<File> _journalFile() async {
-    final root = await AppPaths.applicationSupportPath;
-    return File(p.join(root, _fileName));
-  }
-}
 
 abstract final class FullBackupRestoreTransaction {
   FullBackupRestoreTransaction._();
 
-  static Future<Map<String, dynamic>> restore(
+  /// Serializes whole restore WORKFLOWS: the journal store's own gate protects
+  /// each read or write, not a transaction's ownership across the steps between
+  /// them. NOT re-entrant - everything inside uses the `Unguarded` bodies.
+  static final AsyncGate _transactionGate = AsyncGate();
+
+  static final RestoreOwnership _ownership = RestoreOwnership();
+
+  /// For tests that abandon a transaction mid-flight.
+  @visibleForTesting
+  static void resetOwnership() => _ownership.reset();
+
+  static Future<Map<String, dynamic>> restore(FullBackupRestoreInput input) =>
+      _transactionGate.run(() => _restoreUnguarded(input));
+
+  static Future<Map<String, dynamic>> _restoreUnguarded(
     FullBackupRestoreInput input,
   ) async {
-    await recoverPendingRestore();
-    final paths = await _RestorePaths.resolve(input.toxId);
+    if (_ownership.isHeld) {
+      // Ownership means something only while the journal it names is still on
+      // disk: one abandoned transaction must not refuse every later restore in
+      // the process.
+      final current = await RestoreTransactionJournalStore.read();
+      if (current != null && _ownership.holds(current.transactionId)) {
+        // Committed, waiting to publish: our recovery would undo it.
+        throw const RestoreInFlightException();
+      }
+      _ownership.release();
+    }
+    await _recoverPendingRestoreUnguarded();
+    final paths = await RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
-    final scopedPrefs = _portableScopedPrefs(input.metadata, paths);
+    final scopedPrefs = portableScopedPrefs(
+      input.metadata,
+      paths.accountDataFinalDir,
+    );
     await _preflight(input.toxId, paths);
 
     var journal = RestoreTransactionJournal(
@@ -249,7 +132,15 @@ abstract final class FullBackupRestoreTransaction {
       accountDataFinalDir: paths.accountDataFinalDir,
       hasProfile: input.toxProfile != null,
     );
-    await RestoreTransactionJournalStore.write(journal);
+    // Captured BEFORE anything is written: the restore overwrites both families
+    // during metadata application, so this snapshot is the only copy of what was
+    // there. See the field docs on the journal.
+    journal = await captureFullIdPrefs(journal);
+    // A journal that SURVIVED recovery belongs to a rollback this process could
+    // not verify. Admitting this transaction CARRIES its snapshot forward, so
+    // the fence still protects those originals while the user is not locked out
+    // of restoring ever again. See `admitCarryingForward`.
+    journal = await RestoreTransactionJournalStore.admitCarryingForward(journal);
 
     try {
       await _stagePayload(input, paths);
@@ -288,6 +179,12 @@ abstract final class FullBackupRestoreTransaction {
       if (scopedPrefs.isNotEmpty) {
         await Prefs.importScopedPrefsForAccount(input.toxId, scopedPrefs);
       }
+      // The blocked-peer list travels OUTSIDE scopedPrefs because its key is
+      // scoped by the full Tox ID, which the `_<first16>` suffix export/import
+      // does not see. Restoring it here (inside the journalled window) means a
+      // rollback takes it with everything else.
+      await restoreBlockedPeers(input.toxId, input.metadata);
+      await restoreFailedMessageQueue(input.toxId, input.metadata);
       journal = journal.copyWith(
         state: RestoreTransactionState.scopedPrefsApplied,
       );
@@ -296,61 +193,160 @@ abstract final class FullBackupRestoreTransaction {
         FullBackupRestoreFailurePoint.afterScopedPrefsApply,
       );
 
+      // Ownership passes to the CALLER here: it still has to publish the
+      // account row and finalize, and until it does, nothing else may recover
+      // or replace this transaction. Released by finalize and by rollback.
+      _ownership.claim(
+        transactionId: journal.transactionId,
+        toxId: input.toxId,
+      );
       return <String, dynamic>{
         'toxId': input.toxId,
         'nickname': input.nickname,
+        // Carried through so the caller can persist it on the account row. The
+        // export has always written `statusMessage` into metadata, but restore
+        // dropped it and both import UIs then created the row with '' — so the
+        // next login pushed an EMPTY status to Tox, overwriting what the backup
+        // had preserved.
+        'statusMessage': input.metadata['statusMessage'] as String? ?? '',
         'toxProfile': input.toxProfile,
       };
     } catch (e) {
       if (e is FullBackupRestoreCrashSimulation) rethrow;
-      await rollbackPendingRestore(toxId: input.toxId);
+      await _rollbackPendingRestoreUnguarded(
+        toxId: input.toxId,
+        transactionId: journal.transactionId,
+      );
       rethrow;
     }
   }
 
-  static Future<void> finalizePendingRestore({required String toxId}) async {
-    var journal = await RestoreTransactionJournalStore.read();
-    if (journal == null) return;
-    if (!compareToxIds(journal.toxId, toxId)) {
-      throw StateError('Pending restore belongs to a different account');
-    }
-    if (!await _dataCommitted(journal)) {
-      throw StateError('Cannot finalize incomplete full-backup restore');
-    }
-    if (await Prefs.getAccountByToxId(toxId) == null) {
-      throw StateError('Cannot finalize before account registry is visible');
-    }
-    journal = journal.copyWith(
-      state: RestoreTransactionState.accountRegistryVisible,
-    );
-    await RestoreTransactionJournalStore.write(journal);
-    FullBackupRestoreTestHooks.maybeCrash(
-      FullBackupRestoreFailurePoint.afterAccountRegistryVisible,
-    );
-    await RestoreTransactionJournalStore.clear();
-  }
+  static Future<void> finalizePendingRestore({required String toxId}) =>
+      _transactionGate.run(() async {
+        await finalizeRestoreTransaction(toxId);
+        _ownership.release();
+      });
 
-  static Future<void> rollbackPendingRestore({String? toxId}) async {
-    final journal = await RestoreTransactionJournalStore.read();
+
+
+  /// [transactionId], when given, is the caller's OWN transaction: matching only
+  /// the account would destroy whichever transaction holds the journal now. The
+  /// UI paths pass no id - "undo whatever is pending here" is what they mean.
+  static Future<void> rollbackPendingRestore({
+    String? toxId,
+    String? transactionId,
+  }) =>
+      _transactionGate.run(
+        () => _rollbackPendingRestoreUnguarded(
+          toxId: toxId,
+          transactionId: transactionId,
+        ),
+      );
+
+  static Future<void> _rollbackPendingRestoreUnguarded({
+    String? toxId,
+    String? transactionId,
+  }) async {
+    final RestoreTransactionJournal? journal;
+    try {
+      journal = await RestoreTransactionJournalStore.read();
+    } catch (e) {
+      // The read told us nothing, but this caller is leaving either way, and
+      // holding its ownership would refuse every later restore in the process.
+      // Matched on EITHER identity: the UI wrappers know only the account.
+      if (_ownership.heldByCaller(
+        transactionId: transactionId,
+        toxId: toxId,
+      )) {
+        _ownership.release();
+      }
+      // Also UNSTARTED: this threw before anything was removed, so the
+      // transaction is whole. Rethrowing raw classified it as a late cleanup
+      // failure and suppressed the warning for an account that is still there.
+      throw RestoreRollbackNotStartedException(e);
+    }
     if (journal == null) return;
     if (toxId != null && !compareToxIds(journal.toxId, toxId)) {
       throw StateError('Pending restore belongs to a different account');
     }
-    await _rollback(journal);
+    if (transactionId != null && journal.transactionId != transactionId) {
+      // Someone else's transaction now holds the journal; undoing it would
+      // destroy work that is still in flight.
+      return;
+    }
+    // Durable intent FIRST. A rollback that dies partway leaves state that looks
+    // committed, and recovery would then clear the journal as a success.
+    // Only when it is not ALREADY recorded. Recovery routes an interrupted
+    // rollback back through here, and re-writing an intent that is already
+    // durable would let a full disk abort the cleanup that frees the space -
+    // the abort below exists for an intent that was never recorded, not for one
+    // that already authorizes this rollback.
+    try {
+      if (!journal.rollbackRequested) {
+        await RestoreTransactionJournalStore.write(
+          journal.copyWith(rollbackRequested: true),
+        );
+      }
+    } catch (e) {
+      // DO NOT start a rollback we cannot record. Carrying on was worse than
+      // failing: on a read-only filesystem the deletes fail too, and recovery
+      // then reads the surviving row and payload as a success - clearing the
+      // journal and the only snapshots of the user's blocked peers and pending
+      // messages with it. Untouched, recovery FINISHES the restore instead:
+      // not what the caller asked for, but nothing is destroyed.
+      SafeDiagnostics.logFailure(
+        '[RestoreTransaction] could not record rollback intent; leaving the '
+        'transaction for recovery rather than half-undoing it',
+        e,
+      );
+      if (_ownership.holds(journal.transactionId)) _ownership.release();
+      throw RestoreRollbackNotStartedException(e);
+    }
+    // Baseline BEFORE anything is touched; see `captureRollbackWitness`.
+    final witness = await captureRollbackWitness(journal);
+    try {
+      await rollbackRestoreTransaction(journal);
+    } catch (e) {
+      if (await rollbackRemovedNothing(journal, witness)) {
+        throw RestoreRollbackNotStartedException(e);
+      }
+      rethrow;
+    } finally {
+      // Released even when the rollback THREW: both UI callers swallow that and
+      // walk away, so holding ownership past it left recovery skipping the
+      // journal and every later restore refused, permanently. The journal is
+      // deliberately kept, for recovery to retry.
+      if (_ownership.holds(journal.transactionId)) _ownership.release();
+    }
   }
 
-  static Future<void> recoverPendingRestore() async {
+  static Future<void> recoverPendingRestore() =>
+      _transactionGate.run(_recoverPendingRestoreUnguarded);
+
+  static Future<void> _recoverPendingRestoreUnguarded() async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
+    if (_ownership.holds(journal.transactionId)) {
+      // Its caller is alive and mid-publication; only that caller may finish or
+      // undo it. A cold start clears `_ownedTransactionId` by construction.
+      return;
+    }
+    if (journal.rollbackRequested) {
+      // Someone already decided this transaction must be undone. However
+      // committed its leftovers look, finishing it would publish a restore the
+      // user's rollback was half-way through removing.
+      await _rollbackPendingRestoreUnguarded(toxId: journal.toxId);
+      return;
+    }
     final accountVisible = await Prefs.getAccountByToxId(journal.toxId) != null;
-    if (accountVisible && await _dataCommitted(journal)) {
+    if (accountVisible && await restoreDataCommitted(journal)) {
       await RestoreTransactionJournalStore.clear();
       return;
     }
-    await _rollback(journal);
+    await rollbackRestoreTransaction(journal);
   }
 
-  static Future<void> _preflight(String toxId, _RestorePaths paths) async {
+  static Future<void> _preflight(String toxId, RestorePaths paths) async {
     if (await Prefs.getAccountByToxId(toxId) != null) {
       throw StateError('Account already exists');
     }
@@ -377,7 +373,7 @@ abstract final class FullBackupRestoreTransaction {
 
   static Future<void> _stagePayload(
     FullBackupRestoreInput input,
-    _RestorePaths paths,
+    RestorePaths paths,
   ) async {
     if (input.toxProfile != null) {
       await Directory(paths.profileStageDir).create(recursive: true);
@@ -418,35 +414,7 @@ abstract final class FullBackupRestoreTransaction {
     }
   }
 
-  static Map<String, dynamic> _portableScopedPrefs(
-    Map<String, dynamic> metadata,
-    _RestorePaths paths,
-  ) {
-    final raw = metadata['scopedPrefs'];
-    if (raw is! Map) return <String, dynamic>{};
-    final scopedPrefs = Map<String, dynamic>.from(raw);
-    for (final key in scopedPrefs.keys.toList()) {
-      final value = scopedPrefs[key];
-      if (key.contains('avatar_path') && value is String) {
-        if (value.startsWith('@account_data/')) {
-          final relativePath = value.substring('@account_data/'.length);
-          try {
-            scopedPrefs[key] = safeBackupRestorePath(
-              baseDir: paths.accountDataFinalDir,
-              relativePath: relativePath,
-            );
-          } catch (_) {
-            scopedPrefs.remove(key);
-          }
-        } else {
-          scopedPrefs.remove(key);
-        }
-      }
-    }
-    return scopedPrefs;
-  }
-
-  static void _validateArchivePaths(Archive archive, _RestorePaths paths) {
+  static void _validateArchivePaths(Archive archive, RestorePaths paths) {
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
       if (entry.name.startsWith('chat_history/')) {
@@ -490,66 +458,20 @@ abstract final class FullBackupRestoreTransaction {
     await targetFile.writeAsBytes(bytes, flush: true);
   }
 
-  static Future<bool> _dataCommitted(RestoreTransactionJournal journal) async {
-    if (journal.hasProfile) {
-      final profilePath = AppPaths.profileFileInDirectory(
-        journal.profileFinalDir,
-      );
-      if (!await File(profilePath).exists()) return false;
-    }
-    return Directory(journal.accountDataFinalDir).exists();
-  }
 
-  static Future<void> _rollback(RestoreTransactionJournal journal) async {
-    await _deleteDirectory(journal.profileStageDir);
-    await _deleteDirectory(journal.accountDataStageDir);
-    await _deleteDirectory(journal.profileFinalDir);
-    await _deleteDirectory(journal.accountDataFinalDir);
-    await Prefs.clearScopedKeysForAccount(journal.toxId);
-    await Prefs.removeAccount(journal.toxId);
-    await RestoreTransactionJournalStore.clear();
-  }
 
-  static Future<void> _deleteDirectory(String path) async {
-    final dir = Directory(path);
-    if (await dir.exists()) {
-      await dir.delete(recursive: true);
-    }
-  }
-}
+  /// Drop a pending restore journal that names [toxId] because the account is
+  /// being DELETED.
+  ///
+  /// Not a rollback: a rollback would put the snapshotted block list and
+  /// failed-message queue BACK, and doing that after a deletion resurrects the
+  /// data the user just asked to be erased. (A finalize that failed can leave a
+  /// journal alongside a published row, so the account is deletable with the
+  /// journal still on disk, and the next startup would then act on it.) The
+  /// staging directories are removed because nothing else knows about them; the
+  /// final directories belong to the account and the deletion flow erases those.
+  static Future<void> discardForDeletedAccount(String toxId) =>
+      _transactionGate.run(() => discardRestoreForDeletedAccount(toxId));
 
-final class _RestorePaths {
-  const _RestorePaths({
-    required this.transactionId,
-    required this.profileStageDir,
-    required this.profileFinalDir,
-    required this.accountDataStageDir,
-    required this.accountDataFinalDir,
-  });
 
-  final String transactionId;
-  final String profileStageDir;
-  final String profileFinalDir;
-  final String accountDataStageDir;
-  final String accountDataFinalDir;
-
-  static Future<_RestorePaths> resolve(String toxId) async {
-    final profileFinalDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-    final accountDataFinalDir = await AppPaths.getAccountDataRoot(toxId);
-    final prefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-    final transactionId = DateTime.now().microsecondsSinceEpoch.toString();
-    return _RestorePaths(
-      transactionId: transactionId,
-      profileFinalDir: profileFinalDir,
-      accountDataFinalDir: accountDataFinalDir,
-      profileStageDir: p.join(
-        p.dirname(profileFinalDir),
-        '.full_backup_restore_profile_${prefix}_$transactionId',
-      ),
-      accountDataStageDir: p.join(
-        p.dirname(accountDataFinalDir),
-        '.full_backup_restore_data_${prefix}_$transactionId',
-      ),
-    );
-  }
 }

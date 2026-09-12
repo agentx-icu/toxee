@@ -2,97 +2,25 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import '../../auth/login_use_case.dart';
+import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/default_avatar_installer.dart';
+import '../../util/account_export/restore_transaction_journal.dart';
+import '../../util/account_export/tox_import_journal.dart';
+import '../../util/imported_account_name.dart';
 import '../../util/imported_account_rollback.dart';
+import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
 import '../testing/l3_debug_tools.dart';
+import 'login_controller_results.dart';
 
-/// Result of [LoginPageController.login].
-sealed class LoginControllerResult {
-  const LoginControllerResult();
-}
+export 'login_controller_results.dart';
 
-final class LoginControllerSuccess extends LoginControllerResult {
-  const LoginControllerSuccess(this.service);
-  final FfiChatService service;
-}
-
-final class LoginControllerFailure extends LoginControllerResult {
-  const LoginControllerFailure(this.message);
-  final String message;
-}
-
-/// Result of [LoginPageController.importAccount].
-sealed class ImportResult {
-  const ImportResult();
-}
-
-final class ImportSuccess extends ImportResult {
-  const ImportSuccess();
-}
-
-/// Reason an import failed. The UI maps this to a localized message;
-/// keeping a kind enum (instead of stringly-typed messages) lets the UI
-/// distinguish user-initiated cancellation from genuine errors without
-/// fragile string comparisons.
-enum ImportFailureKind {
-  noFileSelected,
-  cancelled,
-  invalidPassword,
-  accountAlreadyExists,
-  generalError,
-}
-
-final class ImportFailure extends ImportResult {
-  const ImportFailure(this.kind, {this.detail});
-  final ImportFailureKind kind;
-
-  /// Sanitized runtime-type detail for [ImportFailureKind.generalError]; null
-  /// for cancellation / file-not-selected / duplicate-account cases.
-  final String? detail;
-}
-
-/// Reason a restore failed. Mirrors [ImportFailureKind] but is scoped to the
-/// .tox-only "Restore from .tox file" first-class login entry. Kept as a
-/// separate enum so the UI can show restore-specific copy ("This file doesn't
-/// look like a valid Tox profile") without bleeding restore strings into the
-/// generic import path.
-enum RestoreFailureKind {
-  noFileSelected,
-  cancelled,
-  invalidPassword,
-  accountAlreadyExists,
-  notAToxProfile,
-  generalError,
-}
-
-/// Result of [LoginPageController.restoreFromToxFile].
-sealed class RestoreResult {
-  const RestoreResult();
-}
-
-final class RestoreSuccess extends RestoreResult {
-  const RestoreSuccess({
-    required this.toxId,
-    required this.nickname,
-    this.password,
-  });
-  final String toxId;
-  final String nickname;
-  final String? password;
-}
-
-final class RestoreFailure extends RestoreResult {
-  const RestoreFailure(this.kind, {this.detail});
-  final RestoreFailureKind kind;
-  final String? detail;
-}
+part 'login_restore_from_tox.dart';
 
 /// Orchestrates login and import flows for [LoginPage].
 /// Keeps UI to form binding, dialogs, and navigation.
@@ -132,7 +60,11 @@ typedef FinalizeFullBackupImportFn =
 
 typedef RollbackFullBackupImportFn = Future<void> Function({String? toxId});
 typedef RollbackImportedAccountFn =
-    Future<void> Function({required String toxId, required String logContext});
+    Future<void> Function({
+      required String toxId,
+      required String logContext,
+      ImportedAccountOwnership ownership,
+    });
 
 Future<bool> _defaultEncryptProfileFile(
   String profileFilePath,
@@ -145,11 +77,35 @@ Future<bool> _defaultEncryptProfileFile(
 Future<void> _defaultRollbackImportedAccount({
   required String toxId,
   required String logContext,
+  ImportedAccountOwnership ownership = const ImportedAccountOwnership.none(),
 }) {
-  return ImportedAccountRollback.run(toxId: toxId, logContext: logContext);
+  return ImportedAccountRollback.run(
+    toxId: toxId,
+    logContext: logContext,
+    ownership: ownership,
+  );
 }
 
 class LoginPageController {
+  /// Restore an account from a single `.tox` file.
+  ///
+  /// An INSTANCE method that delegates, not an extension method. The body lives
+  /// in `login_restore_from_tox.dart` (this file had grown past the complexity
+  /// gate's pin), but extension methods are resolved statically — so exposing it
+  /// as one would bypass subclass overrides, and the widget tests inject exactly
+  /// such an override to avoid driving the real file picker. Keeping a virtual
+  /// entry point preserves that.
+  Future<RestoreResult> restoreFromToxFile({
+    required Future<String?> Function() requestPassword,
+    required String importedAccountDefaultName,
+    @visibleForTesting String? filePathOverride,
+  }) {
+    return restoreFromToxFileImpl(
+      requestPassword: requestPassword,
+      importedAccountDefaultName: importedAccountDefaultName,
+      filePathOverride: filePathOverride,
+    );
+  }
   LoginPageController({
     LoginUseCase? loginUseCase,
     @visibleForTesting ImportAccountDataFn? importAccountDataFn,
@@ -226,6 +182,16 @@ class LoginPageController {
   }) async {
     String? rollbackToxId;
     bool rollbackFullBackup = false;
+    // Set when the rollback refused to half-undo a published restore: the
+    // account may remain, so say so instead of reporting a plain failure.
+    var rollbackDeclined = false;
+    // What this import creates on disk, captured before the first write. See
+    // ImportedAccountRollback: the target directories are keyed by the 16-char
+    // prefix, so one can already hold a previous account's data.
+    var ownership = const ImportedAccountOwnership.none();
+    // Whether this import wrote a `.tox` journal entry, so the failure path
+    // clears it (the in-process rollback has already undone what it describes).
+    var journalledToxImport = false;
     try {
       final filePath =
           filePathOverride ??
@@ -273,12 +239,15 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
-        rollbackToxId = toxId;
-        rollbackFullBackup = true;
+        // Armed only AFTER the restore returns; see the note at the matching
+        // point in `settings_page_import.dart`. A failure before this wrote
+        // nothing here, and the rollback matches on account id alone.
         accountData = await _importFullBackupFn(
           filePath: filePath,
           password: password,
         );
+        rollbackToxId = toxId;
+        rollbackFullBackup = true;
       } else {
         try {
           accountData = await _importAccountDataFn(
@@ -326,7 +295,23 @@ class LoginPageController {
         if (await File(profileFilePath).exists()) {
           return const ImportFailure(ImportFailureKind.accountAlreadyExists);
         }
+        // Ownership is captured before any write (it records what was already
+        // there); the rollback is ARMED only after the journal write succeeds.
+        // Arming first let an I/O failure of that write trigger a rollback for
+        // an import that created nothing, deleting the verifier and scoped
+        // preferences of whatever already lives under this id.
+        ownership = await ImportedAccountRollback.captureOwnership(toxId);
+        // JOURNALLED — same three windows as the dedicated restore flow. An
+        // in-process catch cannot cover a kill, and this is the other `.tox`
+        // entry point, so it needs the same record.
+        await markToxImportStage(
+          toxId: toxId,
+          stage: ToxImportStage.profileWritten,
+          expectsPassword: password != null && password.isNotEmpty,
+          ownership: ownership,
+        );
         rollbackToxId = toxId;
+        journalledToxImport = true;
         await Directory(profileDir).create(recursive: true);
         await File(profileFilePath).writeAsBytes(toxProfile);
         if (password != null && password.isNotEmpty) {
@@ -338,20 +323,46 @@ class LoginPageController {
             throw StateError('Failed to encrypt imported account profile');
           }
         }
+        await markToxImportStage(
+          toxId: toxId,
+          stage: ToxImportStage.profileProtected,
+          expectsPassword: password != null && password.isNotEmpty,
+          ownership: ownership,
+        );
       }
 
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : importedAccountDefaultName;
+      // Allocate a name no OTHER account holds. `.tox` files carry no nickname,
+      // so every such import wants the same constant default and the second one
+      // used to die inside addAccount with an opaque error. See
+      // ImportedAccountName.
+      final displayNickname = await ImportedAccountName.allocate(
+        preferred: importedNickname.isNotEmpty
+            ? importedNickname
+            : importedAccountDefaultName,
+        toxId: toxId,
+      );
       rollbackToxId ??= toxId;
+      // A `.zip` backup carries the account's status message in its metadata.
+      // It was being exported and then dropped on restore, so both import UIs
+      // created the row with '' and the next login pushed that empty status to
+      // Tox — overwriting exactly what the backup had preserved. `.tox` files
+      // genuinely have none, hence the fallback.
       await _addAccountFn(
         toxId: toxId,
         nickname: displayNickname,
-        statusMessage: '',
+        statusMessage: (accountData['statusMessage'] as String?) ?? '',
         autoLogin: false,
         autoAcceptFriends: false,
         notificationSoundEnabled: true,
       );
+      if (journalledToxImport) {
+        await markToxImportStage(
+          toxId: toxId,
+          stage: ToxImportStage.accountPublished,
+          expectsPassword: password != null && password.isNotEmpty,
+          ownership: ownership,
+        );
+      }
       if (isZip) {
         await _finalizeFullBackupImportFn(toxId: toxId);
       }
@@ -364,6 +375,8 @@ class LoginPageController {
           throw StateError('Failed to persist imported account password');
         }
       }
+      // Complete: nothing left for cold-start recovery to undo.
+      if (journalledToxImport) await ToxImportJournal.clear(toxId: toxId);
       return const ImportSuccess();
     } on InvalidBackupPasswordException catch (e) {
       SafeDiagnostics.logFailure(
@@ -371,8 +384,34 @@ class LoginPageController {
         e,
       );
       return const ImportFailure(ImportFailureKind.invalidPassword);
+    } on ToxImportInFlightException catch (e) {
+      // Refused BEFORE this import writes anything - the journal entry is its
+      // first durable step - so there is nothing to roll back here.
+      //
+      // ONE message for both `identified` cases: whether the stale record names
+      // another account or cannot be parsed at all, the user's move is the same
+      // (restart, which runs `recoverPendingImport`, then import again), and the
+      // difference is only meaningful to a log reader.
+      //
+      // The kind stays `generalError`: a dedicated kind would mean editing the
+      // shared result enum and every exhaustive switch over it for copy that the
+      // `detail` field already carries. Localized here rather than in the UI
+      // because the controller has no BuildContext - same pattern as
+      // CallServiceManager's notification strings.
+      SafeDiagnostics.logFailure('[LoginPageController] Import blocked', e);
+      return ImportFailure(
+        ImportFailureKind.generalError,
+        detail: lookupAppLocalizations(
+          AppLocale.locale.value,
+        ).importBlockedByPendingImport,
+      );
     } catch (e) {
-      if (rollbackToxId != null) {
+      // A refused admission - either journal's - wrote nothing, and rolling back
+      // on it destroys the LIVE owner's data: the rollback matches on account id
+      // alone, so it undoes whichever transaction currently holds that account.
+      final admissionRefused =
+          e is ToxImportInFlightException || e is RestoreInFlightException;
+      if (!admissionRefused && rollbackToxId != null) {
         try {
           if (rollbackFullBackup) {
             await _rollbackFullBackupImportFn(toxId: rollbackToxId);
@@ -380,9 +419,21 @@ class LoginPageController {
             await _rollbackImportedAccountFn(
               toxId: rollbackToxId,
               logContext: 'LoginPageController',
+              ownership: ownership,
             );
+            // VERIFIED clear. The rollback above is best-effort, so dropping
+            // the journal unconditionally could discard the record of a cleanup
+            // that failed — and the next startup would then reconcile over the
+            // leftover instead of retrying.
+            if (journalledToxImport) {
+              await ToxImportJournal.clearIfRolledBack(toxId: rollbackToxId);
+            }
           }
         } catch (rollbackError) {
+          // Only an unstarted rollback means the account may remain; a cleanup
+          // that failed later may well have removed everything already.
+          rollbackDeclined =
+              rollbackError is RestoreRollbackNotStartedException;
           SafeDiagnostics.logFailure(
             '[LoginPageController] Import rollback failed',
             rollbackError,
@@ -390,6 +441,9 @@ class LoginPageController {
         }
       }
       SafeDiagnostics.logFailure('[LoginPageController] Import failed', e);
+      if (rollbackDeclined) {
+        return const ImportFailure(ImportFailureKind.mayRemainImported);
+      }
       return ImportFailure(
         ImportFailureKind.generalError,
         detail: SafeDiagnostics.describeError(e),
@@ -397,162 +451,5 @@ class LoginPageController {
     }
   }
 
-  /// Restore an account from a single `.tox` file. This is the first-class
-  /// "lose your phone, get your account back" entry point invoked from the
-  /// login page top-level "Restore from .tox file" action.
-  ///
-  /// Unlike [importAccount], this:
-  /// - filters the file picker to `.tox` only,
-  /// - returns typed [RestoreFailureKind]s the UI can map to restore-specific
-  ///   copy (notAToxProfile / invalidPassword vs the generic generalError),
-  /// - keeps the resolved [toxId] + [nickname] in the success payload so the
-  ///   caller can pre-fill the login form and chain into login without a
-  ///   second file picker pass.
-  ///
-  /// Encrypted .tox files prompt via [requestPassword]; wrong passwords
-  /// surface as [RestoreFailureKind.invalidPassword] (the caller is expected
-  /// to allow retry). qTox-format files pass through the existing
-  /// [AccountExportService.importAccountData] code path.
-  Future<RestoreResult> restoreFromToxFile({
-    required Future<String?> Function() requestPassword,
-    required String importedAccountDefaultName,
-    @visibleForTesting String? filePathOverride,
-  }) async {
-    String? filePath;
-    String? rollbackToxId;
-    try {
-      if (filePathOverride != null) {
-        filePath = filePathOverride;
-      } else {
-        filePath = await runL3AwareAccountImportPicker(
-          pickFile: () async {
-            final picked = await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['tox'],
-            );
-            return picked?.files.single.path;
-          },
-        );
-        if (filePath == null) {
-          return const RestoreFailure(RestoreFailureKind.noFileSelected);
-        }
-      }
-      if (!filePath.toLowerCase().endsWith('.tox')) {
-        return const RestoreFailure(RestoreFailureKind.notAToxProfile);
-      }
 
-      String? password;
-      Map<String, dynamic> accountData;
-      try {
-        accountData = await _importAccountDataFn(filePath: filePath);
-      } on PasswordRequiredException {
-        password = await requestPassword();
-        if (password == null) {
-          return const RestoreFailure(RestoreFailureKind.cancelled);
-        }
-        try {
-          accountData = await _importAccountDataFn(
-            filePath: filePath,
-            password: password,
-          );
-        } catch (e) {
-          // Decryption failure with a supplied password is virtually always
-          // a wrong password (the only other failure is corruption AFTER the
-          // password gate, which is exceedingly rare). Surface as
-          // invalidPassword so the UI can show the retry-friendly copy.
-          SafeDiagnostics.logFailure(
-            '[LoginPageController] Restore: decrypt failed with password',
-            e,
-          );
-          return const RestoreFailure(RestoreFailureKind.invalidPassword);
-        }
-      } catch (e) {
-        // Non-password errors at this point (e.g. corrupt header) mean the
-        // file is not a valid Tox profile.
-        SafeDiagnostics.logFailure(
-          '[LoginPageController] Restore: invalid tox file',
-          e,
-        );
-        return RestoreFailure(
-          RestoreFailureKind.notAToxProfile,
-          detail: SafeDiagnostics.describeError(e),
-        );
-      }
-
-      final toxId = accountData['toxId'] as String;
-      final toxProfile = accountData['toxProfile'] as Uint8List?;
-      final importedNickname = (accountData['nickname'] as String?) ?? '';
-
-      // Duplicate-account guard: account already registered on this device.
-      final existingAccount = await Prefs.getAccountByToxId(toxId);
-      if (existingAccount != null) {
-        return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
-      }
-
-      if (toxProfile == null || toxProfile.isEmpty) {
-        return const RestoreFailure(RestoreFailureKind.notAToxProfile);
-      }
-
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      final profileFilePath = AppPaths.profileFileInDirectory(profileDir);
-      if (await File(profileFilePath).exists()) {
-        return const RestoreFailure(RestoreFailureKind.accountAlreadyExists);
-      }
-      rollbackToxId = toxId;
-      await Directory(profileDir).create(recursive: true);
-      await File(profileFilePath).writeAsBytes(toxProfile);
-      if (password != null && password.isNotEmpty) {
-        final encrypted = await _encryptProfileFileFn(
-          profileFilePath,
-          password,
-        );
-        if (!encrypted) {
-          throw StateError('Failed to encrypt imported account profile');
-        }
-      }
-
-      final displayNickname = importedNickname.isNotEmpty
-          ? importedNickname
-          : importedAccountDefaultName;
-      await _addAccountFn(
-        toxId: toxId,
-        nickname: displayNickname,
-        statusMessage: '',
-        autoLogin: false,
-        autoAcceptFriends: false,
-        notificationSoundEnabled: true,
-      );
-      await DefaultAvatarInstaller.ensureSelfAvatar(toxId: toxId);
-      if (password != null && password.isNotEmpty) {
-        final persisted = await _setAccountPasswordFn(toxId, password);
-        if (!persisted) {
-          throw StateError('Failed to persist imported account password');
-        }
-      }
-      return RestoreSuccess(
-        toxId: toxId,
-        nickname: displayNickname,
-        password: password,
-      );
-    } catch (e) {
-      if (rollbackToxId != null) {
-        try {
-          await _rollbackImportedAccountFn(
-            toxId: rollbackToxId,
-            logContext: 'LoginPageController',
-          );
-        } catch (rollbackError) {
-          SafeDiagnostics.logFailure(
-            '[LoginPageController] Restore rollback failed',
-            rollbackError,
-          );
-        }
-      }
-      SafeDiagnostics.logFailure('[LoginPageController] Restore failed', e);
-      return RestoreFailure(
-        RestoreFailureKind.generalError,
-        detail: SafeDiagnostics.describeError(e),
-      );
-    }
-  }
 }

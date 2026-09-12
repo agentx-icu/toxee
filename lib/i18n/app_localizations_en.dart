@@ -1529,6 +1529,39 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importCancelled => 'Cancelled';
 
   @override
+  String get recoveryBlockedTitle => 'Account recovery incomplete';
+
+  @override
+  String get recoveryBlockedBody =>
+      'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.';
+
+  @override
+  String get secureStorageUnavailable =>
+      'Secure storage is unavailable, so toxee cannot check this account’s password. This is usually temporary — try again, or unlock your device keychain.';
+
+  @override
+  String get recoverLegacyDataAction => 'Recover data from an older version';
+
+  @override
+  String get recoverLegacyDataConfirm =>
+      'This device still holds chat history, queued messages and contact avatars from before toxee supported multiple accounts. Add them to the account you are signed into now?\n\nDo this only if that data is yours. It can be claimed once, by one account.\n\nYou will be signed out so the merge can happen at your next sign-in.';
+
+  @override
+  String get recoverLegacyDataClaimed =>
+      'This account will take over the older data. Sign out and back in to merge it — doing that at sign-in is what keeps your current history and queued messages intact.';
+
+  @override
+  String get recoverLegacyDataDone => 'Older data was added to this account.';
+
+  @override
+  String get recoverLegacyDataUnavailable =>
+      'That data could not be claimed — it may already belong to another account on this device.';
+
+  @override
+  String get accountRegistryUnreadable =>
+      'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.';
+
+  @override
   String get importedAccountDefaultName => 'Imported account';
 
   @override
@@ -1716,4 +1749,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noBootstrapNodes => 'No bootstrap nodes';
+
+  @override
+  String get importMayHaveCompleted =>
+      'The import could not be undone, so this account may still be there. Check your account list before importing again.';
+
+  @override
+  String get importBlockedByPendingImport =>
+      'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.';
 }

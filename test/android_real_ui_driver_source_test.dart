@@ -179,12 +179,18 @@ void main() {
   });
 
   test('Mobile settings logout pops pushed sections before teardown', () {
+    // The logout handler moved out of `settings_page.dart` into its own part
+    // file when the page was split for the complexity gate, and it was split
+    // again into "ask" (`_logout`) and "do" (`_performLogout`) so the
+    // legacy-data recovery flow can end the session without a second,
+    // cancellable confirmation.
     final source = File(
-      'lib/ui/settings/settings_page.dart',
+      'lib/ui/settings/settings_page_session_actions.dart',
     ).readAsStringSync();
-    final start = source.indexOf('Future<void> _logout() async');
-    final end = source.indexOf('/// Used by settings_page_build.dart', start);
-    final logout = source.substring(start, end);
+    final start = source.indexOf('Future<void> _performLogout() async');
+    expect(start, greaterThan(-1),
+        reason: 'the unconditional logout body must stay findable');
+    final logout = source.substring(start);
     final teardown = logout.indexOf('_teardownSession');
     expect(logout, contains('final homeRoute = ModalRoute.of(context);'));
     expect(
@@ -193,15 +199,43 @@ void main() {
     );
     expect(logout, contains('navigator.popUntil'));
     expect(logout, contains('identical(route, homeRoute)'));
-    expect(
-      logout.indexOf('final homeRoute'),
-      lessThan(logout.indexOf('showDialog')),
-    );
+    // The route + navigator are captured before anything is awaited, so a
+    // defunct State cannot be asked for them halfway through the teardown.
     expect(
       logout.indexOf('final navigator'),
-      lessThan(logout.indexOf('showDialog')),
+      lessThan(logout.indexOf('await ')),
     );
     expect(logout.indexOf('popUntil'), lessThan(teardown));
+
+    // Every caller must have confirmed BEFORE reaching the unconditional body.
+    final ask = source.substring(
+      source.indexOf('Future<void> _logout() async'),
+      start,
+    );
+    expect(ask, contains('if (confirmed == true && mounted)'));
+    expect(
+      ask.indexOf('showDialog'),
+      lessThan(ask.indexOf('_performLogout')),
+    );
+  });
+
+  test('Legacy-data recovery ends the session without a second confirmation',
+      () {
+    // Committing the claim and then asking again let the user cancel with the
+    // claim already recorded: the recovery button disappears while the session
+    // keeps writing, and the merge at the next sign-in has two queues to
+    // reconcile instead of one to install.
+    final source = File(
+      'lib/ui/settings/settings_page_mobile_widgets.dart',
+    ).readAsStringSync();
+    final start = source.indexOf('Future<void> _recoverLegacyData() async');
+    expect(start, greaterThan(-1));
+    final recover = source.substring(
+      start,
+      source.indexOf('Future<void> _refreshUnclaimedLegacyData()', start),
+    );
+    expect(recover, contains('await _performLogout();'));
+    expect(recover, isNot(contains('await _logout();')));
   });
 
   test('Optimized settings sweep follows the active layout', () {

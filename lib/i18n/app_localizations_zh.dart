@@ -1459,6 +1459,38 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importCancelled => '已取消';
 
   @override
+  String get recoveryBlockedTitle => '账号恢复未完成';
+
+  @override
+  String get recoveryBlockedBody =>
+      'toxee 发现一个未完成的账号恢复或删除操作，且无法读取其记录，因此没有打开任何账号——继续可能会破坏数据。\n\n你的账号及其文件仍在本机。请不要重新注册，也不要清除应用数据，否则数据会永久丢失。请反馈下方信息以便修复。';
+
+  @override
+  String get secureStorageUnavailable =>
+      '安全存储当前不可用，toxee 无法校验该账号的密码。这通常是临时问题——请重试，或先解锁设备钥匙串。';
+
+  @override
+  String get recoverLegacyDataAction => '恢复旧版本的数据';
+
+  @override
+  String get recoverLegacyDataConfirm =>
+      '本机仍保留着 toxee 支持多账号之前的聊天记录、待发消息和联系人头像。要把它们并入当前登录的账号吗？\n\n请仅在确认这些数据属于你时操作。这些数据只能被一个账号认领一次。\n\n确认后会退出登录，以便在下次登录时完成合并。';
+
+  @override
+  String get recoverLegacyDataClaimed =>
+      '该账号将接管这些旧数据。请退出并重新登录以完成合并——在登录时合并才能保证当前的聊天记录和待发消息不受影响。';
+
+  @override
+  String get recoverLegacyDataDone => '旧版本数据已并入当前账号。';
+
+  @override
+  String get recoverLegacyDataUnavailable => '无法认领这些数据——它们可能已归本机上的其他账号所有。';
+
+  @override
+  String get accountRegistryUnreadable =>
+      '无法读取已保存的账号列表。账号文件仍在本机，请不要重新注册；请反馈此问题以便修复账号列表。';
+
+  @override
   String get importedAccountDefaultName => '已导入账号';
 
   @override
@@ -1634,6 +1666,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get noBootstrapNodes => '没有引导节点';
+
+  @override
+  String get importMayHaveCompleted => '这次导入没能撤销，该账号可能仍然存在。请先查看账号列表再重新导入。';
+
+  @override
+  String get importBlockedByPendingImport =>
+      '上一次账号导入被中断，还没有清理完。请重启 toxee 完成撤销后再重新导入。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).

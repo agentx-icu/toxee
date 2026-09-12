@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'legacy_account_data_claim.dart';
 import 'logger.dart';
 import 'harness_environment.dart';
 import 'prefs.dart';
@@ -429,72 +430,15 @@ abstract final class AppPaths {
     return p.join(root, 'file_recv');
   }
 
-  /// Migrates legacy global chat_history and offline_message_queue into account_data/<prefix>/ once.
-  /// Safe to call every time; only copies when legacy data exists and account dir is empty/missing.
-  static Future<void> migrateAccountDataFromLegacy(String toxId) async {
-    final accountRoot = await getAccountDataRoot(toxId);
-    final accountHistoryDir = Directory(p.join(accountRoot, 'chat_history'));
-    final accountQueuePath = p.join(accountRoot, 'offline_message_queue.json');
-    final legacyHistoryPath = await chatHistoryPath;
-    final legacyQueuePath = await offlineMessageQueueFilePath;
-
-    final legacyHistoryDir = Directory(legacyHistoryPath);
-    if (await legacyHistoryDir.exists()) {
-      final legacyFiles = await legacyHistoryDir
-          .list()
-          .where((e) => e is File)
-          .toList();
-      if (legacyFiles.isNotEmpty) {
-        await accountHistoryDir.create(recursive: true);
-        for (final e in legacyFiles) {
-          final file = e as File;
-          final dest = File(
-            p.join(accountHistoryDir.path, p.basename(file.path)),
-          );
-          if (!await dest.exists()) await file.copy(dest.path);
-        }
-      }
-    }
-
-    final legacyQueueFile = File(legacyQueuePath);
-    if (await legacyQueueFile.exists()) {
-      await Directory(accountRoot).create(recursive: true);
-      final destQueue = File(accountQueuePath);
-      if (!await destQueue.exists()) {
-        await legacyQueueFile.copy(accountQueuePath);
-      }
-    }
-
-    // Migrate avatars from global <appSupport>/avatars/ to per-account directory
-    final globalAvatarsPath = await avatarsPath;
-    final accountAvatarsPath = await getAccountAvatarsPath(toxId);
-    final accountAvatarsDir = Directory(accountAvatarsPath);
-    final globalAvatarsDir = Directory(globalAvatarsPath);
-    if (await globalAvatarsDir.exists()) {
-      final prefix = _accountPrefix(toxId);
-      final globalFiles = await globalAvatarsDir
-          .list()
-          .where((e) => e is File)
-          .toList();
-      if (globalFiles.isNotEmpty) {
-        await accountAvatarsDir.create(recursive: true);
-        for (final e in globalFiles) {
-          final file = e as File;
-          final baseName = p.basename(file.path);
-          // Migrate self avatars matching this account's prefix
-          // and friend avatars (friend_<id>_avatar.ext) for all friends
-          if (baseName.startsWith('avatar_$prefix') ||
-              baseName.startsWith('self_avatar') ||
-              baseName.startsWith('friend_')) {
-            final dest = File(p.join(accountAvatarsPath, baseName));
-            if (!await dest.exists()) {
-              await file.copy(dest.path);
-            }
-          }
-        }
-      }
-    }
-  }
+  /// Migrates the pre-multi-account global chat history, offline queue and
+  /// avatars into `account_data/<prefix>/` — for the ONE account entitled to
+  /// them.
+  ///
+  /// Implementation (and the entitlement rule that stops it copying one
+  /// identity's messages into every other local account) lives in
+  /// `legacy_account_data_claim.dart`.
+  static Future<void> migrateAccountDataFromLegacy(String toxId) =>
+      migrateLegacyAccountDataIfClaimed(toxId);
 
   /// Directory for app logs: `<appSupport>/logs`.
   static Future<Directory> get logsDir async {

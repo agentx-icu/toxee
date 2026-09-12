@@ -9,6 +9,7 @@ import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_paths.dart';
 import '../util/default_avatar_installer.dart';
+import '../util/logger.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
 import '../util/safe_diagnostics.dart';
@@ -86,17 +87,11 @@ class StartupSessionUseCase {
       // session paths. Idempotent and safe to call when nothing needs
       // migrating (returns null and exits in microseconds).
       //
-      // TODO(codex-review-3): this trigger only fires in the auto-login path
-      // and only after the `nickname/autoLogin` early returns above. The
-      // manual login path in `LoginUseCase` never invokes the migration, so
-      // a user whose account is encrypted and who toggles off auto-login can
-      // stay stuck under the `FlutterUIKitClient` namespace indefinitely.
-      // Also, the migration's `_discoverRealToxId()` opens a discovery
-      // FfiChatService without a password, which can't unlock encrypted
-      // profile blobs. Long-term fix: thread the live `FfiChatService`'s
-      // already-resolved `getSelfToxId()` into the migration so encrypted
-      // profiles migrate post-login instead of via a separate probe. See
-      // `LoginUseCase` for the matching stub.
+      // Unauthenticated, so it migrates only an UNPROTECTED placeholder
+      // account. A protected one cannot auto-login at all (the gate below), and
+      // is migrated by `LoginUseCase` once the user's password has been
+      // verified — that is the authenticated continuation of the refusal in
+      // `placeholder_identity_discovery.dart`.
       await PlaceholderAccountMigration.migrateIfNeeded();
 
       Map<String, String>? account;
@@ -108,16 +103,46 @@ class StartupSessionUseCase {
       final toxIdForStartup = account?['toxId'];
 
       if (toxIdForStartup != null && toxIdForStartup.isNotEmpty) {
-        // S40 Bug 3: an encrypted profile cannot auto-login. There is no
-        // cross-process password cache (SessionPasswordStore is in-memory and
-        // empty on cold start), so initializeServiceForAccount(password: null)
-        // below would hand FFI an undecryptable blob and throw — surfacing a
-        // generic StartupShowError. Detect it up front and route to the login
-        // page instead, where tapping the account prompts for the password
-        // (LoginPage._quickLogin → LoginUseCase → init WITH the password →
-        // decrypt). Fail-open: a probe error must never block the normal init
-        // path (the probe is advisory).
+        // AUTHENTICATION GATE — read this before weakening it.
+        //
+        // A password-protected account must never be opened by auto-login:
+        // there is no cross-process password cache (SessionPasswordStore is
+        // in-memory and empty on cold start), so the user has to come through
+        // LoginPage, where tapping the account prompts and verifies
+        // (LoginPage._quickLogin → LoginUseCase → verifyAccountPassword →
+        // init WITH the password).
+        //
+        // The gate is the DURABLE verifier, not the on-disk encryption state.
+        // Gating on `isProfileFileEncrypted` alone (the previous behaviour) was
+        // an authentication bypass, because the two disagree routinely:
+        // `initializeServiceForAccount` decrypts `tox_profile.tox` in place for
+        // the whole session and only `teardownCurrentSession` re-encrypts it.
+        // Any exit that skips teardown — a crash, a force-quit, or simply
+        // closing the desktop window (`DesktopShellBootstrap.onWindowClose`
+        // destroys the window without tearing the account down) — leaves a
+        // protected account sitting in plaintext, and the next launch then
+        // auto-logged straight in with no prompt at all. Setting a password in
+        // Settings and closing the window was enough to reproduce it.
+        //
+        // FAIL-CLOSED on both axes: `unknown` (secure storage would not
+        // answer) routes to login just like `protected`, and a probe that
+        // throws also routes to login. An unnecessary password prompt is a
+        // minor annoyance; skipping one is a security failure.
         try {
+          final protection = await Prefs.accountProtectionState(
+            toxIdForStartup,
+          );
+          if (protection != AccountProtectionState.none) {
+            AppLogger.log(
+              '[StartupSessionUseCase] auto_login_gated '
+              'reason=${protection.name}',
+            );
+            return const StartupShowLogin();
+          }
+          // Belt-and-braces: an encrypted profile with no recoverable verifier
+          // (e.g. the A4 import crash window) cannot be opened without a
+          // password either, and FFI would just throw on the undecryptable
+          // blob. Route to login so the user can supply one.
           final profilePath = await AppPaths.resolveToxProfilePath(
             toxIdForStartup,
           );
@@ -127,10 +152,11 @@ class StartupSessionUseCase {
           }
         } catch (probeError) {
           SafeDiagnostics.logFailure(
-            '[StartupSessionUseCase] encrypted-profile probe failed; '
-            'continuing with init',
+            '[StartupSessionUseCase] account-protection probe failed; '
+            'routing to login (fail-closed)',
             probeError,
           );
+          return const StartupShowLogin();
         }
 
         activation = await AccountActivationTransaction.begin();
@@ -141,6 +167,29 @@ class StartupSessionUseCase {
           startPolling: false,
         );
       } else {
+        // LEGACY FALLBACK — no account row carries a toxId, so this opens the
+        // default profile to learn its identity. Gate it: the identity is
+        // unknown until after `login()`, so the only protection state we can
+        // consult beforehand is the profile's own encryption, and an encrypted
+        // one cannot be opened without a password anyway. Routing to the login
+        // page keeps this path from being the one place auto-login still opens
+        // an account it has not authenticated.
+        try {
+          final legacyProfile = await AppPaths.resolveToxProfilePath(
+            await Prefs.getCurrentAccountToxId() ?? '',
+          );
+          if (legacyProfile != null &&
+              await AccountExportService.isProfileFileEncrypted(legacyProfile)) {
+            return const StartupShowLogin();
+          }
+        } catch (probeError) {
+          SafeDiagnostics.logFailure(
+            '[StartupSessionUseCase] legacy profile probe failed; routing to '
+            'login (fail-closed)',
+            probeError,
+          );
+          return const StartupShowLogin();
+        }
         activation = await AccountActivationTransaction.begin();
         final prefs = await SharedPreferences.getInstance();
         // CR-10: mirror LoginUseCase's legacy branch — construct the adapter

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -93,6 +94,35 @@ Future<void> _openExportMenu(WidgetTester tester) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // An empty but AVAILABLE secure store. The export action now authenticates
+  // before producing any copy, and `Prefs.hasAccountPassword` fails CLOSED — an
+  // unmocked keychain channel reports "unavailable", which reads as "possibly
+  // protected" and raises a password prompt. Without this mock the saved account
+  // looks protected and the export never runs. The store stays empty, so the
+  // account resolves as unprotected, which is what these single-flight tests
+  // mean to exercise. The gate itself is covered in
+  // test/startup_auto_login_decision_test.dart.
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
+      switch (call.method) {
+        case 'readAll':
+          return <String, String>{};
+        case 'containsKey':
+          return false;
+        default:
+          return null;
+      }
+    });
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
+  });
 
   testWidgets(
     'restore is single-flight while pending and can retry after failure',

@@ -29,6 +29,37 @@ import '../util/safe_diagnostics.dart';
 class LoggingBootstrap {
   LoggingBootstrap._();
 
+  /// Routes print() output to AppLogger. Parses TCCF lines (TencentCloudChatLog)
+  /// so level and body are normalized instead of duplicating timestamp in body.
+  static void routePrintToLogger(String line) {
+    // TCCF:2026-02-11 03:48:47 PM:TencentCloudChatMessageSDK:debug:{ addUIKitListener 1770796127319 }
+    final tccfMatch = RegExp(
+      r'^TCCF:(?:\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2} [AP]M):([^:]+):(debug|info|error|all):\{ (.*) \}$',
+    ).firstMatch(line);
+    if (tccfMatch != null) {
+      final component = tccfMatch.group(1)!.trim();
+      final level = tccfMatch.group(2)!;
+      final body = tccfMatch.group(3)!.trim();
+      final logBody = '$component: $body';
+      switch (level) {
+        case 'debug':
+          AppLogger.debug(logBody);
+          break;
+        case 'info':
+          AppLogger.info(logBody);
+          break;
+        case 'error':
+          AppLogger.error(logBody);
+          break;
+        case 'all':
+        default:
+          AppLogger.info(logBody);
+      }
+      return;
+    }
+    AppLogger.info(line);
+  }
+
   static Future<void> initialize() async {
     final logDirEnv = HarnessEnvironment.value(HarnessEnvironment.logDirKey);
     try {

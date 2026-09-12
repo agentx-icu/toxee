@@ -10,11 +10,18 @@ import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import '../adapters/shared_prefs_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../adapters/bootstrap_adapter.dart';
+import 'active_session.dart';
 import 'prefs.dart';
 import 'prefs_upgrader.dart';
 import 'account_deletion.dart';
+import 'account_registration_rollback.dart';
+import 'account_scoped_service_factory.dart';
+import 'account_session_cleanup.dart';
+import 'account_teardown_failure.dart';
 import 'account_scratch_storage.dart';
+import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
+import 'account_export/tox_file_io.dart' show extractToxIdFromProfile;
 import 'account_export_service.dart';
 import 'default_avatar_installer.dart';
 import 'session_password_store.dart';
@@ -23,6 +30,21 @@ import 'irc_app_manager.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
 import 'short_tox_id_backfill.dart';
+import 'tox_utils.dart';
+
+// Split out of this file (it had grown past the complexity gate's pin) but
+// re-exported: `AccountActivationTransaction` is part of the account-lifecycle
+// API callers reach for through `account_service.dart`.
+export 'account_activation_transaction.dart';
+// Teardown stage/failure types.
+export 'account_teardown_failure.dart';
+// `calculateTextLength` used to live here despite being a pure text-width
+// helper for form validation. Re-exported so the register-page form's existing
+// import keeps resolving.
+export 'text_width.dart';
+// Test seams for the teardown / registration flows, re-exported so existing
+// `import 'account_service.dart'` test files keep resolving them.
+export 'account_service_test_hooks.dart';
 
 /// Result from [AccountService.registerNewAccount].
 class RegisterResult {
@@ -35,141 +57,6 @@ class RegisterResult {
     required this.toxId,
     required this.profileDirectory,
   });
-}
-
-enum AccountTeardownStage {
-  runtimeDisposal,
-  providerRegistryCleanup,
-  singletonCacheCleanup,
-  ircSessionShutdown,
-  serviceDisposal,
-  profileReEncryption,
-  sessionPasswordClear,
-}
-
-final class AccountTeardownFailure implements Exception {
-  const AccountTeardownFailure({
-    required this.toxId,
-    required this.stage,
-    required this.cause,
-    required this.stackTrace,
-  });
-
-  final String toxId;
-  final AccountTeardownStage stage;
-  final Object cause;
-  final StackTrace stackTrace;
-
-  @override
-  String toString() {
-    return 'Account teardown failed stage=${stage.name} '
-        '${SafeDiagnostics.describeError(cause)}';
-  }
-}
-
-/// Guards the durable active-account mirror while a session is initialized and
-/// booted. Initialization may publish the candidate account before the runtime
-/// is ready; callers commit only after full boot succeeds.
-final class AccountActivationTransaction {
-  AccountActivationTransaction._({
-    required String? previousToxId,
-    required String? previousNickname,
-    required String? previousStatusMessage,
-    required String? previousAvatarPath,
-  }) : _previousToxId = previousToxId,
-       _previousNickname = previousNickname,
-       _previousStatusMessage = previousStatusMessage,
-       _previousAvatarPath = previousAvatarPath;
-
-  final String? _previousToxId;
-  final String? _previousNickname;
-  final String? _previousStatusMessage;
-  final String? _previousAvatarPath;
-  bool _committed = false;
-  bool _rolledBack = false;
-
-  static Future<AccountActivationTransaction> begin() async {
-    final snapshot = await Future.wait<String?>([
-      Prefs.getCurrentAccountToxId(),
-      Prefs.getNickname(),
-      Prefs.getStatusMessage(),
-      Prefs.getAvatarPath(),
-    ]);
-    return AccountActivationTransaction._(
-      previousToxId: snapshot[0],
-      previousNickname: snapshot[1],
-      previousStatusMessage: snapshot[2],
-      previousAvatarPath: snapshot[3],
-    );
-  }
-
-  void commit() {
-    _committed = true;
-  }
-
-  Future<void> rollback() async {
-    if (_committed || _rolledBack) return;
-    await Prefs.setCurrentAccountToxId(_previousToxId);
-    await Prefs.setNickname(_previousNickname ?? '');
-    await Prefs.setStatusMessage(_previousStatusMessage ?? '');
-    await Prefs.setAvatarPath(_previousAvatarPath);
-    _rolledBack = true;
-  }
-}
-
-abstract final class AccountTeardownTestHooks {
-  AccountTeardownTestHooks._();
-
-  @visibleForTesting
-  static Future<void> Function(FfiChatService service)? shutdownIrcSession;
-
-  @visibleForTesting
-  static Future<void> Function(FfiChatService service)? disposeService;
-
-  @visibleForTesting
-  static Future<void> Function(String profilePath, String password)?
-  encryptProfileFile;
-
-  @visibleForTesting
-  static void reset() {
-    shutdownIrcSession = null;
-    disposeService = null;
-    encryptProfileFile = null;
-  }
-}
-
-abstract final class AccountRegistrationTestHooks {
-  AccountRegistrationTestHooks._();
-
-  @visibleForTesting
-  static Future<void> Function(FfiChatService service)? disposeService;
-
-  @visibleForTesting
-  static Future<void> Function(String profilePath, String password)?
-  encryptProfileFile;
-
-  @visibleForTesting
-  static void reset() {
-    disposeService = null;
-    encryptProfileFile = null;
-  }
-}
-
-/// Calculate text length where Chinese characters count as 1, and
-/// letters/numbers/other characters count as 0.5.
-double calculateTextLength(String text) {
-  double length = 0;
-  for (int i = 0; i < text.length; i++) {
-    final char = text[i];
-    if (char.codeUnitAt(0) >= 0x4E00 && char.codeUnitAt(0) <= 0x9FFF) {
-      length += 1.0;
-    } else if (RegExp(r'[a-zA-Z0-9]').hasMatch(char)) {
-      length += 0.5;
-    } else {
-      length += 0.5;
-    }
-  }
-  return length;
 }
 
 /// Centralized account lifecycle management.
@@ -198,6 +85,23 @@ class AccountService {
   ///    [reEncryptProfile] is `false`, e.g. during account deletion).
   /// 6. Clear [SessionPasswordStore].
   static Future<void> teardownCurrentSession({
+    FfiChatService? service,
+    bool reEncryptProfile = true,
+  }) {
+    // Register the run so a concurrent shutdown path (desktop window close,
+    // mobile `detached`) JOINS it instead of observing a half-cleared registry.
+    // Teardown re-encrypts the profile only after disposing the service, so a
+    // shutdown that merely checked `ActiveSession.current` could see null in
+    // that window and kill the process mid-encryption.
+    return ActiveSession.trackTeardown(
+      _teardownCurrentSessionImpl(
+        service: service,
+        reEncryptProfile: reEncryptProfile,
+      ),
+    );
+  }
+
+  static Future<void> _teardownCurrentSessionImpl({
     FfiChatService? service,
     bool reEncryptProfile = true,
   }) async {
@@ -274,20 +178,55 @@ class AccountService {
     });
 
     // 4. Dispose service
+    var disposeReturnedCleanly = true;
+    // When a test hook stands in for disposal, the real `dispose()` never runs
+    // and cannot report whether the native instance stopped. The hook IS the
+    // test's statement about what happened, so its outcome is the signal in that
+    // configuration. Never set in production.
+    final disposeHook = AccountTeardownTestHooks.disposeService;
     if (service != null) {
-      await runStep(AccountTeardownStage.serviceDisposal, () async {
-        final disposeService = AccountTeardownTestHooks.disposeService;
-        if (disposeService != null) {
-          await disposeService(service);
-        } else {
-          await service.dispose();
-        }
-      });
+      disposeReturnedCleanly = await runStep(
+        AccountTeardownStage.serviceDisposal,
+        () async {
+          if (disposeHook != null) {
+            await disposeHook(service);
+          } else {
+            await service.dispose();
+          }
+        },
+      );
     }
 
-    // 5. Re-encrypt profile on disk
+    // 5. Re-encrypt profile on disk — ONLY when the native instance is
+    // provably stopped.
+    //
+    // tim2tox persists savedata from native: `ToxManager` autosaves on its own
+    // timer and the polling thread writes on state changes. If any of that is
+    // still running, it can overwrite our ciphertext with plaintext moments
+    // after we write it — leaving the profile unencrypted while the durable
+    // verifier says the account IS protected. That is the worst of both worlds,
+    // so we would rather not encrypt at all.
+    //
+    // "dispose() did not throw" is NOT sufficient evidence. `FfiChatService`
+    // catches a drain timeout, SKIPS `_ffi.uninit()`, quarantines the instance
+    // and returns normally — precisely the case where an undrained task can
+    // still write. `nativeInstanceStopped` reports which branch it took; null
+    // means an older tim2tox that cannot tell us, and we treat that as
+    // not-proven.
+    final nativeStopped = service == null
+        ? true
+        : disposeReturnedCleanly &&
+              (disposeHook != null || service.nativeInstanceStopped == true);
+    if (service != null && disposeReturnedCleanly && !nativeStopped) {
+      AppLogger.warn(
+        '[AccountService] teardown: native instance was quarantined rather '
+        'than stopped; skipping profile re-encryption to avoid a later '
+        'autosave overwriting the ciphertext with plaintext',
+      );
+    }
     var profileReadyForPasswordClear = true;
     if (reEncryptProfile &&
+        nativeStopped &&
         sessionPassword != null &&
         sessionPassword.isNotEmpty &&
         toxId.isNotEmpty) {
@@ -307,12 +246,24 @@ class AccountService {
     }
 
     // 6. Clear session password only after the profile is safely encrypted.
-    // Retaining it after an encryption failure preserves in-process recovery.
-    if (toxId.isNotEmpty && profileReadyForPasswordClear) {
+    //
+    // It is retained when encryption failed, and when encryption was skipped
+    // because the native instance could not be proven stopped — in both cases
+    // the profile is still plaintext and an in-process retry (or the next clean
+    // logout, which reuses this store) is the only way to fix that without
+    // asking the user for the password again. The trade-off is deliberate:
+    // holding the password in memory a while longer is a smaller exposure than
+    // a profile that can never be re-encrypted this session.
+    if (toxId.isNotEmpty && profileReadyForPasswordClear && nativeStopped) {
       await runStep(AccountTeardownStage.sessionPasswordClear, () async {
         SessionPasswordStore.clear(toxId);
       });
     }
+
+    // Unregister LAST: every stage that still needed the handle has run, and the
+    // profile (if it was going to be) is encrypted. Clearing earlier reopened
+    // the window this registry exists to close.
+    ActiveSession.clear(service);
 
     final failure = firstFailure;
     if (failure != null) {
@@ -431,15 +382,46 @@ class AccountService {
       final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
       profileFile = AppPaths.profileFileInDirectory(profileDir);
       if (!await File(profileFile).exists()) {
+        // Adopt the pre-multi-account profile ONLY after proving it is this
+        // account's. It used to be copied in unconditionally, so requesting any
+        // account whose own profile was missing installed the legacy identity
+        // under that account's directory and prefs scope — the session then ran
+        // as one identity while every durable path, scoped pref and account-list
+        // row said it was another. `AccountSwitcher` even noticed the mismatch
+        // (it compares `getSelfToxId()` against the target) but only logged it.
+        //
+        // An encrypted legacy blob cannot be attributed here (the extractor
+        // needs the passphrase this layer does not have), so it is refused
+        // rather than adopted on faith. The file stays on disk, and
+        // `AccountReconciliation` / the import UI can still recover it.
         final legacyDir = await AppPaths.toxProfileDir;
         final legacyPath = p.join(legacyDir.path, 'tox_profile.tox');
-        if (await File(legacyPath).exists()) {
-          await Directory(profileDir).create(recursive: true);
-          await File(legacyPath).copy(profileFile);
-          AppLogger.log('[AccountService] profile_migration status=completed');
-        } else {
+        if (!await File(legacyPath).exists()) {
           throw Exception('Profile not found for account');
         }
+        final legacyBytes = await File(legacyPath).readAsBytes();
+        String legacyToxId;
+        try {
+          legacyToxId = extractToxIdFromProfile(legacyBytes);
+        } catch (e) {
+          SafeDiagnostics.logFailure(
+            '[AccountService] profile_migration status=refused '
+            'reason=identity_unreadable',
+            e,
+          );
+          throw Exception('Profile not found for account');
+        }
+        if (legacyToxId.isEmpty || !compareToxIds(legacyToxId, toxId)) {
+          AppLogger.warn(
+            '[AccountService] profile_migration status=refused '
+            'reason=identity_mismatch — the legacy profile belongs to a '
+            'different account',
+          );
+          throw Exception('Profile not found for account');
+        }
+        await Directory(profileDir).create(recursive: true);
+        await File(legacyPath).copy(profileFile);
+        AppLogger.log('[AccountService] profile_migration status=completed');
       }
 
       if (password != null && password.isNotEmpty) {
@@ -592,55 +574,6 @@ class AccountService {
     }
   }
 
-  /// Creates an [FfiChatService] with account-scoped paths (history, queue,
-  /// fileRecv, avatars). Caller must call [FfiChatService.startPolling] if needed.
-  static Future<FfiChatService> _createAccountScopedService({
-    required SharedPreferences prefs,
-    required String toxId,
-    required String profileDirectory,
-  }) async {
-    await AppPaths.migrateAccountDataFromLegacy(toxId);
-    final historyDirectory = await AppPaths.getAccountChatHistoryPath(toxId);
-    final queueFilePath = await AppPaths.getAccountOfflineQueueFilePath(toxId);
-    final fileRecvPath = await AppPaths.getAccountFileRecvPath(toxId);
-    final avatarsPath = await AppPaths.getAccountAvatarsPath(toxId);
-    final scratchStorage = await _scratchStorageForAccount(toxId);
-
-    await Directory(historyDirectory).create(recursive: true);
-    await Directory(avatarsPath).create(recursive: true);
-
-    final accountPrefix = toxId.length >= 16 ? toxId.substring(0, 16) : toxId;
-    final svc = FfiChatService(
-      preferencesService: SharedPreferencesAdapter(
-        prefs,
-        accountPrefix: accountPrefix,
-      ),
-      loggerService: AppLoggerAdapter(),
-      bootstrapService: BootstrapNodesAdapter(prefs),
-      historyDirectory: historyDirectory,
-      queueFilePath: queueFilePath,
-      fileRecvPath: fileRecvPath,
-      avatarsPath: avatarsPath,
-      scratchFileService: scratchStorage,
-    );
-    try {
-      await svc.init(profileDirectory: profileDirectory);
-      await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
-      return svc;
-    } catch (_) {
-      try {
-        await svc.dispose();
-      } catch (disposeError) {
-        SafeDiagnostics.logFailure(
-          '[AccountService] registration_rollback_failed '
-          'stage=scoped_service_disposal',
-          disposeError,
-        );
-      }
-      rethrow;
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Registration
   // ---------------------------------------------------------------------------
@@ -683,6 +616,12 @@ class AccountService {
     String? toxId;
     String? finalDir;
     bool accountVisible = false;
+    // Per-resource ownership. Rollback may only delete what THIS registration
+    // created; a directory that already belonged to another account with the
+    // same 16-char prefix must survive. `ownsFinalDir` flips only after the
+    // temp -> final rename actually succeeds.
+    bool ownsFinalDir = false;
+    List<String> ownedDataRoots = const <String>[];
 
     try {
       // 2. Clear current account so init() loads empty state
@@ -731,8 +670,18 @@ class AccountService {
         }
         toxId = realToxId;
 
-        finalDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-        final existingProfile = AppPaths.profileFileInDirectory(finalDir);
+        // Resolve into a LOCAL first and publish to `finalDir` only once this
+        // candidate is accepted. `finalDir` is what the rollback deletes, and
+        // `p_<first16>` is derived from the Tox ID, so on a collision it names
+        // ANOTHER account's directory. Assigning the outer variable before the
+        // check meant the rollback deleted that account's `tox_profile.tox` —
+        // and `_deleteAccountDataRoots` wiped its `account_data/<prefix>` too.
+        final candidateFinalDir = await AppPaths.getProfileDirectoryForToxId(
+          toxId,
+        );
+        final existingProfile = AppPaths.profileFileInDirectory(
+          candidateFinalDir,
+        );
         if (await File(existingProfile).exists()) {
           await service.dispose();
           try {
@@ -752,12 +701,22 @@ class AccountService {
           );
           continue;
         }
+        finalDir = candidateFinalDir;
+        // Record which account-data roots already existed. Only roots THIS
+        // registration creates may be deleted on rollback: a root left behind
+        // by an earlier account that shared this 16-char prefix is not ours to
+        // remove, and deleting it would take that account's chat history with
+        // it.
+        ownedDataRoots = await _unownedDataRootsBefore(toxId);
         break;
       }
 
-      // 4. Rename temp to final directory
+      // 4. Rename temp to final directory. Ownership of `finalDir` begins here
+      // and not a line earlier: if the rename throws (e.g. the destination
+      // exists and is non-empty), the directory is someone else's.
       final profileDir = finalDir!;
       await Directory(tempDir!).rename(profileDir);
+      ownsFinalDir = true;
 
       final svc = service!;
       final tid = toxId!;
@@ -816,7 +775,7 @@ class AccountService {
         await AccountExportService.decryptProfileFile(profilePath, password);
 
         final prefsForNew = await SharedPreferences.getInstance();
-        final newService = await _createAccountScopedService(
+        final newService = await createAccountScopedService(
           prefs: prefsForNew,
           toxId: tid,
           profileDirectory: profileDir,
@@ -843,7 +802,7 @@ class AccountService {
       await svc.dispose();
       service = null;
       final prefsForScoped = await SharedPreferences.getInstance();
-      final scopedService = await _createAccountScopedService(
+      final scopedService = await createAccountScopedService(
         prefs: prefsForScoped,
         toxId: tid,
         profileDirectory: profileDir,
@@ -866,79 +825,24 @@ class AccountService {
         '[AccountService] registration_failed stage=transaction',
         e,
       );
-      try {
-        if (service != null) {
-          final disposeService = AccountRegistrationTestHooks.disposeService;
-          if (disposeService != null) {
-            await disposeService(service);
-          } else {
-            await service.dispose();
-          }
-        }
-      } catch (de) {
-        SafeDiagnostics.logFailure(
-          '[AccountService] registration_rollback_failed '
-          'stage=service_disposal',
-          de,
-        );
-      }
-
-      if (toxId != null && toxId.isNotEmpty) {
-        SessionPasswordStore.clear(toxId);
-      }
-
-      if (accountVisible && toxId != null && toxId.isNotEmpty) {
-        await Prefs.clearAccountData(toxId);
-        await Prefs.removeAccount(toxId);
-      }
-
-      await Prefs.setCurrentAccountToxId(previousAccount);
-      await Prefs.setNickname(previousNickname ?? '');
-      await Prefs.setStatusMessage(previousStatusMessage ?? '');
-      await Prefs.setAvatarPath(previousAvatarPath);
-
-      if (tempDir != null) {
-        try {
-          final d = Directory(tempDir);
-          if (await d.exists()) {
-            await d.delete(recursive: true);
-          }
-        } catch (de) {
-          SafeDiagnostics.logFailure(
-            '[AccountService] registration_rollback_failed '
-            'stage=temp_directory_cleanup',
-            de,
-          );
-        }
-      }
-
-      if (finalDir != null) {
-        try {
-          final d = Directory(finalDir);
-          if (await d.exists()) {
-            await d.delete(recursive: true);
-          }
-        } catch (de) {
-          SafeDiagnostics.logFailure(
-            '[AccountService] registration_rollback_failed '
-            'stage=profile_directory_cleanup',
-            de,
-          );
-        }
-      }
-
-      if (toxId != null && toxId.isNotEmpty) {
-        try {
-          await _deleteAccountDataRoots(toxId);
-        } catch (de) {
-          SafeDiagnostics.logFailure(
-            '[AccountService] registration_rollback_failed '
-            'stage=account_data_cleanup',
-            de,
-          );
-        }
-      }
-
+      // Undo in `account_registration_rollback.dart`. The ownership flags are
+      // what keep this from deleting a bystander account's data on a 16-char
+      // prefix collision — see AccountRegistrationRollbackPlan.
+      await rollbackFailedRegistration(
+        AccountRegistrationRollbackPlan(
+          service: service,
+          toxId: toxId,
+          tempDir: tempDir,
+          finalDir: finalDir,
+          ownsFinalDir: ownsFinalDir,
+          ownedDataRoots: ownedDataRoots,
+          accountVisible: accountVisible,
+          previousAccount: previousAccount,
+          previousNickname: previousNickname,
+          previousStatusMessage: previousStatusMessage,
+          previousAvatarPath: previousAvatarPath,
+        ),
+      );
       rethrow;
     }
   }
@@ -953,17 +857,21 @@ class AccountService {
   /// Failures leave the tombstone pending for cold-start retry, and account-list
   /// visibility is removed only after password, prefs, profile, and account-data
   /// cleanup all succeed.
+  ///
+  /// The session-cleanup stage (which must tear the session down even when
+  /// clearing account data fails — see `account_session_cleanup.dart`) lives
+  /// next door.
   static Future<AccountDeletionResult> deleteAccountCompletely({
     required FfiChatService service,
     required String toxId,
   }) async {
     final result = await AccountDeletionCoordinator.deleteAccount(
       toxId: toxId,
-      serviceCleanup: () async {
-        await service.clearAllAccountData();
-        await teardownCurrentSession(service: service, reEncryptProfile: false);
-        SessionPasswordStore.clear(toxId);
-      },
+      serviceCleanup: () => clearAndTearDownForDeletion(
+        service: service,
+        toxId: toxId,
+        teardown: teardownCurrentSession,
+      ),
     );
     _throwIfDeletionPending(result);
     return result;
@@ -982,6 +890,29 @@ class AccountService {
     }
     _throwIfDeletionPending(result);
     return result;
+  }
+
+  /// Whether [error] came from a deletion that had already torn the session
+  /// down, so the caller's Home/Settings tree is now driving a disposed service
+  /// and must be abandoned.
+  ///
+  /// `AccountDeletionCoordinator` runs `serviceData` FIRST (that stage calls
+  /// `clearAllAccountData` and then `teardownCurrentSession`), so every stage
+  /// after it fails with the session already gone. Only a failure IN that first
+  /// stage can leave the session usable — and even then `clearAllAccountData`
+  /// may have run, so treating it as usable would be optimistic. Hence: any
+  /// deletion failure past the tombstone means "abandon the session".
+  static bool sessionWasTornDownBy(Object error) {
+    if (error is! AccountDeletionFailure) {
+      // Not a staged deletion failure at all (e.g. the no-identity guard in the
+      // Settings handler). Nothing was torn down.
+      return false;
+    }
+    // `serviceData` is the stage that tears the session down, and it now ALWAYS
+    // attempts the teardown (in a `finally`) even when clearing the account's
+    // data failed first — so reaching or passing that stage means the session is
+    // gone. Only a tombstone-write failure happens before any of it.
+    return error.stage != AccountDeletionStage.tombstone;
   }
 
   static Future<List<AccountDeletionResult>> recoverPendingAccountDeletions() {
@@ -1015,7 +946,15 @@ class AccountService {
     return storage;
   }
 
-  static Future<void> _deleteAccountDataRoots(String toxId) async {
+  /// The account-data roots for [toxId] that do NOT exist yet.
+  ///
+  /// Called before registration creates any of them, so the returned list is
+  /// exactly the set this registration will own and may therefore delete if it
+  /// has to roll back. A root that already exists belongs to a previous account
+  /// sharing the same 16-char prefix (the persistent paths are prefix-keyed for
+  /// backwards compatibility) and holds ITS chat history — deleting that on our
+  /// rollback would be silent data loss for an account we never touched.
+  static Future<List<String>> _unownedDataRootsBefore(String toxId) async {
     final roots = <String>{
       p.normalize(p.absolute(await AppPaths.getAccountDataRoot(toxId))),
     };
@@ -1028,11 +967,10 @@ class AccountService {
     } on ArgumentError {
       // Legacy short IDs have no full-ID scratch root.
     }
+    final absent = <String>[];
     for (final root in roots) {
-      final directory = Directory(root);
-      if (await directory.exists()) {
-        await directory.delete(recursive: true);
-      }
+      if (!await Directory(root).exists()) absent.add(root);
     }
+    return absent;
   }
 }

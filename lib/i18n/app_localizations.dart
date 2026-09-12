@@ -2782,6 +2782,60 @@ abstract class AppLocalizations {
   /// **'Cancelled'**
   String get importCancelled;
 
+  /// No description provided for @recoveryBlockedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Account recovery incomplete'**
+  String get recoveryBlockedTitle;
+
+  /// No description provided for @recoveryBlockedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.'**
+  String get recoveryBlockedBody;
+
+  /// No description provided for @secureStorageUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Secure storage is unavailable, so toxee cannot check this account’s password. This is usually temporary — try again, or unlock your device keychain.'**
+  String get secureStorageUnavailable;
+
+  /// No description provided for @recoverLegacyDataAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover data from an older version'**
+  String get recoverLegacyDataAction;
+
+  /// No description provided for @recoverLegacyDataConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'This device still holds chat history, queued messages and contact avatars from before toxee supported multiple accounts. Add them to the account you are signed into now?\n\nDo this only if that data is yours. It can be claimed once, by one account.\n\nYou will be signed out so the merge can happen at your next sign-in.'**
+  String get recoverLegacyDataConfirm;
+
+  /// No description provided for @recoverLegacyDataClaimed.
+  ///
+  /// In en, this message translates to:
+  /// **'This account will take over the older data. Sign out and back in to merge it — doing that at sign-in is what keeps your current history and queued messages intact.'**
+  String get recoverLegacyDataClaimed;
+
+  /// No description provided for @recoverLegacyDataDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Older data was added to this account.'**
+  String get recoverLegacyDataDone;
+
+  /// No description provided for @recoverLegacyDataUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'That data could not be claimed — it may already belong to another account on this device.'**
+  String get recoverLegacyDataUnavailable;
+
+  /// No description provided for @accountRegistryUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.'**
+  String get accountRegistryUnreadable;
+
   /// No description provided for @importedAccountDefaultName.
   ///
   /// In en, this message translates to:
@@ -3093,6 +3147,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No bootstrap nodes'**
   String get noBootstrapNodes;
+
+  /// Shown when a restore failed after the account was published and the rollback could not be recorded, so the account is deliberately left intact for startup recovery rather than half-removed.
+  ///
+  /// In en, this message translates to:
+  /// **'The import could not be undone, so this account may still be there. Check your account list before importing again.'**
+  String get importMayHaveCompleted;
+
+  /// Shown when a .tox import is refused because an earlier, interrupted import is still recorded on disk; the rollback runs at the next app start.
+  ///
+  /// In en, this message translates to:
+  /// **'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.'**
+  String get importBlockedByPendingImport;
 }
 
 class _AppLocalizationsDelegate
