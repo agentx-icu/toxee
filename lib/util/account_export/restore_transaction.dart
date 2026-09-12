@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../app_paths.dart';
 import '../prefs.dart';
+import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'backup_path_safety.dart';
 import 'restore_metadata_sections.dart';
@@ -138,6 +139,16 @@ abstract final class FullBackupRestoreTransaction {
     FullBackupRestoreInput input,
   ) async {
     await recoverPendingRestore();
+    // A journal that SURVIVED recovery is one this process cannot resolve, and
+    // the transaction-id fence would then refuse every later restore forever.
+    // See `RestoreTransactionJournalStore.archiveUnresolved`.
+    if (await RestoreTransactionJournalStore.archiveUnresolved() != null) {
+      SafeDiagnostics.logFailure(
+        '[RestoreTransaction] an earlier restore could not be undone; its '
+        'record was archived so a new one can start',
+        StateError('unresolved restore journal archived'),
+      );
+    }
     final paths = await _RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
     final scopedPrefs = portableScopedPrefs(

@@ -18,10 +18,8 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   }
 
   // Snapshot source values from both storage layers.
-  final fromRecordKey = PasswordVerifier.secureRecordKey(fromToxId);
   final fromHashKey = PasswordVerifier.secureHashKey(fromToxId);
   final fromSaltKey = PasswordVerifier.secureSaltKey(fromToxId);
-  final toRecordKey = PasswordVerifier.secureRecordKey(toToxId);
   final toHashKey = PasswordVerifier.secureHashKey(toToxId);
   final toSaltKey = PasswordVerifier.secureSaltKey(toToxId);
   final fromLegacyHashKey = PasswordVerifier.legacyHashKey(fromToxId);
@@ -42,18 +40,9 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   // `none`, and a plaintext-at-rest profile was then enough for auto-login to
   // open a password-protected account with no prompt. An unreadable credential
   // store must ABORT identity migration, not license it.
-  //
-  // The atomic verifier record (`pwdrec_`) moves with the pair for exactly the
-  // same reason. Leaving it behind under the OLD id would not lose the password
-  // — the pair still moves and the reader falls back to it — but it would
-  // strand a stale credential copy under a namespace nothing cleans up, and it
-  // would resurface if that id were ever reused.
-  final secureRecordRead = await Prefs._secureReadOutcome(fromRecordKey);
   final secureHashRead = await Prefs._secureReadOutcome(fromHashKey);
   final secureSaltRead = await Prefs._secureReadOutcome(fromSaltKey);
-  if (secureRecordRead.unavailable ||
-      secureHashRead.unavailable ||
-      secureSaltRead.unavailable) {
+  if (secureHashRead.unavailable || secureSaltRead.unavailable) {
     AppLogger.warn(
       '[Prefs.migrateAccountPasswordKeys] secure storage unavailable; '
       'refusing to migrate password keys (migrating the identity while the '
@@ -61,7 +50,6 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
     );
     return PasswordMigrationOutcome.migrationFailed;
   }
-  final secureRecord = secureRecordRead.value;
   final secureHash = secureHashRead.value;
   final secureSalt = secureSaltRead.value;
   final prefs = await Prefs._getPrefs();
@@ -69,7 +57,6 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   final legacySalt = prefs.getString(fromLegacySaltKey);
 
   final anySource =
-      secureRecord != null ||
       secureHash != null ||
       secureSalt != null ||
       legacyHash != null ||
@@ -81,21 +68,16 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   // overwriting would corrupt the existing account's auth. An UNREADABLE
   // destination is equally disqualifying: we cannot prove the slot is free, and
   // overwriting a live verifier would lock that account out.
-  final destRecordRead = await Prefs._secureReadOutcome(toRecordKey);
   final destHashRead = await Prefs._secureReadOutcome(toHashKey);
   final destSaltRead = await Prefs._secureReadOutcome(toSaltKey);
-  if (destRecordRead.unavailable ||
-      destHashRead.unavailable ||
-      destSaltRead.unavailable) {
+  if (destHashRead.unavailable || destSaltRead.unavailable) {
     return PasswordMigrationOutcome.migrationFailed;
   }
-  final destRecord = destRecordRead.value;
   final destHash = destHashRead.value;
   final destSalt = destSaltRead.value;
   final destLegacyHash = prefs.getString(toLegacyHashKey);
   final destLegacySalt = prefs.getString(toLegacySaltKey);
-  if (destRecord != null ||
-      destHash != null ||
+  if (destHash != null ||
       destSalt != null ||
       destLegacyHash != null ||
       destLegacySalt != null) {
@@ -107,15 +89,6 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   final undoSecure = <String>[];
   final undoLegacy = <String>[];
   try {
-    // Record first, mirroring `PasswordVerifier.setPassword`: if the process
-    // dies mid-copy, the destination is readable by the new build from the very
-    // first write instead of only after the pair completes.
-    if (secureRecord != null) {
-      if (!await Prefs._secureWrite(toRecordKey, secureRecord)) {
-        throw StateError('secure write of $toRecordKey failed');
-      }
-      undoSecure.add(toRecordKey);
-    }
     if (secureHash != null) {
       if (!await Prefs._secureWrite(toHashKey, secureHash)) {
         throw StateError('secure write of $toHashKey failed');
@@ -161,11 +134,6 @@ Future<PasswordMigrationOutcome> migrateAccountPasswordKeysImpl({
   // Source removal is non-fatal. The new keys are now authoritative;
   // a lingering old key is harmless (no caller reads under the old
   // toxId after account_list is migrated).
-  try {
-    if (secureRecord != null) await Prefs._secureDelete(fromRecordKey);
-  } catch (_) {
-    /* best effort */
-  }
   try {
     if (secureHash != null) await Prefs._secureDelete(fromHashKey);
   } catch (_) {

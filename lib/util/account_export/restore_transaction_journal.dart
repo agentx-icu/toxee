@@ -236,6 +236,27 @@ abstract final class RestoreTransactionJournalStore {
         await _clearUnguarded();
       });
 
+  /// Move an UNRESOLVED record aside instead of deleting or overwriting it.
+  ///
+  /// The transaction-id fence protects a journal that a failed rollback kept for
+  /// retry - but a rollback that can never verify its preference writes keeps it
+  /// forever, and then every later restore is refused with no way out: the
+  /// rollback already removed the account row, so the user cannot even select
+  /// that account for the deletion path that discards journals. Archiving keeps
+  /// the snapshot on disk (it is the only copy of the originals that rollback
+  /// failed to put back) while releasing the fence.
+  ///
+  /// Returns the archived file's path, or null when there was nothing to move.
+  static Future<String?> archiveUnresolved() =>
+      _gate.run(() async {
+        final file = await _journalFile();
+        if (!await file.exists()) return null;
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        final target = '${file.path}.unresolved-$stamp';
+        await file.rename(target);
+        return target;
+      });
+
   static Future<void> _clearUnguarded() async {
     final file = await _journalFile();
     if (await file.exists()) {
