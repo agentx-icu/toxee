@@ -175,6 +175,12 @@ void main() {
         );
 
         FullBackupRestoreTestHooks.reset();
+        // A cold start has no in-process owner: `_ownedTransactionId` exists so
+        // a live caller's committed-but-unpublished transaction is not recovered
+        // out from under it, and it dies with the process. Simulating the
+        // restart means clearing it, or this asserts the in-process semantics
+        // rather than the startup ones it is named for.
+        FullBackupRestoreTransaction.resetOwnership();
         await AccountExportService.recoverPendingFullBackupRestore();
 
         expect(prefs.getString('draft_v2:$fullToxId:$conversation'), isNull);
@@ -242,6 +248,7 @@ void main() {
         expect(journal!.state, scenario.state);
 
         FullBackupRestoreTestHooks.reset();
+        FullBackupRestoreTransaction.resetOwnership(); // cold start: no owner
         await AccountExportService.recoverPendingFullBackupRestore();
 
         expect(await Prefs.getAccountByToxId(_toxId), isNull);
@@ -271,6 +278,7 @@ void main() {
           autoLogin: false,
         );
 
+        FullBackupRestoreTransaction.resetOwnership(); // cold start: no owner
         await AccountExportService.recoverPendingFullBackupRestore();
 
         expect(await Prefs.getAccountByToxId(_toxId), isNotNull);
@@ -307,6 +315,7 @@ void main() {
         );
 
         FullBackupRestoreTestHooks.reset();
+        FullBackupRestoreTransaction.resetOwnership(); // cold start: no owner
         await AccountExportService.recoverPendingFullBackupRestore();
 
         expect(await Prefs.getAccountByToxId(_toxId), isNotNull);

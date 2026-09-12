@@ -144,12 +144,38 @@ abstract final class FullBackupRestoreTransaction {
   /// inside uses the `Unguarded` bodies.
   static final AsyncGate _transactionGate = AsyncGate();
 
+  /// The transaction whose CALLER still owns it: `restore` has returned with the
+  /// data committed, and that caller has yet to publish the account row and
+  /// finalize. The gate alone does not cover this - it releases when `restore`
+  /// returns - so a queued restore entered recovery, saw no account row for the
+  /// committed journal, and deleted the first caller's profile and history out
+  /// from under it. Process-local by design: a cold start has no owner, so
+  /// startup recovery must still resolve whatever it finds.
+  static String? _ownedTransactionId;
+
+  /// For tests that abandon a transaction mid-flight.
+  @visibleForTesting
+  static void resetOwnership() => _ownedTransactionId = null;
+
   static Future<Map<String, dynamic>> restore(FullBackupRestoreInput input) =>
       _transactionGate.run(() => _restoreUnguarded(input));
 
   static Future<Map<String, dynamic>> _restoreUnguarded(
     FullBackupRestoreInput input,
   ) async {
+    if (_ownedTransactionId != null) {
+      // Ownership means something only while the journal it names is still on
+      // disk. A caller that finished (or whose journal was resolved some other
+      // way) must not leave every later restore in this process refused - that
+      // would turn one abandoned transaction into a permanent outage.
+      final current = await RestoreTransactionJournalStore.read();
+      if (current != null && current.transactionId == _ownedTransactionId) {
+        // Committed and waiting to publish. Starting here would make this
+        // transaction's recovery undo that one.
+        throw const RestoreInFlightException();
+      }
+      _ownedTransactionId = null;
+    }
     await _recoverPendingRestoreUnguarded();
     final paths = await RestorePaths.resolve(input.toxId);
     _validateArchivePaths(input.archive, paths);
@@ -230,6 +256,10 @@ abstract final class FullBackupRestoreTransaction {
         FullBackupRestoreFailurePoint.afterScopedPrefsApply,
       );
 
+      // Ownership passes to the CALLER here: it still has to publish the
+      // account row and finalize, and until it does, nothing else may recover
+      // or replace this transaction. Released by finalize and by rollback.
+      _ownedTransactionId = journal.transactionId;
       return <String, dynamic>{
         'toxId': input.toxId,
         'nickname': input.nickname,
@@ -256,11 +286,14 @@ abstract final class FullBackupRestoreTransaction {
 
   static Future<void> _finalizePendingRestoreUnguarded(String toxId) async {
     var journal = await RestoreTransactionJournalStore.read();
-    if (journal == null) return;
+    if (journal == null) {
+      _ownedTransactionId = null;
+      return;
+    }
     if (!compareToxIds(journal.toxId, toxId)) {
       throw StateError('Pending restore belongs to a different account');
     }
-    if (!await _dataCommitted(journal)) {
+    if (!await restoreDataCommitted(journal)) {
       throw StateError('Cannot finalize incomplete full-backup restore');
     }
     if (await Prefs.getAccountByToxId(toxId) == null) {
@@ -274,6 +307,7 @@ abstract final class FullBackupRestoreTransaction {
       FullBackupRestoreFailurePoint.afterAccountRegistryVisible,
     );
     await RestoreTransactionJournalStore.clear();
+    _ownedTransactionId = null;
   }
 
   /// [transactionId], when given, is the caller's OWN transaction: matching only
@@ -304,7 +338,10 @@ abstract final class FullBackupRestoreTransaction {
       // destroy work that is still in flight.
       return;
     }
-    await _rollback(journal);
+    await rollbackRestoreTransaction(journal);
+    if (journal.transactionId == _ownedTransactionId) {
+      _ownedTransactionId = null;
+    }
   }
 
   static Future<void> recoverPendingRestore() =>
@@ -313,12 +350,17 @@ abstract final class FullBackupRestoreTransaction {
   static Future<void> _recoverPendingRestoreUnguarded() async {
     final journal = await RestoreTransactionJournalStore.read();
     if (journal == null) return;
+    if (journal.transactionId == _ownedTransactionId) {
+      // Its caller is alive and mid-publication; only that caller may finish or
+      // undo it. A cold start clears `_ownedTransactionId` by construction.
+      return;
+    }
     final accountVisible = await Prefs.getAccountByToxId(journal.toxId) != null;
-    if (accountVisible && await _dataCommitted(journal)) {
+    if (accountVisible && await restoreDataCommitted(journal)) {
       await RestoreTransactionJournalStore.clear();
       return;
     }
-    await _rollback(journal);
+    await rollbackRestoreTransaction(journal);
   }
 
   static Future<void> _preflight(String toxId, RestorePaths paths) async {
@@ -433,41 +475,7 @@ abstract final class FullBackupRestoreTransaction {
     await targetFile.writeAsBytes(bytes, flush: true);
   }
 
-  static Future<bool> _dataCommitted(RestoreTransactionJournal journal) async {
-    if (journal.hasProfile) {
-      final profilePath = AppPaths.profileFileInDirectory(
-        journal.profileFinalDir,
-      );
-      if (!await File(profilePath).exists()) return false;
-    }
-    return Directory(journal.accountDataFinalDir).exists();
-  }
 
-  static Future<void> _rollback(RestoreTransactionJournal journal) async {
-    await deleteRestoreDirectory(journal.profileStageDir);
-    await deleteRestoreDirectory(journal.accountDataStageDir);
-    await deleteRestoreDirectory(journal.profileFinalDir);
-    await deleteRestoreDirectory(journal.accountDataFinalDir);
-    await Prefs.clearScopedKeysForAccount(journal.toxId);
-    // The blocked-peer list is keyed by the full Tox ID, so
-    // `clearScopedKeysForAccount` (which matches the `_<first16>` suffix) does
-    // not reach it. Without this, a rolled-back restore left the block list of
-    // an account that no longer exists.
-    // ... and the failed-message queue, written under a FULL-id key by
-    // `restoreFailedMessageQueue`, which that sweep cannot reach either. Both
-    // are put back to their PRE-TRANSACTION values rather than cleared: they
-    // outlive an account whose row and directories are gone (a shape
-    // `_preflight` accepts) and the restore overwrites them on the way in, so
-    // clearing deleted a block list and pending messages the restore never
-    // created. Restoring an empty snapshot still leaves nothing behind for the
-    // next importer, which is the invariant the clearing was there for.
-    final prefsRestored = await restorePriorFullIdPrefs(journal);
-    await Prefs.removeAccount(journal.toxId);
-    // Only once the restore is known to have landed. Clearing on a failed write
-    // discards the journal's snapshot, which is the only copy of the values it
-    // just failed to put back.
-    if (prefsRestored) await RestoreTransactionJournalStore.clear();
-  }
 
   /// Drop a pending restore journal that names [toxId] because the account is
   /// being DELETED.
@@ -480,18 +488,7 @@ abstract final class FullBackupRestoreTransaction {
   /// staging directories are removed because nothing else knows about them; the
   /// final directories belong to the account and the deletion flow erases those.
   static Future<void> discardForDeletedAccount(String toxId) =>
-      _transactionGate.run(() => _discardForDeletedAccountUnguarded(toxId));
+      _transactionGate.run(() => discardRestoreForDeletedAccount(toxId));
 
-  static Future<void> _discardForDeletedAccountUnguarded(String toxId) async {
-    final journal = await RestoreTransactionJournalStore.read();
-    if (journal == null || !compareToxIds(journal.toxId, toxId)) return;
-    await deleteRestoreDirectory(journal.profileStageDir);
-    await deleteRestoreDirectory(journal.accountDataStageDir);
-    // Ownership is re-checked inside the clear. Reading, deciding and deleting
-    // are three steps, and a restore for ANOTHER account can publish its journal
-    // in between - after which an unchecked clear would delete that restore's
-    // only recovery record instead of the one this deletion looked at.
-    await RestoreTransactionJournalStore.clearIfOwnedBy(toxId);
-  }
 
 }

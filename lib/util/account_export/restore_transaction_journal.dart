@@ -277,6 +277,18 @@ abstract final class RestoreTransactionJournalStore {
         // recovery information entirely. Same account, different namespace: the
         // new transaction starts from its own capture.
         final sameNamespace = existing.toxId == journal.toxId;
+        // A different SPELLING of the same account, holding a snapshot nobody
+        // has recovered yet, is refused rather than replaced. Skipping the carry
+        // (because the keys would be wrong) and overwriting anyway destroys the
+        // only surviving copy of those originals - the namespace they belong to
+        // then has no record at all. Refusing costs the user a retry with the
+        // spelling the archive actually carries, which is the same spelling that
+        // produced the record, so the ordinary retry path still works.
+        if (!sameNamespace &&
+            (existing.priorBlackListCaptured ||
+                existing.priorFailedQueueCaptured)) {
+          throw const RestoreInFlightException();
+        }
         // Per FAMILY, not both-or-neither. The families are captured
         // independently (an unreadable block list must not discard a good queue
         // snapshot), so an `||` that carried both whenever EITHER was captured
