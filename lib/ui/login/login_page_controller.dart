@@ -182,6 +182,9 @@ class LoginPageController {
   }) async {
     String? rollbackToxId;
     bool rollbackFullBackup = false;
+    // Set when the rollback refused to half-undo a published restore: the
+    // account may remain, so say so instead of reporting a plain failure.
+    var rollbackDeclined = false;
     // What this import creates on disk, captured before the first write. See
     // ImportedAccountRollback: the target directories are keyed by the 16-char
     // prefix, so one can already hold a previous account's data.
@@ -427,6 +430,7 @@ class LoginPageController {
             }
           }
         } catch (rollbackError) {
+          rollbackDeclined = true;
           SafeDiagnostics.logFailure(
             '[LoginPageController] Import rollback failed',
             rollbackError,
@@ -436,7 +440,11 @@ class LoginPageController {
       SafeDiagnostics.logFailure('[LoginPageController] Import failed', e);
       return ImportFailure(
         ImportFailureKind.generalError,
-        detail: SafeDiagnostics.describeError(e),
+        detail: rollbackDeclined
+            ? lookupAppLocalizations(
+                AppLocale.locale.value,
+              ).importMayHaveCompleted
+            : SafeDiagnostics.describeError(e),
       );
     }
   }

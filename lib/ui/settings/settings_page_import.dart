@@ -17,6 +17,9 @@ extension _SettingsImportFlow on _SettingsPageState {
     setState(() => _importInProgress = true);
     String? rollbackToxId;
     var rollbackFullBackup = false;
+    // Set when the rollback refused to half-undo a published restore: the
+    // account may remain, so say so instead of reporting a plain failure.
+    var rollbackDeclined = false;
     var rollbackImportedAccount = false;
     // What this import creates on disk. The rollback may only delete that; the
     // target directories are keyed by the account's 16-char prefix, so one can
@@ -300,6 +303,10 @@ extension _SettingsImportFlow on _SettingsPageState {
             }
           }
         } catch (rollbackError) {
+          // The rollback declined to half-undo the transaction, so the account
+          // may still be there and startup recovery will finish it. Reporting
+          // only the original failure left the user believing nothing happened.
+          rollbackDeclined = true;
           SafeDiagnostics.logFailure(
             '[SettingsPage] Import rollback failed',
             rollbackError,
@@ -309,9 +316,12 @@ extension _SettingsImportFlow on _SettingsPageState {
       SafeDiagnostics.logFailure('[SettingsPage] Import account failed', e);
       // A refused journal write (another import still on record, or one that
       // cannot be read) is fixed by a restart, which rolls that import back.
-      final message = e is ToxImportInFlightException
+      final message = rollbackDeclined
+          ? l10n.importMayHaveCompleted
+          : e is ToxImportInFlightException
           ? l10n.importBlockedByPendingImport
           : l10n.failedToImportAccount(SafeDiagnostics.describeError(e));
+      if (rollbackDeclined) await _loadAccountList();
       if (mounted) {
         await showDialog<void>(
           context: context,

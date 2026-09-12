@@ -1668,6 +1668,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noBootstrapNodes => '没有引导节点';
 
   @override
+  String get importMayHaveCompleted => '这次导入没能撤销，该账号可能仍然存在。请先查看账号列表再重新导入。';
+
+  @override
   String get importBlockedByPendingImport =>
       '上一次账号导入被中断，还没有清理完。请重启 toxee 完成撤销后再重新导入。';
 }

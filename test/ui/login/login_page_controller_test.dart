@@ -1015,8 +1015,20 @@ void main() {
         expect(result, isA<ImportFailure>());
         final failure = result as ImportFailure;
         expect(failure.kind, ImportFailureKind.generalError);
-        expect(failure.detail, 'error_type=_Exception');
+        // The rollback DECLINED (it threw), so the account may still be there
+        // and startup recovery will finish it. Reporting the original
+        // `error_type=...` told the user the import simply failed, and they
+        // would import again over an account that already exists. What the
+        // sanitization contract requires is that neither the registry
+        // exception's message nor the rollback's leaks - and a fixed localized
+        // string carries neither.
+        expect(
+          failure.detail,
+          "The import could not be undone, so this account may still be there. "
+          "Check your account list before importing again.",
+        );
         expect(failure.detail, isNot(contains('private')));
+        expect(failure.detail, isNot(contains('rollback path')));
       },
     );
 

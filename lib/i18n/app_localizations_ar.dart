@@ -1724,6 +1724,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get noBootstrapNodes => 'لا توجد عقد تمهيد';
 
   @override
+  String get importMayHaveCompleted =>
+      'The import could not be undone, so this account may still be there. Check your account list before importing again.';
+
+  @override
   String get importBlockedByPendingImport =>
       'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.';
 }

@@ -302,10 +302,17 @@ abstract final class FullBackupRestoreTransaction {
     }
     // Durable intent FIRST. A rollback that dies partway leaves state that looks
     // committed, and recovery would then clear the journal as a success.
+    // Only when it is not ALREADY recorded. Recovery routes an interrupted
+    // rollback back through here, and re-writing an intent that is already
+    // durable would let a full disk abort the cleanup that frees the space -
+    // the abort below exists for an intent that was never recorded, not for one
+    // that already authorizes this rollback.
     try {
-      await RestoreTransactionJournalStore.write(
-        journal.copyWith(rollbackRequested: true),
-      );
+      if (!journal.rollbackRequested) {
+        await RestoreTransactionJournalStore.write(
+          journal.copyWith(rollbackRequested: true),
+        );
+      }
     } catch (e) {
       // DO NOT start a rollback we cannot record. Carrying on was worse than
       // failing: on a read-only filesystem the deletes fail too, and recovery

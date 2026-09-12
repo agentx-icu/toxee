@@ -3148,6 +3148,12 @@ abstract class AppLocalizations {
   /// **'No bootstrap nodes'**
   String get noBootstrapNodes;
 
+  /// Shown when a restore failed after the account was published and the rollback could not be recorded, so the account is deliberately left intact for startup recovery rather than half-removed.
+  ///
+  /// In en, this message translates to:
+  /// **'The import could not be undone, so this account may still be there. Check your account list before importing again.'**
+  String get importMayHaveCompleted;
+
   /// Shown when a .tox import is refused because an earlier, interrupted import is still recorded on disk; the rollback runs at the next app start.
   ///
   /// In en, this message translates to:
