@@ -91,6 +91,51 @@ void main() {
     },
   );
 
+  // F1: the LAN node must be headless — no process-wide SDK listener — so its
+  // own DHT connection-status transitions cannot leak into the user session's
+  // `conn:` event queue and flip its online state.
+  test('the bootstrap instance registers no SDK listener', () async {
+    expect(await manager.startLocalBootstrapService(45123), isTrue);
+    final handle = manager.nativeInstanceHandle!;
+    expect(
+      ffi.debugSdkListenerCountForInstance(handle),
+      0,
+      reason: 'a headless bootstrap node must carry no SDK listener',
+    );
+
+    // Control: an ordinary test instance DOES get the shared SDK listener.
+    final peerDir = Directory('${appSupport.path}/peer_instance')
+      ..createSync(recursive: true);
+    final peerPath = peerDir.path.toNativeUtf8();
+    final int peerHandle;
+    try {
+      peerHandle = ffi.createTestInstanceExNative(peerPath, 1, 1);
+    } finally {
+      pkgffi.malloc.free(peerPath);
+    }
+    expect(peerHandle, isNot(0));
+    try {
+      expect(
+        ffi.debugSdkListenerCountForInstance(peerHandle),
+        greaterThan(0),
+        reason: 'a full test instance keeps the shared SDK listener',
+      );
+    } finally {
+      ffi.destroyTestInstance(peerHandle);
+    }
+  });
+
+  // F2: the user's chosen UDP port is honoured (toxcore binds the first free
+  // port in [port, port+100]); in a clean test process that is the port itself.
+  test('the bootstrap instance binds within the requested UDP port range', () async {
+    const requested = 45500;
+    expect(await manager.startLocalBootstrapService(requested), isTrue);
+    final info = await manager.getBootstrapServiceInfo();
+    expect(info, isNotNull);
+    expect(info!.port, greaterThanOrEqualTo(requested));
+    expect(info.port, lessThanOrEqualTo(requested + 100));
+  });
+
   test('start and stop are idempotent for one manager-owned handle', () async {
     expect(await manager.startLocalBootstrapService(33445), isTrue);
     final firstHandle = manager.nativeInstanceHandle;

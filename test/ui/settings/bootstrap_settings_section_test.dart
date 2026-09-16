@@ -698,6 +698,44 @@ void main() {
       },
     );
 
+    // F4: stopping with no pre-LAN snapshot means current_bootstrap_* can only
+    // be the (now dead) LAN node we set on start, so it must be cleared rather
+    // than left for the next session to apply.
+    testWidgets(
+      'LAN stop with no pre-LAN snapshot clears the dead LAN node',
+      (tester) async {
+        await _initPrefs();
+        await Prefs.setBootstrapNodeMode('lan');
+        await Prefs.setCurrentBootstrapNode('192.168.56.10', 33445, 'C' * 64);
+        // No pre-LAN snapshot on purpose.
+        await Prefs.setLanBootstrapServiceRunning(true);
+        final events = <String>[];
+        final manager = _RecordingLanManager(events: events);
+        final service = _RecordingFfiChatService(events: events);
+        await _pumpSettled(
+          tester,
+          _harness(
+            child: BootstrapSettingsSection(
+              service: service,
+              lanBootstrapServiceManager: manager,
+            ),
+          ),
+        );
+
+        await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Stop Local Bootstrap Service'),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(events, ['stop']);
+        expect(manager.stopCalls, 1);
+        expect(await Prefs.getCurrentBootstrapNode(), isNull);
+        expect(await Prefs.getPreLanBootstrapNode(), isNull);
+        expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+      },
+    );
+
     testWidgets(
       'failed prior-node restore keeps LAN running and snapshot intact',
       (tester) async {

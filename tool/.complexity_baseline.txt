@@ -64,13 +64,13 @@ lib/ui/add_group_dialog.dart:845
 # per line. A re-pin, not an amnesty.
 lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:887
-lib/ui/home_page.dart:2449
+lib/ui/home_page.dart:2458
 lib/ui/home_page_bootstrap.dart:1640
 lib/ui/login_page.dart:1508
 lib/ui/profile_page.dart:577
 lib/ui/search/custom_search.dart:1018
 lib/ui/search/search_chat_history_window.dart:646
-lib/ui/settings/bootstrap_settings_section.dart:1452
+lib/ui/settings/bootstrap_settings_section.dart:1461
 lib/ui/settings/global_settings_section.dart:706
 lib/ui/settings/settings_page.dart:1565
 lib/ui/settings/sidebar.dart:951

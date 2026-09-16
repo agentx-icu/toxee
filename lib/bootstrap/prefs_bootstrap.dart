@@ -5,8 +5,9 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 
 import 'app_bootstrap_result.dart';
 import 'isolated_prefs_store.dart';
-import '../util/logger.dart';
 import '../util/harness_environment.dart';
+import '../util/lan_bootstrap_service.dart';
+import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs.dart';
 import '../util/prefs_upgrader.dart';
@@ -29,25 +30,13 @@ class PrefsBootstrap {
     await Prefs.initialize(prefs);
     // The LAN bootstrap service is purely in-process state; if we crashed
     // mid-session, the persisted "running" flag would lie to the UI and the
-    // current_bootstrap_* keys would still point at a dead LAN address.
-    // Reset both so first init() lands the user on a reachable public node.
-    final wasRunning = await Prefs.getLanBootstrapServiceRunning();
-    await Prefs.setLanBootstrapServiceRunning(false);
-    if (wasRunning) {
-      final priorNode = await Prefs.getPreLanBootstrapNode();
-      if (priorNode != null) {
-        await Prefs.setCurrentBootstrapNode(
-          priorNode.host,
-          priorNode.port,
-          priorNode.pubkey,
-        );
-        await Prefs.clearPreLanBootstrapNode();
-        AppLogger.log(
-          '[PrefsBootstrap] LAN service was running at last shutdown — restored '
-          'pre-LAN bootstrap node ${priorNode.host}:${priorNode.port}',
-        );
-      }
-    }
+    // current_bootstrap_* keys would still point at a dead LAN address. This is
+    // the earliest startup point (before any FfiChatService.init reads the
+    // node), and it is the single owner of that recovery — the manager hook
+    // holds the one implementation (with retry-preserving failure semantics),
+    // so app_bootstrap no longer calls it a second time (LAN review
+    // 2026-09-15, F7).
+    await LanBootstrapServiceManager.instance.recoverFromCrashedSession();
     // Mobile can't run the desktop-only LAN bootstrap daemon. Normalize a
     // persisted 'lan' mode to 'auto' here — at the earliest startup point,
     // before any FfiChatService.init() reads the mode in
