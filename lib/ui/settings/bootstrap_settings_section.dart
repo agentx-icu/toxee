@@ -618,7 +618,16 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       );
       return false;
     }
-    if (priorNode != null) await Prefs.clearPreLanBootstrapNode();
+    if (priorNode != null) {
+      await Prefs.clearPreLanBootstrapNode();
+    } else {
+      // No pre-LAN snapshot means there was no bootstrap node before LAN mode
+      // engaged, so `current_bootstrap_*` can only be the LAN node we set on
+      // start. With the service now stopped that address is dead; clear it so
+      // the next session does not apply a dead node and return early without a
+      // reachable DHT entry point (LAN review 2026-09-15, F4).
+      await Prefs.clearCurrentBootstrapNode();
+    }
     return true;
   }
 

@@ -60,25 +60,24 @@ void main() {
       );
     });
 
-    test('stale running-flag + NO saved pre-LAN node → clears the flag and '
-        'leaves the current bootstrap node UNTOUCHED', () async {
+    test('stale running-flag + NO saved pre-LAN node → clears the flag AND the '
+        'dead LAN node', () async {
       await Prefs.setLanBootstrapServiceRunning(true);
-      // The user's normal current node is present; NO pre-LAN node was stashed
-      // (e.g. the crash happened before it was). Recovery must clear the flag
-      // WITHOUT clobbering the current node (codex: assert it, not just the flag).
-      await Prefs.setCurrentBootstrapNode('9.9.9.9', 33445, 'USERNODE');
+      // With the LAN service running and NO pre-LAN snapshot, the current node
+      // can only be the LAN node the crashed run set on start (a manual/auto
+      // node would have been snapshotted). That address is dead, so recovery
+      // clears it rather than leaving a dead node for init() to apply —
+      // symmetric with the interactive stop path (LAN review 2026-09-15, F4).
+      await Prefs.setCurrentBootstrapNode('192.168.1.9', 40000, 'DEADLANKEY');
 
       await mgr.recoverFromCrashedSession();
 
       expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
-      final cur = await Prefs.getCurrentBootstrapNode();
       expect(
-        cur?.host,
-        '9.9.9.9',
-        reason: 'with no pre-LAN node, recovery must NOT touch current node',
+        await Prefs.getCurrentBootstrapNode(),
+        isNull,
+        reason: 'the dead LAN node must be cleared when no pre-LAN node exists',
       );
-      expect(cur?.port, 33445);
-      expect(cur?.pubkey, 'USERNODE');
     });
 
     test(

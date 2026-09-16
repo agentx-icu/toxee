@@ -13,7 +13,6 @@ import '../util/account_reconciliation.dart';
 import '../util/account_scratch_storage.dart';
 import '../util/account_service.dart';
 import '../util/app_paths.dart';
-import '../util/lan_bootstrap_service.dart';
 import '../util/logger.dart';
 import '../util/safe_diagnostics.dart';
 import 'app_bootstrap_result.dart';
@@ -70,19 +69,11 @@ class AppBootstrap {
       );
       return AppBootstrapRecoveryBlocked(detail: detail);
     }
-    // If the previous run crashed while the LAN bootstrap service was active,
-    // the running-flag plus pre-LAN snapshot may still be on disk while no
-    // native instance exists. Restore the prior bootstrap node and clear the
-    // stale flag so the user is not stuck pointing at a dead LAN address.
-    try {
-      await LanBootstrapServiceManager.instance.recoverFromCrashedSession();
-    } catch (e, st) {
-      AppLogger.logError(
-        '[AppBootstrap] LAN bootstrap crash recovery failed; continuing',
-        e,
-        st,
-      );
-    }
+    // LAN bootstrap crash recovery (stale running-flag + pre-LAN snapshot on
+    // disk while no native instance exists) runs earlier and once, inside
+    // PrefsBootstrap.initialize — before any FfiChatService.init reads the
+    // node. It used to run a second time here too, which was a no-op because
+    // PrefsBootstrap had already cleared the flag (LAN review 2026-09-15, F7).
     await AppRuntimeBootstrap.initialize();
     // Every "no avatar" contact, group member and friend request renders
     // through the UIKit avatar widget, whose bundled placeholder is a stock

@@ -144,5 +144,29 @@ void main() {
         apipa.address,
       );
     });
+
+    // F9: pairing shares this policy so a VPN endpoint never wins over WiFi.
+    test('filters a Tailscale/VPN CGNAT address in favour of a real LAN', () {
+      const tailscale = LanAddressCandidate(
+        interfaceName: 'utun3',
+        address: '100.101.102.103',
+        type: InternetAddressType.IPv4,
+      );
+
+      // A real LAN address is chosen over the VPN endpoint...
+      expect(
+        LanBootstrapServiceManager.selectPreferredAddress([
+          tailscale,
+          wifiIpv4,
+        ]),
+        wifiIpv4.address,
+      );
+      // ...and a VPN-only host yields null here, so the pairing fallback (which
+      // does accept CGNAT) is what surfaces the Tailscale address, not this.
+      expect(
+        LanBootstrapServiceManager.selectPreferredAddress([tailscale]),
+        isNull,
+      );
+    });
   });
 }

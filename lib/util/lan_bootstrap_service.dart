@@ -48,6 +48,13 @@ class LanAddressCandidate {
 }
 
 /// LAN Bootstrap Service manager
+///
+/// Accepted limitations of the in-process design (LAN review 2026-09-15,
+/// F5/F6 — not bugs): the node has no autostart, so after a restart
+/// `PrefsBootstrap` restores the pre-LAN public node and LAN mode runs on that
+/// one node until the user restarts the service; and toxcore mints a fresh DHT
+/// keypair each `tox_new` (savedata restores only the node list, no API pins
+/// the DHT key), so a peer that typed this node's key must re-read it.
 class LanBootstrapServiceManager {
   static LanBootstrapServiceManager? _instance;
   static LanBootstrapServiceManager get instance {
@@ -175,10 +182,16 @@ class LanBootstrapServiceManager {
   }
 
   /// Get local LAN IP address. Filters out virtual/container interfaces.
-  /// Supports 169.254.x.x (link-local/APIPA) as last-resort fallback.
+  /// `includeLinkLocal: true` is required for the documented 169.254.x.x
+  /// (APIPA) last-resort fallback — `NetworkInterface.list` omits link-local
+  /// by default, which would leave the rank-4 branch in [_addressRank] dead.
+  /// [selectPreferredAddress] can also fall back to a public/CGNAT IPv4 on a
+  /// real interface (rank 1) when no RFC1918/link-local address exists; a LAN
+  /// peer won't reach that, but a host running a LAN node normally has a
+  /// private address, which always ranks first.
   static Future<String?> getLocalIPAddress() async {
     try {
-      final interfaces = await NetworkInterface.list();
+      final interfaces = await NetworkInterface.list(includeLinkLocal: true);
       final candidates = interfaces.expand(
         (interface) => interface.addresses.map(
           (address) => LanAddressCandidate(
@@ -281,7 +294,11 @@ class LanBootstrapServiceManager {
     final profilePathPtr = profilePath.toNativeUtf8();
     final int instanceHandle;
     try {
-      instanceHandle = ffi.createTestInstanceNative(profilePathPtr);
+      // Headless DHT-only node: no process-wide listeners, so its own
+      // connection transitions can't leak into the session's `conn:` queue
+      // (F1); `port` is the preferred UDP bind port so the user's choice is
+      // honoured (F2). See LAN review 2026-09-15.
+      instanceHandle = ffi.createBootstrapInstanceNative(profilePathPtr, port);
     } finally {
       pkgffi.malloc.free(profilePathPtr);
     }
@@ -319,8 +336,8 @@ class LanBootstrapServiceManager {
     }
 
     AppLogger.log(
-      '[LanBootstrapService] Bootstrap service started at '
-      '$localIP:$udpPort (requested port: $port)',
+      '[LanBootstrapService] Bootstrap service started at $localIP:$udpPort '
+      '(requested $port; toxcore binds first free in [$port, ${port + 100}])',
     );
     return true;
   }
@@ -458,6 +475,20 @@ class LanBootstrapServiceManager {
       } catch (e, st) {
         AppLogger.logError(
           '[LanBootstrapService] recovery: failed to restore pre-LAN node',
+          e,
+          st,
+        );
+        return;
+      }
+    } else {
+      // No pre-LAN snapshot ⇒ current_bootstrap_* can only be the dead LAN node
+      // the crashed run set on start; clear it so this session doesn't apply a
+      // dead node. Symmetric with the interactive stop path (F4, 2026-09-15).
+      try {
+        await Prefs.clearCurrentBootstrapNode();
+      } catch (e, st) {
+        AppLogger.logError(
+          '[LanBootstrapService] recovery: failed to clear dead LAN node',
           e,
           st,
         );

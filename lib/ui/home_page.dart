@@ -322,6 +322,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _lanBootstrapServiceRunning = false;
   String? _lanBootstrapServiceIP;
   int? _lanBootstrapServicePort;
+  // User dismissed the LAN status banner for the CURRENT run of the service.
+  // Kept separate from `_lanBootstrapServiceRunning` so the 2-second status
+  // poller can't un-hide it: setting running=false on dismiss was reverted on
+  // the next tick (LAN review 2026-09-15, F3). Reset when the service stops so
+  // a later start shows the banner again.
+  bool _lanBannerDismissed = false;
   Timer? _bootstrapServiceStatusTimer;
   final _bag = DisposableBag();
   bool _disposed = false;
@@ -587,11 +593,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!mounted) return;
       if (_lanBootstrapServiceRunning != false ||
           _lanBootstrapServiceIP != null ||
-          _lanBootstrapServicePort != null) {
+          _lanBootstrapServicePort != null ||
+          _lanBannerDismissed) {
         setState(() {
           _lanBootstrapServiceRunning = false;
           _lanBootstrapServiceIP = null;
           _lanBootstrapServicePort = null;
+          // The service is gone; arm the banner for the next start.
+          _lanBannerDismissed = false;
         });
       }
     }
@@ -1425,6 +1434,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             },
                             child:
                                 (_lanBootstrapServiceRunning &&
+                                    !_lanBannerDismissed &&
                                     _lanBootstrapServiceIP != null &&
                                     _lanBootstrapServicePort != null)
                                 ? Material(
@@ -1491,8 +1501,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                                 VisualDensity.compact,
                                             onPressed: () {
                                               setState(() {
-                                                _lanBootstrapServiceRunning =
-                                                    false;
+                                                _lanBannerDismissed = true;
                                               });
                                             },
                                             tooltip: AppLocalizations.of(

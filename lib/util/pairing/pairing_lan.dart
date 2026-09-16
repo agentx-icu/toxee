@@ -1,18 +1,22 @@
 import 'dart:io';
 
+import '../lan_bootstrap_service.dart';
 import 'pairing_url.dart';
 
 /// LAN address discovery helpers used by the pairing host page.
 ///
-/// We pick the first non-loopback IPv4 interface in a private/link-local
-/// range. Multi-homed hosts (e.g. Tailscale + WiFi) will have multiple
-/// candidates — for v1 we just pick the first that matches and let the user
-/// decide if pairing succeeds. If pairing fails (wrong subnet), the client
-/// surfaces the LAN-unreachable error and the user can try again.
+/// A multi-homed host (e.g. Tailscale + WiFi) has several candidates. We share
+/// [LanBootstrapServiceManager.selectPreferredAddress] so pairing applies the
+/// SAME policy as the LAN bootstrap service: real RFC1918 LAN addresses rank
+/// first and virtual/VPN interfaces (docker/tun/utun/wg) are filtered out. Only
+/// when no such address exists do we fall back to a CGNAT / other private
+/// address (100.64/10 Tailscale, which the URL decoder deliberately accepts as
+/// a valid pair target), instead of letting a VPN endpoint win over WiFi (LAN
+/// review 2026-09-15, F9).
 class PairingLan {
   PairingLan._();
 
-  /// Return the first LAN IPv4 address found, or null if nothing matches.
+  /// Return the preferred LAN IPv4 address, or null if nothing matches.
   ///
   /// Loopback `127.0.0.1` is intentionally excluded for production callers
   /// (passing it to a QR would only work in a single-process test). For
@@ -24,15 +28,35 @@ class PairingLan {
         includeLoopback: false,
         includeLinkLocal: true,
       );
-      for (final iface in interfaces) {
-        for (final addr in iface.addresses) {
-          final ip = addr.address;
-          // We want a private/link-local IPv4 — i.e. something a peer on the
-          // same WiFi/Ethernet can actually reach. The same predicate the
-          // URL decoder enforces.
-          if (PairingUrl.isPrivateOrLinkLocalIPv4(ip) && ip != '127.0.0.1') {
-            return ip;
-          }
+      final candidates = interfaces
+          .expand(
+            (iface) => iface.addresses.map(
+              (addr) => LanAddressCandidate(
+                interfaceName: iface.name,
+                address: addr.address,
+                type: addr.type,
+                isLoopback: addr.isLoopback,
+              ),
+            ),
+          )
+          .toList();
+
+      // Preferred: a real RFC1918 LAN address, virtual/VPN interfaces removed.
+      final preferred = LanBootstrapServiceManager.selectPreferredAddress(
+        candidates,
+      );
+      if (preferred != null &&
+          preferred != '127.0.0.1' &&
+          PairingUrl.isPrivateOrLinkLocalIPv4(preferred)) {
+        return preferred;
+      }
+
+      // Fallback: the first pairable address the URL decoder accepts (covers
+      // CGNAT / Tailscale, which selectPreferredAddress filters out).
+      for (final candidate in candidates) {
+        final ip = candidate.address;
+        if (PairingUrl.isPrivateOrLinkLocalIPv4(ip) && ip != '127.0.0.1') {
+          return ip;
         }
       }
     } catch (_) {
