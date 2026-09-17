@@ -1,25 +1,54 @@
 # Product-screenshot pipeline (cross-platform)
 
 One command captures the 5 product scenes on **four platforms** — desktop
-(macOS), Android, iPad, and iOS (iPhone) — in light theme. Output lands in
-`./screenshot/<platform>/`.
+(macOS), Android, iPad, and iOS (iPhone) — in light theme, in **two UI
+languages** (English and Simplified Chinese). Frames are written straight to the
+committed `doc/product/assets/<locale>/<platform>/`, at capture resolution (no
+intermediate directory, no resampling).
 
 ```bash
-./tool/screenshots/capture.sh                              # all four platforms
+./tool/screenshots/capture.sh                              # all platforms × en,zh
 ./tool/screenshots/capture.sh --platforms desktop,ios      # a subset
+./tool/screenshots/capture.sh --locales zh                 # one language only
 ./tool/screenshots/capture.sh --platforms desktop --build  # force a rebuild
-./tool/screenshots/capture.sh --platforms desktop --reset  # fresh macOS seed
+./tool/screenshots/capture.sh --platforms desktop --reset  # fresh macOS seeds
+./tool/screenshots/capture.sh --reset --build              # full refresh of doc assets
 ```
+
+### Languages
+
+Each locale is a separate pass with its **own seed copy**, not just a
+different UI language: the Chinese shots show Chinese names, group and
+dialogue (林小雨 / 陈亮 / 「周末徒步队 🏔」), because a Chinese UI over English
+conversations reads as a half-translated product. The copy lives in
+`seed_data.dart` (English, plus the `SeedScript` shape) and
+`seed_data_zh.dart`; only the public keys are shared — each locale has its own
+initials avatars (`assets/avatar_*_zh.png` for Chinese). The driver sets
+the app language with `l3_set_setting languageCode=<locale>`.
+
+| locale | doc that shows it | committed assets |
+|---|---|---|
+| `en` | `README.md`, `doc/product/index.html` (default) | `doc/product/assets/en/<platform>/` |
+| `zh` | `README.zh-CN.md`, `doc/product/index.html` (中文 toggle swaps the images) | `doc/product/assets/zh/<platform>/` |
+
+Adding a locale: write a `SeedScript` for it, register it in `seedScripts`
+(seed_data.dart), allow it in capture.sh's locale check, and reference
+`assets/<locale>/` from that language's docs.
+
+The desktop seed account persists between runs, so it is kept **per locale**
+(`_seed_runtime/Shot` for English, `_seed_runtime/ShotZh` for Chinese) — the
+seed is idempotent by message count and group name and would otherwise keep
+the other language's dialogue. Mobile runs reinstall / `pm clear` per locale.
 
 Each platform launches **one real toxee instance** with the L3 debug surface
 (`MCP_BINDING=skill` + `TOXEE_L3_TEST=true`), seeds demo data **locally** (no
 peer, no P2P), drives the real UI, and captures:
 
-| scene | what |
+| scene | what (en / zh) |
 |---|---|
-| `c2c` | 1:1 chat with "Alex Chen" — delivered bubbles both directions |
-| `group_chat` | the "Weekend Hikers 🏔" group with multi-sender history |
-| `new_application` | the New-Contacts page with a pending "Jordan Lee" request |
+| `c2c` | 1:1 chat with "Alex Chen" / "陈亮" — delivered bubbles both directions |
+| `group_chat` | the "Weekend Hikers 🏔" / "周末徒步队 🏔" group with multi-sender history |
+| `new_application` | the New-Contacts page with pending requests ("Jordan Lee" / "李佳" …) |
 | `self_profile` | the hero's profile (nickname, status, Tox ID + QR) |
 | `settings` | the settings page |
 
@@ -65,8 +94,8 @@ from release builds:
   carries a spaced timestamp like the C2C thread.
 - `l3_set_capture_device hasCamera=true` (iOS/iPad) — the Simulator has no
   camera, so the video-call affordances would hide; a phone has one.
-- `l3_set_orientation landscape` (iPad) — the product page frames the tablet
-  shot landscape (1024x768); the Simulator boots portrait.
+- `l3_set_orientation landscape` (iPad) — best-effort only; under `simctl`
+  the iPad stays portrait (see "The iPad is captured PORTRAIT" below).
 
 Navigation is **layout-aware**: desktop + iPad render the wide master-detail
 shell (`l3_open_chat` binds the right pane); Android + iPhone render the narrow
@@ -100,12 +129,20 @@ The iPad is captured PORTRAIT. An iPad app that supports multitasking follows
 the DEVICE orientation and ignores `SystemChrome.setPreferredOrientations`, and
 Simulator.app's Device ▸ Rotate Left needs an Accessibility grant a
 non-interactive ssh session does not have — so `doc/product/index.html` declares
-the portrait size (1024x1365) rather than the pipeline faking a landscape one.
+the portrait size (1032x1376) rather than the pipeline faking a landscape one.
 `l3_set_orientation` still exists for a device/CI context that can honour it.
 
-`--sync-site` resamples every platform to the point width
-`doc/product/index.html` declares: desktop → 1024x665, iPad landscape →
-1024x768, iPhone → 402 wide, Android → 412 wide.
+### Output
+
+Each platform × locale is captured into a per-run temp dir and **published**
+into `doc/product/assets/<locale>/<platform>/` only when its driver exited 0 and
+all five scenes exist; a failed or SnackBar-contaminated run leaves the committed
+assets untouched and prints the temp dir holding its frames. Published sizes are
+the capture sizes — desktop 1400x909, iPad 1032x1376, iPhone 402x874, Android
+412x891 — which is what `doc/product/index.html` declares. (Frames used to be
+`sips`-downscaled to point width; that produced larger, blurrier files and was
+dropped.) `TOXEE_SHOT_NATIVE_FRAMES=1` device-framebuffer frames are published
+as-is too, i.e. at device pixel resolution (≈3x on phones).
 
 ### Per-platform launch + VM-service discovery
 
@@ -125,10 +162,10 @@ Mobile runs always start from a fresh account (the equivalent of desktop
 
 ## Maintenance notes
 
-- The macOS seed account persists under `_seed_runtime/` (gitignored); `--reset`
-  rebuilds it. Mobile state lives on the device/sim and is cleared each run.
+- The macOS seed accounts persist under `_seed_runtime/` (gitignored, one per
+  locale); `--reset` rebuilds them. Without `--reset` a reused seed keeps the
+  day it was seeded, so its threads show a date instead of today's times. Mobile state lives on the device/sim and is cleared each run.
 - The debug app must be built with the L3 surface (`--build` does this).
-- `screenshot/` is gitignored — curate/copy out anything you want to keep.
 - A per-machine NDK override (when the default Flutter NDK is a partial install)
   goes in the gitignored `android/local.properties` as
   `flutter.ndkVersion=<version>`; committed config stays portable.

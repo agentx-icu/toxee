@@ -48,10 +48,11 @@ abstract interface class SeedClient {
   Future<void> waitMs(int ms);
 }
 
-/// Seed every scene's data. Returns the group's local id (null only when the
-/// group could not be created — the driver then skips that scene loudly).
-Future<String?> seedAll(SeedClient s) async {
-  for (final persona in seededFriends) {
+/// Seed every scene's data from [script] (one locale's copy). Returns the
+/// group's local id (null only when the group could not be created — the
+/// driver then skips that scene loudly).
+Future<String?> seedAll(SeedClient s, SeedScript script) async {
+  for (final persona in script.friends) {
     await s.l3('l3_seed_friend', {
       'userId': persona.pubKey,
       'nickname': persona.nickname,
@@ -75,8 +76,8 @@ Future<String?> seedAll(SeedClient s) async {
   // Alex is the hero shot: ends a few minutes ago, one line per minute.
   await _seedC2cThread(
     s,
-    peer: personaAlex,
-    lines: conversationWithAlex,
+    peer: script.alex,
+    lines: script.withAlex,
     endMs: nowMs - 4 * 60000,
     stepMs: 60000,
   );
@@ -84,20 +85,20 @@ Future<String?> seedAll(SeedClient s) async {
   // today, Kenta yesterday (the list then shows a date, not a time).
   await _seedC2cThread(
     s,
-    peer: personaSofia,
-    lines: conversationWithSofia,
+    peer: script.sofia,
+    lines: script.withSofia,
     endMs: nowMs - 47 * 60000,
     stepMs: 90000,
   );
   await _seedC2cThread(
     s,
-    peer: personaKenta,
-    lines: conversationWithKenta,
+    peer: script.kenta,
+    lines: script.withKenta,
     endMs: nowMs - 26 * 3600000,
     stepMs: 120000,
   );
-  final groupId = await _seedGroup(s, endMs: nowMs - 60000);
-  for (final applicant in seededApplicants) {
+  final groupId = await _seedGroup(s, script, endMs: nowMs - 60000);
+  for (final applicant in script.applicants) {
     await s.l3('l3_inject_friend_application', {
       'userId': applicant.pubKey,
       'nickname': applicant.nickname,
@@ -134,15 +135,20 @@ Future<void> _seedC2cThread(
   }
 }
 
-Future<String?> _seedGroup(SeedClient s, {required int endMs}) async {
-  final convId = await _findGroupConversationId(s);
+Future<String?> _seedGroup(
+  SeedClient s,
+  SeedScript script, {
+  required int endMs,
+}) async {
+  final groupName = script.groupName;
+  final convId = await _findGroupConversationId(s, groupName);
   String groupId;
   if (convId == null) {
     print('[seed] creating group "$groupName"');
     final created = await s.l3('l3_create_group', {
       'name': groupName,
       'type': 'public',
-      'avatarBase64': _avatarBase64(groupAvatarFile),
+      'avatarBase64': _avatarBase64(script.groupAvatarFile),
     });
     groupId = created['groupId']?.toString() ?? '';
     if (groupId.isEmpty) {
@@ -154,6 +160,7 @@ Future<String?> _seedGroup(SeedClient s, {required int endMs}) async {
     print('[seed] group "$groupName" already exists ($convId)');
   }
   final history = await _groupMessageCount(s, groupId);
+  final groupScript = script.groupScript;
   if (history < groupScript.length) {
     print('[seed] injecting group chatter');
     // Injecting a line FROM FfiChatService.selfId (the native login user id —
@@ -190,7 +197,7 @@ Future<int> _messageCountWith(SeedClient s, String peer) async {
   return ((st['messages'] as List?) ?? const []).length;
 }
 
-Future<String?> _findGroupConversationId(SeedClient s) async {
+Future<String?> _findGroupConversationId(SeedClient s, String groupName) async {
   final st = await s.dumpState();
   final convs = (st['conversations'] as List?) ?? const [];
   for (final c in convs) {

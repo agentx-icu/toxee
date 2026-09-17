@@ -104,12 +104,10 @@ tool/mcp_test/echo_peer_src/build/
 # (echo_peer_contract.json) IS committed.
 tool/mcp_test/echo_peer.json
 
-# Product-screenshot pipeline (tool/screenshots/): raw full-res captures land
-# in screenshot/ and the persistent reusable seed runtime (Shot* accounts,
-# .app copies, generated media) lives under _seed_runtime/ — both are
-# regenerable local state. The CURATED page copies under doc/product/assets/
-# ARE committed.
-/screenshot/
+# Product-screenshot pipeline (tool/screenshots/): the persistent reusable seed
+# runtime (Shot* accounts, .app copies, generated media) under _seed_runtime/
+# is regenerable local state. The captures themselves are written straight to
+# doc/product/assets/ and ARE committed.
 tool/screenshots/_seed_runtime/
 .gstack/
 

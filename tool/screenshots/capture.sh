@@ -2,21 +2,23 @@
 # Cross-platform product-screenshot pipeline — one command, four platforms.
 #
 #   ./tool/screenshots/capture.sh [--platforms desktop,android,ipad,ios]
-#                                 [--build] [--reset] [--help]
+#                                 [--locales en,zh] [--build] [--reset] [--help]
 #
-# For EACH platform it launches one real toxee instance with the L3 debug
-# surface (MCP_BINDING=skill + TOXEE_L3_TEST=true), resolves its Dart VM-service
-# ws URI, then drives capture_product_screenshots.dart, which seeds demo data
-# locally (no peer/P2P) and captures the 5 light-theme scenes:
+# For EACH platform × locale it launches one real toxee instance with the L3
+# debug surface (MCP_BINDING=skill + TOXEE_L3_TEST=true), resolves its Dart
+# VM-service ws URI, then drives capture_product_screenshots.dart, which seeds
+# that locale's demo data locally (no peer/P2P; Chinese shots get Chinese names
+# and dialogue) and captures the 5 light-theme scenes in that UI language:
 #   c2c · group_chat · new_application · self_profile · settings
-# into ./screenshot/<platform>/.
+# straight into the committed doc/product/assets/<locale>/<platform>/ (at the
+# captured resolution; a platform × locale is only replaced when all of its
+# scenes succeeded — failed frames stay in a temp dir that is printed).
 #
 #   --platforms <list>  comma list of: desktop android ipad ios (default: all)
-#   --build             force-rebuild each selected platform before launching
-#   --reset             wipe the macOS seed root before running (desktop only)
-#   --sync-site         downscale captured shots into doc/product/assets/<platform>/
-#   --sync-only         re-run ONLY the sync from the existing screenshot/ output
-#                       (no capture) — for fixing up a sync without a full run
+#   --locales <list>    comma list of: en zh (default: both)
+#   --build             force-rebuild the macOS app (Android/iOS are always built
+#                       once per run)
+#   --reset             wipe the macOS seed accounts before running (desktop only)
 #
 # Targets (override via env):
 #   TOXEE_SHOT_ANDROID_SERIAL   adb serial      (default: first emulator)
@@ -34,7 +36,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MCP_DIR="$REPO_ROOT/tool/mcp_test"
 SEED_ROOT="$REPO_ROOT/tool/screenshots/_seed_runtime"
-OUT_ROOT="$REPO_ROOT/screenshot"
 DRIVER="$REPO_ROOT/tool/screenshots/capture_product_screenshots.dart"
 APP_BUNDLE="$REPO_ROOT/build/macos/Build/Products/Debug/Toxee.app"
 # TOXEE_DISABLE_NOTIFICATION_PERMISSION_PROMPT: the OS notification-permission
@@ -46,19 +47,18 @@ VM_URI_TIMEOUT="${TOXEE_SHOT_VM_URI_TIMEOUT:-180}"
 
 SITE_ASSETS="$REPO_ROOT/doc/product/assets"
 PLATFORMS="desktop,android,ipad,ios"
+LOCALES="en,zh"
 BUILD=0
 RESET=0
-SYNC_SITE=0
-SYNC_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platforms) PLATFORMS="${2:-}"; shift 2 ;;
     --platforms=*) PLATFORMS="${1#*=}"; shift ;;
+    --locales) LOCALES="${2:-}"; shift 2 ;;
+    --locales=*) LOCALES="${1#*=}"; shift ;;
     --build) BUILD=1; shift ;;
     --reset) RESET=1; shift ;;
-    --sync-site) SYNC_SITE=1; shift ;;
-    --sync-only) SYNC_SITE=1; SYNC_ONLY=1; shift ;;
-    --help|-h) sed -n '2,30p' "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,33p' "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 64 ;;
   esac
 done
@@ -71,7 +71,8 @@ step() { echo -e "${CYAN}==>${NC} $*"; }
 
 # shellcheck source=../mcp_test/_multi_instance_lib.sh
 . "$MCP_DIR/_multi_instance_lib.sh"
-mkdir -p "$OUT_ROOT"
+# Per-run staging for the driver's frames; see publish_assets.
+STAGING_ROOT="$(mktemp -d -t toxee_shots)"
 
 # Backstop cleanup: each platform tears down its own launch on the normal path,
 # but a `set -e` abort or Ctrl-C between launch and teardown would otherwise
@@ -84,6 +85,8 @@ _cleanup() {
   for p in ${_BG_PIDS[@]+"${_BG_PIDS[@]}"}; do
     [[ -n "$p" ]] && kill "$p" 2>/dev/null || true
   done
+  # Staged frames are kept only when a run failed and said where they are.
+  [[ "${KEEP_STAGING:-0}" == "1" ]] || rm -rf "${STAGING_ROOT:-}"
 }
 trap _cleanup EXIT INT TERM
 
@@ -101,51 +104,39 @@ wait_for_vm_ws() {
   echo "${http/http:/ws:}/ws"
 }
 
-run_driver() {  # <platform> <ws-uri> [extra driver args...]
-  local platform="$1" ws="$2"; shift 2
-  step "driving $platform → screenshot/$platform/"
-  (cd "$REPO_ROOT" && dart run "$DRIVER" \
-      --platform "$platform" --ws-uri "$ws" --out "$OUT_ROOT/$platform" "$@")
+run_driver() {  # <platform> <locale> <ws-uri> [extra driver args...]
+  local platform="$1" locale="$2" ws="$3"; shift 3
+  step "driving $platform [$locale]"
+  (cd "$REPO_ROOT" && dart run "$DRIVER" --platform "$platform" \
+      --locale "$locale" --ws-uri "$ws" --out "$STAGING_ROOT/$locale/$platform" "$@")
 }
 
-# --sync-site: downscale a platform's captured scenes into the COMMITTED product
-# assets (screenshot/ itself is gitignored). Every platform is resampled to the
-# logical-point width doc/product/index.html declares for it: desktop 1400x909
-# → 1024x665, iPad portrait → 1024x1365, phones to their point width (iPhone
-# 402, Android 412 — a no-op for Flutter-layer frames, a 3x downscale for
-# device-framebuffer ones).
-sync_site() {  # <platform>
-  local platform="$1" dst="$SITE_ASSETS/$platform" w=1024 s src tmp got
-  mkdir -p "$dst"
-  case "$platform" in ios) w=402 ;; android) w=412 ;; esac
-  local written=0 failed=0
-  for s in c2c group_chat new_application self_profile settings; do
-    src="$OUT_ROOT/$platform/$s.png"
-    [[ -f "$src" ]] || { warn "sync-site: $platform/$s.png missing — committed asset left stale"; failed=$((failed + 1)); continue; }
-    # Resample into a TEMP file, then move it into place, then READ THE RESULT
-    # BACK. `sips --out <existing file>` has been observed to exit 0 without
-    # replacing the destination (measured 2026-08-22: desktop/android/iPad
-    # assets stayed a generation behind while the run reported success), and a
-    # stale committed screenshot is exactly what this step exists to prevent.
-    # The width read-back is a real post-condition; an mtime comparison is not.
-    tmp="$(mktemp -t toxee_sync).png"
-    if ! sips --resampleWidth "$w" "$src" --out "$tmp" >/dev/null 2>&1; then
-      err "sync-site: sips failed for $platform/$s.png — committed asset is STALE"
-      rm -f "$tmp"; failed=$((failed + 1)); continue
-    fi
-    mv -f "$tmp" "$dst/$s.png"
-    got="$(sips -g pixelWidth "$dst/$s.png" 2>/dev/null | awk '/pixelWidth/{print $2}')"
-    if [[ "$got" == "$w" ]]; then
-      written=$((written + 1))
-    else
-      err "sync-site: $platform/$s.png is ${got}px wide, expected ${w}px — committed asset is STALE"
-      failed=$((failed + 1))
-    fi
+# Publish one platform × locale into the COMMITTED product assets. The driver
+# writes into a per-run staging dir first; only a run whose driver exited 0 is
+# published, and only when all five scenes are present — so a failed or
+# SnackBar-contaminated capture can never half-overwrite what the docs show.
+# Frames are published at their captured resolution: an earlier `sips`
+# downscale to the page's point width made files LARGER (re-encoding compresses
+# worse than the Flutter-layer PNG) and blurrier, for no layout benefit.
+SCENES=(c2c group_chat new_application self_profile settings)
+publish_assets() {  # <locale> <platform>
+  local locale="$1" platform="$2" s
+  local src_dir="$STAGING_ROOT/$locale/$platform"
+  local dst="$SITE_ASSETS/$locale/$platform"
+  for s in "${SCENES[@]}"; do
+    [[ -s "$src_dir/$s.png" ]] || {
+      err "publish: $locale/$platform/$s.png missing — nothing published"; return 1; }
   done
-  echo "    synced $platform ($written/5 assets written)"
-  # A stale committed asset must reach the exit code — printing it and exiting
-  # 0 is how these silently stayed behind.
-  [[ "$failed" -eq 0 ]]
+  mkdir -p "$dst"
+  for s in "${SCENES[@]}"; do
+    cp -f "$src_dir/$s.png" "$dst/$s.png"
+    # Post-condition on the bytes, not the exit code: a stale committed
+    # screenshot is exactly what this step exists to prevent.
+    cmp -s "$src_dir/$s.png" "$dst/$s.png" || {
+      err "publish: $locale/$platform/$s.png did not land — asset is STALE"; return 1; }
+  done
+  rm -rf "$src_dir"
+  echo "    published $locale/$platform → doc/product/assets/$locale/$platform/"
 }
 
 # Pin the Android status bar to a clean, deterministic state (SystemUI demo
@@ -167,23 +158,34 @@ android_status_bar_unpin() {  # <serial>
 }
 
 # ───────────────────────────── desktop (macOS) ──────────────────────────────
-capture_desktop() {
+DESKTOP_BUILT=0
+capture_desktop() {  # <locale>
+  local locale="$1"
+  # One persistent seed account PER LOCALE: the seed is idempotent by message
+  # count and group name, so an English account re-used for Chinese would keep
+  # its English dialogue. English keeps the historical `Shot` instance.
+  local inst="Shot"
+  [[ "$locale" != "en" ]] && inst="Shot$(printf '%s' "${locale:0:1}" | tr '[:lower:]' '[:upper:]')${locale:1}"
+  local inst_lower; inst_lower="$(printf '%s' "$inst" | tr '[:upper:]' '[:lower:]')"
   if [[ "$RESET" == "1" ]]; then
-    step "reset: wiping macOS seed root + container leftovers"
-    rm -rf "$SEED_ROOT/Shot"
+    step "reset: wiping macOS seed account $inst + container leftovers"
+    rm -rf "${SEED_ROOT:?}/$inst"
     # The launcher keeps app-support (profile/history) under the sandbox
     # container, not the seed root — clear it too or a reset leaves stale data.
-    rm -rf "$HOME/Library/Containers/com.toxee.app/Data/Library/Application Support/com.toxee.app/multi_instance/Shot"
+    rm -rf "$HOME/Library/Containers/com.toxee.app/Data/Library/Application Support/com.toxee.app/multi_instance/$inst"
     # SharedPreferences on macOS are stored in the app plist; the per-instance
-    # prefix from launch_toxee_instance.sh (`TOXEE_SHARED_PREFS_PREFIX=toxee_shot.`)
-    # is applied to keys, not to the plist filename. Delete only the screenshot
-    # keys so unrelated multi-instance fixtures (`toxee_a.`, `toxee_b.`) survive.
+    # prefix from launch_toxee_instance.sh (`TOXEE_SHARED_PREFS_PREFIX=toxee_<inst>.`)
+    # is applied to keys, not to the plist filename. Delete only this account's
+    # keys so unrelated multi-instance fixtures (`toxee_a.`, `toxee_b.`) and the
+    # other locale's seed (`toxee_shot.` vs `toxee_shotzh.`) survive.
     local prefs_plist="$HOME/Library/Containers/com.toxee.app/Data/Library/Preferences/com.toxee.app.plist"
     if [[ -f "$prefs_plist" ]]; then
       while IFS= read -r key; do
-        [[ "$key" == toxee_shot.* ]] || continue
+        [[ "$key" == "toxee_${inst_lower}."* ]] || continue
         /usr/libexec/PlistBuddy -c "Delete :$key" "$prefs_plist" >/dev/null 2>&1 || true
-      done < <(/usr/libexec/PlistBuddy -c 'Print' "$prefs_plist" 2>/dev/null | sed -nE 's/^[[:space:]]+(toxee_shot\.[^ =]+)[[:space:]]*=.*/\1/p')
+      # LC_ALL=C: the plist dump carries non-UTF-8 bytes, and a UTF-8 sed aborts
+      # on them ("illegal byte sequence") — silently deleting no keys at all.
+      done < <(/usr/libexec/PlistBuddy -c 'Print' "$prefs_plist" 2>/dev/null | LC_ALL=C sed -nE 's/^[[:space:]]+(toxee_[a-z0-9_]+\.[^ =]+)[[:space:]]*=.*/\1/p')
     fi
   fi
   # run_toxee.sh redirects `flutter build macos` into build/flutter_build.log
@@ -195,9 +197,14 @@ capture_desktop() {
       err "desktop: flutter build macos reported errors (see build/flutter_build.log)"; return 1
     fi
   }
-  if [[ "$BUILD" == "1" || ! -x "$APP_BUNDLE/Contents/MacOS/Toxee" ]]; then
+  if [[ "$DESKTOP_BUILT" != "1" ]] \
+     && [[ "$BUILD" == "1" || ! -x "$APP_BUNDLE/Contents/MacOS/Toxee" ]]; then
     step "building macOS debug app (L3 surface)"
-    build_macos
+    # `|| return 1` explicitly: this function runs as `capture_desktop || rc=$?`,
+    # where set -e is suspended, so a bare failing build would fall through to
+    # launching the STALE bundle (and mark it built for the next locale).
+    build_macos || return 1
+    DESKTOP_BUILT=1
   fi
   # Self-heal the Xcode debug-dylib split: the main stub links
   # @rpath/Toxee.debug.dylib; an incremental build can leave the stub stale
@@ -208,25 +215,26 @@ capture_desktop() {
      && otool -L "$exe" 2>/dev/null | grep -q 'Toxee\.debug\.dylib' \
      && [[ ! -f "$APP_BUNDLE/Contents/MacOS/Toxee.debug.dylib" ]]; then
     warn "macOS debug-dylib missing from bundle — forcing a clean rebuild"
-    build_macos --clean
+    build_macos --clean || return 1
   fi
-  step "launching macOS instance"
+  step "launching macOS instance $inst"
   TOXEE_MULTI_RUNTIME_ROOT="$SEED_ROOT" TOXEE_APP_BUNDLE="$APP_BUNDLE" \
-    "$MCP_DIR/launch_toxee_instance.sh" Shot
-  local json="$SEED_ROOT/Shot/instance.json" ws pid
+    "$MCP_DIR/launch_toxee_instance.sh" "$inst"
+  local json="$SEED_ROOT/$inst/instance.json" ws pid
   ws="$(jq -r '.ws_uri // empty' "$json")"
   pid="$(jq -r '.pid // empty' "$json")"
   _track_pid "$pid"
   [[ -z "$ws" ]] && { err "desktop: no ws_uri in $json"; return 1; }
   local rc=0
-  run_driver desktop "$ws" --pid "$pid" || rc=$?
+  run_driver desktop "$locale" "$ws" --pid "$pid" || rc=$?
   [[ -n "$pid" ]] && _mi_stop_with_grace "$pid" 5 || true
   return $rc
 }
 
 # ───────────────────────────── android ──────────────────────────────────────
-capture_android() {
-  local serial="${TOXEE_SHOT_ANDROID_SERIAL:-}"
+ANDROID_APK_BUILT=0
+capture_android() {  # <locale>
+  local locale="$1" serial="${TOXEE_SHOT_ANDROID_SERIAL:-}"
   # Auto-default to an EMULATOR only — this run does `pm clear com.toxee.app`,
   # so never auto-target (and wipe) a connected physical device. Targeting a
   # real device is opt-in via TOXEE_SHOT_ANDROID_SERIAL.
@@ -241,9 +249,13 @@ capture_android() {
   # unreliable: it block-buffers its stdout to a pipe, and under a pty it stops
   # on SIGTTIN when backgrounded. `am start` + logcat + `adb forward` is
   # deterministic.)
-  step "android: building debug APK (L3 surface)"
-  (cd "$REPO_ROOT" && flutter build apk --debug "${DART_DEFINES[@]}") || {
-    err "android: APK build failed"; return 1; }
+  # Once per run: the second locale re-installs the same APK.
+  if [[ "$ANDROID_APK_BUILT" != "1" ]]; then
+    step "android: building debug APK (L3 surface)"
+    (cd "$REPO_ROOT" && flutter build apk --debug "${DART_DEFINES[@]}") || {
+      err "android: APK build failed"; return 1; }
+    ANDROID_APK_BUILT=1
+  fi
   local apk="$REPO_ROOT/build/app/outputs/flutter-apk/app-debug.apk"
   [[ -f "$apk" ]] || { err "android: APK missing ($apk)"; return 1; }
   step "android: install + launch on $serial"
@@ -279,7 +291,7 @@ capture_android() {
       android_status_bar_pin "$serial"
       android_native=(--adb-serial "$serial")
     fi
-    run_driver android "$ws" ${android_native[@]+"${android_native[@]}"} || rc=$?
+    run_driver android "$locale" "$ws" ${android_native[@]+"${android_native[@]}"} || rc=$?
     [[ "${TOXEE_SHOT_NATIVE_FRAMES:-0}" == "1" ]] && android_status_bar_unpin "$serial"
     [[ -n "$port" ]] && adb -s "$serial" forward --remove "tcp:$port" >/dev/null 2>&1 || true
   else
@@ -293,7 +305,8 @@ capture_android() {
 # ───────────────────────────── iOS / iPad simulators ────────────────────────
 IOS_APP_BUILT=0
 ios_build_and_inject() {
-  [[ "$IOS_APP_BUILT" == "1" && "$BUILD" != "1" ]] && return 0
+  # Once per run: ios, ipad and every locale install the same Runner.app.
+  [[ "$IOS_APP_BUILT" == "1" ]] && return 0
   # iOS-SIMULATOR artifacts only — NOT build/ffi/libtim2tox_ffi.dylib, which is
   # the macOS host dylib and cannot load on the simulator. The loader
   # (_openIOS) prefers Frameworks/tim2tox_ffi.framework/tim2tox_ffi, with
@@ -355,8 +368,8 @@ resolve_sim() {
   echo "$udid"
 }
 
-capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <default-name>
-  local platform="$1" kind="$2" want="$3" default_name="$4"
+capture_ios_like() {  # <platform: ios|ipad> <locale> <kind: phone|tablet> <want-udid> <default-name>
+  local platform="$1" locale="$2" kind="$3" want="$4" default_name="$5"
   ios_build_and_inject || return 1
   local appdir="$REPO_ROOT/build/ios/iphonesimulator/Runner.app" bundle_id udid
   bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$appdir/Info.plist" 2>/dev/null || echo com.toxee.app)"
@@ -397,7 +410,7 @@ capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <d
   fi
   xcrun simctl launch "$udid" "$bundle_id" >/dev/null 2>&1 || true
   if ws="$(wait_for_vm_ws "$log" "$VM_URI_TIMEOUT")"; then
-    run_driver "$platform" "$ws" ${sim_native[@]+"${sim_native[@]}"} || rc=$?
+    run_driver "$platform" "$locale" "$ws" ${sim_native[@]+"${sim_native[@]}"} || rc=$?
   else
     err "$platform: VM URI not seen in ${VM_URI_TIMEOUT}s (see $log)"; rc=1
   fi
@@ -409,41 +422,42 @@ capture_ios_like() {  # <platform: ios|ipad> <kind: phone|tablet> <want-udid> <d
 
 # ───────────────────────────── main ─────────────────────────────────────────
 declare -a OK=() FAIL=()
-IFS=',' read -r -a SELECTED <<< "$PLATFORMS"
-if [[ "$SYNC_ONLY" == "1" ]]; then
-  step "sync-only: re-syncing $SITE_ASSETS/<platform>/ from $OUT_ROOT"
-  for platform in "${SELECTED[@]}"; do
-    platform="$(echo "$platform" | tr -d ' ')"
-    [[ -z "$platform" ]] && continue
-    sync_site "$platform" || FAIL+=("$platform:sync")
-  done
-  [[ ${#FAIL[@]} -gt 0 ]] && { err "failed: ${FAIL[*]}"; exit 1; }
-  info "✅ synced: ${PLATFORMS}"
-  exit 0
-fi
+IFS=',' read -r -a SELECTED <<< "${PLATFORMS// /}"
+IFS=',' read -r -a SELECTED_LOCALES <<< "${LOCALES// /}"
+# bash 3.2 (macOS /bin/bash) treats "${empty[@]}" as unbound under set -u.
+[[ ${#SELECTED[@]} -gt 0 && ${#SELECTED_LOCALES[@]} -gt 0 ]] \
+  || { err "--platforms and --locales must not be empty"; exit 64; }
+for locale in "${SELECTED_LOCALES[@]}"; do
+  case "$locale" in en|zh) ;; *) err "unknown locale: $locale (en|zh)"; exit 64 ;; esac
+done
+# Platform outer, locale inner: each platform's build and device stay warm
+# across its locales.
 for platform in "${SELECTED[@]}"; do
-  platform="$(echo "$platform" | tr -d ' ')"
   [[ -z "$platform" ]] && continue
-  echo ""
-  info "════════ $platform ════════"
-  rc=0
-  case "$platform" in
-    desktop) capture_desktop || rc=$? ;;
-    android) capture_android || rc=$? ;;
-    ios)     capture_ios_like ios phone "${TOXEE_SHOT_IOS_UDID:-}" "iPhone 16 Pro" || rc=$? ;;
-    ipad)    capture_ios_like ipad tablet "${TOXEE_SHOT_IPAD_UDID:-}" "iPad Pro 13-inch (M4)" || rc=$? ;;
-    *) err "unknown platform: $platform"; rc=64 ;;
-  esac
-  if [[ "$rc" == "0" ]]; then OK+=("$platform"); else FAIL+=("$platform"); fi
+  for locale in "${SELECTED_LOCALES[@]}"; do
+    echo ""
+    info "════════ $platform [$locale] ════════"
+    rc=0
+    case "$platform" in
+      desktop) capture_desktop "$locale" || rc=$? ;;
+      android) capture_android "$locale" || rc=$? ;;
+      ios)     capture_ios_like ios "$locale" phone "${TOXEE_SHOT_IOS_UDID:-}" "iPhone 16 Pro" || rc=$? ;;
+      ipad)    capture_ios_like ipad "$locale" tablet "${TOXEE_SHOT_IPAD_UDID:-}" "iPad Pro 13-inch (M4)" || rc=$? ;;
+      *) err "unknown platform: $platform"; rc=64 ;;
+    esac
+    [[ "$rc" == "0" ]] && { publish_assets "$locale" "$platform" || rc=1; }
+    if [[ "$rc" == "0" ]]; then OK+=("$locale/$platform"); else FAIL+=("$locale/$platform"); fi
+  done
 done
 
 echo ""
 info "════════ done ════════"
-[[ ${#OK[@]}   -gt 0 ]] && info "captured: ${OK[*]} → $OUT_ROOT/<platform>/"
-if [[ "$SYNC_SITE" == "1" && ${#OK[@]} -gt 0 ]]; then
-  step "syncing curated assets → $SITE_ASSETS/<platform>/"
-  for p in ${OK[@]+"${OK[@]}"}; do sync_site "$p" || FAIL+=("$p:sync"); done
+[[ ${#OK[@]} -gt 0 ]] && info "published: ${OK[*]} → $SITE_ASSETS/<locale>/<platform>/"
+if [[ ${#FAIL[@]} -gt 0 ]]; then
+  err "failed (committed assets left untouched): ${FAIL[*]}"
+  err "frames from the failed runs, for inspection: $STAGING_ROOT"
+  KEEP_STAGING=1
+  exit 1
 fi
-[[ ${#FAIL[@]} -gt 0 ]] && { err "failed: ${FAIL[*]}"; exit 1; }
 echo ""
-info "✅ screenshots in $OUT_ROOT for: ${OK[*]}"
+info "✅ screenshots published for: ${OK[*]}"
