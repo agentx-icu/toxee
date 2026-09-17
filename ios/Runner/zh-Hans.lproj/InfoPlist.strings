@@ -1,0 +1,7 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSCameraUsageDescription" = "Toxee 使用相机在聊天中拍照和录制视频、进行视频通话以及扫描配对二维码。";
+"NSLocalNetworkUsageDescription" = "本应用需要访问网络，以通过 P2P 协议与其他用户连接。";
+"NSMicrophoneUsageDescription" = "Toxee 使用麦克风录制语音消息以及进行语音或视频通话。";
+"NSPhotoLibraryAddUsageDescription" = "在你选择保存时，Toxee 会将收到的照片和视频存入你的相册。";
+"NSPhotoLibraryUsageDescription" = "Toxee 需要访问你的相册以发送照片和视频。";
+"NSUserNotificationsUsageDescription" = "Toxee 使用通知提醒你新消息、好友申请和来电。";

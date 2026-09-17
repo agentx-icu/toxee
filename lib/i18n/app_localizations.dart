@@ -3159,6 +3159,342 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.'**
   String get importBlockedByPendingImport;
+
+  /// Add-friend snackbar when the request is queued because the client is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Offline — request queued and will be sent when you reconnect'**
+  String get friendRequestQueued;
+
+  /// Add-friend error when the entered Tox ID is the user's own
+  ///
+  /// In en, this message translates to:
+  /// **'You cannot add yourself as a friend'**
+  String get cannotAddSelfAsFriend;
+
+  /// Add-friend error when the same ID was already requested while the dialog was open
+  ///
+  /// In en, this message translates to:
+  /// **'A friend request was already sent in this session'**
+  String get friendRequestAlreadySent;
+
+  /// Add-friend error when the ID belongs to an existing friend
+  ///
+  /// In en, this message translates to:
+  /// **'This user is already in your friend list'**
+  String get alreadyInFriendList;
+
+  /// Banner in the add-friend dialog while offline
+  ///
+  /// In en, this message translates to:
+  /// **'Offline — your friend request will be queued and sent automatically when you reconnect.'**
+  String get addFriendOfflineBanner;
+
+  /// Tooltip / screen title for scanning a QR code
+  ///
+  /// In en, this message translates to:
+  /// **'Scan QR'**
+  String get scanQr;
+
+  /// Tooltip on a submit button while a request is being sent
+  ///
+  /// In en, this message translates to:
+  /// **'Sending...'**
+  String get sendingInProgress;
+
+  /// Bootstrap settings hint shown on Windows
+  ///
+  /// In en, this message translates to:
+  /// **'On Windows, the firewall may block incoming connections; allow the app if prompted.'**
+  String get firewallHintWindows;
+
+  /// Bootstrap settings hint shown on Linux
+  ///
+  /// In en, this message translates to:
+  /// **'On Linux, network operations may require appropriate permissions or firewall rules.'**
+  String get firewallHintLinux;
+
+  /// Hint text for the bootstrap node public key field
+  ///
+  /// In en, this message translates to:
+  /// **'Public key (hex)'**
+  String get nodePublicKeyHint;
+
+  /// Reason inserted into nodeSwitchFailed when adding a node fails
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to add bootstrap node'**
+  String get failedToAddBootstrapNode;
+
+  /// Reason inserted into failedToSetPassword; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'could not remove password'**
+  String get couldNotRemovePassword;
+
+  /// Reason inserted into failedToSetPassword; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'could not save password'**
+  String get couldNotSavePassword;
+
+  /// Snackbar after sending a file/photo/video; label is the localized media type
+  ///
+  /// In en, this message translates to:
+  /// **'{label} sent'**
+  String mediaSent(String label);
+
+  /// Snackbar 30s after login when still offline and fallback nodes are in use
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot reach the DHT. Using fallback bootstrap nodes — your network may be blocking UDP, or the nodes are down.'**
+  String get dhtUnreachableUsingFallback;
+
+  /// Snackbar 30s after login when still offline
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot reach the DHT after 30s. Check your network connection.'**
+  String get dhtUnreachableTimeout;
+
+  /// Error when the chat SDK fails to initialize
+  ///
+  /// In en, this message translates to:
+  /// **'Chat SDK initialization failed: {error}'**
+  String chatSdkInitFailed(String error);
+
+  /// Send failure: text exceeds the Tox message size
+  ///
+  /// In en, this message translates to:
+  /// **'Message too long (max {maxBytes} bytes)'**
+  String messageTooLongMaxBytes(int maxBytes);
+
+  /// Send failure when the friend is offline
+  ///
+  /// In en, this message translates to:
+  /// **'Friend offline — will retry when they reconnect'**
+  String get friendOfflineWillRetry;
+
+  /// Send failure for files in groups
+  ///
+  /// In en, this message translates to:
+  /// **'File transfer in group chats is not supported'**
+  String get groupFileTransferUnsupported;
+
+  /// Send failure for files; error is a technical detail
+  ///
+  /// In en, this message translates to:
+  /// **'File send failed: {error}'**
+  String fileSendFailed(String error);
+
+  /// Fallback failure reason when only a numeric code is known; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'error {code}'**
+  String errorWithCode(int code);
+
+  /// Pairing error when the two devices cannot reach each other on the LAN; detail is the OS error
+  ///
+  /// In en, this message translates to:
+  /// **'Devices can\'t see each other on this network. Try a personal hotspot, or use Export → Import via file instead. ({detail})'**
+  String pairingLanUnreachable(String detail);
+
+  /// Notification title for a friend request with no sender name
+  ///
+  /// In en, this message translates to:
+  /// **'New friend request'**
+  String get notificationNewFriendRequest;
+
+  /// Notification title for a friend request
+  ///
+  /// In en, this message translates to:
+  /// **'Friend request: {name}'**
+  String notificationFriendRequestFrom(String name);
+
+  /// Notification title
+  ///
+  /// In en, this message translates to:
+  /// **'Missed call'**
+  String get notificationMissedCall;
+
+  /// Notification title
+  ///
+  /// In en, this message translates to:
+  /// **'Missed video call'**
+  String get notificationMissedVideoCall;
+
+  /// Notification title
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming call'**
+  String get notificationIncomingCall;
+
+  /// Notification title
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming video call'**
+  String get notificationIncomingVideoCall;
+
+  /// Notification body when the caller has no display name
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee contact'**
+  String get notificationUnknownCaller;
+
+  /// Notification title when the sender has no name
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get notificationNewMessage;
+
+  /// Notification preview for an image message
+  ///
+  /// In en, this message translates to:
+  /// **'[Image]'**
+  String get previewImage;
+
+  /// Notification preview for a video message
+  ///
+  /// In en, this message translates to:
+  /// **'[Video]'**
+  String get previewVideo;
+
+  /// Notification preview for a voice message
+  ///
+  /// In en, this message translates to:
+  /// **'[Voice]'**
+  String get previewVoice;
+
+  /// Notification preview for a voice message with its length in seconds
+  ///
+  /// In en, this message translates to:
+  /// **'[Voice {seconds}s]'**
+  String previewVoiceWithDuration(int seconds);
+
+  /// Notification preview for a file message
+  ///
+  /// In en, this message translates to:
+  /// **'[File]'**
+  String get previewFile;
+
+  /// Notification preview for a file message
+  ///
+  /// In en, this message translates to:
+  /// **'[File] {name}'**
+  String previewFileWithName(String name);
+
+  /// Notification preview for a sticker
+  ///
+  /// In en, this message translates to:
+  /// **'[Sticker]'**
+  String get previewSticker;
+
+  /// Notification preview for a location message
+  ///
+  /// In en, this message translates to:
+  /// **'[Location]'**
+  String get previewLocation;
+
+  /// Notification preview for a custom message
+  ///
+  /// In en, this message translates to:
+  /// **'[Custom Message]'**
+  String get previewCustomMessage;
+
+  /// Notification preview for a group system event
+  ///
+  /// In en, this message translates to:
+  /// **'[Group event]'**
+  String get previewGroupEvent;
+
+  /// Notification preview for any other message
+  ///
+  /// In en, this message translates to:
+  /// **'[Message]'**
+  String get previewMessage;
+
+  /// Android notification channel name (shown in system settings)
+  ///
+  /// In en, this message translates to:
+  /// **'Messages'**
+  String get channelMessagesName;
+
+  /// Android notification channel description
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications for new incoming messages from your tox contacts.'**
+  String get channelMessagesDescription;
+
+  /// Android notification channel name
+  ///
+  /// In en, this message translates to:
+  /// **'Friend requests'**
+  String get channelFriendRequestsName;
+
+  /// Android notification channel description
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications when someone sends you a friend request.'**
+  String get channelFriendRequestsDescription;
+
+  /// Android notification channel name
+  ///
+  /// In en, this message translates to:
+  /// **'Missed calls'**
+  String get channelMissedCallsName;
+
+  /// Android notification channel description
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications when an incoming call could not be reached or was missed.'**
+  String get channelMissedCallsDescription;
+
+  /// Android notification channel name
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming calls'**
+  String get channelIncomingCallsName;
+
+  /// Android notification channel description
+  ///
+  /// In en, this message translates to:
+  /// **'Full-screen alerts for incoming Toxee calls.'**
+  String get channelIncomingCallsDescription;
+
+  /// Linux notification default action label
+  ///
+  /// In en, this message translates to:
+  /// **'Open Toxee'**
+  String get notificationOpenAction;
+
+  /// Desktop tray icon tooltip
+  ///
+  /// In en, this message translates to:
+  /// **'Unread: {count}'**
+  String trayUnreadTooltip(int count);
+
+  /// Fallback failure reason when nothing is known; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'unknown error'**
+  String get unknownErrorReason;
+
+  /// Friend-request notification body when the request carries no message
+  ///
+  /// In en, this message translates to:
+  /// **'(no message)'**
+  String get notificationNoMessage;
+
+  /// Collapsed Android summary for several messages from one sender
+  ///
+  /// In en, this message translates to:
+  /// **'{count} new messages from {name}'**
+  String notificationGroupedSummary(int count, String name);
+
+  /// Pairing error when connecting to the host's endpoint timed out
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t reach the other device at {endpoint} in time. Make sure both devices are on the same network, try a personal hotspot, or use Export → Import via file instead.'**
+  String pairingConnectTimedOut(String endpoint);
 }
 
 class _AppLocalizationsDelegate

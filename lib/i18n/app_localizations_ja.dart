@@ -654,22 +654,22 @@ class AppLocalizationsJa extends AppLocalizations {
   String get ircChannels => 'IRCチャンネル';
 
   @override
-  String get ircStatusDisconnected => 'Disconnected';
+  String get ircStatusDisconnected => '切断';
 
   @override
-  String get ircStatusConnecting => 'Connecting';
+  String get ircStatusConnecting => '接続中';
 
   @override
-  String get ircStatusConnected => 'Connected';
+  String get ircStatusConnected => '接続済み';
 
   @override
-  String get ircStatusAuthenticating => 'Authenticating';
+  String get ircStatusAuthenticating => '認証中';
 
   @override
-  String get ircStatusReconnecting => 'Reconnecting';
+  String get ircStatusReconnecting => '再接続中';
 
   @override
-  String get ircStatusError => 'Error';
+  String get ircStatusError => 'エラー';
 
   @override
   String get ircServerConfig => 'IRCサーバー設定';
@@ -818,16 +818,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get statusMessageTooLong => 'ステータスメッセージが長すぎます';
 
   @override
-  String get passwordStrengthWeak => 'Weak';
+  String get passwordStrengthWeak => '弱い';
 
   @override
-  String get passwordStrengthFair => 'Fair';
+  String get passwordStrengthFair => '普通';
 
   @override
-  String get passwordStrengthGood => 'Good';
+  String get passwordStrengthGood => '良好';
 
   @override
-  String get passwordStrengthStrong => 'Strong';
+  String get passwordStrengthStrong => '強い';
 
   @override
   String get manualNodeInput => '手動ノード入力';
@@ -1056,17 +1056,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get exportAccount => 'アカウントエクスポート';
 
   @override
-  String get exportOptionProfileTox => 'Profile (.tox)';
+  String get exportOptionProfileTox => 'プロフィール (.tox)';
 
   @override
-  String get exportOptionProfileToxSubtitle => 'qTox compatible, profile only';
+  String get exportOptionProfileToxSubtitle => 'qTox 互換、プロフィールのみ';
 
   @override
-  String get exportOptionFullBackup => 'Full Backup (.zip)';
+  String get exportOptionFullBackup => 'フルバックアップ (.zip)';
 
   @override
-  String get exportOptionFullBackupSubtitle =>
-      'Profile + chat history + settings';
+  String get exportOptionFullBackupSubtitle => 'プロフィール + チャット履歴 + 設定';
 
   @override
   String get importAccount => 'アカウントインポート';
@@ -1197,82 +1196,79 @@ class AppLocalizationsJa extends AppLocalizations {
   String get thisAccountIsAlreadyLoggedIn => 'このアカウントは既にログインしています';
 
   @override
-  String get upgradeRequiredTitle => 'Please upgrade the app';
+  String get upgradeRequiredTitle => 'アプリをアップグレードしてください';
 
   @override
   String upgradeRequiredMessage(int storedVersion, int currentVersion) {
-    return 'Your data was saved by a newer version of the app (data version: $storedVersion). This version supports up to $currentVersion. Please install the latest update to continue.';
+    return 'データは新しいバージョンのアプリで保存されています（データバージョン: $storedVersion）。このバージョンは $currentVersion まで対応しています。続行するには最新のアップデートをインストールしてください。';
   }
 
   @override
   String get upgradeAppTitle => 'toxee';
 
   @override
-  String get hide => 'Hide';
+  String get hide => '非表示';
 
   @override
-  String get pressBackAgainToExit => 'Press back again to exit';
+  String get pressBackAgainToExit => 'もう一度戻るを押すと終了します';
 
   @override
-  String get startupFailed => 'Startup Failed';
+  String get startupFailed => '起動に失敗しました';
 
   @override
-  String get unknownError => 'Unknown error';
+  String get unknownError => '不明なエラー';
 
   @override
-  String get goToLogin => 'Go to Login';
+  String get goToLogin => 'ログインへ';
 
   @override
-  String get conference => 'Conference';
+  String get conference => 'カンファレンス';
 
   @override
-  String get defaultJoinRequestMessage =>
-      'Hi, please invite me into this group';
+  String get defaultJoinRequestMessage => 'こんにちは、このグループに招待してください';
 
   @override
-  String get userNotFoundPleaseRegister =>
-      'User not found. Please register first.';
+  String get userNotFoundPleaseRegister => 'ユーザーが見つかりません。先に登録してください。';
 
   @override
   String get nicknameDoesNotMatch =>
-      'Nickname does not match. Please use the registered nickname or register a new account.';
+      'ニックネームが一致しません。登録済みのニックネームを使用するか、新しいアカウントを登録してください。';
 
   @override
   String get accountAlreadyExistsPleaseLogin =>
-      'Account already exists. Please login instead or use a different nickname.';
+      'アカウントは既に存在します。ログインするか、別のニックネームを使用してください。';
 
   @override
   String get profileNotFoundImportRestore =>
-      'Profile not found for this account. Please import or restore backup.';
+      'このアカウントのプロフィールが見つかりません。インポートするか、バックアップから復元してください。';
 
   @override
-  String get failedToInitializeTIMManager =>
-      'Failed to initialize TIMManager SDK';
+  String get failedToInitializeTIMManager => 'TIMManager SDK の初期化に失敗しました';
 
   @override
-  String get failedToGetToxId => 'Failed to get Tox ID';
+  String get failedToGetToxId => 'Tox ID の取得に失敗しました';
 
   @override
-  String get failedToGenerateToxId => 'Failed to generate Tox ID';
+  String get failedToGenerateToxId => 'Tox ID の生成に失敗しました';
 
   @override
   String get registrationCouldNotCreateProfile =>
-      'Registration could not create a unique profile. Please try again.';
+      '一意のプロフィールを作成できませんでした。もう一度お試しください。';
 
   @override
-  String get importedAccount => 'Imported Account';
+  String get importedAccount => 'インポートしたアカウント';
 
   @override
-  String get unknown => 'Unknown';
+  String get unknown => '不明';
 
   @override
   String sendingToGroupsNotSupported(String label) {
-    return 'Sending $label to groups is not supported yet';
+    return 'グループへの$labelの送信はまだサポートされていません';
   }
 
   @override
   String noLabelSelected(String label) {
-    return 'No $label selected';
+    return '$labelが選択されていません';
   }
 
   @override
@@ -1389,283 +1385,275 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String unreadMessagesSemantics(int count) {
-    return '$count unread messages';
+    return '未読メッセージ $count 件';
   }
 
   @override
   String matchingMessagesSemantics(int count) {
-    return '$count matching messages';
+    return '一致するメッセージ $count 件';
   }
 
   @override
-  String get statusOnline => 'Online';
+  String get statusOnline => 'オンライン';
 
   @override
-  String get statusOffline => 'Offline';
+  String get statusOffline => 'オフライン';
 
   @override
-  String get noIrcChannels => 'No IRC channels';
+  String get noIrcChannels => 'IRCチャンネルがありません';
 
   @override
-  String get joinChannelToGetStarted => 'Join a channel to get started';
+  String get joinChannelToGetStarted => 'チャンネルに参加して始めましょう';
 
   @override
   String ircUsersCount(int count) {
-    return 'Users ($count)';
+    return 'ユーザー ($count)';
   }
 
   @override
-  String get ircNoUsers => 'No users';
+  String get ircNoUsers => 'ユーザーがいません';
 
   @override
-  String get passwordVisibility => 'Toggle password visibility';
+  String get passwordVisibility => 'パスワードの表示/非表示';
 
   @override
-  String get nicknameHintExample => 'e.g. Alice';
+  String get nicknameHintExample => '例: Alice';
 
   @override
-  String get callAudioRouteSystem =>
-      'Audio route managed by system on this platform';
+  String get callAudioRouteSystem => 'このプラットフォームでは音声出力先はシステムが管理します';
 
   @override
-  String get copyFullToxId => 'Copy full ID';
+  String get copyFullToxId => 'ID 全体をコピー';
 
   @override
-  String get themeSystem => 'System';
+  String get themeSystem => 'システム';
 
   @override
-  String get themeLight => 'Light';
+  String get themeLight => 'ライト';
 
   @override
-  String get themeDark => 'Dark';
+  String get themeDark => 'ダーク';
 
   @override
   String get idLabel => 'ID:';
 
   @override
   String errorBannerLabel(String message) {
-    return 'Error: $message';
+    return 'エラー: $message';
   }
 
   @override
   String searchResultContactSemantics(String name) {
-    return '$name, contact';
+    return '$name、連絡先';
   }
 
   @override
   String searchResultGroupSemantics(String name) {
-    return '$name, group';
+    return '$name、グループ';
   }
 
   @override
   String searchResultMessageSemantics(String name) {
-    return '$name, message';
+    return '$name、メッセージ';
   }
 
   @override
   String searchResultConversationSemantics(String name) {
-    return '$name, conversation';
+    return '$name、会話';
   }
 
   @override
-  String get importNoFileSelected => 'No file selected';
+  String get importNoFileSelected => 'ファイルが選択されていません';
 
   @override
-  String get importCancelled => 'Cancelled';
+  String get importCancelled => 'キャンセルしました';
 
   @override
-  String get recoveryBlockedTitle => 'Account recovery incomplete';
+  String get recoveryBlockedTitle => 'アカウントの復旧が完了していません';
 
   @override
   String get recoveryBlockedBody =>
-      'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.';
+      'toxee は、読み取れない未完了のアカウント復元または削除を検出したため、どのアカウントも開いていません — 続行するとデータが失われるおそれがありました。\n\nアカウントとそのプロフィールは、まだこのデバイスに残っています。再登録やアプリデータの消去は絶対に行わないでください。どちらもデータの損失を確定させてしまいます。修復できるよう、以下の詳細を報告してください。';
 
   @override
   String get secureStorageUnavailable =>
-      'Secure storage is unavailable, so toxee cannot check this account’s password. This is usually temporary — try again, or unlock your device keychain.';
+      'セキュアストレージを利用できないため、toxee はこのアカウントのパスワードを確認できません。通常は一時的な問題です。もう一度試すか、デバイスのキーチェーンのロックを解除してください。';
 
   @override
-  String get recoverLegacyDataAction => 'Recover data from an older version';
+  String get recoverLegacyDataAction => '旧バージョンのデータを復旧';
 
   @override
   String get recoverLegacyDataConfirm =>
-      'This device still holds chat history, queued messages and contact avatars from before toxee supported multiple accounts. Add them to the account you are signed into now?\n\nDo this only if that data is yours. It can be claimed once, by one account.\n\nYou will be signed out so the merge can happen at your next sign-in.';
+      'このデバイスには、toxee が複数アカウントに対応する前のチャット履歴、送信待ちメッセージ、連絡先のアバターが残っています。現在ログインしているアカウントに追加しますか？\n\nこのデータがご自身のものである場合にのみ実行してください。引き継げるのは 1 つのアカウントで 1 回だけです。\n\n統合は次回のログイン時に行われるため、ログアウトされます。';
 
   @override
   String get recoverLegacyDataClaimed =>
-      'This account will take over the older data. Sign out and back in to merge it — doing that at sign-in is what keeps your current history and queued messages intact.';
+      'このアカウントが旧データを引き継ぎます。統合するには、ログアウトしてから再度ログインしてください — ログイン時に統合することで、現在の履歴と送信待ちメッセージが保持されます。';
 
   @override
-  String get recoverLegacyDataDone => 'Older data was added to this account.';
+  String get recoverLegacyDataDone => '旧データをこのアカウントに追加しました。';
 
   @override
   String get recoverLegacyDataUnavailable =>
-      'That data could not be claimed — it may already belong to another account on this device.';
+      'このデータを引き継げませんでした。このデバイス上の別のアカウントに既に属している可能性があります。';
 
   @override
   String get accountRegistryUnreadable =>
-      'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.';
+      '保存済みのアカウントを読み取れませんでした。プロフィールはまだこのデバイスに残っています — 再登録せず、アカウントリストを修復できるよう報告してください。';
 
   @override
-  String get importedAccountDefaultName => 'Imported account';
+  String get importedAccountDefaultName => 'インポートしたアカウント';
 
   @override
   String failedToImport(String error) {
-    return 'Failed to import: $error';
+    return 'インポートに失敗しました: $error';
   }
 
   @override
-  String get selectConversationEmptyState =>
-      'Select a conversation to start chatting';
+  String get selectConversationEmptyState => '会話を選択してチャットを始めましょう';
 
   @override
-  String get newConversationTooltip => 'New conversation';
+  String get newConversationTooltip => '新しい会話';
 
   @override
-  String get pinConversation => 'Pin';
+  String get pinConversation => 'ピン留め';
 
   @override
-  String get unpinConversation => 'Unpin';
+  String get unpinConversation => 'ピン留めを解除';
 
   @override
-  String get markConversationAsRead => 'Mark as read';
+  String get markConversationAsRead => '既読にする';
 
   @override
-  String get deleteConversationTitle => 'Delete conversation?';
+  String get deleteConversationTitle => '会話を削除しますか？';
 
   @override
   String deleteConversationBody(String name) {
-    return 'This will remove \"$name\" from your chat list. Message history stays on disk.';
+    return '「$name」がチャットリストから削除されます。メッセージ履歴はディスクに残ります。';
   }
 
   @override
-  String get firstRunBackupWizardTitle => 'Save your account file';
+  String get firstRunBackupWizardTitle => 'アカウントファイルを保存';
 
   @override
   String get firstRunBackupWizardBody =>
-      'Your account lives only on this device. Save the .tox file somewhere safe (cloud storage, password manager, USB stick). Without it, losing this device means losing your account and all your contacts permanently.';
+      'アカウントはこのデバイスにのみ保存されています。.tox ファイルを安全な場所（クラウドストレージ、パスワードマネージャー、USB メモリなど）に保存してください。保存しないままこのデバイスを失うと、アカウントとすべての連絡先が永久に失われます。';
 
   @override
-  String get firstRunBackupWizardExportNow => 'Export now';
+  String get firstRunBackupWizardExportNow => '今すぐエクスポート';
 
   @override
-  String get firstRunBackupWizardLater => 'I\'ll do it later';
+  String get firstRunBackupWizardLater => '後で行う';
 
   @override
-  String get firstRunBackupWizardDismissTitle => 'Skip backup?';
+  String get firstRunBackupWizardDismissTitle => 'バックアップをスキップしますか？';
 
   @override
   String get firstRunBackupWizardDismissBody =>
-      'If you lose this device, you will lose your account and all contacts. There is no recovery.';
+      'このデバイスを失うと、アカウントとすべての連絡先が失われます。復旧する方法はありません。';
 
   @override
-  String get firstRunBackupWizardDismissConfirm => 'I understand, continue';
+  String get firstRunBackupWizardDismissConfirm => '理解したうえで続行';
 
   @override
   String firstRunBackupWizardExportFailed(String error) {
-    return 'Couldn\'t save your account file: $error';
+    return 'アカウントファイルを保存できませんでした: $error';
   }
 
   @override
-  String get restoreFromToxFile => 'Restore from .tox file';
+  String get restoreFromToxFile => '.tox ファイルから復元';
 
   @override
   String restoreFromToxFileSuccess(String nickname) {
-    return 'Restored account: $nickname';
+    return 'アカウントを復元しました: $nickname';
   }
 
   @override
-  String get restoreFromToxFileInvalidFile =>
-      'This file doesn\'t look like a valid Tox profile.';
+  String get restoreFromToxFileInvalidFile => 'このファイルは有効な Tox プロフィールではないようです。';
 
   @override
-  String get pairDeviceHostTitle => 'Pair another device';
+  String get pairDeviceHostTitle => '別のデバイスをペアリング';
 
   @override
-  String get pairDeviceClientTitle => 'Pair with another device';
+  String get pairDeviceClientTitle => '別のデバイスとペアリング';
 
   @override
   String get pairingHostInstructions =>
-      'Open toxee on your other device, choose \"Pair with another device\", and scan this QR code.';
+      'もう一方のデバイスで toxee を開き、「別のデバイスとペアリング」を選択して、この QR コードをスキャンしてください。';
 
   @override
   String get pairingClientScanInstructions =>
-      'Point your camera at the QR code on your other device.';
+      'もう一方のデバイスに表示されている QR コードにカメラを向けてください。';
 
   @override
   String get pairingClientPasteInstructions =>
-      'Camera scanning isn\'t supported on this device. Paste the pairing URL shown on your other device below.';
+      'このデバイスはカメラでのスキャンに対応していません。もう一方のデバイスに表示されているペアリング URL を下に貼り付けてください。';
 
   @override
-  String get pairingPasteUrlLabel => 'Pairing URL';
+  String get pairingPasteUrlLabel => 'ペアリング URL';
 
   @override
-  String get pairingConnectButton => 'Connect';
+  String get pairingConnectButton => '接続';
 
   @override
-  String get pairingWaitingForPeer =>
-      'Waiting for the other device to connect…';
+  String get pairingWaitingForPeer => 'もう一方のデバイスの接続を待機中…';
 
   @override
-  String get pairingVerifyCodeHeader =>
-      'Verify both devices show the same code';
+  String get pairingVerifyCodeHeader => '両方のデバイスに同じコードが表示されていることを確認してください';
 
   @override
   String get pairingVerifyCodeInstructions =>
-      'If the code matches what\'s shown on your other device, tap below. If they differ, cancel — someone may be intercepting the connection.';
+      'もう一方のデバイスに表示されているコードと一致する場合は、下をタップしてください。異なる場合はキャンセルしてください — 接続が傍受されている可能性があります。';
 
   @override
-  String get pairingCodesMatch => 'The codes match';
+  String get pairingCodesMatch => 'コードが一致しています';
 
   @override
-  String get pairingHostCompleted =>
-      'Account sent. The other device now has your account.';
+  String get pairingHostCompleted => 'アカウントを送信しました。もう一方のデバイスでこのアカウントを使用できます。';
 
   @override
-  String get pairingClientCompleted => 'Account received. You\'re paired.';
+  String get pairingClientCompleted => 'アカウントを受信しました。ペアリングが完了しました。';
 
   @override
-  String get pairingCancelled => 'Pairing cancelled.';
+  String get pairingCancelled => 'ペアリングをキャンセルしました。';
 
   @override
-  String get pairingTimeout => 'Pairing timed out — try again.';
+  String get pairingTimeout => 'ペアリングがタイムアウトしました — もう一度お試しください。';
 
   @override
   String pairingNetworkError(String detail) {
-    return 'Network error during pairing: $detail';
+    return 'ペアリング中にネットワークエラーが発生しました: $detail';
   }
 
   @override
   String pairingProtocolError(String detail) {
-    return 'Pairing handshake failed: $detail';
+    return 'ペアリングのハンドシェイクに失敗しました: $detail';
   }
 
   @override
   String pairingInvalidUrl(String detail) {
-    return 'That QR code isn\'t a valid pairing invitation: $detail';
+    return 'この QR コードは有効なペアリング招待ではありません: $detail';
   }
 
   @override
   String get pairingDecryptFailed =>
-      'Couldn\'t decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.';
+      '受信したプロフィールを復号できませんでした。ペアリングが改ざんされた可能性があります — 信頼できるネットワークでもう一度お試しください。';
 
   @override
   String get pairingNoLanInterface =>
-      'No LAN network detected. Connect to WiFi or Ethernet and try again.';
+      'LAN ネットワークが検出されません。Wi-Fi またはイーサネットに接続して、もう一度お試しください。';
 
   @override
-  String get pairThisAccountToAnotherDevice =>
-      'Pair this account to another device';
+  String get pairThisAccountToAnotherDevice => 'このアカウントを別のデバイスとペアリング';
 
   @override
-  String get pairWithAnotherDevice =>
-      'Pair with another device that has my account';
+  String get pairWithAnotherDevice => '自分のアカウントがある別のデバイスとペアリング';
 
   @override
-  String get devicesSectionTitle => 'Devices';
+  String get devicesSectionTitle => 'デバイス';
 
   @override
-  String get done => 'Done';
+  String get done => '完了';
 
   @override
   String get runtimeForegroundTitle => 'Toxee は実行中です';
@@ -1695,9 +1683,206 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get importMayHaveCompleted =>
-      'The import could not be undone, so this account may still be there. Check your account list before importing again.';
+      'インポートを取り消せなかったため、このアカウントはまだ残っている可能性があります。再度インポートする前にアカウントリストを確認してください。';
 
   @override
   String get importBlockedByPendingImport =>
-      'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.';
+      '中断された別のアカウントインポートがまだ処理されていません。toxee を再起動して取り消しを完了してから、再度インポートしてください。';
+
+  @override
+  String get friendRequestQueued => 'オフライン — リクエストはキューに追加され、再接続時に送信されます';
+
+  @override
+  String get cannotAddSelfAsFriend => '自分自身を友達に追加することはできません';
+
+  @override
+  String get friendRequestAlreadySent => 'このセッションで既に友達リクエストを送信しています';
+
+  @override
+  String get alreadyInFriendList => 'このユーザーは既に友達リストにいます';
+
+  @override
+  String get addFriendOfflineBanner =>
+      'オフライン — 友達リクエストはキューに追加され、再接続時に自動的に送信されます。';
+
+  @override
+  String get scanQr => 'QR をスキャン';
+
+  @override
+  String get sendingInProgress => '送信中...';
+
+  @override
+  String get firewallHintWindows =>
+      'Windows では、ファイアウォールが着信接続をブロックする場合があります。確認を求められたらアプリを許可してください。';
+
+  @override
+  String get firewallHintLinux =>
+      'Linux では、ネットワーク操作に適切な権限またはファイアウォールルールが必要な場合があります。';
+
+  @override
+  String get nodePublicKeyHint => '公開鍵（16進数）';
+
+  @override
+  String get failedToAddBootstrapNode => 'ブートストラップノードの追加に失敗しました';
+
+  @override
+  String get couldNotRemovePassword => 'パスワードを削除できませんでした';
+
+  @override
+  String get couldNotSavePassword => 'パスワードを保存できませんでした';
+
+  @override
+  String mediaSent(String label) {
+    return '$labelを送信しました';
+  }
+
+  @override
+  String get dhtUnreachableUsingFallback =>
+      'DHT に接続できません。フォールバックのブートストラップノードを使用しています — ネットワークが UDP をブロックしているか、ノードがダウンしている可能性があります。';
+
+  @override
+  String get dhtUnreachableTimeout =>
+      '30 秒経っても DHT に接続できません。ネットワーク接続を確認してください。';
+
+  @override
+  String chatSdkInitFailed(String error) {
+    return 'チャット SDK の初期化に失敗しました: $error';
+  }
+
+  @override
+  String messageTooLongMaxBytes(int maxBytes) {
+    return 'メッセージが長すぎます（最大 $maxBytes バイト）';
+  }
+
+  @override
+  String get friendOfflineWillRetry => '友達がオフラインです — 再接続時に再送信します';
+
+  @override
+  String get groupFileTransferUnsupported => 'グループチャットでのファイル転送はサポートされていません';
+
+  @override
+  String fileSendFailed(String error) {
+    return 'ファイルの送信に失敗しました: $error';
+  }
+
+  @override
+  String errorWithCode(int code) {
+    return 'エラー $code';
+  }
+
+  @override
+  String pairingLanUnreachable(String detail) {
+    return 'このネットワークではデバイス同士が互いを検出できません。個人用ホットスポットを試すか、代わりにエクスポート → ファイルからインポートを使用してください。($detail)';
+  }
+
+  @override
+  String get notificationNewFriendRequest => '新しい友達リクエスト';
+
+  @override
+  String notificationFriendRequestFrom(String name) {
+    return '友達リクエスト: $name';
+  }
+
+  @override
+  String get notificationMissedCall => '不在着信';
+
+  @override
+  String get notificationMissedVideoCall => 'ビデオ通話の不在着信';
+
+  @override
+  String get notificationIncomingCall => '着信';
+
+  @override
+  String get notificationIncomingVideoCall => 'ビデオ通話の着信';
+
+  @override
+  String get notificationUnknownCaller => 'Toxee の連絡先';
+
+  @override
+  String get notificationNewMessage => '新しいメッセージ';
+
+  @override
+  String get previewImage => '[画像]';
+
+  @override
+  String get previewVideo => '[動画]';
+
+  @override
+  String get previewVoice => '[音声]';
+
+  @override
+  String previewVoiceWithDuration(int seconds) {
+    return '[音声 $seconds秒]';
+  }
+
+  @override
+  String get previewFile => '[ファイル]';
+
+  @override
+  String previewFileWithName(String name) {
+    return '[ファイル] $name';
+  }
+
+  @override
+  String get previewSticker => '[ステッカー]';
+
+  @override
+  String get previewLocation => '[位置情報]';
+
+  @override
+  String get previewCustomMessage => '[カスタムメッセージ]';
+
+  @override
+  String get previewGroupEvent => '[グループイベント]';
+
+  @override
+  String get previewMessage => '[メッセージ]';
+
+  @override
+  String get channelMessagesName => 'メッセージ';
+
+  @override
+  String get channelMessagesDescription => 'Tox の連絡先から新しいメッセージを受信したときの通知。';
+
+  @override
+  String get channelFriendRequestsName => '友達リクエスト';
+
+  @override
+  String get channelFriendRequestsDescription => '友達リクエストを受信したときの通知。';
+
+  @override
+  String get channelMissedCallsName => '不在着信';
+
+  @override
+  String get channelMissedCallsDescription => '着信に応答できなかった、または不在だったときの通知。';
+
+  @override
+  String get channelIncomingCallsName => '着信';
+
+  @override
+  String get channelIncomingCallsDescription => 'Toxee の着信を知らせる全画面アラート。';
+
+  @override
+  String get notificationOpenAction => 'Toxee を開く';
+
+  @override
+  String trayUnreadTooltip(int count) {
+    return '未読: $count';
+  }
+
+  @override
+  String get unknownErrorReason => '不明なエラー';
+
+  @override
+  String get notificationNoMessage => '（メッセージなし）';
+
+  @override
+  String notificationGroupedSummary(int count, String name) {
+    return '$name から $count 件の新着メッセージ';
+  }
+
+  @override
+  String pairingConnectTimedOut(String endpoint) {
+    return '時間内にもう一方のデバイス（$endpoint）に接続できませんでした。両方のデバイスが同じネットワークにあることを確認するか、個人用ホットスポットを試すか、ファイルによるエクスポート → インポートを使用してください。';
+  }
 }

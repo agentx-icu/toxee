@@ -1,0 +1,4 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSMicrophoneUsageDescription" = "本应用需要使用麦克风进行语音和视频通话。";
+"NSCameraUsageDescription" = "本应用需要使用相机进行视频通话。";
+"NSPhotoLibraryUsageDescription" = "Toxee 需要访问你的相册以发送照片和视频。";

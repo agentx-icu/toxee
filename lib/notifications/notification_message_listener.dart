@@ -10,6 +10,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/uikit_data_facade.dart';
 import '../sdk_fake/c2c_recv_opt_cache.dart';
+import '../util/app_l10n.dart';
 import '../util/logger.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
@@ -280,7 +281,7 @@ class NotificationMessageListener {
       }
       return sender;
     }
-    return 'New message';
+    return currentAppL10n().notificationNewMessage;
   }
 
   /// Returns `c2c_<publicKey>` or `group_<groupID>` to match the rest of the
@@ -307,33 +308,36 @@ class NotificationMessageListener {
   }
 
   String _buildPreview(V2TimMessage message) {
+    final l10n = currentAppL10n();
     switch (message.elemType) {
       case MessageElemType.V2TIM_ELEM_TYPE_TEXT:
         final text = message.textElem?.text ?? '';
-        if (text.isEmpty) return '[Message]';
+        if (text.isEmpty) return l10n.previewMessage;
         return text;
       case MessageElemType.V2TIM_ELEM_TYPE_IMAGE:
-        return '[Image]';
+        return l10n.previewImage;
       case MessageElemType.V2TIM_ELEM_TYPE_VIDEO:
-        return '[Video]';
+        return l10n.previewVideo;
       case MessageElemType.V2TIM_ELEM_TYPE_SOUND:
         final dur = message.soundElem?.duration;
-        if (dur != null && dur > 0) return '[Voice ${dur}s]';
-        return '[Voice]';
+        if (dur != null && dur > 0) return l10n.previewVoiceWithDuration(dur);
+        return l10n.previewVoice;
       case MessageElemType.V2TIM_ELEM_TYPE_FILE:
         final name = message.fileElem?.fileName;
-        if (name != null && name.isNotEmpty) return '[File] $name';
-        return '[File]';
+        if (name != null && name.isNotEmpty) {
+          return l10n.previewFileWithName(name);
+        }
+        return l10n.previewFile;
       case MessageElemType.V2TIM_ELEM_TYPE_FACE:
-        return '[Sticker]';
+        return l10n.previewSticker;
       case MessageElemType.V2TIM_ELEM_TYPE_LOCATION:
-        return '[Location]';
+        return l10n.previewLocation;
       case MessageElemType.V2TIM_ELEM_TYPE_CUSTOM:
-        return '[Custom Message]';
+        return l10n.previewCustomMessage;
       case MessageElemType.V2TIM_ELEM_TYPE_GROUP_TIPS:
-        return '[Group event]';
+        return l10n.previewGroupEvent;
       default:
-        return '[Message]';
+        return l10n.previewMessage;
     }
   }
 

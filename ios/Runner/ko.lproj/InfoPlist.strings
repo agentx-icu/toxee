@@ -1,0 +1,7 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSCameraUsageDescription" = "Toxee는 채팅에서 사진 촬영 및 동영상 녹화, 영상 통화, 페어링 QR 코드 스캔에 카메라를 사용합니다.";
+"NSLocalNetworkUsageDescription" = "P2P 프로토콜로 다른 사용자와 연결하려면 네트워크 접근 권한이 필요합니다.";
+"NSMicrophoneUsageDescription" = "Toxee는 음성 메시지 녹음과 음성 또는 영상 통화에 마이크를 사용합니다.";
+"NSPhotoLibraryAddUsageDescription" = "저장을 선택하면 Toxee가 받은 사진과 동영상을 사진 보관함에 저장합니다.";
+"NSPhotoLibraryUsageDescription" = "사진과 동영상을 보내려면 Toxee가 사진 보관함에 접근해야 합니다.";
+"NSUserNotificationsUsageDescription" = "Toxee는 새 메시지, 친구 요청, 수신 전화를 알림으로 알려 드립니다.";

@@ -5,41 +5,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
 
+import '../util/app_l10n.dart';
 import '../util/harness_environment.dart';
+import '../util/locale_controller.dart';
 import '../util/logger.dart';
 import '../util/serialized_async_tail.dart';
 import 'incoming_call_window_lease.dart';
+import 'notification_channels.dart';
 
-const String _androidIncomingCallChannelId = 'toxee_incoming_calls';
-const String _androidIncomingCallChannelName = 'Incoming calls';
-const String _androidIncomingCallChannelDescription =
-    'Full-screen alerts for incoming Toxee calls.';
+export 'notification_channels.dart'
+    show buildAndroidIncomingCallNotificationDetails;
+
 const int _androidIncomingCallNotificationId = 0x746f7865;
 const MethodChannel _androidIncomingCallWindowChannel = MethodChannel(
   'toxee/incoming_call_window',
 );
-
-/// Android policy for the live incoming-call surface.
-///
-/// Sound and vibration stay disabled here because [RingtonePlayer] owns those
-/// effects and respects the device ringer mode. The notification exists to
-/// make the Flutter accept/decline surface visible over background/lock state.
-AndroidNotificationDetails buildAndroidIncomingCallNotificationDetails() {
-  return const AndroidNotificationDetails(
-    _androidIncomingCallChannelId,
-    _androidIncomingCallChannelName,
-    channelDescription: _androidIncomingCallChannelDescription,
-    importance: Importance.max,
-    priority: Priority.max,
-    category: AndroidNotificationCategory.call,
-    fullScreenIntent: true,
-    ongoing: true,
-    autoCancel: false,
-    playSound: false,
-    enableVibration: false,
-    visibility: NotificationVisibility.public,
-  );
-}
 
 class IncomingCallNotificationLease {
   int _generation = 0;
@@ -104,25 +84,6 @@ class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
-  static const String _androidChannelId = 'toxee_messages';
-  static const String _androidChannelName = 'Messages';
-  static const String _androidChannelDescription =
-      'Notifications for new incoming messages from your tox contacts.';
-
-  // Separate Android notification channel for friend-add applications so the
-  // user can mute / tweak importance independently of normal-message banners.
-  static const String _androidFriendReqChannelId = 'toxee_friend_requests';
-  static const String _androidFriendReqChannelName = 'Friend requests';
-  static const String _androidFriendReqChannelDescription =
-      'Notifications when someone sends you a friend request.';
-
-  // Dedicated channel for missed-call banners — separate from message and
-  // friend-request channels so users can tune importance/sound independently.
-  static const String _androidMissedCallChannelId = 'toxee_missed_calls';
-  static const String _androidMissedCallChannelName = 'Missed calls';
-  static const String _androidMissedCallChannelDescription =
-      'Notifications when an incoming call could not be reached or was missed.';
-
   /// Body truncation cap — keep tight to avoid OS-level ellipsis on Android
   /// (Material You collapses long lines on the lock screen) and macOS Big
   /// Sur-era banners that hard-truncate around 100 chars.
@@ -143,6 +104,17 @@ class NotificationService {
 
   bool _initialized = false;
   Future<void>? _initializingFuture;
+
+  /// Linux banner details. The default action label is resolved per
+  /// notification so it follows the current app language.
+  static LinuxNotificationDetails _linuxDetails() => LinuxNotificationDetails(
+    category: LinuxNotificationCategory.imReceived,
+    defaultActionName: currentAppL10n().notificationOpenAction,
+  );
+
+  /// Re-registers the Android channels in the new language. Kept in a field
+  /// so a retried [init] cannot stack a second listener.
+  VoidCallback? _channelLocaleListener;
 
   /// Cached Android POST_NOTIFICATIONS decision for the session. `null` =
   /// not yet asked; `true` = granted (either already enabled or the user
@@ -254,10 +226,12 @@ class NotificationService {
         requestBadgePermission: false,
         requestSoundPermission: false,
       );
-      const linuxInit = LinuxInitializationSettings(
-        defaultActionName: 'Open Toxee',
+      // Required at init; every notification also passes the label itself
+      // (see _linuxDetails) so a later language switch is not frozen here.
+      final linuxInit = LinuxInitializationSettings(
+        defaultActionName: currentAppL10n().notificationOpenAction,
       );
-      const initSettings = InitializationSettings(
+      final initSettings = InitializationSettings(
         android: androidInit,
         iOS: darwinInit,
         macOS: darwinInit,
@@ -300,53 +274,21 @@ class NotificationService {
               AndroidFlutterLocalNotificationsPlugin
             >();
         if (androidImpl != null) {
-          // NOTE: Android notification channels are immutable once created.
-          // Existing installs that already have these channels keep whatever
-          // sound/vibration/importance settings the channel was first created
-          // with — only fresh installs (or after a clear-data) pick up these
-          // explicit values. We set them anyway so new users get sane defaults
-          // and so the contract is visible here.
-          await androidImpl.createNotificationChannel(
-            const AndroidNotificationChannel(
-              _androidChannelId,
-              _androidChannelName,
-              description: _androidChannelDescription,
-              importance: Importance.high,
-              playSound: true,
-              enableVibration: true,
-            ),
-          );
-          await androidImpl.createNotificationChannel(
-            const AndroidNotificationChannel(
-              _androidFriendReqChannelId,
-              _androidFriendReqChannelName,
-              description: _androidFriendReqChannelDescription,
-              importance: Importance.high,
-              playSound: true,
-              enableVibration: true,
-            ),
-          );
-          await androidImpl.createNotificationChannel(
-            const AndroidNotificationChannel(
-              _androidMissedCallChannelId,
-              _androidMissedCallChannelName,
-              description: _androidMissedCallChannelDescription,
-              importance: Importance.high,
-              playSound: true,
-              enableVibration: true,
-            ),
-          );
-          await androidImpl.createNotificationChannel(
-            const AndroidNotificationChannel(
-              _androidIncomingCallChannelId,
-              _androidIncomingCallChannelName,
-              description: _androidIncomingCallChannelDescription,
-              importance: Importance.max,
-              playSound: false,
-              enableVibration: false,
-              showBadge: false,
-            ),
-          );
+          await registerAndroidNotificationChannels(androidImpl);
+          // Channel names are user-visible in system settings: rename them
+          // when the app language changes (init runs once per process).
+          if (_channelLocaleListener == null) {
+            final listener = _channelLocaleListener = () {
+              unawaited(
+                registerAndroidNotificationChannels(androidImpl).catchError(
+                  (Object e) => AppLogger.warn(
+                    '[NotificationService] channel rename: $e',
+                  ),
+                ),
+              );
+            };
+            AppLocale.locale.addListener(listener);
+          }
         }
         // Android 13+ (API 33) requires the POST_NOTIFICATIONS runtime
         // permission. We warm [_ensureAndroidPermission] so the cached state is
@@ -513,15 +455,18 @@ class NotificationService {
       final id = _idFor(conversationId);
       final isGrouped = lines.length > 1;
       final summary = isGrouped
-          ? '${lines.length} new messages from $senderName'
+          ? currentAppL10n().notificationGroupedSummary(
+              lines.length,
+              senderName,
+            )
           : null;
 
       // Android inbox style — preserves per-message lines plus a summary
       // count. The summary is shown when the notification is collapsed.
       final androidDetails = AndroidNotificationDetails(
-        _androidChannelId,
-        _androidChannelName,
-        channelDescription: _androidChannelDescription,
+        ToxeeNotificationChannel.messages.id,
+        ToxeeNotificationChannel.messages.displayName,
+        channelDescription: ToxeeNotificationChannel.messages.description,
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.message,
@@ -552,9 +497,7 @@ class NotificationService {
         presentSound: true,
       );
 
-      const linuxDetails = LinuxNotificationDetails(
-        category: LinuxNotificationCategory.imReceived,
-      );
+      final linuxDetails = _linuxDetails();
 
       final body = isGrouped ? (summary ?? clampedBody) : clampedBody;
 
@@ -611,15 +554,17 @@ class NotificationService {
 
     try {
       final clampedBody = _clampBody(
-        requestMessage.isEmpty ? '(no message)' : requestMessage,
+        requestMessage.isEmpty
+            ? currentAppL10n().notificationNoMessage
+            : requestMessage,
       );
 
       final id = _idFor('friend_req:$senderId');
 
-      const androidDetails = AndroidNotificationDetails(
-        _androidFriendReqChannelId,
-        _androidFriendReqChannelName,
-        channelDescription: _androidFriendReqChannelDescription,
+      final androidDetails = AndroidNotificationDetails(
+        ToxeeNotificationChannel.friendRequests.id,
+        ToxeeNotificationChannel.friendRequests.displayName,
+        channelDescription: ToxeeNotificationChannel.friendRequests.description,
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.social,
@@ -631,17 +576,15 @@ class NotificationService {
         presentBadge: true,
         presentSound: true,
       );
-      const linuxDetails = LinuxNotificationDetails(
-        category: LinuxNotificationCategory.imReceived,
-      );
+      final linuxDetails = _linuxDetails();
 
       await _plugin.show(
         id,
         senderName.isEmpty
-            ? 'New friend request'
-            : 'Friend request: $senderName',
+            ? currentAppL10n().notificationNewFriendRequest
+            : currentAppL10n().notificationFriendRequestFrom(senderName),
         clampedBody,
-        const NotificationDetails(
+        NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
           macOS: darwinDetails,
@@ -732,14 +675,16 @@ class NotificationService {
     }
 
     try {
-      final title = wasVideo ? 'Missed video call' : 'Missed call';
+      final title = wasVideo
+          ? currentAppL10n().notificationMissedVideoCall
+          : currentAppL10n().notificationMissedCall;
       final body = displayName.isEmpty ? peerId : displayName;
       final id = _idFor('missed_call:$peerId');
 
-      const androidDetails = AndroidNotificationDetails(
-        _androidMissedCallChannelId,
-        _androidMissedCallChannelName,
-        channelDescription: _androidMissedCallChannelDescription,
+      final androidDetails = AndroidNotificationDetails(
+        ToxeeNotificationChannel.missedCalls.id,
+        ToxeeNotificationChannel.missedCalls.displayName,
+        channelDescription: ToxeeNotificationChannel.missedCalls.description,
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.missedCall,
@@ -751,15 +696,13 @@ class NotificationService {
         presentBadge: true,
         presentSound: true,
       );
-      const linuxDetails = LinuxNotificationDetails(
-        category: LinuxNotificationCategory.imReceived,
-      );
+      final linuxDetails = _linuxDetails();
 
       await _plugin.show(
         id,
         title,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
           macOS: darwinDetails,
@@ -845,8 +788,13 @@ class NotificationService {
           complete(IncomingCallNotificationOutcome.cancelled);
           return;
         }
-        final title = isVideo ? 'Incoming video call' : 'Incoming call';
-        final body = displayName.isEmpty ? 'Toxee contact' : displayName;
+        final l10n = currentAppL10n();
+        final title = isVideo
+            ? l10n.notificationIncomingVideoCall
+            : l10n.notificationIncomingCall;
+        final body = displayName.isEmpty
+            ? l10n.notificationUnknownCaller
+            : displayName;
         await _plugin.show(
           _androidIncomingCallNotificationId,
           title,
@@ -1146,6 +1094,9 @@ class NotificationService {
     _grouped.clear();
     _conversationIdHashCache.clear();
     _initialized = false;
+    final listener = _channelLocaleListener;
+    if (listener != null) AppLocale.locale.removeListener(listener);
+    _channelLocaleListener = null;
     _androidPermissionGranted = null;
     _lastIncomingCallNotificationOutcome = null;
   }

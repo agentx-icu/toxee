@@ -7,6 +7,7 @@ import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_code_info.dar
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_message/group_profile_widgets/tencent_cloud_chat_group_profile_body.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_group_profile.dart';
+import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/group/group_builder_override.dart';
 
 void _useEnglish() {
@@ -69,6 +70,81 @@ void main() {
       );
     },
   );
+
+  testWidgets('UIKit message bubble time follows the UIKit locale', (
+    tester,
+  ) async {
+    // Regression: formatTimestampToTime used a locale-less DateFormat.jm(), so
+    // every non-English UI rendered English "9:28 AM" bubble times while the
+    // conversation list next to it read "09:28".
+    final ts = DateTime(2026, 9, 17, 9, 28).millisecondsSinceEpoch ~/ 1000;
+    late BuildContext ctx;
+    _useSimplifiedChinese();
+    await _pumpMaterial(
+      tester,
+      Builder(
+        builder: (context) {
+          ctx = context;
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+
+    expect(TencentCloudChatIntl.formatTimestampToTime(ts, ctx), '09:28');
+    expect(TencentCloudChatIntl.formatTimestampToTime(ts), '09:28');
+
+    _useEnglish();
+    expect(
+      TencentCloudChatIntl.formatTimestampToTime(ts, ctx),
+      matches(RegExp(r'^9:28\sAM$')),
+    );
+  });
+
+  testWidgets(
+    'UIKit member date-times use the UIKit locale, not the log format',
+    (tester) async {
+      // Regression: group member info/list rendered join and last-message times
+      // with getFormattedTimeString ('yyyy-MM-dd hh:mm:ss a', always English
+      // AM/PM) and a hard-coded Chinese '无' for "none" in every language.
+      final dt = DateTime(2026, 9, 17, 21, 5);
+      late BuildContext ctx;
+      _useSimplifiedChinese();
+      await _pumpMaterial(
+        tester,
+        Builder(
+          builder: (context) {
+            ctx = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+      final zh = TencentCloudChatIntl.formatDateTime(dt, ctx);
+      expect(zh, contains('21:05'));
+      expect(zh, isNot(contains('PM')));
+      expect(tL10n.none, isNot('None'));
+
+      _useEnglish();
+      expect(TencentCloudChatIntl.formatDateTime(dt, ctx), contains('PM'));
+      expect(tL10n.none, 'None');
+    },
+  );
+
+  test('app status labels are translated in every shipped locale', () {
+    // Regression: statusOnline/statusOffline existed only in the en/ar ARBs, so
+    // the zh sidebar and profile read "Online" (gen-l10n falls back to English).
+    const cases = [
+      (Locale('zh'), '在线', '离线'),
+      (Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'), '在线', '离线'),
+      (Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'), '在線', '離線'),
+      (Locale('ja'), 'オンライン', 'オフライン'),
+      (Locale('ko'), '온라인', '오프라인'),
+    ];
+    for (final (locale, online, offline) in cases) {
+      final l10n = lookupAppLocalizations(locale);
+      expect(l10n.statusOnline, online, reason: '$locale');
+      expect(l10n.statusOffline, offline, reason: '$locale');
+    }
+  });
 
   testWidgets('UIKit group profile content localizes the group ID label', (
     tester,

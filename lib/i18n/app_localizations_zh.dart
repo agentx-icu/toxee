@@ -807,16 +807,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get statusMessageTooLong => '签名过长';
 
   @override
-  String get passwordStrengthWeak => 'Weak';
+  String get passwordStrengthWeak => '弱';
 
   @override
-  String get passwordStrengthFair => 'Fair';
+  String get passwordStrengthFair => '一般';
 
   @override
-  String get passwordStrengthGood => 'Good';
+  String get passwordStrengthGood => '良好';
 
   @override
-  String get passwordStrengthStrong => 'Strong';
+  String get passwordStrengthStrong => '强';
 
   @override
   String get manualNodeInput => '手动输入节点';
@@ -846,7 +846,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get nodeTestUnavailable => '本设备无法执行节点测试';
 
   @override
-  String get failedToLoadBootstrapNodes => '加载引导节点失败';
+  String get failedToLoadBootstrapNodes => '加载Bootstrap 节点失败';
 
   @override
   String get failedToStartBootstrapService => '启动引导服务失败';
@@ -1044,17 +1044,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get exportAccount => '导出账号';
 
   @override
-  String get exportOptionProfileTox => 'Profile (.tox)';
+  String get exportOptionProfileTox => '配置文件（.tox）';
 
   @override
-  String get exportOptionProfileToxSubtitle => 'qTox compatible, profile only';
+  String get exportOptionProfileToxSubtitle => '兼容 qTox，仅包含配置文件';
 
   @override
-  String get exportOptionFullBackup => 'Full Backup (.zip)';
+  String get exportOptionFullBackup => '完整备份（.zip）';
 
   @override
-  String get exportOptionFullBackupSubtitle =>
-      'Profile + chat history + settings';
+  String get exportOptionFullBackupSubtitle => '配置文件 + 聊天记录 + 设置';
 
   @override
   String get importAccount => '导入账号';
@@ -1185,82 +1184,75 @@ class AppLocalizationsZh extends AppLocalizations {
   String get thisAccountIsAlreadyLoggedIn => '此账号已登录';
 
   @override
-  String get upgradeRequiredTitle => 'Please upgrade the app';
+  String get upgradeRequiredTitle => '请升级应用';
 
   @override
   String upgradeRequiredMessage(int storedVersion, int currentVersion) {
-    return 'Your data was saved by a newer version of the app (data version: $storedVersion). This version supports up to $currentVersion. Please install the latest update to continue.';
+    return '你的数据由更新版本的应用保存（数据版本：$storedVersion），当前版本最高仅支持 $currentVersion。请安装最新版本后继续。';
   }
 
   @override
   String get upgradeAppTitle => 'toxee';
 
   @override
-  String get hide => 'Hide';
+  String get hide => '隐藏';
 
   @override
-  String get pressBackAgainToExit => 'Press back again to exit';
+  String get pressBackAgainToExit => '再按一次返回键退出';
 
   @override
-  String get startupFailed => 'Startup Failed';
+  String get startupFailed => '启动失败';
 
   @override
   String get unknownError => '未知错误';
 
   @override
-  String get goToLogin => 'Go to Login';
+  String get goToLogin => '前往登录';
 
   @override
-  String get conference => 'Conference';
+  String get conference => '会议群';
 
   @override
-  String get defaultJoinRequestMessage =>
-      'Hi, please invite me into this group';
+  String get defaultJoinRequestMessage => '你好，请邀请我加入这个群';
 
   @override
-  String get userNotFoundPleaseRegister =>
-      'User not found. Please register first.';
+  String get userNotFoundPleaseRegister => '未找到该用户，请先注册。';
 
   @override
-  String get nicknameDoesNotMatch =>
-      'Nickname does not match. Please use the registered nickname or register a new account.';
+  String get nicknameDoesNotMatch => '昵称不匹配。请使用注册时的昵称，或注册新账号。';
 
   @override
-  String get accountAlreadyExistsPleaseLogin =>
-      'Account already exists. Please login instead or use a different nickname.';
+  String get accountAlreadyExistsPleaseLogin => '账号已存在。请直接登录，或使用其他昵称。';
 
   @override
-  String get profileNotFoundImportRestore =>
-      'Profile not found for this account. Please import or restore backup.';
+  String get profileNotFoundImportRestore => '未找到该账号的配置文件，请导入账号或恢复备份。';
 
   @override
-  String get failedToInitializeTIMManager =>
-      'Failed to initialize TIMManager SDK';
+  String get failedToInitializeTIMManager => 'TIMManager SDK 初始化失败';
 
   @override
-  String get failedToGetToxId => 'Failed to get Tox ID';
+  String get failedToGetToxId => '获取 Tox ID 失败';
 
   @override
-  String get failedToGenerateToxId => 'Failed to generate Tox ID';
+  String get failedToGenerateToxId => '生成 Tox ID 失败';
 
   @override
-  String get registrationCouldNotCreateProfile =>
-      'Registration could not create a unique profile. Please try again.';
+  String get registrationCouldNotCreateProfile => '注册时无法创建唯一的配置文件，请重试。';
 
   @override
-  String get importedAccount => 'Imported Account';
+  String get importedAccount => '已导入账号';
 
   @override
   String get unknown => '未知';
 
   @override
   String sendingToGroupsNotSupported(String label) {
-    return 'Sending $label to groups is not supported yet';
+    return '暂不支持向群组发送$label';
   }
 
   @override
   String noLabelSelected(String label) {
-    return 'No $label selected';
+    return '未选择$label';
   }
 
   @override
@@ -1375,33 +1367,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String unreadMessagesSemantics(int count) {
-    return '$count unread messages';
+    return '$count 条未读消息';
   }
 
   @override
   String matchingMessagesSemantics(int count) {
-    return '$count matching messages';
+    return '$count 条匹配的消息';
   }
 
   @override
-  String get statusOnline => 'Online';
+  String get statusOnline => '在线';
 
   @override
-  String get statusOffline => 'Offline';
+  String get statusOffline => '离线';
 
   @override
-  String get noIrcChannels => 'No IRC channels';
+  String get noIrcChannels => '暂无IRC频道';
 
   @override
-  String get joinChannelToGetStarted => 'Join a channel to get started';
+  String get joinChannelToGetStarted => '加入一个频道开始使用';
 
   @override
   String ircUsersCount(int count) {
-    return 'Users ($count)';
+    return '用户（$count）';
   }
 
   @override
-  String get ircNoUsers => 'No users';
+  String get ircNoUsers => '暂无用户';
 
   @override
   String get passwordVisibility => '切换密码可见';
@@ -1665,7 +1657,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appTagline => '私密的点对点通讯工具';
 
   @override
-  String get noBootstrapNodes => '没有引导节点';
+  String get noBootstrapNodes => '没有Bootstrap 节点';
 
   @override
   String get importMayHaveCompleted => '这次导入没能撤销，该账号可能仍然存在。请先查看账号列表再重新导入。';
@@ -1673,6 +1665,199 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get importBlockedByPendingImport =>
       '上一次账号导入被中断，还没有清理完。请重启 toxee 完成撤销后再重新导入。';
+
+  @override
+  String get friendRequestQueued => '当前离线 — 好友请求已排队，将在重新连接后发送';
+
+  @override
+  String get cannotAddSelfAsFriend => '不能添加自己为好友';
+
+  @override
+  String get friendRequestAlreadySent => '本次已发送过好友请求';
+
+  @override
+  String get alreadyInFriendList => '该用户已在你的好友列表中';
+
+  @override
+  String get addFriendOfflineBanner => '当前离线 — 好友请求将排队，并在重新连接后自动发送。';
+
+  @override
+  String get scanQr => '扫描二维码';
+
+  @override
+  String get sendingInProgress => '正在发送...';
+
+  @override
+  String get firewallHintWindows => '在 Windows 上，防火墙可能会拦截传入连接；如有提示，请允许本应用通过。';
+
+  @override
+  String get firewallHintLinux => '在 Linux 上，网络操作可能需要相应的权限或防火墙规则。';
+
+  @override
+  String get nodePublicKeyHint => '公钥（十六进制）';
+
+  @override
+  String get failedToAddBootstrapNode => '添加Bootstrap 节点失败';
+
+  @override
+  String get couldNotRemovePassword => '无法移除密码';
+
+  @override
+  String get couldNotSavePassword => '无法保存密码';
+
+  @override
+  String mediaSent(String label) {
+    return '$label已发送';
+  }
+
+  @override
+  String get dhtUnreachableUsingFallback =>
+      '无法连接到 DHT。正在使用备用Bootstrap 节点——你的网络可能屏蔽了 UDP，或节点已下线。';
+
+  @override
+  String get dhtUnreachableTimeout => '30 秒内无法连接到 DHT，请检查网络连接。';
+
+  @override
+  String chatSdkInitFailed(String error) {
+    return '聊天 SDK 初始化失败：$error';
+  }
+
+  @override
+  String messageTooLongMaxBytes(int maxBytes) {
+    return '消息过长（最多 $maxBytes 字节）';
+  }
+
+  @override
+  String get friendOfflineWillRetry => '好友不在线 — 将在对方重新上线后重试';
+
+  @override
+  String get groupFileTransferUnsupported => '暂不支持在群聊中传输文件';
+
+  @override
+  String fileSendFailed(String error) {
+    return '文件发送失败：$error';
+  }
+
+  @override
+  String errorWithCode(int code) {
+    return '错误码 $code';
+  }
+
+  @override
+  String pairingLanUnreachable(String detail) {
+    return '两台设备在当前网络中无法互相发现。请尝试使用个人热点，或改用“导出 → 导入”文件的方式。（$detail）';
+  }
+
+  @override
+  String get notificationNewFriendRequest => '新的好友请求';
+
+  @override
+  String notificationFriendRequestFrom(String name) {
+    return '好友请求：$name';
+  }
+
+  @override
+  String get notificationMissedCall => '未接来电';
+
+  @override
+  String get notificationMissedVideoCall => '未接视频来电';
+
+  @override
+  String get notificationIncomingCall => '来电';
+
+  @override
+  String get notificationIncomingVideoCall => '视频来电';
+
+  @override
+  String get notificationUnknownCaller => 'Toxee 联系人';
+
+  @override
+  String get notificationNewMessage => '新消息';
+
+  @override
+  String get previewImage => '[图片]';
+
+  @override
+  String get previewVideo => '[视频]';
+
+  @override
+  String get previewVoice => '[语音]';
+
+  @override
+  String previewVoiceWithDuration(int seconds) {
+    return '[语音 $seconds秒]';
+  }
+
+  @override
+  String get previewFile => '[文件]';
+
+  @override
+  String previewFileWithName(String name) {
+    return '[文件] $name';
+  }
+
+  @override
+  String get previewSticker => '[贴纸]';
+
+  @override
+  String get previewLocation => '[位置]';
+
+  @override
+  String get previewCustomMessage => '[自定义消息]';
+
+  @override
+  String get previewGroupEvent => '[群组事件]';
+
+  @override
+  String get previewMessage => '[消息]';
+
+  @override
+  String get channelMessagesName => '消息';
+
+  @override
+  String get channelMessagesDescription => '收到 Tox 联系人的新消息时通知。';
+
+  @override
+  String get channelFriendRequestsName => '好友请求';
+
+  @override
+  String get channelFriendRequestsDescription => '有人向你发送好友请求时通知。';
+
+  @override
+  String get channelMissedCallsName => '未接来电';
+
+  @override
+  String get channelMissedCallsDescription => '来电未能接通或被错过时通知。';
+
+  @override
+  String get channelIncomingCallsName => '来电';
+
+  @override
+  String get channelIncomingCallsDescription => 'Toxee 来电时的全屏提醒。';
+
+  @override
+  String get notificationOpenAction => '打开 Toxee';
+
+  @override
+  String trayUnreadTooltip(int count) {
+    return '未读：$count';
+  }
+
+  @override
+  String get unknownErrorReason => '未知错误';
+
+  @override
+  String get notificationNoMessage => '（无附言）';
+
+  @override
+  String notificationGroupedSummary(int count, String name) {
+    return '来自 $name 的 $count 条新消息';
+  }
+
+  @override
+  String pairingConnectTimedOut(String endpoint) {
+    return '未能及时连接到另一台设备（$endpoint）。请确认两台设备在同一网络中，尝试使用个人热点，或改用“导出 → 导入”文件的方式。';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2404,9 +2589,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get enterIrcChannel => '请输入IRC频道名称';
 
   @override
-  String get invalidIrcChannel => 'IRC channel must start with # or &';
-
-  @override
   String get join => '加入';
 
   @override
@@ -2430,10 +2612,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get directorySelectionNotSupported =>
-      'Directory selection is not supported on this platform';
-
-  @override
   String failedToSendFriendRequest(String error) {
     return '发送好友请求失败: $error';
   }
@@ -2453,11 +2631,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get noReceivers => '暂无接收者';
 
   @override
-  String messageReceivers(String count) {
-    return 'Message Receivers ($count)';
-  }
-
-  @override
   String get close => '关闭';
 
   @override
@@ -2468,9 +2641,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get nodeTestInconclusiveWarning => '无法从本设备检测该节点，因此对它是否可用一无所知。';
-
-  @override
-  String get nicknameTooLong => 'Nickname too long';
 
   @override
   String get nicknameCannotBeEmpty => '昵称不能为空';
@@ -2590,9 +2760,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get noAliveIPsFound => 'No alive IPs found';
-
-  @override
   String get bootstrapServiceFound => '发现 Bootstrap 服务';
 
   @override
@@ -2603,9 +2770,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get useAsBootstrapNode => '设为 Bootstrap 节点';
-
-  @override
-  String get ipAddress => 'IP Address';
 
   @override
   String get probeStatus => '探测状态';
@@ -3105,7 +3269,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String messageCount(int count) {
-    return '$count 條訊息';
+    return '$count 則訊息';
   }
 
   @override
@@ -3783,7 +3947,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ircChannelHint => '#頻道';
 
   @override
-  String get ircChannelDesc => '輸入IRC頻道名稱（例如：#channel）。將為此頻道創建一個Tox群組。';
+  String get ircChannelDesc => '輸入IRC頻道名稱（例如：#channel）。將為此頻道建立一個Tox群組。';
 
   @override
   String get enterIrcChannel => '請輸入IRC頻道名稱';
@@ -3863,6 +4027,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get statusMessageTooLong => '簽名過長';
 
   @override
+  String get passwordStrengthWeak => '弱';
+
+  @override
+  String get passwordStrengthFair => '普通';
+
+  @override
+  String get passwordStrengthGood => '良好';
+
+  @override
+  String get passwordStrengthStrong => '強';
+
+  @override
   String get manualNodeInput => '手動輸入節點';
 
   @override
@@ -3890,7 +4066,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get nodeTestUnavailable => '本裝置無法執行節點測試';
 
   @override
-  String get failedToLoadBootstrapNodes => '載入引導節點失敗';
+  String get failedToLoadBootstrapNodes => '載入Bootstrap 節點失敗';
 
   @override
   String get failedToStartBootstrapService => '啟動引導服務失敗';
@@ -4088,6 +4264,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get exportAccount => '匯出帳號';
 
   @override
+  String get exportOptionProfileTox => '設定檔（.tox）';
+
+  @override
+  String get exportOptionProfileToxSubtitle => '相容 qTox，僅含設定檔';
+
+  @override
+  String get exportOptionFullBackup => '完整備份（.zip）';
+
+  @override
+  String get exportOptionFullBackupSubtitle => '設定檔 + 聊天記錄 + 設定';
+
+  @override
   String get importAccount => '匯入帳號';
 
   @override
@@ -4216,14 +4404,80 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get thisAccountIsAlreadyLoggedIn => '此帳號已登入';
 
   @override
+  String get upgradeRequiredTitle => '請更新應用程式';
+
+  @override
+  String upgradeRequiredMessage(int storedVersion, int currentVersion) {
+    return '你的資料是由較新版本的應用程式儲存的（資料版本：$storedVersion）。此版本最高僅支援 $currentVersion。請安裝最新版本後再繼續。';
+  }
+
+  @override
+  String get upgradeAppTitle => 'toxee';
+
+  @override
+  String get hide => '隱藏';
+
+  @override
+  String get pressBackAgainToExit => '再按一次返回鍵即可退出';
+
+  @override
+  String get startupFailed => '啟動失敗';
+
+  @override
   String get unknownError => '未知錯誤';
+
+  @override
+  String get goToLogin => '前往登入';
+
+  @override
+  String get conference => '會議群';
+
+  @override
+  String get defaultJoinRequestMessage => '你好，請邀請我加入這個群組';
+
+  @override
+  String get userNotFoundPleaseRegister => '找不到此用戶，請先註冊。';
+
+  @override
+  String get nicknameDoesNotMatch => '暱稱不符。請使用註冊時的暱稱，或註冊新帳號。';
+
+  @override
+  String get accountAlreadyExistsPleaseLogin => '帳號已存在。請直接登入，或改用其他暱稱。';
+
+  @override
+  String get profileNotFoundImportRestore => '找不到此帳號的設定檔。請匯入或還原備份。';
+
+  @override
+  String get failedToInitializeTIMManager => 'TIMManager SDK 初始化失敗';
+
+  @override
+  String get failedToGetToxId => '取得 Tox ID 失敗';
+
+  @override
+  String get failedToGenerateToxId => '產生 Tox ID 失敗';
+
+  @override
+  String get registrationCouldNotCreateProfile => '註冊時無法建立唯一的設定檔，請再試一次。';
+
+  @override
+  String get importedAccount => '匯入的帳號';
 
   @override
   String get unknown => '未知';
 
   @override
+  String sendingToGroupsNotSupported(String label) {
+    return '目前尚不支援向群組發送$label';
+  }
+
+  @override
+  String noLabelSelected(String label) {
+    return '未選擇$label';
+  }
+
+  @override
   String searchSummary(int contacts, int groups, int messages) {
-    return '找到 $contacts 個聯絡人、$groups 個群組、$messages 條訊息線索';
+    return '找到 $contacts 個聯絡人、$groups 個群組、$messages 則訊息線索';
   }
 
   @override
@@ -4332,6 +4586,36 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get callQualityLabel => '通話品質';
 
   @override
+  String unreadMessagesSemantics(int count) {
+    return '$count 則未讀訊息';
+  }
+
+  @override
+  String matchingMessagesSemantics(int count) {
+    return '$count 則相符的訊息';
+  }
+
+  @override
+  String get statusOnline => '在線';
+
+  @override
+  String get statusOffline => '離線';
+
+  @override
+  String get noIrcChannels => '沒有 IRC 頻道';
+
+  @override
+  String get joinChannelToGetStarted => '加入頻道即可開始';
+
+  @override
+  String ircUsersCount(int count) {
+    return '用戶（$count）';
+  }
+
+  @override
+  String get ircNoUsers => '沒有用戶';
+
+  @override
   String get passwordVisibility => '切換密碼可見';
 
   @override
@@ -4387,6 +4671,38 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get importCancelled => '已取消';
 
   @override
+  String get recoveryBlockedTitle => '帳號復原未完成';
+
+  @override
+  String get recoveryBlockedBody =>
+      'toxee 發現一項未完成的帳號還原或刪除操作，但無法讀取其記錄，因此沒有開啟任何帳號——繼續操作可能會破壞資料。\n\n你的帳號及其設定檔仍保留在此裝置上。請勿重新註冊，也不要清除應用程式資料，否則資料將永久遺失。請回報下方的詳細資訊，以便進行修復。';
+
+  @override
+  String get secureStorageUnavailable =>
+      '安全儲存區目前無法使用，toxee 無法驗證此帳號的密碼。這通常是暫時性的問題——請再試一次，或解鎖裝置的鑰匙圈。';
+
+  @override
+  String get recoverLegacyDataAction => '從舊版本復原資料';
+
+  @override
+  String get recoverLegacyDataConfirm =>
+      '此裝置仍保留 toxee 支援多帳號之前的聊天記錄、待發送訊息和聯絡人頭像。要將它們加入你目前登入的帳號嗎？\n\n請僅在這些資料屬於你時才執行此操作。這些資料只能被一個帳號認領一次。\n\n你將被登出，以便在下次登入時合併資料。';
+
+  @override
+  String get recoverLegacyDataClaimed =>
+      '此帳號將接管舊資料。請登出後重新登入以完成合併——在登入時合併，才能確保你目前的聊天記錄和待發送訊息完整保留。';
+
+  @override
+  String get recoverLegacyDataDone => '舊資料已加入此帳號。';
+
+  @override
+  String get recoverLegacyDataUnavailable => '無法認領這些資料——它們可能已屬於此裝置上的其他帳號。';
+
+  @override
+  String get accountRegistryUnreadable =>
+      '無法讀取已儲存的帳號。它們的設定檔仍保留在此裝置上——請勿重新註冊；請回報此問題，以便修復帳號列表。';
+
+  @override
   String get importedAccountDefaultName => '已匯入帳號';
 
   @override
@@ -4418,6 +4734,125 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
+  String get firstRunBackupWizardTitle => '儲存你的帳號檔案';
+
+  @override
+  String get firstRunBackupWizardBody =>
+      '你的帳號只存在於這台裝置上。請將 .tox 檔案儲存到安全的地方（雲端硬碟、密碼管理器、USB 隨身碟）。若沒有備份，一旦遺失這台裝置，帳號和所有聯絡人都將永久遺失。';
+
+  @override
+  String get firstRunBackupWizardExportNow => '立即匯出';
+
+  @override
+  String get firstRunBackupWizardLater => '稍後再說';
+
+  @override
+  String get firstRunBackupWizardDismissTitle => '略過備份？';
+
+  @override
+  String get firstRunBackupWizardDismissBody => '如果遺失此裝置，你將失去帳號和所有聯絡人，且無法復原。';
+
+  @override
+  String get firstRunBackupWizardDismissConfirm => '我了解，繼續';
+
+  @override
+  String firstRunBackupWizardExportFailed(String error) {
+    return '無法儲存帳號檔案：$error';
+  }
+
+  @override
+  String get restoreFromToxFile => '從 .tox 檔案還原';
+
+  @override
+  String restoreFromToxFileSuccess(String nickname) {
+    return '已還原帳號：$nickname';
+  }
+
+  @override
+  String get restoreFromToxFileInvalidFile => '此檔案不是有效的 Tox 設定檔。';
+
+  @override
+  String get pairDeviceHostTitle => '配對另一台裝置';
+
+  @override
+  String get pairDeviceClientTitle => '與另一台裝置配對';
+
+  @override
+  String get pairingHostInstructions =>
+      '在另一台裝置上開啟 toxee，選擇「與另一台裝置配對」，然後掃描此 QR 碼。';
+
+  @override
+  String get pairingClientScanInstructions => '將相機對準另一台裝置上顯示的 QR 碼。';
+
+  @override
+  String get pairingClientPasteInstructions =>
+      '此裝置不支援相機掃描。請將另一台裝置上顯示的配對網址貼到下方。';
+
+  @override
+  String get pairingPasteUrlLabel => '配對網址';
+
+  @override
+  String get pairingConnectButton => '連線';
+
+  @override
+  String get pairingWaitingForPeer => '正在等待另一台裝置連線…';
+
+  @override
+  String get pairingVerifyCodeHeader => '請確認兩台裝置顯示的驗證碼相同';
+
+  @override
+  String get pairingVerifyCodeInstructions =>
+      '如果驗證碼與另一台裝置上顯示的相同，請點擊下方按鈕。若不相同，請取消——可能有人正在攔截連線。';
+
+  @override
+  String get pairingCodesMatch => '驗證碼相同';
+
+  @override
+  String get pairingHostCompleted => '帳號已發送，另一台裝置現在已擁有你的帳號。';
+
+  @override
+  String get pairingClientCompleted => '帳號已接收，配對完成。';
+
+  @override
+  String get pairingCancelled => '已取消配對。';
+
+  @override
+  String get pairingTimeout => '配對逾時，請再試一次。';
+
+  @override
+  String pairingNetworkError(String detail) {
+    return '配對時發生網路錯誤：$detail';
+  }
+
+  @override
+  String pairingProtocolError(String detail) {
+    return '配對交握失敗：$detail';
+  }
+
+  @override
+  String pairingInvalidUrl(String detail) {
+    return '此 QR 碼不是有效的配對邀請：$detail';
+  }
+
+  @override
+  String get pairingDecryptFailed => '無法解密收到的設定檔。配對過程可能遭到竄改——請在可信任的網路上再試一次。';
+
+  @override
+  String get pairingNoLanInterface => '未偵測到區域網路。請連接 Wi-Fi 或乙太網路後再試一次。';
+
+  @override
+  String get pairThisAccountToAnotherDevice => '將此帳號配對到另一台裝置';
+
+  @override
+  String get pairWithAnotherDevice => '與已登入我帳號的另一台裝置配對';
+
+  @override
+  String get devicesSectionTitle => '裝置';
+
+  @override
+  String get done => '完成';
+
+  @override
   String get runtimeForegroundTitle => 'Toxee 正在執行';
 
   @override
@@ -4441,5 +4876,205 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get appTagline => '私密的點對點通訊工具';
 
   @override
-  String get noBootstrapNodes => '沒有引導節點';
+  String get noBootstrapNodes => '沒有Bootstrap 節點';
+
+  @override
+  String get importMayHaveCompleted => '無法復原此次匯入，因此這個帳號可能仍然存在。再次匯入前，請先檢查帳號列表。';
+
+  @override
+  String get importBlockedByPendingImport =>
+      '先前有一次帳號匯入被中斷，尚未清理完成。請重新啟動 toxee 以完成復原，然後再匯入。';
+
+  @override
+  String get friendRequestQueued => '目前離線 — 請求已排入佇列，將在重新連線後發送';
+
+  @override
+  String get cannotAddSelfAsFriend => '不能將自己新增為好友';
+
+  @override
+  String get friendRequestAlreadySent => '本次已發送過好友請求';
+
+  @override
+  String get alreadyInFriendList => '此用戶已在你的好友列表中';
+
+  @override
+  String get addFriendOfflineBanner => '目前離線 — 好友請求將排入佇列，並在重新連線後自動發送。';
+
+  @override
+  String get scanQr => '掃描 QR 碼';
+
+  @override
+  String get sendingInProgress => '發送中...';
+
+  @override
+  String get firewallHintWindows => '在 Windows 上，防火牆可能會封鎖連入連線；如出現提示，請允許此應用程式。';
+
+  @override
+  String get firewallHintLinux => '在 Linux 上，網路操作可能需要相應的權限或防火牆規則。';
+
+  @override
+  String get nodePublicKeyHint => '公鑰（十六進位）';
+
+  @override
+  String get failedToAddBootstrapNode => '新增 Bootstrap 節點失敗';
+
+  @override
+  String get couldNotRemovePassword => '無法移除密碼';
+
+  @override
+  String get couldNotSavePassword => '無法儲存密碼';
+
+  @override
+  String mediaSent(String label) {
+    return '$label已發送';
+  }
+
+  @override
+  String get dhtUnreachableUsingFallback =>
+      '無法連上 DHT。正在使用備用 Bootstrap 節點——你的網路可能封鎖了 UDP，或節點已離線。';
+
+  @override
+  String get dhtUnreachableTimeout => '30 秒後仍無法連上 DHT，請檢查網路連線。';
+
+  @override
+  String chatSdkInitFailed(String error) {
+    return '聊天 SDK 初始化失敗：$error';
+  }
+
+  @override
+  String messageTooLongMaxBytes(int maxBytes) {
+    return '訊息過長（上限 $maxBytes 位元組）';
+  }
+
+  @override
+  String get friendOfflineWillRetry => '好友不在線 — 將在對方重新連線後重試';
+
+  @override
+  String get groupFileTransferUnsupported => '群聊不支援檔案傳輸';
+
+  @override
+  String fileSendFailed(String error) {
+    return '檔案發送失敗：$error';
+  }
+
+  @override
+  String errorWithCode(int code) {
+    return '錯誤碼 $code';
+  }
+
+  @override
+  String pairingLanUnreachable(String detail) {
+    return '兩台裝置在此網路上無法互相連線。請改用個人熱點，或改用「匯出 → 匯入」透過檔案轉移。（$detail）';
+  }
+
+  @override
+  String get notificationNewFriendRequest => '新的好友請求';
+
+  @override
+  String notificationFriendRequestFrom(String name) {
+    return '好友請求：$name';
+  }
+
+  @override
+  String get notificationMissedCall => '未接來電';
+
+  @override
+  String get notificationMissedVideoCall => '未接視訊通話';
+
+  @override
+  String get notificationIncomingCall => '來電';
+
+  @override
+  String get notificationIncomingVideoCall => '視訊來電';
+
+  @override
+  String get notificationUnknownCaller => 'Toxee 聯絡人';
+
+  @override
+  String get notificationNewMessage => '新訊息';
+
+  @override
+  String get previewImage => '[圖片]';
+
+  @override
+  String get previewVideo => '[影片]';
+
+  @override
+  String get previewVoice => '[語音]';
+
+  @override
+  String previewVoiceWithDuration(int seconds) {
+    return '[語音 $seconds 秒]';
+  }
+
+  @override
+  String get previewFile => '[檔案]';
+
+  @override
+  String previewFileWithName(String name) {
+    return '[檔案] $name';
+  }
+
+  @override
+  String get previewSticker => '[貼圖]';
+
+  @override
+  String get previewLocation => '[位置]';
+
+  @override
+  String get previewCustomMessage => '[自訂訊息]';
+
+  @override
+  String get previewGroupEvent => '[群組事件]';
+
+  @override
+  String get previewMessage => '[訊息]';
+
+  @override
+  String get channelMessagesName => '訊息';
+
+  @override
+  String get channelMessagesDescription => '收到 Tox 聯絡人傳來的新訊息時通知。';
+
+  @override
+  String get channelFriendRequestsName => '好友請求';
+
+  @override
+  String get channelFriendRequestsDescription => '有人向你發送好友請求時通知。';
+
+  @override
+  String get channelMissedCallsName => '未接來電';
+
+  @override
+  String get channelMissedCallsDescription => '來電未能接通或未接聽時通知。';
+
+  @override
+  String get channelIncomingCallsName => '來電';
+
+  @override
+  String get channelIncomingCallsDescription => 'Toxee 來電的全螢幕提醒。';
+
+  @override
+  String get notificationOpenAction => '開啟 Toxee';
+
+  @override
+  String trayUnreadTooltip(int count) {
+    return '未讀：$count';
+  }
+
+  @override
+  String get unknownErrorReason => '未知錯誤';
+
+  @override
+  String get notificationNoMessage => '（無附言）';
+
+  @override
+  String notificationGroupedSummary(int count, String name) {
+    return '來自 $name 的 $count 則新訊息';
+  }
+
+  @override
+  String pairingConnectTimedOut(String endpoint) {
+    return '無法及時連線到另一台裝置（$endpoint）。請確認兩台裝置位於同一網路，改用個人熱點，或改用「匯出 → 匯入」透過檔案轉移。';
+  }
 }

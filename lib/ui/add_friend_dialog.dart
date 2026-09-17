@@ -133,13 +133,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final message = _messageController.text.trim();
 
     if (message.isEmpty) {
-      _notify(
-        _localeText(
-          context,
-          'enterMessage',
-          fallback: 'Please enter a message',
-        ),
-      );
+      _notify(AppLocalizations.of(context)!.enterMessage);
       return;
     }
 
@@ -148,21 +142,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final defaultMessage = AppLocalizations.of(
       context,
     )!.defaultFriendRequestMessage;
-    final successText = _localeText(
-      context,
-      'requestSent',
-      fallback: 'Friend request sent',
-    );
-    final queuedText = _localeText(
-      context,
-      'requestQueued',
-      fallback: 'Offline — request queued and will be sent when you reconnect',
-    );
-    final failurePrefix = _localeText(
-      context,
-      'requestFailed',
-      fallback: 'Failed',
-    );
+    final successText = TencentCloudChatLocalizations.of(context)!.requestSent;
+    final queuedText = AppLocalizations.of(context)!.friendRequestQueued;
+    final failurePrefix = AppLocalizations.of(context)!.addFailed;
 
     // A1: client-side self-add check. C++ also rejects (TOX_ERR_FRIEND_ADD_OWN_KEY)
     // but surfaces a generic error; reject earlier with a clear message.
@@ -173,11 +155,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     if (selfId.isNotEmpty && compareToxIds(rawId, selfId)) {
       _notifyVia(
         messenger,
-        _localeText(
-          context,
-          'cannotAddSelf',
-          fallback: 'You cannot add yourself as a friend',
-        ),
+        AppLocalizations.of(context)!.cannotAddSelfAsFriend,
       );
       return;
     }
@@ -189,16 +167,10 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
     final normalizedRaw = normalizeToxId(rawId);
     // Capture localized strings before any await so we can use them past
     // the async gap without re-touching BuildContext.
-    final alreadySentText = _localeText(
+    final alreadySentText = AppLocalizations.of(
       context,
-      'requestAlreadySent',
-      fallback: 'A friend request was already sent in this session',
-    );
-    final alreadyFriendText = _localeText(
-      context,
-      'alreadyFriend',
-      fallback: 'This user is already in your friend list',
-    );
+    )!.friendRequestAlreadySent;
+    final alreadyFriendText = AppLocalizations.of(context)!.alreadyInFriendList;
     if (_attemptedThisSession.contains(normalizedRaw)) {
       _notifyVia(messenger, alreadySentText);
       return;
@@ -280,7 +252,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   String? _validateToxId(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return _localeText(context, 'enterId', fallback: 'Please enter a Tox ID');
+      return AppLocalizations.of(context)!.enterId;
     }
     if (!_kToxAddressRegex.hasMatch(trimmed)) {
       return AppLocalizations.of(context)!.addFriendInvalidToxIdHint;
@@ -291,11 +263,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
   String? _validateMessage(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return _localeText(
-        context,
-        'enterMessage',
-        fallback: 'Please enter a message',
-      );
+      return AppLocalizations.of(context)!.enterMessage;
     }
     if (trimmed.length > _kMaxFriendRequestLength) {
       return AppLocalizations.of(context)!.friendRequestMessageTooLong;
@@ -362,11 +330,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
           child: Focus(
             autofocus: true,
             child: AppDialog(
-              title: _localeText(
-                context,
-                'addContact',
-                fallback: 'Add Contact',
-              ),
+              title: TencentCloudChatLocalizations.of(context)!.addContact,
               maxWidth: _dialogMaxWidth(context),
               // SingleChildScrollView lets the form scroll when the keyboard
               // pushes content up on small screens — without it, the bottom
@@ -382,12 +346,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _localeText(
-                          context,
-                          'addContactHint',
-                          fallback:
-                              'Enter the friend\'s 76-character hex Tox address.',
-                        ),
+                        AppLocalizations.of(context)!.addContactHint,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -395,12 +354,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                       if (!_isConnected) ...[
                         AppSpacing.verticalMd,
                         _OfflineBanner(
-                          message: _localeText(
+                          message: AppLocalizations.of(
                             context,
-                            'offlineBanner',
-                            fallback:
-                                'Offline — your friend request will be queued and sent automatically when you reconnect.',
-                          ),
+                          )!.addFriendOfflineBanner,
                         ),
                       ],
                       AppSpacing.verticalLg,
@@ -416,11 +372,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                         enableSuggestions: false,
                         textCapitalization: TextCapitalization.none,
                         decoration: InputDecoration(
-                          labelText: _localeText(
+                          labelText: TencentCloudChatLocalizations.of(
                             context,
-                            'friendUserID',
-                            fallback: 'Friend Tox ID',
-                          ),
+                          )!.userID,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(AppRadii.input),
                           ),
@@ -432,21 +386,13 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                                   icon: const Icon(
                                     Icons.qr_code_scanner_rounded,
                                   ),
-                                  tooltip: _localeText(
-                                    context,
-                                    'scanQr',
-                                    fallback: 'Scan QR',
-                                  ),
+                                  tooltip: AppLocalizations.of(context)!.scanQr,
                                   onPressed: _scanQr,
                                 ),
                               IconButton(
                                 key: UiKeys.addFriendPasteButton,
                                 icon: const Icon(Icons.paste),
-                                tooltip: _localeText(
-                                  context,
-                                  'paste',
-                                  fallback: 'Paste',
-                                ),
+                                tooltip: AppLocalizations.of(context)!.paste,
                                 onPressed: _pasteFromClipboard,
                               ),
                             ],
@@ -465,11 +411,9 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                         // sentence-case for normal English-style writing.
                         textCapitalization: TextCapitalization.sentences,
                         decoration: InputDecoration(
-                          labelText: _localeText(
+                          labelText: AppLocalizations.of(
                             context,
-                            'requestMessage',
-                            fallback: 'Request Message',
-                          ),
+                          )!.verificationMessage,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(AppRadii.input),
                           ),
@@ -498,11 +442,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
 
   Widget _buildActions(BuildContext context, ColorScheme scheme) {
     final cancelLabel = MaterialLocalizations.of(context).cancelButtonLabel;
-    final submitLabel = _localeText(
-      context,
-      'addContact',
-      fallback: 'Add Contact',
-    );
+    final submitLabel = TencentCloudChatLocalizations.of(context)!.addContact;
     // OverflowBar wraps to two lines when both buttons no longer fit the
     // 240-px content width of a 320-px phone (large text / long locales).
     return OverflowBar(
@@ -520,7 +460,7 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
         ),
         Tooltip(
           message: _isSubmitting
-              ? _localeText(context, 'sending', fallback: 'Sending...')
+              ? AppLocalizations.of(context)!.sendingInProgress
               : '',
           child: FilledButton.icon(
             key: UiKeys.addFriendSubmitButton,
@@ -548,42 +488,6 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
         ),
       ],
     );
-  }
-
-  String _localeText(
-    BuildContext context,
-    String key, {
-    required String fallback,
-  }) {
-    final t = TencentCloudChatLocalizations.of(context);
-    final appL10n = AppLocalizations.of(context)!;
-    switch (key) {
-      case 'addContact':
-        return t?.addContact ?? fallback;
-      case 'friendUserID':
-        return t?.userID ?? fallback;
-      case 'requestSent':
-        return t?.requestSent ?? fallback;
-      case 'requestFailed':
-        return appL10n.addFailed;
-      case 'enterId':
-        return appL10n.enterId;
-      case 'invalidLength':
-        return appL10n.invalidLength;
-      case 'invalidHex':
-        return appL10n.invalidCharacters;
-      case 'paste':
-        return appL10n.paste;
-      case 'addContactHint':
-        return appL10n.addContactHint;
-      case 'requestMessage':
-        return appL10n.verificationMessage;
-      case 'enterMessage':
-        return appL10n.enterMessage;
-      case 'sending':
-        return fallback;
-    }
-    return fallback;
   }
 
   void _notify(String message) {
@@ -643,12 +547,8 @@ class _ScanToxIdPageState extends State<_ScanToxIdPage> {
 
   @override
   Widget build(BuildContext context) {
-    // No ARB key yet for 'Scan QR' on this widget — fall back to a hardcoded
-    // English string. Add a real localization later if/when we ship a
-    // translated label set.
-    const title = 'Scan QR';
     return Scaffold(
-      appBar: AppBar(title: const Text(title)),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.scanQr)),
       body: Stack(
         children: [
           MobileScanner(controller: _controller, onDetect: _onDetect),

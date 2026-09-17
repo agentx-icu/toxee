@@ -34,19 +34,19 @@ For deeper implementation details and role-based reading paths, see [doc/README.
 
 ## Screenshots
 
-The real app, one Flutter codebase, on **desktop (macOS), Android, iPad, and iOS** (click any image for full resolution). All images live in [`doc/product/assets/`](doc/product/assets); the self-contained product page **[`doc/product/index.html`](doc/product/index.html)** has the full tour.
+The real app, one Flutter codebase, on **desktop (macOS), Android, iPad, and iOS** (click any image for full resolution). These English-UI images live in [`doc/product/assets/en/`](doc/product/assets/en) (the Chinese UI set is in [`doc/product/assets/zh/`](doc/product/assets/zh), shown in [README.zh-CN.md](README.zh-CN.md)); the self-contained product page **[`doc/product/index.html`](doc/product/index.html)** has the full tour.
 
 **The same 1:1 chat, on every platform:**
 
 | Desktop | iPad | Android | iOS |
 | :---: | :---: | :---: | :---: |
-| [![Toxee chat on macOS](doc/product/assets/desktop/c2c.png)](doc/product/assets/desktop/c2c.png) | [![Toxee chat on iPad](doc/product/assets/ipad/c2c.png)](doc/product/assets/ipad/c2c.png) | [![Toxee chat on Android](doc/product/assets/android/c2c.png)](doc/product/assets/android/c2c.png) | [![Toxee chat on iOS](doc/product/assets/ios/c2c.png)](doc/product/assets/ios/c2c.png) |
+| [![Toxee chat on macOS](doc/product/assets/en/desktop/c2c.png)](doc/product/assets/en/desktop/c2c.png) | [![Toxee chat on iPad](doc/product/assets/en/ipad/c2c.png)](doc/product/assets/en/ipad/c2c.png) | [![Toxee chat on Android](doc/product/assets/en/android/c2c.png)](doc/product/assets/en/android/c2c.png) | [![Toxee chat on iOS](doc/product/assets/en/ios/c2c.png)](doc/product/assets/en/ios/c2c.png) |
 
 **More (desktop):**
 
 | Group chat | New contacts | Profile & Tox ID QR | Settings |
 | :---: | :---: | :---: | :---: |
-| [![Group chat](doc/product/assets/desktop/group_chat.png)](doc/product/assets/desktop/group_chat.png) | [![New friend request](doc/product/assets/desktop/new_application.png)](doc/product/assets/desktop/new_application.png) | [![Profile and Tox ID QR card](doc/product/assets/desktop/self_profile.png)](doc/product/assets/desktop/self_profile.png) | [![Settings](doc/product/assets/desktop/settings.png)](doc/product/assets/desktop/settings.png) |
+| [![Group chat](doc/product/assets/en/desktop/group_chat.png)](doc/product/assets/en/desktop/group_chat.png) | [![New friend request](doc/product/assets/en/desktop/new_application.png)](doc/product/assets/en/desktop/new_application.png) | [![Profile and Tox ID QR card](doc/product/assets/en/desktop/self_profile.png)](doc/product/assets/en/desktop/self_profile.png) | [![Settings](doc/product/assets/en/desktop/settings.png)](doc/product/assets/en/desktop/settings.png) |
 
 > These screenshots are generated from the running app by `./tool/screenshots/capture.sh` — see [`tool/screenshots/README.md`](tool/screenshots/README.md).
 

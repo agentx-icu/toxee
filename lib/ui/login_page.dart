@@ -410,7 +410,7 @@ class _LoginPageState extends State<LoginPage> {
     if (nickname.isEmpty) {
       if (mounted) {
         setState(() {
-          _error = '${l10n.nickname} cannot be empty';
+          _error = l10n.nicknameCannotBeEmpty;
           _busy = false;
         });
         AppSnackBar.showError(context, _error!);

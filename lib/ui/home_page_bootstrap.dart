@@ -157,12 +157,12 @@ extension _HomePageBootstrap on _HomePageState {
       // the rest of init keeps us from registering listeners on a half-built SDK.
       UikitDataFacade.updateInitializedStatus(true);
       UikitDataFacade.updateLoginStatus(true);
-      _initErrorMessage = 'Chat SDK initialization failed: $e';
+      final detail = '$e';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final msg = _initErrorMessage;
-        if (msg == null) return;
-        _showErrorSnackBar(msg);
+        _showErrorSnackBar(
+          AppLocalizations.of(context)!.chatSdkInitFailed(detail),
+        );
       });
       return;
     }
@@ -347,8 +347,8 @@ extension _HomePageBootstrap on _HomePageState {
         final usedFallback = BootstrapNodesService.lastFetchUsedFallback;
         _showSnackBar(
           usedFallback
-              ? 'Cannot reach the DHT. Using fallback bootstrap nodes — your network may be blocking UDP, or the nodes are down.'
-              : 'Cannot reach the DHT after 30s. Check your network connection.',
+              ? AppLocalizations.of(context)!.dhtUnreachableUsingFallback
+              : AppLocalizations.of(context)!.dhtUnreachableTimeout,
         );
       });
     }

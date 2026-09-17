@@ -255,7 +255,7 @@ class _BootstrapNodesPageState extends State<BootstrapNodesPage> {
           messenger.showSnackBar(
             SnackBar(
               content: Text(
-                appL10n.nodeSwitchFailed('Failed to add bootstrap node'),
+                appL10n.nodeSwitchFailed(appL10n.failedToAddBootstrapNode),
               ),
               backgroundColor: errorColor,
             ),

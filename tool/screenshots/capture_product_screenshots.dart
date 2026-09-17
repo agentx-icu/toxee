@@ -2,28 +2,25 @@
 //
 // Drives ONE already-running toxee instance (desktop / android / ipad / ios),
 // seeds rich demo data LOCALLY via the debug L3 surface (no peer, no P2P), and
-// captures the 5 product scenes in light theme:
+// captures the 5 product scenes in light theme, in ONE UI locale (--locale en|
+// zh; the seeded names and dialogue follow it, see seed_data.dart):
 //   c2c · group_chat · new_application · self_profile · settings
 //
 // capture.sh launches each platform (with the MCP_BINDING=skill + TOXEE_L3_TEST
 // debug surface), resolves its VM-service ws URI, and invokes this driver once
-// per platform:
+// per platform and locale:
 //
 //   dart run tool/screenshots/capture_product_screenshots.dart \
-//     --platform <desktop|android|ipad|ios> --ws-uri ws://127.0.0.1:PORT/TOKEN/ws \
-//     --out screenshot/<platform> [--pid <macos-pid>] \
-//     [--sim-udid <udid> | --adb-serial <serial>]
+//     --platform <desktop|android|ipad|ios> --locale <en|zh> \
+//     --ws-uri ws://127.0.0.1:PORT/TOKEN/ws --out <staging>/<locale>/<platform> \
+//     [--pid <macos-pid>] [--sim-udid <udid> | --adb-serial <serial>]
 //
 // Navigation is LAYOUT-AWARE: desktop + iPad render the wide master-detail
 // shell (rail; l3_open_chat binds the right pane); android + iPhone render the
 // narrow shell (bottom nav; chats open as a pushed route, popped via
-// l3_pop_to_root between scenes). Capture: desktop uses
-// flutter_skill.screenshot (the Flutter layer — no host-window grab, no
-// screen-recording permission). Mobile captures the DEVICE framebuffer instead
-// (`simctl io screenshot` / `adb screencap`) when `--sim-udid` / `--adb-serial`
-// is given, so the OS status bar and home indicator are part of the product
-// shot rather than blank safe-area bands; capture.sh pins the status bar
-// (9:41, full battery) before launch.
+// l3_pop_to_root between scenes). Capture is the Flutter layer
+// (flutter_skill.screenshot); `--sim-udid` / `--adb-serial` opt mobile into the
+// DEVICE framebuffer instead (see deviceCapture in scene_shooter.dart).
 
 // ignore_for_file: depend_on_referenced_packages, avoid_print
 
@@ -39,9 +36,9 @@ import 'seed_runner.dart';
 
 /// macOS window size (wide layout). iPad/phone use the device screen.
 ///
-/// 1400x909 is the largest 1024:665 frame (the aspect doc/product/index.html
-/// declares for the desktop shots, 1024x665 after `--sync-site` downscales to
-/// 1024 wide) that fits a 1512x982-point MacBook display under the menu bar
+/// 1400x909 (the size doc/product/index.html declares for the desktop shots,
+/// which are published at capture resolution) is the largest 1024:665 frame
+/// that fits a 1512x982-point MacBook display under the menu bar
 /// and title bar. The previous 2000x1468 request did not fit: macOS clamped
 /// the height to the visible frame and the shots silently came out 2000x1047
 /// (a 1.91 aspect the page then misframed). [_Shot.setWindowBounds] reads the
@@ -57,11 +54,13 @@ Future<void> main(List<String> args) async {
 }
 
 Future<int> _main(List<String> args) async {
-  String? platform, wsUri, outDir, pidArg, simUdid, adbSerial;
+  String? platform, locale = 'en', wsUri, outDir, pidArg, simUdid, adbSerial;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--platform':
         platform = args[++i];
+      case '--locale':
+        locale = args[++i];
       case '--ws-uri':
         wsUri = args[++i];
       case '--out':
@@ -80,8 +79,8 @@ Future<int> _main(List<String> args) async {
   if (platform == null || wsUri == null || outDir == null) {
     stderr.writeln(
       'usage: capture_product_screenshots.dart --platform <desktop|android|'
-      'ipad|ios> --ws-uri <ws://…/ws> --out <dir> [--pid <macos-pid>] '
-      '[--sim-udid <udid> | --adb-serial <serial>]',
+      'ipad|ios> [--locale en|zh] --ws-uri <ws://…/ws> --out <dir> '
+      '[--pid <pid>] [--sim-udid <udid> | --adb-serial <serial>]',
     );
     return 64;
   }
@@ -92,8 +91,9 @@ Future<int> _main(List<String> args) async {
     'ios': _DeviceKind.narrow,
   };
   final kind = kinds[platform];
-  if (kind == null) {
-    stderr.writeln('unknown platform "$platform" (desktop|android|ipad|ios)');
+  final script = seedScripts[locale];
+  if (kind == null || script == null) {
+    stderr.writeln('unknown platform "$platform" or locale "$locale"');
     return 64;
   }
   final isDesktop = platform == 'desktop';
@@ -117,14 +117,14 @@ Future<int> _main(List<String> args) async {
       waitMs: s.waitMs,
       nativeCapture: deviceCapture(simUdid: simUdid, adbSerial: adbSerial),
     );
-    await s.ensureReady();
+    await s.ensureReady(script);
     await s.waitForHomeReady();
 
     // ── seed (idempotent, fully local) ──────────────────────────────────
     // Seed BEFORE waiting on DHT: seeding is fully local (needs no peer/
     // connection), and a long idle wait here can let the session re-init and
     // transiently drop FakeUIKit.im.ffi out from under the seed tools.
-    final groupId = await seedAll(s);
+    final groupId = await seedAll(s, script);
 
     // Presence: the seed environment has no DHT peers, so a real connection
     // may never come. Give it a short chance, then drive the SAME connection
@@ -140,13 +140,13 @@ Future<int> _main(List<String> args) async {
       await s.l3('l3_set_capture_device', {'hasCamera': 'true'});
     }
     if (platform == 'ipad') {
-      // The product page frames the tablet shot landscape (1024x768); the
-      // Simulator boots portrait.
+      // Best-effort: a multitasking iPad ignores this under simctl (the page
+      // declares the portrait frame) — see README "The iPad is captured".
       await s.l3('l3_set_orientation', {'orientation': 'landscape'});
       await s.waitMs(1500);
     }
 
-    // ── theme + english, then the 5 scenes ───────────────────────────────
+    // ── theme + UI locale, then the 5 scenes ─────────────────────────────
     // Theme defaults to light; override with TOXEE_SHOT_THEME=dark to capture
     // the dark palette (e.g. to verify the dark theme covers every surface).
     final shotTheme = (Platform.environment['TOXEE_SHOT_THEME'] ?? 'light')
@@ -156,12 +156,12 @@ Future<int> _main(List<String> args) async {
       'key': 'themeMode',
       'value': shotTheme == 'dark' ? 'dark' : 'light',
     });
-    await s.l3('l3_set_setting', {'key': 'languageCode', 'value': 'en'});
+    await s.l3('l3_set_setting', {'key': 'languageCode', 'value': locale});
     if (isDesktop) await s.setWindowBounds(_windowW, _windowH);
     await s.waitMs(900);
 
     // 1 · C2C chat.
-    await s.openChat(userId: personaAlex.pubKey);
+    await s.openChat(userId: script.alex.pubKey);
     await s.waitMs(1700);
     await shooter.shot('c2c');
     await s.popToRoot();
@@ -354,7 +354,7 @@ class _Shot implements SeedClient {
 
   // ── lifecycle ──
 
-  Future<void> ensureReady() async {
+  Future<void> ensureReady(SeedScript script) async {
     final before = await dumpState();
     if (before['sessionReady'] == true) {
       toxId = before['currentAccountToxId']?.toString() ?? '';
@@ -363,10 +363,10 @@ class _Shot implements SeedClient {
         return;
       }
     }
-    print('[$platform] registering hero "$heroNickname"');
+    print('[$platform] registering hero "${script.heroNickname}"');
     await l3('l3_register_account', {
-      'nickname': heroNickname,
-      'statusMessage': heroStatusMessage,
+      'nickname': script.heroNickname,
+      'statusMessage': script.heroStatusMessage,
     });
     await _retry(
       () async {
@@ -381,7 +381,7 @@ class _Shot implements SeedClient {
     final st = await dumpState();
     toxId = st['currentAccountToxId']?.toString() ?? '';
     if (toxId.isEmpty) throw _DriveError('[$platform] no toxId after ready');
-    print('[$platform] ready as $heroNickname (${_short(toxId)})');
+    print('[$platform] ready as ${script.heroNickname} (${_short(toxId)})');
   }
 
   /// Wait until HomePage finished `_initAfterSessionReady` — proven by the

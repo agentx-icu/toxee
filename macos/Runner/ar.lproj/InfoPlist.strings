@@ -1,0 +1,4 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSMicrophoneUsageDescription" = "يحتاج هذا التطبيق إلى الوصول إلى الميكروفون لإجراء المكالمات الصوتية ومكالمات الفيديو.";
+"NSCameraUsageDescription" = "يحتاج هذا التطبيق إلى الوصول إلى الكاميرا لإجراء مكالمات الفيديو.";
+"NSPhotoLibraryUsageDescription" = "يحتاج Toxee إلى الوصول إلى مكتبة الصور لإرسال الصور ومقاطع الفيديو.";

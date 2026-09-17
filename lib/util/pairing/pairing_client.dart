@@ -78,8 +78,9 @@ class PairingClient {
       _fail(ClientFailureReason.lanUnreachable, _formatLanError(e));
       return;
     } on TimeoutException {
-      _fail(ClientFailureReason.lanUnreachable,
-          'Connection to ${invite.ipAddress}:${invite.port} timed out');
+      // Endpoint only; the localized connectTimeout sentence wraps it.
+      _fail(ClientFailureReason.connectTimeout,
+          '${invite.ipAddress}:${invite.port}');
       return;
     }
     _sock = sock;
@@ -196,13 +197,11 @@ class PairingClient {
     _events.close();
   }
 
-  static String _formatLanError(SocketException e) {
-    // The CEO plan literal: "Devices can't see each other on this network.
-    // Try a personal hotspot, or use Export → Import via file instead."
-    return "Devices can't see each other on this network. Try a personal "
-        'hotspot, or use Export → Import via file instead. '
-        '(${e.osError?.message ?? e.message})';
-  }
+  /// The OS-level detail only. The actionable sentence around it ("Devices
+  /// can't see each other on this network…") is UI copy, localized where
+  /// [ClientFailureReason.lanUnreachable] is rendered.
+  static String _formatLanError(SocketException e) =>
+      e.osError?.message ?? e.message;
 
   static Future<List<int>> _extractPublicKey(SimpleKeyPair kp) async {
     final pub = await kp.extractPublicKey();
@@ -235,6 +234,11 @@ enum ClientFailureReason {
   cancelled,
   timeout,
   lanUnreachable,
+
+  /// The TCP connect to the host's advertised endpoint did not complete in
+  /// time (message = `ip:port`) — distinct from [lanUnreachable], where the OS
+  /// refused/failed the connect outright.
+  connectTimeout,
   networkError,
   decryptionFailed,
   protocolError,

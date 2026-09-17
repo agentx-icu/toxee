@@ -167,7 +167,9 @@ class _PairingClientPageState extends State<PairingClientPage> {
       case ClientFailureReason.timeout:
         return l10n.pairingTimeout;
       case ClientFailureReason.lanUnreachable:
-        return message; // already actionable from PairingClient._formatLanError
+        return l10n.pairingLanUnreachable(message);
+      case ClientFailureReason.connectTimeout:
+        return l10n.pairingConnectTimedOut(message);
       case ClientFailureReason.networkError:
         return l10n.pairingNetworkError(message);
       case ClientFailureReason.decryptionFailed:

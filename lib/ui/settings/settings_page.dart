@@ -822,9 +822,9 @@ class _SettingsPageState extends State<SettingsPage> {
               content: Text(
                 ok
                     ? AppLocalizations.of(context)!.passwordRemoved
-                    : AppLocalizations.of(
-                        context,
-                      )!.failedToSetPassword('could not remove password'),
+                    : AppLocalizations.of(context)!.failedToSetPassword(
+                        AppLocalizations.of(context)!.couldNotRemovePassword,
+                      ),
               ),
               backgroundColor: ok
                   ? Theme.of(context).colorScheme.primary
@@ -847,9 +847,9 @@ class _SettingsPageState extends State<SettingsPage> {
               content: Text(
                 ok
                     ? AppLocalizations.of(context)!.passwordSetSuccessfully
-                    : AppLocalizations.of(
-                        context,
-                      )!.failedToSetPassword('could not save password'),
+                    : AppLocalizations.of(context)!.failedToSetPassword(
+                        AppLocalizations.of(context)!.couldNotSavePassword,
+                      ),
               ),
               backgroundColor: ok
                   ? Theme.of(context).colorScheme.primary

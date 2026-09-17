@@ -1,0 +1,7 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSCameraUsageDescription" = "يستخدم Toxee الكاميرا لالتقاط الصور وتسجيل مقاطع الفيديو في الدردشات، وإجراء مكالمات الفيديو، ومسح رموز QR الخاصة بالإقران.";
+"NSLocalNetworkUsageDescription" = "يحتاج هذا التطبيق إلى الوصول إلى الشبكة للاتصال بالمستخدمين الآخرين عبر بروتوكول P2P.";
+"NSMicrophoneUsageDescription" = "يستخدم Toxee الميكروفون لتسجيل الرسائل الصوتية وإجراء المكالمات الصوتية أو مكالمات الفيديو.";
+"NSPhotoLibraryAddUsageDescription" = "يحفظ Toxee الصور ومقاطع الفيديو المستلمة في مكتبتك عندما تختار ذلك.";
+"NSPhotoLibraryUsageDescription" = "يحتاج Toxee إلى الوصول إلى مكتبة الصور لإرسال الصور ومقاطع الفيديو.";
+"NSUserNotificationsUsageDescription" = "يستخدم Toxee الإشعارات لتنبيهك بالرسائل الجديدة وطلبات الصداقة والمكالمات الواردة.";

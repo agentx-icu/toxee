@@ -155,26 +155,10 @@ Authoritative deep dive: `doc/architecture/HYBRID_ARCHITECTURE.md`. Maintainer c
 These are durable expectations for how work is done in this repo, not one-off instructions.
 
 - **Deep root-cause fixes only.** Every problem found gets a real underlying fix at the correct layer (native/FFI, framework, or app), never a perfunctory surface patch or a workaround that hides the symptom. If the true fix is large, scope and state it — don't paper over it. "底层修复，不敷衍。"
-- **Codex review is mandatory on every change** (code, FFI, fork, harness). Workflow: draft → codex second opinion → apply findings → proceed. Bundle diffs and have codex verify correctness, ABI byte-matching, memory/ownership, and mobile parity. Codex telemetry-off launch: `env -u OTEL_EXPORTER_OTLP_ENDPOINT codex exec -c otel.exporter=none -c otel.log_user_prompt=false …` (per-process; never edit `~/.codex/config.toml`).
+- **Codex review is mandatory on every change** (code, FFI, fork, harness). Workflow: draft → codex second opinion → apply findings → proceed. Bundle diffs and have codex verify correctness, ABI byte-matching, memory/ownership, and mobile parity. Codex telemetry (2026-09-08, replaces this repo's earlier blanket opt-out): metrics only — token/cost counters ship, and the event stream that carries prompt and tool-output text (`otel.exporter`) is off on every call, so no repo-specific exclusion is needed. `codex-mac` pins this itself; `CODEX_MAC_OTEL=off` opts a single call out entirely.
 - **Codex edits plan docs directly after confirmation** (user directive 2026-06-03). For 方案/plan documents: codex reviews read-only first → Claude vets/confirms the findings → codex is re-run with `--sandbox workspace-write` and the confirmed findings list, applying the edits to the plan file in place (appending a change-log section). Claude re-reads and stays responsible for the final content.
 - **If codex is unavailable** (provider down / TLS errors): skip the review for now, explicitly declare the skip, self-validate (e.g. `feature-dev:code-reviewer` agent + tests/analyzer), and record that a codex review is still owed.
 - **Use codex to resolve uncertainty — don't block on the user.** When unsure about a fix approach, or a decision needs confirmation, discuss it with codex first and follow the joint conclusion. Only if it's still unresolved after that discussion, proceed with your own recommendation and state it. Reserve user questions for genuine product/scope forks.
 - **Test campaigns ("process Sxx–Syy until all pass").** Drive each scenario, prefer real-UI two-process driving where the request calls for it (直接驱动 UI 控件), fix the root cause of anything a scenario surfaces, and only **skip** a scenario whose environment genuinely cannot be constructed — naming which and why. The real-UI harness must tolerate exception startup states (e.g. `sc_load_account_fail`); see `tool/mcp_test/REAL_UI_TWO_PROCESS.md` and `drive_real_ui_pair.dart`.
 - **Real-UI startup reuse is the default.** When adding new "真实 App + 真实控件" cases, keep the atomic scenario for focused debugging, but also place it in an existing domain sweep or an optimized bundle so broad runs reuse the same app launch, registered accounts, and A<->B friendship. Prefer extending `sweep_*` chains and `drive_real_ui_pair_optimized.dart` over creating isolated campaigns. Only split into a separate launch when the case intentionally poisons state (friend deletion), restarts a peer, needs native/OS picker automation, or has a conflicting state contract; document that exception in `REAL_UI_TWO_PROCESS.md` / the campaign anchor and verify `--plan-json` does not add unnecessary launches.
 - **ABI is sacred.** Any `dart_compat_*.cpp` change must byte-match `native_imsdk_bindings_generated.dart` — arg count, pointer-vs-scalar, AND integer width/signedness (`int` vs `uint64`/`uint32`). `tool/mcp_test/abi_audit.py` catches count/ptr drift only; width/signedness drift needs codex/code-reviewer.
-
-## Agent skills
-
-Machine-read configuration for the engineering skill suite. These live under `docs/agents/` (the path the skills look for), not the `doc/` prose tree.
-
-### Issue tracker
-
-Issues live as GitHub issues in `agentx-icu/toxee`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.

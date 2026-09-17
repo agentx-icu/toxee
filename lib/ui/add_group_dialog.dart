@@ -120,21 +120,9 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
 
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
-    final successText = _localeText(
-      context,
-      'joinSuccess',
-      fallback: 'Join request sent',
-    );
-    final queuedText = _localeText(
-      context,
-      'joinQueued',
-      fallback: 'Offline — join request will be sent when you reconnect',
-    );
-    final failurePrefix = _localeText(
-      context,
-      'joinFailed',
-      fallback: 'Join failed',
-    );
+    final successText = AppLocalizations.of(context)!.joinSuccess;
+    final queuedText = AppLocalizations.of(context)!.joinQueued;
+    final failurePrefix = AppLocalizations.of(context)!.joinFailed;
 
     setState(() => _isJoining = true);
     try {
@@ -169,16 +157,8 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
 
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
-    final createFailedText = _localeText(
-      context,
-      'createFailed',
-      fallback: 'Failed to create group',
-    );
-    final createSuccessText = _localeText(
-      context,
-      'createSuccess',
-      fallback: 'Group created',
-    );
+    final createFailedText = AppLocalizations.of(context)!.createFailed;
+    final createSuccessText = AppLocalizations.of(context)!.createSuccess;
 
     setState(() => _isCreating = true);
     try {
@@ -257,11 +237,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
           // unaffected (their content is shorter than 85% of the height).
           child: AppDialog(
             closeButtonKey: UiKeys.addGroupCloseButton,
-            title: _localeText(
-              context,
-              'addGroup',
-              fallback: 'Add or Create Group',
-            ),
+            title: AppLocalizations.of(context)!.addOrCreateGroup,
             maxWidth: _dialogMaxWidth(context),
             maxHeight: MediaQuery.sizeOf(context).height * 0.85,
             // No viewInsets padding: Dialog already lifts itself above the
@@ -276,12 +252,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                     if (!_isConnected) ...[
                       AppSpacing.verticalMd,
                       _OfflineBanner(
-                        message: _localeText(
-                          context,
-                          'offlineBanner',
-                          fallback:
-                              'Offline — group operations will be queued and processed when you reconnect.',
-                        ),
+                        message: AppLocalizations.of(context)!.offlineBanner,
                       ),
                     ],
                     AppSpacing.verticalLg,
@@ -320,7 +291,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _localeText(context, 'joinGroup', fallback: 'Join Group by ID'),
+                AppLocalizations.of(context)!.joinGroupById,
                 style: theme.textTheme.titleMedium,
               ),
               AppSpacing.verticalMd,
@@ -335,11 +306,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 enableSuggestions: false,
                 textCapitalization: TextCapitalization.none,
                 decoration: InputDecoration(
-                  labelText: _localeText(
-                    context,
-                    'groupId',
-                    fallback: 'Group ID',
-                  ),
+                  labelText: AppLocalizations.of(context)!.groupId,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
@@ -349,18 +316,14 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                   suffixIcon: IconButton(
                     key: UiKeys.addGroupJoinPasteButton,
                     icon: const Icon(Icons.paste),
-                    tooltip: _localeText(context, 'paste', fallback: 'Paste'),
+                    tooltip: AppLocalizations.of(context)!.paste,
                     onPressed: _pasteGroupId,
                   ),
                 ),
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
                   if (trimmed.isEmpty) {
-                    return _localeText(
-                      context,
-                      'enterGroupId',
-                      fallback: 'Please enter group ID',
-                    );
+                    return AppLocalizations.of(context)!.enterGroupId;
                   }
                   // Group/conference IDs are hex strings. Public group chat
                   // IDs are 64 hex chars; conferences and other types vary
@@ -369,20 +332,12 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                   // the C++ side surfaces a raw error string.
                   final hexRegex = RegExp(r'^[0-9A-Fa-f]+$');
                   if (!hexRegex.hasMatch(trimmed)) {
-                    return _localeText(
-                      context,
-                      'invalidHex',
-                      fallback: 'Only hexadecimal characters are allowed',
-                    );
+                    return AppLocalizations.of(context)!.invalidCharacters;
                   }
                   // Tox CONFERENCE_ID_SIZE is 32 bytes = 64 hex chars, same as
                   // public group chat_id. Anything else is malformed.
                   if (trimmed.length != 64) {
-                    return _localeText(
-                      context,
-                      'invalidLength',
-                      fallback: 'ID must be exactly 64 hexadecimal characters',
-                    );
+                    return AppLocalizations.of(context)!.invalidLength;
                   }
                   return null;
                 },
@@ -393,11 +348,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _requestController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(
-                    context,
-                    'requestMessage',
-                    fallback: 'Request Message',
-                  ),
+                  labelText: AppLocalizations.of(context)!.requestMessage,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
@@ -411,11 +362,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _aliasController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(
-                    context,
-                    'groupAlias',
-                    fallback: 'Local group name (optional)',
-                  ),
+                  labelText: AppLocalizations.of(context)!.groupAlias,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
@@ -426,11 +373,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 scheme: scheme,
                 busy: _isJoining,
                 icon: Icons.group_add,
-                label: _localeText(
-                  context,
-                  'joinAction',
-                  fallback: 'Send Join Request',
-                ),
+                label: AppLocalizations.of(context)!.joinAction,
                 onPressed: _joinGroup,
               ),
             ],
@@ -457,11 +400,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _localeText(
-                  context,
-                  'createGroup',
-                  fallback: 'Create New Group',
-                ),
+                AppLocalizations.of(context)!.createGroup,
                 style: theme.textTheme.titleMedium,
               ),
               AppSpacing.verticalMd,
@@ -470,29 +409,21 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 controller: _createNameController,
                 textAlignVertical: TextAlignVertical.center,
                 decoration: InputDecoration(
-                  labelText: _localeText(
-                    context,
-                    'groupName',
-                    fallback: 'Group Name',
-                  ),
+                  labelText: AppLocalizations.of(context)!.groupName,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadii.input),
                   ),
                 ),
                 validator: (value) {
                   if ((value ?? '').trim().isEmpty) {
-                    return _localeText(
-                      context,
-                      'enterGroupName',
-                      fallback: 'Please enter a group name',
-                    );
+                    return AppLocalizations.of(context)!.enterGroupName;
                   }
                   return null;
                 },
               ),
               AppSpacing.verticalLg,
               Text(
-                _localeText(context, 'groupType', fallback: 'Group Type'),
+                AppLocalizations.of(context)!.groupType,
                 style: theme.textTheme.bodyMedium,
               ),
               AppSpacing.verticalSm,
@@ -516,11 +447,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          _localeText(
-                            context,
-                            'publicGroup',
-                            fallback: 'Public',
-                          ),
+                          AppLocalizations.of(context)!.publicGroup,
                         ),
                       ),
                     ),
@@ -539,11 +466,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          _localeText(
-                            context,
-                            'privateGroup',
-                            fallback: 'Private',
-                          ),
+                          AppLocalizations.of(context)!.privateGroup,
                         ),
                       ),
                     ),
@@ -583,11 +506,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                 scheme: scheme,
                 busy: _isCreating,
                 icon: Icons.group,
-                label: _localeText(
-                  context,
-                  'createAction',
-                  fallback: 'Create Group',
-                ),
+                label: AppLocalizations.of(context)!.createAction,
                 onPressed: _createGroup,
                 buttonKey: UiKeys.addGroupCreateSubmitButton,
               ),
@@ -601,26 +520,11 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   String _groupTypeHint(String type) {
     switch (type) {
       case 'group':
-        return _localeText(
-          context,
-          'publicGroupHint',
-          fallback:
-              'Public group — discoverable on the DHT and joinable by anyone with the chat ID.',
-        );
+        return AppLocalizations.of(context)!.publicGroupHint;
       case 'privateGroup':
-        return _localeText(
-          context,
-          'privateGroupHint',
-          fallback:
-              'Private group — invitation-only, not announced on the DHT.',
-        );
+        return AppLocalizations.of(context)!.privateGroupHint;
       case 'conference':
-        return _localeText(
-          context,
-          'conferenceHint',
-          fallback:
-              'Legacy conference — older protocol, no roles or persistence.',
-        );
+        return AppLocalizations.of(context)!.conferenceHint;
       default:
         return '';
     }
@@ -638,7 +542,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
       width: double.infinity,
       child: Tooltip(
         message: busy
-            ? _localeText(context, 'sending', fallback: 'Sending...')
+            ? AppLocalizations.of(context)!.sendingInProgress
             : '',
         child: FilledButton.icon(
           key: buttonKey,
@@ -681,7 +585,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _localeText(context, 'createdGroupId', fallback: 'New Group ID'),
+            AppLocalizations.of(context)!.createdGroupId,
             style: theme.textTheme.titleMedium,
           ),
           AppSpacing.verticalSm,
@@ -706,16 +610,12 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
               ),
             ),
             icon: const Icon(Icons.copy),
-            label: Text(_localeText(context, 'copyId', fallback: 'Copy ID')),
+            label: Text(AppLocalizations.of(context)!.copyId),
             onPressed: _createdGroupId == null
                 ? null
                 : () async {
                     final messenger = ScaffoldMessenger.maybeOf(context);
-                    final copiedText = _localeText(
-                      context,
-                      'copied',
-                      fallback: 'Copied to clipboard',
-                    );
+                    final copiedText = AppLocalizations.of(context)!.copied;
                     await Clipboard.setData(
                       ClipboardData(text: _createdGroupId!),
                     );
@@ -735,76 +635,6 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     }
   }
 
-  String _localeText(
-    BuildContext context,
-    String key, {
-    required String fallback,
-  }) {
-    final appL10n = AppLocalizations.of(context)!;
-    switch (key) {
-      case 'addGroup':
-        return appL10n.addOrCreateGroup;
-      case 'joinGroup':
-        return appL10n.joinGroupById;
-      case 'groupId':
-        return appL10n.groupId;
-      case 'enterGroupId':
-        return appL10n.enterGroupId;
-      case 'invalidHex':
-        return appL10n.invalidCharacters;
-      case 'invalidLength':
-        return appL10n.invalidLength;
-      case 'requestMessage':
-        return appL10n.requestMessage;
-      case 'groupAlias':
-        return appL10n.groupAlias;
-      case 'joinAction':
-        return appL10n.joinAction;
-      case 'joinSuccess':
-        return appL10n.joinSuccess;
-      case 'joinFailed':
-        return appL10n.joinFailed;
-      case 'createGroup':
-        return appL10n.createGroup;
-      case 'groupName':
-        return appL10n.groupName;
-      case 'enterGroupName':
-        return appL10n.enterGroupName;
-      case 'createAction':
-        return appL10n.createAction;
-      case 'createSuccess':
-        return appL10n.createSuccess;
-      case 'createFailed':
-        return appL10n.createFailed;
-      case 'createdGroupId':
-        return appL10n.createdGroupId;
-      case 'copyId':
-        return appL10n.copyId;
-      case 'copied':
-        return appL10n.copied;
-      case 'paste':
-        return appL10n.paste;
-      case 'publicGroup':
-        return appL10n.publicGroup;
-      case 'privateGroup':
-        return appL10n.privateGroup;
-      case 'publicGroupHint':
-        return appL10n.publicGroupHint;
-      case 'privateGroupHint':
-        return appL10n.privateGroupHint;
-      case 'conferenceHint':
-        return appL10n.conferenceHint;
-      case 'groupType':
-        return appL10n.groupType;
-      case 'joinQueued':
-        return appL10n.joinQueued;
-      case 'offlineBanner':
-        return appL10n.offlineBanner;
-      case 'sending':
-        return fallback;
-    }
-    return fallback;
-  }
 }
 
 class _OfflineBanner extends StatelessWidget {

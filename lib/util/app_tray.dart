@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'app_l10n.dart';
 import 'app_theme_config.dart';
 import 'logger.dart';
 import 'package:tray_manager/tray_manager.dart';
@@ -14,6 +15,7 @@ class AppTray with TrayListener {
   bool _initialized = false;
   int _lastCount = -1;
   bool _lastOnline = false;
+  String? _lastTooltip;
   final MethodChannel _channel = const MethodChannel('tray_manager');
   final String _iconId = 'tim2tox_tray_icon';
   File? _tempIconFile;
@@ -81,7 +83,16 @@ class AppTray with TrayListener {
   Future<void> update({required int count, required bool online, bool force = false}) async {
     if (!_initialized) return;
     final normalized = count.clamp(0, 999);
-    if (!force && _lastCount == normalized && _lastOnline == online) return;
+    // The tooltip is part of the cache key so a language switch re-renders it.
+    final tooltip = normalized > 0
+        ? currentAppL10n().trayUnreadTooltip(normalized)
+        : 'Toxee';
+    if (!force &&
+        _lastCount == normalized &&
+        _lastOnline == online &&
+        _lastTooltip == tooltip) {
+      return;
+    }
     
     if (Platform.isMacOS) {
       // macOS: Use native title for number display (normal size)
@@ -95,10 +106,10 @@ class AppTray with TrayListener {
       await _safeTrayCall('setIcon', () => _setTrayIcon(bytes));
     }
 
-    final tooltip = normalized > 0 ? 'Unread: $normalized' : 'Toxee';
     await _safeTrayCall('setToolTip', () => trayManager.setToolTip(tooltip));
     _lastCount = normalized;
     _lastOnline = online;
+    _lastTooltip = tooltip;
   }
 
   Future<void> _setTrayIcon(Uint8List bytes) async {
