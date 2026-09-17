@@ -1697,5 +1697,292 @@
   "importBlockedByPendingImport": "Another account import was interrupted and hasn't been cleaned up yet. Restart toxee to finish undoing it, then import again.",
   "@importBlockedByPendingImport": {
     "description": "Shown when a .tox import is refused because an earlier, interrupted import is still recorded on disk; the rollback runs at the next app start."
+  },
+  "friendRequestQueued": "Offline — request queued and will be sent when you reconnect",
+  "@friendRequestQueued": {
+    "description": "Add-friend snackbar when the request is queued because the client is offline"
+  },
+  "cannotAddSelfAsFriend": "You cannot add yourself as a friend",
+  "@cannotAddSelfAsFriend": {
+    "description": "Add-friend error when the entered Tox ID is the user's own"
+  },
+  "friendRequestAlreadySent": "A friend request was already sent in this session",
+  "@friendRequestAlreadySent": {
+    "description": "Add-friend error when the same ID was already requested while the dialog was open"
+  },
+  "alreadyInFriendList": "This user is already in your friend list",
+  "@alreadyInFriendList": {
+    "description": "Add-friend error when the ID belongs to an existing friend"
+  },
+  "addFriendOfflineBanner": "Offline — your friend request will be queued and sent automatically when you reconnect.",
+  "@addFriendOfflineBanner": {
+    "description": "Banner in the add-friend dialog while offline"
+  },
+  "scanQr": "Scan QR",
+  "@scanQr": {
+    "description": "Tooltip / screen title for scanning a QR code"
+  },
+  "sendingInProgress": "Sending...",
+  "@sendingInProgress": {
+    "description": "Tooltip on a submit button while a request is being sent"
+  },
+  "firewallHintWindows": "On Windows, the firewall may block incoming connections; allow the app if prompted.",
+  "@firewallHintWindows": {
+    "description": "Bootstrap settings hint shown on Windows"
+  },
+  "firewallHintLinux": "On Linux, network operations may require appropriate permissions or firewall rules.",
+  "@firewallHintLinux": {
+    "description": "Bootstrap settings hint shown on Linux"
+  },
+  "nodePublicKeyHint": "Public key (hex)",
+  "@nodePublicKeyHint": {
+    "description": "Hint text for the bootstrap node public key field"
+  },
+  "failedToAddBootstrapNode": "Failed to add bootstrap node",
+  "@failedToAddBootstrapNode": {
+    "description": "Reason inserted into nodeSwitchFailed when adding a node fails"
+  },
+  "couldNotRemovePassword": "could not remove password",
+  "@couldNotRemovePassword": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "couldNotSavePassword": "could not save password",
+  "@couldNotSavePassword": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "mediaSent": "{label} sent",
+  "@mediaSent": {
+    "description": "Snackbar after sending a file/photo/video; label is the localized media type",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "dhtUnreachableUsingFallback": "Cannot reach the DHT. Using fallback bootstrap nodes — your network may be blocking UDP, or the nodes are down.",
+  "@dhtUnreachableUsingFallback": {
+    "description": "Snackbar 30s after login when still offline and fallback nodes are in use"
+  },
+  "dhtUnreachableTimeout": "Cannot reach the DHT after 30s. Check your network connection.",
+  "@dhtUnreachableTimeout": {
+    "description": "Snackbar 30s after login when still offline"
+  },
+  "chatSdkInitFailed": "Chat SDK initialization failed: {error}",
+  "@chatSdkInitFailed": {
+    "description": "Error when the chat SDK fails to initialize",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "messageTooLongMaxBytes": "Message too long (max {maxBytes} bytes)",
+  "@messageTooLongMaxBytes": {
+    "description": "Send failure: text exceeds the Tox message size",
+    "placeholders": {
+      "maxBytes": {
+        "type": "int"
+      }
+    }
+  },
+  "friendOfflineWillRetry": "Friend offline — will retry when they reconnect",
+  "@friendOfflineWillRetry": {
+    "description": "Send failure when the friend is offline"
+  },
+  "groupFileTransferUnsupported": "File transfer in group chats is not supported",
+  "@groupFileTransferUnsupported": {
+    "description": "Send failure for files in groups"
+  },
+  "fileSendFailed": "File send failed: {error}",
+  "@fileSendFailed": {
+    "description": "Send failure for files; error is a technical detail",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorWithCode": "error {code}",
+  "@errorWithCode": {
+    "description": "Fallback failure reason when only a numeric code is known; lower-case, it follows a colon",
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "pairingLanUnreachable": "Devices can't see each other on this network. Try a personal hotspot, or use Export → Import via file instead. ({detail})",
+  "@pairingLanUnreachable": {
+    "description": "Pairing error when the two devices cannot reach each other on the LAN; detail is the OS error",
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationNewFriendRequest": "New friend request",
+  "@notificationNewFriendRequest": {
+    "description": "Notification title for a friend request with no sender name"
+  },
+  "notificationFriendRequestFrom": "Friend request: {name}",
+  "@notificationFriendRequestFrom": {
+    "description": "Notification title for a friend request",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationMissedCall": "Missed call",
+  "@notificationMissedCall": {
+    "description": "Notification title"
+  },
+  "notificationMissedVideoCall": "Missed video call",
+  "@notificationMissedVideoCall": {
+    "description": "Notification title"
+  },
+  "notificationIncomingCall": "Incoming call",
+  "@notificationIncomingCall": {
+    "description": "Notification title"
+  },
+  "notificationIncomingVideoCall": "Incoming video call",
+  "@notificationIncomingVideoCall": {
+    "description": "Notification title"
+  },
+  "notificationUnknownCaller": "Toxee contact",
+  "@notificationUnknownCaller": {
+    "description": "Notification body when the caller has no display name"
+  },
+  "notificationNewMessage": "New message",
+  "@notificationNewMessage": {
+    "description": "Notification title when the sender has no name"
+  },
+  "previewImage": "[Image]",
+  "@previewImage": {
+    "description": "Notification preview for an image message"
+  },
+  "previewVideo": "[Video]",
+  "@previewVideo": {
+    "description": "Notification preview for a video message"
+  },
+  "previewVoice": "[Voice]",
+  "@previewVoice": {
+    "description": "Notification preview for a voice message"
+  },
+  "previewVoiceWithDuration": "[Voice {seconds}s]",
+  "@previewVoiceWithDuration": {
+    "description": "Notification preview for a voice message with its length in seconds",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "previewFile": "[File]",
+  "@previewFile": {
+    "description": "Notification preview for a file message"
+  },
+  "previewFileWithName": "[File] {name}",
+  "@previewFileWithName": {
+    "description": "Notification preview for a file message",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "previewSticker": "[Sticker]",
+  "@previewSticker": {
+    "description": "Notification preview for a sticker"
+  },
+  "previewLocation": "[Location]",
+  "@previewLocation": {
+    "description": "Notification preview for a location message"
+  },
+  "previewCustomMessage": "[Custom Message]",
+  "@previewCustomMessage": {
+    "description": "Notification preview for a custom message"
+  },
+  "previewGroupEvent": "[Group event]",
+  "@previewGroupEvent": {
+    "description": "Notification preview for a group system event"
+  },
+  "previewMessage": "[Message]",
+  "@previewMessage": {
+    "description": "Notification preview for any other message"
+  },
+  "channelMessagesName": "Messages",
+  "@channelMessagesName": {
+    "description": "Android notification channel name (shown in system settings)"
+  },
+  "channelMessagesDescription": "Notifications for new incoming messages from your tox contacts.",
+  "@channelMessagesDescription": {
+    "description": "Android notification channel description"
+  },
+  "channelFriendRequestsName": "Friend requests",
+  "@channelFriendRequestsName": {
+    "description": "Android notification channel name"
+  },
+  "channelFriendRequestsDescription": "Notifications when someone sends you a friend request.",
+  "@channelFriendRequestsDescription": {
+    "description": "Android notification channel description"
+  },
+  "channelMissedCallsName": "Missed calls",
+  "@channelMissedCallsName": {
+    "description": "Android notification channel name"
+  },
+  "channelMissedCallsDescription": "Notifications when an incoming call could not be reached or was missed.",
+  "@channelMissedCallsDescription": {
+    "description": "Android notification channel description"
+  },
+  "channelIncomingCallsName": "Incoming calls",
+  "@channelIncomingCallsName": {
+    "description": "Android notification channel name"
+  },
+  "channelIncomingCallsDescription": "Full-screen alerts for incoming Toxee calls.",
+  "@channelIncomingCallsDescription": {
+    "description": "Android notification channel description"
+  },
+  "notificationOpenAction": "Open Toxee",
+  "@notificationOpenAction": {
+    "description": "Linux notification default action label"
+  },
+  "trayUnreadTooltip": "Unread: {count}",
+  "@trayUnreadTooltip": {
+    "description": "Desktop tray icon tooltip",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unknownErrorReason": "unknown error",
+  "@unknownErrorReason": {
+    "description": "Fallback failure reason when nothing is known; lower-case, it follows a colon"
+  },
+  "notificationNoMessage": "(no message)",
+  "@notificationNoMessage": {
+    "description": "Friend-request notification body when the request carries no message"
+  },
+  "notificationGroupedSummary": "{count} new messages from {name}",
+  "@notificationGroupedSummary": {
+    "description": "Collapsed Android summary for several messages from one sender",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairingConnectTimedOut": "Couldn't reach the other device at {endpoint} in time. Make sure both devices are on the same network, try a personal hotspot, or use Export → Import via file instead.",
+  "@pairingConnectTimedOut": {
+    "description": "Pairing error when connecting to the host's endpoint timed out",
+    "placeholders": {
+      "endpoint": {
+        "type": "String"
+      }
+    }
   }
 }

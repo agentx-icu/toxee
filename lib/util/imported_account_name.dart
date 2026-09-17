@@ -1,3 +1,4 @@
+import 'app_l10n.dart';
 import 'prefs.dart';
 import 'tox_utils.dart';
 
@@ -42,7 +43,9 @@ abstract final class ImportedAccountName {
     required String preferred,
     required String toxId,
   }) async {
-    final base = preferred.trim().isEmpty ? 'Imported account' : preferred.trim();
+    final base = preferred.trim().isEmpty
+        ? currentAppL10n().importedAccountDefaultName
+        : preferred.trim();
     if (!await _taken(base, toxId)) return base;
 
     final shortId = _shortId(toxId);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_localizations.dart';
 import '../ui/widgets/app_snackbar.dart';
+import 'app_l10n.dart';
 import 'logger.dart';
 
 /// Surfaces send-failure feedback as snackbars on top of the running app.
@@ -110,7 +111,7 @@ class SendFailureNotifier {
   }
 
   static String _humanize(BuildContext context, int code, String desc) {
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context) ?? currentAppL10n();
     final lower = desc.toLowerCase();
 
     // Order matters: pattern checks run before the generic fallback. We
@@ -120,7 +121,7 @@ class SendFailureNotifier {
         lower.contains('exceeds') ||
         lower.contains('body_size') ||
         lower.contains('msg_body_size')) {
-      return 'Message too long (max $toxMaxTextBytes bytes)';
+      return l10n.messageTooLongMaxBytes(toxMaxTextBytes);
     }
     if (lower.contains('friend is offline') ||
         lower.contains('friend offline') ||
@@ -128,29 +129,26 @@ class SendFailureNotifier {
         lower.contains('disconnect')) {
       // Should be rare now that Tier 1B queues offline sends silently; we
       // still translate it just in case a code path slips through.
-      return 'Friend offline — will retry when they reconnect';
+      return l10n.friendOfflineWillRetry;
     }
     if (lower.contains('group') && lower.contains('file')) {
-      return 'File transfer in group chats is not supported';
+      return l10n.groupFileTransferUnsupported;
     }
     if (lower.contains('file') &&
         (lower.contains('not found') ||
             lower.contains('missing') ||
             lower.contains('cannot') ||
             lower.contains('failed'))) {
-      return 'File send failed: ${_trim(desc)}';
+      return l10n.fileSendFailed(_trim(desc));
     }
 
     // Final fallback uses the existing localized "Send failed: <reason>"
     // template. If the platform returned an empty desc we substitute a
     // human-friendly fallback so the toast is never literally "Send failed: ".
     final safeDesc = desc.trim().isEmpty
-        ? (code != 0 ? 'error $code' : 'unknown error')
+        ? (code != 0 ? l10n.errorWithCode(code) : l10n.unknownErrorReason)
         : _trim(desc);
-    if (l10n != null) {
-      return l10n.sendFailed(safeDesc);
-    }
-    return 'Send failed: $safeDesc';
+    return l10n.sendFailed(safeDesc);
   }
 
   static String _trim(String desc) {

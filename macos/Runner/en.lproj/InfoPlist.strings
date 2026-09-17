@@ -1,0 +1,4 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSMicrophoneUsageDescription" = "This app needs microphone access for voice and video calls.";
+"NSCameraUsageDescription" = "This app needs camera access for video calls.";
+"NSPhotoLibraryUsageDescription" = "Toxee needs access to your photo library to send photos and videos.";

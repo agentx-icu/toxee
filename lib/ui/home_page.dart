@@ -333,7 +333,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _disposed = false;
   ContactBuilderOverrideHandle? _contactBuilderOverride;
   GroupProfileBuilderOverrideHandle? _groupBuilderOverride;
-  String? _initErrorMessage;
   late final HomeSessionController _sessionController;
   late final HomeGroupController _groupController;
   // Tracks the last computed `shouldShowMasterDetail` so we only schedule the
@@ -469,6 +468,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (!mounted) return;
     try {
       TencentCloudChatIntl().setLocale(AppLocale.locale.value);
+      unawaited(_updateTray()); // the tray tooltip is localized too
     } catch (e, st) {
       AppLogger.logError('[HomePage] Failed to update chat locale', e, st);
     }
@@ -880,7 +880,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       pickedPath = path;
       if (userId != null) {
         await widget.service.sendFile(userId, pickedPath);
-        _showSnackBar('$label sent');
+        _showSnackBar(appL10n.mediaSent(label));
       }
     } catch (e) {
       final errorMsg = e.toString();

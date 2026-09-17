@@ -933,7 +933,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(
-                    'On Windows, the firewall may block incoming connections; allow the app if prompted.',
+                    l10n.firewallHintWindows,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: secondaryTextColor,
                       fontStyle: FontStyle.italic,
@@ -944,7 +944,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.xs),
                   child: Text(
-                    'On Linux, network operations may require appropriate permissions or firewall rules.',
+                    l10n.firewallHintLinux,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: secondaryTextColor,
                       fontStyle: FontStyle.italic,
@@ -1124,7 +1124,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                             textAlignVertical: TextAlignVertical.center,
                             decoration: InputDecoration(
                               labelText: l10n.nodePublicKey,
-                              hintText: 'Public key (hex)',
+                              hintText: l10n.nodePublicKeyHint,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(
                                   AppThemeConfig.inputBorderRadius,

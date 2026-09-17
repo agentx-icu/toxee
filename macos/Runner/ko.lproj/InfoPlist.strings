@@ -1,0 +1,4 @@
+/* Permission prompt copy shown by the OS. Keep in sync with Info.plist (English source). */
+"NSMicrophoneUsageDescription" = "음성 및 영상 통화를 위해 마이크 접근 권한이 필요합니다.";
+"NSCameraUsageDescription" = "영상 통화를 위해 카메라 접근 권한이 필요합니다.";
+"NSPhotoLibraryUsageDescription" = "사진과 동영상을 보내려면 Toxee가 사진 보관함에 접근해야 합니다.";

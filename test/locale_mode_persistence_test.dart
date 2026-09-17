@@ -17,17 +17,11 @@
 //     - AppLocale.initFromPrefs()   : load persisted/ system locale (line 9)
 //     - AppLocale.set(Locale)       : update notifier + persist (line 30)
 //
-// NOT LOCKED HERE: the specific system-fallback *rules* in the private
-// `_resolveSystemLocale` (locale_controller.dart:15-28) — unsupported lang →
-// en, zh+Hant → zh_Hant, zh (no script) → zh_Hans, supported lang → itself.
-// Those rules read `PlatformDispatcher.instance.locale`, which is not
-// overridable from a pure unit test (no test hook, and the method is private
-// so it cannot be called directly with a crafted Locale). This test therefore
-// only locks the *deterministic* part of the no-stored-value path: that
-// initFromPrefs does not persist a code and resolves to a member of the
-// supported set. A dedicated test that overrides the platform locale (e.g. a
-// widget test driving `MaterialApp.localeResolutionCallback`, or production
-// exposing a testable seam) would be needed to lock the per-rule mapping.
+// The per-rule system-fallback mapping (unsupported lang → en, zh+Hant or a
+// Traditional region without a script → zh_Hant, other zh → zh_Hans, supported
+// lang → itself) is locked through the `AppLocale.resolveSystemLocale` seam
+// below; initFromPrefs itself reads `PlatformDispatcher.instance.locale`, so
+// its no-stored-value path is only checked for landing in the supported set.
 //
 // Supported locale set (lib/i18n/app_localizations.dart:99-107 and the
 // supportedCodes list in locale_controller.dart:17):
@@ -334,5 +328,46 @@ void main() {
         }
       },
     );
+  });
+
+  group('AppLocale.resolveSystemLocale', () {
+    const hans = Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans');
+    const hant = Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant');
+    final cases = <(Locale, Locale)>[
+      (const Locale('fr', 'FR'), const Locale('en')),
+      (const Locale('ja', 'JP'), const Locale('ja')),
+      (const Locale('ar', 'EG'), const Locale('ar')),
+      (const Locale('zh'), hans),
+      (const Locale('zh', 'CN'), hans),
+      (const Locale('zh', 'SG'), hans),
+      (hant, hant),
+      (
+        const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hant',
+          countryCode: 'TW',
+        ),
+        hant,
+      ),
+      // Regression: Android reports these regions without a script subtag and
+      // they resolved to Simplified Chinese.
+      (const Locale('zh', 'TW'), hant),
+      (const Locale('zh', 'HK'), hant),
+      (const Locale('zh', 'MO'), hant),
+      // An explicit script wins over the region.
+      (
+        const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hans',
+          countryCode: 'HK',
+        ),
+        hans,
+      ),
+    ];
+    for (final (system, expected) in cases) {
+      test('$system -> $expected', () {
+        expect(AppLocale.resolveSystemLocale(system), expected);
+      });
+    }
   });
 }

@@ -1757,4 +1757,209 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get importBlockedByPendingImport =>
       'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.';
+
+  @override
+  String get friendRequestQueued =>
+      'Offline — request queued and will be sent when you reconnect';
+
+  @override
+  String get cannotAddSelfAsFriend => 'You cannot add yourself as a friend';
+
+  @override
+  String get friendRequestAlreadySent =>
+      'A friend request was already sent in this session';
+
+  @override
+  String get alreadyInFriendList => 'This user is already in your friend list';
+
+  @override
+  String get addFriendOfflineBanner =>
+      'Offline — your friend request will be queued and sent automatically when you reconnect.';
+
+  @override
+  String get scanQr => 'Scan QR';
+
+  @override
+  String get sendingInProgress => 'Sending...';
+
+  @override
+  String get firewallHintWindows =>
+      'On Windows, the firewall may block incoming connections; allow the app if prompted.';
+
+  @override
+  String get firewallHintLinux =>
+      'On Linux, network operations may require appropriate permissions or firewall rules.';
+
+  @override
+  String get nodePublicKeyHint => 'Public key (hex)';
+
+  @override
+  String get failedToAddBootstrapNode => 'Failed to add bootstrap node';
+
+  @override
+  String get couldNotRemovePassword => 'could not remove password';
+
+  @override
+  String get couldNotSavePassword => 'could not save password';
+
+  @override
+  String mediaSent(String label) {
+    return '$label sent';
+  }
+
+  @override
+  String get dhtUnreachableUsingFallback =>
+      'Cannot reach the DHT. Using fallback bootstrap nodes — your network may be blocking UDP, or the nodes are down.';
+
+  @override
+  String get dhtUnreachableTimeout =>
+      'Cannot reach the DHT after 30s. Check your network connection.';
+
+  @override
+  String chatSdkInitFailed(String error) {
+    return 'Chat SDK initialization failed: $error';
+  }
+
+  @override
+  String messageTooLongMaxBytes(int maxBytes) {
+    return 'Message too long (max $maxBytes bytes)';
+  }
+
+  @override
+  String get friendOfflineWillRetry =>
+      'Friend offline — will retry when they reconnect';
+
+  @override
+  String get groupFileTransferUnsupported =>
+      'File transfer in group chats is not supported';
+
+  @override
+  String fileSendFailed(String error) {
+    return 'File send failed: $error';
+  }
+
+  @override
+  String errorWithCode(int code) {
+    return 'error $code';
+  }
+
+  @override
+  String pairingLanUnreachable(String detail) {
+    return 'Devices can\'t see each other on this network. Try a personal hotspot, or use Export → Import via file instead. ($detail)';
+  }
+
+  @override
+  String get notificationNewFriendRequest => 'New friend request';
+
+  @override
+  String notificationFriendRequestFrom(String name) {
+    return 'Friend request: $name';
+  }
+
+  @override
+  String get notificationMissedCall => 'Missed call';
+
+  @override
+  String get notificationMissedVideoCall => 'Missed video call';
+
+  @override
+  String get notificationIncomingCall => 'Incoming call';
+
+  @override
+  String get notificationIncomingVideoCall => 'Incoming video call';
+
+  @override
+  String get notificationUnknownCaller => 'Toxee contact';
+
+  @override
+  String get notificationNewMessage => 'New message';
+
+  @override
+  String get previewImage => '[Image]';
+
+  @override
+  String get previewVideo => '[Video]';
+
+  @override
+  String get previewVoice => '[Voice]';
+
+  @override
+  String previewVoiceWithDuration(int seconds) {
+    return '[Voice ${seconds}s]';
+  }
+
+  @override
+  String get previewFile => '[File]';
+
+  @override
+  String previewFileWithName(String name) {
+    return '[File] $name';
+  }
+
+  @override
+  String get previewSticker => '[Sticker]';
+
+  @override
+  String get previewLocation => '[Location]';
+
+  @override
+  String get previewCustomMessage => '[Custom Message]';
+
+  @override
+  String get previewGroupEvent => '[Group event]';
+
+  @override
+  String get previewMessage => '[Message]';
+
+  @override
+  String get channelMessagesName => 'Messages';
+
+  @override
+  String get channelMessagesDescription =>
+      'Notifications for new incoming messages from your tox contacts.';
+
+  @override
+  String get channelFriendRequestsName => 'Friend requests';
+
+  @override
+  String get channelFriendRequestsDescription =>
+      'Notifications when someone sends you a friend request.';
+
+  @override
+  String get channelMissedCallsName => 'Missed calls';
+
+  @override
+  String get channelMissedCallsDescription =>
+      'Notifications when an incoming call could not be reached or was missed.';
+
+  @override
+  String get channelIncomingCallsName => 'Incoming calls';
+
+  @override
+  String get channelIncomingCallsDescription =>
+      'Full-screen alerts for incoming Toxee calls.';
+
+  @override
+  String get notificationOpenAction => 'Open Toxee';
+
+  @override
+  String trayUnreadTooltip(int count) {
+    return 'Unread: $count';
+  }
+
+  @override
+  String get unknownErrorReason => 'unknown error';
+
+  @override
+  String get notificationNoMessage => '(no message)';
+
+  @override
+  String notificationGroupedSummary(int count, String name) {
+    return '$count new messages from $name';
+  }
+
+  @override
+  String pairingConnectTimedOut(String endpoint) {
+    return 'Couldn\'t reach the other device at $endpoint in time. Make sure both devices are on the same network, try a personal hotspot, or use Export → Import via file instead.';
+  }
 }

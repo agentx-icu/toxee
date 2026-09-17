@@ -371,10 +371,6 @@
       }
     }
   },
-  "directorySelectionNotSupported": "Directory selection is not supported on this platform",
-  "@directorySelectionNotSupported": {
-    "description": "Message shown when directory selection is not supported on the platform"
-  },
   "enterIrcChannel": "请输入IRC频道名称",
   "@enterIrcChannel": {
     "description": "Validation error message for empty IRC channel name"
@@ -411,14 +407,6 @@
   "install": "安装",
   "@install": {
     "description": "Button text to install an application"
-  },
-  "invalidIrcChannel": "IRC channel must start with # or &",
-  "@invalidIrcChannel": {
-    "description": "Validation error message for invalid IRC channel format"
-  },
-  "ipAddress": "IP Address",
-  "@ipAddress": {
-    "description": "Label for IP address"
   },
   "ircAppInstalled": "IRC频道应用已安装",
   "@ircAppInstalled": {
@@ -557,24 +545,7 @@
   "@lanModeDesc": {
     "description": "Description for LAN mode"
   },
-  "messageReceivers": "Message Receivers ({count})",
-  "@messageReceivers": {
-    "description": "Title for message receivers dialog",
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
-  "nicknameTooLong": "Nickname too long",
-  "@nicknameTooLong": {
-    "description": "Error message when nickname is too long"
-  },
   "nicknameCannotBeEmpty": "昵称不能为空",
-  "noAliveIPsFound": "No alive IPs found",
-  "@noAliveIPsFound": {
-    "description": "Message when no alive IPs are found"
-  },
   "noBootstrapService": "未发现 Bootstrap 服务",
   "@noBootstrapService": {
     "description": "Message when no bootstrap service is found"

@@ -674,22 +674,22 @@ class AppLocalizationsAr extends AppLocalizations {
   String get ircChannels => 'قنوات IRC';
 
   @override
-  String get ircStatusDisconnected => 'Disconnected';
+  String get ircStatusDisconnected => 'غير متصل';
 
   @override
-  String get ircStatusConnecting => 'Connecting';
+  String get ircStatusConnecting => 'جارٍ الاتصال';
 
   @override
-  String get ircStatusConnected => 'Connected';
+  String get ircStatusConnected => 'متصل';
 
   @override
-  String get ircStatusAuthenticating => 'Authenticating';
+  String get ircStatusAuthenticating => 'جارٍ المصادقة';
 
   @override
-  String get ircStatusReconnecting => 'Reconnecting';
+  String get ircStatusReconnecting => 'جارٍ إعادة الاتصال';
 
   @override
-  String get ircStatusError => 'Error';
+  String get ircStatusError => 'خطأ';
 
   @override
   String get ircServerConfig => 'إعدادات خادم IRC';
@@ -841,16 +841,16 @@ class AppLocalizationsAr extends AppLocalizations {
   String get statusMessageTooLong => 'رسالة الحالة طويلة جداً';
 
   @override
-  String get passwordStrengthWeak => 'Weak';
+  String get passwordStrengthWeak => 'ضعيفة';
 
   @override
-  String get passwordStrengthFair => 'Fair';
+  String get passwordStrengthFair => 'مقبولة';
 
   @override
-  String get passwordStrengthGood => 'Good';
+  String get passwordStrengthGood => 'جيدة';
 
   @override
-  String get passwordStrengthStrong => 'Strong';
+  String get passwordStrengthStrong => 'قوية';
 
   @override
   String get manualNodeInput => 'إدخال العقدة يدوياً';
@@ -1081,17 +1081,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get exportAccount => 'تصدير الحساب';
 
   @override
-  String get exportOptionProfileTox => 'Profile (.tox)';
+  String get exportOptionProfileTox => 'الملف الشخصي (.tox)';
 
   @override
-  String get exportOptionProfileToxSubtitle => 'qTox compatible, profile only';
+  String get exportOptionProfileToxSubtitle =>
+      'متوافق مع qTox، الملف الشخصي فقط';
 
   @override
-  String get exportOptionFullBackup => 'Full Backup (.zip)';
+  String get exportOptionFullBackup => 'نسخة احتياطية كاملة (.zip)';
 
   @override
   String get exportOptionFullBackupSubtitle =>
-      'Profile + chat history + settings';
+      'الملف الشخصي + سجل الدردشة + الإعدادات';
 
   @override
   String get importAccount => 'استيراد الحساب';
@@ -1224,82 +1225,80 @@ class AppLocalizationsAr extends AppLocalizations {
   String get thisAccountIsAlreadyLoggedIn => 'هذا الحساب مسجل دخول بالفعل';
 
   @override
-  String get upgradeRequiredTitle => 'Please upgrade the app';
+  String get upgradeRequiredTitle => 'يرجى تحديث التطبيق';
 
   @override
   String upgradeRequiredMessage(int storedVersion, int currentVersion) {
-    return 'Your data was saved by a newer version of the app (data version: $storedVersion). This version supports up to $currentVersion. Please install the latest update to continue.';
+    return 'تم حفظ بياناتك بواسطة إصدار أحدث من التطبيق (إصدار البيانات: $storedVersion). يدعم هذا الإصدار حتى $currentVersion. يرجى تثبيت آخر تحديث للمتابعة.';
   }
 
   @override
   String get upgradeAppTitle => 'toxee';
 
   @override
-  String get hide => 'Hide';
+  String get hide => 'إخفاء';
 
   @override
-  String get pressBackAgainToExit => 'Press back again to exit';
+  String get pressBackAgainToExit => 'اضغط رجوع مرة أخرى للخروج';
 
   @override
-  String get startupFailed => 'Startup Failed';
+  String get startupFailed => 'فشل بدء التشغيل';
 
   @override
-  String get unknownError => 'Unknown error';
+  String get unknownError => 'خطأ غير معروف';
 
   @override
-  String get goToLogin => 'Go to Login';
+  String get goToLogin => 'الانتقال إلى تسجيل الدخول';
 
   @override
-  String get conference => 'Conference';
+  String get conference => 'مؤتمر';
 
   @override
-  String get defaultJoinRequestMessage =>
-      'Hi, please invite me into this group';
+  String get defaultJoinRequestMessage => 'مرحباً، يرجى دعوتي إلى هذه المجموعة';
 
   @override
   String get userNotFoundPleaseRegister =>
-      'User not found. Please register first.';
+      'المستخدم غير موجود. يرجى التسجيل أولاً.';
 
   @override
   String get nicknameDoesNotMatch =>
-      'Nickname does not match. Please use the registered nickname or register a new account.';
+      'الاسم المستعار غير مطابق. يرجى استخدام الاسم المستعار المسجل أو تسجيل حساب جديد.';
 
   @override
   String get accountAlreadyExistsPleaseLogin =>
-      'Account already exists. Please login instead or use a different nickname.';
+      'الحساب موجود بالفعل. يرجى تسجيل الدخول بدلاً من ذلك أو استخدام اسم مستعار مختلف.';
 
   @override
   String get profileNotFoundImportRestore =>
-      'Profile not found for this account. Please import or restore backup.';
+      'لم يتم العثور على ملف شخصي لهذا الحساب. يرجى استيراد نسخة احتياطية أو استعادتها.';
 
   @override
-  String get failedToInitializeTIMManager =>
-      'Failed to initialize TIMManager SDK';
+  String get failedToInitializeTIMManager => 'فشل تهيئة TIMManager SDK';
 
   @override
-  String get failedToGetToxId => 'Failed to get Tox ID';
+  String get failedToGetToxId => 'فشل الحصول على Tox ID';
 
   @override
-  String get failedToGenerateToxId => 'Failed to generate Tox ID';
+  String get failedToGenerateToxId => 'فشل إنشاء Tox ID';
 
   @override
   String get registrationCouldNotCreateProfile =>
-      'Registration could not create a unique profile. Please try again.';
+      'تعذّر على التسجيل إنشاء ملف شخصي فريد. يرجى المحاولة مرة أخرى.';
 
   @override
-  String get importedAccount => 'Imported Account';
+  String get importedAccount => 'حساب مستورد';
 
   @override
-  String get unknown => 'Unknown';
+  String get unknown => 'غير معروف';
 
   @override
   String sendingToGroupsNotSupported(String label) {
-    return 'Sending $label to groups is not supported yet';
+    return 'إرسال $label إلى المجموعات غير مدعوم بعد';
   }
 
   @override
   String noLabelSelected(String label) {
-    return 'No $label selected';
+    return 'لم يتم اختيار $label';
   }
 
   @override
@@ -1420,12 +1419,12 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String unreadMessagesSemantics(int count) {
-    return '$count unread messages';
+    return '$count رسائل غير مقروءة';
   }
 
   @override
   String matchingMessagesSemantics(int count) {
-    return '$count matching messages';
+    return '$count رسائل مطابقة';
   }
 
   @override
@@ -1435,18 +1434,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get statusOffline => 'غير متصل';
 
   @override
-  String get noIrcChannels => 'No IRC channels';
+  String get noIrcChannels => 'لا توجد قنوات IRC';
 
   @override
-  String get joinChannelToGetStarted => 'Join a channel to get started';
+  String get joinChannelToGetStarted => 'انضم إلى قناة للبدء';
 
   @override
   String ircUsersCount(int count) {
-    return 'Users ($count)';
+    return 'المستخدمون ($count)';
   }
 
   @override
-  String get ircNoUsers => 'No users';
+  String get ircNoUsers => 'لا يوجد مستخدمون';
 
   @override
   String get passwordVisibility => 'تبديل رؤية كلمة المرور';
@@ -1504,37 +1503,38 @@ class AppLocalizationsAr extends AppLocalizations {
   String get importCancelled => 'تم الإلغاء';
 
   @override
-  String get recoveryBlockedTitle => 'Account recovery incomplete';
+  String get recoveryBlockedTitle => 'لم تكتمل استعادة الحساب';
 
   @override
   String get recoveryBlockedBody =>
-      'toxee found an unfinished account restore or deletion that it could not read, so it has not opened any account — continuing might have destroyed data.\n\nYour accounts and their profiles are still on this device. Please do NOT re-register and do NOT clear the app\'s data; either would make the loss permanent. Report the details below so this can be repaired.';
+      'عثر toxee على عملية استعادة أو حذف حساب غير مكتملة تعذّرت قراءتها، لذا لم يفتح أي حساب — فقد تؤدي المتابعة إلى إتلاف البيانات.\n\nلا تزال حساباتك وملفاتها الشخصية على هذا الجهاز. يرجى عدم إعادة التسجيل وعدم مسح بيانات التطبيق؛ فكلاهما سيجعل الفقدان دائماً. أبلغ عن التفاصيل أدناه ليتسنى إصلاح المشكلة.';
 
   @override
   String get secureStorageUnavailable =>
-      'Secure storage is unavailable, so toxee cannot check this account’s password. This is usually temporary — try again, or unlock your device keychain.';
+      'التخزين الآمن غير متاح، لذا لا يستطيع toxee التحقق من كلمة مرور هذا الحساب. عادةً ما يكون هذا مؤقتاً — حاول مرة أخرى، أو افتح سلسلة مفاتيح جهازك.';
 
   @override
-  String get recoverLegacyDataAction => 'Recover data from an older version';
+  String get recoverLegacyDataAction => 'استرداد البيانات من إصدار أقدم';
 
   @override
   String get recoverLegacyDataConfirm =>
-      'This device still holds chat history, queued messages and contact avatars from before toxee supported multiple accounts. Add them to the account you are signed into now?\n\nDo this only if that data is yours. It can be claimed once, by one account.\n\nYou will be signed out so the merge can happen at your next sign-in.';
+      'لا يزال هذا الجهاز يحتفظ بسجل الدردشة والرسائل المنتظرة والصور الرمزية لجهات الاتصال من قبل أن يدعم toxee تعدد الحسابات. هل تريد إضافتها إلى الحساب المسجل الدخول به حالياً؟\n\nافعل ذلك فقط إذا كانت هذه البيانات تخصك. لا يمكن المطالبة بها إلا مرة واحدة ومن حساب واحد.\n\nسيتم تسجيل خروجك حتى يتم الدمج عند تسجيل الدخول التالي.';
 
   @override
   String get recoverLegacyDataClaimed =>
-      'This account will take over the older data. Sign out and back in to merge it — doing that at sign-in is what keeps your current history and queued messages intact.';
+      'سيتولى هذا الحساب البيانات الأقدم. سجّل الخروج ثم سجّل الدخول مرة أخرى لدمجها — فإجراء الدمج عند تسجيل الدخول هو ما يحافظ على سجلك الحالي والرسائل المنتظرة سليمة.';
 
   @override
-  String get recoverLegacyDataDone => 'Older data was added to this account.';
+  String get recoverLegacyDataDone =>
+      'تمت إضافة البيانات الأقدم إلى هذا الحساب.';
 
   @override
   String get recoverLegacyDataUnavailable =>
-      'That data could not be claimed — it may already belong to another account on this device.';
+      'تعذّرت المطالبة بتلك البيانات — ربما تخص بالفعل حساباً آخر على هذا الجهاز.';
 
   @override
   String get accountRegistryUnreadable =>
-      'Your saved accounts could not be read. Their profiles are still on this device — do not re-register; report this so the account list can be repaired.';
+      'تعذّرت قراءة حساباتك المحفوظة. لا تزال ملفاتها الشخصية على هذا الجهاز — لا تُعِد التسجيل؛ أبلغ عن ذلك ليتسنى إصلاح قائمة الحسابات.';
 
   @override
   String get importedAccountDefaultName => 'حساب مستورد';
@@ -1568,133 +1568,129 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get firstRunBackupWizardTitle => 'Save your account file';
+  String get firstRunBackupWizardTitle => 'احفظ ملف حسابك';
 
   @override
   String get firstRunBackupWizardBody =>
-      'Your account lives only on this device. Save the .tox file somewhere safe (cloud storage, password manager, USB stick). Without it, losing this device means losing your account and all your contacts permanently.';
+      'حسابك موجود على هذا الجهاز فقط. احفظ ملف .tox في مكان آمن (تخزين سحابي، مدير كلمات مرور، ذاكرة USB). بدونه، فإن فقدان هذا الجهاز يعني فقدان حسابك وجميع جهات اتصالك نهائياً.';
 
   @override
-  String get firstRunBackupWizardExportNow => 'Export now';
+  String get firstRunBackupWizardExportNow => 'تصدير الآن';
 
   @override
-  String get firstRunBackupWizardLater => 'I\'ll do it later';
+  String get firstRunBackupWizardLater => 'سأفعل ذلك لاحقاً';
 
   @override
-  String get firstRunBackupWizardDismissTitle => 'Skip backup?';
+  String get firstRunBackupWizardDismissTitle => 'تخطي النسخ الاحتياطي؟';
 
   @override
   String get firstRunBackupWizardDismissBody =>
-      'If you lose this device, you will lose your account and all contacts. There is no recovery.';
+      'إذا فقدت هذا الجهاز، فستفقد حسابك وجميع جهات الاتصال. لا توجد طريقة للاستعادة.';
 
   @override
-  String get firstRunBackupWizardDismissConfirm => 'I understand, continue';
+  String get firstRunBackupWizardDismissConfirm => 'أفهم ذلك، متابعة';
 
   @override
   String firstRunBackupWizardExportFailed(String error) {
-    return 'Couldn\'t save your account file: $error';
+    return 'تعذّر حفظ ملف حسابك: $error';
   }
 
   @override
-  String get restoreFromToxFile => 'Restore from .tox file';
+  String get restoreFromToxFile => 'الاستعادة من ملف .tox';
 
   @override
   String restoreFromToxFileSuccess(String nickname) {
-    return 'Restored account: $nickname';
+    return 'تمت استعادة الحساب: $nickname';
   }
 
   @override
   String get restoreFromToxFileInvalidFile =>
-      'This file doesn\'t look like a valid Tox profile.';
+      'لا يبدو أن هذا الملف ملف شخصي صالح لـ Tox.';
 
   @override
-  String get pairDeviceHostTitle => 'Pair another device';
+  String get pairDeviceHostTitle => 'إقران جهاز آخر';
 
   @override
-  String get pairDeviceClientTitle => 'Pair with another device';
+  String get pairDeviceClientTitle => 'الإقران مع جهاز آخر';
 
   @override
   String get pairingHostInstructions =>
-      'Open toxee on your other device, choose \"Pair with another device\", and scan this QR code.';
+      'افتح toxee على جهازك الآخر، واختر \"الإقران مع جهاز آخر\"، ثم امسح رمز QR هذا.';
 
   @override
   String get pairingClientScanInstructions =>
-      'Point your camera at the QR code on your other device.';
+      'وجّه الكاميرا نحو رمز QR على جهازك الآخر.';
 
   @override
   String get pairingClientPasteInstructions =>
-      'Camera scanning isn\'t supported on this device. Paste the pairing URL shown on your other device below.';
+      'المسح بالكاميرا غير مدعوم على هذا الجهاز. الصق رابط الإقران المعروض على جهازك الآخر أدناه.';
 
   @override
-  String get pairingPasteUrlLabel => 'Pairing URL';
+  String get pairingPasteUrlLabel => 'رابط الإقران';
 
   @override
-  String get pairingConnectButton => 'Connect';
+  String get pairingConnectButton => 'اتصال';
 
   @override
-  String get pairingWaitingForPeer =>
-      'Waiting for the other device to connect…';
+  String get pairingWaitingForPeer => 'في انتظار اتصال الجهاز الآخر…';
 
   @override
-  String get pairingVerifyCodeHeader =>
-      'Verify both devices show the same code';
+  String get pairingVerifyCodeHeader => 'تحقق من أن الجهازين يعرضان الرمز نفسه';
 
   @override
   String get pairingVerifyCodeInstructions =>
-      'If the code matches what\'s shown on your other device, tap below. If they differ, cancel — someone may be intercepting the connection.';
+      'إذا كان الرمز مطابقاً لما يظهر على جهازك الآخر، فاضغط أدناه. وإذا اختلفا، فألغِ العملية — فقد يكون هناك من يعترض الاتصال.';
 
   @override
-  String get pairingCodesMatch => 'The codes match';
+  String get pairingCodesMatch => 'الرمزان متطابقان';
 
   @override
   String get pairingHostCompleted =>
-      'Account sent. The other device now has your account.';
+      'تم إرسال الحساب. أصبح حسابك الآن على الجهاز الآخر.';
 
   @override
-  String get pairingClientCompleted => 'Account received. You\'re paired.';
+  String get pairingClientCompleted => 'تم استلام الحساب. اكتمل الإقران.';
 
   @override
-  String get pairingCancelled => 'Pairing cancelled.';
+  String get pairingCancelled => 'تم إلغاء الإقران.';
 
   @override
-  String get pairingTimeout => 'Pairing timed out — try again.';
+  String get pairingTimeout => 'انتهت مهلة الإقران — حاول مرة أخرى.';
 
   @override
   String pairingNetworkError(String detail) {
-    return 'Network error during pairing: $detail';
+    return 'خطأ في الشبكة أثناء الإقران: $detail';
   }
 
   @override
   String pairingProtocolError(String detail) {
-    return 'Pairing handshake failed: $detail';
+    return 'فشلت مصافحة الإقران: $detail';
   }
 
   @override
   String pairingInvalidUrl(String detail) {
-    return 'That QR code isn\'t a valid pairing invitation: $detail';
+    return 'رمز QR هذا ليس دعوة إقران صالحة: $detail';
   }
 
   @override
   String get pairingDecryptFailed =>
-      'Couldn\'t decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.';
+      'تعذّر فك تشفير الملف الشخصي المستلم. ربما تم العبث بعملية الإقران — حاول مرة أخرى على شبكة تثق بها.';
 
   @override
   String get pairingNoLanInterface =>
-      'No LAN network detected. Connect to WiFi or Ethernet and try again.';
+      'لم يتم اكتشاف شبكة LAN. اتصل بشبكة Wi-Fi أو Ethernet وحاول مرة أخرى.';
 
   @override
-  String get pairThisAccountToAnotherDevice =>
-      'Pair this account to another device';
+  String get pairThisAccountToAnotherDevice => 'إقران هذا الحساب بجهاز آخر';
 
   @override
-  String get pairWithAnotherDevice =>
-      'Pair with another device that has my account';
+  String get pairWithAnotherDevice => 'الإقران مع جهاز آخر يحتوي على حسابي';
 
   @override
-  String get devicesSectionTitle => 'Devices';
+  String get devicesSectionTitle => 'الأجهزة';
 
   @override
-  String get done => 'Done';
+  String get done => 'تم';
 
   @override
   String get runtimeForegroundTitle => 'Toxee قيد التشغيل';
@@ -1725,9 +1721,223 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get importMayHaveCompleted =>
-      'The import could not be undone, so this account may still be there. Check your account list before importing again.';
+      'تعذّر التراجع عن الاستيراد، لذا قد يظل هذا الحساب موجوداً. تحقق من قائمة حساباتك قبل الاستيراد مرة أخرى.';
 
   @override
   String get importBlockedByPendingImport =>
-      'Another account import was interrupted and hasn\'t been cleaned up yet. Restart toxee to finish undoing it, then import again.';
+      'تمت مقاطعة عملية استيراد حساب أخرى ولم يتم تنظيفها بعد. أعد تشغيل toxee لإكمال التراجع عنها، ثم أعد الاستيراد.';
+
+  @override
+  String get friendRequestQueued =>
+      'غير متصل — تم وضع الطلب في قائمة الانتظار وسيُرسل عند إعادة الاتصال';
+
+  @override
+  String get cannotAddSelfAsFriend => 'لا يمكنك إضافة نفسك كصديق';
+
+  @override
+  String get friendRequestAlreadySent =>
+      'تم إرسال طلب صداقة بالفعل في هذه الجلسة';
+
+  @override
+  String get alreadyInFriendList =>
+      'هذا المستخدم موجود بالفعل في قائمة أصدقائك';
+
+  @override
+  String get addFriendOfflineBanner =>
+      'غير متصل — سيتم وضع طلب الصداقة في قائمة الانتظار وإرساله تلقائياً عند إعادة الاتصال.';
+
+  @override
+  String get scanQr => 'مسح رمز QR';
+
+  @override
+  String get sendingInProgress => 'جارٍ الإرسال...';
+
+  @override
+  String get firewallHintWindows =>
+      'على Windows، قد يحظر جدار الحماية الاتصالات الواردة؛ اسمح للتطبيق إذا طُلب منك ذلك.';
+
+  @override
+  String get firewallHintLinux =>
+      'على Linux، قد تتطلب عمليات الشبكة أذونات أو قواعد جدار حماية مناسبة.';
+
+  @override
+  String get nodePublicKeyHint => 'المفتاح العام (hex)';
+
+  @override
+  String get failedToAddBootstrapNode => 'فشل إضافة عقدة Bootstrap';
+
+  @override
+  String get couldNotRemovePassword => 'تعذّرت إزالة كلمة المرور';
+
+  @override
+  String get couldNotSavePassword => 'تعذّر حفظ كلمة المرور';
+
+  @override
+  String mediaSent(String label) {
+    return 'تم إرسال $label';
+  }
+
+  @override
+  String get dhtUnreachableUsingFallback =>
+      'تعذّر الوصول إلى DHT. يتم استخدام عقد Bootstrap الاحتياطية — ربما تحظر شبكتك UDP، أو أن العقد معطلة.';
+
+  @override
+  String get dhtUnreachableTimeout =>
+      'تعذّر الوصول إلى DHT بعد 30 ثانية. تحقق من اتصالك بالشبكة.';
+
+  @override
+  String chatSdkInitFailed(String error) {
+    return 'فشل تهيئة SDK الدردشة: $error';
+  }
+
+  @override
+  String messageTooLongMaxBytes(int maxBytes) {
+    return 'الرسالة طويلة جداً (الحد الأقصى $maxBytes بايت)';
+  }
+
+  @override
+  String get friendOfflineWillRetry =>
+      'الصديق غير متصل — ستتم إعادة المحاولة عند اتصاله';
+
+  @override
+  String get groupFileTransferUnsupported =>
+      'نقل الملفات في الدردشات الجماعية غير مدعوم';
+
+  @override
+  String fileSendFailed(String error) {
+    return 'فشل إرسال الملف: $error';
+  }
+
+  @override
+  String errorWithCode(int code) {
+    return 'الخطأ $code';
+  }
+
+  @override
+  String pairingLanUnreachable(String detail) {
+    return 'لا يمكن للجهازين رؤية بعضهما على هذه الشبكة. جرّب نقطة اتصال شخصية، أو استخدم التصدير ← الاستيراد عبر ملف بدلاً من ذلك. ($detail)';
+  }
+
+  @override
+  String get notificationNewFriendRequest => 'طلب صداقة جديد';
+
+  @override
+  String notificationFriendRequestFrom(String name) {
+    return 'طلب صداقة: $name';
+  }
+
+  @override
+  String get notificationMissedCall => 'مكالمة فائتة';
+
+  @override
+  String get notificationMissedVideoCall => 'مكالمة فيديو فائتة';
+
+  @override
+  String get notificationIncomingCall => 'مكالمة واردة';
+
+  @override
+  String get notificationIncomingVideoCall => 'مكالمة فيديو واردة';
+
+  @override
+  String get notificationUnknownCaller => 'جهة اتصال Toxee';
+
+  @override
+  String get notificationNewMessage => 'رسالة جديدة';
+
+  @override
+  String get previewImage => '[صورة]';
+
+  @override
+  String get previewVideo => '[فيديو]';
+
+  @override
+  String get previewVoice => '[رسالة صوتية]';
+
+  @override
+  String previewVoiceWithDuration(int seconds) {
+    return '[رسالة صوتية $seconds ث]';
+  }
+
+  @override
+  String get previewFile => '[ملف]';
+
+  @override
+  String previewFileWithName(String name) {
+    return '[ملف] $name';
+  }
+
+  @override
+  String get previewSticker => '[ملصق]';
+
+  @override
+  String get previewLocation => '[موقع]';
+
+  @override
+  String get previewCustomMessage => '[رسالة مخصصة]';
+
+  @override
+  String get previewGroupEvent => '[حدث مجموعة]';
+
+  @override
+  String get previewMessage => '[رسالة]';
+
+  @override
+  String get channelMessagesName => 'الرسائل';
+
+  @override
+  String get channelMessagesDescription =>
+      'إشعارات الرسائل الجديدة الواردة من جهات اتصالك على Tox.';
+
+  @override
+  String get channelFriendRequestsName => 'طلبات الصداقة';
+
+  @override
+  String get channelFriendRequestsDescription =>
+      'إشعارات عندما يرسل إليك أحدهم طلب صداقة.';
+
+  @override
+  String get channelMissedCallsName => 'المكالمات الفائتة';
+
+  @override
+  String get channelMissedCallsDescription =>
+      'إشعارات عندما تتعذّر تلبية مكالمة واردة أو تفوتك.';
+
+  @override
+  String get channelIncomingCallsName => 'المكالمات الواردة';
+
+  @override
+  String get channelIncomingCallsDescription =>
+      'تنبيهات بملء الشاشة لمكالمات Toxee الواردة.';
+
+  @override
+  String get notificationOpenAction => 'فتح Toxee';
+
+  @override
+  String trayUnreadTooltip(int count) {
+    return 'غير مقروءة: $count';
+  }
+
+  @override
+  String get unknownErrorReason => 'خطأ غير معروف';
+
+  @override
+  String get notificationNoMessage => '(بدون رسالة)';
+
+  @override
+  String notificationGroupedSummary(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count رسالة جديدة من $name',
+      many: '$count رسالة جديدة من $name',
+      few: '$count رسائل جديدة من $name',
+      two: 'رسالتان جديدتان من $name',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pairingConnectTimedOut(String endpoint) {
+    return 'تعذّر الوصول إلى الجهاز الآخر على $endpoint في الوقت المحدد. تأكد من أن الجهازين على الشبكة نفسها، أو جرّب نقطة اتصال شخصية، أو استخدم التصدير ← الاستيراد عبر ملف بدلاً من ذلك.';
+  }
 }

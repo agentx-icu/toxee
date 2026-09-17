@@ -101,7 +101,9 @@ class _AccountCardItemState extends State<_AccountCardItem> {
               avatarFileExists: avatarFile != null,
             ),
             title: Text(
-              accountNickname.isNotEmpty ? accountNickname : 'Unnamed Account',
+              accountNickname.isNotEmpty
+                  ? accountNickname
+                  : AppLocalizations.of(context)!.unnamedAccount,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             subtitle: widget.subtitle,

@@ -15,6 +15,7 @@ import 'package:tencent_cloud_chat_message/tencent_cloud_chat_group_profile.dart
 import 'package:tencent_cloud_chat_message/group_profile_widgets/tencent_cloud_chat_group_profile_body.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 
+import '../../i18n/app_localizations.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/app_paths.dart';
 import '../../util/logger.dart';
@@ -157,9 +158,7 @@ class _ToxeeGroupProfileAvatarState extends State<_ToxeeGroupProfileAvatar> {
           ? await AppPaths.getAccountAvatarsPath(currentToxId)
           : (await AppPaths.avatars).path;
       final avatarsDir = Directory(avatarsDirPath);
-      if (!await avatarsDir.exists()) {
-        await avatarsDir.create(recursive: true);
-      }
+      await avatarsDir.create(recursive: true); // no-op when it exists
       final ext = p.extension(pickedPath);
       final ts = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'group_${widget.groupInfo.groupID}_$ts$ext';
@@ -195,9 +194,9 @@ class _ToxeeGroupProfileAvatarState extends State<_ToxeeGroupProfileAvatar> {
     } catch (e, st) {
       AppLogger.logError('[GroupAvatar] pick failed', e, st);
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text('Failed to update avatar: $e')));
+      final msg = AppLocalizations.of(context)!.failedToUpdateAvatar('$e');
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
