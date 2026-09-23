@@ -167,7 +167,8 @@ void main() {
     expect(bridge.enableCalls, 2);
   });
 
-  test('disable failure clears the callback and keeps retry visible', () async {
+  test('disable failure keeps native ownership so a retry can disable',
+      () async {
     final bridge = _FakeAvConferenceSessionBridge();
     final controller = AvConferenceSessionController(
       groupId: 'tox_conf_pcm_disable_failed',
@@ -182,6 +183,14 @@ void main() {
 
     expect(controller.session.lifecycle, AvConferenceSessionLifecycle.failed);
     expect(controller.session.failure, AvConferenceSessionFailure.disable);
+    // Still the owner: the group is still enabled natively.
+    expect(bridge.clearReceiveCallbackCalls, 0);
+    expect(bridge.enabledGroups, contains('tox_conf_pcm_disable_failed'));
+
+    // The retry reaches the bridge (it used to be dropped as "not owner").
+    expect(await controller.setEnabled(false), isTrue);
+    expect(bridge.disableCalls, 2);
+    expect(bridge.enabledGroups, isEmpty);
     expect(bridge.clearReceiveCallbackCalls, 1);
     expect(
       bridge.hasReceiveCallbackFor('tox_conf_pcm_disable_failed'),
@@ -191,6 +200,26 @@ void main() {
     expect(await controller.join(), isTrue);
     expect(controller.session.lifecycle, AvConferenceSessionLifecycle.active);
     expect(bridge.enableCalls, 2);
+  });
+
+  test('an interruption pushed while joining survives activation', () async {
+    final enableResult = Completer<bool>();
+    final enableStarted = Completer<void>();
+    final bridge = _FakeAvConferenceSessionBridge()
+      ..nextEnableResult = enableResult
+      ..enableStarted = enableStarted;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_join_interrupted',
+      displayName: 'Interrupted join',
+      bridge: bridge,
+    );
+    final joining = controller.join();
+    await enableStarted.future;
+    bridge.mediaStateCallback!(AvConferenceMediaState.interrupted);
+    enableResult.complete(true);
+    expect(await joining, isTrue);
+    expect(controller.session.lifecycle, AvConferenceSessionLifecycle.active);
+    expect(controller.session.isInterrupted, isTrue);
   });
 
   test(
@@ -341,6 +370,93 @@ void main() {
 
     expect(controller.session.lifecycle, AvConferenceSessionLifecycle.left);
   });
+
+  test('busy bridge fails the join with the busy reason', () async {
+    final bridge = _FakeAvConferenceSessionBridge()..nextEnableBusy = true;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_busy',
+      displayName: 'Busy room',
+      bridge: bridge,
+    );
+
+    expect(await controller.join(), isFalse);
+    expect(controller.session.lifecycle, AvConferenceSessionLifecycle.failed);
+    expect(controller.session.failure, AvConferenceSessionFailure.busy);
+    expect(bridge.enabledGroups, isEmpty);
+  });
+
+  test('listen-only join marks the microphone unavailable', () async {
+    final bridge = _FakeAvConferenceSessionBridge()..receiveOnly = true;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_listen',
+      displayName: 'Listen room',
+      bridge: bridge,
+    );
+
+    expect(await controller.join(), isTrue);
+    expect(controller.session.lifecycle, AvConferenceSessionLifecycle.active);
+    expect(controller.session.micAvailable, isFalse);
+  });
+
+  test('deafen is independent of the microphone mute', () async {
+    final bridge = _FakeAvConferenceSessionBridge();
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_deafen',
+      displayName: 'Deafen room',
+      bridge: bridge,
+    );
+    await controller.join();
+
+    expect(await controller.toggleDeafened(), isTrue);
+    expect(controller.session.isDeafened, isTrue);
+    expect(controller.session.isMuted, isFalse);
+    expect(bridge.deafenStates, <bool>[true]);
+    expect(bridge.muteStates, isEmpty);
+
+    // Re-joining re-applies the receive-side choice.
+    await controller.setEnabled(false);
+    await controller.setEnabled(true);
+    expect(controller.session.isDeafened, isTrue);
+    expect(bridge.deafenStates, <bool>[true, true]);
+    expect(bridge.muteStates, isEmpty);
+  });
+
+  test('bridge media-state pushes (interruption, listen-only) reach the '
+      'session', () async {
+    final bridge = _FakeAvConferenceSessionBridge();
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_media_state',
+      displayName: 'Interrupted room',
+      bridge: bridge,
+    );
+    await controller.join();
+
+    bridge.mediaStateCallback!(AvConferenceMediaState.interrupted);
+    expect(controller.session.isInterrupted, isTrue);
+    expect(controller.session.micAvailable, isTrue);
+
+    bridge.mediaStateCallback!(AvConferenceMediaState.listenOnly);
+    expect(controller.session.isInterrupted, isFalse);
+    expect(controller.session.micAvailable, isFalse);
+
+    bridge.mediaStateCallback!(AvConferenceMediaState.full);
+    expect(controller.session.micAvailable, isTrue);
+  });
+
+  test('another conference holding the audio is its own failure', () async {
+    final bridge = _FakeAvConferenceSessionBridge()
+      ..nextEnableBusyResult = AvConferenceEnableResult.busyOtherConference;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_other',
+      displayName: 'Other room',
+      bridge: bridge,
+    );
+    expect(await controller.join(), isFalse);
+    expect(
+      controller.session.failure,
+      AvConferenceSessionFailure.busyOtherConference,
+    );
+  });
 }
 
 final class _FakeAvConferenceSessionBridge
@@ -429,11 +545,51 @@ final class _FakeAvConferenceSessionBridge
   }
 
   @override
-  Future<bool> enable({
+  Future<AvConferenceEnableResult> enable({
     required String groupId,
+    required String displayName,
     required AvConferenceSessionOwner owner,
     required AvConferenceAudioFrameCallback onAudioFrame,
+    AvConferenceMediaStateCallback? onMediaStateChanged,
   }) async {
+    mediaStateCallback = onMediaStateChanged;
+    final busy = nextEnableBusyResult;
+    if (busy != null) {
+      nextEnableBusyResult = null;
+      return busy;
+    }
+    final enabled = await _enable(groupId, owner, onAudioFrame);
+    if (!enabled) return AvConferenceEnableResult.failed;
+    return receiveOnly
+        ? AvConferenceEnableResult.enabledReceiveOnly
+        : AvConferenceEnableResult.enabled;
+  }
+
+  AvConferenceEnableResult? nextEnableBusyResult;
+  set nextEnableBusy(bool busy) =>
+      nextEnableBusyResult = busy ? AvConferenceEnableResult.busy : null;
+  AvConferenceMediaStateCallback? mediaStateCallback;
+  bool receiveOnly = false;
+  final List<bool> deafenStates = <bool>[];
+
+  @override
+  Future<bool> setDeafened({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+    required bool deafened,
+  }) async {
+    if (!identical(_backendOwners[groupId], owner)) {
+      return false;
+    }
+    deafenStates.add(deafened);
+    return true;
+  }
+
+  Future<bool> _enable(
+    String groupId,
+    AvConferenceSessionOwner owner,
+    AvConferenceAudioFrameCallback onAudioFrame,
+  ) async {
     enableCalls += 1;
     if (_callbacks.containsKey(groupId)) {
       return false;
@@ -460,7 +616,7 @@ final class _FakeAvConferenceSessionBridge
   }
 
   @override
-  Future<bool> setMuted({
+  Future<bool> setMicMuted({
     required String groupId,
     required AvConferenceSessionOwner owner,
     required bool muted,

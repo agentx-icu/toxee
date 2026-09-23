@@ -536,6 +536,46 @@ class NotificationService {
     required String senderId,
     required String senderName,
     required String requestMessage,
+  }) =>
+      _showSocialNotification(
+        logKey: 'friend_req:$senderId',
+        title: senderName.isEmpty
+            ? currentAppL10n().notificationNewFriendRequest
+            : currentAppL10n().notificationFriendRequestFrom(senderName),
+        body: requestMessage.isEmpty
+            ? currentAppL10n().notificationNoMessage
+            : requestMessage,
+        payload: 'friend_req:$senderId',
+      );
+
+  /// A friend invited us to a group and the invite is waiting for an answer.
+  /// The payload deliberately does NOT start with `group_` (that prefix opens
+  /// a group chat): a tap only needs to bring the app forward, where the
+  /// invite prompt is already showing.
+  Future<void> showGroupInviteNotification({
+    required String inviteId,
+    required String title,
+    required String body,
+  }) =>
+      _showSocialNotification(
+        logKey: 'invite_group:$inviteId',
+        title: title,
+        body: body,
+        payload: 'invite_group:$inviteId',
+        channel: ToxeeNotificationChannel.groupInvites,
+        groupKey: 'toxee.group_invites',
+      );
+
+  /// Shared by the "someone wants something from you" notifications (friend
+  /// requests, group invites): same shape, but each on its own channel so one
+  /// can be muted without silencing the other.
+  Future<void> _showSocialNotification({
+    required String logKey,
+    required String title,
+    required String body,
+    required String payload,
+    ToxeeNotificationChannel channel = ToxeeNotificationChannel.friendRequests,
+    String groupKey = 'toxee.friend_requests',
   }) async {
     if (!_initialized) {
       await init();
@@ -546,55 +586,44 @@ class NotificationService {
       await _ensureAndroidPermission();
       if (_androidPermissionGranted == false) {
         AppLogger.debug(
-          '[NotificationService] Android notifications denied; skipping friend req notify for $senderId',
+          '[NotificationService] Android notifications denied; skipping notify for $logKey',
         );
         return;
       }
     }
 
     try {
-      final clampedBody = _clampBody(
-        requestMessage.isEmpty
-            ? currentAppL10n().notificationNoMessage
-            : requestMessage,
-      );
-
-      final id = _idFor('friend_req:$senderId');
-
       final androidDetails = AndroidNotificationDetails(
-        ToxeeNotificationChannel.friendRequests.id,
-        ToxeeNotificationChannel.friendRequests.displayName,
-        channelDescription: ToxeeNotificationChannel.friendRequests.description,
+        channel.id,
+        channel.displayName,
+        channelDescription: channel.description,
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.social,
-        groupKey: 'toxee.friend_requests',
+        groupKey: groupKey,
       );
-      const darwinDetails = DarwinNotificationDetails(
-        threadIdentifier: 'toxee.friend_requests',
+      final darwinDetails = DarwinNotificationDetails(
+        threadIdentifier: groupKey,
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
       );
-      final linuxDetails = _linuxDetails();
 
       await _plugin.show(
-        id,
-        senderName.isEmpty
-            ? currentAppL10n().notificationNewFriendRequest
-            : currentAppL10n().notificationFriendRequestFrom(senderName),
-        clampedBody,
+        _idFor(logKey),
+        title,
+        _clampBody(body),
         NotificationDetails(
           android: androidDetails,
           iOS: darwinDetails,
           macOS: darwinDetails,
-          linux: linuxDetails,
+          linux: _linuxDetails(),
         ),
-        payload: 'friend_req:$senderId',
+        payload: payload,
       );
     } catch (e, st) {
       AppLogger.warn(
-        '[NotificationService] showFriendRequestNotification failed for $senderId: $e',
+        '[NotificationService] social notification failed for $logKey: $e',
       );
       AppLogger.debug('[NotificationService] stack: $st');
     }

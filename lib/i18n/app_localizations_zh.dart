@@ -1334,6 +1334,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get callAudioInterrupted => '通话过程中音频输出发生变化或被中断。';
 
   @override
+  String get callBusyInCall => '请先结束当前通话。';
+
+  @override
+  String get callBusyInConference => '请先退出语音会议，再发起或接听通话。';
+
+  @override
+  String get callBusyInOtherConference => '你已在另一个语音会议中，请先退出。';
+
+  @override
+  String get callPeerBusy => '对方正在通话中。';
+
+  @override
+  String get callConferenceMuteIncoming => '静音他人';
+
+  @override
+  String get callConferenceUnmuteIncoming => '收听他人';
+
+  @override
+  String get callConferenceListenOnly => '仅收听 — 麦克风不可用。';
+
+  @override
   String get callCalling => '呼叫中...';
 
   @override
@@ -1824,6 +1845,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get channelFriendRequestsDescription => '有人向你发送好友请求时通知。';
 
   @override
+  String get channelGroupInvitesName => '群邀请';
+
+  @override
+  String get channelGroupInvitesDescription => '有人邀请你加入群聊时通知。';
+
+  @override
   String get channelMissedCallsName => '未接来电';
 
   @override
@@ -1858,6 +1885,58 @@ class AppLocalizationsZh extends AppLocalizations {
   String pairingConnectTimedOut(String endpoint) {
     return '未能及时连接到另一台设备（$endpoint）。请确认两台设备在同一网络中，尝试使用个人热点，或改用“导出 → 导入”文件的方式。';
   }
+
+  @override
+  String get groupInviteTitle => '群邀请';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter 邀请你加入群聊“$group”。';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter 邀请你加入一个群聊。';
+  }
+
+  @override
+  String get groupInviteDecline => '拒绝';
+
+  @override
+  String get groupInviteLater => '稍后';
+
+  @override
+  String get groupInviteAcceptFailed => '无法加入。邀请人可能不在线，请等对方上线后重试。';
+
+  @override
+  String get alreadyInGroup => '你已在该群聊中';
+
+  @override
+  String get groupNameTooLong => '群名称过长';
+
+  @override
+  String get leaveGroupFailed => '退出群聊失败，请重试。';
+
+  @override
+  String get groupPassword => '群密码（可选）';
+
+  @override
+  String get groupPasswordTooLong => '群密码最多 32 字节';
+
+  @override
+  String get groupJoinRefusedPassword => '该群需要密码，或密码不正确。';
+
+  @override
+  String get groupJoinRefusedFull => '该群已满员。';
+
+  @override
+  String get groupJoinRefusedUnknown => '该群拒绝了你的加入。';
+
+  @override
+  String get groupJoinEnterPassword => '输入密码';
+
+  @override
+  String get groupPasswordRequired => '请输入群密码';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3080,6 +3159,27 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get callAudioInterrupted => '通话过程中音频输出发生变化或被中断。';
 
   @override
+  String get callBusyInCall => '请先结束当前通话。';
+
+  @override
+  String get callBusyInConference => '请先退出语音会议，再发起或接听通话。';
+
+  @override
+  String get callBusyInOtherConference => '你已在另一个语音会议中，请先退出。';
+
+  @override
+  String get callPeerBusy => '对方正在通话中。';
+
+  @override
+  String get callConferenceMuteIncoming => '静音他人';
+
+  @override
+  String get callConferenceUnmuteIncoming => '收听他人';
+
+  @override
+  String get callConferenceListenOnly => '仅收听 — 麦克风不可用。';
+
+  @override
   String get callCalling => '呼叫中...';
 
   @override
@@ -3222,6 +3322,58 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get noBootstrapNodes => '没有引导节点';
+
+  @override
+  String get groupInviteTitle => '群邀请';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter 邀请你加入群聊“$group”。';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter 邀请你加入一个群聊。';
+  }
+
+  @override
+  String get groupInviteDecline => '拒绝';
+
+  @override
+  String get groupInviteLater => '稍后';
+
+  @override
+  String get groupInviteAcceptFailed => '无法加入。邀请人可能不在线，请等对方上线后重试。';
+
+  @override
+  String get alreadyInGroup => '你已在该群聊中';
+
+  @override
+  String get groupNameTooLong => '群名称过长';
+
+  @override
+  String get leaveGroupFailed => '退出群聊失败，请重试。';
+
+  @override
+  String get groupPassword => '群密码（可选）';
+
+  @override
+  String get groupPasswordTooLong => '群密码最多 32 字节';
+
+  @override
+  String get groupJoinRefusedPassword => '该群需要密码，或密码不正确。';
+
+  @override
+  String get groupJoinRefusedFull => '该群已满员。';
+
+  @override
+  String get groupJoinRefusedUnknown => '该群拒绝了你的加入。';
+
+  @override
+  String get groupJoinEnterPassword => '输入密码';
+
+  @override
+  String get groupPasswordRequired => '请输入群密码';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4554,6 +4706,27 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get callAudioInterrupted => '通話過程中音訊輸出發生變化或被中斷。';
 
   @override
+  String get callBusyInCall => '請先結束目前的通話。';
+
+  @override
+  String get callBusyInConference => '請先退出語音會議，再撥打或接聽通話。';
+
+  @override
+  String get callBusyInOtherConference => '你已在另一個語音會議中，請先退出。';
+
+  @override
+  String get callPeerBusy => '對方正在通話中。';
+
+  @override
+  String get callConferenceMuteIncoming => '靜音他人';
+
+  @override
+  String get callConferenceUnmuteIncoming => '收聽他人';
+
+  @override
+  String get callConferenceListenOnly => '僅收聽 — 麥克風無法使用。';
+
+  @override
   String get callCalling => '撥打中...';
 
   @override
@@ -5043,6 +5216,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get channelFriendRequestsDescription => '有人向你發送好友請求時通知。';
 
   @override
+  String get channelGroupInvitesName => '群組邀請';
+
+  @override
+  String get channelGroupInvitesDescription => '有人邀請你加入群組時通知。';
+
+  @override
   String get channelMissedCallsName => '未接來電';
 
   @override
@@ -5077,4 +5256,56 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String pairingConnectTimedOut(String endpoint) {
     return '無法及時連線到另一台裝置（$endpoint）。請確認兩台裝置位於同一網路，改用個人熱點，或改用「匯出 → 匯入」透過檔案轉移。';
   }
+
+  @override
+  String get groupInviteTitle => '群聊邀請';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter 邀請你加入群聊「$group」。';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter 邀請你加入一個群聊。';
+  }
+
+  @override
+  String get groupInviteDecline => '拒絕';
+
+  @override
+  String get groupInviteLater => '稍後';
+
+  @override
+  String get groupInviteAcceptFailed => '無法加入。邀請人可能不在線上，請等對方上線後再試。';
+
+  @override
+  String get alreadyInGroup => '你已在該群聊中';
+
+  @override
+  String get groupNameTooLong => '群名稱過長';
+
+  @override
+  String get leaveGroupFailed => '退出群聊失敗，請重試。';
+
+  @override
+  String get groupPassword => '群組密碼（選填）';
+
+  @override
+  String get groupPasswordTooLong => '群組密碼最多 32 位元組';
+
+  @override
+  String get groupJoinRefusedPassword => '此群組需要密碼，或密碼不正確。';
+
+  @override
+  String get groupJoinRefusedFull => '此群組已滿員。';
+
+  @override
+  String get groupJoinRefusedUnknown => '此群組拒絕了你的加入。';
+
+  @override
+  String get groupJoinEnterPassword => '輸入密碼';
+
+  @override
+  String get groupPasswordRequired => '請輸入群組密碼';
 }

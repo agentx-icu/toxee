@@ -12,6 +12,8 @@ import '../util/responsive_layout.dart';
 import '../i18n/app_localizations.dart';
 import 'widgets/app_dialog.dart';
 import 'testing/ui_keys.dart';
+import 'group/group_join_failure_notifier.dart';
+import 'group/group_name_limits.dart';
 
 typedef InstallDefaultGroupAvatarFn =
     Future<String> Function({required String groupId, String? toxId});
@@ -69,6 +71,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
   final _groupIdController = TextEditingController();
   final _requestController = TextEditingController();
   final _aliasController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _createNameController = TextEditingController();
   bool _isJoining = false;
   bool _isCreating = false;
@@ -107,6 +110,7 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     _groupIdController.dispose();
     _requestController.dispose();
     _aliasController.dispose();
+    _passwordController.dispose();
     _createNameController.dispose();
     super.dispose();
   }
@@ -117,16 +121,19 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
     final gid = _groupIdController.text.trim();
     final wording = _requestController.text.trim();
     final alias = _aliasController.text.trim();
+    final password = _passwordController.text;
 
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
     final successText = AppLocalizations.of(context)!.joinSuccess;
     final queuedText = AppLocalizations.of(context)!.joinQueued;
     final failurePrefix = AppLocalizations.of(context)!.joinFailed;
+    final alreadyInGroupText = AppLocalizations.of(context)!.alreadyInGroup;
 
     setState(() => _isJoining = true);
     try {
-      await widget.service.joinGroup(gid, requestMessage: wording);
+      await widget.service.joinGroup(gid,
+          requestMessage: wording, password: password);
       // Local alias only — do NOT clobber the canonical group name. When
       // the canonical name arrives from peers later, the alias still takes
       // display precedence via Prefs.resolveGroupDisplayName.
@@ -142,6 +149,9 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
       if (mounted) {
         await navigator.maybePop();
       }
+    } on GroupAlreadyJoinedException {
+      await HapticFeedback.lightImpact();
+      _notifyVia(messenger, alreadyInGroupText);
     } catch (e) {
       await HapticFeedback.lightImpact();
       _notifyVia(messenger, '$failurePrefix: $e');
@@ -358,6 +368,23 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
               ),
               AppSpacing.verticalMd,
               TextFormField(
+                key: const ValueKey('add_group_join_password_input'),
+                controller: _passwordController,
+                obscureText: true,
+                textAlignVertical: TextAlignVertical.center,
+                decoration: InputDecoration(
+                  labelText: AppLocalizations.of(context)!.groupPassword,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadii.input),
+                  ),
+                ),
+                validator: (value) =>
+                    GroupJoinFailureNotifier.isValidPassword(value ?? '')
+                        ? null
+                        : AppLocalizations.of(context)!.groupPasswordTooLong,
+              ),
+              AppSpacing.verticalMd,
+              TextFormField(
                 key: UiKeys.addGroupAliasInput,
                 controller: _aliasController,
                 textAlignVertical: TextAlignVertical.center,
@@ -415,8 +442,17 @@ class _AddGroupDialogState extends State<AddGroupDialog> {
                   ),
                 ),
                 validator: (value) {
-                  if ((value ?? '').trim().isEmpty) {
+                  final name = (value ?? '').trim();
+                  if (name.isEmpty) {
                     return AppLocalizations.of(context)!.enterGroupName;
+                  }
+                  // Tox limits the name in BYTES (UTF-8), not characters: 17
+                  // CJK characters or 13 emoji already exceed an NGC group's
+                  // 48. Past the limit native create fails with a generic
+                  // error, so say what is wrong here instead.
+                  if (groupNameTooLong(name,
+                      conference: _selectedGroupType == 'conference')) {
+                    return AppLocalizations.of(context)!.groupNameTooLong;
                   }
                   return null;
                 },

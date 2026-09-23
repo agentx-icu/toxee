@@ -111,7 +111,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('ID: bob_conf_172'), findsOneWidget,
+      // bob is not a known friend, so the id is presented as what it is — a
+      // group member key, not a Tox ID (MM-6; the resolved-friend branch is in
+      // test/ui/group/group_member_identity_test.dart).
+      expect(find.text('Member key: bob_conf_172'), findsOneWidget,
           reason:
               'the member info view must display the member identifier that the '
               'copy action copies');

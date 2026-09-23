@@ -327,6 +327,7 @@ class VideoHandler extends ChangeNotifier {
         final devices = await CameraMacOS.instance.listDevices(
           deviceType: CameraMacOSDeviceType.video,
         );
+        if (_disposed) return _doStop();
         if (devices.isEmpty) {
           _capturing = false;
           notifyListeners();
@@ -353,6 +354,7 @@ class VideoHandler extends ChangeNotifier {
         }
         _macosTextureId = textureId;
         _usingMacOSCamera = true;
+        if (_disposed) return _doStop();
         notifyListeners();
         await CameraMacOS.instance.startImageStream(
           (CameraImageData? data) {
@@ -399,7 +401,12 @@ class VideoHandler extends ChangeNotifier {
     }
 
     try {
+      // Logout (disposeAsync) is bounded — 5 s in CallServiceManager — while
+      // opening a mobile camera is not, so a discovery/initialize that is
+      // still running when the wait expires would light the camera AFTER the
+      // session is gone. Re-check disposal after every await and release.
       _cameras ??= await availableCameras();
+      if (_disposed) return _doStop();
       if (_cameras == null || _cameras!.isEmpty) {
         _capturing = false;
         notifyListeners();
@@ -417,8 +424,11 @@ class VideoHandler extends ChangeNotifier {
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await _controller!.initialize();
+      // Release the controller instead of opening a stream on it.
+      if (_disposed) return _doStop();
       notifyListeners();
       await _controller!.startImageStream(_onCameraImage);
+      if (_disposed) return _doStop();
       AppLogger.log('[VideoHandler] capture started (camera stream active)');
     } on MissingPluginException catch (e) {
       _capturing = false;

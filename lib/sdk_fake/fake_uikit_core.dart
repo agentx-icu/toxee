@@ -113,6 +113,9 @@ class FakeUIKit {
   ///                           than a call invite)
   ///   - 'cancel'        -> 2 (caller cancelled before callee picked up)
   ///   - 'reject'        -> 4 (callee rejected)
+  ///   - 'line_busy'     -> 4 + `line_busy` marker (auto-rejected because
+  ///                           the callee was already in a call; UIKit
+  ///                           renders its "line busy" strings)
   ///   - 'timeout'       -> 5 (no answer)
   /// Any other / unknown value falls through to actionType 1 — but the inner
   /// signaling `cmd` and `call_end` are only set to the "ended" shape for
@@ -143,6 +146,7 @@ class FakeUIKit {
         actionType = 2;
         break;
       case 'reject':
+      case 'line_busy':
         actionType = 4;
         break;
       case 'timeout':
@@ -178,6 +182,7 @@ class FakeUIKit {
     if (isEnded) {
       signalingData['call_end'] = durationSeconds < 0 ? 0 : durationSeconds;
     }
+    if (endReason == 'line_busy') signalingData['line_busy'] = 'line_busy';
 
     // Build outer JSON (customElem.data structure)
     final callRecordJson = jsonEncode({
@@ -277,8 +282,11 @@ class FakeUIKit {
     }
   }
 
-  void dispose() {
-    callServiceManager?.dispose();
+  /// Completes once the call manager has ended its native legs and disabled
+  /// conference audio. Session teardown awaits this before it disposes the
+  /// platform (and with it ToxAV); everything else here is synchronous.
+  Future<void> dispose() {
+    final callsDisposed = callServiceManager?.dispose();
     callServiceManager = null;
     callStateNotifier?.dispose();
     callStateNotifier = null;
@@ -299,5 +307,6 @@ class FakeUIKit {
     callSystemReady.value = false;
     // Clear TencentCloudChat.dataInstance (singleton) so next login/account does not see previous account's data
     UikitDataFacade.clearAll(reason: 'FakeUIKit.dispose');
+    return callsDisposed ?? Future<void>.value();
   }
 }

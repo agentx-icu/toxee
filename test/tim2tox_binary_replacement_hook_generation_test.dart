@@ -154,5 +154,85 @@ void main() {
       // Sanity: even if dropped, no exception leaked out.
       expect(landedInA || inA.isEmpty, isTrue);
     });
+
+    // #17: a message buffered while session A's selfId was still unknown
+    // must never be replayed into session B after a re-initialize.
+    test('re-initialize for a new session drops the selfId buffer', () async {
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+      BinaryReplacementHistoryHook.initialize(persistenceA, '');
+      await BinaryReplacementHistoryHook.saveMessage(_textMessage(
+        msgID: 'buffered_under_a',
+        userID: peer,
+        sender: peer,
+        text: 'arrived before A knew its selfId',
+      ));
+      expect(BinaryReplacementHistoryHook.pendingSelfIdBufferLength, 1);
+
+      BinaryReplacementHistoryHook.initialize(persistenceB, '');
+      expect(BinaryReplacementHistoryHook.pendingSelfIdBufferLength, 0);
+      BinaryReplacementHistoryHook.updateSelfId(selfB);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await persistenceB.flushPendingSaves();
+      expect(persistenceB.getHistory(peer), isEmpty);
+      expect(persistenceA.getHistory(peer), isEmpty);
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+    });
+
+    test('a same-session re-initialize keeps its own buffered messages',
+        () async {
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+      BinaryReplacementHistoryHook.initialize(persistenceA, '');
+      await BinaryReplacementHistoryHook.saveMessage(_textMessage(
+        msgID: 'buffered_same_session',
+        userID: peer,
+        sender: peer,
+        text: 'still session A',
+      ));
+      BinaryReplacementHistoryHook.initialize(persistenceA, '');
+      BinaryReplacementHistoryHook.updateSelfId(selfA);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await persistenceA.flushPendingSaves();
+      expect(persistenceA.getHistory(peer).map((m) => m.msgID),
+          ['buffered_same_session']);
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+    });
+
+    // #18: callbacks capturing the previous session's services must not
+    // survive a re-initialize for another session.
+    test('re-initialize for a new session drops the previous callbacks',
+        () async {
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+      Future<void> applierA({
+        required String text,
+        required String fromUserId,
+        String? groupId,
+        bool isSelf = false,
+      }) async {}
+      Future<void> applierB({
+        required String text,
+        required String fromUserId,
+        String? groupId,
+        bool isSelf = false,
+      }) async {}
+
+      BinaryReplacementHistoryHook.applyInboundControlSignal = applierA;
+      BinaryReplacementHistoryHook.initialize(persistenceA, selfA);
+      BinaryReplacementHistoryHook.isBlockedPredicate = (_) => true;
+      BinaryReplacementHistoryHook.onInboundMessagePersisted = (_, __) {};
+
+      // Session B without an uninstall, and no applier installed for it.
+      BinaryReplacementHistoryHook.initialize(persistenceB, selfB);
+      expect(BinaryReplacementHistoryHook.isBlockedPredicate, isNull);
+      expect(BinaryReplacementHistoryHook.onInboundMessagePersisted, isNull);
+      expect(BinaryReplacementHistoryHook.applyInboundControlSignal, isNull);
+
+      // Session C whose platform installed its applier first (the product
+      // order): that applier is kept.
+      BinaryReplacementHistoryHook.applyInboundControlSignal = applierB;
+      BinaryReplacementHistoryHook.initialize(persistenceA, selfA);
+      expect(BinaryReplacementHistoryHook.applyInboundControlSignal,
+          equals(applierB));
+      await BinaryReplacementHistoryHook.uninstallStandalone();
+    });
   });
 }

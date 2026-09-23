@@ -561,11 +561,14 @@ void main() {
       } else if (!_isInsideNamedMutexScope(
         toxAvIterateBody,
         toxavIterateIndex,
-        'mutex_',
+        'av_iterate_mutex_',
       )) {
+        // toxav_iterate runs under the iterate lock (the state mutex_ is only
+        // held to read the ToxAV pointer), so its callbacks still fire under a
+        // ToxAVManager lock and the FFI must keep deferring bitrate events.
         issues.add(
           'ToxAVManager::iterate must keep documenting that toxav_iterate '
-          'runs while ToxAVManager::mutex_ is held.',
+          'runs while ToxAVManager::av_iterate_mutex_ is held.',
         );
       }
 
@@ -632,7 +635,7 @@ void main() {
         isEmpty,
         reason:
             'c-toxcore bitrate callbacks are invoked from toxav_iterate while '
-            'ToxAVManager::mutex_ is held. The FFI layer must therefore queue '
+            'ToxAVManager::av_iterate_mutex_ is held. The FFI layer must therefore queue '
             'audio/video bitrate events from the toxav callbacks, return from '
             'av_mgr->iterate(), then snapshot callback/context under '
             'g_av_callbacks_mutex and invoke Dart only after that mutex is '
@@ -1773,7 +1776,7 @@ bool _isInsideAvCallbackMutexScope(String source, int index) {
 
 bool _isInsideNamedMutexScope(String source, int index, String mutexName) {
   final lockPattern = RegExp(
-    r'std::lock_guard\s*<\s*std::mutex\s*>\s+\w+\s*\(\s*' +
+    r'std::(?:lock_guard|unique_lock)\s*<\s*std::mutex\s*>\s+\w+\s*\(\s*' +
         RegExp.escape(mutexName) +
         r'\s*\)\s*;',
   );

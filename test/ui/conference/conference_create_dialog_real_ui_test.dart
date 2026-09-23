@@ -81,7 +81,8 @@ class _StubFfiChatService extends FfiChatService {
   }
 
   @override
-  Future<void> joinGroup(String groupId, {String? requestMessage}) async {
+  Future<void> joinGroup(String groupId,
+      {String? requestMessage, String? password}) async {
     joinCalled = true;
     joinIdArg = groupId;
   }

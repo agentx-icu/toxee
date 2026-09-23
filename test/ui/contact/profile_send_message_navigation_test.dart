@@ -220,4 +220,81 @@ void main() {
     expect(handled, isFalse);
     expect(find.text('profile-A'), findsOneWidget);
   });
+
+  // finishLeaveGroup must close exactly the group profile it was started from.
+  // It used to `maybePop()` whatever was on top — after the (network-bound)
+  // quit, that could be a dialog that opened meanwhile (the group-invite
+  // prompt), leaving the left group's profile on screen.
+  group('finishLeaveGroup', () {
+    late BuildContext profileContext;
+
+    Future<void> pushChatAndProfile(WidgetTester tester) async {
+      await _pumpHost(tester);
+      await _pushUikitRoute(
+        tester,
+        TencentCloudChatRouteNames.message,
+        options: TencentCloudChatMessageOptions(groupID: _groupG),
+        label: 'chat-G',
+      );
+      unawaited(_nav.push(MaterialPageRoute<void>(
+        settings: const RouteSettings(
+            name: TencentCloudChatRouteNames.groupProfile),
+        builder: (context) {
+          profileContext = context;
+          return const Scaffold(body: Text('profile-G'));
+        },
+      )));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('profile on top: closes it and the left group chat beneath',
+        (tester) async {
+      await pushChatAndProfile(tester);
+      await finishLeaveGroup(profileContext, groupID: _groupG, succeeded: true);
+      await tester.pumpAndSettle();
+      expect(find.text('profile-G'), findsNothing);
+      expect(find.text('chat-G'), findsNothing);
+      expect(find.text('home-root'), findsOneWidget);
+    });
+
+    testWidgets('a dialog opened meanwhile stays; the profile goes; the chat '
+        'goes once the dialog closes', (tester) async {
+      await pushChatAndProfile(tester);
+      unawaited(showDialog<void>(
+        context: _navKey.currentContext!,
+        builder: (_) => const AlertDialog(content: Text('invite-dialog')),
+      ));
+      await tester.pumpAndSettle();
+
+      final done = finishLeaveGroup(profileContext,
+          groupID: _groupG, succeeded: true);
+      await tester.pumpAndSettle();
+      expect(find.text('invite-dialog'), findsOneWidget,
+          reason: 'the dialog on top must not be the route that gets closed');
+      expect(find.text('profile-G', skipOffstage: false), findsNothing,
+          reason: 'the left group profile is removed where it stands');
+
+      _nav.pop(); // user dismisses the dialog
+      await done;
+      await tester.pumpAndSettle();
+      expect(find.text('chat-G', skipOffstage: false), findsNothing);
+      expect(find.text('home-root'), findsOneWidget);
+    });
+
+    testWidgets('a page pushed over the profile is never popped by the leave', (tester) async {
+      await pushChatAndProfile(tester);
+      unawaited(_nav.push(MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('other-page')),
+      )));
+      await tester.pumpAndSettle();
+      final done = finishLeaveGroup(profileContext,
+          groupID: _groupG, succeeded: true);
+      await tester.pumpAndSettle();
+      expect(find.text('other-page'), findsOneWidget);
+      _nav.pop();
+      await done;
+      await tester.pumpAndSettle();
+      expect(find.text('home-root'), findsOneWidget);
+    });
+  });
 }

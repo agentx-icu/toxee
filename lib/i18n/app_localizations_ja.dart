@@ -1352,6 +1352,27 @@ class AppLocalizationsJa extends AppLocalizations {
   String get callAudioInterrupted => '通話中に音声出力が変更されたか、中断されました。';
 
   @override
+  String get callBusyInCall => '先に現在の通話を終了してください。';
+
+  @override
+  String get callBusyInConference => '通話の発信・応答の前に音声会議から退出してください。';
+
+  @override
+  String get callBusyInOtherConference => 'すでに別の音声会議に参加中です。先に退出してください。';
+
+  @override
+  String get callPeerBusy => '相手は別の通話中です。';
+
+  @override
+  String get callConferenceMuteIncoming => '他の参加者をミュート';
+
+  @override
+  String get callConferenceUnmuteIncoming => '他の参加者を聞く';
+
+  @override
+  String get callConferenceListenOnly => '聞き取り専用 — マイクを使用できません。';
+
+  @override
   String get callCalling => '発信中...';
 
   @override
@@ -1851,6 +1872,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get channelFriendRequestsDescription => '友達リクエストを受信したときの通知。';
 
   @override
+  String get channelGroupInvitesName => 'グループ招待';
+
+  @override
+  String get channelGroupInvitesDescription => 'グループに招待されたときの通知。';
+
+  @override
   String get channelMissedCallsName => '不在着信';
 
   @override
@@ -1885,4 +1912,57 @@ class AppLocalizationsJa extends AppLocalizations {
   String pairingConnectTimedOut(String endpoint) {
     return '時間内にもう一方のデバイス（$endpoint）に接続できませんでした。両方のデバイスが同じネットワークにあることを確認するか、個人用ホットスポットを試すか、ファイルによるエクスポート → インポートを使用してください。';
   }
+
+  @override
+  String get groupInviteTitle => 'グループへの招待';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter さんから「$group」への招待が届きました。';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter さんからグループへの招待が届きました。';
+  }
+
+  @override
+  String get groupInviteDecline => '辞退';
+
+  @override
+  String get groupInviteLater => 'あとで';
+
+  @override
+  String get groupInviteAcceptFailed =>
+      '参加できませんでした。招待した相手がオフラインの可能性があります。相手がオンラインのときにもう一度お試しください。';
+
+  @override
+  String get alreadyInGroup => 'すでにこのグループに参加しています';
+
+  @override
+  String get groupNameTooLong => 'グループ名が長すぎます';
+
+  @override
+  String get leaveGroupFailed => 'グループから退出できませんでした。もう一度お試しください。';
+
+  @override
+  String get groupPassword => 'グループのパスワード（任意）';
+
+  @override
+  String get groupPasswordTooLong => 'グループのパスワードは最大 32 バイトです';
+
+  @override
+  String get groupJoinRefusedPassword => 'このグループにはパスワードが必要か、パスワードが間違っています。';
+
+  @override
+  String get groupJoinRefusedFull => 'このグループは満員です。';
+
+  @override
+  String get groupJoinRefusedUnknown => 'グループへの参加が拒否されました。';
+
+  @override
+  String get groupJoinEnterPassword => 'パスワードを入力';
+
+  @override
+  String get groupPasswordRequired => 'グループのパスワードを入力してください';
 }

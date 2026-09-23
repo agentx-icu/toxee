@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
+import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_code_info.dart';
 
 import '../i18n/app_localizations.dart';
 import '../ui/widgets/app_snackbar.dart';
@@ -101,6 +104,73 @@ class SendFailureNotifier {
     AppSnackBar.showErrorOnBuilder(
       messengerState,
       (context) => _humanize(context, code, desc),
+    );
+  }
+
+  /// The UIKit callbacks record toxee registers (home_page_bootstrap): SDK
+  /// failures AND the UIKit's user-notification channel.
+  static TencentCloudChatCallbacks uikitCallbacks() => TencentCloudChatCallbacks(
+    onTencentCloudChatSDKFailedCallback: handleSdkFailure,
+    onTencentCloudChatUIKitUserNotificationEvent: handleUserNotification,
+  );
+
+  /// UIKit notification codes that report success or progress, not failure.
+  /// The fork does NOT reserve non-zero codes for errors, so `code != 0` would
+  /// paint "saved" / "copied" / "joined" red. Sources:
+  ///   * 0 — generic success (delete-friend / add-friend success, group
+  ///     dismissed / joined tips, invite PENDING);
+  ///   * TencentCloudChatCodeInfo (tencent_cloud_chat_code_info.dart):
+  ///     -10302 retrievingGroupMembers, -10406 groupJoined,
+  ///     -10407 copyFileCompleted, -10408 saveFileCompleted,
+  ///     -104010 copyLinkSuccess (-10301 originalMessageNotFound and
+  ///     -10409 saveFileFailed are errors);
+  ///   * add-friend result codes (tencent_cloud_chat_contact_add_contacts_info
+  ///     .dart): 30539 waitAgreeFriend (request sent, awaiting approval) and
+  ///     30015 haveBeFriend (already friends).
+  @visibleForTesting
+  static const Set<int> uikitInfoEventCodes = {
+    0,
+    -10302,
+    -10406,
+    -10407,
+    -10408,
+    -104010,
+    30015,
+    30539,
+  };
+
+  /// Render a UIKit `onUserNotificationEvent` (kick / set-admin failures,
+  /// invite results, "joined group", file-too-large, …). The fork reports
+  /// every user-facing outcome it cannot show itself through this channel, and
+  /// nothing rendered it — so those outcomes were silent. The text is already
+  /// localized by the fork (`tL10n`). Codes in [uikitInfoEventCodes] are
+  /// informational (success / progress / "joined"); every other code —
+  /// including ones this list does not know yet — is shown as an error.
+  /// Identical text is deduped inside [_dedupWindow].
+  static void handleUserNotification(
+    TencentCloudChatComponentsEnum component,
+    TencentCloudChatUserNotificationEvent event,
+  ) {
+    final text = event.text.trim();
+    if (text.isEmpty) return;
+    final messengerState = scaffoldMessengerKey.currentState;
+    if (messengerState == null) {
+      AppLogger.warn(
+          '[SendFailureNotifier] UIKit notification (code=${event.eventCode}) but no scaffoldMessenger is mounted; suppressing toast');
+      return;
+    }
+    final dedupKey = 'notify:$text';
+    final now = DateTime.now();
+    final lastShown = _lastShown[dedupKey];
+    if (lastShown != null && now.difference(lastShown) < _dedupWindow) return;
+    _lastShown[dedupKey] = now;
+    final isError = !uikitInfoEventCodes.contains(event.eventCode);
+    AppSnackBar.showOn(
+      messengerState,
+      text,
+      isError: isError,
+      isInfo: !isError,
+      duration: Duration(seconds: isError ? 4 : 3),
     );
   }
 

@@ -826,84 +826,13 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         );
       }
 
-      // Restore failed messages from persistence (pass 1: backfill missing
-      // history entries with their persisted failed copy).
-      try {
-        final failedMessagesData = cachedFailedMessages;
-        if (failedMessagesData.isNotEmpty) {
-          // Create a set of existing message IDs for quick lookup
-          // FakeMessage only has msgID, not id
-          final existingMsgIDs = hist
-              .map((h) => h.msgID)
-              .whereType<String>()
-              .toSet();
-
-          for (final failedMsgData in failedMessagesData) {
-            final msgID = failedMsgData['msgID'] as String?;
-            final id = failedMsgData['id'] as String?;
-
-            // Check if message already exists in history
-            // Check by msgID (FakeMessage only has msgID)
-            bool messageExists = false;
-            if (msgID != null && existingMsgIDs.contains(msgID)) {
-              messageExists = true;
-            } else if (id != null && existingMsgIDs.contains(id)) {
-              // Also check if id matches msgID (some messages use id as msgID)
-              messageExists = true;
-            }
-
-            // If message doesn't exist in history, add it as a failed message
-            if (!messageExists && msgID != null) {
-              // CRITICAL: For self-sent failed messages, fromUser should be selfId, not userID (receiver)
-              // userID is the receiver (the other person), but fromUser should be the sender (self)
-              final ffi = FakeUIKit.instance.im?.ffi;
-              final selfId = ffi?.selfId ?? '';
-              final isSelf = failedMsgData['isSelf'] as bool? ?? true;
-              // For self-sent messages, fromUser should be selfId
-              // For received messages, fromUser should be the sender (which would be in userID field)
-              final fromUser = isSelf
-                  ? selfId
-                  : (failedMsgData['userID'] as String? ?? userID ?? '');
-              // CRITICAL: Try to recover text content from history if it's empty in persistence
-              // This handles the case where text was lost during persistence
-              String text = failedMsgData['text'] as String? ?? '';
-              if (text.isEmpty) {
-                // Try to find the message in history by msgID to recover text
-                try {
-                  final historyMsg = hist.firstWhere((h) => h.msgID == msgID);
-                  if (historyMsg.text.isNotEmpty) {
-                    text = historyMsg.text;
-                  }
-                } catch (e) {
-                  // Message not found in history, text remains empty
-                }
-              }
-
-              // Add to history list as FakeMessage (will be converted to V2TimMessage below)
-              hist.add(
-                FakeMessage(
-                msgID: msgID,
-                conversationID: conversationID,
-                fromUser: fromUser,
-                text: text,
-                fileSize: failedMsgData['fileSize'] as int?,
-                cloudCustomData: failedMsgData['cloudCustomData'] as String?,
-                  timestampMs:
-                      (failedMsgData['timestamp'] as int? ??
-                          (DateTime.now().millisecondsSinceEpoch / 1000)
-                              .ceil()) *
-                      1000,
-                isPending: false,
-                isReceived: true,
-                isRead: false,
-                ),
-              );
-            }
-          }
-        }
-      } catch (e) {
-        // Ignore errors during failed message restoration
-      }
+      // No backfill of failed rows that are missing from history here: that
+      // pass rebuilt them as text-only FakeMessages (media fields dropped) and
+      // this loader is reached only through `streamFor`, which no product
+      // path subscribes to. The product restores missing failed rows, media
+      // included, in Tim2ToxSdkPlatform.getHistoryMessageListV2 (shared
+      // `rebuildFailedMessage`). The status pass below still marks history
+      // rows that are persisted as failed.
 
       // A live mutation after this load began owns the newer state. All reads
       // above are allowed to finish, but a stale load must remain side-effect
@@ -1010,7 +939,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         list.addAll(messagesToPreserve);
 
         // Sort by timestamp ascending (oldest first, newest last)
-        list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+        _sortByTimestampStable(list);
 
         // IMPORTANT: Update conversation lastMessage after restoring failed messages
         // This ensures the latest message (including restored failed messages) appears in conversation list
@@ -1057,5 +986,19 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
     } catch (e) {
       // Ignore errors during history loading
     }
+  }
+}
+
+/// Timestamp order that keeps ties in their current (arrival) order. Native
+/// rows carry whole-second timestamps, so ties are constant, and `List.sort`
+/// is not stable past 32 elements: same-second messages used to swap places.
+void _sortByTimestampStable(List<V2TimMessage> list) {
+  final indexed = List.generate(list.length, (i) => (i, list[i]));
+  indexed.sort((a, b) {
+    final byTime = (a.$2.timestamp ?? 0).compareTo(b.$2.timestamp ?? 0);
+    return byTime != 0 ? byTime : a.$1.compareTo(b.$1);
+  });
+  for (var i = 0; i < indexed.length; i++) {
+    list[i] = indexed[i].$2;
   }
 }

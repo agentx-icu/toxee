@@ -56,7 +56,22 @@ extension _SettingsSessionActions on _SettingsPageState {
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
     await _teardownSession(service: widget.service);
-    await Prefs.setCurrentAccountToxId(null);
+    try {
+      await Prefs.setCurrentAccountToxId(null);
+    } on CurrentAccountPointerFailure catch (e, st) {
+      // The session is already torn down, so the only way out is the login
+      // page — going back to Home would strand the user on a dead session. A
+      // refused clear means the next cold start auto-logs-in again, so it is
+      // logged loudly rather than swallowed. (Same contract as
+      // `restoreCurrentAccountPointer`; inlined because this file is a part of
+      // `settings_page.dart`, which is at its complexity pin.)
+      AppLogger.logError(
+        '[SettingsPage] logout could not clear the current-account pointer; '
+        'the next start may restore this account',
+        e,
+        st,
+      );
+    }
 
     if (!mounted) return;
     await navigator.pushAndRemoveUntil(

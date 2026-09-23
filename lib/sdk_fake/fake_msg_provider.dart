@@ -572,7 +572,7 @@ class FakeChatMessageProvider
     }
 
     // Sort by timestamp ascending (oldest first, newest last)
-    list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+    _sortByTimestampStable(list);
 
     // Emit to stream (reversed for UIKit's expected format)
     final reversedList = List<V2TimMessage>.from(list.reversed);
@@ -752,7 +752,7 @@ class FakeChatMessageProvider
     });
 
     // Re-sort after removal
-    list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+    _sortByTimestampStable(list);
     // Emit updated list to stream
     if (_ctrls[conversationID]?.isClosed == false) {
       final reversedList = List<V2TimMessage>.from(list.reversed);

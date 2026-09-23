@@ -115,9 +115,15 @@ void main() {
     expect(opener, contains("tapKey('message_header_profile_avatar')"));
     expect(opener, contains("tryTapKey('message_header_profile_avatar'"));
     final home = File('lib/ui/home_page.dart').readAsStringSync();
-    expect(home, contains('Future<void> _popOverlayRoutes() async'));
+    expect(home, contains('Future<void> _popOverlayRoutes() =>'));
     expect(home, contains('await _popOverlayRoutes()'));
-    expect(home, contains('WidgetsBinding.instance.endOfFrame'));
+    // The frame-synchronised pop itself lives in the shared overlay policy
+    // (also used by wide-shell chat opens, UI-7).
+    expect(home, contains('keepFullscreenDialogs: false'));
+    final overlayPolicy = File(
+      'lib/ui/home/overlay_route_policy.dart',
+    ).readAsStringSync();
+    expect(overlayPolicy, contains('WidgetsBinding.instance.endOfFrame'));
   });
 
   test('Group profile builder restore is owner guarded', () {

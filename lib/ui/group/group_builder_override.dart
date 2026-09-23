@@ -20,7 +20,9 @@ import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/app_paths.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
+import '../home/profile_send_message_navigation.dart';
 import '../testing/ui_keys.dart';
+import 'group_avatar_announce.dart';
 import 'group_display_name.dart';
 import 'group_name_edit_dialog.dart';
 
@@ -184,7 +186,8 @@ class _ToxeeGroupProfileAvatarState extends State<_ToxeeGroupProfileAvatar> {
       }
 
       await File(pickedPath).copy(destPath);
-      await Prefs.setGroupAvatar(widget.groupInfo.groupID, destPath);
+      await announceGroupAvatarChange(groupID: widget.groupInfo.groupID,
+          groupType: widget.groupInfo.groupType, path: destPath);
 
       if (!mounted) return;
       setState(() {
@@ -594,15 +597,15 @@ class _ToxeeGroupProfileContentState
   }
 
   void _changeGroupName() {
-    // The dialog widget owns the TextEditingController's lifetime (disposed
-    // in ITS dispose, after the last possible rebuild). The old inline
-    // `.whenComplete(addPostFrameCallback(controller.dispose))` disposed it
-    // mid dismiss-transition and tore down the whole Navigator Overlay on the
-    // iPad — see GroupNameEditDialog.
+    // The dialog owns the TextEditingController's lifetime (disposed in ITS
+    // dispose, after the last possible rebuild; the old inline post-frame
+    // dispose tore down the Navigator Overlay on the iPad) and enforces the
+    // group kind's name byte limit — see GroupNameEditDialog.
     showDialog<void>(
       context: context,
       builder: (_) => GroupNameEditDialog(
         initialName: groupName,
+        groupType: widget.groupInfo.groupType,
         onConfirm: _onChangeGroupName,
       ),
     );
@@ -822,14 +825,12 @@ class _ToxeeGroupProfileDeleteButtonState
         );
       } catch (e, st) {
         AppLogger.logError(
-          '[GroupProfile] _handleQuitGroup: deleteConversation failed',
-          e,
-          st,
-        );
+            '[GroupProfile] _handleQuitGroup: deleteConversation failed', e, st);
       }
-      if (mounted) {
-        unawaited(Navigator.of(context).maybePop());
-      }
+    }
+    if (mounted) {
+      unawaited(finishLeaveGroup(context,
+          groupID: gid, succeeded: result.code == 0));
     }
   }
 

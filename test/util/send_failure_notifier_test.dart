@@ -80,6 +80,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_code_info.dart';
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/util/send_failure_notifier.dart';
 
@@ -536,5 +538,100 @@ void main() {
 
       await drainSnackBars(tester);
     });
+  });
+
+  // The UIKit fork reports kick / invite / file-limit outcomes through
+  // `callbacks.onUserNotificationEvent`; toxee used to register no handler, so
+  // every one of them was silent.
+  group('UIKit user notifications', () {
+    testWidgets('the registered callbacks record carries both handlers',
+        (tester) async {
+      final callbacks = SendFailureNotifier.uikitCallbacks();
+      expect(callbacks.onSDKFailed, isNotNull);
+      expect(callbacks.onUserNotificationEvent, isNotNull);
+    });
+
+    testWidgets('renders the fork text; identical text is deduped',
+        (tester) async {
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      final event = TencentCloudChatUserNotificationEvent(
+        eventCode: -1,
+        text: "Couldn't invite Olga.",
+      );
+      SendFailureNotifier.handleUserNotification(
+          TencentCloudChatComponentsEnum.contact, event);
+      await tester.pumpAndSettle();
+      expect(find.text("Couldn't invite Olga."), findsOneWidget);
+      expect(find.byKey(SendFailureNotifier.toastSurfaceKey), findsOneWidget,
+          reason: 'a non-zero event code is an error toast');
+
+      await drainSnackBars(tester);
+      SendFailureNotifier.handleUserNotification(
+          TencentCloudChatComponentsEnum.contact, event);
+      await tester.pumpAndSettle();
+      expect(find.text("Couldn't invite Olga."), findsNothing,
+          reason: 'same text inside the dedup window is suppressed');
+    });
+
+    testWidgets('eventCode 0 is informational and empty text is ignored',
+        (tester) async {
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      SendFailureNotifier.handleUserNotification(
+        TencentCloudChatComponentsEnum.contact,
+        TencentCloudChatUserNotificationEvent(eventCode: 0, text: '  '),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+
+      SendFailureNotifier.handleUserNotification(
+        TencentCloudChatComponentsEnum.contact,
+        TencentCloudChatUserNotificationEvent(
+            eventCode: 0, text: 'Invitation sent.'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Invitation sent.'), findsOneWidget);
+      expect(find.byKey(SendFailureNotifier.toastSurfaceKey), findsNothing,
+          reason: 'informational toasts carry no error surface');
+
+      await drainSnackBars(tester);
+    });
+
+    // The fork gives success notices non-zero codes (TencentCloudChatCodeInfo
+    // saveFileCompleted -10408, copyLinkSuccess -104010, groupJoined -10406 …):
+    // they must not render as red error toasts; unknown codes stay errors.
+    for (final entry in <int, bool>{
+      -10302: false, // retrievingGroupMembers
+      -10406: false, // groupJoined
+      -10407: false, // copyFileCompleted
+      -10408: false, // saveFileCompleted
+      -104010: false, // copyLinkSuccess
+      30539: false, // add friend: waiting for approval
+      30015: false, // add friend: already friends
+      -10301: true, // originalMessageNotFound
+      -10409: true, // saveFileFailed
+      -1: true, // generic fork failure (file too large, forward failed, …)
+      6017: true, // a native failure code
+      424242: true, // unknown → error
+    }.entries) {
+      testWidgets('eventCode ${entry.key} renders as '
+          '${entry.value ? 'an error' : 'info'}', (tester) async {
+        await tester.pumpWidget(host());
+        await tester.pumpAndSettle();
+        SendFailureNotifier.handleUserNotification(
+          TencentCloudChatComponentsEnum.message,
+          TencentCloudChatUserNotificationEvent(
+              eventCode: entry.key, text: 'notice ${entry.key}'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('notice ${entry.key}'), findsOneWidget);
+        expect(find.byKey(SendFailureNotifier.toastSurfaceKey),
+            entry.value ? findsOneWidget : findsNothing);
+        await drainSnackBars(tester);
+      });
+    }
   });
 }

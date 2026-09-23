@@ -1,57 +1,9 @@
 import 'package:flutter/foundation.dart';
 
+import 'av_conference_session.dart';
 import 'av_conference_session_bridge.dart';
 
-enum AvConferenceSessionLifecycle {
-  idle,
-  joining,
-  active,
-  disabled,
-  failed,
-  closing,
-  left,
-  disposed,
-}
-
-enum AvConferenceSessionFailure { join, mute, disable }
-
-const Object _kFailureUnchanged = Object();
-
-class AvConferenceSession {
-  const AvConferenceSession({
-    required this.groupId,
-    required this.displayName,
-    required this.lifecycle,
-    required this.failure,
-    required this.isMuted,
-    required this.receivedFrameCount,
-  });
-
-  final String groupId;
-  final String displayName;
-  final AvConferenceSessionLifecycle lifecycle;
-  final AvConferenceSessionFailure? failure;
-  final bool isMuted;
-  final int receivedFrameCount;
-
-  AvConferenceSession copyWith({
-    AvConferenceSessionLifecycle? lifecycle,
-    Object? failure = _kFailureUnchanged,
-    bool? isMuted,
-    int? receivedFrameCount,
-  }) {
-    return AvConferenceSession(
-      groupId: groupId,
-      displayName: displayName,
-      lifecycle: lifecycle ?? this.lifecycle,
-      failure: identical(failure, _kFailureUnchanged)
-          ? this.failure
-          : failure as AvConferenceSessionFailure?,
-      isMuted: isMuted ?? this.isMuted,
-      receivedFrameCount: receivedFrameCount ?? this.receivedFrameCount,
-    );
-  }
-}
+export 'av_conference_session.dart';
 
 class AvConferenceSessionController extends ChangeNotifier {
   AvConferenceSessionController({
@@ -75,6 +27,10 @@ class AvConferenceSessionController extends ChangeNotifier {
   bool _disposeRequested = false;
   bool _ownsBackend = false;
   int _joinGeneration = 0;
+
+  /// Latest bridge media state pushed while still joining (an interruption
+  /// can land between the native enable and `active`); applied on activation.
+  AvConferenceMediaState? _joinMediaState;
   Future<bool>? _joining;
   Future<bool>? _disabling;
   Future<void>? _closing;
@@ -109,18 +65,21 @@ class AvConferenceSessionController extends ChangeNotifier {
   }
 
   Future<bool> _doJoin(int generation) async {
+    _joinMediaState = null;
     _setSession(
       _session.copyWith(
         lifecycle: AvConferenceSessionLifecycle.joining,
         failure: null,
       ),
     );
-    final bool enabled;
+    final AvConferenceEnableResult result;
     try {
-      enabled = await _bridge.enable(
+      result = await _bridge.enable(
         groupId: _session.groupId,
+        displayName: _session.displayName,
         owner: _owner,
         onAudioFrame: _handleAudioFrame,
+        onMediaStateChanged: _handleMediaState,
       );
     } catch (_) {
       if (_isJoinCurrent(generation)) {
@@ -133,6 +92,9 @@ class AvConferenceSessionController extends ChangeNotifier {
       }
       return false;
     }
+    final enabled =
+        result == AvConferenceEnableResult.enabled ||
+        result == AvConferenceEnableResult.enabledReceiveOnly;
     if (enabled) {
       _ownsBackend = true;
     }
@@ -146,19 +108,38 @@ class AvConferenceSessionController extends ChangeNotifier {
       _setSession(
         _session.copyWith(
           lifecycle: AvConferenceSessionLifecycle.failed,
-          failure: AvConferenceSessionFailure.join,
+          failure: switch (result) {
+            AvConferenceEnableResult.busy => AvConferenceSessionFailure.busy,
+            AvConferenceEnableResult.busyOtherConference =>
+              AvConferenceSessionFailure.busyOtherConference,
+            _ => AvConferenceSessionFailure.join,
+          },
         ),
       );
       return false;
     }
-    if (_session.isMuted) {
+    _setSession(
+      _session.copyWith(
+        micAvailable: result == AvConferenceEnableResult.enabled,
+        isInterrupted: false,
+      ),
+    );
+    if (_session.isMuted || _session.isDeafened) {
       final bool muted;
       try {
-        muted = await _bridge.setMuted(
-          groupId: _session.groupId,
-          owner: _owner,
-          muted: true,
-        );
+        muted =
+            (!_session.isMuted ||
+                await _bridge.setMicMuted(
+                  groupId: _session.groupId,
+                  owner: _owner,
+                  muted: true,
+                )) &&
+            (!_session.isDeafened ||
+                await _bridge.setDeafened(
+                  groupId: _session.groupId,
+                  owner: _owner,
+                  deafened: true,
+                ));
       } catch (_) {
         await _rollbackEnabledJoin();
         if (_isJoinCurrent(generation)) {
@@ -198,6 +179,9 @@ class AvConferenceSessionController extends ChangeNotifier {
         failure: null,
       ),
     );
+    final pushed = _joinMediaState;
+    _joinMediaState = null;
+    if (pushed != null) _handleMediaState(pushed);
     return true;
   }
 
@@ -253,11 +237,12 @@ class AvConferenceSessionController extends ChangeNotifier {
         );
       } catch (_) {
         disabled = false;
-      } finally {
+      }
+      // A failed native disable keeps ownership + registration so a retry (or
+      // the final leave handing it to the bridge) can still disable natively.
+      if (disabled) {
+        _ownsBackend = false;
         _releaseReceiveCallback();
-        if (disabled) {
-          _ownsBackend = false;
-        }
       }
       if (!disabled) {
         _setSession(
@@ -292,7 +277,7 @@ class AvConferenceSessionController extends ChangeNotifier {
     }
     final bool applied;
     try {
-      applied = await _bridge.setMuted(
+      applied = await _bridge.setMicMuted(
         groupId: _session.groupId,
         owner: _owner,
         muted: muted,
@@ -323,6 +308,56 @@ class AvConferenceSessionController extends ChangeNotifier {
 
   Future<bool> toggleMuted() {
     return setMuted(!_session.isMuted);
+  }
+
+  /// Stop / resume PLAYING the other participants. Unlike [setMuted] a
+  /// failure here leaves the session up: the mic path is unaffected.
+  Future<bool> setDeafened(bool deafened) async {
+    if (_session.lifecycle == AvConferenceSessionLifecycle.disposed ||
+        _session.lifecycle == AvConferenceSessionLifecycle.left) {
+      return false;
+    }
+    if (_session.isDeafened == deafened) {
+      return true;
+    }
+    if (_session.lifecycle != AvConferenceSessionLifecycle.active) {
+      _setSession(_session.copyWith(isDeafened: deafened));
+      return true;
+    }
+    bool applied;
+    try {
+      applied = await _bridge.setDeafened(
+        groupId: _session.groupId,
+        owner: _owner,
+        deafened: deafened,
+      );
+    } catch (_) {
+      applied = false;
+    }
+    if (applied) {
+      _setSession(_session.copyWith(isDeafened: deafened));
+    }
+    return applied;
+  }
+
+  Future<bool> toggleDeafened() {
+    return setDeafened(!_session.isDeafened);
+  }
+
+  void _handleMediaState(AvConferenceMediaState state) {
+    if (_session.lifecycle == AvConferenceSessionLifecycle.joining) {
+      _joinMediaState = state;
+      return;
+    }
+    if (_session.lifecycle != AvConferenceSessionLifecycle.active) return;
+    _setSession(
+      _session.copyWith(
+        isInterrupted: state == AvConferenceMediaState.interrupted,
+        micAvailable: state == AvConferenceMediaState.interrupted
+            ? null
+            : state == AvConferenceMediaState.full,
+      ),
+    );
   }
 
   void _handleAudioFrame(
@@ -401,6 +436,8 @@ class AvConferenceSessionController extends ChangeNotifier {
       } catch (_) {
         disableFailed = true;
       } finally {
+        // Final release: on a failed disable the bridge adopts the still
+        // enabled group and keeps retrying (clearReceiveCallback).
         _ownsBackend = false;
         _releaseReceiveCallback();
       }
@@ -426,9 +463,7 @@ class AvConferenceSessionController extends ChangeNotifier {
   }
 
   Future<void> _rollbackEnabledJoin() async {
-    if (!_ownsBackend) {
-      return;
-    }
+    if (!_ownsBackend) return;
     try {
       await _bridge.disable(groupId: _session.groupId, owner: _owner);
     } catch (_) {
@@ -438,16 +473,10 @@ class AvConferenceSessionController extends ChangeNotifier {
     }
   }
 
+  /// Same hand-off as [_rollbackEnabledJoin]: the bridge adopts a group whose
+  /// disable failed (clearReceiveCallback) instead of it being dropped.
   Future<void> _teardownFailedActiveSession() async {
-    if (_ownsBackend) {
-      try {
-        await _bridge.disable(groupId: _session.groupId, owner: _owner);
-      } catch (_) {
-        _ownsBackend = false;
-      } finally {
-        _ownsBackend = false;
-      }
-    }
+    if (_ownsBackend) return _rollbackEnabledJoin();
     _releaseReceiveCallback();
   }
 

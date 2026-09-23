@@ -223,6 +223,36 @@ void main() {
     );
 
     test(
+      'a group that is not connected yet queues the text instead of '
+      'reporting it sent, and drains when the group reports its self-join',
+      () async {
+        // toxcore accepts a group send with ZERO confirmed peers
+        // (gc_send_message: `sent > 0 || confirmed_peers == 0`). A group
+        // restored from the savefile is in exactly that state for seconds to
+        // minutes after the DHT link is up, so "DHT connected" used to be
+        // enough to mark a message delivered that reached nobody.
+        const groupId = 'tox_5';
+        final chat = service(friends: const []);
+        addTearDown(() async => chat.dispose());
+        chat.debugSetConnected(true);
+        var wireReady = false;
+        chat.debugGroupWireReadyOverride = (_) => wireReady;
+
+        final pending = await chat.sendGroupTextWithResult(groupId, 'hello');
+        await Future<void>.delayed(Duration.zero);
+        expect(pending.isPending, isTrue);
+        expect(chat.queueFor('group:$groupId'), hasLength(1));
+
+        // Still not connected: a drain attempt must keep the item queued
+        // rather than "sending" it into the void or marking it failed.
+        await chat.retryPendingGroupMessages(groupId);
+        expect(chat.queueFor('group:$groupId'), hasLength(1));
+        expect(chat.historyFor(groupId).single.isPending, isTrue);
+      },
+      skip: skipReason,
+    );
+
+    test(
       'emoji crossing the 1322-byte boundary reaches native transport',
       () async {
         const peerId =

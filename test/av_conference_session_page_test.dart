@@ -135,6 +135,109 @@ void main() {
     expect(find.text(l10n.retry), findsOneWidget);
     expect(find.text(l10n.callHangUp), findsOneWidget);
   });
+
+  testWidgets('mic Mute and receive-side "Mute others" are separate controls', (
+    tester,
+  ) async {
+    final bridge = _FakeAvConferenceSessionBridge();
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_pcm_page_deafen',
+      displayName: 'Deafen room',
+      bridge: bridge,
+    );
+
+    await tester.pumpWidget(_TestHarness(controller: controller));
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(AvConferenceSessionPage)),
+    )!;
+
+    expect(find.text(l10n.callMute), findsWidgets);
+    expect(find.text(l10n.callConferenceMuteIncoming), findsOneWidget);
+
+    await tester.tap(find.byKey(AvConferenceSessionPage.deafenButtonKey));
+    await tester.pumpAndSettle();
+
+    expect(controller.session.isDeafened, isTrue);
+    expect(controller.session.isMuted, isFalse);
+    expect(bridge.deafenStates, <bool>[true]);
+    expect(find.text(l10n.callConferenceUnmuteIncoming), findsOneWidget);
+  });
+
+  testWidgets('busy join explains that a call must end first', (tester) async {
+    final bridge = _FakeAvConferenceSessionBridge()..nextEnableBusy = true;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_pcm_page_busy',
+      displayName: 'Busy room',
+      bridge: bridge,
+    );
+
+    await tester.pumpWidget(_TestHarness(controller: controller));
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(AvConferenceSessionPage)),
+    )!;
+
+    expect(find.text(l10n.callBusyInCall), findsOneWidget);
+  });
+
+  testWidgets('busy because of another conference says so', (tester) async {
+    final bridge = _FakeAvConferenceSessionBridge()
+      ..nextEnableBusyResult = AvConferenceEnableResult.busyOtherConference;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_pcm_page_other',
+      displayName: 'Other room',
+      bridge: bridge,
+    );
+
+    await tester.pumpWidget(_TestHarness(controller: controller));
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(AvConferenceSessionPage)),
+    )!;
+
+    expect(find.text(l10n.callBusyInOtherConference), findsOneWidget);
+    expect(find.text(l10n.callBusyInCall), findsNothing);
+  });
+
+  testWidgets('an OS audio interruption is shown on the session', (
+    tester,
+  ) async {
+    final bridge = _FakeAvConferenceSessionBridge();
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_pcm_page_interrupted',
+      displayName: 'Interrupted room',
+      bridge: bridge,
+    );
+
+    await tester.pumpWidget(_TestHarness(controller: controller));
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(AvConferenceSessionPage)),
+    )!;
+
+    bridge.mediaStateCallback!(AvConferenceMediaState.interrupted);
+    await tester.pump();
+    expect(find.text(l10n.callAudioInterrupted), findsOneWidget);
+  });
+
+  testWidgets('listen-only join disables the mic and says so', (tester) async {
+    final bridge = _FakeAvConferenceSessionBridge()..receiveOnly = true;
+    final controller = AvConferenceSessionController(
+      groupId: 'tox_conf_pcm_page_listen',
+      displayName: 'Listen room',
+      bridge: bridge,
+    );
+
+    await tester.pumpWidget(_TestHarness(controller: controller));
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(AvConferenceSessionPage)),
+    )!;
+
+    expect(find.text(l10n.callConferenceListenOnly), findsOneWidget);
+    expect(find.byIcon(Icons.mic_off), findsWidgets);
+  });
 }
 
 class _TestHarness extends StatelessWidget {
@@ -214,11 +317,51 @@ final class _FakeAvConferenceSessionBridge
   }
 
   @override
-  Future<bool> enable({
+  Future<AvConferenceEnableResult> enable({
     required String groupId,
+    required String displayName,
     required AvConferenceSessionOwner owner,
     required AvConferenceAudioFrameCallback onAudioFrame,
+    AvConferenceMediaStateCallback? onMediaStateChanged,
   }) async {
+    mediaStateCallback = onMediaStateChanged;
+    final busy = nextEnableBusyResult;
+    if (busy != null) {
+      nextEnableBusyResult = null;
+      return busy;
+    }
+    final enabled = await _enable(groupId, owner, onAudioFrame);
+    if (!enabled) return AvConferenceEnableResult.failed;
+    return receiveOnly
+        ? AvConferenceEnableResult.enabledReceiveOnly
+        : AvConferenceEnableResult.enabled;
+  }
+
+  AvConferenceEnableResult? nextEnableBusyResult;
+  set nextEnableBusy(bool busy) =>
+      nextEnableBusyResult = busy ? AvConferenceEnableResult.busy : null;
+  AvConferenceMediaStateCallback? mediaStateCallback;
+  bool receiveOnly = false;
+  final List<bool> deafenStates = <bool>[];
+
+  @override
+  Future<bool> setDeafened({
+    required String groupId,
+    required AvConferenceSessionOwner owner,
+    required bool deafened,
+  }) async {
+    if (!identical(_backendOwners[groupId], owner)) {
+      return false;
+    }
+    deafenStates.add(deafened);
+    return true;
+  }
+
+  Future<bool> _enable(
+    String groupId,
+    AvConferenceSessionOwner owner,
+    AvConferenceAudioFrameCallback onAudioFrame,
+  ) async {
     if (_callbacks.containsKey(groupId)) {
       return false;
     }
@@ -240,7 +383,7 @@ final class _FakeAvConferenceSessionBridge
   }
 
   @override
-  Future<bool> setMuted({
+  Future<bool> setMicMuted({
     required String groupId,
     required AvConferenceSessionOwner owner,
     required bool muted,

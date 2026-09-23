@@ -4,6 +4,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../adapters/bootstrap_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../adapters/shared_prefs_adapter.dart';
+import '../util/account_scoped_service_factory.dart';
 import '../util/account_service.dart';
 import '../util/default_avatar_installer.dart';
 import '../util/logger.dart';
@@ -271,6 +272,14 @@ class LoginUseCase {
       legacyPrefsAdapter.setAccountPrefix(
         toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length),
       );
+      // Same late-binding reason as the two calls above: the service had to be
+      // constructed before `init()`/`login()` could reveal the Tox ID, so it
+      // started on tim2tox's SHARED <AppSupport> history / offline-queue /
+      // file_recv / avatars defaults. Re-point it at this account's own
+      // directories (adopting the legacy global dataset if this account is the
+      // one entitled to it) before anything boots the session. A throw here
+      // propagates to the catch below, which tears the session down.
+      await installAccountScopedStorage(service: legacyService, toxId: toxId);
       // Apply the profile BEFORE persisting any durable prefs (mirrors the
       // StartupSessionUseCase auto-login path). updateSelfProfile only needs
       // the account prefix set above; persisting the nickname /

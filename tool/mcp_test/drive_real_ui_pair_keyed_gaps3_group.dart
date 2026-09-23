@@ -86,27 +86,19 @@ Future<({double x, double y})?> _kg3RevealProfileKey(
 // ===========================================================================
 // case — group_member_info_profile_entry_opens_profile
 // ===========================================================================
-/// `group_member_info_profile_entry`
-/// (tencent_cloud_chat_group_member_info.dart:218) is the member-info route's
-/// ONLY navigation affordance — the row that pushes that member's user
-/// profile. Batch #2 added the key; nothing drove it. This case walks the real
-/// chain a user walks: member list -> member row menu -> Info -> member info ->
-/// Profile.
+/// Name kept for the sweep/runner tables; the CONTRACT changed (MM-6,
+/// 2026-09-17). An NGC member row carries B's PER-GROUP key, not B's Tox ID —
+/// nothing maps it back to the friend — so the member-info route must NOT offer
+/// `group_member_info_profile_entry` (it used to open a stranger profile /
+/// add-friend flow for a key that is nobody's Tox ID) and must label the id as
+/// a group member key (`group_member_info_key_hint`). Self and legacy-
+/// conference friends still resolve and keep the entry (L1:
+/// test/ui/group/group_member_identity_test.dart).
 ///
-/// WHAT IS ASSERTED. Three route transitions, each by a key that exists ONLY on
-/// that route: `group_member_info_copy_id_button` proves the member-info route,
-/// the entry itself must MOUNT there, and after the tap the user-profile route
-/// must be the VISIBLE one — `user_profile_copy_id_button` resolves AND is
-/// `onstage`, while the member-info key stops being onstage. `Navigator.push`
-/// leaves the route underneath mounted and laid out, so an UNMOUNT assertion is
-/// wrong here (it produced a false iPad red). Both onstage halves are required:
-/// `waitKeyCenter` alone resolves through `resolveKeyCenter`'s COVERED
-/// full-tree fallback, so a profile route mounted under something opaque would
-/// otherwise pass.
-///
-/// Both platforms reach the Info action — `_memberMenuInfoKey` resolves it to
-/// the desktop popup item or the mobile sheet action — so no form-factor gate
-/// is needed here.
+/// Walk: member list -> member row menu -> Info -> member info. Asserted: the
+/// member-info route mounts (`group_member_info_copy_id_button`), the key hint
+/// mounts, and the profile entry does NOT. `_memberMenuInfoKey` resolves the
+/// desktop popup item or the mobile sheet action, so no form-factor gate.
 Future<bool?> _kg3MemberInfoProfileEntry(
   Inst a,
   _EstablishedGroup est,
@@ -128,64 +120,18 @@ Future<bool?> _kg3MemberInfoProfileEntry(
     print('[pair] $label: the member-info route did not mount');
     return false;
   }
-  final entryMounted = await a.waitKeyCenter(
-    'group_member_info_profile_entry',
+  final hint = await a.waitKeyCenter(
+    'group_member_info_key_hint',
     timeoutSecs: 6,
   );
-  if (!entryMounted) {
-    await a.shot('/tmp/ui_kg3_meminfo_noentry_${a.name}.png');
-    print('[pair] $label: group_member_info_profile_entry did not render');
-    return false;
-  }
-  // Baseline the onstage signal WHILE the member-info route is still the top
-  // route, so the post-tap reading below is a proven FLIP and not a value that
-  // was already false for layout reasons.
-  final memberInfoOnstageBefore = await _kg3KeyOnstage(
-    a,
-    'group_member_info_copy_id_button',
-  );
-  if (!await a.tapKeyCenter(
-    'group_member_info_profile_entry',
-    timeoutSecs: 6,
-  )) {
-    print('[pair] $label: the Profile entry was not tappable');
-    return false;
-  }
-  final onUserProfile = await a.waitKeyCenter(
-    'user_profile_copy_id_button',
-    timeoutSecs: 10,
-  );
-  // The member-info route must stop being the VISIBLE route. It is NOT
-  // unmounted — `Navigator.push` keeps it in the tree with positive bounds — so
-  // the honest signal is `onstage`: null (gone) or false (found only by the
-  // covered full-tree fallback). Live-diagnosed on iPad 2026-08-16, where the
-  // old `_kg3WaitKeyCenterGone` check read the still-laid-out member-info route
-  // and FAILED a navigation the screenshot shows working. POLLED, not sampled
-  // once (see [_kg3WaitKeyNotOnstage]): sampling made this a guaranteed Android
-  // FAIL by reading the signal mid push-transition.
-  final memberInfoCovered = await _kg3WaitKeyNotOnstage(
-    a,
-    'group_member_info_copy_id_button',
-  );
-  // Sampled AFTER the poll above, so the transition has settled: reading it
-  // first would catch the incoming route mid-push and under-report onstage.
-  final userProfileOnstage = await _kg3KeyOnstage(
-    a,
-    'user_profile_copy_id_button',
-  );
-  await a.shot('/tmp/ui_kg3_meminfo_profile_${a.name}.png');
+  final entry = await _kg3KeyOnstage(a, 'group_member_info_profile_entry');
+  await a.shot('/tmp/ui_kg3_meminfo_key_${a.name}.png');
   await _kg3PopToRoot(a);
   print(
-    '[pair] $label: memberInfoRoute=$onMemberInfo entry=$entryMounted '
-    'userProfileRoute=$onUserProfile '
-    'userProfileOnstage=$userProfileOnstage '
-    'memberInfoOnstageBefore=$memberInfoOnstageBefore '
-    'covered=$memberInfoCovered',
+    '[pair] $label: memberInfoRoute=$onMemberInfo keyHint=$hint '
+    'profileEntry=$entry (must be null: a per-group key is not a friend)',
   );
-  // `userProfileOnstage` is part of the VERDICT, not just the diagnosis: it used
-  // to be computed and printed but excluded, so a profile route mounted UNDER an
-  // opaque cover passed on `waitKeyCenter`'s full-tree fallback alone.
-  return onUserProfile && userProfileOnstage == true && memberInfoCovered;
+  return hint && entry == null;
 }
 
 // ===========================================================================

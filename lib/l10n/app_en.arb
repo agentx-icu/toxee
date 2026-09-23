@@ -1361,6 +1361,13 @@
   "callFailedMediaChannel": "Couldn't establish the call's media channel.",
   "callVideoUnsupportedPlatform": "Video calls aren't available on this platform yet (no camera support).",
   "callAudioInterrupted": "Audio output changed or was interrupted during the call.",
+  "callBusyInCall": "Finish your current call first.",
+  "callBusyInConference": "Leave the audio conference before starting or answering a call.",
+  "callBusyInOtherConference": "You're already in another audio conference. Leave it first.",
+  "callPeerBusy": "The other person is busy on another call.",
+  "callConferenceMuteIncoming": "Mute others",
+  "callConferenceUnmuteIncoming": "Hear others",
+  "callConferenceListenOnly": "Listening only — the microphone isn't available.",
   "callCalling": "Calling...",
   "callLeaving": "Leaving conference...",
   "callReceivedFrames": "Received {count} frames",
@@ -1927,6 +1934,14 @@
   "@channelFriendRequestsDescription": {
     "description": "Android notification channel description"
   },
+  "channelGroupInvitesName": "Group invites",
+  "@channelGroupInvitesName": {
+    "description": "Android notification channel name"
+  },
+  "channelGroupInvitesDescription": "Notifications when someone invites you to a group.",
+  "@channelGroupInvitesDescription": {
+    "description": "Android notification channel description"
+  },
   "channelMissedCallsName": "Missed calls",
   "@channelMissedCallsName": {
     "description": "Android notification channel name"
@@ -1984,5 +1999,82 @@
         "type": "String"
       }
     }
+  },
+  "groupInviteTitle": "Group invitation",
+  "@groupInviteTitle": {
+    "description": "Title of the prompt shown when a friend invites the user to a group"
+  },
+  "groupInviteBody": "{inviter} invited you to join “{group}”.",
+  "@groupInviteBody": {
+    "description": "Group invite prompt body when the group name is known",
+    "placeholders": {
+      "inviter": {
+        "type": "String"
+      },
+      "group": {
+        "type": "String"
+      }
+    }
+  },
+  "groupInviteBodyUnnamed": "{inviter} invited you to join a group.",
+  "@groupInviteBodyUnnamed": {
+    "description": "Group invite prompt body when the invite carries no group name (e.g. a conference)",
+    "placeholders": {
+      "inviter": {
+        "type": "String"
+      }
+    }
+  },
+  "groupInviteDecline": "Decline",
+  "@groupInviteDecline": {
+    "description": "Button: decline a group invitation"
+  },
+  "groupInviteLater": "Later",
+  "@groupInviteLater": {
+    "description": "Button: leave a group invitation unanswered for now"
+  },
+  "groupInviteAcceptFailed": "Couldn't join. The person who invited you may be offline — try again when they are online.",
+  "@groupInviteAcceptFailed": {
+    "description": "Shown when accepting a group invitation failed"
+  },
+  "alreadyInGroup": "You are already in this group",
+  "@alreadyInGroup": {
+    "description": "Join-by-ID error when the user is already a member of that group"
+  },
+  "groupNameTooLong": "Group name is too long",
+  "@groupNameTooLong": {
+    "description": "Create-group validation: the name exceeds the Tox byte limit (UTF-8 bytes, so CJK/emoji names hit it sooner)"
+  },
+  "leaveGroupFailed": "Couldn't leave the group. Please try again.",
+  "@leaveGroupFailed": {
+    "description": "Shown when leaving or dismissing a group failed"
+  },
+  "groupPassword": "Group password (optional)",
+  "@groupPassword": {
+    "description": "Optional password field when joining a group by ID"
+  },
+  "groupPasswordTooLong": "A group password is at most 32 bytes",
+  "@groupPasswordTooLong": {
+    "description": "Validation error: Tox group passwords are limited to 32 bytes"
+  },
+  "groupJoinRefusedPassword": "This group needs a password, or the password was wrong.",
+  "@groupJoinRefusedPassword": {
+    "description": "The group refused the join: missing or wrong password"
+  },
+  "groupJoinRefusedFull": "This group is full.",
+  "@groupJoinRefusedFull": {
+    "description": "The group refused the join: it has reached its member limit"
+  },
+  "groupJoinRefusedUnknown": "The group refused to let you join.",
+  "@groupJoinRefusedUnknown": {
+    "description": "The group refused the join for an unspecified reason"
+  },
+  "groupJoinEnterPassword": "Enter password",
+  "@groupJoinEnterPassword": {
+    "description": "Action to retry joining a password-protected group"
+  },
+  "groupPasswordRequired": "Enter the group password",
+  "@groupPasswordRequired": {
+    "description": "Validation error: the group password field is empty"
   }
 }

@@ -33,7 +33,6 @@ import 'package:tencent_cloud_chat_common/components/component_options/tencent_c
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart'
     show navigateToMessage;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
-import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_controller.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
     as conv_pkg;
@@ -90,6 +89,7 @@ import 'settings/sidebar.dart';
 import 'applications/applications_page.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
+import 'home/overlay_route_policy.dart';
 import 'home/profile_send_message_navigation.dart';
 import 'home/tim2tox_plugin_policy.dart';
 import 'home/toxee_message_header_info.dart';
@@ -615,7 +615,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // too often for a disk write. Stick to `paused` and `detached`.
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      widget.service.saveToxProfileNow();
+      widget.service.persistForBackground();
     }
     // Best-effort resume kick: if the app thawed back to foreground and Tox is
     // still offline, re-add the currently selected bootstrap node to nudge the
@@ -794,8 +794,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final convKey = hasGroup ? 'g:$groupId' : 'c:$peerId';
       if (_openCompactMessageRouteStack.isNotEmpty &&
           _openCompactMessageRouteStack.last == convKey) {
-        // Repeat open of the newest pushed chat: the rebind above is all it
-        // needs — pushing again stacked duplicate routes (live on Android).
+        // Repeat open of the newest pushed chat: no second push (it stacked
+        // duplicate routes, live on Android) — but reveal it if a UIKit page
+        // (group profile / member list) was pushed over it since (UI-7).
+        unawaited(popShellOverlayRoutes(
+          Navigator.maybeOf(context, rootNavigator: true),
+          stopAt: (r) => routeIsMessageFor(r,
+              userID: hasGroup ? null : peerId, groupID: groupId),
+        ));
         unawaited(_updateTray());
         return;
       }
@@ -826,7 +832,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(_updateTray());
       return;
     }
-    _selectConversation(peerId: peerId, groupId: groupId);
+    // Wide: pop the full-window routes covering the right pane (policy doc).
+    openChatOnWideShell(
+      navigator: Navigator.maybeOf(context, rootNavigator: true),
+      select: () => _selectConversation(peerId: peerId, groupId: groupId),
+    );
     unawaited(_updateTray());
   }
 
@@ -2059,8 +2069,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (toxId.isNotEmpty) {
       await Prefs.setAutoAcceptGroupInvites(value, toxId);
     }
-    // Update FFI setting so C++ can read it
-    widget.service.setAutoAcceptGroupInvites(value);
+    // Native gate (new invites) + invites already waiting for an answer.
+    applyAutoAcceptGroupInvitesChange(widget.service, value);
   }
 
   Future<void> _acceptFriendApplications(
@@ -2244,30 +2254,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// overlays and STOPS at the active HomePage — it never disposes HomePage
   /// (which would unregister the L3 invokers) the way a blanket `isFirst`
   /// popUntil did.
-  Future<void> _popOverlayRoutes() async {
-    final navigator = Navigator.maybeOf(context, rootNavigator: true);
-    if (navigator == null) return;
-    for (var attempt = 0; attempt < 12; attempt++) {
-      await WidgetsBinding.instance.endOfFrame;
-      if (!navigator.mounted) return;
-      try {
-        navigator.popUntil(
-          (route) => route is! MaterialPageRoute || route.isFirst,
-        );
-        return;
-      } on Object catch (e, st) {
-        if (!e.toString().contains('!_debugLocked') || attempt == 11) {
-          AppLogger.logError(
-            '[HomePage] stale group overlay pop skipped',
-            e,
-            st,
-          );
-          return;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-    }
-  }
+  Future<void> _popOverlayRoutes() => popShellOverlayRoutes(
+    Navigator.maybeOf(context, rootNavigator: true),
+    keepFullscreenDialogs: false,
+  );
 
   Future<bool> _openGroupProfile(String groupId) async {
     if (!mounted) return false;
@@ -2275,6 +2265,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (gid.startsWith('group_')) gid = gid.substring(6);
     if (gid.isEmpty) return false;
     await _popOverlayRoutes();
+    if (!mounted) return false;
 
     // Pass ONLY the groupID — the profile route loads its own group info fresh
     // via getGroupsInfo(groupID) (which returns groupID == the local gid, the

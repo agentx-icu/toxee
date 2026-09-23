@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:tencent_cloud_chat_common/external/chat_data_provider.dart';
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
+import 'package:tim2tox_dart/utils/tim2tox_failed_message_rebuild.dart';
 import 'package:tim2tox_dart/utils/control_message_envelope.dart';
 import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
+import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform_converters.dart'
+    show groupAtInfoListFor;
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import 'fake_uikit_core.dart';
@@ -586,6 +589,13 @@ class FakeChatDataProvider implements ChatDataProvider {
     conv.unreadCount = c.unreadCount;
     conv.isPinned = c.isPinned;
     final ffi = _ffiService;
+    if (c.isGroup) {
+      // Always a list (empty once read): UIKit merges `incoming ?? existing`,
+      // so a null kept "[@me]" forever. Seqs resolve to the mention rows.
+      conv.groupAtInfoList = ffi == null
+          ? <V2TimGroupAtInfo>[]
+          : groupAtInfoListFor(ffi, conv.groupID!);
+    }
     if (loadPersistedDraft && ffi != null) {
       try {
         final draft = await ffi.loadConversationDraft(c.conversationID);
@@ -666,33 +676,20 @@ class FakeChatDataProvider implements ChatDataProvider {
           final failedMsgTimestampMs =
               failedMsgTimestampSeconds * 1000; // Convert to milliseconds
 
-          if (failedMsgTimestampMs > failedTimestampMs) {
+          // The same rebuild the chat's history merge uses (GF-5): a media
+          // row previews as its element type, and the row this preview
+          // names reloads into the chat instead of being a ghost.
+          final rebuilt = failedMsgTimestampMs > failedTimestampMs
+              ? rebuildFailedMessage(
+                  failedMsgData,
+                  conversationKey: peerId,
+                ).message
+              : null;
+          if (rebuilt != null) {
             failedTimestampMs = failedMsgTimestampMs;
-            final failedMsgID = failedMsgData['msgID'] as String?;
-            final failedID = failedMsgData['id'] as String?;
-            final failedText = failedMsgData['text'] as String? ?? '';
-            final failedElemType =
-                failedMsgData['elemType'] as int? ??
-                MessageElemType.V2TIM_ELEM_TYPE_TEXT;
-
-            // Create a V2TimMessage from failed message data
-            failedLastMessage = V2TimMessage(elemType: failedElemType);
-            failedLastMessage.msgID = failedMsgID;
-            failedLastMessage.id = failedID ?? failedMsgID;
-            failedLastMessage.timestamp =
-                failedMsgTimestampSeconds; // Keep in seconds for V2TimMessage
-            failedLastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
-            failedLastMessage.isSelf =
-                true; // Failed messages are always self-sent
-            if (failedText.isNotEmpty) {
-              failedLastMessage.textElem = V2TimTextElem(text: failedText);
-            }
-            if (userID != null) {
-              failedLastMessage.userID = userID;
-            }
-            if (groupID != null) {
-              failedLastMessage.groupID = groupID;
-            }
+            failedLastMessage = rebuilt
+              ..userID = userID
+              ..groupID = groupID;
           }
         }
       } catch (e) {

@@ -51,6 +51,7 @@ void main() {
       expect(ToxeeNotificationChannel.values.map((c) => c.id), [
         'toxee_messages',
         'toxee_friend_requests',
+        'toxee_group_invites',
         'toxee_missed_calls',
         'toxee_incoming_calls',
       ]);

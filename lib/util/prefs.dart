@@ -14,6 +14,7 @@ import 'tox_utils.dart';
 import '../models/account_summary.dart';
 import 'async_gate.dart';
 import 'auto_download_policy.dart';
+import 'group_avatar_path.dart';
 import 'prefs/draft_prefs.dart';
 import 'prefs/password_verifier.dart';
 import 'prefs/scoped_key.dart';
@@ -282,15 +283,13 @@ class Prefs {
 
   /// Point the app at [toxId] as the active account, or clear the pointer.
   ///
-  /// The in-process cache is updated to match what was actually PERSISTED. It
-  /// used to be updated unconditionally, while `setString`/`remove` return a
-  /// bool that was discarded — so a refused write left the cache claiming a
-  /// pointer the next cold start would not see. That mismatch is exactly the
-  /// kind of disagreement between the pointer, `account_list` and the profile
-  /// directory that the deletion and activation paths cannot reason about.
-  ///
-  /// A failed write is logged and the cache is INVALIDATED rather than
-  /// poisoned, so the next read goes back to the store and observes the truth.
+  /// The in-process cache is updated to match what was actually PERSISTED, and
+  /// a refused write THROWS [CurrentAccountPointerFailure]. `setString` /
+  /// `remove` return a bool; logging a false and returning normally let login,
+  /// activation and logout carry on with a live account while the durable
+  /// pointer still named the previous one (or none), so the next cold start
+  /// restored the other account. The caller must roll back instead. The cache
+  /// is INVALIDATED rather than poisoned, so reads observe the store's truth.
   static Future<void> setCurrentAccountToxId(String? toxId) async {
     final p = await _getPrefs();
     final bool wrote;
@@ -303,13 +302,13 @@ class Prefs {
       wrote = await p.setString(_kCurrentAccountToxId, intended);
     }
     if (!wrote) {
-      AppLogger.warn(
-        '[Prefs] current-account pointer write was refused; invalidating the '
-        'cache so reads fall back to the store',
-      );
       _cachedCurrentAccountToxId = null;
       _accountToxIdCached = false;
-      return;
+      AppLogger.warn(
+        '[Prefs] current-account pointer write was refused; the caller must '
+        'roll back rather than run on a pointer the store does not have',
+      );
+      throw CurrentAccountPointerFailure(intended);
     }
     _cachedCurrentAccountToxId = intended;
     _accountToxIdCached = true;
@@ -1457,7 +1456,6 @@ class Prefs {
     }
   }
 
-  // Group avatar (faceUrl) storage
   static String _groupAvatarKey(String groupId) => 'group_avatar_$groupId';
 
   static Future<String?> getGroupAvatar(String groupId) async {
@@ -1465,7 +1463,7 @@ class Prefs {
     if (current == null || current.isEmpty) return null;
     final p = await _getPrefs();
     final key = _scopedKey(_groupAvatarKey(groupId), current);
-    return p.getString(key);
+    return decodeStoredGroupAvatarFromPrefs(p, key, current);
   }
 
   static Future<void> setGroupAvatar(String groupId, String? faceUrl) async {
@@ -1473,11 +1471,9 @@ class Prefs {
     if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
     final key = _scopedKey(_groupAvatarKey(groupId), current);
-    if (faceUrl == null || faceUrl.isEmpty) {
-      await p.remove(key);
-    } else {
-      await p.setString(key, faceUrl);
-    }
+    await (faceUrl == null || faceUrl.isEmpty
+        ? p.remove(key)
+        : p.setString(key, await encodeGroupAvatarForStorage(faceUrl, current)));
   }
 
   /// Clear per-account data from SharedPreferences for the given account.

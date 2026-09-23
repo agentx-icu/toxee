@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import 'account_service_test_hooks.dart';
+import 'current_account_pointer_restore.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
 import 'session_password_store.dart';
@@ -100,7 +101,13 @@ Future<void> rollbackFailedRegistration(
     await Prefs.removeAccount(toxId);
   }
 
-  await Prefs.setCurrentAccountToxId(plan.previousAccount);
+  // Best-effort: the remaining cleanup (labels, temp / profile directories)
+  // still has to run, and this path is already reporting the registration
+  // failure — a refused pointer restore must not replace it.
+  await restoreCurrentAccountPointer(
+    plan.previousAccount,
+    '[AccountService] registration_rollback',
+  );
   await Prefs.setNickname(plan.previousNickname ?? '');
   await Prefs.setStatusMessage(plan.previousStatusMessage ?? '');
   await Prefs.setAvatarPath(plan.previousAvatarPath);

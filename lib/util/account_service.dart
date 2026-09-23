@@ -19,6 +19,7 @@ import 'account_scoped_service_factory.dart';
 import 'account_session_cleanup.dart';
 import 'account_teardown_failure.dart';
 import 'account_scratch_storage.dart';
+import 'current_account_pointer_restore.dart';
 import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
 import 'account_export/tox_file_io.dart' show extractToxIdFromProfile;
@@ -528,10 +529,9 @@ class AccountService {
       return service;
     } catch (e) {
       await service?.dispose();
-      await Prefs.setCurrentAccountToxId(previousAccount);
-      // Mirror the success path: if we set nickname/status/avatar above,
-      // undo them. We always restore here because we may have failed AFTER
-      // the setCurrentAccountToxId line, leaving partially-applied state.
+      await restoreCurrentAccountPointer(previousAccount, '[AccountService]');
+      // Mirror the success path: if we set nickname/status/avatar above, undo
+      // them. Always — we may have failed AFTER the pointer write above.
       await Prefs.setNickname(previousNickname ?? '');
       await Prefs.setStatusMessage(previousStatusMessage ?? '');
       await Prefs.setAvatarPath(previousAvatarPath);
@@ -636,18 +636,16 @@ class AccountService {
         // This bootstrap-only instance has no Tox ID yet and is disposed before
         // any message/media helper can run. The live account-scoped service is
         // reopened through _createAccountScopedService once the ID is known.
-        final svc = FfiChatService(
-          preferencesService: SharedPreferencesAdapter(prefs),
-          loggerService: AppLoggerAdapter(),
-          bootstrapService: BootstrapNodesAdapter(prefs),
-          scratchFileService:
-              AccountScratchStorage.unavailableUntilAccountKnown(),
-        );
+        // Its storage lives under tempDir, never the shared default.
         tempDir = p.join(
           root,
           '.tmp_register_${DateTime.now().millisecondsSinceEpoch}',
         );
         await Directory(tempDir).create(recursive: true);
+        final svc = createRegistrationBootstrapService(
+          prefs: prefs,
+          tempDir: tempDir,
+        );
 
         service = svc;
         await service.init(profileDirectory: tempDir);
@@ -765,6 +763,7 @@ class AccountService {
 
         // Encrypt then decrypt to verify, then re-init with account-scoped paths
         await svc.dispose();
+        await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
         service = null;
         final profilePath = AppPaths.profileFileInDirectory(profileDir);
         final encryptProfileFile =
@@ -800,6 +799,7 @@ class AccountService {
 
       // 8. No password: re-open with account-scoped paths, then start polling
       await svc.dispose();
+      await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
       service = null;
       final prefsForScoped = await SharedPreferences.getInstance();
       final scopedService = await createAccountScopedService(

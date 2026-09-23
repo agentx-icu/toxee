@@ -45,7 +45,15 @@
 lib/adapters/shared_prefs_adapter.dart:739
 lib/call/call_service_manager.dart:1837
 lib/call/call_ui_components.dart:678
-lib/call/video_handler.dart:759
+# [2026-09-22] 759 -> 769: the camera-start path now re-checks `_disposed`
+# after EVERY await (device discovery, controller initialize, stream attach)
+# and releases the controller through `_doStop()` instead of opening an image
+# stream after logout. Logout's wait on the video teardown is bounded (5 s in
+# CallServiceManager._finishDispose) while a mobile camera open is not, so a
+# slow start outlived it and lit the camera after the session was gone. The
+# +10 is four one-line guards plus the rationale comment; it is not splittable
+# (the guards are single statements inside one platform-branching method).
+lib/call/video_handler.dart:769
 lib/notifications/notification_service.dart:1152
 lib/sdk_fake/fake_im.dart:876
 lib/sdk_fake/fake_managers.dart:802

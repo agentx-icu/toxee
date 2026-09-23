@@ -39,6 +39,24 @@ final class AccountRegistryUnreadableException implements Exception {
   String toString() => 'AccountRegistryUnreadableException: $detail';
 }
 
+/// Raised by [Prefs.setCurrentAccountToxId] when the store refused the write.
+///
+/// The durable pointer still names whatever it named before, so the session the
+/// caller is setting up is NOT the one a cold start would restore. Callers roll
+/// back (or abort) instead of running on that disagreement; teardown paths that
+/// can do nothing about it log and continue.
+final class CurrentAccountPointerFailure implements Exception {
+  const CurrentAccountPointerFailure(this.intended);
+
+  /// The Tox ID the pointer should now hold, or null for "no active account".
+  final String? intended;
+
+  @override
+  String toString() =>
+      'CurrentAccountPointerFailure: could not persist the current-account '
+      'pointer (${intended ?? 'cleared'})';
+}
+
 /// The registry as stored, plus whether reading it lost anything.
 final class _AccountListRead {
   const _AccountListRead(this.rows, {required this.lossy});

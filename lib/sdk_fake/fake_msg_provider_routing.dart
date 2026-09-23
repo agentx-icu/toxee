@@ -111,7 +111,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
       }
       list[existingIndex] = mappedMsg;
       // Sort by timestamp ascending (oldest first, newest last)
-      list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+      _sortByTimestampStable(list);
       // UIKit's getMessageListForRender reverses the list, but our stream bypasses it
       // So we need to reverse the list before emitting to match UIKit's expected format
       // Reverse: newest first, oldest last (for reverse ListView, index 0 = newest at bottom)
@@ -757,7 +757,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
         // and then FakeMessage event arrives with the real msgID
         list[tempMsgIndex] = mappedMsg;
         // Sort by timestamp ascending (oldest first, newest last)
-        list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+        _sortByTimestampStable(list);
         // Emit updated list
         final reversedList = List<V2TimMessage>.from(list.reversed);
         _ctrls[conv]?.add(reversedList);
@@ -765,7 +765,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
         // New message - add it
         list.add(mappedMsg);
         // Sort by timestamp ascending (oldest first, newest last)
-        list.sort((a, b) => (a.timestamp ?? 0).compareTo(b.timestamp ?? 0));
+        _sortByTimestampStable(list);
         // UIKit's getMessageListForRender reverses the list, but our stream bypasses it
         // So we need to reverse the list before emitting to match UIKit's expected format
         // Reverse: newest first, oldest last (for reverse ListView, index 0 = newest at bottom)
