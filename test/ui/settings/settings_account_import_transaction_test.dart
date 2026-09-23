@@ -508,7 +508,10 @@ void main() {
         );
         await tester.enterText(passwordField, password);
         await tester.tap(find.widgetWithText(TextButton, 'OK'));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        // Wait for the work itself, not a fixed 100ms: the encrypt ->
+        // addAccount -> savePassword chain does real file IO, and a slower
+        // machine had not finished it by the time the assertions ran.
+        await _pumpRealUntil(tester, () => events.length == 3);
       });
 
       expect(importCalls, 2);

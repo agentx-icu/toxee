@@ -38,19 +38,7 @@ add_definitions(-DUNICODE -D_UNICODE)
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
 function(APPLY_STANDARD_SETTINGS TARGET)
-  # C++20, not the Flutter template's C++17, because of C++/WinRT: winrt/base.h
-  # uses <coroutine> only when the compiler advertises C++20 coroutines and
-  # otherwise falls back to <experimental/coroutine>. MSVC 14.51 (Visual Studio
-  # 18, which the windows-11-arm runner image now ships) turned that fallback
-  # into a hard error (STL1011: "deprecated ... will be REMOVED SOON"), so every
-  # plugin that pulls in a winrt header — audioplayers_windows,
-  # permission_handler_windows — stopped compiling. Defining
-  # _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS would only buy time
-  # against a header Microsoft says it is removing.
-  #
-  # Plugins call this function, so this raises them too; each one's own
-  # `cxx_std_17` is a MINIMUM and stays satisfied.
-  target_compile_features(${TARGET} PUBLIC cxx_std_20)
+  target_compile_features(${TARGET} PUBLIC cxx_std_17)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
@@ -68,6 +56,36 @@ add_subdirectory("runner")
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
+
+# C++/WinRT vs. MSVC 14.51 (Visual Studio 18, which the windows-11-arm runner
+# image now ships). winrt/base.h takes <coroutine> only when the compiler
+# advertises C++20 coroutines and otherwise falls back to
+# <experimental/coroutine>, which that STL turns into a hard error:
+#
+#   error C2338: ... STL1011: ... deprecated ... will be REMOVED SOON
+#
+# Only the two plugins that include a winrt header are affected, and they need
+# different things, so this is scoped to them by name rather than applied in
+# APPLY_STANDARD_SETTINGS: raising the standard for everything breaks
+# flutter_secure_storage_windows, screen_retriever and tray_manager, whose
+# sources are not valid C++20 (C4596 on qualified names in member
+# declarations, and an ATL::CW2A conversion).
+#
+#   * audioplayers_windows asks for no standard of its own, so C++17 was
+#     chosen for it and the fallback was taken. C++20 fixes it.
+#   * permission_handler_windows already requests C++20 and still lands on the
+#     deprecated header, so it additionally needs the escape hatch the error
+#     message itself names. This is a stopgap: Microsoft says the header is
+#     going away, and the real fix is upstream (or a plugin version that no
+#     longer reaches it).
+if(TARGET audioplayers_windows_plugin)
+  target_compile_features(audioplayers_windows_plugin PRIVATE cxx_std_20)
+endif()
+if(TARGET permission_handler_windows_plugin)
+  target_compile_features(permission_handler_windows_plugin PRIVATE cxx_std_20)
+  target_compile_definitions(permission_handler_windows_plugin
+    PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
 
 
 # === Installation ===
