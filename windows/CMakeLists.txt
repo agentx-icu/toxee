@@ -38,7 +38,19 @@ add_definitions(-DUNICODE -D_UNICODE)
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
 function(APPLY_STANDARD_SETTINGS TARGET)
-  target_compile_features(${TARGET} PUBLIC cxx_std_17)
+  # C++20, not the Flutter template's C++17, because of C++/WinRT: winrt/base.h
+  # uses <coroutine> only when the compiler advertises C++20 coroutines and
+  # otherwise falls back to <experimental/coroutine>. MSVC 14.51 (Visual Studio
+  # 18, which the windows-11-arm runner image now ships) turned that fallback
+  # into a hard error (STL1011: "deprecated ... will be REMOVED SOON"), so every
+  # plugin that pulls in a winrt header — audioplayers_windows,
+  # permission_handler_windows — stopped compiling. Defining
+  # _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS would only buy time
+  # against a header Microsoft says it is removing.
+  #
+  # Plugins call this function, so this raises them too; each one's own
+  # `cxx_std_17` is a MINIMUM and stays satisfied.
+  target_compile_features(${TARGET} PUBLIC cxx_std_20)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
