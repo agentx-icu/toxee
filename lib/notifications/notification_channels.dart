@@ -15,6 +15,10 @@ import '../util/app_l10n.dart';
 enum ToxeeNotificationChannel {
   messages('toxee_messages'),
   friendRequests('toxee_friend_requests'),
+  // Its own channel, not friendRequests': muting friend requests must not
+  // silently take group invites with it (they are the only surface a pending
+  // invite has while the app is in the background).
+  groupInvites('toxee_group_invites'),
   missedCalls('toxee_missed_calls'),
   incomingCalls('toxee_incoming_calls');
 
@@ -28,6 +32,7 @@ enum ToxeeNotificationChannel {
     return switch (this) {
       messages => l10n.channelMessagesName,
       friendRequests => l10n.channelFriendRequestsName,
+      groupInvites => l10n.channelGroupInvitesName,
       missedCalls => l10n.channelMissedCallsName,
       incomingCalls => l10n.channelIncomingCallsName,
     };
@@ -38,6 +43,7 @@ enum ToxeeNotificationChannel {
     return switch (this) {
       messages => l10n.channelMessagesDescription,
       friendRequests => l10n.channelFriendRequestsDescription,
+      groupInvites => l10n.channelGroupInvitesDescription,
       missedCalls => l10n.channelMissedCallsDescription,
       incomingCalls => l10n.channelIncomingCallsDescription,
     };

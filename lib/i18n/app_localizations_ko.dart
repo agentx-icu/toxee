@@ -1352,6 +1352,27 @@ class AppLocalizationsKo extends AppLocalizations {
   String get callAudioInterrupted => '통화 중 오디오 출력이 변경되었거나 중단되었습니다.';
 
   @override
+  String get callBusyInCall => '먼저 현재 통화를 종료하세요.';
+
+  @override
+  String get callBusyInConference => '통화를 걸거나 받기 전에 음성 회의에서 나가세요.';
+
+  @override
+  String get callBusyInOtherConference => '이미 다른 음성 회의에 참여 중입니다. 먼저 나가세요.';
+
+  @override
+  String get callPeerBusy => '상대방이 다른 통화 중입니다.';
+
+  @override
+  String get callConferenceMuteIncoming => '다른 참가자 음소거';
+
+  @override
+  String get callConferenceUnmuteIncoming => '다른 참가자 듣기';
+
+  @override
+  String get callConferenceListenOnly => '듣기 전용 — 마이크를 사용할 수 없습니다.';
+
+  @override
   String get callCalling => '전화 거는 중...';
 
   @override
@@ -1850,6 +1871,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get channelFriendRequestsDescription => '누군가 친구 요청을 보내면 알림을 표시합니다.';
 
   @override
+  String get channelGroupInvitesName => '그룹 초대';
+
+  @override
+  String get channelGroupInvitesDescription => '누군가 그룹에 초대하면 알림을 표시합니다.';
+
+  @override
   String get channelMissedCallsName => '부재중 전화';
 
   @override
@@ -1885,4 +1912,57 @@ class AppLocalizationsKo extends AppLocalizations {
   String pairingConnectTimedOut(String endpoint) {
     return '제한 시간 안에 다른 기기($endpoint)에 연결하지 못했습니다. 두 기기가 같은 네트워크에 있는지 확인하거나, 개인용 핫스팟을 사용하거나, 파일로 내보내기 → 가져오기를 이용하세요.';
   }
+
+  @override
+  String get groupInviteTitle => '그룹 초대';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter 님이 “$group” 그룹에 초대했습니다.';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter 님이 그룹에 초대했습니다.';
+  }
+
+  @override
+  String get groupInviteDecline => '거절';
+
+  @override
+  String get groupInviteLater => '나중에';
+
+  @override
+  String get groupInviteAcceptFailed =>
+      '참가할 수 없습니다. 초대한 사람이 오프라인일 수 있습니다. 상대가 온라인일 때 다시 시도하세요.';
+
+  @override
+  String get alreadyInGroup => '이미 이 그룹에 참가 중입니다';
+
+  @override
+  String get groupNameTooLong => '그룹 이름이 너무 깁니다';
+
+  @override
+  String get leaveGroupFailed => '그룹에서 나가지 못했습니다. 다시 시도하세요.';
+
+  @override
+  String get groupPassword => '그룹 비밀번호 (선택)';
+
+  @override
+  String get groupPasswordTooLong => '그룹 비밀번호는 최대 32바이트입니다';
+
+  @override
+  String get groupJoinRefusedPassword => '이 그룹은 비밀번호가 필요하거나 비밀번호가 올바르지 않습니다.';
+
+  @override
+  String get groupJoinRefusedFull => '이 그룹은 정원이 가득 찼습니다.';
+
+  @override
+  String get groupJoinRefusedUnknown => '그룹이 참가를 거부했습니다.';
+
+  @override
+  String get groupJoinEnterPassword => '비밀번호 입력';
+
+  @override
+  String get groupPasswordRequired => '그룹 비밀번호를 입력하세요';
 }

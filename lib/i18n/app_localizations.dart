@@ -2584,6 +2584,48 @@ abstract class AppLocalizations {
   /// **'Audio output changed or was interrupted during the call.'**
   String get callAudioInterrupted;
 
+  /// No description provided for @callBusyInCall.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish your current call first.'**
+  String get callBusyInCall;
+
+  /// No description provided for @callBusyInConference.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave the audio conference before starting or answering a call.'**
+  String get callBusyInConference;
+
+  /// No description provided for @callBusyInOtherConference.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re already in another audio conference. Leave it first.'**
+  String get callBusyInOtherConference;
+
+  /// No description provided for @callPeerBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'The other person is busy on another call.'**
+  String get callPeerBusy;
+
+  /// No description provided for @callConferenceMuteIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute others'**
+  String get callConferenceMuteIncoming;
+
+  /// No description provided for @callConferenceUnmuteIncoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Hear others'**
+  String get callConferenceUnmuteIncoming;
+
+  /// No description provided for @callConferenceListenOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening only — the microphone isn\'t available.'**
+  String get callConferenceListenOnly;
+
   /// No description provided for @callCalling.
   ///
   /// In en, this message translates to:
@@ -3439,6 +3481,18 @@ abstract class AppLocalizations {
   /// Android notification channel name
   ///
   /// In en, this message translates to:
+  /// **'Group invites'**
+  String get channelGroupInvitesName;
+
+  /// Android notification channel description
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications when someone invites you to a group.'**
+  String get channelGroupInvitesDescription;
+
+  /// Android notification channel name
+  ///
+  /// In en, this message translates to:
   /// **'Missed calls'**
   String get channelMissedCallsName;
 
@@ -3495,6 +3549,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t reach the other device at {endpoint} in time. Make sure both devices are on the same network, try a personal hotspot, or use Export → Import via file instead.'**
   String pairingConnectTimedOut(String endpoint);
+
+  /// Title of the prompt shown when a friend invites the user to a group
+  ///
+  /// In en, this message translates to:
+  /// **'Group invitation'**
+  String get groupInviteTitle;
+
+  /// Group invite prompt body when the group name is known
+  ///
+  /// In en, this message translates to:
+  /// **'{inviter} invited you to join “{group}”.'**
+  String groupInviteBody(String inviter, String group);
+
+  /// Group invite prompt body when the invite carries no group name (e.g. a conference)
+  ///
+  /// In en, this message translates to:
+  /// **'{inviter} invited you to join a group.'**
+  String groupInviteBodyUnnamed(String inviter);
+
+  /// Button: decline a group invitation
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get groupInviteDecline;
+
+  /// Button: leave a group invitation unanswered for now
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get groupInviteLater;
+
+  /// Shown when accepting a group invitation failed
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t join. The person who invited you may be offline — try again when they are online.'**
+  String get groupInviteAcceptFailed;
+
+  /// Join-by-ID error when the user is already a member of that group
+  ///
+  /// In en, this message translates to:
+  /// **'You are already in this group'**
+  String get alreadyInGroup;
+
+  /// Create-group validation: the name exceeds the Tox byte limit (UTF-8 bytes, so CJK/emoji names hit it sooner)
+  ///
+  /// In en, this message translates to:
+  /// **'Group name is too long'**
+  String get groupNameTooLong;
+
+  /// Shown when leaving or dismissing a group failed
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t leave the group. Please try again.'**
+  String get leaveGroupFailed;
+
+  /// Optional password field when joining a group by ID
+  ///
+  /// In en, this message translates to:
+  /// **'Group password (optional)'**
+  String get groupPassword;
+
+  /// Validation error: Tox group passwords are limited to 32 bytes
+  ///
+  /// In en, this message translates to:
+  /// **'A group password is at most 32 bytes'**
+  String get groupPasswordTooLong;
+
+  /// The group refused the join: missing or wrong password
+  ///
+  /// In en, this message translates to:
+  /// **'This group needs a password, or the password was wrong.'**
+  String get groupJoinRefusedPassword;
+
+  /// The group refused the join: it has reached its member limit
+  ///
+  /// In en, this message translates to:
+  /// **'This group is full.'**
+  String get groupJoinRefusedFull;
+
+  /// The group refused the join for an unspecified reason
+  ///
+  /// In en, this message translates to:
+  /// **'The group refused to let you join.'**
+  String get groupJoinRefusedUnknown;
+
+  /// Action to retry joining a password-protected group
+  ///
+  /// In en, this message translates to:
+  /// **'Enter password'**
+  String get groupJoinEnterPassword;
+
+  /// Validation error: the group password field is empty
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the group password'**
+  String get groupPasswordRequired;
 }
 
 class _AppLocalizationsDelegate

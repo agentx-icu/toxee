@@ -184,13 +184,28 @@ class NotificationMessageListener {
       // Avatar best-effort — only resolves a path for C2C messages where we
       // have the sender's friend avatar cached in Prefs. Group avatars are
       // intentionally skipped to keep the path resolution off the hot path.
-      _resolveAvatar(message).then((avatarPath) {
-        NotificationService.instance.showMessageNotification(
+      _resolveAvatar(message).then((avatarPath) async {
+        // A group message is titled by the GROUP and attributes the line to
+        // its sender. Titling it by the sender alone read like a direct
+        // message, and the collapsed summary credited every line to whoever
+        // spoke last.
+        final groupId = message.groupID;
+        final isGroup = groupId != null && groupId.isNotEmpty;
+        final title = isGroup
+            ? await Prefs.resolveGroupDisplayName(groupId)
+            : senderName;
+        await NotificationService.instance.showMessageNotification(
           conversationId: conversationId,
-          senderName: senderName,
-          preview: preview,
+          senderName: title,
+          preview: isGroup ? '$senderName: $preview' : preview,
           avatarPath: avatarPath,
         );
+      }).catchError((Object e, StackTrace st) {
+        // Fire-and-forget, so a throw in the group-name lookup or in the
+        // notification plugin would otherwise surface as an unhandled zone
+        // error instead of a logged, skipped notification.
+        AppLogger.logError(
+            '[NotificationMessageListener] Error showing notification', e, st);
       });
     } catch (e, st) {
       AppLogger.logError(

@@ -41,6 +41,9 @@ class AvConferenceHeaderAction extends StatelessWidget {
 class AvConferenceSessionPage extends StatefulWidget {
   const AvConferenceSessionPage({super.key, required this.controller});
 
+  /// Dock action that stops / resumes playing the other participants.
+  static const Key deafenButtonKey = Key('av_conference_deafen_button');
+
   final AvConferenceSessionController controller;
 
   @override
@@ -84,15 +87,36 @@ class _AvConferenceSessionPageState extends State<AvConferenceSessionPage> {
             ),
             bottomBar: CallActionDock(
               actions: <CallDockAction>[
+                // Mute = stop SENDING the microphone (what users expect).
                 CallDockAction(
                   key: UiKeys.avConferenceMuteButton,
-                  icon: session.isMuted ? Icons.mic_off : Icons.mic,
+                  icon: session.isMuted || !session.micAvailable
+                      ? Icons.mic_off
+                      : Icons.mic,
                   label: session.isMuted ? l10n.callUnmute : l10n.callMute,
-                  selected: session.isMuted,
+                  selected: session.isMuted || !session.micAvailable,
+                  enabled:
+                      session.lifecycle ==
+                          AvConferenceSessionLifecycle.active &&
+                      session.micAvailable,
+                  onPressed: () async {
+                    await widget.controller.toggleMuted();
+                  },
+                ),
+                // Separate, explicitly labelled receive-side control.
+                CallDockAction(
+                  key: AvConferenceSessionPage.deafenButtonKey,
+                  icon: session.isDeafened
+                      ? Icons.volume_off_rounded
+                      : Icons.volume_up_rounded,
+                  label: session.isDeafened
+                      ? l10n.callConferenceUnmuteIncoming
+                      : l10n.callConferenceMuteIncoming,
+                  selected: session.isDeafened,
                   enabled:
                       session.lifecycle == AvConferenceSessionLifecycle.active,
                   onPressed: () async {
-                    await widget.controller.toggleMuted();
+                    await widget.controller.toggleDeafened();
                   },
                 ),
                 _audioActionForSession(l10n, session),
@@ -184,6 +208,11 @@ class _AvConferenceSessionPageState extends State<AvConferenceSessionPage> {
       case AvConferenceSessionLifecycle.active:
         return _SessionStatus(
           label: session.isMuted ? l10n.callMute : l10n.audio,
+          detail: session.isInterrupted
+              ? l10n.callAudioInterrupted
+              : session.micAvailable
+              ? null
+              : l10n.callConferenceListenOnly,
           icon: session.isMuted ? Icons.mic_off : Icons.graphic_eq_rounded,
           accent: session.isMuted
               ? _kCallAmberAccent
@@ -200,6 +229,9 @@ class _AvConferenceSessionPageState extends State<AvConferenceSessionPage> {
           label: l10n.failed,
           detail: switch (session.failure) {
             AvConferenceSessionFailure.join => l10n.joinFailed,
+            AvConferenceSessionFailure.busy => l10n.callBusyInCall,
+            AvConferenceSessionFailure.busyOtherConference =>
+              l10n.callBusyInOtherConference,
             AvConferenceSessionFailure.mute ||
             AvConferenceSessionFailure.disable => l10n.callFailedSignaling,
             null => l10n.failed,

@@ -5,6 +5,7 @@ import '../adapters/bootstrap_adapter.dart';
 import '../adapters/logger_adapter.dart';
 import '../adapters/shared_prefs_adapter.dart';
 import '../util/account_export_service.dart';
+import '../util/account_scoped_service_factory.dart';
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_paths.dart';
@@ -233,6 +234,17 @@ class StartupSessionUseCase {
         );
         legacyPrefsAdapter.setAccountPrefix(
           toxId.substring(0, toxId.length >= 16 ? 16 : toxId.length),
+        );
+        // Mirrors LoginUseCase's legacy branch: this service was built before
+        // the Tox ID existed, so it is still on the SHARED <AppSupport>
+        // history / offline-queue / file_recv / avatars defaults that every
+        // account on the device would share. Re-point it at this account's own
+        // directories (adopting the legacy global dataset only if this account
+        // is entitled to it) before the session is booted. A throw here reaches
+        // the outer catch, which tears the session down.
+        await installAccountScopedStorage(
+          service: legacyService,
+          toxId: toxId,
         );
         // Apply the profile BEFORE persisting the account pointer/record.
         // updateSelfProfile only needs the prefix (set above); persisting the

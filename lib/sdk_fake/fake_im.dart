@@ -9,6 +9,7 @@ import 'uikit_data_facade.dart';
 import 'fake_event_bus.dart';
 import 'fake_managers.dart' show buildConversationsFromFriends;
 import 'fake_models.dart';
+import 'group_tombstone_lift.dart';
 
 class FakeIM {
   FakeIM(this.ffi, this.bus);
@@ -406,25 +407,19 @@ class FakeIM {
     // once. Compare against the previous non-quit set.
     final deletedGroupIds = _previousGroupIds.difference(currentGroupIds);
     if (deletedGroupIds.isNotEmpty && _previousGroupIds.isNotEmpty) {
+      // Remove from local groups persistence (the source of truth Prefs sees).
+      await Prefs.setGroups(
+          (await Prefs.getGroups())..removeAll(deletedGroupIds));
       for (final deletedId in deletedGroupIds) {
-        // Remove from local groups persistence (the source of truth Prefs sees).
-        final localGroups = await Prefs.getGroups();
-        localGroups.remove(deletedId);
-        await Prefs.setGroups(localGroups);
         bus.emit(topicGroupDeleted, FakeGroupDeleted(groupID: deletedId));
       }
     }
     final previousGroupIdsSnapshot = _previousGroupIds;
     _previousGroupIds = currentGroupIds;
-
-    // Mirror the historical behavior: groups that were previously known but
-    // have since landed in quitGroups also get a deletion event.
-    for (final quitGid in quitGroups) {
-      if (previousGroupIdsSnapshot.contains(quitGid) &&
-          !currentGroupIds.contains(quitGid)) {
-        bus.emit(topicGroupDeleted, FakeGroupDeleted(groupID: quitGid));
-      }
-    }
+    liftGroupTombstones(currentGroupIds.difference(previousGroupIdsSnapshot));
+    // A group that moved into quitGroups is already in deletedGroupIds
+    // (currentGroupIds excludes quit groups), so it got its one deletion
+    // event above; a second loop here used to emit it twice.
 
     // X5: route through the shared builder so the polling emit and the sync
     // `getConversationList()` cannot drift on normalization / pinned check /

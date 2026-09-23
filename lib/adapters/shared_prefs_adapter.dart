@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/interfaces/draft_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/extended_preferences_service.dart';
+import 'package:tim2tox_dart/interfaces/group_identity_preferences_service.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
 import '../util/auto_download_policy.dart';
+import '../util/group_avatar_path.dart';
 import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs/draft_prefs.dart';
@@ -20,7 +22,11 @@ import '../util/prefs/scoped_key.dart';
 /// (or unscoped for instance_id=0). On first use with accountPrefix, data is migrated
 /// from old unscoped keys to new account-scoped keys.
 class SharedPreferencesAdapter
-    implements ExtendedPreferencesService, DraftPreferencesService {
+    implements
+        ExtendedPreferencesService,
+        DraftPreferencesService,
+        GroupIdentityPreferencesService,
+        AccountScopedPreferencesService {
   final SharedPreferences _prefs;
   int? _instanceId;
   String? _accountPrefix;
@@ -496,16 +502,14 @@ class SharedPreferencesAdapter
       setString(_prefixKey('group_name_$groupId'), name);
 
   @override
-  Future<String?> getGroupAvatar(String groupId) =>
-      getString(_prefixKey('group_avatar_$groupId'));
+  Future<String?> getGroupAvatar(String groupId) async => decodeStoredGroupAvatar(
+      await getString(_prefixKey('group_avatar_$groupId')), _accountPrefix);
 
   @override
   Future<void> setGroupAvatar(String groupId, String? avatarPath) async {
-    if (avatarPath != null) {
-      await setString(_prefixKey('group_avatar_$groupId'), avatarPath);
-    } else {
-      await remove(_prefixKey('group_avatar_$groupId'));
-    }
+    final key = _prefixKey('group_avatar_$groupId');
+    if (avatarPath == null) return remove(key);
+    await setString(key, await encodeGroupAvatarForStorage(avatarPath, _accountPrefix));
   }
 
   @override
@@ -513,32 +517,16 @@ class SharedPreferencesAdapter
       getString(_prefixKey('group_notification_$groupId'));
 
   @override
-  Future<void> setGroupNotification(
-    String groupId,
-    String? notification,
-  ) async {
-    if (notification != null && notification.isNotEmpty) {
-      await setString(_prefixKey('group_notification_$groupId'), notification);
-    } else {
-      await remove(_prefixKey('group_notification_$groupId'));
-    }
-  }
+  Future<void> setGroupNotification(String groupId, String? notification) =>
+      _setOrRemove('group_notification_$groupId', notification);
 
   @override
   Future<String?> getGroupIntroduction(String groupId) =>
       getString(_prefixKey('group_introduction_$groupId'));
 
   @override
-  Future<void> setGroupIntroduction(
-    String groupId,
-    String? introduction,
-  ) async {
-    if (introduction != null && introduction.isNotEmpty) {
-      await setString(_prefixKey('group_introduction_$groupId'), introduction);
-    } else {
-      await remove(_prefixKey('group_introduction_$groupId'));
-    }
-  }
+  Future<void> setGroupIntroduction(String groupId, String? introduction) =>
+      _setOrRemove('group_introduction_$groupId', introduction);
 
   @override
   Future<String?> getGroupOwner(String groupId) =>
@@ -548,31 +536,41 @@ class SharedPreferencesAdapter
   Future<void> setGroupOwner(String groupId, String ownerId) =>
       setString(_prefixKey('group_owner_$groupId'), ownerId);
 
-  @override
   Future<String?> getGroupConferenceId(String groupId) =>
       getString(_prefixKey('group_conference_id_$groupId'));
 
-  @override
-  Future<void> setGroupConferenceId(String groupId, String conferenceId) async {
-    if (conferenceId.isNotEmpty) {
-      await setString(_prefixKey('group_conference_id_$groupId'), conferenceId);
-    } else {
-      await remove(_prefixKey('group_conference_id_$groupId'));
-    }
-  }
+  Future<void> setGroupConferenceId(String groupId, String conferenceId) =>
+      _setOrRemove('group_conference_id_$groupId', conferenceId);
 
   @override
   Future<String?> getGroupChatId(String groupId) =>
       getString(_prefixKey('group_chat_id_$groupId'));
 
   @override
-  Future<void> setGroupChatId(String groupId, String chatId) async {
-    if (chatId.isNotEmpty) {
-      await setString(_prefixKey('group_chat_id_$groupId'), chatId);
-    } else {
-      await remove(_prefixKey('group_chat_id_$groupId'));
-    }
-  }
+  Future<void> setGroupChatId(String groupId, String chatId) =>
+      _setOrRemove('group_chat_id_$groupId', chatId);
+
+  @override
+  String accountScopedKey(String key) => _prefixKey(key);
+  @override
+  Future<String?> getGroupType(String groupId) =>
+      getString(_prefixKey('group_type_$groupId'));
+
+  @override
+  Future<void> setGroupType(String groupId, String groupType) =>
+      _setOrRemove('group_type_$groupId', groupType);
+
+  @override
+  Future<void> removeGroupIdentity(String groupId) => Future.wait([
+    for (final k in ['chat_id', 'conference_id', 'type'])
+      remove(_prefixKey('group_${k}_$groupId')),
+  ]);
+
+  /// Account-scoped write of a non-empty value; empty or null removes it.
+  Future<void> _setOrRemove(String key, String? value) =>
+      value == null || value.isEmpty
+          ? remove(_prefixKey(key))
+          : setString(_prefixKey(key), value);
 
   Future<Set<String>> getStringSet(String key) async {
     final list = await getStringList(key);

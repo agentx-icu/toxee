@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'account_export/tox_file_io.dart';
 import 'app_paths.dart';
 import 'async_gate.dart';
+import 'legacy_offline_queue_merge.dart';
 import 'logger.dart';
 import 'tox_utils.dart';
 
@@ -240,6 +241,12 @@ abstract final class LegacyAccountDataClaim {
   }
 }
 
+/// Marks an account directory whose legacy migration already ran to completion.
+///
+/// Inert to every runtime reader (not `*.json`, and it sits in the account
+/// ROOT, not in `chat_history/`).
+const String legacyMigrationDoneMarkerName = '.legacy_data_migrated';
+
 /// Copy the legacy global dataset into [toxId]'s account directory, but only if
 /// [LegacyAccountDataClaim] grants this account the claim.
 ///
@@ -248,11 +255,18 @@ abstract final class LegacyAccountDataClaim {
 /// between an upgraded install and one identity's history landing in every
 /// account created afterwards.
 ///
-/// Idempotent for the owner: the claim is durable and every copy below is
-/// guarded by `if (!await dest.exists())`.
+/// RUNS EXACTLY ONCE per account, recorded by [legacyMigrationDoneMarkerName].
+/// The claim alone is not enough: it stays granted forever and the legacy
+/// source is never retired, so "copy every file the destination is missing"
+/// re-ran on every login by the owner and UNDID deletions — clearing a
+/// conversation deletes its account-side file, and the next login copied the
+/// legacy one back in. The marker is that deletion boundary: after it, the
+/// legacy directory is a frozen archive nobody copies from again.
 Future<void> migrateLegacyAccountDataIfClaimed(String toxId) async {
   if (!await LegacyAccountDataClaim.claim(toxId)) return;
   final accountRoot = await AppPaths.getAccountDataRoot(toxId);
+  final doneMarker = File(p.join(accountRoot, legacyMigrationDoneMarkerName));
+  if (await doneMarker.exists()) return;
   final accountHistoryDir = Directory(p.join(accountRoot, 'chat_history'));
   final accountQueuePath = p.join(accountRoot, 'offline_message_queue.json');
   final legacyHistoryPath = await AppPaths.chatHistoryPath;
@@ -277,25 +291,26 @@ Future<void> migrateLegacyAccountDataIfClaimed(String toxId) async {
   }
 
   // The offline queue is a SINGLE file, so "skip when the destination exists"
-  // discards the entire legacy queue the moment the account has one of its own —
-  // which one offline send is enough to create. Keep the legacy copy alongside
-  // instead of dropping it, so nothing is silently lost; `.legacy.json` is inert
-  // to the runtime and recoverable by hand or by a future merge.
+  // discarded the entire legacy queue the moment the account had one of its
+  // own — which one offline send is enough to create. Preserving it as an
+  // inert `<...>.legacy.json` stopped the loss but not the DEFECT: an upgrader
+  // with both queues never sent the legacy messages. Merge them by message
+  // identity instead, before the service loads the file.
   final legacyQueueFile = File(legacyQueuePath);
-  if (await legacyQueueFile.exists()) {
+  final destQueue = File(accountQueuePath);
+  // An earlier build parked the legacy queue here without ever sending it;
+  // absorb that too, so upgraders are not stranded.
+  final preserved = File('$accountQueuePath.legacy.json');
+  var queuesMerged = true;
+  if (await legacyQueueFile.exists() || await preserved.exists()) {
     await Directory(accountRoot).create(recursive: true);
-    final destQueue = File(accountQueuePath);
-    if (!await destQueue.exists()) {
+    if (!await destQueue.exists() && !await preserved.exists()) {
       await legacyQueueFile.copy(accountQueuePath);
     } else {
-      final preserved = File('$accountQueuePath.legacy.json');
-      if (!await preserved.exists()) {
-        await legacyQueueFile.copy(preserved.path);
-        AppLogger.warn(
-          '[LegacyAccountDataClaim] the account already had an offline queue; '
-          'the legacy one was preserved alongside it rather than discarded',
-        );
-      }
+      queuesMerged = await mergeLegacyOfflineQueues(
+        destination: destQueue,
+        sources: <File>[preserved, legacyQueueFile],
+      );
     }
   }
 
@@ -332,5 +347,32 @@ Future<void> migrateLegacyAccountDataIfClaimed(String toxId) async {
         }
       }
     }
+  }
+
+  if (!queuesMerged) {
+    // The pending sends are still only in the legacy file. Leave the migration
+    // unrecorded so the next login retries it rather than freezing that loss.
+    AppLogger.warn(
+      '[LegacyAccountDataClaim] the offline-queue merge did not complete; the '
+      'migration stays open and will be retried',
+    );
+    return;
+  }
+
+  // Everything above landed. Record it so no later login copies any of it
+  // again — the boundary that makes a deletion by the user permanent.
+  try {
+    await Directory(accountRoot).create(recursive: true);
+    await doneMarker.writeAsString(
+      DateTime.now().toUtc().toIso8601String(),
+      flush: true,
+    );
+  } catch (e, st) {
+    AppLogger.logError(
+      '[LegacyAccountDataClaim] could not record the completed migration; it '
+      'will run again on the next login and may restore deleted history',
+      e,
+      st,
+    );
   }
 }

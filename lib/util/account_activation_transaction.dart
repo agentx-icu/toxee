@@ -1,3 +1,4 @@
+import 'current_account_pointer_restore.dart';
 import 'prefs.dart';
 
 /// Guards the durable active-account mirror while a session is initialized and
@@ -42,7 +43,12 @@ final class AccountActivationTransaction {
 
   Future<void> rollback() async {
     if (_committed || _rolledBack) return;
-    await Prefs.setCurrentAccountToxId(_previousToxId);
+    // The rest of the rollback must run even if the restore is refused, and
+    // this must not replace the failure that triggered the rollback.
+    await restoreCurrentAccountPointer(
+      _previousToxId,
+      '[AccountActivationTransaction]',
+    );
     await Prefs.setNickname(_previousNickname ?? '');
     await Prefs.setStatusMessage(_previousStatusMessage ?? '');
     await Prefs.setAvatarPath(_previousAvatarPath);

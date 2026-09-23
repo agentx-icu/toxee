@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../widgets/safe_dialog_pop.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat_common.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
+import 'package:tencent_cloud_chat_common/data/group_profile/tencent_cloud_chat_group_profile_data.dart';
+import 'package:tencent_cloud_chat_contact/widgets/group_member_identity.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_group_member_list.dart';
 import '../../i18n/app_localizations.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
@@ -16,6 +18,7 @@ import '../../util/logger.dart';
 import '../../util/responsive_layout.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/loading_shimmer.dart';
+import 'group_member_list_refresh.dart';
 
 class GroupMemberListWrapper extends StatefulWidget {
   final V2TimGroupInfo groupInfo;
@@ -41,6 +44,12 @@ class GroupMemberListWrapperState
       false; // Track if we've already loaded to prevent reloads on widget rebuilds
   int _emptyRetries =
       0; // Bounded re-fetches when a fresh NGC group returns an empty member list
+  // MM-10: live refresh while the page is open. The UIKit patches its member
+  // cache on onMemberEnter / Leave / Kicked / InfoChanged and announces it as a
+  // `membersChange`; the page used to fetch once and never look again.
+  StreamSubscription<TencentCloudChatGroupProfileData<dynamic>>?
+  _membersChangeSub;
+  Timer? _membersChangeDebounce;
 
   void _enrichAvatars(List<V2TimGroupMemberFullInfo> members) {
     final contactList = UikitDataFacade.contactList;
@@ -57,11 +66,17 @@ class GroupMemberListWrapperState
       }
     }
     for (final member in members) {
+      // Resolve through the identity helper: a member row matches a friend
+      // only when it carries that friend's long-term key (Tox ID prefix) — a
+      // legacy-conference peer. NGC rows carry per-group keys and resolve to
+      // nobody, so they are (correctly) left alone.
+      final friendID = resolveGroupMemberUserID(member.userID);
+      if (friendID == null) continue;
       if (member.faceUrl == null || member.faceUrl!.isEmpty) {
-        member.faceUrl = friendFaceUrls[member.userID];
+        member.faceUrl = friendFaceUrls[friendID];
       }
       if (member.nickName == null || member.nickName!.isEmpty) {
-        member.nickName = friendNickNames[member.userID];
+        member.nickName = friendNickNames[friendID];
       }
     }
   }
@@ -79,6 +94,61 @@ class GroupMemberListWrapperState
   void initState() {
     super.initState();
     _refreshMemberList();
+    _membersChangeSub = TencentCloudChat.instance.eventBusInstance
+        .on<TencentCloudChatGroupProfileData<dynamic>>(
+          'TencentCloudChatGroupProfileData',
+        )
+        ?.listen(_onGroupProfileData);
+  }
+
+  void _onGroupProfileData(TencentCloudChatGroupProfileData<dynamic> data) {
+    final groupID = widget.groupInfo.groupID;
+    if (data.updateGroupID != groupID || !_hasLoaded) return;
+    switch (data.currentUpdatedFields) {
+      case TencentCloudChatGroupProfileDataKeys.membersChange:
+        if (!memberListNeedsRefresh(
+          _currentMemberList,
+          data.getGroupMemberList(groupID),
+        )) {
+          return;
+        }
+      case TencentCloudChatGroupProfileDataKeys.updateMemberRole:
+        // onGrantAdministrator / onRevokeAdministrator. This event does NOT
+        // touch the UIKit member cache (nothing to compare) but carries the
+        // new role itself: apply it as a NEW list instance so the AZ list
+        // re-sorts and recomputes our own role gate (can I kick / set admin?).
+        // No refetch — the event is the authority, and a fetch racing the
+        // native role write could put the old role back.
+        _applyRoleChange(data.updateMemberList, data.updateMemberRole);
+        return;
+      default:
+        return;
+    }
+    // Coalesce a burst (several peers joining at once) into one refetch.
+    _membersChangeDebounce?.cancel();
+    _membersChangeDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted && groupID == widget.groupInfo.groupID) {
+        unawaited(_refreshMemberList(background: true));
+      }
+    });
+  }
+
+  void _applyRoleChange(List<V2TimGroupMemberInfo> changed, int role) {
+    final ids = changed.map((m) => m.userID).whereType<String>().toSet();
+    if (ids.isEmpty) return;
+    setState(() {
+      _currentMemberList = [
+        for (final m in _currentMemberList)
+          if (ids.contains(m.userID)) (m..role = role) else m,
+      ];
+    });
+  }
+
+  @override
+  void dispose() {
+    _membersChangeDebounce?.cancel();
+    unawaited(_membersChangeSub?.cancel());
+    super.dispose();
   }
 
   @override
@@ -107,7 +177,10 @@ class GroupMemberListWrapperState
     }
   }
 
-  Future<void> _refreshMemberList() async {
+  /// [background] refetches for an open page (a membersChange): it bypasses
+  /// the load-once latch and keeps the current rows on screen instead of the
+  /// loading shimmer.
+  Future<void> _refreshMemberList({bool background = false}) async {
     // Snapshot at entry. After every await we re-check that the widget is
     // still bound to the same group; otherwise a stale fetch from a previous
     // group would poison the new group's state.
@@ -119,19 +192,22 @@ class GroupMemberListWrapperState
     // `_isRefreshing` here: when didUpdateWidget re-enters with a stale call
     // still in flight, the stale call will see groupID != widget.groupInfo
     // .groupID after its await and abort, so a concurrent re-entry is safe.
-    if (_hasLoaded) {
+    if (_hasLoaded && !background) {
       return;
     }
 
-    _isRefreshing = true;
+    if (!background) _isRefreshing = true;
     bool succeeded = false;
     try {
       // Call data layer directly to get fresh data from native
-      // (bypass GroupMemberListDebouncer to avoid stale cached data)
-      final updatedList = await UikitDataFacade.loadGroupMemberList(
-        groupID: groupID,
-        loadGroupAdminAndOwnerOnly: false,
-      );
+      // (bypass GroupMemberListDebouncer to avoid stale cached data). A
+      // background refresh also bypasses the UIKit's 2 s result reuse.
+      final List<V2TimGroupMemberFullInfo?> updatedList = background
+          ? (await fetchGroupMembersFresh(groupID) ?? const [])
+          : await UikitDataFacade.loadGroupMemberList(
+              groupID: groupID,
+              loadGroupAdminAndOwnerOnly: false,
+            );
 
       if (!mounted || groupID != widget.groupInfo.groupID) {
         return;
@@ -143,6 +219,8 @@ class GroupMemberListWrapperState
           .whereType<V2TimGroupMemberFullInfo>()
           .where((m) => seen.add(m.userID))
           .toList();
+      // A transient empty answer must not blank a page that is showing rows.
+      if (background && dedupedList.isEmpty) return;
       _enrichAvatars(dedupedList);
       // Load group history through FfiChatService so the in-flight work is tracked
       // by the service fence before we build the time map.

@@ -192,14 +192,33 @@ class CallAudioPlatform {
     }
   }
 
+  /// `preferSpeaker` of the session currently active, null when inactive.
+  bool? _activePreferSpeaker;
+
+  /// Whether this side activated the call session and has not deactivated
+  /// it since (teardown uses it to deactivate exactly once).
+  bool get isSessionActive => _activePreferSpeaker != null;
+
   Future<void> activateSession({required bool preferSpeaker}) async {
+    _activePreferSpeaker = preferSpeaker;
     await _invokeAndUpdateState('activateSession', <String, dynamic>{
       'preferSpeaker': preferSpeaker,
     });
   }
 
   Future<void> deactivateSession() async {
+    _activePreferSpeaker = null;
     await _invokeAndUpdateState('deactivateSession');
+  }
+
+  /// Re-apply the active call session (iOS: playAndRecord + voiceChat +
+  /// speaker/Bluetooth options) after something else re-categorised
+  /// AVAudioSession — flutter_pcm_sound's `setup` does exactly that. A
+  /// user-selected route survives: native keeps it in `preferredRouteId`.
+  Future<void> reapplySession() async {
+    final preferSpeaker = _activePreferSpeaker;
+    if (preferSpeaker == null) return;
+    await activateSession(preferSpeaker: preferSpeaker);
   }
 
   Future<void> refreshState() async {

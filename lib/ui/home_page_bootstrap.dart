@@ -50,7 +50,7 @@ extension _HomePageBootstrap on _HomePageState {
                     controller: AvConferenceSessionController(
                       groupId: groupId,
                       displayName: conversation?.showName ?? groupId,
-                      bridge: manager,
+                      bridge: manager.conferenceBridge,
                     ),
                   ),
                 ),
@@ -180,14 +180,11 @@ extension _HomePageBootstrap on _HomePageState {
       '[HomePage] Registered UIKit friendship listener for friend event dispatch',
     );
 
-    // Wire send-failure toast on the SDK callbacks trigger. The handler is
-    // idempotent against multiple registrations (we deregister on dispose via
-    // _bag) and dedups bursts of the same error code internally. Note: SDK
-    // callbacks register on a singleton, so re-init after logout/login flows
+    // Wire send-failure + UIKit user-notification toasts on the SDK callbacks
+    // trigger. Deregistered on dispose via _bag; dedups bursts internally.
+    // Callbacks register on a singleton, so re-init after logout/login flows
     // would otherwise stack listeners — _bag.add ensures cleanup.
-    final sdkFailureCallback = TencentCloudChatCallbacks(
-      onTencentCloudChatSDKFailedCallback: SendFailureNotifier.handleSdkFailure,
-    );
+    final sdkFailureCallback = SendFailureNotifier.uikitCallbacks();
     TencentCloudChat.instance.callbacks.addCallback(sdkFailureCallback);
     _bag.add(
       () => TencentCloudChat.instance.callbacks.removeCallback(

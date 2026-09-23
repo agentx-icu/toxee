@@ -44,6 +44,24 @@ class ConferenceAudioCallbackRegistry {
     return identical(_registrations[groupId]?.owner, owner);
   }
 
+  /// Groups whose native conference audio is (or is being) enabled.
+  List<String> get groupIds => _registrations.keys.toList(growable: false);
+
+  /// Hands [groupId] from [from] to [to] (e.g. the bridge adopting a group
+  /// whose owner gave up while the native disable still has to succeed).
+  /// Frames for it then go to [callback] instead. False if [from] does not
+  /// own it.
+  bool transfer(
+    String groupId,
+    AvConferenceSessionOwner from,
+    AvConferenceSessionOwner to,
+    AvConferenceAudioFrameCallback callback,
+  ) {
+    if (!isOwner(groupId, from)) return false;
+    _registrations[groupId] = _ConferenceAudioRegistration(to, callback);
+    return true;
+  }
+
   void clear() {
     if (_registrations.isEmpty) return;
     _registrations.clear();

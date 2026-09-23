@@ -1,7 +1,8 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_route_names.dart';
 
+import '../../i18n/app_localizations.dart';
 import '../../util/tox_utils.dart';
 
 /// Navigation policy for a profile surface's "Send a message" tile (user
@@ -42,8 +43,17 @@ bool topRouteIsMessageFor(
   String? groupID,
 }) {
   final top = topRouteOf(navigator);
-  if (top?.settings.name != TencentCloudChatRouteNames.message) return false;
-  final args = top?.settings.arguments;
+  return top != null && routeIsMessageFor(top, userID: userID, groupID: groupID);
+}
+
+/// Whether [route] is the UIKit message route bound to the given chat target.
+bool routeIsMessageFor(
+  Route<dynamic> route, {
+  String? userID,
+  String? groupID,
+}) {
+  if (route.settings.name != TencentCloudChatRouteNames.message) return false;
+  final args = route.settings.arguments;
   if (args is! Map) return false;
   final options = args['options'];
   if (options is! TencentCloudChatMessageOptions) return false;
@@ -99,4 +109,51 @@ bool handleProfileSendMessage(
     groupId: hasGroup ? groupID : null,
   );
   return true;
+}
+
+/// Finish a "leave / dismiss group" started from the group profile.
+///
+/// On success the profile closes AND, on a compact layout where the profile
+/// was opened from the chat header, so does the chat underneath: the toxee
+/// profile override used to pop only itself, leaving the user inside the chat
+/// of the group they had just left, composer still live. (Upstream pops with
+/// `true` and lets the header pop the chat; that contract is lost once the
+/// profile body is overridden, and the header's desktop builder ignores it.)
+/// On failure the user is told — a timed-out quit used to show nothing.
+Future<void> finishLeaveGroup(
+  BuildContext context, {
+  required String groupID,
+  required bool succeeded,
+}) async {
+  if (!succeeded) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      content: Text(AppLocalizations.of(context)!.leaveGroupFailed),
+    ));
+    return;
+  }
+  final navigator = Navigator.of(context);
+  // Close exactly the profile route [context] lives in — never "whatever is on
+  // top". The quit awaits the network, and something can open over the
+  // profile meanwhile (the group-invite prompt, a toast-triggered dialog): a
+  // bare `maybePop()` closed THAT instead and left the left group's profile
+  // behind. Same on desktop (profile is a full-window root route) and compact.
+  final profileRoute = ModalRoute.of(context);
+  if (profileRoute != null && profileRoute.isActive) {
+    if (profileRoute.isCurrent) {
+      navigator.pop();
+    } else {
+      // Remove it where it stands and leave the covering route on screen. The
+      // chat beneath (compact, profile opened from the chat header) can only
+      // be checked once that cover is gone, so wait for it.
+      final cover = topRouteOf(navigator);
+      navigator.removeRoute(profileRoute);
+      if (cover == null || identical(cover, profileRoute)) return;
+      await cover.popped;
+      if (!navigator.mounted) return;
+    }
+  }
+  // Only the message route bound to THIS group, and only when it is on top.
+  if (topRouteIsMessageFor(navigator, groupID: groupID)) {
+    navigator.pop();
+  }
 }

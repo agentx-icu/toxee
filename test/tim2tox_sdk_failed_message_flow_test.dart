@@ -264,6 +264,20 @@ class _FakeFfiChatService implements FfiChatService {
   @override
   void armNextSendCloudCustomData(String? data) {}
 
+  // getHistoryMessageListV2 consults the archive when a page reaches the
+  // oldest in-memory row; this fake has no archive.
+  @override
+  Future<bool> hasArchivedHistory(String id) async => false;
+
+  @override
+  Future<List<ChatMessage>> getArchivedHistory(String id) async =>
+      const <ChatMessage>[];
+
+  @override
+  Future<void> clearC2CHistory(String userID) async {
+    _history.remove(userID);
+  }
+
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
@@ -302,6 +316,44 @@ Future<List<Map<String, dynamic>>> _failedRows({
     groupID: groupID,
     accountToxId: accountToxId,
   );
+}
+
+/// The pre-account-scoping base key. Nothing writes it any more (a save
+/// without an account is refused), so legacy rows are seeded directly.
+const _legacyUnscopedKey = 'tencent_cloud_chat_failed_messages';
+
+Future<void> _seedLegacyUnscopedRow({
+  required String userID,
+  required String id,
+  required String msgID,
+  required String text,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final store = <String, dynamic>{
+    if (prefs.getString(_legacyUnscopedKey) case final String raw)
+      ...(jsonDecode(raw) as Map<String, dynamic>),
+  };
+  final rows = <dynamic>[...?(store[userID] as List<dynamic>?)];
+  rows.add(<String, dynamic>{
+    'id': id,
+    'msgID': msgID,
+    'timestamp': 200,
+    'elemType': MessageElemType.V2TIM_ELEM_TYPE_TEXT,
+    'text': text,
+    'userID': userID,
+    'isSelf': true,
+    'status': MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL,
+  });
+  store[userID] = rows;
+  await prefs.setString(_legacyUnscopedKey, jsonEncode(store));
+}
+
+Future<List<dynamic>> _legacyUnscopedRows(String userID) async {
+  final prefs = await SharedPreferences.getInstance();
+  final raw = prefs.getString(_legacyUnscopedKey);
+  if (raw == null) return const [];
+  return ((jsonDecode(raw) as Map<String, dynamic>)[userID] as List<dynamic>?) ??
+      const [];
 }
 
 Future<void> _saveFailedForAccount({
@@ -606,41 +658,68 @@ void main() {
       },
     );
 
-    test('resend loads and removes a legacy unscoped failed row', () async {
+    // Pre #5 / #2: rows under the pre-scoping base key carry no owner. Any
+    // account used to import them, show them and resend them AS ITSELF. They
+    // are now invisible to every account and left untouched on disk.
+    test('a legacy unscoped failed row is never resent by an account',
+        () async {
       final service = _FakeFfiChatService();
       final platform = _platformFor(service);
-      await _saveFailedForAccount(
-        message: _v2TextMessage(
-          id: 'legacy-local-resend',
-          msgID: 'legacy-wire-resend',
-          text: 'legacy retry',
-          timestamp: 204,
-        ),
+      await _seedLegacyUnscopedRow(
         userID: 'peer-a',
-        accountToxId: null,
+        id: 'legacy-local-resend',
+        msgID: 'legacy-wire-resend',
+        text: 'legacy retry',
       );
-
-      ChatMessageProviderRegistry.provider = _ConfigurableProvider(
-        failTextSends: true,
-      );
-      final failed = await platform.reSendMessage(msgID: 'legacy-wire-resend');
-      expect(failed.code, -1);
-      expect(
-        await _failedRows(userID: 'peer-a', accountToxId: null),
-        hasLength(1),
-      );
-      expect(await _failedRows(userID: 'peer-a'), hasLength(1));
 
       final provider = _ConfigurableProvider(failTextSends: false);
       ChatMessageProviderRegistry.provider = provider;
       final result = await platform.reSendMessage(msgID: 'legacy-wire-resend');
 
-      expect(result.code, 0);
-      expect(provider.sentTexts, [
-        (userID: 'peer-a', groupID: null, text: 'legacy retry'),
-      ]);
+      expect(result.code, -1);
+      expect(result.desc, contains('not found'));
+      expect(provider.sentTexts, isEmpty);
+      expect(service.deletedIDs, isEmpty);
       expect(await _failedRows(userID: 'peer-a'), isEmpty);
+      expect(await _legacyUnscopedRows('peer-a'), hasLength(1));
+    });
+
+    test('an unscoped read or write never touches the legacy base key',
+        () async {
+      await _seedLegacyUnscopedRow(
+        userID: 'peer-a',
+        id: 'legacy-local',
+        msgID: 'legacy-wire',
+        text: 'someone else',
+      );
       expect(await _failedRows(userID: 'peer-a', accountToxId: null), isEmpty);
+      expect(
+        await Tim2ToxFailedMessagePersistence.findFailedMessageByID(
+          messageID: 'legacy-wire',
+          accountToxId: _account,
+        ),
+        isNull,
+      );
+      await _saveFailedForAccount(
+        message: _v2TextMessage(
+          id: 'no-owner',
+          msgID: 'no-owner',
+          text: 'no account',
+          timestamp: 1,
+        ),
+        userID: 'peer-a',
+        accountToxId: null,
+      );
+      expect(
+        await Tim2ToxFailedMessagePersistence.removeFailedMessagesByIDs(
+          messageIDs: {'legacy-wire'},
+          accountToxId: null,
+        ),
+        0,
+      );
+      final legacy = await _legacyUnscopedRows('peer-a');
+      expect(legacy, hasLength(1));
+      expect((legacy.single as Map)['msgID'], 'legacy-wire');
     });
 
     test(
@@ -668,15 +747,11 @@ void main() {
           userID: 'peer-a',
           accountToxId: _otherAccount,
         );
-        await _saveFailedForAccount(
-          message: _v2TextMessage(
-            id: 'legacy-base-delete',
-            msgID: 'local-delete',
-            text: 'remove legacy base row',
-            timestamp: 205,
-          ),
+        await _seedLegacyUnscopedRow(
           userID: 'peer-a',
-          accountToxId: null,
+          id: 'legacy-base-delete',
+          msgID: 'local-delete',
+          text: 'unowned legacy row',
         );
 
         final result = await platform.deleteMessages(msgIDs: ['local-delete']);
@@ -684,10 +759,8 @@ void main() {
         expect(result.code, 0, reason: result.desc);
         expect(service.deletedIDs, ['local-delete']);
         expect(await _failedRows(userID: 'peer-a'), isEmpty);
-        expect(
-          await _failedRows(userID: 'peer-a', accountToxId: null),
-          isEmpty,
-        );
+        // The unowned base key is not this account's to mutate.
+        expect(await _legacyUnscopedRows('peer-a'), hasLength(1));
         expect(
           await _failedRows(userID: 'peer-a', accountToxId: _otherAccount),
           hasLength(1),
@@ -727,15 +800,11 @@ void main() {
           userID: 'peer-a',
           accountToxId: _otherAccount,
         );
-        await _saveFailedForAccount(
-          message: _v2TextMessage(
-            id: 'legacy-base-revoke',
-            msgID: 'wire-revoke',
-            text: 'remove legacy base revoke',
-            timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          ),
+        await _seedLegacyUnscopedRow(
           userID: 'peer-a',
-          accountToxId: null,
+          id: 'legacy-base-revoke',
+          msgID: 'wire-revoke',
+          text: 'unowned legacy revoke',
         );
 
         final result = await platform.revokeMessage(msgID: 'wire-revoke');
@@ -743,10 +812,8 @@ void main() {
         expect(result.code, 0, reason: result.desc);
         expect(service.deletedIDs, ['wire-revoke']);
         expect(await _failedRows(userID: 'peer-a'), isEmpty);
-        expect(
-          await _failedRows(userID: 'peer-a', accountToxId: null),
-          isEmpty,
-        );
+        // The unowned base key is not this account's to mutate.
+        expect(await _legacyUnscopedRows('peer-a'), hasLength(1));
         expect(
           await _failedRows(userID: 'peer-a', accountToxId: _otherAccount),
           hasLength(1),
@@ -862,5 +929,183 @@ void main() {
         expect(await _failedRows(userID: 'peer-a'), isEmpty);
       },
     );
+  });
+
+  group('GF-5 group media refusal + failed rows in history', () {
+    ChatMessage historyRow(String msgID, int seconds) => ChatMessage(
+          text: 'h$seconds',
+          fromUserId: 'peer-a',
+          isSelf: false,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+          msgID: msgID,
+        );
+
+    V2TimMessage imageMessage(String id, int timestamp) {
+      final message =
+          V2TimMessage(elemType: MessageElemType.V2TIM_ELEM_TYPE_IMAGE);
+      message.id = id;
+      message.msgID = id;
+      message.imageElem = V2TimImageElem(path: '/tmp/$id.png');
+      message.timestamp = timestamp;
+      message.status = MessageStatus.V2TIM_MSG_STATUS_SENDING;
+      return message;
+    }
+
+    test('a pure media send into a group is refused and NOT persisted',
+        () async {
+      final service = _FakeFfiChatService();
+      final platform = _platformFor(service);
+      final message = imageMessage('local-group-img', 500);
+      TencentCloudChat.instance.dataInstance.messageData.messageListMap = {
+        'tox_group_1': [message],
+      };
+      // The provider throws on any image send: reaching it would persist a
+      // failed row through the exception path.
+      ChatMessageProviderRegistry.provider = _ConfigurableProvider(
+        failTextSends: false,
+      );
+
+      final result = await platform.sendMessage(
+        id: 'local-group-img',
+        receiver: '',
+        groupID: 'tox_group_1',
+      );
+
+      expect(result.code, -1);
+      expect(result.desc.toLowerCase(), contains('group'));
+      expect(result.desc.toLowerCase(), contains('file'));
+      expect(result.data?.status, MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL);
+      expect(result.data?.id, 'local-group-img');
+      expect(await _failedRows(groupID: 'tox_group_1'), isEmpty);
+    });
+
+    test('a legacy failed group-media row is refused on resend, row kept',
+        () async {
+      final service = _FakeFfiChatService();
+      final platform = _platformFor(service);
+      await _saveFailedForAccount(
+        message: imageMessage('legacy-group-img', 510),
+        accountToxId: _account,
+        groupID: 'tox_group_1',
+      );
+
+      final result = await platform.reSendMessage(msgID: 'legacy-group-img');
+
+      expect(result.code, -1);
+      expect(result.desc.toLowerCase(), contains('group'));
+      expect(service.deletedIDs, isEmpty,
+          reason: 'refused before the pre-resend history cleanup');
+      expect(await _failedRows(groupID: 'tox_group_1'), hasLength(1));
+    });
+
+    test(
+        'failed rows missing from history come back in getHistoryMessageListV2 '
+        'with their media element; rows present in history turn SEND_FAIL',
+        () async {
+      final service = _FakeFfiChatService(history: [
+        historyRow('h100', 100),
+        historyRow('h300', 300),
+      ]);
+      final platform = _platformFor(service);
+      final image = imageMessage('failed-img', 200)..userID = 'peer-a';
+      await _saveFailedForAccount(
+        message: image,
+        accountToxId: _account,
+        userID: 'peer-a',
+      );
+      await _saveFailedForAccount(
+        message: _v2TextMessage(
+          id: 'failed-text',
+          msgID: 'failed-text',
+          text: 'newest failed',
+          timestamp: 400,
+        ),
+        accountToxId: _account,
+        userID: 'peer-a',
+      );
+      // A row that IS in history but is persisted as failed.
+      await _saveFailedForAccount(
+        message: _v2TextMessage(
+          id: 'h300',
+          msgID: 'h300',
+          text: 'h300',
+          timestamp: 300,
+        ),
+        accountToxId: _account,
+        userID: 'peer-a',
+      );
+
+      final res = await platform.getHistoryMessageListV2(
+        userID: 'peer-a',
+        count: 20,
+      );
+
+      expect(res.code, 0, reason: res.desc);
+      final list = res.data!.messageList;
+      expect(list.map((m) => m.msgID).toList(),
+          ['failed-text', 'h300', 'failed-img', 'h100']);
+      final restoredImage = list[2];
+      expect(restoredImage.elemType, MessageElemType.V2TIM_ELEM_TYPE_IMAGE);
+      expect(restoredImage.imageElem?.path, '/tmp/failed-img.png');
+      expect(restoredImage.status, MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL);
+      expect(list[0].status, MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL);
+      expect(list[1].status, MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL);
+      expect(list[3].status, isNot(MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL));
+    });
+
+    test('a failed row lands on the page whose window holds it, never as a '
+        'page anchor', () async {
+      final service = _FakeFfiChatService(history: [
+        historyRow('h100', 100),
+        historyRow('h200', 200),
+        historyRow('h300', 300),
+        historyRow('h400', 400),
+      ]);
+      final platform = _platformFor(service);
+      for (final (id, ts) in [('f350', 350), ('f250', 250), ('f50', 50)]) {
+        await _saveFailedForAccount(
+          message: _v2TextMessage(id: id, msgID: id, text: id, timestamp: ts),
+          accountToxId: _account,
+          userID: 'peer-a',
+        );
+      }
+
+      final first = await platform.getHistoryMessageListV2(
+        userID: 'peer-a',
+        count: 2,
+      );
+      expect(first.data!.isFinished, isFalse);
+      expect(first.data!.messageList.map((m) => m.msgID).toList(),
+          ['h400', 'f350', 'h300']);
+
+      final second = await platform.getHistoryMessageListV2(
+        userID: 'peer-a',
+        count: 2,
+        lastMsgID: 'h300',
+      );
+      expect(second.data!.isFinished, isTrue);
+      expect(second.data!.messageList.map((m) => m.msgID).toList(),
+          ['f250', 'h200', 'h100', 'f50']);
+    });
+
+    test('clearing C2C history also drops its failed rows', () async {
+      final service = _FakeFfiChatService();
+      final platform = _platformFor(service);
+      await _saveFailedForAccount(
+        message: _v2TextMessage(
+          id: 'to-clear',
+          msgID: 'to-clear',
+          text: 'x',
+          timestamp: 10,
+        ),
+        accountToxId: _account,
+        userID: 'peer-a',
+      );
+
+      final res = await platform.clearC2CHistoryMessage(userID: 'peer-a');
+
+      expect(res.code, 0, reason: res.desc);
+      expect(await _failedRows(userID: 'peer-a'), isEmpty);
+    });
   });
 }

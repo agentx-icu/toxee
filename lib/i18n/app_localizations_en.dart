@@ -1411,6 +1411,30 @@ class AppLocalizationsEn extends AppLocalizations {
       'Audio output changed or was interrupted during the call.';
 
   @override
+  String get callBusyInCall => 'Finish your current call first.';
+
+  @override
+  String get callBusyInConference =>
+      'Leave the audio conference before starting or answering a call.';
+
+  @override
+  String get callBusyInOtherConference =>
+      'You\'re already in another audio conference. Leave it first.';
+
+  @override
+  String get callPeerBusy => 'The other person is busy on another call.';
+
+  @override
+  String get callConferenceMuteIncoming => 'Mute others';
+
+  @override
+  String get callConferenceUnmuteIncoming => 'Hear others';
+
+  @override
+  String get callConferenceListenOnly =>
+      'Listening only — the microphone isn\'t available.';
+
+  @override
   String get callCalling => 'Calling...';
 
   @override
@@ -1926,6 +1950,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Notifications when someone sends you a friend request.';
 
   @override
+  String get channelGroupInvitesName => 'Group invites';
+
+  @override
+  String get channelGroupInvitesDescription =>
+      'Notifications when someone invites you to a group.';
+
+  @override
   String get channelMissedCallsName => 'Missed calls';
 
   @override
@@ -1962,4 +1993,58 @@ class AppLocalizationsEn extends AppLocalizations {
   String pairingConnectTimedOut(String endpoint) {
     return 'Couldn\'t reach the other device at $endpoint in time. Make sure both devices are on the same network, try a personal hotspot, or use Export → Import via file instead.';
   }
+
+  @override
+  String get groupInviteTitle => 'Group invitation';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return '$inviter invited you to join “$group”.';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return '$inviter invited you to join a group.';
+  }
+
+  @override
+  String get groupInviteDecline => 'Decline';
+
+  @override
+  String get groupInviteLater => 'Later';
+
+  @override
+  String get groupInviteAcceptFailed =>
+      'Couldn\'t join. The person who invited you may be offline — try again when they are online.';
+
+  @override
+  String get alreadyInGroup => 'You are already in this group';
+
+  @override
+  String get groupNameTooLong => 'Group name is too long';
+
+  @override
+  String get leaveGroupFailed => 'Couldn\'t leave the group. Please try again.';
+
+  @override
+  String get groupPassword => 'Group password (optional)';
+
+  @override
+  String get groupPasswordTooLong => 'A group password is at most 32 bytes';
+
+  @override
+  String get groupJoinRefusedPassword =>
+      'This group needs a password, or the password was wrong.';
+
+  @override
+  String get groupJoinRefusedFull => 'This group is full.';
+
+  @override
+  String get groupJoinRefusedUnknown => 'The group refused to let you join.';
+
+  @override
+  String get groupJoinEnterPassword => 'Enter password';
+
+  @override
+  String get groupPasswordRequired => 'Enter the group password';
 }

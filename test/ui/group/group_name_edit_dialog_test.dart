@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:toxee/ui/group/group_name_edit_dialog.dart';
+import 'package:toxee/util/app_l10n.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/ui/widgets/safe_dialog_pop.dart';
 
@@ -64,11 +65,16 @@ Widget _app({required void Function(BuildContext context) open}) {
 }
 
 /// Open the REAL dialog, recording every confirmed name.
-void _openFixed(BuildContext context, List<String> confirmed) {
+void _openFixed(
+  BuildContext context,
+  List<String> confirmed, {
+  String groupType = GroupType.Work,
+}) {
   showDialog<void>(
     context: context,
     builder: (_) => GroupNameEditDialog(
       initialName: 'old name',
+      groupType: groupType,
       onConfirm: confirmed.add,
     ),
   );
@@ -210,6 +216,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(confirmed, ['New Name'], reason: 'cancel confirms nothing');
     expect(find.byKey(UiKeys.groupProfileEditNameDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  // Same UTF-8 byte limits as creating the group (group_name_limits.dart):
+  // 48 for an NGC group, 128 for a conference title. 17 CJK characters are
+  // 51 bytes. Shared Dart: the rename dialog is the same on every shell.
+  testWidgets('an over-long name is refused in the field, per group kind', (
+    tester,
+  ) async {
+    final confirmed = <String>[];
+    final ngcMax = '\u7fa4' * 16; // 48 bytes: fits an NGC name exactly
+    final tooLong = '\u7fa4' * 17; // 51 bytes
+    await _pumpOpen(tester, open: (c) => _openFixed(c, confirmed));
+    await tester.enterText(find.byKey(UiKeys.groupProfileEditNameField), tooLong);
+    await tester.tap(find.byKey(UiKeys.groupProfileEditNameConfirmButton));
+    await tester.pumpAndSettle();
+    expect(confirmed, isEmpty);
+    expect(find.byKey(UiKeys.groupProfileEditNameDialog), findsOneWidget,
+        reason: 'the dialog stays open to fix the name');
+    expect(find.text(currentAppL10n().groupNameTooLong), findsOneWidget);
+
+    // Editing clears the error; a name at the limit goes through.
+    await tester.enterText(find.byKey(UiKeys.groupProfileEditNameField), ngcMax);
+    await tester.pump();
+    expect(find.text(currentAppL10n().groupNameTooLong), findsNothing);
+    await tester.tap(find.byKey(UiKeys.groupProfileEditNameConfirmButton));
+    await tester.pumpAndSettle();
+    expect(confirmed, [ngcMax]);
+
+    // A conference title may be longer (TOX_MAX_NAME_LENGTH = 128 bytes).
+    for (final type in ['conference', GroupType.AVChatRoom]) {
+      await _pumpOpen(tester,
+          open: (c) => _openFixed(c, confirmed, groupType: type));
+      await tester.enterText(
+          find.byKey(UiKeys.groupProfileEditNameField), tooLong);
+      await tester.tap(find.byKey(UiKeys.groupProfileEditNameConfirmButton));
+      await tester.pumpAndSettle();
+      expect(confirmed.last, tooLong, reason: type);
+      expect(find.byKey(UiKeys.groupProfileEditNameDialog), findsNothing);
+    }
+    final confTooLong = '\u7fa4' * 43; // 129 bytes
+    await _pumpOpen(tester,
+        open: (c) => _openFixed(c, confirmed, groupType: 'conference'));
+    await tester.enterText(
+        find.byKey(UiKeys.groupProfileEditNameField), confTooLong);
+    await tester.tap(find.byKey(UiKeys.groupProfileEditNameConfirmButton));
+    await tester.pumpAndSettle();
+    expect(confirmed.last, isNot(confTooLong));
+    expect(find.text(currentAppL10n().groupNameTooLong), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

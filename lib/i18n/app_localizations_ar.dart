@@ -1386,6 +1386,29 @@ class AppLocalizationsAr extends AppLocalizations {
       'تم تغيير إخراج الصوت أو انقطاعه أثناء المكالمة.';
 
   @override
+  String get callBusyInCall => 'أنهِ مكالمتك الحالية أولاً.';
+
+  @override
+  String get callBusyInConference =>
+      'غادر المؤتمر الصوتي قبل إجراء مكالمة أو الرد عليها.';
+
+  @override
+  String get callBusyInOtherConference =>
+      'أنت بالفعل في مؤتمر صوتي آخر. غادره أولاً.';
+
+  @override
+  String get callPeerBusy => 'الطرف الآخر مشغول في مكالمة أخرى.';
+
+  @override
+  String get callConferenceMuteIncoming => 'كتم صوت الآخرين';
+
+  @override
+  String get callConferenceUnmuteIncoming => 'الاستماع إلى الآخرين';
+
+  @override
+  String get callConferenceListenOnly => 'استماع فقط — الميكروفون غير متاح.';
+
+  @override
   String get callCalling => 'جارٍ الاتصال...';
 
   @override
@@ -1896,6 +1919,13 @@ class AppLocalizationsAr extends AppLocalizations {
       'إشعارات عندما يرسل إليك أحدهم طلب صداقة.';
 
   @override
+  String get channelGroupInvitesName => 'دعوات المجموعات';
+
+  @override
+  String get channelGroupInvitesDescription =>
+      'إشعارات عندما يدعوك أحدهم إلى مجموعة.';
+
+  @override
   String get channelMissedCallsName => 'المكالمات الفائتة';
 
   @override
@@ -1940,4 +1970,58 @@ class AppLocalizationsAr extends AppLocalizations {
   String pairingConnectTimedOut(String endpoint) {
     return 'تعذّر الوصول إلى الجهاز الآخر على $endpoint في الوقت المحدد. تأكد من أن الجهازين على الشبكة نفسها، أو جرّب نقطة اتصال شخصية، أو استخدم التصدير ← الاستيراد عبر ملف بدلاً من ذلك.';
   }
+
+  @override
+  String get groupInviteTitle => 'دعوة إلى مجموعة';
+
+  @override
+  String groupInviteBody(String inviter, String group) {
+    return 'دعاك $inviter للانضمام إلى «$group».';
+  }
+
+  @override
+  String groupInviteBodyUnnamed(String inviter) {
+    return 'دعاك $inviter للانضمام إلى مجموعة.';
+  }
+
+  @override
+  String get groupInviteDecline => 'رفض';
+
+  @override
+  String get groupInviteLater => 'لاحقًا';
+
+  @override
+  String get groupInviteAcceptFailed =>
+      'تعذّر الانضمام. قد يكون من دعاك غير متصل، حاول مرة أخرى عندما يكون متصلًا.';
+
+  @override
+  String get alreadyInGroup => 'أنت عضو في هذه المجموعة بالفعل';
+
+  @override
+  String get groupNameTooLong => 'اسم المجموعة طويل جدًا';
+
+  @override
+  String get leaveGroupFailed => 'تعذّرت مغادرة المجموعة. حاول مرة أخرى.';
+
+  @override
+  String get groupPassword => 'كلمة مرور المجموعة (اختيارية)';
+
+  @override
+  String get groupPasswordTooLong => 'كلمة مرور المجموعة 32 بايت كحد أقصى';
+
+  @override
+  String get groupJoinRefusedPassword =>
+      'تتطلب هذه المجموعة كلمة مرور، أو أن كلمة المرور غير صحيحة.';
+
+  @override
+  String get groupJoinRefusedFull => 'هذه المجموعة ممتلئة.';
+
+  @override
+  String get groupJoinRefusedUnknown => 'رفضت المجموعة انضمامك.';
+
+  @override
+  String get groupJoinEnterPassword => 'أدخل كلمة المرور';
+
+  @override
+  String get groupPasswordRequired => 'أدخل كلمة مرور المجموعة';
 }
