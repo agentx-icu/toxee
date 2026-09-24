@@ -57,6 +57,36 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# C++/WinRT vs. MSVC 14.51 (Visual Studio 18, which the windows-11-arm runner
+# image now ships). winrt/base.h takes <coroutine> only when the compiler
+# advertises C++20 coroutines and otherwise falls back to
+# <experimental/coroutine>, which that STL turns into a hard error:
+#
+#   error C2338: ... STL1011: ... deprecated ... will be REMOVED SOON
+#
+# Only the two plugins that include a winrt header are affected, and they need
+# different things, so this is scoped to them by name rather than applied in
+# APPLY_STANDARD_SETTINGS: raising the standard for everything breaks
+# flutter_secure_storage_windows, screen_retriever and tray_manager, whose
+# sources are not valid C++20 (C4596 on qualified names in member
+# declarations, and an ATL::CW2A conversion).
+#
+#   * audioplayers_windows asks for no standard of its own, so C++17 was
+#     chosen for it and the fallback was taken. C++20 fixes it.
+#   * permission_handler_windows already requests C++20 and still lands on the
+#     deprecated header, so it additionally needs the escape hatch the error
+#     message itself names. This is a stopgap: Microsoft says the header is
+#     going away, and the real fix is upstream (or a plugin version that no
+#     longer reaches it).
+if(TARGET audioplayers_windows_plugin)
+  target_compile_features(audioplayers_windows_plugin PRIVATE cxx_std_20)
+endif()
+if(TARGET permission_handler_windows_plugin)
+  target_compile_features(permission_handler_windows_plugin PRIVATE cxx_std_20)
+  target_compile_definitions(permission_handler_windows_plugin
+    PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
