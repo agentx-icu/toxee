@@ -32,6 +32,18 @@ Future<void> _pumpRealUntil(
   }
 }
 
+/// How many `Image` widgets in the tree are painting a decoded frame.
+///
+/// `Image` builds a [RawImage] whose `image` is null until its stream has
+/// delivered a frame, so this is the difference between "the widget exists"
+/// and "the bytes decoded".
+int _decodedFrames(WidgetTester tester) => tester
+    .widgetList<RawImage>(
+      find.descendant(of: find.byType(Image), matching: find.byType(RawImage)),
+    )
+    .where((raw) => raw.image != null)
+    .length;
+
 // 1x1 opaque PNG.
 const List<int> _kPngBytes = <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, //
@@ -116,14 +128,19 @@ void main() {
             ),
           ),
         );
-        // Wait for the file read + decode to actually land, not a fixed 300ms.
-        await _pumpRealUntil(
-          tester,
-          () => find.byType(Image).evaluate().isNotEmpty,
-        );
+        // Wait for a DECODED FRAME, not for the widget.
+        //
+        // `Image.file` is in the tree from the first build — before the file
+        // has been read and before the codec has produced anything — so
+        // waiting for `find.byType(Image)` waited for nothing at all, and a
+        // decode that stalled or failed outright still passed this test. The
+        // painted `RawImage` only carries an image once a frame has arrived.
+        await _pumpRealUntil(tester, () => _decodedFrames(tester) == 1);
         await tester.pump();
       });
       expect(find.byType(Image), findsOneWidget);
+      expect(_decodedFrames(tester), 1,
+          reason: 'the avatar file must actually decode and paint');
       expect(find.text('R'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -158,6 +175,8 @@ void main() {
         await tester.pump();
       });
       expect(find.text('R'), findsOneWidget);
+      expect(_decodedFrames(tester), 0,
+          reason: 'nothing may paint when the bytes are not an image');
       // The decode failure is reported through Image.errorBuilder, not as an
       // uncaught framework error.
       expect(tester.takeException(), isNull);

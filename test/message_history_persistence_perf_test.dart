@@ -182,7 +182,18 @@ void main() {
       // Wait for the debounced save itself, not a fixed sleep past the
       // window: each `appendHistory` future completes when the debounce
       // timer has fired AND the resulting saveHistory has landed.
-      await Future.wait(futures);
+      //
+      // With a LOCAL deadline: these futures are settled by a timer and a
+      // completer inside the store, so a bug that drops either leaves this
+      // hanging until the whole suite's timeout kills the run with no clue
+      // which test was stuck. 30 s is ~150x the 200 ms debounce.
+      await Future.wait(futures).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => fail(
+          'the debounced saves never settled: appendHistory futures are still '
+          'pending 30s after a 200ms debounce window',
+        ),
+      );
 
       // Force-flush belt-and-braces in case the test host was slow.
       await persistence.flushPendingSaves();

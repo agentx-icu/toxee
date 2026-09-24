@@ -175,18 +175,38 @@ abstract final class LegacyAccountDataClaim {
   }
 
   /// Whether any of the legacy global files exist.
+  ///
+  /// The directories must actually CONTAIN something. An empty
+  /// `<appSupport>/chat_history` is not recoverable data, and offering a
+  /// recovery that recovers nothing is its own bug — tim2tox now creates that
+  /// directory (with an owner marker in it, and nothing else) the first time
+  /// an account with no legacy data resolves the default path, so "the
+  /// directory exists" stopped meaning anything.
   static Future<bool> _legacyGlobalDataExists() async {
     for (final probe in <Future<bool> Function()>[
-      () async =>
-          Directory(await AppPaths.chatHistoryPath).exists().then((e) => e),
+      () async => _directoryHoldsData(await AppPaths.chatHistoryPath),
       () async => File(await AppPaths.offlineMessageQueueFilePath).exists(),
-      () async => Directory(await AppPaths.avatarsPath).exists(),
+      () async => _directoryHoldsData(await AppPaths.avatarsPath),
     ]) {
       try {
         if (await probe()) return true;
       } catch (_) {
         // Keep probing; an unreadable path is not evidence either way.
       }
+    }
+    return false;
+  }
+
+  /// Whether [path] is a directory holding at least one non-hidden file.
+  /// Bookkeeping files (tim2tox's `.tim2tox_history_owner` marker) do not
+  /// count as data.
+  static Future<bool> _directoryHoldsData(String path) async {
+    final dir = Directory(path);
+    if (!await dir.exists()) return false;
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is! File) continue;
+      if (p.basename(entity.path).startsWith('.')) continue;
+      return true;
     }
     return false;
   }

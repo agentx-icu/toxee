@@ -151,7 +151,7 @@ void main() {
 
       // Account B's service init: the store is reused / rebuilt and opened
       // BEFORE login can answer getSelfToxId(), so the owner is unknown.
-      a.openSession();
+      await a.openSession();
       expect(await a.loadHistory(_peer), isEmpty,
           reason: 'an unknown owner must not read the previous owner\'s rows');
       await a.saveHistory(_peer, <ChatMessage>[_row(2)]);
