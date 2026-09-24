@@ -31,16 +31,19 @@ ChatMessage _msg(int i, {String? text}) => ChatMessage(
 
 Future<void> _flush(MessageHistoryPersistence p) async {
   await p.flushPendingSaves();
-  await Future<void>.delayed(const Duration(milliseconds: 50));
 }
 
 Future<void> _appendRange(
     MessageHistoryPersistence p, int from, int toExclusive) async {
+  final appends = <Future<void>>[];
   for (var i = from; i < toExclusive; i++) {
     // Deliberately not awaited one by one: that is how the product appends.
-    // ignore: unawaited_futures
-    p.appendHistory(_group, _msg(i));
+    // They are awaited together below — `appendHistory`'s future completes
+    // when its debounced save lands, so this waits for the WORK instead of
+    // sleeping past the debounce window.
+    appends.add(p.appendHistory(_group, _msg(i)));
   }
+  await Future.wait(appends);
   await _flush(p);
 }
 

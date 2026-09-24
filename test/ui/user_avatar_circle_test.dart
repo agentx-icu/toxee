@@ -17,6 +17,21 @@ Widget _host(Widget child) => MaterialApp(
   home: Scaffold(body: Center(child: child)),
 );
 
+/// Pump real frames until [condition] holds (or the budget runs out). Used
+/// instead of a fixed sleep for the two cases that do real file IO + image
+/// decode: how long that takes is a property of the host, not of the widget.
+/// Must be called from inside `tester.runAsync`.
+Future<void> _pumpRealUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  int maxIterations = 500,
+}) async {
+  for (var i = 0; i < maxIterations && !condition(); i++) {
+    await tester.pump(const Duration(milliseconds: 20));
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 // 1x1 opaque PNG.
 const List<int> _kPngBytes = <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, //
@@ -101,8 +116,11 @@ void main() {
             ),
           ),
         );
-        // Let the file read + decode complete, then rebuild.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        // Wait for the file read + decode to actually land, not a fixed 300ms.
+        await _pumpRealUntil(
+          tester,
+          () => find.byType(Image).evaluate().isNotEmpty,
+        );
         await tester.pump();
       });
       expect(find.byType(Image), findsOneWidget);
@@ -131,8 +149,12 @@ void main() {
             ),
           ),
         );
-        // Let the failed decode report through the error builder.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        // Wait for the failed decode to report through the error builder,
+        // instead of assuming a fixed 300ms covers the IO + decode attempt.
+        await _pumpRealUntil(
+          tester,
+          () => find.text('R').evaluate().isNotEmpty,
+        );
         await tester.pump();
       });
       expect(find.text('R'), findsOneWidget);

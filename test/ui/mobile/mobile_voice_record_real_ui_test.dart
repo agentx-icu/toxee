@@ -619,7 +619,13 @@ void main() {
       late TestGesture gesture;
       await tester.runAsync(() async {
         gesture = await tester.startGesture(tester.getCenter(mic));
-        await Future<void>.delayed(const Duration(milliseconds: 350));
+        // Wait for the chain to reach the recorder rather than sleeping a
+        // fixed 350ms past the 100ms arm timer + real temp-dir IO.
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (!recorder.methods.contains('start') &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
       });
       // Render the recording state with a single pump() (recording runs a
       // 10ms periodic timer, so the tree never settles).
@@ -639,7 +645,12 @@ void main() {
       // does real recorder IO, so let it complete under runAsync too).
       await tester.runAsync(() async {
         await gesture.up();
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        // Same again for the stop path's real recorder IO.
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (!recorder.methods.contains('stop') &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
       });
       await tester.pumpAndSettle();
       expect(

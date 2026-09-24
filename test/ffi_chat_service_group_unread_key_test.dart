@@ -256,7 +256,16 @@ void main() {
           from: _peer,
           text: '__revoke__:{"msgID":"x"}',
         );
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        // Wait for the control signal to arrive on the stream instead of
+        // sleeping a fixed 50ms; the negative assertion below then runs on a
+        // point where the plain message would already have shown up too.
+        await pumpEventQueue();
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (!seen.contains('__revoke__:{"msgID":"x"}') &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await pumpEventQueue();
+        }
 
         expect(
           seen,

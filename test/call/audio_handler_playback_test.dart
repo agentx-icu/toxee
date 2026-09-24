@@ -60,10 +60,19 @@ void main() {
     expect(speaker.setupCount, 1, reason: 'backoff still running');
 
     speaker.failSetup = false;
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
     source.queue.addAll(<int>[7, 7, 7]);
-    audio.kickPlayback();
-    await pumpEventQueue();
+    // Poll the backoff out instead of sleeping a fixed 1100ms past it: a kick
+    // that arrives while the backoff is still running is a no-op (it neither
+    // sets the device up nor drains the queue), so retrying until the setup
+    // lands waits for the condition rather than for the clock.
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (speaker.setupCount < 2 && DateTime.now().isBefore(deadline)) {
+      audio.kickPlayback();
+      await pumpEventQueue();
+      if (speaker.setupCount < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
 
     expect(speaker.setupCount, 2, reason: 'recovered');
     expect(speaker.fed.single, Int16List.fromList(<int>[7, 7, 7]));

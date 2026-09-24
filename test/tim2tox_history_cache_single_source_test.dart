@@ -47,10 +47,10 @@ ChatMessage _msg({
 }
 
 Future<void> _flush(MessageHistoryPersistence p) async {
-  // Coalesce P2 debounce + write-lock latency. The 200ms debounce window
-  // plus a small slack gives `appendHistory`'s scheduled save time to land.
+  // `flushPendingSaves` cancels the P2 debounce timers and awaits the writes
+  // itself (it loops until no dirty work is left), so waiting on it waits for
+  // the work rather than sleeping past the 200ms debounce window.
   await p.flushPendingSaves();
-  await Future<void>.delayed(const Duration(milliseconds: 50));
 }
 
 void main() {
@@ -164,12 +164,12 @@ void main() {
       try {
         final fromDisk = await reloaded.loadHistory(peer);
         expect(fromDisk.single.filePath, '/final/path/x');
-        // loadHistory fires an unawaited save-back when it normalizes the
-        // loaded list (e.g. flipping any stranded pending flag). Give it
-        // time to land before disposing so the temp-dir cleanup in
-        // tearDown doesn't race the write.
+        // loadHistory marks the conversation dirty when it normalizes the
+        // loaded list (e.g. flipping any stranded pending flag); the write
+        // itself is deferred. `flushPendingSaves` drains that dirty set and
+        // awaits the writes, so no sleep is needed before the temp-dir
+        // cleanup in tearDown.
         await reloaded.flushPendingSaves();
-        await Future<void>.delayed(const Duration(milliseconds: 100));
       } finally {
         reloaded.dispose();
       }

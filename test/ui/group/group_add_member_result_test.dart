@@ -94,7 +94,8 @@ Future<void> _selectAndConfirm(WidgetTester tester, List<String> ids) async {
     await tester
         .tap(find.byKey(const ValueKey('group_member_invite_confirm_button')));
     await tester.pump();
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // Drain the invite's async chain instead of sleeping a fixed 20ms.
+    await pumpEventQueue();
   });
   await tester.pumpAndSettle();
 }
@@ -248,7 +249,10 @@ void main() {
     await tester.runAsync(() async {
       button.onPressed!();
       button.onPressed!();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // Drain both taps' async chains instead of sleeping a fixed 20ms — the
+      // assertion below is that the second one was deduped, so it has to run
+      // after the second call has had every chance to reach the platform.
+      await pumpEventQueue();
     });
     await tester.pumpAndSettle();
     expect(platform.calls, 1);

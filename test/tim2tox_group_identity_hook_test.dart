@@ -202,21 +202,26 @@ void main() {
   });
 
   group('BinaryReplacementHistoryHook identity dedupe', skip: skipReason, () {
-    test('"ok" twice 500 ms apart with distinct ids -> 2 rows; cross-path '
-        'copy of the first -> still 2 rows', () async {
+    test('"ok" twice inside the 2 s window with distinct ids -> 2 rows; '
+        'cross-path copy of the first -> still 2 rows', () async {
       final persistence = newPersistence();
       BinaryReplacementHistoryHook.initialize(persistence, _self);
-      await BinaryReplacementHistoryHook.saveMessage(
-          _groupText(msgID: 'msg_0_1_1', text: 'ok', toxGroupMsgId: 1));
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      await BinaryReplacementHistoryHook.saveMessage(
-          _groupText(msgID: 'msg_0_1_2', text: 'ok', toxGroupMsgId: 2));
+      // Pinned timestamps rather than a real sleep between the saves: the
+      // message timestamp has SECOND granularity, so a wall-clock gap put the
+      // two rows an unpredictable 0 or 1 seconds apart. Pinning them to the
+      // same second puts them squarely inside the 2 s content window, which
+      // is the case this test is about — identity must beat content there.
+      const sentAt = 1700000000;
+      await BinaryReplacementHistoryHook.saveMessage(_groupText(
+          msgID: 'msg_0_1_1', text: 'ok', toxGroupMsgId: 1, seconds: sentAt));
+      await BinaryReplacementHistoryHook.saveMessage(_groupText(
+          msgID: 'msg_0_1_2', text: 'ok', toxGroupMsgId: 2, seconds: sentAt));
       expect(persistence.getHistory(_gid).map((m) => m.msgID),
           ['msg_0_1_1', 'msg_0_1_2']);
 
       // A second delivery of message 1 under another id (the other path).
-      await BinaryReplacementHistoryHook.saveMessage(
-          _groupText(msgID: 'msg_0_1_9', text: 'ok', toxGroupMsgId: 1));
+      await BinaryReplacementHistoryHook.saveMessage(_groupText(
+          msgID: 'msg_0_1_9', text: 'ok', toxGroupMsgId: 1, seconds: sentAt));
       final rows = persistence.getHistory(_gid);
       expect(rows, hasLength(2));
       expect(rows.first.altMsgIds, contains('msg_0_1_9'),

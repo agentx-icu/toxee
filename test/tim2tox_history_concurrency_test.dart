@@ -212,9 +212,17 @@ void main() {
         }
         final cached = store.getHistory(_peer).map((m) => m.msgID).toList();
 
-        // Disk comes back: the armed retry (1 s) writes the row.
+        // Disk comes back: the armed retry (1 s backoff) writes the row.
+        // Poll for the write instead of sleeping past the backoff — a fixed
+        // wait is a race on a loaded CI host, and it is the RETRY that must
+        // land the row (dispose below would flush it too, which is why the
+        // poll has to succeed first).
         await blocker.delete();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        final written = File(p.join(blocker.path, 'peer.json'));
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (!written.existsSync() && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
         await store.dispose();
         done.complete((flushError: flushError, cached: cached));
       } catch (e, st) {
