@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../util/app_l10n.dart';
 import '../util/harness_environment.dart';
@@ -304,9 +305,12 @@ class NotificationService {
         // app launch behind the permission dialog (blank screen). Fire it
         // unawaited; the lazy await on the first showMessageNotification still
         // gates actual delivery.
-        if (_androidApiLevelAtLeast(33)) {
-          unawaited(_ensureAndroidPermission());
-        }
+        // Every Android release: below API 33 the plugin reports
+        // notifications enabled (fast path) and never prompts.
+        unawaited(_ensureAndroidPermission());
+        _resumeListener ??= AppLifecycleListener(
+          onResume: () => unawaited(refreshAndroidPermission()),
+        );
       }
 
       // iOS / macOS: ask for alert + badge + sound. CRITICAL: do NOT await the
@@ -1058,6 +1062,18 @@ class NotificationService {
           );
           return;
         }
+        // The L3 harness forbids the system prompt (it would block the
+        // automation): keep notifications off rather than asking. Checked
+        // here so the startup warm-up and the first-send path both obey it.
+        if (HarnessEnvironment.boolValue(
+          HarnessEnvironment.disableNotificationPermissionKey,
+        )) {
+          _androidPermissionGranted = false;
+          AppLogger.info(
+            '[NotificationService] Android permission prompt disabled by harness',
+          );
+          return;
+        }
         // alreadyEnabled is false or null — ask. The plugin returns true if
         // granted, false if denied, null on platforms / API levels where the
         // request is a no-op (treat null as granted — pre-Android-13).
@@ -1087,37 +1103,33 @@ class NotificationService {
     }
   }
 
-  /// Returns true if the Android release suggests we're at or above [minApi].
-  ///
-  /// Currently only used for `minApi == 33` (POST_NOTIFICATIONS), where
-  /// `release >= 13` is the correct check. The `30 + (release - 11)` formula
-  /// IS NOT a general release→API mapping (Android 12.1 = API 32, Android 15
-  /// = API 35, etc. would all be off by 1). Do not reuse this for other
-  /// thresholds without first validating against the actual API level via
-  /// a native platform channel.
-  ///
-  /// Parses [Platform.operatingSystemVersion] for the leading integer — on
-  /// Android the string is of the form `"<release> <kernel>"` (e.g.
-  /// `"13 5.10.81-android13-..."`). When the parse fails we conservatively
-  /// return true so the permission gate still runs — the plugin's
-  /// [requestNotificationsPermission] is itself a no-op on pre-Android-13,
-  /// so an unnecessary call costs nothing.
-  bool _androidApiLevelAtLeast(int minApi) {
-    if (!Platform.isAndroid) return false;
+  AppLifecycleListener? _resumeListener;
+
+  /// Test seam: stands in for the plugin's `areNotificationsEnabled`, whose
+  /// Android implementation does not resolve on a non-Android host.
+  @visibleForTesting
+  Future<bool?> Function()? debugAreNotificationsEnabled;
+
+  /// Re-reads the system notification switch after a denial, WITHOUT
+  /// prompting. The denial used to be cached for the whole session, so a user
+  /// who enabled notifications in system settings still got none until the
+  /// app restarted. Runs on every resume (returning from settings).
+  Future<void> refreshAndroidPermission() async {
+    if (!_isAndroidPlatform || _androidPermissionGranted != false) return;
     try {
-      final version = Platform.operatingSystemVersion;
-      // The first whitespace-delimited token is the release version on
-      // Android (e.g. "13").
-      final match = RegExp(r'^\s*(\d+)').firstMatch(version);
-      final release = int.tryParse(match?.group(1) ?? '');
-      if (release == null) return true; // Unknown — let the plugin decide.
-      // Release -> API: 11->30, 12->31/32, 13->33, 14->34, 15->35.
-      // This is a coarse approximation; see doc comment above for the
-      // strict constraint on which `minApi` values are safe.
-      final estimatedApi = 30 + (release - 11);
-      return estimatedApi >= minApi;
-    } catch (_) {
-      return true;
+      final enabled =
+          await (debugAreNotificationsEnabled?.call() ??
+              _plugin
+                  .resolvePlatformSpecificImplementation<
+                    AndroidFlutterLocalNotificationsPlugin
+                  >()
+                  ?.areNotificationsEnabled());
+      if (enabled == true && _androidPermissionGranted == false) {
+        _androidPermissionGranted = true;
+        AppLogger.info('[NotificationService] notifications re-enabled');
+      }
+    } catch (e) {
+      AppLogger.warn('[NotificationService] permission refresh failed: $e');
     }
   }
 
@@ -1133,5 +1145,8 @@ class NotificationService {
     _channelLocaleListener = null;
     _androidPermissionGranted = null;
     _lastIncomingCallNotificationOutcome = null;
+    _resumeListener?.dispose();
+    _resumeListener = null;
+    debugAreNotificationsEnabled = null;
   }
 }
