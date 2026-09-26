@@ -89,7 +89,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
-| B1 | 切后台后保持 Tox 连接 | P0 | ◐ | Android 前台服务 `ToxPollingService`（`dataSync|phoneCall|microphone|camera`），但受 B8 的时长限制；iOS 只有 `audio` + `fetch` 后台模式和 `BGAppRefreshTask`（`BackgroundTaskController.swift`），属尽力而为 |
+| B1 | 切后台后保持 Tox 连接 | P0 | ✅ Android / ◐ iOS | Android 前台服务 `ToxPollingService`（常驻模式 API 34+ 用 `specialUse`、以下用 `dataSync`；通话时 `phoneCall|microphone|camera`），被系统停掉后回前台自动恢复（见 B8）；iOS 只有 `audio` + `fetch` 后台模式和 `BGAppRefreshTask`（`BackgroundTaskController.swift`），属尽力而为 |
 | B2 | App 已终止后仍能收到消息和来电（推送唤醒） | 不适配 | — | 需要 APNs / FCM / PushKit 服务端，与纯 P2P 架构冲突（MOBILE_BACKGROUND 有详细论证）。应在产品层面向用户说明。区分：App 仍存活但被挂起时，iOS 还有偶发的 BG refresh，但不能承诺实时收信 |
 | B3 | 后台 / 锁屏可接听的来电界面 | P0 | ✅ | iOS CallKit（`CallKitProvider.swift`，App 存活时）；Android 全屏通知（`notification_channels.dart:83`、`notification_service.dart:755`） |
 | B3a | Android `ConnectionService`：蓝牙按键接听、车机集成 | P2 | ❌ | 未接入 |
@@ -97,7 +97,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | B5 | 厂商后台管控（MIUI / EMUI / ColorOS 自启动、电池优化白名单）、Doze | P1 | ❌ | 前台服务仍可能被厂商策略杀掉。至少应提供引导用户加白名单的入口（`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` 或厂商设置页） |
 | B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | 🔍 | 自动登录路径已有（`_StartupGate`），页面栈恢复未验证 |
 | B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
-| B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ❌ | `ToxPollingService` 长期以 `dataSync` 运行，未实现 `onTimeout`；超时不停止会被系统判为异常 |
+| B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ✅ 🔍 | 2026-09-26 修复：常驻模式 API 34+ 改用无时长限制的 `specialUse`；实现 API 35 `onTimeout` 及时停止；`startForeground` 被拒时降级或停止；Dart `RuntimeForegroundService.ensureRunning` 回前台时查询原生实际状态并重放最后请求的模式（通话中保持通话模式）。待 API 36 真机 / 模拟器验证 |
 | B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | 🔍 | 当前依赖系统默认保护级别（`lib/util/app_paths.dart:80`） |
 
 ## 5. 网络
@@ -189,6 +189,4 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 
 ## 已知不一致
 
-- `MOBILE_BACKGROUND` 的"iOS implementation §1"仍描述 `voip` 后台模式，但该模式已在
-  `285c6f7`（fix(call): harden mobile incoming-call surfaces）中从 `Info.plist` 移除，
-  现在只有 `audio` + `fetch`。以 `Info.plist` 为准，该文档待更新。
+- （已解决 2026-09-26）`MOBILE_BACKGROUND` 曾描述 `voip` 后台模式，该模式已在 `285c6f7` 中移除；文档已更正。

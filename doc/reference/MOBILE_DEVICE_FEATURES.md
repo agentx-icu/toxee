@@ -95,7 +95,7 @@ This is where a P2P client hits its hardest limits on mobile; see
 
 | # | Feature | Priority | Status | Notes / location |
 |---|---|---|---|---|
-| B1 | Keep the Tox connection alive in background | P0 | ◐ | Android foreground service `ToxPollingService` (`dataSync|phoneCall|microphone|camera`), but subject to B8's time limit; iOS only has the `audio` + `fetch` background modes and `BGAppRefreshTask` (`BackgroundTaskController.swift`), which is best-effort |
+| B1 | Keep the Tox connection alive in background | P0 | ✅ Android / ◐ iOS | Android foreground service `ToxPollingService` (always-on mode: `specialUse` on API 34+, `dataSync` below; during calls `phoneCall|microphone|camera`), restored on resume if the OS stopped it (see B8); iOS only has the `audio` + `fetch` background modes and `BGAppRefreshTask` (`BackgroundTaskController.swift`), which is best-effort |
 | B2 | Receive messages and calls after the app is terminated (push wake-up) | Won't adapt | — | Needs an APNs / FCM / PushKit server, which conflicts with pure P2P (argued in MOBILE_BACKGROUND). Explain it to users at the product level. Distinguish: while the app is alive but suspended, iOS still grants occasional BG refresh, but real-time delivery can't be promised |
 | B3 | Answerable incoming-call UI in background / on the lock screen | P0 | ✅ | iOS CallKit (`CallKitProvider.swift`, while the app is alive); Android full-screen notification (`notification_channels.dart:83`, `notification_service.dart:755`) |
 | B3a | Android `ConnectionService`: answer from Bluetooth buttons, car integration | P2 | ❌ | Not integrated |
@@ -103,7 +103,7 @@ This is where a P2P client hits its hardest limits on mobile; see
 | B5 | OEM background restrictions (MIUI / EMUI / ColorOS auto-start, battery-optimisation allow-list), Doze | P1 | ❌ | OEM policies may still kill the foreground service. At least provide an entry that guides users to allow-list the app (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` or the OEM settings page) |
 | B6 | Cold-start recovery after Android reclaims the process (back to the conversation) | P1 | 🔍 | Auto-login exists (`_StartupGate`); restoring the page stack is unverified |
 | B7 | Reduce polling and video bitrate in Low Power / battery saver mode | P2 | ❌ | |
-| B8 | `dataSync` foreground-service time limit: for apps targeting API 35+, 6 h cumulative per 24 h while in background (returning to foreground resets the budget); `onTimeout` handling and fallback | P0 | ❌ | `ToxPollingService` runs as `dataSync` indefinitely and doesn't implement `onTimeout`; not stopping at the timeout is treated as an error by the system |
+| B8 | `dataSync` foreground-service time limit: for apps targeting API 35+, 6 h cumulative per 24 h while in background (returning to foreground resets the budget); `onTimeout` handling and fallback | P0 | ✅ 🔍 | Fixed 2026-09-26: the always-on mode uses the uncapped `specialUse` type on API 34+; API 35 `onTimeout` stops promptly; a refused `startForeground` degrades or stops; Dart `RuntimeForegroundService.ensureRunning` asks native for the real state on resume and replays the last requested mode (a call stays in call mode). Pending verification on API 36 |
 | B9 | iOS data protection while the device is locked: can the profile / messages be read and written in background | P1 | 🔍 | Relies on the default protection class (`lib/util/app_paths.dart:80`) |
 
 ## 5. Network
@@ -196,7 +196,4 @@ applicable (with reason)**:
 
 ## Known inconsistencies
 
-- `MOBILE_BACKGROUND` "iOS implementation §1" still describes the `voip`
-  background mode, but it was removed from `Info.plist` in `285c6f7`
-  (fix(call): harden mobile incoming-call surfaces); only `audio` + `fetch`
-  remain. `Info.plist` is authoritative; that document needs updating.
+- (Resolved 2026-09-26) `MOBILE_BACKGROUND` described the `voip` background mode, removed in `285c6f7`; the document has been corrected.

@@ -35,6 +35,10 @@
          ForegroundServiceTypeException on API 34+. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- specialUse backs the always-on runtime mode on API 34+: dataSync is
+         capped at 6 h per 24 h in background on API 35+, and holding a P2P
+         session open is not a bounded data transfer. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
@@ -81,14 +85,18 @@
              Flutter engine alive so FfiChatService.startPolling() continues to
              drain tox events while the app is backgrounded. The combined
              foregroundServiceType lets the service transition between the
-             dataSync (default) and phoneCall (active call) modes at runtime
-             without re-registering. exported=false because the service is
-             driven exclusively from in-process Dart code via
-             RuntimeForegroundChannel. -->
+             runtime (specialUse on API 34+, dataSync below) and phoneCall
+             (active call) modes at runtime without re-registering.
+             exported=false because the service is driven exclusively from
+             in-process Dart code via RuntimeForegroundChannel. -->
         <service
             android:name=".ToxPollingService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|phoneCall|microphone|camera" />
+            android:foregroundServiceType="specialUse|dataSync|phoneCall|microphone|camera">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user's peer-to-peer Tox session connected so messages and incoming calls from contacts arrive in real time. Tox has no push server, so the connection must stay open while the app is in the background." />
+        </service>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

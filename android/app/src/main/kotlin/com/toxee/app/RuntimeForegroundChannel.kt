@@ -20,6 +20,8 @@ import io.flutter.plugin.common.MethodChannel
  *  - `stop()` — stop the service
  *  - `elevateToCall({title, body})` — swap service type to phoneCall
  *  - `restoreFromCall()` — swap service type back to dataSync
+ *  - `isInRequestedMode()` — whether the service is in the foreground with
+ *    the type its last request asked for
  *
  * All Method results are completed on the main thread, per the Flutter
  * MethodChannel contract.
@@ -115,6 +117,8 @@ class RuntimeForegroundChannel(
                 startServiceCompat(intent)
                 replyOnMain(result, null)
             }
+
+            "isInRequestedMode" -> replyOnMain(result, ToxPollingService.inRequestedMode)
 
             else -> replyOnMain(result, NotImplemented)
         }

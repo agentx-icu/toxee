@@ -97,5 +97,130 @@ void main() {
       expect(calls.single.method, 'elevateToCall');
       expect(calls.single.arguments, containsPair('usesCamera', true));
     });
+
+    group('ensureRunning', () {
+      late List<MethodCall> calls;
+      late bool nativeRunning;
+      late RuntimeForegroundService service;
+
+      setUp(() {
+        calls = <MethodCall>[];
+        nativeRunning = true;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return call.method == 'isInRequestedMode' ? nativeRunning : null;
+        });
+        service = RuntimeForegroundService(
+          channel: channel,
+          isAndroidOverride: true,
+        );
+      });
+
+      List<String> methods() => calls.map((c) => c.method).toList();
+
+      test('does nothing outside a session', () async {
+        await service.ensureRunning();
+        expect(calls, isEmpty);
+      });
+
+      test('leaves a running service alone', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        calls.clear();
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode']);
+      });
+
+      test('restarts a service the OS stopped with the same args', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        calls.clear();
+        nativeRunning = false;
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode', 'start']);
+        expect(calls.last.arguments, {
+          'title': 't',
+          'body': 'b',
+          'settingsLabel': 's',
+        });
+      });
+
+      test('keeps an in-progress call in call mode', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        await service.elevateToCall(
+          title: 'Calling',
+          body: 'Connected',
+          settingsLabel: 's',
+          usesCamera: true,
+        );
+        calls.clear();
+        nativeRunning = false;
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode', 'elevateToCall']);
+        expect(calls.last.arguments, containsPair('usesCamera', true));
+      });
+
+      test('replays the restored mode after a call ended', () async {
+        await service.elevateToCall(title: 'c', body: 'b', settingsLabel: 's');
+        await service.restoreFromCall(
+          title: 't',
+          body: 'b',
+          settingsLabel: 's',
+        );
+        calls.clear();
+        nativeRunning = false;
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode', 'restoreFromCall']);
+      });
+
+      test('replays a request the native side refused to deliver', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        // A background startForegroundService refusal: the intent never
+        // reaches the service, so its own mode check still reports the old
+        // (runtime) mode as satisfied.
+        var refuse = true;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          if (call.method == 'isInRequestedMode') return true;
+          if (call.method == 'elevateToCall' && refuse) {
+            throw PlatformException(code: 'error', message: 'refused');
+          }
+          return null;
+        });
+        await service.elevateToCall(title: 'c', body: 'b', settingsLabel: 's');
+        refuse = false;
+        calls.clear();
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode', 'elevateToCall']);
+
+        // Delivered now: the next resume leaves it alone.
+        calls.clear();
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode']);
+      });
+
+      test('does not restart after the session stopped the service', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        await service.stop();
+        calls.clear();
+        nativeRunning = false;
+        await service.ensureRunning();
+        expect(calls, isEmpty);
+      });
+
+      test('does not restart when the session ends mid-check', () async {
+        await service.start(title: 't', body: 'b', settingsLabel: 's');
+        calls.clear();
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          if (call.method == 'isInRequestedMode') {
+            // Logout lands while the native status query is in flight.
+            await service.stop();
+            return false;
+          }
+          return null;
+        });
+        await service.ensureRunning();
+        expect(methods(), ['isInRequestedMode', 'stop']);
+      });
+    });
   });
 }
