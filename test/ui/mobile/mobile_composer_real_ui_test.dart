@@ -235,66 +235,319 @@ void main() {
           child: TencentCloudChatMessageDataProviderInherited(
             dataProvider: provider,
             child: TencentCloudChatMessageLayout(
-            data: MessageLayoutBuilderData(
-              currentConversationShowName: 'Friend One',
-              desktopMentionBoxPositionX: 0,
-              desktopMentionBoxPositionY: 0,
-              activeMentionIndex: -1,
-              currentFilteredMembersListForMention: const [],
-              desktopStickerBoxPositionX: 0,
-              desktopStickerBoxPositionY: 0,
-              hasStickerPlugin: false,
-            ),
-            methods: MessageLayoutBuilderMethods(
-              sendTextMessage:
-                  ({required String text, List<String>? mentionedUsers}) {},
-              sendImageMessage:
-                  ({String? imagePath, String? imageName, dynamic inputElement}) {},
-              sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
-              sendFileMessage:
-                  ({String? filePath, String? fileName, dynamic inputElement}) {},
-              sendVoiceMessage:
-                  ({required String voicePath, required int duration}) {},
-              desktopInputMemberSelectionPanelScroll: AutoScrollController(),
-              onSelectMember: (_) {},
-              closeSticker: () {},
-            ),
-            widgets: MessageLayoutBuilderWidgets(
-              header: AppBar(title: const Text('Friend One')),
-              messageListView: const ColoredBox(
-                key: listKey,
-                color: Colors.white,
-                child: SizedBox.expand(),
+              data: MessageLayoutBuilderData(
+                currentConversationShowName: 'Friend One',
+                desktopMentionBoxPositionX: 0,
+                desktopMentionBoxPositionY: 0,
+                activeMentionIndex: -1,
+                currentFilteredMembersListForMention: const [],
+                desktopStickerBoxPositionX: 0,
+                desktopStickerBoxPositionY: 0,
+                hasStickerPlugin: false,
               ),
-              messageInput: TencentCloudChatMessageInputMobile(
-                inputData: _data(repliedMessage: replied),
-                inputMethods: methods.build(),
+              methods: MessageLayoutBuilderMethods(
+                sendTextMessage:
+                    ({required String text, List<String>? mentionedUsers}) {},
+                sendImageMessage:
+                    ({
+                      String? imagePath,
+                      String? imageName,
+                      dynamic inputElement,
+                    }) {},
+                sendVideoMessage:
+                    ({String? videoPath, dynamic inputElement}) {},
+                sendFileMessage:
+                    ({
+                      String? filePath,
+                      String? fileName,
+                      dynamic inputElement,
+                    }) {},
+                sendVoiceMessage:
+                    ({required String voicePath, required int duration}) {},
+                desktopInputMemberSelectionPanelScroll: AutoScrollController(),
+                onSelectMember: (_) {},
+                closeSticker: () {},
+              ),
+              widgets: MessageLayoutBuilderWidgets(
+                header: AppBar(title: const Text('Friend One')),
+                messageListView: const ColoredBox(
+                  key: listKey,
+                  color: Colors.white,
+                  child: SizedBox.expand(),
+                ),
+                messageInput: TencentCloudChatMessageInputMobile(
+                  inputData: _data(repliedMessage: replied),
+                  inputMethods: methods.build(),
+                ),
               ),
             ),
-          ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'the composer must fit the keyboard-shrunk body');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the composer must fit the keyboard-shrunk body',
+      );
 
-      await _focusComposerAndEnterText(tester, 'line one\nline two\nline three');
+      await _focusComposerAndEnterText(
+        tester,
+        'line one\nline two\nline three',
+      );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'a multi-line draft under a reply bar must still fit');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'a multi-line draft under a reply bar must still fit',
+      );
 
       final field = tester.getRect(find.byType(ExtendedTextField));
       final list = tester.getRect(find.byKey(listKey));
       expect(field.height, greaterThan(0));
-      expect(list.bottom, lessThanOrEqualTo(field.top + 0.01),
-          reason: 'the list yields; it never paints over the composer');
+      expect(
+        list.bottom,
+        lessThanOrEqualTo(field.top + 0.01),
+        reason: 'the list yields; it never paints over the composer',
+      );
       // Reply bar + three lines exceed the ~118-px body: the composer scrolls
       // anchored at the text field, which must stay fully above the keyboard.
-      expect(field.bottom, lessThanOrEqualTo(390 - 216 + 0.01),
-          reason: 'the text field stays visible above the keyboard');
+      expect(
+        field.bottom,
+        lessThanOrEqualTo(390 - 216 + 0.01),
+        reason: 'the text field stays visible above the keyboard',
+      );
     },
   );
+
+  group('desktop-builder chat on a landscape phone with the keyboard up', () {
+    // A phone in landscape classifies as a desktop screen, so the fork
+    // layout's DESKTOP builder hosts the chat: as the master-detail right pane
+    // (inside the home shell's Scaffold, which consumes the keyboard inset)
+    // and as a pushed route on a 720-800 dp phone (nothing consumes it). On
+    // an API 36 emulator (914x411 dp, 262-dp keyboard) the right pane was
+    // ~125 dp — less than header + composer — and overflowed by ~19 px. The
+    // test host is a desktop OS, where the fork classifies by diagonal
+    // (>= 11" = desktop), hence 1000x420 here.
+    Future<void> pumpChat(
+      WidgetTester tester, {
+      required double keyboard,
+      double? paneHeight,
+      bool asRoute = false,
+      bool reply = false,
+    }) async {
+      tester.view.physicalSize = const Size(1000, 420);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      TencentCloudChatScreenAdapter.deviceScreenType = DeviceScreenType.desktop;
+      TencentCloudChatScreenAdapter.hasInitialized = true;
+      addTearDown(() {
+        TencentCloudChatScreenAdapter.deviceScreenType = null;
+        TencentCloudChatScreenAdapter.hasInitialized = false;
+      });
+      final methods = _RecordingMethods();
+      final provider = TencentCloudChatMessageSeparateDataProvider()
+        ..messageBuilders = TencentCloudChatMessageBuilders();
+      final replied = V2TimMessage.fromJson({})
+        ..msgID = 'reply-1'
+        ..elemType = 1
+        ..timestamp = 1
+        ..sender = 'peer'
+        ..nickName = 'Peer';
+      final layout = TencentCloudChatMessageDataProviderInherited(
+        dataProvider: provider,
+        child: TencentCloudChatMessageLayout(
+          data: MessageLayoutBuilderData(
+            currentConversationShowName: 'Friend One',
+            desktopMentionBoxPositionX: 0,
+            desktopMentionBoxPositionY: 0,
+            activeMentionIndex: -1,
+            currentFilteredMembersListForMention: const [],
+            desktopStickerBoxPositionX: 0,
+            desktopStickerBoxPositionY: 0,
+            hasStickerPlugin: false,
+          ),
+          methods: MessageLayoutBuilderMethods(
+            sendTextMessage:
+                ({required String text, List<String>? mentionedUsers}) {},
+            sendImageMessage:
+                ({
+                  String? imagePath,
+                  String? imageName,
+                  dynamic inputElement,
+                }) {},
+            sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
+            sendFileMessage:
+                ({String? filePath, String? fileName, dynamic inputElement}) {},
+            sendVoiceMessage:
+                ({required String voicePath, required int duration}) {},
+            desktopInputMemberSelectionPanelScroll: AutoScrollController(),
+            onSelectMember: (_) {},
+            closeSticker: () {},
+          ),
+          widgets: MessageLayoutBuilderWidgets(
+            header: AppBar(title: const Text('Friend One')),
+            messageListView: const ColoredBox(
+              key: ValueKey('pane-list'),
+              color: Colors.white,
+              child: SizedBox.expand(),
+            ),
+            messageInput: TencentCloudChatMessageInputMobile(
+              inputData: _data(repliedMessage: reply ? replied : null),
+              inputMethods: methods.build(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        asRoute
+            // A pushed chat route: the layout is the page, no outer Scaffold.
+            ? MaterialApp(
+                locale: const Locale('en'),
+                supportedLocales: const [Locale('en')],
+                localizationsDelegates: const [
+                  TencentCloudChatLocalizations.delegate,
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: Builder(
+                  builder: (context) {
+                    TencentCloudChatIntl().init(context);
+                    return layout;
+                  },
+                ),
+              )
+            : _localized(
+                // The home shell: a Scaffold whose body hosts the right pane.
+                child: Scaffold(
+                  body: Align(
+                    alignment: Alignment.topRight,
+                    child: SizedBox(
+                      width: 670,
+                      height: paneHeight,
+                      child: layout,
+                    ),
+                  ),
+                ),
+              ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    void expectFieldAboveKeyboard(WidgetTester tester, double keyboard) {
+      final field = tester.getRect(find.byType(ExtendedTextField));
+      expect(field.height, greaterThan(0));
+      expect(
+        field.bottom,
+        lessThanOrEqualTo(420 - keyboard + 0.01),
+        reason: 'the text field stays above the keyboard',
+      );
+    }
+
+    testWidgets('right pane: the header yields, the composer fits', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the keyboard-shrunk pane must not overflow',
+      );
+      expect(
+        find.text('Friend One'),
+        findsNothing,
+        reason: 'no room for the header while the keyboard is up',
+      );
+      expectFieldAboveKeyboard(tester, 262);
+    });
+
+    testWidgets('right pane: the header comes back when the keyboard closes', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262);
+      expect(find.text('Friend One'), findsNothing);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsOneWidget);
+    });
+
+    testWidgets('the focused composer keeps focus as the keyboard opens', (
+      tester,
+    ) async {
+      // Opening the keyboard switches the layout (header dropped, composer
+      // bounded). If that changed the composer's ancestors, its element would
+      // be rebuilt and lose focus — closing the keyboard it just opened
+      // (seen on an API 36 emulator).
+      await pumpChat(tester, keyboard: 0);
+      await tester.tap(find.byType(ExtendedTextField));
+      await tester.pumpAndSettle();
+      bool fieldFocused() {
+        final focused = FocusManager.instance.primaryFocus?.context;
+        return focused != null &&
+            find
+                .descendant(
+                  of: find.byType(ExtendedTextField),
+                  matching: find.byWidget(focused.widget),
+                )
+                .evaluate()
+                .isNotEmpty;
+      }
+
+      expect(fieldFocused(), isTrue, reason: 'tapping focuses the composer');
+      tester.view.viewInsets = const FakeViewPadding(bottom: 262);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsNothing);
+      expect(
+        fieldFocused(),
+        isTrue,
+        reason: 'the keyboard opening must not rebuild the composer',
+      );
+    });
+
+    testWidgets('pushed route: the unconsumed inset is counted, no overflow', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262, asRoute: true);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsNothing);
+      expectFieldAboveKeyboard(tester, 262);
+    });
+
+    testWidgets(
+      'just above the threshold: header kept, a reply bar and multi-line '
+      'draft still fit',
+      (tester) async {
+        // 420 - 200 = 220 dp for header + body: not compact (56 + 140), so
+        // the header stays and only the composer bound keeps things in.
+        await pumpChat(tester, keyboard: 200, reply: true);
+        expect(find.text('Friend One'), findsOneWidget);
+        await _focusComposerAndEnterText(
+          tester,
+          'line one\nline two\nline three',
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expectFieldAboveKeyboard(tester, 200);
+      },
+    );
+
+    testWidgets('a short pane without a soft keyboard keeps its header', (
+      tester,
+    ) async {
+      // Desktops have no soft keyboard: a short window is not a reason to
+      // drop the header. (Overflow at this artificial height is not what
+      // this case checks.)
+      await pumpChat(tester, keyboard: 0, paneHeight: 149);
+      tester.takeException();
+      expect(find.text('Friend One'), findsOneWidget);
+    });
+  });
 
   testWidgets(
     'mobile composer: empty field shows mic, typing reveals send button, tap drives sendTextMessage',

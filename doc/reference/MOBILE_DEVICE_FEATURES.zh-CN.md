@@ -70,16 +70,17 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | L1 | 安全区：刘海、灵动岛、挖孔、圆角、Home 指示条 | P0 | ✅ | 大量 `SafeArea` / `viewPadding` |
-| L2 | Android 15+ 强制 edge-to-edge（targetSdk ≥ 35） | P0 | 🔍 | `targetSdk = flutter.targetSdkVersion`；状态栏 / 导航栏背后的内容需逐页确认 |
-| L3 | 手机横屏、iPad 四向旋转（Info.plist 已声明，iPad 含倒置） | P0 | ◐ | 已声明即承诺；聊天、通话、设置、登录页都要能用。旋转不重建 Activity（`configChanges` 含 `orientation|screenSize`） |
+| L2 | Android 15+ 强制 edge-to-edge（targetSdk ≥ 35） | P0 | ◐ | `targetSdk = flutter.targetSdkVersion`（36）。2026-09-26 在 API 36 模拟器横竖屏检查：会话列表、聊天、设置、账户信息页内容均未被状态栏 / 导航栏 / 挖孔遮挡；其余页面未逐一检查 |
+| L3 | 手机横屏、iPad 四向旋转（Info.plist 已声明，iPad 含倒置） | P0 | ◐ | 2026-09-26 Android 手机横屏实测：列表、聊天、设置可用（键盘问题见 L10，旋转帧问题见 L4a）；iPad 未测。已声明即承诺；聊天、通话、设置、登录页都要能用。旋转不重建 Activity（`configChanges` 含 `orientation|screenSize`） |
 | L4 | 运行中跨越响应式断点：旋转 / 分屏导致单栏 ↔ 主从双栏切换时，当前会话、输入草稿、通话界面不丢 | P0 | ◐ | 2026-09-26 修复（会话与草稿）：原先跨过 800 断点只切换 UIKit 布局模式，双栏里打开的会话在切到单栏时丢失、单栏推入的聊天页在切到双栏时整屏盖住双栏。现由 `lib/ui/home/master_detail_transition.dart` + `lib/navigation/root_route_tracker.dart` 迁移"实际可见"的那个会话（被其他页面盖住时不动）。API 36 手机模拟器旋转双向实测通过，草稿保留。共享 Dart 逻辑，iPad / 桌面窗口缩放走同一路径但未实测；通话界面跨断点未验证 |
 | L5 | iPad Split View / Slide Over / 台前调度（窗口任意尺寸下核心界面可用） | P0 | 🔍 | Info.plist 无 `UIRequiresFullScreen`，多任务默认开启。该键在 iPadOS 26 起已弃用，**不应靠它关闭多任务**，而应保证任意宽度可用。布局按宽度响应，理论可用，未实测 |
 | L6 | Android 分屏 / 自由窗口 / 小窗（各厂商，窗口任意尺寸下核心界面可用） | P0 | ◐ 🔍 | 2026-09-26 在 API 36 模拟器上用 `wm size` 模拟 320dp 宽、半屏高度，并实测横竖屏旋转：布局正常、会话与草稿保留（见 L4）。未测真正的多窗口分屏与各厂商小窗。 Manifest 未声明 `resizeableActivity`（默认可分屏）。targetSdk 36 的应用在最小宽度 ≥ 600dp 的设备上，Android 16 会忽略方向和可调整尺寸限制（16 上还可临时退出，之后的版本不行）；`targetSdk = flutter.targetSdkVersion`（`build.gradle.kts:60`）。同 L5，按宽度响应，未实测 |
 | L7 | 多窗口 / 多 Scene（iPad 多 Scene、Android 多实例窗口） | 不适配 | — | toxee 是单 Tox 实例（见 `CLAUDE.md` Singleton flow）。共享同一会话的多窗口理论可行，但收益小、改动大；保持不声明 `UIApplicationSupportsMultipleScenes` |
 | L7a | 防止重复启动争用同一 profile（Android 多次唤起 Activity、多实例窗口） | P1 | 🔍 | `launchMode="singleTop"`（`AndroidManifest.xml:61`）不能完全阻止新任务 / 多实例；需确认第二个 Activity 不会再次初始化 Tox |
+| L4a | 跨断点旋转的那一帧：双栏组件按新宽度排版一次（UIKit 布局模式在 post-frame 才切换），右栏标题栏与输入行横向溢出 40 / 52px，下一帧恢复 | P2 | ❌ | 2026-09-26 由日志时序确认（溢出早于 `MasterDetailTransition._apply`）。仅一帧的视觉闪烁与错误日志 |
 | L8 | 折叠屏：展开 / 折叠时尺寸变化 | P1 | 🔍 | 本质同 L4；`configChanges` 含 `smallestScreenSize|screenLayout`，不会重建 |
 | L9 | 折叠屏铰链避让、Flex 半折模式 | P2 | ❌ | 无 `DisplayFeature` 处理 |
-| L10 | 软键盘：弹出遮挡、横屏键盘、iPad 悬浮 / 分离键盘 | P0 | ◐ | Android `adjustResize`；输入框、表情面板与键盘切换需实测 |
+| L10 | 软键盘：弹出遮挡、横屏键盘、iPad 悬浮 / 分离键盘 | P0 | ◐ | 2026-09-26 修复：手机横屏双栏右栏弹出键盘后窗格只剩约 125dp，标题栏 + 输入框放不下，溢出 19px。fork `tencent_cloud_chat_message_layout.dart` 的 desktopBuilder 现在：有软键盘且窗格低于标题栏 + 输入框时收起标题栏（左侧列表仍可见），并在此时把输入框高度约束在正文内（桌面输入框会撑满有限高度，故只在有软键盘的压缩态约束）。模拟器实测修复，回归测试 `mobile_composer_real_ui_test.dart`（无修复时失败）。竖屏键盘正常。iPad 悬浮 / 分离键盘未测（Flutter iOS 对悬浮键盘通常不报 inset） |
 | L11 | 系统字体缩放 / 辅助功能大字体 | P1 | ◐ | 部分页面用 `textScalerOf` 计算尺寸；最大档位下的溢出未系统排查 |
 | L12 | 深色模式跟随系统 | P1 | ✅ | `lib/main.dart:269-285`（`ThemeMode.system`） |
 | L13 | 通话期间屏幕常亮 | P0 | ✅ | `lib/call/call_effects_listener.dart:70,88`（`WakelockPlus`） |
@@ -156,7 +157,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | I1 | 长按菜单与系统文本选择菜单不冲突 | P0 | ◐ | 已修过一轮，见 iPhone narrow-shell 记录 |
-| I2 | 系统返回：Android 预测性返回、iOS 边缘右滑，与路由栈 / 弹窗的交互 | P0 | 🔍 | 已开启 `enableOnBackInvokedCallback="true"`；通话界面、多层弹窗下的返回需实测 |
+| I2 | 系统返回：Android 预测性返回、iOS 边缘右滑，与路由栈 / 弹窗的交互 | P0 | ◐ | 已开启 `enableOnBackInvokedCallback="true"`。2026-09-26 API 36 实测：左边缘返回手势与返回键从聊天回到列表；弹出菜单只关闭菜单；设置子页只退一层；非聊天标签返回切到聊天标签；根页面"再按一次退出"。通话界面下的返回与 iOS 右滑未测 |
 | I3 | iPad 外接键盘：回车发送、快捷键 | P1 | ◐ | 移动端输入组件已处理实体键盘回车发送、组合键换行（fork `tencent_cloud_chat_message_input_mobile.dart:794`）；其他快捷键未核实 |
 | I4 | iPad 鼠标 / 触控板悬停、右键菜单、拖放文件进聊天 | P2 | ❌ | |
 | I5 | 读屏（VoiceOver / TalkBack） | P1 | ◐ | 只有零散的语义标注（如 `home_widgets.dart:302`），聊天主流程能否用读屏完成未验证 |
