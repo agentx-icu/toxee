@@ -29,6 +29,13 @@ WINDOWS_ARCH="${TIM2TOX_WINDOWS_ARCH:-x64}" # x64|arm64
 ENABLE_TOXAV=1
 ENABLE_DHT_BOOTSTRAP=0
 ENABLE_IRC=0
+# Test-only FFI hooks (today: the MM-6 crafted identity challenge) are OFF and
+# passed EXPLICITLY on every configure below — never merely left at the CMake
+# default. This script reuses build trees ($TIM2TOX_BUILD_ROOT/ci-*), and a tree
+# somebody once configured with -DTIM2TOX_ENABLE_TEST_HOOKS=ON keeps that cache
+# entry forever, so an app build would silently ship the hook. Only the
+# auto_tests CI jobs pass --enable-test-hooks; nothing they produce is packaged.
+ENABLE_TEST_HOOKS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,12 +67,22 @@ while [[ $# -gt 0 ]]; do
       ENABLE_IRC=1
       shift
       ;;
+    --enable-test-hooks)
+      # TEST ARTIFACT ONLY. Compiles tim2tox_ffi_mm6_send_crafted_challenge in
+      # so the auto_tests can construct the MM-6 confidentiality case. The
+      # resulting library must never be packaged, so the hook-free assertion
+      # below is skipped for it and its CI cache key must differ from every
+      # shipping one.
+      ENABLE_TEST_HOOKS=1
+      shift
+      ;;
     --help|-h)
       cat <<'EOF'
 Usage: build_tim2tox.sh --target <linux|windows|macos|android|ios>
                         [--mode <debug|profile|release>]
                         [--no-toxav]
                         [--dht-bootstrap]
+                        [--enable-test-hooks]
 
 Options:
   --target          Build target (required).
@@ -79,6 +96,12 @@ Options:
   --with-irc        Also build + capture libirc_client (desktop targets).
                     Needs OpenSSL: linux `apt install libssl-dev`,
                     windows `vcpkg install openssl:<triplet>`, macos brew.
+  --enable-test-hooks
+                    TEST ARTIFACT ONLY: compile the auto_tests-only FFI hooks
+                    (TIM2TOX_ENABLE_TEST_HOOKS=ON), i.e. the MM-6 crafted
+                    identity challenge. Default OFF, passed explicitly.
+                    Use ONLY for the auto_tests jobs; the library produced
+                    with this flag must never reach a packaging step.
 
 Dependencies when ToxAV is on:
   linux:   apt install libopus-dev libvpx-dev
@@ -171,6 +194,7 @@ configure_args=(
   -DBUILD_FUZZ_TESTS=OFF
   -DUSE_IPV6=ON
   -DEXPERIMENTAL_API=OFF
+  -DTIM2TOX_ENABLE_TEST_HOOKS=OFF
   -DERROR=ON
   -DWARNING=ON
   -DINFO=ON
@@ -207,6 +231,28 @@ if [[ "$ENABLE_DHT_BOOTSTRAP" -eq 1 ]]; then
   set_configure_arg "DHT_BOOTSTRAP" "ON"
   set_configure_arg "BOOTSTRAP_DAEMON" "ON"
 fi
+
+if [[ "$ENABLE_TEST_HOOKS" -eq 1 ]]; then
+  set_configure_arg "TIM2TOX_ENABLE_TEST_HOOKS" "ON"
+  ci_warn "TIM2TOX_ENABLE_TEST_HOOKS=ON — this is a TEST artifact (MM-6 crafted-challenge hook compiled in). It must never be packaged."
+fi
+
+# Byte-level second gate on everything this script captures or syncs. The
+# configure flags above cover trees WE configure; packaging also accepts
+# prebuilt binaries (TIM2TOX_ANDROID_LIB_DIR, TIM2TOX_IOS_FRAMEWORK_PATH,
+# TIM2TOX_IOS_DYLIB_PATH, and anything already sitting in jniLibs), which never
+# saw CMake at all. The forbidden symbol name lives in ONE place:
+# tool/ci/assert_no_test_hooks.sh.
+assert_hook_free_artifact() {
+  local lib="$1"
+  local nm_tool="${2:-}"
+  [[ "$ENABLE_TEST_HOOKS" -eq 1 ]] && return 0
+  if [[ -n "$nm_tool" ]]; then
+    TIM2TOX_NM="$nm_tool" bash "$SCRIPT_DIR/assert_no_test_hooks.sh" "$lib"
+  else
+    bash "$SCRIPT_DIR/assert_no_test_hooks.sh" "$lib"
+  fi
+}
 
 # NDK llvm prebuilt directory, host-agnostic (linux-x86_64 on CI runners,
 # darwin-* on developer Macs). The previous hardcoded linux-x86_64 made the
@@ -394,6 +440,7 @@ build_android_ffi_for_abi() {
   cp "$built_lib" "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so"
   ci_log "Captured Android native library for $abi: $built_lib"
   assert_toxav_artifact "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" "$toolchain/bin/llvm-nm" "android-$abi"
+  assert_hook_free_artifact "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" "$toolchain/bin/llvm-nm"
 
   rm -rf "$repo_jni_libs"
   mkdir -p "$repo_jni_libs"
@@ -427,6 +474,10 @@ build_android_ffi_libs() {
     ci_log "Synced Android JNI libraries from $source_dir"
     while IFS= read -r synced_lib; do
       assert_toxav_artifact "$synced_lib" nm "android-synced"
+      # A synced .so was built by someone else entirely, so the CMake gate
+      # above never applied to it — this is the only thing standing between a
+      # hook-enabled prebuilt and the APK.
+      assert_hook_free_artifact "$synced_lib"
     done < <(find "$OUTPUT_DIR/jniLibs" -type f -name 'libtim2tox_ffi.so')
     return
   fi
@@ -536,6 +587,7 @@ build_ios_ffi_dylib() {
   mkdir -p "$framework_dir"
   cp "$built_lib" "$framework_dir/tim2tox_ffi"
   assert_toxav_artifact "$framework_dir/tim2tox_ffi" nm "ios-arm64"
+  assert_hook_free_artifact "$framework_dir/tim2tox_ffi"
   cat > "$framework_dir/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -858,6 +910,7 @@ build_desktop_target() {
   fi
 
   assert_toxav_artifact "$OUTPUT_DIR/$(basename "$built_lib")" nm "$target"
+  assert_hook_free_artifact "$OUTPUT_DIR/$(basename "$built_lib")"
 }
 
 sync_ios_ffi_artifacts() {
@@ -882,6 +935,9 @@ sync_ios_ffi_artifacts() {
   else
     while IFS= read -r synced_lib; do
       assert_toxav_artifact "$synced_lib" nm "ios-synced"
+      # Xcode embeds whatever framework/dylib was staged here, and this one was
+      # handed to us prebuilt — the CMake gate never saw it.
+      assert_hook_free_artifact "$synced_lib"
     done < <(find "$OUTPUT_DIR" -type f \( -name 'tim2tox_ffi' -o -name 'libtim2tox_ffi.dylib' \))
   fi
 }

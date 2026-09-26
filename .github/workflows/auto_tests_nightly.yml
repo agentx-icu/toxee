@@ -82,8 +82,14 @@ jobs:
       - name: Install toxee Flutter packages
         run: flutter pub get
 
-      - name: Build libtim2tox_ffi.so (Linux, toxav + DHT bootstrap)
-        run: bash tool/ci/build_tim2tox.sh --target linux --mode release --toxav --dht-bootstrap
+      # --enable-test-hooks compiles the auto_tests-only MM-6 crafted-challenge
+      # hook in, without which the MM-6 confidentiality leg of
+      # scenario_group_receipt_control_row_test silently skips (CI green without
+      # checking confidentiality). TEST artifact only: this workflow has no
+      # packaging step, caches nothing, and uploads only test logs, so the
+      # hook-enabled library cannot leave the job.
+      - name: Build libtim2tox_ffi.so (Linux, toxav + DHT bootstrap + TEST HOOKS)
+        run: bash tool/ci/build_tim2tox.sh --target linux --mode release --toxav --dht-bootstrap --enable-test-hooks
 
       - name: Stage libtim2tox_ffi.so for runtime loader
         id: stage_lib
@@ -109,6 +115,9 @@ jobs:
           # Wall-clock: deliberately NO RUN_VIRTUAL — we want real Tox timers.
           RETRY_COUNT: '0'
           SKIP_PUB_GET: 'auto'
+          # The library above carries the test hooks, so their absence is a
+          # broken build: the MM-6 case must FAIL rather than markTestSkipped.
+          TIM2TOX_EXPECT_TEST_HOOKS: '1'
         run: |
           chmod +x ./run_tests_ordered.sh
           ./run_tests_ordered.sh 1-14

@@ -51,6 +51,12 @@
 //   * the over-deletion guards on that sweep: a queue key whose suffix is not
 //     an account-ID shape, and the unsuffixed pre-account-scoping key, both
 //     survive.
+//   * the full-ID-scoped families that `Prefs.clearScopedKeysForAccount` cannot
+//     reach at all (they do not end in `_<first16>`): `black_list_<toxId>`,
+//     `pending_read_receipts_<toxId>_<peerId>` and the GROUP sibling
+//     `pending_group_read_receipts_<toxId>`, whose value names group ids,
+//     author public keys and message aliases. Same cross-representation and
+//     over-deletion cases as the failed-message queue.
 //   * a Tox ID shorter than the 16-char legacy prefix does not trigger a
 //     prefix-wildcard removal.
 //   * all four `deletedCurrentAccount` / pointer combinations, including the
@@ -513,6 +519,144 @@ void main() {
       expect(prefs.getString('unrelated_setting'), 'keep me');
       expect(prefs.getString('profile_storage_root'), env.profiles);
       expect(prefs.getString('downloads_directory'), env.downloads);
+    });
+  });
+
+  group('full-ID-scoped key removal', () {
+    // `Prefs.clearScopedKeysForAccount` only sweeps keys ending in
+    // `_<first16>`, so every family keyed by a 64- or 76-char id needs
+    // `AccountPrivacyCleanup._removeFullIdScopedPrefs` or it survives deletion
+    // outright. The GROUP read-receipt queue is the newest such family and was
+    // not in that sweep: its value is a list of JSON triples
+    // `[groupID, authorPublicKey, rowIdOrAlias]`, i.e. which groups this
+    // account was in, whom it talked to there, and which of their messages it
+    // read. Key names are duplicated here on purpose — they are a cross-package
+    // contract with `FfiChatService` that no compiler checks.
+    String groupReceiptKey(String scope) =>
+        'pending_group_read_receipts_$scope';
+    String c2cReceiptKey(String scope, String peer) =>
+        'pending_read_receipts_${scope}_$peer';
+    String blackListKey(String scope) => 'black_list_$scope';
+
+    const String secretGroupId = 'GROUP_SECRET_ff0102';
+    List<String> queueRows(String groupId) => <String>[
+      jsonEncode(<String>[groupId, _pubKeyB, 'gmid:42']),
+    ];
+
+    test('removes a group receipt queue keyed by the 76-char address when '
+        'deletion is driven by the 64-char public key', () async {
+      await prefs.setStringList(
+        groupReceiptKey(_addressA),
+        queueRows(secretGroupId),
+      );
+      await prefs.setStringList(
+        groupReceiptKey(_addressB),
+        queueRows('GROUP_OTHER_0099'),
+      );
+
+      await _purge(_pubKeyA, deletedCurrentAccount: false);
+
+      expect(
+        prefs.getStringList(groupReceiptKey(_addressA)),
+        isNull,
+        reason: 'the deleted account\'s group receipt queue must not survive',
+      );
+      expect(
+        prefs.getStringList(groupReceiptKey(_addressB)),
+        isNotNull,
+        reason: 'a surviving account keeps its own group receipt queue',
+      );
+      // Belt and braces: the group id / author key must be gone from the whole
+      // store, not just from the one key we happened to look at.
+      for (final key in prefs.getKeys()) {
+        expect(
+          jsonEncode(prefs.get(key)),
+          isNot(contains(secretGroupId)),
+          reason: 'group residue survived under $key',
+        );
+      }
+    });
+
+    test('removes a group receipt queue keyed by the 64-char public key when '
+        'deletion is driven by the 76-char address', () async {
+      await prefs.setStringList(
+        groupReceiptKey(_pubKeyA),
+        queueRows(secretGroupId),
+      );
+      await prefs.setStringList(
+        groupReceiptKey(_pubKeyB),
+        queueRows('GROUP_OTHER_0099'),
+      );
+
+      await _purge(_addressA, deletedCurrentAccount: false);
+
+      expect(prefs.getStringList(groupReceiptKey(_pubKeyA)), isNull);
+      expect(prefs.getStringList(groupReceiptKey(_pubKeyB)), isNotNull);
+    });
+
+    test('matches the account ID regardless of hex case', () async {
+      final lowerA = groupReceiptKey(_addressA.toLowerCase());
+      final lowerB = groupReceiptKey(_addressB.toLowerCase());
+      await prefs.setStringList(lowerA, queueRows(secretGroupId));
+      await prefs.setStringList(lowerB, queueRows('GROUP_OTHER_0099'));
+
+      await _purge(_addressA, deletedCurrentAccount: false);
+
+      expect(prefs.getStringList(lowerA), isNull);
+      expect(prefs.getStringList(lowerB), isNotNull);
+    });
+
+    test('leaves group receipt keys whose suffix is not an account-ID shape',
+        () async {
+      // Over-deletion guard. The account scope is the WHOLE suffix for this
+      // family, so anything that is not a 16/64/76-char hex id — a future
+      // schema variant, or `FfiChatService`'s scope-less `#<instanceId>`
+      // fallback — is not attributable to this account and must stay.
+      final schemaVariant = '${groupReceiptKey(_addressA)}_v2';
+      final fallbackScope = groupReceiptKey('#3');
+      final unsuffixed = 'pending_group_read_receipts_';
+      await prefs.setStringList(schemaVariant, queueRows('GROUP_X'));
+      await prefs.setStringList(fallbackScope, queueRows('GROUP_Y'));
+      await prefs.setStringList(unsuffixed, queueRows('GROUP_Z'));
+
+      await _purge(_addressA, deletedCurrentAccount: false);
+
+      expect(prefs.getStringList(schemaVariant), isNotNull);
+      expect(prefs.getStringList(fallbackScope), isNotNull);
+      expect(prefs.getStringList(unsuffixed), isNotNull);
+    });
+
+    test('still removes the C2C receipt queue and blacklist siblings',
+        () async {
+      // The group prefix (`pending_group_read_receipts_`) and the C2C one
+      // (`pending_read_receipts_`) are neither a prefix of the other, so adding
+      // the group branch must not shadow the two families that were already
+      // swept.
+      await prefs.setStringList(
+        c2cReceiptKey(_addressA, 'PEERAAAA'),
+        <String>['msg-1'],
+      );
+      await prefs.setStringList(
+        c2cReceiptKey(_addressB, 'PEERBBBB'),
+        <String>['msg-2'],
+      );
+      await prefs.setStringList(blackListKey(_addressA), <String>[_pubKeyB]);
+      await prefs.setStringList(blackListKey(_addressB), <String>[_pubKeyA]);
+      await prefs.setStringList(
+        groupReceiptKey(_addressA),
+        queueRows(secretGroupId),
+      );
+
+      await _purge(_addressA, deletedCurrentAccount: false);
+
+      expect(prefs.getStringList(c2cReceiptKey(_addressA, 'PEERAAAA')), isNull);
+      expect(prefs.getStringList(blackListKey(_addressA)), isNull);
+      expect(prefs.getStringList(groupReceiptKey(_addressA)), isNull);
+      expect(
+        prefs.getStringList(c2cReceiptKey(_addressB, 'PEERBBBB')),
+        isNotNull,
+      );
+      expect(prefs.getStringList(blackListKey(_addressB)), isNotNull);
     });
   });
 

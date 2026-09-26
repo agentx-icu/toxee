@@ -36,6 +36,36 @@ print_info "Flutter version: $(flutter --version | head -n 1)"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# ---------------------------------------------------------------------------
+# Test-hook gate (see tool/ci/assert_no_test_hooks.sh).
+#
+# Passing TIM2TOX_ENABLE_TEST_HOOKS=OFF to the native build only covers the
+# tree we configure. Gradle packages whatever .so sits in
+# android/app/src/main/jniLibs/<abi>/ and Xcode embeds whatever
+# tim2tox_ffi.framework / libtim2tox_ffi.dylib was staged, whoever built it —
+# so the binaries that are actually about to be packaged get checked by their
+# bytes, right after the native build that produced them.
+# ---------------------------------------------------------------------------
+ASSERT_NO_TEST_HOOKS="$SCRIPT_DIR/tool/ci/assert_no_test_hooks.sh"
+
+assert_hook_free_file() {
+    local target="$1"
+    if [ -f "$target" ]; then
+        bash "$ASSERT_NO_TEST_HOOKS" "$target"
+    fi
+}
+
+# Same, for a staging directory (jniLibs tree, .framework bundle). Skipped when
+# it holds no FFI binary at all — the script itself refuses to report a clean
+# check on a directory with nothing in it, which is the right behaviour there
+# but would turn "this platform was never built" into a build failure here.
+assert_hook_free_dir() {
+    local dir="$1"
+    if [ -d "$dir" ] && [ -n "$(find "$dir" -type f \( -name 'libtim2tox_ffi.*' -o -name 'tim2tox_ffi' \) -print -quit)" ]; then
+        bash "$ASSERT_NO_TEST_HOOKS" "$dir"
+    fi
+}
+
 # Build tim2tox native library first
 print_info "Building tim2tox native library..."
 TIM2TOX_DIR="$SCRIPT_DIR/third_party/tim2tox"
@@ -50,6 +80,16 @@ if [ -d "$TIM2TOX_DIR" ]; then
         # build_ffi.sh defaults the MM-6 crafted-challenge test hook ON, because
         # the auto_tests need it. An APP build must never carry it.
         TIM2TOX_ENABLE_TEST_HOOKS=OFF ./build_ffi.sh
+        # ...and prove it from the produced bytes: build_ffi.sh reuses its build
+        # tree, so a stale cache or a library left behind by an auto_tests build
+        # is exactly the case the env var above cannot speak for.
+        case "$OSTYPE" in
+            darwin*) _host_ffi_lib="$TIM2TOX_DIR/build/ffi/libtim2tox_ffi.dylib" ;;
+            linux*)  _host_ffi_lib="$TIM2TOX_DIR/build/ffi/libtim2tox_ffi.so" ;;
+            msys*|cygwin*|mingw*) _host_ffi_lib="$TIM2TOX_DIR/build/ffi/tim2tox_ffi.dll" ;;
+            *)       _host_ffi_lib="$TIM2TOX_DIR/build/ffi/libtim2tox_ffi.dylib" ;;
+        esac
+        bash "$ASSERT_NO_TEST_HOOKS" "$_host_ffi_lib"
     elif [ -f "build.sh" ]; then
         print_warn "build_ffi.sh not found in tim2tox, falling back to build.sh"
         print_warn "Note: build.sh does NOT produce libtim2tox_ffi (no toxav, no FFI shim)."
@@ -181,11 +221,18 @@ for PLATFORM in $PLATFORMS; do
             fi
             ;;
         android)
+            # Gradle packages the staged jniLibs as-is, prebuilt or not.
+            assert_hook_free_dir "$SCRIPT_DIR/android/app/src/main/jniLibs"
             flutter build apk --$BUILD_MODE
             print_info "Android build completed"
             ;;
         ios)
             if [[ "$OSTYPE" == "darwin"* ]]; then
+                # Xcode's embed phase takes whatever framework/dylib is staged.
+                assert_hook_free_dir "$TIM2TOX_DIR/build/ios/tim2tox_ffi.framework"
+                assert_hook_free_dir "$TIM2TOX_DIR/build/ios-device/tim2tox_ffi.framework"
+                assert_hook_free_file "$TIM2TOX_DIR/build/ios-sim/libtim2tox_ffi.dylib"
+                assert_hook_free_file "$TIM2TOX_DIR/build/ios-dev/libtim2tox_ffi.dylib"
                 flutter build ios --$BUILD_MODE --no-codesign
                 print_info "iOS build completed (unsigned)"
             else
