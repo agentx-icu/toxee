@@ -57,7 +57,9 @@ void main() {
 
     // A live metadata refresh must merge with the cold row instead of doing a
     // second persistence read that could race a later explicit draft clear.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // Drain any still-in-flight cold-start draft reads before snapshotting the
+    // count, rather than assuming a fixed 100ms covers them.
+    await pumpEventQueue();
     final coldDraftLoadCount = ffi.loadedConversationIDs.length;
     final refreshedFuture = dataProvider.conversationStream.firstWhere(
       (list) => list.any(

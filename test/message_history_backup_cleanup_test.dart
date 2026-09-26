@@ -59,10 +59,19 @@ void main() {
       // it's removed once the rename + completer succeed.
       await persistence.saveHistory(id, [_msg(0), _msg(1)]);
 
-      // Give the post-complete delete a tick to run.
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // The post-complete delete runs off the save's completer. Poll for it
+      // with a generous deadline instead of sleeping a fixed 20ms: if it
+      // never runs, the poll simply expires and the expectation below still
+      // reports the surviving `.bak`.
+      List<String> listing() =>
+          tempDir.listSync().map((e) => p.basename(e.path)).toList();
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (listing().any((n) => n.endsWith('.bak')) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
 
-      final entries = tempDir.listSync().map((e) => p.basename(e.path)).toList();
+      final entries = listing();
       final bakFiles = entries.where((n) => n.endsWith('.bak')).toList();
       expect(
         bakFiles,

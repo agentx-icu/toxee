@@ -190,7 +190,13 @@ void main() {
       ));
       BinaryReplacementHistoryHook.initialize(persistenceA, '');
       BinaryReplacementHistoryHook.updateSelfId(selfA);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // `updateSelfId` replays the buffer through a discarded future. Poll for
+      // the replayed row instead of sleeping a fixed 20ms and hoping.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (persistenceA.getHistory(peer).isEmpty &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
       await persistenceA.flushPendingSaves();
       expect(persistenceA.getHistory(peer).map((m) => m.msgID),
           ['buffered_same_session']);

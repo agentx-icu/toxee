@@ -483,7 +483,12 @@ void main() {
       expect(backend.enabled, {'tox_conf_1'}, reason: 'still owned natively');
       bridge.clearReceiveCallback(groupId: 'tox_conf_1', owner: owner);
       backend.disableResult = true;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // Poll for the background retry rather than sleeping past its (injected
+      // 1ms) delay: a fixed 20ms is a race on a loaded host.
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (backend.enabled.isNotEmpty && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
       expect(backend.enabled, isEmpty);
       expect(backend.disableCalls, 2);
       await bridge.dispose();

@@ -29,18 +29,39 @@ ChatMessage _msg(int i, {String? text}) => ChatMessage(
       msgID: 'id_$i',
     );
 
+/// Every wait in this file is settled by a timer or a completer inside the
+/// store. A bug that drops either would otherwise hang until the runner's own
+/// timeout killed the whole file with no indication of which case was stuck —
+/// so each one gets a local deadline, generous next to the 200 ms debounce it
+/// is waiting on but finite.
+const Duration _settleBudget = Duration(seconds: 30);
+
 Future<void> _flush(MessageHistoryPersistence p) async {
-  await p.flushPendingSaves();
-  await Future<void>.delayed(const Duration(milliseconds: 50));
+  await p.flushPendingSaves().timeout(
+        _settleBudget,
+        onTimeout: () => fail(
+          'flushPendingSaves did not settle within ${_settleBudget.inSeconds}s',
+        ),
+      );
 }
 
 Future<void> _appendRange(
     MessageHistoryPersistence p, int from, int toExclusive) async {
+  final appends = <Future<void>>[];
   for (var i = from; i < toExclusive; i++) {
     // Deliberately not awaited one by one: that is how the product appends.
-    // ignore: unawaited_futures
-    p.appendHistory(_group, _msg(i));
+    // They are awaited together below — `appendHistory`'s future completes
+    // when its debounced save lands, so this waits for the WORK instead of
+    // sleeping past the debounce window.
+    appends.add(p.appendHistory(_group, _msg(i)));
   }
+  await Future.wait(appends).timeout(
+    _settleBudget,
+    onTimeout: () => fail(
+      'the debounced saves for rows $from..$toExclusive never settled within '
+      '${_settleBudget.inSeconds}s',
+    ),
+  );
   await _flush(p);
 }
 

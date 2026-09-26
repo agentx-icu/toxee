@@ -289,8 +289,9 @@ void main() {
       expect(loaded.map((m) => m.msgID), ['old_1', 'old_2', 'new_1']);
       expect(fresh.getHistory(_gid).map((m) => m.msgID),
           ['old_1', 'old_2', 'new_1']);
-      await fresh.flushPendingSaves();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // `flushPendingSaves` loops until no dirty work is left (including
+      // debounce timers armed while it was awaiting), so one call is enough —
+      // no sleep between two flushes to outlast the 200ms debounce.
       await fresh.flushPendingSaves();
       await fresh.dispose();
 

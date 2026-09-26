@@ -39,15 +39,16 @@ void main() {
         'initialize keeps the new log file and prunes old app_*.log files '
         'beyond the most recent 10', () async {
       // Pre-seed 12 fake old log files with monotonically increasing mtimes
-      // so the sort by mtime is deterministic. We can't easily set mtime on
-      // every platform, but creating them sequentially is enough for the
-      // default `File.stat().modified` to differ between platforms with
-      // sub-second precision.
+      // so the sort by mtime is deterministic. The mtimes are STAMPED, not
+      // obtained by sleeping between creates: a filesystem with coarse
+      // timestamp granularity (or a host that ran the loop faster than that
+      // granularity) gave several files the same mtime and made the prune
+      // order — and therefore this test — a coin flip.
+      final base = DateTime.now().subtract(const Duration(hours: 1));
       for (var i = 0; i < 12; i++) {
         final f = File('${tempDir.path}/app_old_$i.log');
         await f.writeAsString('seed $i');
-        // Yield a millisecond between creates so the mtimes are sortable.
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await f.setLastModified(base.add(Duration(minutes: i)));
       }
 
       // Point the logger at a NEW file inside the same directory. Using a

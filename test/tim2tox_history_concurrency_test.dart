@@ -198,7 +198,8 @@ void main() {
     await blocker.writeAsString('not a directory');
     final unhandled = <Object>[];
     // Created OUTSIDE the guarded zone so its result reaches this await.
-    final done = Completer<({Object? flushError, List<String?> cached})>();
+    final done = Completer<
+        ({Object? flushError, List<String?> cached, bool landedByRetry})>();
     runZonedGuarded(() async {
       try {
         final store = MessageHistoryPersistence(historyDirectory: blocker.path);
@@ -212,11 +213,28 @@ void main() {
         }
         final cached = store.getHistory(_peer).map((m) => m.msgID).toList();
 
-        // Disk comes back: the armed retry (1 s) writes the row.
+        // Disk comes back: the armed retry (1 s backoff) writes the row.
+        // Poll for the write instead of sleeping past the backoff — a fixed
+        // wait is a race on a loaded CI host, and it is the RETRY that must
+        // land the row (dispose below would flush it too, which is why the
+        // poll has to succeed first).
         await blocker.delete();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        final written = File(p.join(blocker.path, 'peer.json'));
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (!written.existsSync() && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+        // Sampled BEFORE dispose. dispose() flushes too, so a file checked
+        // afterwards exists either way — the assertion passed whether or not
+        // the automatic retry ever fired, which is the one thing this test is
+        // for.
+        final landedByRetry = written.existsSync();
         await store.dispose();
-        done.complete((flushError: flushError, cached: cached));
+        done.complete((
+          flushError: flushError,
+          cached: cached,
+          landedByRetry: landedByRetry,
+        ));
       } catch (e, st) {
         done.completeError(e, st);
       }
@@ -224,6 +242,9 @@ void main() {
     final result = await done.future;
     expect(result.flushError, isA<HistoryFlushException>());
     expect(result.cached, ['keep']);
+    expect(result.landedByRetry, isTrue,
+        reason: 'the ARMED RETRY must write the row once the disk comes back, '
+            'without waiting for dispose to flush it');
     expect(await File(p.join(blocker.path, 'peer.json')).exists(), isTrue);
     expect(unhandled, isEmpty, reason: 'no unhandled async error may escape');
   });
@@ -241,7 +262,7 @@ void main() {
       await store.appendHistory(_peer, _row('late', 2));
       expect(await reloadIds('peer'), ['a']);
 
-      store.openSession();
+      await store.openSession();
       await store.loadHistory(_peer);
       unawaited(store.appendHistory(_peer, _row('b', 3)));
       // Debounced (not synchronous) again: nothing on disk yet...

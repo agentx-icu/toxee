@@ -38,7 +38,9 @@ void main() {
   Future<void> tombstone(FakeChatDataProvider p) async {
     final bus = FakeUIKit.instance.eventBusInstance;
     bus.emit(FakeIM.topicFriendDeleted, FakeFriendDeleted(userID: _peer));
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // The bus handler is a plain stream listener, so draining the event queue
+    // delivers it — no fixed sleep needed to order it before the rebuild emit.
+    await pumpEventQueue();
     // The periodic rebuild re-emits the friend: it must stay hidden.
     bus.emit(
       FakeIM.topicConversation,
@@ -89,7 +91,9 @@ void main() {
 
     final bus = FakeUIKit.instance.eventBusInstance;
     bus.emit(FakeIM.topicFriendAdded, FakeFriendAdded(userID: _peer));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Drain the queue so the tombstone is lifted before the rebuild emit,
+    // instead of assuming a fixed 50ms is long enough.
+    await pumpEventQueue();
     final restoredFuture = p.conversationStream.firstWhere(
       (l) => l.any((c) => c.conversationID == _conv),
     );

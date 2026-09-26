@@ -47,25 +47,52 @@ void main() {
   });
 
   test('the next audio after the backoff retries the setup', () async {
+    // The contract under test, not just "it recovers eventually": retrying per
+    // arriving frame would hammer the platform 50x/s, so the handler backs off
+    // for exactly this long (`AudioHandler._playbackRetryAt`). Bounding the
+    // wait to the SPECIFIED backoff plus CI slack is what makes a regression
+    // to, say, a 10 s backoff fail here — kicking in a loop for 20 s recovered
+    // from that too, and passed.
+    const backoff = Duration(seconds: 1);
+    const ciSlack = Duration(seconds: 2);
+
     speaker.failSetup = true;
     await joinListenOnly();
+    final backoffArmedAt = DateTime.now();
     audio.kickPlayback();
     await pumpEventQueue();
     expect(speaker.setupCount, 1);
 
-    // Retrying per arriving frame would hammer the platform 50x/s, so the
-    // handler backs off for a second — hence the real wait here.
     audio.kickPlayback();
     await pumpEventQueue();
     expect(speaker.setupCount, 1, reason: 'backoff still running');
 
     speaker.failSetup = false;
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
     source.queue.addAll(<int>[7, 7, 7]);
-    audio.kickPlayback();
-    await pumpEventQueue();
 
-    expect(speaker.setupCount, 2, reason: 'recovered');
+    // Wait the backoff out WITHOUT kicking, so nothing can retry early...
+    final retryDue = backoffArmedAt.add(backoff);
+    while (DateTime.now().isBefore(retryDue)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(speaker.setupCount, 1,
+        reason: 'nothing retries on its own; it takes a kick');
+
+    // ...then a post-backoff kick must succeed. A couple of repeats absorb
+    // clock/scheduler granularity on a loaded CI host; the deadline is the
+    // backoff plus slack, not an open-ended budget.
+    final deadline = retryDue.add(ciSlack);
+    while (speaker.setupCount < 2 && DateTime.now().isBefore(deadline)) {
+      audio.kickPlayback();
+      await pumpEventQueue();
+      if (speaker.setupCount < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    expect(speaker.setupCount, 2,
+        reason: 'a kick after the ${backoff.inSeconds}s backoff must retry the '
+            'setup (allowing ${ciSlack.inSeconds}s of CI slack)');
     expect(speaker.fed.single, Int16List.fromList(<int>[7, 7, 7]));
   });
 

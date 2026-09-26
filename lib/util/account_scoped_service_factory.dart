@@ -118,6 +118,16 @@ Future<void> installAccountScopedStorage({
   // and the per-file `if (!dest.exists())` guard means it is never adopted.
   await service.messageHistoryPersistence.flushPendingSaves();
   final paths = await _prepareAccountStoragePaths(toxId);
+  // The legacy copy above runs FIRST on purpose. The service has been running
+  // on tim2tox's default history directory, and when `init()` could already
+  // read the Tox ID that directory is the owner-bound
+  // `<AppSupport>/chat_history_<publicKey>` — so the rows written during this
+  // very login live there, not in the pre-binding `<AppSupport>/chat_history`
+  // that `migrateLegacyAccountDataIfClaimed` knows about.
+  // `rebindHistoryDirectory` (inside `installAccountStorage`) merges that
+  // owner-bound directory into the account directory by ROW, which is why the
+  // legacy copy must already be in place: a file-level copy in either
+  // direction would drop one of the two sides.
   await service.installAccountStorage(
     historyDirectory: paths.historyDirectory,
     queueFilePath: paths.queueFilePath,

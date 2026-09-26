@@ -76,10 +76,10 @@ void main() {
       final persistence =
           MessageHistoryPersistence(historyDirectory: tempDir.path);
       final result = await persistence.loadAllHistories();
-      // loadHistory issues an unawaited save-back when pending messages get
-      // flipped to failed; allow those to complete before tearDown so the
-      // tmp-file rename doesn't race the recursive directory delete.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // A load that normalizes rows (pending flipped to failed) defers the
+      // save-back. Drain it deterministically instead of sleeping, so the
+      // tmp-file rename cannot race the recursive directory delete.
+      await persistence.flushPendingSaves();
 
       expect(result.length, conversationCount);
       for (var i = 0; i < conversationCount; i++) {
@@ -122,9 +122,9 @@ void main() {
       final persistence =
           MessageHistoryPersistence(historyDirectory: tempDir.path);
       final result = await persistence.loadAllHistories();
-      // Wait for unawaited save-back from loadHistory to settle so the tmp
-      // rename doesn't race the recursive directory delete in tearDown.
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Drain the deferred post-load save-back instead of sleeping, so the
+      // tmp rename cannot race the recursive directory delete in tearDown.
+      await persistence.flushPendingSaves();
 
       // The good files come back; the broken one is silently skipped.
       expect(result.containsKey('good_a'), isTrue);
@@ -179,10 +179,21 @@ void main() {
         ));
       }
 
-      // Give the 200ms debounce timer a chance to fire and the resulting
-      // saveHistory to complete. 300ms is comfortably above the window.
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      await Future.wait(futures);
+      // Wait for the debounced save itself, not a fixed sleep past the
+      // window: each `appendHistory` future completes when the debounce
+      // timer has fired AND the resulting saveHistory has landed.
+      //
+      // With a LOCAL deadline: these futures are settled by a timer and a
+      // completer inside the store, so a bug that drops either leaves this
+      // hanging until the whole suite's timeout kills the run with no clue
+      // which test was stuck. 30 s is ~150x the 200 ms debounce.
+      await Future.wait(futures).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => fail(
+          'the debounced saves never settled: appendHistory futures are still '
+          'pending 30s after a 200ms debounce window',
+        ),
+      );
 
       // Force-flush belt-and-braces in case the test host was slow.
       await persistence.flushPendingSaves();

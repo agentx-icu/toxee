@@ -57,8 +57,12 @@ void main() {
   test('a clean cold start does not rewrite history files', () async {
     await seed(20);
     final before = await mainFile().readAsBytes();
+    // Backdate the file instead of sleeping 1.1s to get past the filesystem's
+    // mtime granularity: any rewrite during the cold start below then stamps a
+    // visibly different mtime, whatever the granularity is.
+    await mainFile()
+        .setLastModified(DateTime.now().subtract(const Duration(hours: 1)));
     final mtimeBefore = (await mainFile().stat()).modified;
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
 
     final p = MessageHistoryPersistence(historyDirectory: tempDir.path);
     final loaded = await p.loadAllHistories();
