@@ -39,6 +39,7 @@
 - [reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.md) - Calling, plugins, LAN Bootstrap, IRC extensions
 - [reference/GROUP_CHAT_GUIDE.md](reference/GROUP_CHAT_GUIDE.md) - Group chat lifecycle, persistence and FAQs
 - [reference/PLATFORM_SUPPORT.md](reference/PLATFORM_SUPPORT.md) - Platform support scope and differences
+- [reference/MOBILE_DEVICE_FEATURES.md](reference/MOBILE_DEVICE_FEATURES.md) - Mobile device features (audio routing, rotation / split screen, background, network, ...): whether toxee must adapt, current status, and the review checklist every change goes through
 
 ## Cross-project references
 

@@ -1,0 +1,194 @@
+[English](./MOBILE_DEVICE_FEATURES.md)
+
+# 移动端设备特性兼容清单
+
+> 起草 2026-09-26。姊妹文档：[PLATFORM_SUPPORT](./PLATFORM_SUPPORT.zh-CN.md)、
+> [MOBILE_BACKGROUND](../architecture/MOBILE_BACKGROUND.zh-CN.md)。
+
+toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端不存在的设备特性
+（音频路由、距离传感器、屏幕旋转、分屏、后台挂起、网络切换……），它们会影响聊天、
+通话和布局的正确性。本文列出这些特性，逐项给出**是否需要在 toxee 适配**的结论和
+当前实现状态。
+
+**这是一份长期约束，不是一次性审计。** 任何新功能或 bugfix 在设计和评审时，都要对照
+[§ 新功能评审检查表](#新功能评审检查表) 过一遍（见仓库根目录 `CLAUDE.md` 的
+"Mobile parity" 条款）。
+
+## 分级与状态约定
+
+| 级别 | 含义 |
+|---|---|
+| **P0** | 必须适配。不做会让核心功能（收发消息、通话、布局可用性）出错，或平台/商店强制要求 |
+| **P1** | 应当适配。常见使用场景下体验明显受损，排入近期计划 |
+| **P2** | 可选。增强体验或小众场景，有需求时再做 |
+| **不适配** | 与 toxee 的 P2P / 单实例架构冲突，或收益远小于成本；原因写明，避免反复讨论 |
+
+| 状态 | 含义 |
+|---|---|
+| ✅ 已实现 | 代码中有对应实现（列出位置） |
+| ◐ 部分 | 只覆盖了部分平台或部分场景 |
+| ❌ 未实现 | 代码中没有相关处理 |
+| 🔍 待实测 | 代码看起来已处理，但未在真机上验证过 |
+
+状态基于 2026-09-26 `master`（40b0cd9）的静态代码核验，并经 codex 复审修订；"已实现"不等于"已在真机上验证"。fork 指 `third_party/chat-uikit-flutter`。
+
+---
+
+## 1. 通话 · 音频
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| A1 | 扬声器 / 听筒切换（外放开关） | P0 | ✅ | `lib/call/audio_devices.dart`、`lib/call/call_audio_route_sheet.dart`；原生 `ios/Runner/CallAudioChannel.swift`、`android/.../CallAudioChannel.kt` |
+| A2 | 默认路由：语音→听筒、视频→外放、已连耳机→耳机 | P0 | ◐ | 初始路由只在听筒 / 扬声器间选择（`CallAudioChannel.swift:136`、`CallAudioChannel.kt:345`），已连接耳机时是否优先耳机未显式处理 |
+| A3 | 蓝牙耳机 / 车载：通话中连上、断开时自动切换 | P0 | ❌ | 原生侧只上报设备变化事件（iOS `routeChangeNotification`、Android `AudioDeviceCallback` `CallAudioChannel.kt:78`），Dart 侧（`call_service_manager.dart:1360`）只提示并更新距离传感器，不会主动切到新设备；iOS 的系统默认行为需实测 |
+| A4 | 有线 / USB-C 耳机插拔 | P0 | ❌ | 同 A3 |
+| A5 | 距离传感器：贴耳熄屏防误触 | P0 | ✅ | iOS `CallAudioChannel.swift:132`（`isProximityMonitoringEnabled`）；Android `CallAudioChannel.kt:233-253`（proximity wakelock）。群通话页有意不启用（`call_service_manager_busy.dart:303`） |
+| A6 | 音频中断：系统来电、闹钟、Siri、其他 App 抢占音频焦点，结束后恢复 | P0 | ✅ | iOS `interruptionNotification`（`CallAudioChannel.swift:86`）；Android `OnAudioFocusChangeListener`（`CallAudioChannel.kt:48`）；群通话 `av_conference_session_bridge.dart` 的 `interrupted` 状态 |
+| A7 | 回声消除 / 降噪 / 自动增益（外放时尤其关键） | P0 | ◐ | 录音已请求回声消除和降噪（`audio_handler.dart:70`），iOS 用 `voiceChat` 模式（`CallAudioChannel.swift:91`）；自动增益没有实现证据，AEC 实际效果需真机外放实测 |
+| A8 | 通话结束后确实释放麦克风 / 摄像头（状态栏隐私指示灯熄灭） | P0 | 🔍 | `call_service_manager_native.dart:209`；指示灯残留即资源泄漏 |
+| A9 | 静音键 / 勿扰 / 专注模式对来电铃声、消息提示音的影响 | P1 | 🔍 | iOS 来电走 CallKit 时由系统处理；应用内铃声与 Android 需确认遵守静音模式 |
+| A10 | 通话中音量键调的是通话音量而非媒体音量 | P1 | ❌ | Android 只设了通信模式，`MainActivity` 未设 `volumeControlStream = STREAM_VOICE_CALL` |
+| A11 | 录音、播放、通话三方共用 AVAudioSession 时的类别冲突（`record` / `audioplayers` / 通话） | P1 | ◐ | `audio_devices.dart:133` 只补救了 PCM 播放器改写会话类别的情况；语音消息录音 / `audioplayers` 播放与通话交错时未覆盖 |
+| A12 | 语音消息播放时贴耳自动切听筒 | P2 | ❌ | 常见 IM 体验，非必需 |
+
+## 2. 通话 · 视频 / 摄像头
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| V1 | 前后摄像头翻转 | P0 | ✅ | `lib/call/video_handler.dart:165-182,669`、`call_camera_switch_controller.dart`、`in_call_view.dart:216` |
+| V2 | 前置画面镜像（本地预览镜像、发给对端不镜像） | P0 | ✅ | `lib/call/call_video_transform.dart` |
+| V3 | 设备旋转时视频帧的旋转角 | P0 | ✅ | `call_video_transform.dart:108-133` |
+| V4 | 切后台后摄像头被系统停采，回前台后恢复；对端显示"视频已暂停"而不是卡帧 | P0 | ◐ | 停采与回前台重启已实现（`call_service_manager.dart:506`）；对端只显示最后一帧或通用占位（`in_call_view.dart:256`），没有"视频已暂停"状态 |
+| V5 | iPad 多任务（Split View / Slide Over / 台前调度）下摄像头被系统禁用 | P1 | ❌ | 采集失败只复位采集标志并记日志（`video_handler.dart:443-447`），没有面向用户的"摄像头不可用"状态。可检查并开启 `AVCaptureSession.isMultitaskingCameraAccessSupported/Enabled`（旧系统需 entitlement，且与 `voip` 后台模式相关，而当前 `Info.plist` 只有 `audio`、`fetch`）；至少要给出不可用状态而不是黑屏 |
+| V6 | 外接摄像头（iPad USB-C、Android UVC） | P2 | ◐ | 没有相反镜头时按列表轮到下一个设备（`video_handler.dart:170`），外接摄像头可被轮到，但无专门处理 |
+| V7 | 人物居中 Center Stage | P2 | 🔍 | 是否默认生效与 App 的后台模式 / 采集配置有关，并非一定无需代码；需在支持的 iPad 上实测 |
+| V8 | 变焦、闪光灯 | 不适配 | — | 通话场景不需要 |
+
+## 3. 屏幕与布局
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| L1 | 安全区：刘海、灵动岛、挖孔、圆角、Home 指示条 | P0 | ✅ | 大量 `SafeArea` / `viewPadding` |
+| L2 | Android 15+ 强制 edge-to-edge（targetSdk ≥ 35） | P0 | 🔍 | `targetSdk = flutter.targetSdkVersion`；状态栏 / 导航栏背后的内容需逐页确认 |
+| L3 | 手机横屏、iPad 四向旋转（Info.plist 已声明，iPad 含倒置） | P0 | ◐ | 已声明即承诺；聊天、通话、设置、登录页都要能用。旋转不重建 Activity（`configChanges` 含 `orientation|screenSize`） |
+| L4 | 运行中跨越响应式断点：旋转 / 分屏导致单栏 ↔ 主从双栏切换时，当前会话、输入草稿、通话界面不丢 | P0 | ◐ | `lib/util/responsive_layout.dart`（600 / 720 / 800 / 1024 断点）。已知窄屏问题见 iPhone narrow-shell 记录 |
+| L5 | iPad Split View / Slide Over / 台前调度（窗口任意尺寸下核心界面可用） | P0 | 🔍 | Info.plist 无 `UIRequiresFullScreen`，多任务默认开启。该键在 iPadOS 26 起已弃用，**不应靠它关闭多任务**，而应保证任意宽度可用。布局按宽度响应，理论可用，未实测 |
+| L6 | Android 分屏 / 自由窗口 / 小窗（各厂商，窗口任意尺寸下核心界面可用） | P0 | 🔍 | Manifest 未声明 `resizeableActivity`（默认可分屏）。targetSdk 36 的应用在最小宽度 ≥ 600dp 的设备上，Android 16 会忽略方向和可调整尺寸限制（16 上还可临时退出，之后的版本不行）；`targetSdk = flutter.targetSdkVersion`（`build.gradle.kts:60`）。同 L5，按宽度响应，未实测 |
+| L7 | 多窗口 / 多 Scene（iPad 多 Scene、Android 多实例窗口） | 不适配 | — | toxee 是单 Tox 实例（见 `CLAUDE.md` Singleton flow）。共享同一会话的多窗口理论可行，但收益小、改动大；保持不声明 `UIApplicationSupportsMultipleScenes` |
+| L7a | 防止重复启动争用同一 profile（Android 多次唤起 Activity、多实例窗口） | P1 | 🔍 | `launchMode="singleTop"`（`AndroidManifest.xml:61`）不能完全阻止新任务 / 多实例；需确认第二个 Activity 不会再次初始化 Tox |
+| L8 | 折叠屏：展开 / 折叠时尺寸变化 | P1 | 🔍 | 本质同 L4；`configChanges` 含 `smallestScreenSize|screenLayout`，不会重建 |
+| L9 | 折叠屏铰链避让、Flex 半折模式 | P2 | ❌ | 无 `DisplayFeature` 处理 |
+| L10 | 软键盘：弹出遮挡、横屏键盘、iPad 悬浮 / 分离键盘 | P0 | ◐ | Android `adjustResize`；输入框、表情面板与键盘切换需实测 |
+| L11 | 系统字体缩放 / 辅助功能大字体 | P1 | ◐ | 部分页面用 `textScalerOf` 计算尺寸；最大档位下的溢出未系统排查 |
+| L12 | 深色模式跟随系统 | P1 | ✅ | `lib/main.dart:269-285`（`ThemeMode.system`） |
+| L13 | 通话期间屏幕常亮 | P0 | ✅ | `lib/call/call_effects_listener.dart:70,88`（`WakelockPlus`） |
+
+## 4. 后台与生命周期
+
+P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND](../architecture/MOBILE_BACKGROUND.zh-CN.md)。
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| B1 | 切后台后保持 Tox 连接 | P0 | ◐ | Android 前台服务 `ToxPollingService`（`dataSync|phoneCall|microphone|camera`），但受 B8 的时长限制；iOS 只有 `audio` + `fetch` 后台模式和 `BGAppRefreshTask`（`BackgroundTaskController.swift`），属尽力而为 |
+| B2 | App 已终止后仍能收到消息和来电（推送唤醒） | 不适配 | — | 需要 APNs / FCM / PushKit 服务端，与纯 P2P 架构冲突（MOBILE_BACKGROUND 有详细论证）。应在产品层面向用户说明。区分：App 仍存活但被挂起时，iOS 还有偶发的 BG refresh，但不能承诺实时收信 |
+| B3 | 后台 / 锁屏可接听的来电界面 | P0 | ✅ | iOS CallKit（`CallKitProvider.swift`，App 存活时）；Android 全屏通知（`notification_channels.dart:83`、`notification_service.dart:755`） |
+| B3a | Android `ConnectionService`：蓝牙按键接听、车机集成 | P2 | ❌ | 未接入 |
+| B4 | 生命周期：`paused` / `detached` 时落盘 profile | P0 | ✅ | `lib/ui/home_page.dart:613-617`；`inactive` 会被控制中心、来电等频繁触发，有意不处理 |
+| B5 | 厂商后台管控（MIUI / EMUI / ColorOS 自启动、电池优化白名单）、Doze | P1 | ❌ | 前台服务仍可能被厂商策略杀掉。至少应提供引导用户加白名单的入口（`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` 或厂商设置页） |
+| B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | 🔍 | 自动登录路径已有（`_StartupGate`），页面栈恢复未验证 |
+| B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
+| B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ❌ | `ToxPollingService` 长期以 `dataSync` 运行，未实现 `onTimeout`；超时不停止会被系统判为异常 |
+| B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | 🔍 | 当前依赖系统默认保护级别（`lib/util/app_paths.dart:80`） |
+
+## 5. 网络
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| N1 | Wi-Fi ↔ 蜂窝切换、IP 变化后的快速重连（尤其通话中） | P1 | ◐ | 没有运行中的网络变化监听（无 `NWPathMonitor` / `ConnectivityManager.NetworkCallback`）；回前台或断线时会补充 bootstrap（`home_page.dart:625`）。toxcore 会自行恢复但可能要几十秒；先实测恢复时长再决定是否主动触发 |
+| N2 | 蜂窝网络屏蔽 UDP、对称 NAT：TCP relay 兜底 | P0 | ◐ | 会添加 TCP relay，但用的是节点的 UDP 端口加固定 443 / 3389（`tim2tox_ffi.cpp:3590`），**没有使用**节点列表里的 `tcpPorts`（`bootstrap_node_ensurer.dart:136`）；需在真实蜂窝网络实测 |
+| N3 | IPv6-only / NAT64 网络 | P0（若上架 App Store） | 🔍 | App Store 要求应用支持 IPv6-only 网络。节点选址优先取 IPv4（`bootstrap_nodes.dart:36`），内置列表含 IPv4 字面量；需实测 DNS64 / NAT64 下能否 bootstrap |
+| N4 | iOS 本地网络权限（局域网发现、LAN 配对） | P0 | ✅ | `NSLocalNetworkUsageDescription`、Bonjour `_tox._tcp` |
+| N5 | 蜂窝流量控制（文件自动接收、视频码率） | P2 | ❌ | |
+
+## 6. 权限与隐私
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| P1 | 运行时权限：相机、麦克风、相册、通知（Android 13+）；拒绝后的提示与跳转设置 | P0 | ◐ | `permission_handler`；各入口在"已拒绝 / 永久拒绝"状态下的行为需逐一确认 |
+| P2 | 权限在使用中被收回（设置里关掉后返回 App） | P1 | 🔍 | iOS 收回权限会杀进程；Android 不一定 |
+| P3 | Keychain / Keystore 安全存储；iOS 卸载重装后 Keychain 残留 | P1 | ◐ | `flutter_secure_storage`；重装后残留旧密码数据与新安装状态不一致的情况需确认 |
+| P4 | 敏感页防截屏 / 录屏、App 切换器快照模糊（私钥 / profile 导出、二维码） | P2 | ❌ | 无 `FLAG_SECURE`；属于产品决策 |
+| P5 | 生物识别解锁（Face ID / 指纹） | P2 | ❌ | |
+| P6 | iOS "部分照片"授权、Android 14 部分媒体访问 | P2 | 🔍 | 选择器基于系统 picker，一般无需完整相册权限 |
+| P7 | iOS 剪贴板读取的"允许粘贴"弹窗 | P2 | 🔍 | `pasteboard` 读图时触发 |
+
+## 7. 媒体与文件
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| M1 | 从相册 / 相机选择图片视频 | P0 | ✅ | `file_picker`、`camera` |
+| M2 | HEIC / HEVC 等 iOS 默认格式发给桌面端（Windows / Linux 可能无法显示） | P1 | ❌ | 发送路径把选中的文件原样传给 `sendFile`（`home_page.dart:892`），不转码；`.heic` 只在扩展名列表里识别（`ffi_chat_service.dart:8310`）。HEVC 视频常装在 `.mov` 里，不能按扩展名判断兼容性。P2P 没有服务端转码，必须在发送端处理 |
+| M3 | 保存到相册 | P1 | ◐ | 只有个人二维码走相册通道（`profile_qr_controller.dart:99`）；聊天收到的图片视频"保存"走文件保存选择器（fork `tencent_cloud_chat_message_viewer.dart:115`），不进相册 |
+| M4 | iOS "文件" App 共享、Android SAF 选择器 | P1 | ◐ | `UIFileSharingEnabled`；Android SAF 已知有误触锁死问题 |
+| M5 | 存储空间不足时接收大文件 | P1 | 🔍 | 失败要有明确提示并清理半成品 |
+| M6 | 大图 / 视频缩略图的内存占用（移动端内存小，易被系统杀） | P1 | 🔍 | |
+| M7 | 扫码（横屏 / 分屏下的取景） | P1 | ◐ | `mobile_scanner` |
+| M8 | 从其他 App 分享到 toxee（Share Extension / `ACTION_SEND`） | P2 | ❌ | 功能新增 |
+| M9 | 调用系统相机 / 选择器期间 App 进程被回收，返回后结果丢失 | P1 | 🔍 | 相机走 `image_picker`（fork `tencent_cloud_chat_message_camera.dart:33`），未见 `retrieveLostData` 恢复路径 |
+
+## 8. 通知与系统集成
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| S1 | 本地通知、角标 | P0 | ✅ | `flutter_local_notifications`、`app_badge_plus`、`lib/notifications/` |
+| S2 | 锁屏通知隐藏消息内容的选项 | P1 | ❌ | |
+| S3 | 振动 / 触感反馈 | P1 | ✅ | |
+| S4 | 视频通话画中画（切后台继续小窗） | P2 | ❌ | iOS 需 `AVPictureInPictureVideoCallViewController` + 多任务摄像头授权，Android 需 `supportsPictureInPicture`，原生工作量大 |
+| S5 | 通话中的灵动岛 / Live Activity、Android 进行中通话通知 | P2 | ◐ | Android 前台服务通知已存在 |
+| S6 | 深链接（`tox:` URI 加好友、`tox://pair` 配对） | P2 | ❌ | 有 `tox://pair` 解析（`lib/util/pairing/pairing_url.dart`），但 Manifest 只有启动入口，iOS 无 `CFBundleURLSchemes`，没有接入系统 |
+| S6a | 主屏快捷方式、小组件 | P2 | ❌ | |
+| S7 | iOS 通信通知（带头像）、Android 会话气泡 | P2 | ❌ | |
+
+## 9. 输入与交互
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| I1 | 长按菜单与系统文本选择菜单不冲突 | P0 | ◐ | 已修过一轮，见 iPhone narrow-shell 记录 |
+| I2 | 系统返回：Android 预测性返回、iOS 边缘右滑，与路由栈 / 弹窗的交互 | P0 | 🔍 | 已开启 `enableOnBackInvokedCallback="true"`；通话界面、多层弹窗下的返回需实测 |
+| I3 | iPad 外接键盘：回车发送、快捷键 | P1 | ◐ | 移动端输入组件已处理实体键盘回车发送、组合键换行（fork `tencent_cloud_chat_message_input_mobile.dart:794`）；其他快捷键未核实 |
+| I4 | iPad 鼠标 / 触控板悬停、右键菜单、拖放文件进聊天 | P2 | ❌ | |
+| I5 | 读屏（VoiceOver / TalkBack） | P1 | ◐ | 只有零散的语义标注（如 `home_widgets.dart:302`），聊天主流程能否用读屏完成未验证 |
+| I6 | 系统 12 / 24 小时制 | P1 | ❌ | 消息时间用语言环境的 `DateFormat.jm`（fork `tencent_cloud_chat_intl.dart:150`），不读系统偏好；应使用 `MediaQuery.alwaysUse24HourFormat` |
+
+## 10. 其他
+
+| # | 特性 | 级别 | 状态 | 说明 / 位置 |
+|---|---|---|---|---|
+| O1 | RTL 语言布局镜像 | P1 | ✅ | `ar.lproj` 等六种语言 |
+| O2 | 发热降频时的视频编码自适应 | P2 | ❌ | |
+| O3 | CPU 架构：arm64 真机 + 模拟器 | P0 | ✅ | Android `abiFilters` 按 FFI 产物过滤 |
+
+---
+
+## 新功能评审检查表
+
+新功能或 bugfix 在设计和评审时逐项作答，每项写 **已验证 / 待处理 / 不适用（附理由）** 之一：
+
+1. **尺寸**：在 320pt 宽、iPad 分屏 1/3 宽、横屏、以及运行中跨越响应式断点时都可用；状态（草稿、选中会话、滚动位置）不丢。（L3–L6、L8）
+2. **安全区与键盘**：内容不被刘海、Home 指示条、edge-to-edge 系统栏或软键盘遮挡。（L1、L2、L10）
+3. **大字体与读屏**：最大字体档位下不溢出；新增控件有语义标签。（L11、I5）
+4. **生命周期**：进行到一半时切后台、被挂起、被系统杀掉，不丢数据、不卡在中间状态；回前台能恢复。（B1、B4、B6、V4、M9）
+5. **后台时长**：依赖后台运行的逻辑考虑了 Android 前台服务时长限制和 iOS 挂起。（B1、B8）
+6. **音频**：播放或录制声音时，与通话、系统来电、蓝牙 / 有线耳机、静音键不冲突。（A1–A11）
+7. **摄像头**：多任务或后台时摄像头不可用，有明确状态。（V4、V5）
+8. **权限**：用到的权限被拒绝、永久拒绝、中途收回时有提示和出路；通知权限被拒时来电仍有入口。（P1、P2、B3）
+9. **网络**：切换网络、弱网、只有 TCP relay、IPv6-only 时仍可用。（N1–N3）
+10. **跨平台对端**：发出的数据（图片 / 视频格式、文件、元数据）桌面端对端能处理。（M2）
+11. **单实例**：设计不假设同时存在多个窗口或多个 Tox 实例。（L7、L7a）
+12. **移动端对等**：修的 bug 在 iOS / Android 上是否同样存在，已一并修复或说明为何不适用（`CLAUDE.md` Mobile parity）。
+
+## 已知不一致
+
+- `MOBILE_BACKGROUND` 的"iOS implementation §1"仍描述 `voip` 后台模式，但该模式已在
+  `285c6f7`（fix(call): harden mobile incoming-call surfaces）中从 `Info.plist` 移除，
+  现在只有 `audio` + `fetch`。以 `Info.plist` 为准，该文档待更新。
