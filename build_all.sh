@@ -47,7 +47,9 @@ if [ -d "$TIM2TOX_DIR" ]; then
     fi
     cd "$TIM2TOX_DIR"
     if [ -f "build_ffi.sh" ]; then
-        ./build_ffi.sh
+        # build_ffi.sh defaults the MM-6 crafted-challenge test hook ON, because
+        # the auto_tests need it. An APP build must never carry it.
+        TIM2TOX_ENABLE_TEST_HOOKS=OFF ./build_ffi.sh
     elif [ -f "build.sh" ]; then
         print_warn "build_ffi.sh not found in tim2tox, falling back to build.sh"
         print_warn "Note: build.sh does NOT produce libtim2tox_ffi (no toxav, no FFI shim)."
