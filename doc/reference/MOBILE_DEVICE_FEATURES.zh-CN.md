@@ -29,6 +29,7 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | ◐ 部分 | 只覆盖了部分平台或部分场景 |
 | ❌ 未实现 | 代码中没有相关处理 |
 | 🔍 待实测 | 代码看起来已处理，但未在真机上验证过 |
+| ⛔ 阻塞 | 修复需要当前环境无法提供的条件（如真机 + 耳机），方案已写好 |
 
 状态基于 2026-09-26 `master`（40b0cd9）的静态代码核验，并经 codex 复审修订；"已实现"不等于"已在真机上验证"。fork 指 `third_party/chat-uikit-flutter`。
 
@@ -39,9 +40,9 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | A1 | 扬声器 / 听筒切换（外放开关） | P0 | ✅ | `lib/call/audio_devices.dart`、`lib/call/call_audio_route_sheet.dart`；原生 `ios/Runner/CallAudioChannel.swift`、`android/.../CallAudioChannel.kt` |
-| A2 | 默认路由：语音→听筒、视频→外放、已连耳机→耳机 | P0 | ◐ | 初始路由只在听筒 / 扬声器间选择（`CallAudioChannel.swift:136`、`CallAudioChannel.kt:345`），已连接耳机时是否优先耳机未显式处理 |
-| A3 | 蓝牙耳机 / 车载：通话中连上、断开时自动切换 | P0 | ❌ | 原生侧只上报设备变化事件（iOS `routeChangeNotification`、Android `AudioDeviceCallback` `CallAudioChannel.kt:78`），Dart 侧（`call_service_manager.dart:1360`）只提示并更新距离传感器，不会主动切到新设备；iOS 的系统默认行为需实测 |
-| A4 | 有线 / USB-C 耳机插拔 | P0 | ❌ | 同 A3 |
+| A2 | 默认路由：语音→听筒、视频→外放、已连耳机→耳机 | P0 | ◐ ⛔ | 方案见 CALL_AUDIO_ROUTING_PLAN，阻塞于真机。初始路由只在听筒 / 扬声器间选择（`CallAudioChannel.swift:136`、`CallAudioChannel.kt:345`），已连接耳机时是否优先耳机未显式处理 |
+| A3 | 蓝牙耳机 / 车载：通话中连上、断开时自动切换 | P0 | ❌ ⛔ | 方案见 [CALL_AUDIO_ROUTING_PLAN](../architecture/CALL_AUDIO_ROUTING_PLAN.md)，阻塞于真机验证（模拟器无法提供耳机）。2026-09-26 已先修：Android 12+ 路由清单改用 `availableCommunicationDevices`（不再列出 A2DP）、识别 BLE Audio / 助听器、处理 `setCommunicationDevice` 失败；iOS 路由事件改在主线程发出。原状况：原生侧只上报设备变化事件（iOS `routeChangeNotification`、Android `AudioDeviceCallback` `CallAudioChannel.kt:78`），Dart 侧（`call_service_manager.dart:1360`）只提示并更新距离传感器，不会主动切到新设备；iOS 的系统默认行为需实测 |
+| A4 | 有线 / USB-C 耳机插拔 | P0 | ❌ ⛔ | 同 A3 |
 | A5 | 距离传感器：贴耳熄屏防误触 | P0 | ✅ | iOS `CallAudioChannel.swift:132`（`isProximityMonitoringEnabled`）；Android `CallAudioChannel.kt:233-253`（proximity wakelock）。群通话页有意不启用（`call_service_manager_busy.dart:303`） |
 | A6 | 音频中断：系统来电、闹钟、Siri、其他 App 抢占音频焦点，结束后恢复 | P0 | ✅ | iOS `interruptionNotification`（`CallAudioChannel.swift:86`）；Android `OnAudioFocusChangeListener`（`CallAudioChannel.kt:48`）；群通话 `av_conference_session_bridge.dart` 的 `interrupted` 状态 |
 | A7 | 回声消除 / 降噪 / 自动增益（外放时尤其关键） | P0 | ◐ | 录音已请求回声消除和降噪（`audio_handler.dart:70`），iOS 用 `voiceChat` 模式（`CallAudioChannel.swift:91`）；自动增益没有实现证据，AEC 实际效果需真机外放实测 |

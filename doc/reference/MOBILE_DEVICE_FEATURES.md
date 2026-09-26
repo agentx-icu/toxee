@@ -32,6 +32,7 @@ at design and review time (see the "Mobile parity" clause in the root
 | ◐ Partial | Only some platforms or some scenarios are covered |
 | ❌ Missing | No handling in the code |
 | 🔍 Needs device test | The code appears to handle it, but it hasn't been verified on a real device |
+| ⛔ Blocked | The fix needs something this environment can't provide (e.g. a real device + headset); the plan is written |
 
 Status reflects a static code check of `master` at 2026-09-26 (40b0cd9),
 revised after a codex review. "Implemented" does not mean "verified on a
@@ -44,9 +45,9 @@ device". "fork" means `third_party/chat-uikit-flutter`.
 | # | Feature | Priority | Status | Notes / location |
 |---|---|---|---|---|
 | A1 | Speaker / earpiece toggle | P0 | ✅ | `lib/call/audio_devices.dart`, `lib/call/call_audio_route_sheet.dart`; native `ios/Runner/CallAudioChannel.swift`, `android/.../CallAudioChannel.kt` |
-| A2 | Default route: voice → earpiece, video → speaker, headset connected → headset | P0 | ◐ | The initial route only chooses earpiece vs speaker (`CallAudioChannel.swift:136`, `CallAudioChannel.kt:345`); preferring an already-connected headset isn't handled explicitly |
-| A3 | Bluetooth headset / car kit: switch automatically when it connects or disconnects mid-call | P0 | ❌ | Native code only reports device-change events (iOS `routeChangeNotification`, Android `AudioDeviceCallback` `CallAudioChannel.kt:78`); Dart (`call_service_manager.dart:1360`) only shows a hint and updates the proximity sensor, and never selects the new device. iOS system default behaviour needs a device test |
-| A4 | Wired / USB-C headset plug and unplug | P0 | ❌ | Same as A3 |
+| A2 | Default route: voice → earpiece, video → speaker, headset connected → headset | P0 | ◐ ⛔ | Plan: CALL_AUDIO_ROUTING_PLAN; blocked on real devices. The initial route only chooses earpiece vs speaker (`CallAudioChannel.swift:136`, `CallAudioChannel.kt:345`); preferring an already-connected headset isn't handled explicitly |
+| A3 | Bluetooth headset / car kit: switch automatically when it connects or disconnects mid-call | P0 | ❌ ⛔ | Plan: [CALL_AUDIO_ROUTING_PLAN](../architecture/CALL_AUDIO_ROUTING_PLAN.md); blocked on real devices (emulators have no headsets). Fixed first on 2026-09-26: Android 12+ route list uses `availableCommunicationDevices` (no A2DP entries), BLE Audio / hearing aids recognised, `setCommunicationDevice` failures handled; iOS emits route events on the main thread. Previously: Native code only reports device-change events (iOS `routeChangeNotification`, Android `AudioDeviceCallback` `CallAudioChannel.kt:78`); Dart (`call_service_manager.dart:1360`) only shows a hint and updates the proximity sensor, and never selects the new device. iOS system default behaviour needs a device test |
+| A4 | Wired / USB-C headset plug and unplug | P0 | ❌ ⛔ | Same as A3 |
 | A5 | Proximity sensor: screen off at the ear, no cheek taps | P0 | ✅ | iOS `CallAudioChannel.swift:132` (`isProximityMonitoringEnabled`); Android `CallAudioChannel.kt:233-253` (proximity wakelock). Deliberately off on the group-call page (`call_service_manager_busy.dart:303`) |
 | A6 | Audio interruptions: phone call, alarm, Siri, another app taking audio focus; resume afterwards | P0 | ✅ | iOS `interruptionNotification` (`CallAudioChannel.swift:86`); Android `OnAudioFocusChangeListener` (`CallAudioChannel.kt:48`); group calls: `interrupted` state in `av_conference_session_bridge.dart` |
 | A7 | Echo cancellation / noise suppression / auto gain (critical on speaker) | P0 | ◐ | Recording requests echo cancellation and noise suppression (`audio_handler.dart:70`); iOS uses `voiceChat` mode (`CallAudioChannel.swift:91`). No evidence of auto gain; actual AEC quality on speaker needs a device test |

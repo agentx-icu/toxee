@@ -202,6 +202,15 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
   }
 
   private func emit(type: String, shouldResume: Bool? = nil) {
+    // AVAudioSession route-change / interruption notifications may be posted
+    // on a secondary thread, but a Flutter event sink must be called on the
+    // platform (main) thread. Build and send the event there.
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.emit(type: type, shouldResume: shouldResume)
+      }
+      return
+    }
     guard let eventSink else {
       return
     }
