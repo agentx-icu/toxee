@@ -217,7 +217,12 @@ class NotificationService {
       return;
     }
     try {
-      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      // Status-bar icons are alpha-only: a full-colour launcher icon renders
+      // as a solid white square. ic_stat_toxee is the white glyph generated
+      // by tool/branding/generate_brand_assets.py (kept by res/raw/keep.xml);
+      // the plugin resolves it as a drawable entry name.
+      const androidInit =
+          AndroidInitializationSettings('ic_stat_toxee');
       // requestPermissions defaults to false — we drive permission requests
       // ourselves below so the user-visible prompt happens exactly once and
       // we can surface failures via the logger.

@@ -99,25 +99,19 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^3.0.2
-  flutter_launcher_icons: ^0.14.4
   msix: ^3.16.8
+# App icons, tray icons and default avatars for all five platforms are
+# generated from one vector source: tool/branding/generate_brand_assets.py.
+# (flutter_launcher_icons was dropped: it downscales a single bitmap, which
+# cannot produce the macOS grid, Android adaptive layers, the small-size
+# glyph or a multi-resolution .ico.)
 flutter:
   uses-material-design: true
   generate: true
   assets:
     - assets/
     - assets/avatars/
-flutter_launcher_icons:
-  image_path: "assets/app_icon.png"
-  android: true
-  ios: true
-  macos:
-    generate: true
-    image_path: "assets/app_icon.png"
-  windows:
-    generate: true
-    image_path: "assets/app_icon.png"
-    icon_size: 256
+    - assets/tray/
 dependency_overrides:
   record_linux: ^1.2.1
 

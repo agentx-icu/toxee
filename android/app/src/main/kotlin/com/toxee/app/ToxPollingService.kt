@@ -178,7 +178,7 @@ class ToxPollingService : Service() {
         val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(body)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(R.drawable.ic_stat_toxee)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)

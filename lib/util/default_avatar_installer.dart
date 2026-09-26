@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -66,6 +68,7 @@ abstract final class DefaultAvatarInstaller {
   }) async {
     final normalizedId = toxId.trim();
     if (normalizedId.isEmpty) return null;
+    await refreshInstalledDefaults(toxId: normalizedId, bundle: bundle);
     try {
       final prefs = await SharedPreferences.getInstance();
       final scopedKey = scopedPrefsKey(
@@ -98,6 +101,84 @@ abstract final class DefaultAvatarInstaller {
       );
       return null;
     }
+  }
+
+  /// Brings copies of the bundled defaults in the account's avatars
+  /// directory up to date with the current artwork.
+  ///
+  /// The defaults are copied to disk because Tim2Tox and the UIKit consume
+  /// avatar file paths, so replacing the bundled asset alone never reaches an
+  /// existing account. Only this installer writes the names matched here —
+  /// `avatar_<this account's id>_default.png` and `group_<gid>_default.png`;
+  /// a picked avatar keeps its own name — so such a file whose bytes differ
+  /// from the asset is a stale default, not a user choice. Each file is
+  /// replaced atomically at the same path, so every stored path stays valid.
+  ///
+  /// Never throws; a file that cannot be refreshed keeps its old copy.
+  static Future<void> refreshInstalledDefaults({
+    required String toxId,
+    AssetBundle? bundle,
+  }) async {
+    final Directory dir;
+    try {
+      dir = Directory(await AppPaths.getAccountAvatarsPath(toxId));
+      if (!await dir.exists()) return;
+    } catch (e, st) {
+      AppLogger.logError(
+          '[DefaultAvatarInstaller] refreshInstalledDefaults: no avatars dir',
+          e,
+          st);
+      return;
+    }
+    final selfName = 'avatar_${toxId}_default.png'.toLowerCase();
+    final assetBytes = <String, Uint8List>{};
+    var refreshed = 0;
+    final entities = await dir.list(followLinks: false).toList();
+    for (final entity in entities) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      final String asset;
+      if (name.toLowerCase() == selfName) {
+        asset = defaultUserAsset;
+      } else if (name.startsWith('group_') && name.endsWith('_default.png')) {
+        asset = defaultGroupAsset;
+      } else {
+        continue;
+      }
+      try {
+        final current = assetBytes[asset] ??=
+            await _loadAsset(asset, bundle ?? rootBundle);
+        if (listEquals(await entity.readAsBytes(), current)) continue;
+        final tmp = File('${entity.path}.refresh');
+        await tmp.writeAsBytes(current, flush: true);
+        await tmp.rename(entity.path);
+        refreshed++;
+        AppLogger.info(
+            '[DefaultAvatarInstaller] refreshed stale default avatar $name');
+      } catch (e, st) {
+        AppLogger.logError(
+            '[DefaultAvatarInstaller] could not refresh $name', e, st);
+      }
+    }
+    if (refreshed > 0) _dropDecodedImages();
+  }
+
+  /// Avatar widgets cache decodes under `ResizeImage` keys of the file, which
+  /// cannot be enumerated per path. This runs once per upgrade, so dropping
+  /// the whole cache is the reliable way to show the refreshed files.
+  static void _dropDecodedImages() {
+    try {
+      PaintingBinding.instance.imageCache
+        ..clear()
+        ..clearLiveImages();
+    } catch (_) {
+      // No painting binding (headless caller): nothing is cached either.
+    }
+  }
+
+  static Future<Uint8List> _loadAsset(String asset, AssetBundle bundle) async {
+    final data = await bundle.load(asset);
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
   }
 
   static String _accountPrefixOf(String toxId) =>

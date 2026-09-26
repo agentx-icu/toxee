@@ -272,4 +272,76 @@ void main() {
       expect(await Prefs.getAvatarPath(), '/restored/avatar.png');
     });
   });
+
+  group('DefaultAvatarInstaller.refreshInstalledDefaults', () {
+    const toxId =
+        '00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF001122334455';
+    final bundle = _FakeAssetBundle({
+      DefaultAvatarInstaller.defaultUserAsset: Uint8List.fromList(<int>[1, 1]),
+      DefaultAvatarInstaller.defaultGroupAsset: Uint8List.fromList(<int>[2, 2]),
+    });
+    late AccountExportTestEnv env;
+
+    setUp(() async {
+      env = await setUpAccountExportTestEnv();
+    });
+
+    tearDown(() async {
+      await env.dispose();
+      AppPaths.debugApplicationSupportOverride = null;
+    });
+
+    Future<File> writeAvatar(String fileName, List<int> bytes) async {
+      final avatarsDir = await AppPaths.getAccountAvatarsPath(toxId);
+      final file = File(p.join(avatarsDir, fileName));
+      await file.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      return file;
+    }
+
+    test('rewrites stale default copies in place and leaves picked avatars',
+        () async {
+      final self = await writeAvatar('avatar_${toxId}_default.png', [9, 9]);
+      final group = await writeAvatar('group_g1_default.png', [8, 8]);
+      final picked = await writeAvatar('avatar_$toxId.jpg', [7, 7]);
+      final friend = await writeAvatar('friend_abc_default.png', [6, 6]);
+      // Another account's default (e.g. brought in by an import) is not ours.
+      final other = await writeAvatar('avatar_FFFF_default.png', [5, 5]);
+
+      await DefaultAvatarInstaller.refreshInstalledDefaults(
+        toxId: toxId,
+        bundle: bundle,
+      );
+
+      expect(await self.readAsBytes(), [1, 1]);
+      expect(await group.readAsBytes(), [2, 2]);
+      expect(await picked.readAsBytes(), [7, 7]);
+      expect(await friend.readAsBytes(), [6, 6]);
+      expect(await other.readAsBytes(), [5, 5]);
+      expect(File('${self.path}.refresh').existsSync(), isFalse);
+    });
+
+    test('ensureSelfAvatar refreshes a stale default it then keeps using',
+        () async {
+      final self = await writeAvatar('avatar_${toxId}_default.png', [9, 9]);
+      await Prefs.setAccountAvatarPath(toxId, self.path);
+
+      final resolved = await DefaultAvatarInstaller.ensureSelfAvatar(
+        toxId: toxId,
+        bundle: bundle,
+      );
+
+      expect(resolved, self.path);
+      expect(await self.readAsBytes(), [1, 1]);
+    });
+
+    test('never throws when the bundle lacks an asset', () async {
+      final group = await writeAvatar('group_g1_default.png', [8, 8]);
+      await DefaultAvatarInstaller.refreshInstalledDefaults(
+        toxId: toxId,
+        bundle: _FakeAssetBundle({}),
+      );
+      expect(await group.readAsBytes(), [8, 8]);
+    });
+  });
 }
