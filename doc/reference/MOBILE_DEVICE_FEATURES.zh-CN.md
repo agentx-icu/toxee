@@ -105,7 +105,8 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | N1 | Wi-Fi ↔ 蜂窝切换、IP 变化后的快速重连（尤其通话中） | P1 | ◐ | 没有运行中的网络变化监听（无 `NWPathMonitor` / `ConnectivityManager.NetworkCallback`）；回前台或断线时会补充 bootstrap（`home_page.dart:625`）。toxcore 会自行恢复但可能要几十秒；先实测恢复时长再决定是否主动触发 |
-| N2 | 蜂窝网络屏蔽 UDP、对称 NAT：TCP relay 兜底 | P0 | ◐ | 会添加 TCP relay，但用的是节点的 UDP 端口加固定 443 / 3389（`tim2tox_ffi.cpp:3590`），**没有使用**节点列表里的 `tcpPorts`（`bootstrap_node_ensurer.dart:136`）；需在真实蜂窝网络实测 |
+| N2 | 蜂窝网络屏蔽 UDP、对称 NAT：TCP relay 兜底 | P0 | 🔍 | 2026-09-26 评审（codex 复核）：`add_bootstrap_node` 依次对 UDP 端口、443、3389 调 `tox_add_tcp_relay`（`tim2tox_ffi.cpp:3600-3605`），但 toxcore 按公钥去重 relay（`TCP_connection.c:1361-1364`），首次添加成功的那个端口即 UDP 端口生效，后两个被拒。nodes.tox.chat 2026-09-25 快照中公布了 TCP 端口的节点，其 UDP 端口都在 `tcp_ports` 里，这些节点选中的端口正确，**未改代码**（例外见 N2a）。仍待验证的是连通性本身：Android 设 `debug.toxee.force_tcp_only=1`（桌面 / iOS 用环境变量 `TOX_FORCE_TCP_ONLY`）后在真实网络上确认能连上。2026-09-26 在构建 Mac 的 API 36 模拟器上未能判定：TCP-only 与 UDP 对照组 5 分钟内都未连上，到 144.217.167.73 的 33445 / 3389 均 `Connection refused`。下次须在已确认 relay 可达的网络上：启动前设开关、核对日志中"TCP-only mode enabled"、同网络跑 UDP 对照组、确认连接状态为 TCP |
+| N2a | 节点的 TCP 端口不包含其 UDP 端口时选错 relay 端口；已保存节点只存 host/port/pubkey | P2 | ❌ | 线上快照中没有，但内置回退列表有一个（`bootstrap_nodes.dart:294`：UDP 43334、TCP `[3389, 33445]`），其 TCP relay 实际不可用。回退列表只在拉取节点列表失败时使用。要修需按节点选单个端口并把"未知 / 无 TCP / 端口列表"持久化进 prefs（先应用的已保存节点会占住该公钥） |
 | N3 | IPv6-only / NAT64 网络 | P0（若上架 App Store） | 🔍 | App Store 要求应用支持 IPv6-only 网络。节点选址优先取 IPv4（`bootstrap_nodes.dart:36`），内置列表含 IPv4 字面量；需实测 DNS64 / NAT64 下能否 bootstrap |
 | N4 | iOS 本地网络权限（局域网发现、LAN 配对） | P0 | ✅ | `NSLocalNetworkUsageDescription`、Bonjour `_tox._tcp` |
 | N5 | 蜂窝流量控制（文件自动接收、视频码率） | P2 | ❌ | |
