@@ -89,6 +89,7 @@ import 'settings/sidebar.dart';
 import 'applications/applications_page.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
+import 'home/master_detail_transition.dart';
 import 'home/overlay_route_policy.dart';
 import 'home/profile_send_message_navigation.dart';
 import 'home/tim2tox_plugin_policy.dart';
@@ -128,6 +129,7 @@ import 'testing/l3_debug_tools.dart';
 part 'home_page_plugins.dart';
 part 'home_page_bootstrap.dart';
 part 'home_page_shortcuts.dart';
+part 'home_page_master_detail.dart';
 
 enum _MediaPickType { file, image, video }
 
@@ -335,10 +337,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   GroupProfileBuilderOverrideHandle? _groupBuilderOverride;
   late final HomeSessionController _sessionController;
   late final HomeGroupController _groupController;
-  // Tracks the last computed `shouldShowMasterDetail` so we only schedule the
-  // UIKit `setConfigs(forceDesktopLayout: ...)` post-frame callback when the
-  // breakpoint actually crosses, instead of on every rebuild.
-  bool? _lastShouldShowMasterDetail;
+  // Master-detail breakpoint crossings: UIKit layout mode + open-chat carry.
+  late final MasterDetailTransition _masterDetail =
+      _createMasterDetailTransition();
   // True while the contact-profile route is on screen. Drives `_onTapContactItem`
   // to decide whether a contact tap means "open profile" (false) vs "Send
   // Message from inside profile" (true). Replaces the old `Navigator.canPop()`
@@ -1268,27 +1269,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             );
 
             // Drive UIKit's master-detail layout from toxee's responsive
-            // breakpoint. UIKit only renders desktop-mode automatically on
-            // "desktop platform"; `forceDesktopLayout` lets us opt wide
-            // touch devices (e.g. iPad landscape) into the same split.
-            //
-            // Only schedule the post-frame callback when the value actually
-            // crosses the breakpoint — `build` runs on every `setState`, but
-            // `setConfigs` only needs to be called on threshold transitions.
-            if (showMasterDetail != _lastShouldShowMasterDetail) {
-              _lastShouldShowMasterDetail = showMasterDetail;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                try {
-                  UikitDataFacade.setConversationConfig(
-                    useDesktopMode: showMasterDetail,
-                    forceDesktopLayout: showMasterDetail,
-                  );
-                } catch (_) {
-                  // Config object may not exist yet on the very first frame
-                  // (UIKit init is async); next layout pass will pick it up.
-                }
-              });
-            }
+            // breakpoint (UIKit only goes desktop-mode on desktop platforms
+            // by itself) and carry the open chat across the switch.
+            _masterDetail.onBuild(showMasterDetail);
 
             // Intercept Android back only when we're truly at the root of the
             // navigator stack AND on a non-Chats tab (so back returns to

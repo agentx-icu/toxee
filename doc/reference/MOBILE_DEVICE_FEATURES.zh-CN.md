@@ -72,9 +72,9 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | L1 | 安全区：刘海、灵动岛、挖孔、圆角、Home 指示条 | P0 | ✅ | 大量 `SafeArea` / `viewPadding` |
 | L2 | Android 15+ 强制 edge-to-edge（targetSdk ≥ 35） | P0 | 🔍 | `targetSdk = flutter.targetSdkVersion`；状态栏 / 导航栏背后的内容需逐页确认 |
 | L3 | 手机横屏、iPad 四向旋转（Info.plist 已声明，iPad 含倒置） | P0 | ◐ | 已声明即承诺；聊天、通话、设置、登录页都要能用。旋转不重建 Activity（`configChanges` 含 `orientation|screenSize`） |
-| L4 | 运行中跨越响应式断点：旋转 / 分屏导致单栏 ↔ 主从双栏切换时，当前会话、输入草稿、通话界面不丢 | P0 | ◐ | `lib/util/responsive_layout.dart`（600 / 720 / 800 / 1024 断点）。已知窄屏问题见 iPhone narrow-shell 记录 |
+| L4 | 运行中跨越响应式断点：旋转 / 分屏导致单栏 ↔ 主从双栏切换时，当前会话、输入草稿、通话界面不丢 | P0 | ◐ | 2026-09-26 修复（会话与草稿）：原先跨过 800 断点只切换 UIKit 布局模式，双栏里打开的会话在切到单栏时丢失、单栏推入的聊天页在切到双栏时整屏盖住双栏。现由 `lib/ui/home/master_detail_transition.dart` + `lib/navigation/root_route_tracker.dart` 迁移"实际可见"的那个会话（被其他页面盖住时不动）。API 36 手机模拟器旋转双向实测通过，草稿保留。共享 Dart 逻辑，iPad / 桌面窗口缩放走同一路径但未实测；通话界面跨断点未验证 |
 | L5 | iPad Split View / Slide Over / 台前调度（窗口任意尺寸下核心界面可用） | P0 | 🔍 | Info.plist 无 `UIRequiresFullScreen`，多任务默认开启。该键在 iPadOS 26 起已弃用，**不应靠它关闭多任务**，而应保证任意宽度可用。布局按宽度响应，理论可用，未实测 |
-| L6 | Android 分屏 / 自由窗口 / 小窗（各厂商，窗口任意尺寸下核心界面可用） | P0 | 🔍 | Manifest 未声明 `resizeableActivity`（默认可分屏）。targetSdk 36 的应用在最小宽度 ≥ 600dp 的设备上，Android 16 会忽略方向和可调整尺寸限制（16 上还可临时退出，之后的版本不行）；`targetSdk = flutter.targetSdkVersion`（`build.gradle.kts:60`）。同 L5，按宽度响应，未实测 |
+| L6 | Android 分屏 / 自由窗口 / 小窗（各厂商，窗口任意尺寸下核心界面可用） | P0 | ◐ 🔍 | 2026-09-26 在 API 36 模拟器上用 `wm size` 模拟 320dp 宽、半屏高度，并实测横竖屏旋转：布局正常、会话与草稿保留（见 L4）。未测真正的多窗口分屏与各厂商小窗。 Manifest 未声明 `resizeableActivity`（默认可分屏）。targetSdk 36 的应用在最小宽度 ≥ 600dp 的设备上，Android 16 会忽略方向和可调整尺寸限制（16 上还可临时退出，之后的版本不行）；`targetSdk = flutter.targetSdkVersion`（`build.gradle.kts:60`）。同 L5，按宽度响应，未实测 |
 | L7 | 多窗口 / 多 Scene（iPad 多 Scene、Android 多实例窗口） | 不适配 | — | toxee 是单 Tox 实例（见 `CLAUDE.md` Singleton flow）。共享同一会话的多窗口理论可行，但收益小、改动大；保持不声明 `UIApplicationSupportsMultipleScenes` |
 | L7a | 防止重复启动争用同一 profile（Android 多次唤起 Activity、多实例窗口） | P1 | 🔍 | `launchMode="singleTop"`（`AndroidManifest.xml:61`）不能完全阻止新任务 / 多实例；需确认第二个 Activity 不会再次初始化 Tox |
 | L8 | 折叠屏：展开 / 折叠时尺寸变化 | P1 | 🔍 | 本质同 L4；`configChanges` 含 `smallestScreenSize|screenLayout`，不会重建 |
