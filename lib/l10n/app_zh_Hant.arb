@@ -557,7 +557,7 @@
   "@lanModeDesc": {
     "description": "Description for LAN mode"
   },
-  "messageReceivers": "消息接收者 ({count})",
+  "messageReceivers": "目前已知接收者 ({count})",
   "@messageReceivers": {
     "description": "Title for message receivers dialog",
     "placeholders": {
@@ -579,9 +579,9 @@
   "@noBootstrapService": {
     "description": "Message when no bootstrap service is found"
   },
-  "noReceivers": "暫無接收者",
-  "@noReceivers": {
-    "description": "Message shown when there are no message receivers"
+  "messageReceiversNotStored": "接收者名單不會儲存，重新啟動後需由即時回執重新累計。",
+  "@messageReceiversNotStored": {
+    "description": "Shown when the receiver list for one of our own group messages is empty. Receiver identities are deliberately never persisted, so this must NOT read as 'nobody received it'"
   },
   "nodeNotTestedWarning": "尚未測試此節點。",
   "@nodeNotTestedWarning": {

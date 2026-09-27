@@ -42,8 +42,8 @@
 #
 # Baseline as of the 2026-05-20 review (Batch 6, F11). New files must
 # stay <= 500 LOC; existing entries may stay until they are split.
-lib/adapters/shared_prefs_adapter.dart:739
-lib/call/call_service_manager.dart:1837
+lib/adapters/shared_prefs_adapter.dart:737
+lib/call/call_service_manager.dart:1836
 lib/call/call_ui_components.dart:678
 # [2026-09-22] 759 -> 769: the camera-start path now re-checks `_disposed`
 # after EVERY await (device discovery, controller initialize, stream attach)
@@ -54,16 +54,16 @@ lib/call/call_ui_components.dart:678
 # +10 is four one-line guards plus the rationale comment; it is not splittable
 # (the guards are single statements inside one platform-branching method).
 lib/call/video_handler.dart:769
-lib/notifications/notification_service.dart:1152
-lib/sdk_fake/fake_im.dart:876
+lib/notifications/notification_service.dart:1137
+lib/sdk_fake/fake_im.dart:871
 lib/sdk_fake/fake_managers.dart:802
 lib/sdk_fake/fake_msg_provider.dart:806
 lib/sdk_fake/fake_msg_provider_file_progress.dart:555
-lib/sdk_fake/fake_msg_provider_mapping.dart:1061
+lib/sdk_fake/fake_msg_provider_mapping.dart:1004
 lib/sdk_fake/fake_msg_provider_routing.dart:906
-lib/sdk_fake/fake_provider.dart:1096
-lib/ui/add_friend_dialog.dart:708
-lib/ui/add_group_dialog.dart:845
+lib/sdk_fake/fake_provider.dart:1093
+lib/ui/add_friend_dialog.dart:608
+lib/ui/add_group_dialog.dart:711
 # [2026-09-03] +7 (1453 -> 1460): the page now accepts a host-owned
 # ScrollController so a bottom-nav re-tap can scroll it to the top (the same
 # convention tabs 0/1 get from their UIKit component controllers). The change
@@ -72,7 +72,7 @@ lib/ui/add_group_dialog.dart:845
 # per line. A re-pin, not an amnesty.
 lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:887
-lib/ui/home_page.dart:2458
+lib/ui/home_page.dart:2441
 lib/ui/home_page_bootstrap.dart:1640
 lib/ui/login_page.dart:1508
 lib/ui/profile_page.dart:577
@@ -84,7 +84,7 @@ lib/ui/settings/settings_page.dart:1565
 lib/ui/settings/sidebar.dart:951
 lib/util/account_service.dart:976
 lib/util/app_paths.dart:605
-lib/util/prefs.dart:2347
+lib/util/prefs.dart:2343
 # Appended 2026-06-04 (bulk landing of the L3/real-UI automation campaigns):
 # - l3_debug_tools.dart: debug-build-gated L3 MCP tool registry; one cohesive
 #   dispatch table validated by tool/mcp_test/run_l3_scenarios.dart. Split is

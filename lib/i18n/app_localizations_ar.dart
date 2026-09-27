@@ -811,11 +811,12 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String get noReceivers => 'لا يوجد مستقبلون بعد';
+  String get messageReceiversNotStored =>
+      'لا يتم تخزين أسماء المستلمين، لذا يُعاد بناء القائمة من إشعارات الاستلام المباشرة بعد إعادة التشغيل.';
 
   @override
   String messageReceivers(String count) {
-    return 'مستقبلو الرسائل ($count)';
+    return 'المستلمون حتى الآن ($count)';
   }
 
   @override
