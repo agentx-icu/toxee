@@ -100,7 +100,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | ✅ | 2026-09-27 复现：后台被系统回收后，toxee 自动登录回到会话列表，原来打开的会话丢失。已修复（`lib/ui/home/open_chat_restoration.dart`）：把当前显示的会话写进 Flutter 的状态恢复数据——系统只在它自己回收进程后交还，用户划掉或重启后不会——每次导航后和应用转为 inactive 时写入并立即刷新。会话就绪后只对同一账号重新打开；若启动时路由了通知（通知优先）或恢复的拍摄（M9）要打开它自己的会话，则不恢复。iOS：storyboard 加 `restorationIdentifier`（保留 FlutterAppDelegate 的恢复校验）。已在 Android 16 模拟器验证：回收后重新进入回到该会话；从最近任务划掉则回到会话列表 |
 | B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
 | B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ✅ 🔍 | 2026-09-26 修复：常驻模式 API 34+ 改用无时长限制的 `specialUse`；实现 API 35 `onTimeout` 及时停止；`startForeground` 被拒时降级或停止；Dart `RuntimeForegroundService.ensureRunning` 回前台时查询原生实际状态并重放最后请求的模式（通话中保持通话模式）。待 API 36 真机 / 模拟器验证 |
-| B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | 🔍 | 当前依赖系统默认保护级别（`lib/util/app_paths.dart:80`） |
+| B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | ✅ | 2026-09-27 评审。**文件**：未设置保护级别，资料、历史、离线队列与偏好使用 iOS 默认级别（开机首次解锁后即可访问，锁屏时也可）；首次解锁前 iOS 不会运行后台任务。将来若改用更严格级别，必须在原子 rename 前给每个新建的 `tox_profile.tox.tmp` 设置。**钥匙串——修复一个安全漏洞**：条目为 `WhenUnlocked`，而 flutter_secure_storage 9.2.4 会把锁屏时的读取错误变成「不存在」（它带 `kSecAttrSynchronizable` 重试并返回该结果），因此锁屏后台启动时，自动登录关卡可能把有密码的账号当成无密码，打开被系统回收时留下的已解密资料。现在只要插件说「没有值」，iOS 就直接问钥匙串（`toxee/keychain_probe`，与插件相同的查询、不重试）：只有真正的「不存在」才算没有，其他一律视为不可用，关卡按有密码处理；无密码账号锁屏时仍可自动登录。已在 iOS 模拟器验证探测结果（missing / found）；锁屏读取本身需真机。IRC 频道密码锁屏时读不到（带密码的频道解锁后再加入） |
 
 ## 5. 网络
 

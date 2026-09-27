@@ -84,7 +84,7 @@ lib/ui/settings/settings_page.dart:1429
 lib/ui/settings/sidebar.dart:951
 lib/util/account_service.dart:976
 lib/util/app_paths.dart:605
-lib/util/prefs.dart:2347
+lib/util/prefs.dart:2335
 # Appended 2026-06-04 (bulk landing of the L3/real-UI automation campaigns):
 # - l3_debug_tools.dart: debug-build-gated L3 MCP tool registry; one cohesive
 #   dispatch table validated by tool/mcp_test/run_l3_scenarios.dart. Split is

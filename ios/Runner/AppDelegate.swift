@@ -168,6 +168,32 @@ import UIKit
         }
       }
 
+      // flutter_secure_storage 9.2.4 retries a read that found no value with
+      // kSecAttrSynchronizable=true and returns THAT result, so a locked
+      // device's errSecInteractionNotAllowed on an existing item comes back
+      // as "not found". The password gate must not read absence into that:
+      // this asks the Keychain directly, with the plugin's query and no
+      // retry, whether the item exists (checklist B9).
+      FlutterMethodChannel(
+        name: "toxee/keychain_probe", binaryMessenger: controller.binaryMessenger
+      ).setMethodCallHandler { call, result in
+        guard call.method == "exists",
+          let key = (call.arguments as? [String: Any])?["key"] as? String
+        else { return result(FlutterMethodNotImplemented) }
+        let query: [CFString: Any] = [
+          kSecClass: kSecClassGenericPassword,
+          kSecAttrAccount: key,
+          kSecAttrService: "flutter_secure_storage_service",
+          kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        switch status {
+        case errSecSuccess: result("found")
+        case errSecItemNotFound: result("missing")
+        default: result("error:\(status)")
+        }
+      }
+
       mediaTranscoder = ToxeeMediaTranscoder(
         channel: FlutterMethodChannel(
           name: "toxee/media_transcode", binaryMessenger: controller.binaryMessenger))
