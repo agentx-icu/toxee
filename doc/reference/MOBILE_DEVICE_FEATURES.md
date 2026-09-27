@@ -145,7 +145,7 @@ This is where a P2P client hits its hardest limits on mobile; see
 | M6 | Memory use of large images / video thumbnails (low memory, easily killed) | P1 | 🔍 | |
 | M7 | QR scanning (viewfinder in landscape / split screen) | P1 | ◐ | `mobile_scanner` |
 | M8 | Share into toxee from other apps (Share Extension / `ACTION_SEND`) | P2 | ❌ | New feature |
-| M9 | Process reclaimed while the system camera / picker is open; result lost on return | P1 | 🔍 | Camera goes through `image_picker` (fork `tencent_cloud_chat_message_camera.dart:33`); no `retrieveLostData` recovery path seen |
+| M9 | Process reclaimed while the system camera / picker is open; result lost on return | P1 | ◐ | Android only (iOS pickers run in-process). **Camera: fixed** — the chat is recorded right before the system camera opens; after a reclaim the picker's lost result is staged in the owning account's storage (`lib/util/camera_capture_recovery.dart`), the chat reopens and a dialog shows the photo / video and its recipient: Send or Discard, nothing goes out unseen, another reclaim meanwhile keeps it, other accounts never see it, logout / account deletion / 24 h drop it. **Still open: gallery / file picks** (`file_picker` has no lost-result mechanism — the user picks again); moving media picks to the image_picker photo picker would cover them. The B8 foreground service already makes such reclaims rarer |
 
 ## 8. Notifications and system integration
 

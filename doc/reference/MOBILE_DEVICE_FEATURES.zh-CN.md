@@ -139,7 +139,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | M6 | 大图 / 视频缩略图的内存占用（移动端内存小，易被系统杀） | P1 | 🔍 | |
 | M7 | 扫码（横屏 / 分屏下的取景） | P1 | ◐ | `mobile_scanner` |
 | M8 | 从其他 App 分享到 toxee（Share Extension / `ACTION_SEND`） | P2 | ❌ | 功能新增 |
-| M9 | 调用系统相机 / 选择器期间 App 进程被回收，返回后结果丢失 | P1 | 🔍 | 相机走 `image_picker`（fork `tencent_cloud_chat_message_camera.dart:33`），未见 `retrieveLostData` 恢复路径 |
+| M9 | 调用系统相机 / 选择器期间 App 进程被回收，返回后结果丢失 | P1 | ◐ | 仅 Android（iOS 选择器在本进程内）。**相机：已修复**——打开系统相机前记下目标聊天；进程被回收后，选择器遗留的结果转存到所属账号的存储（`lib/util/camera_capture_recovery.dart`），重新打开该聊天并弹窗展示照片 / 视频与收件人：发送或丢弃，不会未经确认就发出；期间再次被回收仍保留，其他账号看不到，退出登录 / 删除账号 / 24 小时后丢弃。**仍未解决：相册 / 文件选择**（`file_picker` 没有丢失结果恢复机制——用户需重选）；把媒体选择改用 image_picker 的照片选择器可覆盖。B8 的前台服务已让此类回收更少发生 |
 
 ## 8. 通知与系统集成
 

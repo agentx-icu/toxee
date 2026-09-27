@@ -985,5 +985,10 @@
   "backgroundRunningTitle": "バックグラウンド実行",
   "backgroundRunningAllowed": "許可されています。バッテリーの最適化によって Toxee がバックグラウンドで停止されることはありません。",
   "backgroundRunningRestricted": "バッテリーの最適化で制限されています。システムがバックグラウンドで Toxee を停止すると、メッセージや着信を受け取れません。",
-  "backgroundRunningAllow": "許可"
+  "backgroundRunningAllow": "許可",
+  "recoveredPhotoTitle": "撮影した写真を送信しますか？",
+  "recoveredVideoTitle": "録画したビデオを送信しますか？",
+  "recoveredCaptureBody": "カメラを開いている間に Toxee がシステムによって終了されました。{name} に送信しますか？",
+  "recoveredCaptureSend": "送信",
+  "recoveredCaptureDiscard": "破棄"
 }

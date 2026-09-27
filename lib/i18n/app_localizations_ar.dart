@@ -2082,4 +2082,21 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get backgroundRunningAllow => 'السماح';
+
+  @override
+  String get recoveredPhotoTitle => 'هل تريد إرسال الصورة التي التقطتها؟';
+
+  @override
+  String get recoveredVideoTitle => 'هل تريد إرسال الفيديو الذي سجّلته؟';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'أُغلق Toxee أثناء فتح الكاميرا. هل تريد إرسالها إلى $name؟';
+  }
+
+  @override
+  String get recoveredCaptureSend => 'إرسال';
+
+  @override
+  String get recoveredCaptureDiscard => 'تجاهل';
 }

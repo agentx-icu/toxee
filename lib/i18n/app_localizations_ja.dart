@@ -2023,4 +2023,21 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get backgroundRunningAllow => '許可';
+
+  @override
+  String get recoveredPhotoTitle => '撮影した写真を送信しますか？';
+
+  @override
+  String get recoveredVideoTitle => '録画したビデオを送信しますか？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'カメラを開いている間に Toxee がシステムによって終了されました。$name に送信しますか？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '送信';
+
+  @override
+  String get recoveredCaptureDiscard => '破棄';
 }

@@ -985,5 +985,10 @@
   "backgroundRunningTitle": "백그라운드 실행",
   "backgroundRunningAllowed": "허용됨. 배터리 최적화가 백그라운드에서 Toxee를 중지하지 않습니다.",
   "backgroundRunningRestricted": "배터리 최적화로 제한됨. 시스템이 백그라운드에서 Toxee를 중지하면 메시지와 전화를 받을 수 없습니다.",
-  "backgroundRunningAllow": "허용"
+  "backgroundRunningAllow": "허용",
+  "recoveredPhotoTitle": "방금 찍은 사진을 보낼까요?",
+  "recoveredVideoTitle": "방금 녹화한 동영상을 보낼까요?",
+  "recoveredCaptureBody": "카메라가 열려 있는 동안 시스템이 Toxee를 종료했습니다. {name}님에게 보낼까요?",
+  "recoveredCaptureSend": "보내기",
+  "recoveredCaptureDiscard": "삭제"
 }

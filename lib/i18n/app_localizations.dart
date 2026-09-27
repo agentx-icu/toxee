@@ -3741,6 +3741,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Allow'**
   String get backgroundRunningAllow;
+
+  /// Dialog title: a photo taken before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the photo you took?'**
+  String get recoveredPhotoTitle;
+
+  /// Dialog title: a video recorded before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the video you recorded?'**
+  String get recoveredVideoTitle;
+
+  /// Dialog body: why the capture is offered again, and its recipient
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee was closed while the camera was open. Send it to {name}?'**
+  String recoveredCaptureBody(String name);
+
+  /// Button: send the recovered photo/video
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get recoveredCaptureSend;
+
+  /// Button: delete the recovered photo/video
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get recoveredCaptureDiscard;
 }
 
 class _AppLocalizationsDelegate

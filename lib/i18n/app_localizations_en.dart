@@ -2105,4 +2105,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backgroundRunningAllow => 'Allow';
+
+  @override
+  String get recoveredPhotoTitle => 'Send the photo you took?';
+
+  @override
+  String get recoveredVideoTitle => 'Send the video you recorded?';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'Toxee was closed while the camera was open. Send it to $name?';
+  }
+
+  @override
+  String get recoveredCaptureSend => 'Send';
+
+  @override
+  String get recoveredCaptureDiscard => 'Discard';
 }

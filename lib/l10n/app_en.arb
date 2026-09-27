@@ -2140,5 +2140,15 @@
   "backgroundRunningAllow": "Allow",
   "@backgroundRunningAllow": {
     "description": "Button: request the battery-optimization exemption"
-  }
+  },
+  "recoveredPhotoTitle": "Send the photo you took?",
+  "@recoveredPhotoTitle": {"description": "Dialog title: a photo taken before the app was reclaimed by the system is waiting"},
+  "recoveredVideoTitle": "Send the video you recorded?",
+  "@recoveredVideoTitle": {"description": "Dialog title: a video recorded before the app was reclaimed by the system is waiting"},
+  "recoveredCaptureBody": "Toxee was closed while the camera was open. Send it to {name}?",
+  "@recoveredCaptureBody": {"description": "Dialog body: why the capture is offered again, and its recipient", "placeholders": {"name": {"type": "String"}}},
+  "recoveredCaptureSend": "Send",
+  "@recoveredCaptureSend": {"description": "Button: send the recovered photo/video"},
+  "recoveredCaptureDiscard": "Discard",
+  "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"}
 }

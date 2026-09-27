@@ -1054,15 +1054,7 @@ extension _HomePageBootstrap on _HomePageState {
         // contacts load completes so historical messages don't fire banners
         // on first launch. The listener is idempotent — calling register()
         // twice is a no-op (see NotificationMessageListener._registered).
-        if (mounted) {
-          unawaited(
-            NotificationMessageListener.forService(widget.service).register(
-              onConversationTapped: (payload) {
-                _routeToNotificationPayload(payload);
-              },
-            ),
-          );
-        }
+        if (mounted) unawaited(_registerNotificationsThenRecoverCapture());
       }
     });
 

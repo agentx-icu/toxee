@@ -1020,5 +1020,10 @@
   "backgroundRunningTitle": "التشغيل في الخلفية",
   "backgroundRunningAllowed": "مسموح. لن يوقف تحسين البطارية Toxee في الخلفية.",
   "backgroundRunningRestricted": "مقيّد بتحسين البطارية. قد يوقف النظام Toxee في الخلفية، وعندها لن تصل الرسائل والمكالمات.",
-  "backgroundRunningAllow": "السماح"
+  "backgroundRunningAllow": "السماح",
+  "recoveredPhotoTitle": "هل تريد إرسال الصورة التي التقطتها؟",
+  "recoveredVideoTitle": "هل تريد إرسال الفيديو الذي سجّلته؟",
+  "recoveredCaptureBody": "أُغلق Toxee أثناء فتح الكاميرا. هل تريد إرسالها إلى {name}؟",
+  "recoveredCaptureSend": "إرسال",
+  "recoveredCaptureDiscard": "تجاهل"
 }

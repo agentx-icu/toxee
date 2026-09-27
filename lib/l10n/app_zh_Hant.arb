@@ -996,5 +996,10 @@
   "backgroundRunningTitle": "背景執行",
   "backgroundRunningAllowed": "已允許。電池最佳化不會在背景停止 Toxee。",
   "backgroundRunningRestricted": "受電池最佳化限制。系統可能會在背景停止 Toxee，屆時將收不到訊息和來電。",
-  "backgroundRunningAllow": "允許"
+  "backgroundRunningAllow": "允許",
+  "recoveredPhotoTitle": "傳送剛拍的相片？",
+  "recoveredVideoTitle": "傳送剛錄的影片？",
+  "recoveredCaptureBody": "相機開啟時 Toxee 被系統關閉了。要傳送給 {name} 嗎？",
+  "recoveredCaptureSend": "傳送",
+  "recoveredCaptureDiscard": "捨棄"
 }

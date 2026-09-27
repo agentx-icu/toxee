@@ -827,5 +827,10 @@
   "backgroundRunningTitle": "后台运行",
   "backgroundRunningAllowed": "已允许。电池优化不会在后台停止 Toxee。",
   "backgroundRunningRestricted": "受电池优化限制。系统可能会在后台停止 Toxee，届时将收不到消息和来电。",
-  "backgroundRunningAllow": "允许"
+  "backgroundRunningAllow": "允许",
+  "recoveredPhotoTitle": "发送刚拍的照片？",
+  "recoveredVideoTitle": "发送刚录的视频？",
+  "recoveredCaptureBody": "相机打开时 Toxee 被系统关闭了。要发送给 {name} 吗？",
+  "recoveredCaptureSend": "发送",
+  "recoveredCaptureDiscard": "丢弃"
 }

@@ -55,6 +55,9 @@ extension _SettingsSessionActions on _SettingsPageState {
       );
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
+    // A photo recovered after a camera reclaim is this account's to answer;
+    // logging out gives it up (M9). Cleanup never holds up the logout.
+    unawaited(CameraCaptureRecovery.purge(widget.service.accountKey));
     await _teardownSession(service: widget.service);
     try {
       await Prefs.setCurrentAccountToxId(null);

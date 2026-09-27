@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../bootstrap/session_shutdown.dart';
 import '../util/app_spacing.dart';
+import '../util/camera_capture_recovery.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -93,6 +94,7 @@ import 'home/master_detail_transition.dart';
 import 'home/notification_access_banner.dart';
 import '../notifications/notification_access.dart';
 import 'home/overlay_route_policy.dart';
+import 'home/recovered_capture_dialog.dart';
 import 'home/profile_send_message_navigation.dart';
 import 'home/tim2tox_plugin_policy.dart';
 import 'home/toxee_message_header_info.dart';
@@ -132,6 +134,7 @@ part 'home_page_plugins.dart';
 part 'home_page_bootstrap.dart';
 part 'home_page_shortcuts.dart';
 part 'home_page_master_detail.dart';
+part 'home_page_capture.dart';
 
 enum _MediaPickType { file, image, video }
 
@@ -946,54 +949,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       _showSnackBar(userMsg);
     }
-  }
-
-  Future<void> _showCameraMediaOptions(
-    BuildContext context, {
-    String? userId,
-    String? groupId,
-  }) async {
-    if ((userId == null || userId.isEmpty) &&
-        (groupId == null || groupId.isEmpty)) {
-      final current = UikitDataFacade.currentConversation;
-      userId = current?.userID;
-      groupId = current?.groupID;
-    }
-
-    final cameraLabel =
-        TencentCloudChatLocalizations.of(context)?.camera ?? 'Camera';
-    if (groupId != null && groupId.isNotEmpty) {
-      _showSnackBar(
-        AppLocalizations.of(context)!.sendingToGroupsNotSupported(cameraLabel),
-      );
-      return;
-    }
-
-    await TencentCloudChatMessageCamera.showCameraOptions(
-      context: context,
-      onSendImage: ({required String imagePath}) {
-        if (!mounted) return;
-        unawaited(
-          _sendMedia(
-            context,
-            userId: userId,
-            type: _MediaPickType.image,
-            selectedPath: imagePath,
-          ),
-        );
-      },
-      onSendVideo: ({required String videoPath}) {
-        if (!mounted) return;
-        unawaited(
-          _sendMedia(
-            context,
-            userId: userId,
-            type: _MediaPickType.video,
-            selectedPath: videoPath,
-          ),
-        );
-      },
-    );
   }
 
   Future<String> _createSelfQrCardImage() async {

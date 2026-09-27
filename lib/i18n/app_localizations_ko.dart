@@ -2023,4 +2023,21 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get backgroundRunningAllow => '허용';
+
+  @override
+  String get recoveredPhotoTitle => '방금 찍은 사진을 보낼까요?';
+
+  @override
+  String get recoveredVideoTitle => '방금 녹화한 동영상을 보낼까요?';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '카메라가 열려 있는 동안 시스템이 Toxee를 종료했습니다. $name님에게 보낼까요?';
+  }
+
+  @override
+  String get recoveredCaptureSend => '보내기';
+
+  @override
+  String get recoveredCaptureDiscard => '삭제';
 }

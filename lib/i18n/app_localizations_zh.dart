@@ -1987,6 +1987,23 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get backgroundRunningAllow => '允许';
+
+  @override
+  String get recoveredPhotoTitle => '发送刚拍的照片？';
+
+  @override
+  String get recoveredVideoTitle => '发送刚录的视频？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '发送';
+
+  @override
+  String get recoveredCaptureDiscard => '丢弃';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3474,6 +3491,23 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get backgroundRunningAllow => '允许';
+
+  @override
+  String get recoveredPhotoTitle => '发送刚拍的照片？';
+
+  @override
+  String get recoveredVideoTitle => '发送刚录的视频？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '发送';
+
+  @override
+  String get recoveredCaptureDiscard => '丢弃';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5459,4 +5493,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get backgroundRunningAllow => '允許';
+
+  @override
+  String get recoveredPhotoTitle => '傳送剛拍的相片？';
+
+  @override
+  String get recoveredVideoTitle => '傳送剛錄的影片？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相機開啟時 Toxee 被系統關閉了。要傳送給 $name 嗎？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '傳送';
+
+  @override
+  String get recoveredCaptureDiscard => '捨棄';
 }
