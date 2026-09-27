@@ -64,8 +64,8 @@ typedef MediaTranscodePresenter =
 /// - HEIC photos (iPhones; Android phones set to "high efficiency") become
 ///   JPEG without GPS.
 /// - HEVC videos (iPhones) become H.264 MP4 — Windows without the HEVC
-///   extension and most Linux desktops cannot play HEVC. Only on iOS / macOS
-///   for now; Android follows (Media3).
+///   extension and most Linux desktops cannot play HEVC (iOS / macOS:
+///   AVFoundation; Android: Media3 Transformer).
 ///
 /// The result lives in the account's own storage
 /// (`account_data/<prefix>/outgoing_media`), not a temp dir: the sender's
@@ -88,7 +88,7 @@ class OutgoingMedia {
 
   /// Platforms with a video converter.
   static bool Function() hasVideoConverter = () =>
-      Platform.isIOS || Platform.isMacOS;
+      Platform.isIOS || Platform.isMacOS || Platform.isAndroid;
 
   /// The signed-in account, for UIKit sends (they do not carry one).
   static Future<String?> Function() currentAccount =

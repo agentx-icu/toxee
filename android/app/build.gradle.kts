@@ -117,5 +117,10 @@ dependencies {
     // flutter_local_notifications already, but declared explicitly so the
     // dependency isn't load-bearing on a plugin's version pin.
     implementation("androidx.core:core-ktx:1.13.1")
+    // Media3 Transformer: HEVC videos are re-encoded to H.264 before sending
+    // (checklist M2; MediaTranscodeChannel). 1.5.1 matches the Media3 the
+    // video player plugins already resolve to, so only one Media3 ships.
+    implementation("androidx.media3:media3-transformer:1.5.1")
+    implementation("androidx.media3:media3-common:1.5.1")
     testImplementation("junit:junit:4.13.2")
 }

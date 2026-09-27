@@ -345,6 +345,24 @@ final class ToxeeMediaTranscoder {
     if let dir { try? FileManager.default.removeItem(at: dir) }
   }
 
+  /// True when [path]'s video track holds a real frame and a duration: an
+  /// export can complete with an empty track, and that must not be sent.
+  private static func hasVideoSamples(_ path: String) -> Bool {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    guard let track = asset.tracks(withMediaType: .video).first,
+      track.timeRange.duration.seconds > 0,
+      let reader = try? AVAssetReader(asset: asset)
+    else { return false }
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+    reader.add(output)
+    guard reader.startReading() else { return false }
+    defer { reader.cancelReading() }
+    while let buffer = output.copyNextSampleBuffer() {
+      if CMSampleBufferGetNumSamples(buffer) > 0 { return true }
+    }
+    return false
+  }
+
   private static func codec(of path: String, media: AVMediaType) -> String? {
     let asset = AVURLAsset(url: URL(fileURLWithPath: path))
     guard let track = asset.tracks(withMediaType: media).first,
@@ -405,6 +423,7 @@ final class ToxeeMediaTranscoder {
       // The preset is a promise, not a proof: check what came out.
       let video = Self.codec(of: output.path, media: .video)
       let audio = hasAudio ? Self.codec(of: output.path, media: .audio) : "none"
+      let playable = Self.hasVideoSamples(output.path)
       Self.remove(staging)
       var moveError: String?
       if status == .completed {
@@ -423,7 +442,7 @@ final class ToxeeMediaTranscoder {
         switch status {
         case .completed where moveError != nil:
           error = FlutterError(code: "FAILED", message: moveError, details: nil)
-        case .completed where video == "avc1" && (audio == "aac " || audio == "none"):
+        case .completed where video == "avc1" && (audio == "aac " || audio == "none") && playable:
           error = nil
         case .completed:
           error = FlutterError(

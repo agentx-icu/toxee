@@ -132,7 +132,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | M1 | 从相册 / 相机选择图片视频 | P0 | ✅ | `file_picker`、`camera` |
-| M2 | HEIC / HEVC 等 iOS 默认格式发给桌面端（Windows / Linux 可能无法显示） | P1 | ◐ | **照片：已修复**——HEIC / HEIF（按内容判断，不看文件名）在发送前转成 JPEG：iOS / macOS 用 ImageIO，Android 9+ 用 ImageDecoder，去掉 GPS、保留方向（`lib/util/outgoing_media.dart`，通道 `toxee/media_transcode`）；两条发送路径都覆盖（toxee `_sendMedia`，UIKit 粘贴 / 拖放经 fork 的 `outgoingMediaPreparer`，在气泡生成之前）；转换失败则不发送。Windows / Linux / Android 9 以下没有转换器，也不会拍出 HEIC。接收端 `.heif` 现在也按图片处理。**仍未解决：HEVC 视频** → H.264（iOS/macOS 用 AVAssetExportSession 并显示进度、可取消；Android 用 Media3 Transformer） |
+| M2 | HEIC / HEVC 等 iOS 默认格式发给桌面端（Windows / Linux 可能无法显示） | P1 | ✅ | 发送端转换，按内容判断（不看文件名）（`lib/util/outgoing_media.dart`，通道 `toxee/media_transcode`），两条发送路径都覆盖（toxee `_sendMedia`；UIKit 粘贴 / 拖放经 fork 的 `outgoingMediaPreparer`，在气泡生成之前）；转换失败则不发送，绝不改发原文件。**照片**：HEIC / HEIF → JPEG，去掉 GPS、保留方向（iOS / macOS 用 ImageIO；Android 9+ 用 ImageDecoder）。**视频**：HEVC（探测编码）→ H.264 / AAC MP4（iOS / macOS 用 AVAssetExportSession 1080p 尺寸预设，HDR 映射为 SDR；Android 用 Media3 Transformer，编码器可降级），发送前核验输出为 H.264 且有真实帧；转换时显示带「取消」的进度对话框（取消即静默停止发送）。Windows / Linux / Android 9 以下的照片：没有转换器，也不会拍出 HEIC。接收端 `.heif` 按图片处理 |
 | M3 | 保存到相册 | P1 | ✅ | 手机上媒体查看器的「保存」把收到的图片 / 视频直接存进相册（Android MediaStore `Pictures/Toxee` / `Movies/Toxee`；iOS Photos，按文件导入，GIF / HEIC 原格式保留）。类型按文件头字节判断（收到的文件常无扩展名；`lib/util/gallery_saver.dart`）；相册失败或权限被拒会报错，不会转去别处；只有相册收不了的内容（如 iOS 上的 WebM）才走保存对话框。fork 接缝：`MessageViewerMediaSaver.defaultGallerySaver`。桌面仍用目录选择器。文件消息没有「保存」操作（经系统打开，见 M4） |
 | M4 | iOS "文件" App 共享、Android SAF 选择器 | P1 | ◐ | `UIFileSharingEnabled`；Android SAF 已知有误触锁死问题 |
 | M5 | 存储空间不足时接收大文件 | P1 | 🔍 | 失败要有明确提示并清理半成品 |
