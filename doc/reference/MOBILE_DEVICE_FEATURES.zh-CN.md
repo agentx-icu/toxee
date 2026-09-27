@@ -47,8 +47,8 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | A6 | 音频中断：系统来电、闹钟、Siri、其他 App 抢占音频焦点，结束后恢复 | P0 | ✅ | iOS `interruptionNotification`（`CallAudioChannel.swift:86`）；Android `OnAudioFocusChangeListener`（`CallAudioChannel.kt:48`）；群通话 `av_conference_session_bridge.dart` 的 `interrupted` 状态 |
 | A7 | 回声消除 / 降噪 / 自动增益（外放时尤其关键） | P0 | ◐ | 录音已请求回声消除和降噪（`audio_handler.dart:70`），iOS 用 `voiceChat` 模式（`CallAudioChannel.swift:91`）；自动增益没有实现证据，AEC 实际效果需真机外放实测 |
 | A8 | 通话结束后确实释放麦克风 / 摄像头（状态栏隐私指示灯熄灭） | P0 | 🔍 | `call_service_manager_native.dart:209`；指示灯残留即资源泄漏 |
-| A9 | 静音键 / 勿扰 / 专注模式对来电铃声、消息提示音的影响 | P1 | 🔍 | iOS 来电走 CallKit 时由系统处理；应用内铃声与 Android 需确认遵守静音模式 |
-| A10 | 通话中音量键调的是通话音量而非媒体音量 | P1 | ❌ | Android 只设了通信模式，`MainActivity` 未设 `volumeControlStream = STREAM_VOICE_CALL` |
+| A9 | 静音键 / 勿扰 / 专注模式对来电铃声、消息提示音的影响 | P1 | ◐ 🔍 | 2026-09-26 评审：Android `playIncomingRingtone`（`CallAudioChannel.kt:260`）显式按 `ringerMode` 处理：静音不响、振动只振动、否则在 `STREAM_RING` 上响铃；勿扰模式下的行为未验证。iOS 来电通常走 CallKit；CallKit 报告失败时回退到 App 内铃声（`lib/call/ringtone_player.dart`），它用默认 `playback` 类别、**无视静音键**（待修）。不能简单改为 `soloAmbient`：audioplayers 在 iOS 改的是全 App 共用的会话类别，会与通话的 `playAndRecord` 竞争、停止后也不恢复，影响语音消息播放。正确修法是在 iOS 原生侧用 `AudioServicesPlayAlertSound` 循环播放回退铃声（天然遵守静音键、不动会话），需真机验证（模拟器无静音键且 CallKit 不可用）。通知音由通知渠道与勿扰管理 |
+| A10 | 通话中音量键调的是通话音量而非媒体音量 | P1 | ✅ 🔍 | 2026-09-26 评审：由平台处理——通话期间音频模式为 `MODE_IN_COMMUNICATION`，AOSP `AudioService.getActiveStreamType` 在该模式下把未指定流的音量键映射到 `STREAM_VOICE_CALL`（蓝牙 SCO 时为其流）；toxee 未设 `volumeControlStream`，正走此默认路径。iOS 的 `voiceChat` 会话同理。离线对端无法发起通话，未实测 |
 | A11 | 录音、播放、通话三方共用 AVAudioSession 时的类别冲突（`record` / `audioplayers` / 通话） | P1 | ◐ | `audio_devices.dart:133` 只补救了 PCM 播放器改写会话类别的情况；语音消息录音 / `audioplayers` 播放与通话交错时未覆盖 |
 | A12 | 语音消息播放时贴耳自动切听筒 | P2 | ❌ | 常见 IM 体验，非必需 |
 
@@ -163,7 +163,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | I3 | iPad 外接键盘：回车发送、快捷键 | P1 | ◐ | 移动端输入组件已处理实体键盘回车发送、组合键换行（fork `tencent_cloud_chat_message_input_mobile.dart:794`）；其他快捷键未核实 |
 | I4 | iPad 鼠标 / 触控板悬停、右键菜单、拖放文件进聊天 | P2 | ❌ | |
 | I5 | 读屏（VoiceOver / TalkBack） | P1 | ◐ | 只有零散的语义标注（如 `home_widgets.dart:302`），聊天主流程能否用读屏完成未验证 |
-| I6 | 系统 12 / 24 小时制 | P1 | ❌ | 消息时间用语言环境的 `DateFormat.jm`（fork `tencent_cloud_chat_intl.dart:150`），不读系统偏好；应使用 `MediaQuery.alwaysUse24HourFormat` |
+| I6 | 系统 12 / 24 小时制 | P1 | ✅ | 2026-09-26 修复：fork `tencent_cloud_chat_intl.dart` 的消息时间、会话列表时间与 `formatDateTime` 在有 context 时读取 `MediaQuery.alwaysUse24HourFormat`，24 小时制下用 `Hm`，否则保持语言惯例。回归测试 `test/uikit_runtime_locale_regression_test.dart`；API 36 实测系统 24 小时制下显示 03:01 |
 
 ## 10. 其他
 
