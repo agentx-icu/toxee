@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../bootstrap/session_shutdown.dart';
 import '../util/app_spacing.dart';
 import '../util/camera_capture_recovery.dart';
+import '../util/outgoing_media.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -31,8 +32,6 @@ import '../sdk_fake/fake_msg_provider.dart';
 import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
-import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart'
-    show navigateToMessage;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_controller.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
@@ -900,6 +899,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       pickedPath = path;
       if (userId != null) {
+        pickedPath = await _prepareOutgoingMedia(pickedPath);
         await widget.service.sendFile(userId, pickedPath);
         _showSnackBar(appL10n.mediaSent(label));
       }

@@ -62,6 +62,7 @@ class MainActivity : FlutterActivity() {
         NotificationAccessChannel(applicationContext)
             .register(flutterEngine.dartExecutor.binaryMessenger)
         SessionOwnerChannel(this).register(flutterEngine.dartExecutor.binaryMessenger)
+        MediaTranscodeChannel().register(flutterEngine.dartExecutor.binaryMessenger)
         qrSaveChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "toxee/qr_save").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method != "saveImageToGallery") {

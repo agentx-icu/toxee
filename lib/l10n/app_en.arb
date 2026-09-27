@@ -2150,5 +2150,7 @@
   "recoveredCaptureSend": "Send",
   "@recoveredCaptureSend": {"description": "Button: send the recovered photo/video"},
   "recoveredCaptureDiscard": "Discard",
-  "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"}
+  "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"},
+  "mediaConversionFailed": "Couldn't convert this photo for sending. Nothing was sent.",
+  "@mediaConversionFailed": {"description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"}
 }

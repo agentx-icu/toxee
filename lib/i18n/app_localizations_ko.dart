@@ -2040,4 +2040,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get recoveredCaptureDiscard => '삭제';
+
+  @override
+  String get mediaConversionFailed => '이 사진을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
 }

@@ -832,5 +832,6 @@
   "recoveredVideoTitle": "发送刚录的视频？",
   "recoveredCaptureBody": "相机打开时 Toxee 被系统关闭了。要发送给 {name} 吗？",
   "recoveredCaptureSend": "发送",
-  "recoveredCaptureDiscard": "丢弃"
+  "recoveredCaptureDiscard": "丢弃",
+  "mediaConversionFailed": "无法转换这张照片，未发送。"
 }

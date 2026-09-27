@@ -2099,4 +2099,8 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get recoveredCaptureDiscard => 'تجاهل';
+
+  @override
+  String get mediaConversionFailed =>
+      'تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء.';
 }

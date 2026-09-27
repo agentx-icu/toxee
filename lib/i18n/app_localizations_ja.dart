@@ -2040,4 +2040,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get recoveredCaptureDiscard => '破棄';
+
+  @override
+  String get mediaConversionFailed => 'この写真を送信用に変換できませんでした。送信していません。';
 }

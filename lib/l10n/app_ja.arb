@@ -990,5 +990,6 @@
   "recoveredVideoTitle": "録画したビデオを送信しますか？",
   "recoveredCaptureBody": "カメラを開いている間に Toxee がシステムによって終了されました。{name} に送信しますか？",
   "recoveredCaptureSend": "送信",
-  "recoveredCaptureDiscard": "破棄"
+  "recoveredCaptureDiscard": "破棄",
+  "mediaConversionFailed": "この写真を送信用に変換できませんでした。送信していません。"
 }

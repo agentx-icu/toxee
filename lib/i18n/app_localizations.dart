@@ -3771,6 +3771,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Discard'**
   String get recoveredCaptureDiscard;
+
+  /// Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t convert this photo for sending. Nothing was sent.'**
+  String get mediaConversionFailed;
 }
 
 class _AppLocalizationsDelegate

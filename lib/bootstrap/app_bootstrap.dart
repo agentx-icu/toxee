@@ -7,6 +7,9 @@ import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
 import '../util/gallery_saver.dart';
+import '../util/outgoing_media.dart';
+import '../util/send_failure_notifier.dart';
+import '../ui/widgets/app_snackbar.dart';
 import '../util/account_deletion_journal.dart';
 import '../util/account_export/tox_import_journal.dart';
 import '../util/placeholder_identity_discovery.dart';
@@ -88,6 +91,15 @@ class AppBootstrap {
     TencentCloudChatAvatar.defaultAvatarAssetPackage = null;
     // Phones: the media viewer's Save goes to the photo library (M3).
     GallerySaver.install();
+    // HEIC photos are sent as JPEG: desktop peers often cannot show HEIC (M2).
+    OutgoingMedia.installForUiKit(
+      onFailure: (message) {
+        final messenger = SendFailureNotifier.scaffoldMessengerKey.currentState;
+        if (messenger != null) {
+          AppSnackBar.showOn(messenger, message, isError: true);
+        }
+      },
+    );
     // Learn whether this DEVICE actually has a camera before anything can offer
     // a video call, so a camera-less device never raises a camera permission
     // sheet it cannot resolve (that modal covers the app and blocks even VOICE

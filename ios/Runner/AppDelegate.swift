@@ -1,6 +1,7 @@
 import Flutter
 import AVFoundation
 import Foundation
+import ImageIO
 import Photos
 import UIKit
 
@@ -166,6 +167,26 @@ import UIKit
         }
       }
 
+      let mediaTranscodeChannel = FlutterMethodChannel(
+        name: "toxee/media_transcode",
+        binaryMessenger: controller.binaryMessenger)
+      mediaTranscodeChannel.setMethodCallHandler { (call, result) in
+        guard call.method == "heicToJpeg",
+          let args = call.arguments as? [String: Any],
+          let source = args["source"] as? String,
+          let target = args["target"] as? String
+        else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+          let error = toxeeHeicToJpeg(source: source, target: target)
+          DispatchQueue.main.async {
+            result(error.map { FlutterError(code: "FAILED", message: $0, details: nil) })
+          }
+        }
+      }
+
       #if DEBUG
       // L3 test seam, DEBUG builds only (release Dart must not be able to pop
       // arbitrary presented UIKit flows; the Dart side additionally gates on
@@ -217,4 +238,26 @@ import UIKit
     backgroundTasks.scheduleNextRefresh()
     super.applicationDidEnterBackground(application)
   }
+}
+
+/// HEIC / HEIF -> JPEG for sending (checklist M2): desktop peers often cannot
+/// show HEIC. The first image is re-encoded at quality 0.9 with its
+/// orientation and colour metadata, minus the GPS block. Returns an error
+/// message, or nil on success.
+func toxeeHeicToJpeg(source: String, target: String) -> String? {
+  guard
+    let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: source) as CFURL, nil),
+    CGImageSourceGetCount(src) > 0
+  else { return "unreadable image" }
+  guard
+    let dest = CGImageDestinationCreateWithURL(
+      URL(fileURLWithPath: target) as CFURL, "public.jpeg" as CFString, 1, nil)
+  else { return "cannot create JPEG" }
+  let properties: [CFString: Any] = [
+    kCGImageDestinationLossyCompressionQuality: 0.9,
+    // kCFNull removes the key: no location leaves the device.
+    kCGImagePropertyGPSDictionary: kCFNull as Any,
+  ]
+  CGImageDestinationAddImageFromSource(dest, src, 0, properties as CFDictionary)
+  return CGImageDestinationFinalize(dest) ? nil : "JPEG encoding failed"
 }

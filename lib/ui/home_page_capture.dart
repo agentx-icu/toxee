@@ -1,10 +1,16 @@
 part of 'home_page.dart';
 
-// Camera capture from a chat, and the recovery of a capture whose process
-// Android reclaimed while the system camera was in front (checklist M9).
+// Camera capture from a chat, the recovery of a capture whose process
+// Android reclaimed while the system camera was in front (checklist M9), and
+// preparing outgoing media (M2).
 // Split out of `home_page.dart` (at its complexity pin).
 
 extension _HomePageCapture on _HomePageState {
+  /// HEIC photos go out as JPEG (M2): desktop peers often cannot show HEIC.
+  /// Throws [MediaConversionException] (the send stops) when that fails.
+  Future<String> _prepareOutgoingMedia(String path) =>
+      OutgoingMedia.prepare(path, accountKey: widget.service.accountKey);
+
   Future<void> _showCameraMediaOptions(
     BuildContext context, {
     String? userId,

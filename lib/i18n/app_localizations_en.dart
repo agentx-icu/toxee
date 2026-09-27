@@ -2122,4 +2122,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recoveredCaptureDiscard => 'Discard';
+
+  @override
+  String get mediaConversionFailed =>
+      'Couldn\'t convert this photo for sending. Nothing was sent.';
 }

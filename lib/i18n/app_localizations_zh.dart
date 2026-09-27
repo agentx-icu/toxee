@@ -2004,6 +2004,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get recoveredCaptureDiscard => '丢弃';
+
+  @override
+  String get mediaConversionFailed => '无法转换这张照片，未发送。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3508,6 +3511,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get recoveredCaptureDiscard => '丢弃';
+
+  @override
+  String get mediaConversionFailed => '无法转换这张照片，未发送。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5510,4 +5516,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get recoveredCaptureDiscard => '捨棄';
+
+  @override
+  String get mediaConversionFailed => '無法轉換這張相片，未傳送。';
 }
