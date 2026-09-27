@@ -97,7 +97,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | B3a | Android `ConnectionService`：蓝牙按键接听、车机集成 | P2 | ❌ | 未接入 |
 | B4 | 生命周期：`paused` / `detached` 时落盘 profile | P0 | ✅ | `lib/ui/home_page.dart:613-617`；`inactive` 会被控制中心、来电等频繁触发，有意不处理 |
 | B5 | 厂商后台管控（MIUI / EMUI / ColorOS 自启动、电池优化白名单）、Doze | P1 | ◐ | 设置 → 后台与通知显示 toxee 是否已免除电池优化，并提供「允许」（`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，不可用时退到白名单列表页）；回到前台时重新读取状态（`NotificationAccessChannel.kt`、`lib/ui/settings/background_settings_section.dart`）。Play 政策：直接请求（`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`）面向无法依赖 FCM 高优先级消息的聊天 / 通话应用——toxee 没有推送服务器；上架时重新核对现行政策，若被拒就去掉该权限（列表页兜底不需要它）。仍未解决：厂商自启动页（MIUI / EMUI / ColorOS）没有公开 intent，没有通用修法 |
-| B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | 🔍 | 自动登录路径已有（`_StartupGate`），页面栈恢复未验证 |
+| B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | ✅ | 2026-09-27 复现：后台被系统回收后，toxee 自动登录回到会话列表，原来打开的会话丢失。已修复（`lib/ui/home/open_chat_restoration.dart`）：把当前显示的会话写进 Flutter 的状态恢复数据——系统只在它自己回收进程后交还，用户划掉或重启后不会——每次导航后和应用转为 inactive 时写入并立即刷新。会话就绪后只对同一账号重新打开；若启动时路由了通知（通知优先）或恢复的拍摄（M9）要打开它自己的会话，则不恢复。iOS：storyboard 加 `restorationIdentifier`（保留 FlutterAppDelegate 的恢复校验）。已在 Android 16 模拟器验证：回收后重新进入回到该会话；从最近任务划掉则回到会话列表 |
 | B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
 | B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ✅ 🔍 | 2026-09-26 修复：常驻模式 API 34+ 改用无时长限制的 `specialUse`；实现 API 35 `onTimeout` 及时停止；`startForeground` 被拒时降级或停止；Dart `RuntimeForegroundService.ensureRunning` 回前台时查询原生实际状态并重放最后请求的模式（通话中保持通话模式）。待 API 36 真机 / 模拟器验证 |
 | B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | 🔍 | 当前依赖系统默认保护级别（`lib/util/app_paths.dart:80`） |

@@ -90,6 +90,7 @@ import 'applications/applications_page.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
 import 'home/master_detail_transition.dart';
+import 'home/open_chat_restoration.dart';
 import 'home/notification_access_banner.dart';
 import '../notifications/notification_access.dart';
 import 'home/overlay_route_policy.dart';

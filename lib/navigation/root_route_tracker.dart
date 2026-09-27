@@ -24,6 +24,10 @@ class RootRouteTracker extends NavigatorObserver {
 
   final List<Route<dynamic>> _stack = <Route<dynamic>>[];
 
+  /// Bumped on every change to the stack, for code that follows what is on
+  /// screen (e.g. saving the open conversation for state restoration).
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   /// The route currently on top of the root navigator, or null before the
   /// first push.
   Route<dynamic>? get topRoute => _stack.isEmpty ? null : _stack.last;
@@ -31,18 +35,21 @@ class RootRouteTracker extends NavigatorObserver {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     _stack.add(route);
+    revision.value++;
     super.didPush(route, previousRoute);
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     _stack.remove(route);
+    revision.value++;
     super.didPop(route, previousRoute);
   }
 
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
     _stack.remove(route);
+    revision.value++;
     super.didRemove(route, previousRoute);
   }
 
@@ -58,6 +65,7 @@ class RootRouteTracker extends NavigatorObserver {
     } else if (index >= 0) {
       _stack.removeAt(index);
     }
+    revision.value++;
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
   }
 }

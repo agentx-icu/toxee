@@ -148,6 +148,11 @@ class MasterDetailTransition {
     _schedule(() => _apply(generation, wide, target, account, 1));
   }
 
+  /// The conversation on screen right now in the current layout, or null
+  /// (another tab, or a page / dialog covering the chat).
+  ChatTarget? visibleChat() =>
+      _captureVisibleChat(toWide: !host.showsMasterDetailNow());
+
   ChatTarget? _captureVisibleChat({required bool toWide}) {
     if (!host.isChatsTabIdle()) return null;
     final top = tracker.topRoute;
