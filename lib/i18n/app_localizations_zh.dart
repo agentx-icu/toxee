@@ -2007,6 +2007,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get mediaConversionFailed => '无法转换这张照片，未发送。';
+
+  @override
+  String get videoConverting => '正在准备视频…';
+
+  @override
+  String get videoConvertingDesc => '正在转换为所有设备都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '无法转换这段视频，未发送。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3514,6 +3523,15 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get mediaConversionFailed => '无法转换这张照片，未发送。';
+
+  @override
+  String get videoConverting => '正在准备视频…';
+
+  @override
+  String get videoConvertingDesc => '正在转换为所有设备都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '无法转换这段视频，未发送。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5519,4 +5537,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get mediaConversionFailed => '無法轉換這張相片，未傳送。';
+
+  @override
+  String get videoConverting => '正在準備影片…';
+
+  @override
+  String get videoConvertingDesc => '正在轉換為所有裝置都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '無法轉換這段影片，未傳送。';
 }

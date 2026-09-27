@@ -2043,4 +2043,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get mediaConversionFailed => '이 사진을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
+
+  @override
+  String get videoConverting => '동영상 준비 중…';
+
+  @override
+  String get videoConvertingDesc => '모든 기기에서 재생할 수 있는 형식으로 변환하고 있습니다.';
+
+  @override
+  String get videoConversionFailed => '이 동영상을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
 }

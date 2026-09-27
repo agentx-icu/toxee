@@ -19,9 +19,21 @@ void main() {
       reason: 'FfiChatService.sendFile owns offline file queueing. The custom '
           'photo/video picker must not pre-emptively fail offline C2C sends.',
     );
+    // The send goes through the M2 media preparation (HEIC -> JPEG, HEVC ->
+    // H.264), which then hands the file to sendFile unchanged in spirit:
+    // still no offline pre-check of its own.
     expect(
       sendMediaBody,
-      contains('await widget.service.sendFile(userId, pickedPath);'),
+      contains('await _sendPreparedMedia(userId, pickedPath)'),
     );
+    final capture = await File('lib/ui/home_page_capture.dart').readAsString();
+    final helperStart = capture.indexOf('Future<bool> _sendPreparedMedia');
+    expect(helperStart, isNonNegative);
+    final helper = capture.substring(
+      helperStart,
+      capture.indexOf('\n  }\n', helperStart),
+    );
+    expect(helper, contains('await widget.service.sendFile(userId, prepared);'));
+    expect(helper, isNot(contains('getFriendList')));
   });
 }

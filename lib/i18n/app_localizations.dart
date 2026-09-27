@@ -3777,6 +3777,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t convert this photo for sending. Nothing was sent.'**
   String get mediaConversionFailed;
+
+  /// Dialog title while an HEVC video is converted to H.264 before sending
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing video…'**
+  String get videoConverting;
+
+  /// Dialog text: why the video is being converted
+  ///
+  /// In en, this message translates to:
+  /// **'Converting it to a format every device can play.'**
+  String get videoConvertingDesc;
+
+  /// Error: a video could not be converted before sending, so the send was stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t convert this video for sending. Nothing was sent.'**
+  String get videoConversionFailed;
 }
 
 class _AppLocalizationsDelegate

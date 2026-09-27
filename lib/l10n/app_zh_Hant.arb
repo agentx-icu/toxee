@@ -1002,5 +1002,8 @@
   "recoveredCaptureBody": "相機開啟時 Toxee 被系統關閉了。要傳送給 {name} 嗎？",
   "recoveredCaptureSend": "傳送",
   "recoveredCaptureDiscard": "捨棄",
-  "mediaConversionFailed": "無法轉換這張相片，未傳送。"
+  "mediaConversionFailed": "無法轉換這張相片，未傳送。",
+  "videoConverting": "正在準備影片…",
+  "videoConvertingDesc": "正在轉換為所有裝置都能播放的格式。",
+  "videoConversionFailed": "無法轉換這段影片，未傳送。"
 }

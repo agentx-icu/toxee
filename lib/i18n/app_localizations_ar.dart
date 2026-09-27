@@ -2103,4 +2103,14 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get mediaConversionFailed =>
       'تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء.';
+
+  @override
+  String get videoConverting => 'جارٍ تجهيز الفيديو…';
+
+  @override
+  String get videoConvertingDesc => 'جارٍ تحويله إلى صيغة تعمل على كل الأجهزة.';
+
+  @override
+  String get videoConversionFailed =>
+      'تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء.';
 }

@@ -10,6 +10,7 @@ import '../util/gallery_saver.dart';
 import '../util/outgoing_media.dart';
 import '../util/send_failure_notifier.dart';
 import '../ui/widgets/app_snackbar.dart';
+import '../ui/widgets/media_transcode_dialog.dart';
 import '../util/account_deletion_journal.dart';
 import '../util/account_export/tox_import_journal.dart';
 import '../util/placeholder_identity_discovery.dart';
@@ -91,7 +92,9 @@ class AppBootstrap {
     TencentCloudChatAvatar.defaultAvatarAssetPackage = null;
     // Phones: the media viewer's Save goes to the photo library (M3).
     GallerySaver.install();
-    // HEIC photos are sent as JPEG: desktop peers often cannot show HEIC (M2).
+    // HEIC photos go out as JPEG, HEVC videos as H.264: desktop peers often
+    // cannot show them (M2). A video conversion shows its progress.
+    OutgoingMedia.presenter = MediaTranscodeDialog.present;
     OutgoingMedia.installForUiKit(
       onFailure: (message) {
         final messenger = SendFailureNotifier.scaffoldMessengerKey.currentState;

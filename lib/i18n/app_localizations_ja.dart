@@ -2043,4 +2043,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get mediaConversionFailed => 'この写真を送信用に変換できませんでした。送信していません。';
+
+  @override
+  String get videoConverting => 'ビデオを準備しています…';
+
+  @override
+  String get videoConvertingDesc => 'どのデバイスでも再生できる形式に変換しています。';
+
+  @override
+  String get videoConversionFailed => 'このビデオを送信用に変換できませんでした。送信していません。';
 }

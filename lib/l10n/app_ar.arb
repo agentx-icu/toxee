@@ -1026,5 +1026,8 @@
   "recoveredCaptureBody": "أُغلق Toxee أثناء فتح الكاميرا. هل تريد إرسالها إلى {name}؟",
   "recoveredCaptureSend": "إرسال",
   "recoveredCaptureDiscard": "تجاهل",
-  "mediaConversionFailed": "تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء."
+  "mediaConversionFailed": "تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء.",
+  "videoConverting": "جارٍ تجهيز الفيديو…",
+  "videoConvertingDesc": "جارٍ تحويله إلى صيغة تعمل على كل الأجهزة.",
+  "videoConversionFailed": "تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء."
 }

@@ -2152,5 +2152,11 @@
   "recoveredCaptureDiscard": "Discard",
   "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"},
   "mediaConversionFailed": "Couldn't convert this photo for sending. Nothing was sent.",
-  "@mediaConversionFailed": {"description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"}
+  "@mediaConversionFailed": {"description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"},
+  "videoConverting": "Preparing video…",
+  "@videoConverting": {"description": "Dialog title while an HEVC video is converted to H.264 before sending"},
+  "videoConvertingDesc": "Converting it to a format every device can play.",
+  "@videoConvertingDesc": {"description": "Dialog text: why the video is being converted"},
+  "videoConversionFailed": "Couldn't convert this video for sending. Nothing was sent.",
+  "@videoConversionFailed": {"description": "Error: a video could not be converted before sending, so the send was stopped"}
 }

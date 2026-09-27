@@ -6,10 +6,22 @@ part of 'home_page.dart';
 // Split out of `home_page.dart` (at its complexity pin).
 
 extension _HomePageCapture on _HomePageState {
-  /// HEIC photos go out as JPEG (M2): desktop peers often cannot show HEIC.
-  /// Throws [MediaConversionException] (the send stops) when that fails.
-  Future<String> _prepareOutgoingMedia(String path) =>
-      OutgoingMedia.prepare(path, accountKey: widget.service.accountKey);
+  /// Sends [path] to [userId], HEIC as JPEG and HEVC as H.264 (M2): desktop
+  /// peers often cannot show them. False when the user cancelled the
+  /// conversion; throws [MediaConversionException] when it failed.
+  Future<bool> _sendPreparedMedia(String userId, String path) async {
+    final String prepared;
+    try {
+      prepared = await OutgoingMedia.prepare(
+        path,
+        accountKey: widget.service.accountKey,
+      );
+    } on MediaConversionCancelled {
+      return false;
+    }
+    await widget.service.sendFile(userId, prepared);
+    return true;
+  }
 
   Future<void> _showCameraMediaOptions(
     BuildContext context, {

@@ -991,5 +991,8 @@
   "recoveredCaptureBody": "카메라가 열려 있는 동안 시스템이 Toxee를 종료했습니다. {name}님에게 보낼까요?",
   "recoveredCaptureSend": "보내기",
   "recoveredCaptureDiscard": "삭제",
-  "mediaConversionFailed": "이 사진을 전송용으로 변환하지 못했습니다. 보내지 않았습니다."
+  "mediaConversionFailed": "이 사진을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.",
+  "videoConverting": "동영상 준비 중…",
+  "videoConvertingDesc": "모든 기기에서 재생할 수 있는 형식으로 변환하고 있습니다.",
+  "videoConversionFailed": "이 동영상을 전송용으로 변환하지 못했습니다. 보내지 않았습니다."
 }

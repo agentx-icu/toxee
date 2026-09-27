@@ -2,6 +2,7 @@
 // because desktop peers often cannot show HEIC. Decided by content, not the
 // name; the copy lands in the account's storage under a fresh name; a failed
 // conversion stops the send instead of delivering the HEIC.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -17,6 +18,9 @@ void main() {
   late Directory root;
   PlatformException? nativeError;
   final calls = <Map<Object?, Object?>>[];
+  String? probedCodec;
+  Completer<void>? transcodeGate;
+  var cancelTooLate = false; // native already finished when Cancel landed
 
   List<int> heic() => [0, 0, 0, 24, ...'ftypheic'.codeUnits, 0, 0, 0, 0];
 
@@ -25,12 +29,36 @@ void main() {
     root = Directory.systemTemp.createTempSync('outgoing-media-test-');
     OutgoingMedia.outputRoot = (account) async => '${root.path}/$account/out';
     OutgoingMedia.hasConverter = () => true;
+    OutgoingMedia.hasVideoConverter = () => true;
+    OutgoingMedia.presenter = null;
+    OutgoingMedia.currentAccount = () async => null;
     nativeError = null;
+    probedCodec = null;
+    transcodeGate = null;
+    cancelTooLate = false;
     calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       final args = call.arguments as Map<Object?, Object?>;
-      calls.add(args);
+      calls.add({...args, 'method': call.method});
+      if (call.method == 'probeVideo') return probedCodec;
+      if (call.method == 'cancelTranscode') {
+        if (!cancelTooLate) nativeError = PlatformException(code: 'CANCELLED');
+        transcodeGate?.complete();
+        return null;
+      }
+      if (call.method == 'transcodeToH264') {
+        // Progress back to Dart, the way the native side reports it.
+        await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+              channel.name,
+              channel.codec.encodeMethodCall(
+                MethodCall('progress', {'id': args['id'], 'progress': 0.5}),
+              ),
+              (_) {},
+            );
+        await transcodeGate?.future;
+      }
       final error = nativeError;
       if (error != null) {
         File(args['target']! as String).writeAsBytesSync(const [1]); // partial
@@ -129,6 +157,76 @@ void main() {
       OutgoingMedia.prepare(photo, accountKey: 'A'),
       throwsA(isA<MediaConversionException>()),
     );
+  });
+
+  List<int> mp4(String brand) => [0, 0, 0, 24, ...'ftyp$brand'.codeUnits, 0, 0, 0, 0];
+
+  test('an HEVC video becomes an H.264 MP4, with progress', () async {
+    probedCodec = 'hvc1';
+    final clip = file('IMG_0002.MOV', mp4('qt  '));
+    MediaTranscodeHandle? shown;
+    var doneAfter = false;
+    OutgoingMedia.presenter = (handle, done) {
+      shown = handle;
+      unawaited(done.then((_) => doneAfter = true));
+    };
+
+    final out = await OutgoingMedia.prepare(clip, accountKey: 'A');
+
+    expect(out, startsWith('${root.path}/A/out/IMG_0002_'));
+    expect(out, endsWith('.mp4'));
+    expect(calls.map((c) => c['method']), ['probeVideo', 'transcodeToH264']);
+    expect(shown!.progress.value, 0.5);
+    await Future<void>.delayed(Duration.zero);
+    expect(doneAfter, isTrue, reason: 'the progress UI closes');
+  });
+
+  test('H.264, unreadable video, or no video converter: sent as is', () async {
+    final clip = file('c.mp4', mp4('isom'));
+    probedCodec = 'avc1';
+    expect(await OutgoingMedia.prepare(clip, accountKey: 'A'), clip);
+    probedCodec = null;
+    expect(await OutgoingMedia.prepare(clip, accountKey: 'A'), clip);
+    OutgoingMedia.hasVideoConverter = () => false;
+    calls.clear();
+    expect(await OutgoingMedia.prepare(clip, accountKey: 'A'), clip);
+    expect(calls, isEmpty);
+  });
+
+  test('cancel stops the send quietly and leaves nothing behind', () async {
+    probedCodec = 'hvc1';
+    transcodeGate = Completer<void>();
+    final clip = file('c.mov', mp4('qt  '));
+    OutgoingMedia.presenter = (handle, _) => unawaited(handle.cancel());
+    await expectLater(
+      OutgoingMedia.prepare(clip, accountKey: 'A'),
+      throwsA(isA<MediaConversionCancelled>()),
+    );
+    expect(Directory('${root.path}/A/out').listSync(), isEmpty);
+
+    // The UIKit path: cancelled is not a failure to report.
+    transcodeGate = Completer<void>();
+    nativeError = null;
+    final reasons = <String>[];
+    OutgoingMedia.currentAccount = () async => 'A';
+    OutgoingMedia.installForUiKit(onFailure: reasons.add);
+    final preparer =
+        TencentCloudChatMessageSeparateDataProvider.outgoingMediaPreparer!;
+    expect(await preparer(clip), isNull);
+    expect(reasons, isEmpty);
+  });
+
+  test('a Cancel that lands as the export finishes still stops the send', () async {
+    probedCodec = 'hvc1';
+    cancelTooLate = true;
+    transcodeGate = Completer<void>();
+    final clip = file('late.mov', mp4('qt  '));
+    OutgoingMedia.presenter = (handle, _) => unawaited(handle.cancel());
+    await expectLater(
+      OutgoingMedia.prepare(clip, accountKey: 'A'),
+      throwsA(isA<MediaConversionCancelled>()),
+    );
+    expect(Directory('${root.path}/A/out').listSync(), isEmpty);
   });
 
   test('UIKit sends get the converted path, or stop with a reason', () async {

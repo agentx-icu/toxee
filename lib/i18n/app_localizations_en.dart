@@ -2126,4 +2126,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get mediaConversionFailed =>
       'Couldn\'t convert this photo for sending. Nothing was sent.';
+
+  @override
+  String get videoConverting => 'Preparing video…';
+
+  @override
+  String get videoConvertingDesc =>
+      'Converting it to a format every device can play.';
+
+  @override
+  String get videoConversionFailed =>
+      'Couldn\'t convert this video for sending. Nothing was sent.';
 }

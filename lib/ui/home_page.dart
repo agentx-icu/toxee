@@ -899,8 +899,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       pickedPath = path;
       if (userId != null) {
-        pickedPath = await _prepareOutgoingMedia(pickedPath);
-        await widget.service.sendFile(userId, pickedPath);
+        if (!await _sendPreparedMedia(userId, pickedPath)) return;
         _showSnackBar(appL10n.mediaSent(label));
       }
     } catch (e) {
