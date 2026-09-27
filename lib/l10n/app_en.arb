@@ -2076,5 +2076,37 @@
   "groupPasswordRequired": "Enter the group password",
   "@groupPasswordRequired": {
     "description": "Validation error: the group password field is empty"
+  },
+  "notificationAccessAppOff": "Notifications are off. Toxee can't alert you to new messages or calls while it's in the background.",
+  "@notificationAccessAppOff": {
+    "description": "Chats-tab notice: app notifications are turned off in system settings"
+  },
+  "notificationAccessCallsOff": "Incoming-call notifications are off. While Toxee is in the background you won't get a notification to answer calls.",
+  "@notificationAccessCallsOff": {
+    "description": "Chats-tab notice: the incoming-call notification channel is off (Android)"
+  },
+  "notificationAccessFullScreenOff": "Toxee isn't allowed to show incoming calls full screen, so they appear only as a regular notification.",
+  "@notificationAccessFullScreenOff": {
+    "description": "Chats-tab notice: full-screen intent permission not granted (Android 14+)"
+  },
+  "notificationAccessMessagesOff": "Message notifications are off. New messages won't alert you while Toxee is in the background.",
+  "@notificationAccessMessagesOff": {
+    "description": "Chats-tab notice: the message notification channel is off (Android)"
+  },
+  "notificationAccessOtherOff": "Some Toxee notifications are off (friend requests, group invites or missed calls).",
+  "@notificationAccessOtherOff": {
+    "description": "Chats-tab notice: friend-request, group-invite or missed-call channel is off (Android)"
+  },
+  "notificationAccessAlertsOff": "Notification alerts are off. New messages won't pop up while Toxee is in the background.",
+  "@notificationAccessAlertsOff": {
+    "description": "Chats-tab notice: notification alerts (banners) are off (iOS)"
+  },
+  "notificationAccessProvisional": "Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.",
+  "@notificationAccessProvisional": {
+    "description": "Chats-tab notice: iOS provisional authorization, notifications delivered quietly"
+  },
+  "notificationAccessOpenSettings": "Settings",
+  "@notificationAccessOpenSettings": {
+    "description": "Button on the notification notice: opens the system settings page"
   }
 }

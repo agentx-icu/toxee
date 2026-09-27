@@ -2024,4 +2024,35 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'أدخل كلمة مرور المجموعة';
+
+  @override
+  String get notificationAccessAppOff =>
+      'الإشعارات متوقفة. لا يمكن لـ Toxee تنبيهك بالرسائل أو المكالمات الجديدة أثناء عمله في الخلفية.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      'إشعارات المكالمات الواردة متوقفة. أثناء عمل Toxee في الخلفية لن يظهر إشعار للرد على المكالمات.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'لا يُسمح لـ Toxee بعرض المكالمات الواردة بملء الشاشة، لذا ستظهر كإشعار عادي فقط.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'إشعارات الرسائل متوقفة. لن يتم تنبيهك بالرسائل الجديدة أثناء عمل Toxee في الخلفية.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      'بعض إشعارات Toxee متوقفة (طلبات الصداقة أو دعوات المجموعات أو المكالمات الفائتة).';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      'تنبيهات الإشعارات متوقفة. لن تظهر الرسائل الجديدة أثناء عمل Toxee في الخلفية.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'تصل إشعارات Toxee بهدوء إلى مركز الإشعارات. شغّل التنبيهات لرؤية الرسائل الجديدة فورًا.';
+
+  @override
+  String get notificationAccessOpenSettings => 'الإعدادات';
 }

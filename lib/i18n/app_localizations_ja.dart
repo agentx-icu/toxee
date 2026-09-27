@@ -1965,4 +1965,35 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'グループのパスワードを入力してください';
+
+  @override
+  String get notificationAccessAppOff =>
+      '通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージや着信をお知らせできません。';
+
+  @override
+  String get notificationAccessCallsOff =>
+      '着信通知がオフです。Toxee がバックグラウンドにある間、着信に応答するための通知が表示されません。';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee に着信の全画面表示が許可されていないため、着信は通常の通知としてのみ表示されます。';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'メッセージ通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージをお知らせしません。';
+
+  @override
+  String get notificationAccessOtherOff =>
+      '一部の Toxee 通知（友だちリクエスト、グループ招待、不在着信）がオフです。';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      '通知のアラートがオフです。Toxee がバックグラウンドにある間、新しいメッセージが表示されません。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee の通知は通知センターに目立たない形で届いています。アラートをオンにすると新しいメッセージをすぐに確認できます。';
+
+  @override
+  String get notificationAccessOpenSettings => '設定';
 }

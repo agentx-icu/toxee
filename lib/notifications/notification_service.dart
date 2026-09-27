@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../util/app_l10n.dart';
 import '../util/harness_environment.dart';
@@ -308,9 +307,6 @@ class NotificationService {
         // Every Android release: below API 33 the plugin reports
         // notifications enabled (fast path) and never prompts.
         unawaited(_ensureAndroidPermission());
-        _resumeListener ??= AppLifecycleListener(
-          onResume: () => unawaited(refreshAndroidPermission()),
-        );
       }
 
       // iOS / macOS: ask for alert + badge + sound. CRITICAL: do NOT await the
@@ -330,6 +326,7 @@ class NotificationService {
         AppLogger.info(
           '[NotificationService] Notification permission prompt disabled by harness',
         );
+        _settlePermission();
       } else if (Platform.isIOS) {
         final iosImpl = _plugin
             .resolvePlatformSpecificImplementation<
@@ -346,7 +343,8 @@ class NotificationService {
                   onError: (Object e) => AppLogger.warn(
                     '[NotificationService] iOS permission request failed: $e',
                   ),
-                ),
+                )
+                .whenComplete(_settlePermission),
           );
         }
       } else if (Platform.isMacOS) {
@@ -1100,37 +1098,33 @@ class NotificationService {
       }
     } finally {
       _androidPermissionInFlight = null;
+      _settlePermission();
     }
   }
 
-  AppLifecycleListener? _resumeListener;
+  /// Whether the startup permission request has been answered (or skipped).
+  /// Until then iOS reports "not enabled" for an undecided prompt too, so the
+  /// user-facing notice (NotificationAccessMonitor) must not call that "off".
+  bool get permissionRequestSettled => _permissionRequestSettled;
+  bool _permissionRequestSettled = false;
 
-  /// Test seam: stands in for the plugin's `areNotificationsEnabled`, whose
-  /// Android implementation does not resolve on a non-Android host.
-  @visibleForTesting
-  Future<bool?> Function()? debugAreNotificationsEnabled;
+  /// Called once the permission request settles, so the notice can explain a
+  /// denial right away instead of waiting for the next resume.
+  VoidCallback? onPermissionSettled;
 
-  /// Re-reads the system notification switch after a denial, WITHOUT
-  /// prompting. The denial used to be cached for the whole session, so a user
-  /// who enabled notifications in system settings still got none until the
-  /// app restarted. Runs on every resume (returning from settings).
-  Future<void> refreshAndroidPermission() async {
-    if (!_isAndroidPlatform || _androidPermissionGranted != false) return;
-    try {
-      final enabled =
-          await (debugAreNotificationsEnabled?.call() ??
-              _plugin
-                  .resolvePlatformSpecificImplementation<
-                    AndroidFlutterLocalNotificationsPlugin
-                  >()
-                  ?.areNotificationsEnabled());
-      if (enabled == true && _androidPermissionGranted == false) {
-        _androidPermissionGranted = true;
-        AppLogger.info('[NotificationService] notifications re-enabled');
-      }
-    } catch (e) {
-      AppLogger.warn('[NotificationService] permission refresh failed: $e');
-    }
+  void _settlePermission() {
+    _permissionRequestSettled = true;
+    onPermissionSettled?.call();
+  }
+
+  /// The system's app-level notification switch, as last read by
+  /// NotificationAccessMonitor. A denial used to be cached for the whole
+  /// session: enabling notifications in system settings then did nothing
+  /// until restart. Re-enabling (read without prompting) lifts the gate.
+  void observeAndroidAppSwitch({required bool enabled}) {
+    if (!enabled || _androidPermissionGranted != false) return;
+    _androidPermissionGranted = true;
+    AppLogger.info('[NotificationService] notifications re-enabled');
   }
 
   /// Test-only / shutdown hook. Cancels the broadcast controller.
@@ -1145,8 +1139,7 @@ class NotificationService {
     _channelLocaleListener = null;
     _androidPermissionGranted = null;
     _lastIncomingCallNotificationOutcome = null;
-    _resumeListener?.dispose();
-    _resumeListener = null;
-    debugAreNotificationsEnabled = null;
+    _permissionRequestSettled = false;
+    onPermissionSettled = null;
   }
 }

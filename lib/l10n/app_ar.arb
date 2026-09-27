@@ -1004,5 +1004,13 @@
   "groupJoinRefusedFull": "هذه المجموعة ممتلئة.",
   "groupJoinRefusedUnknown": "رفضت المجموعة انضمامك.",
   "groupJoinEnterPassword": "أدخل كلمة المرور",
-  "groupPasswordRequired": "أدخل كلمة مرور المجموعة"
+  "groupPasswordRequired": "أدخل كلمة مرور المجموعة",
+  "notificationAccessAppOff": "الإشعارات متوقفة. لا يمكن لـ Toxee تنبيهك بالرسائل أو المكالمات الجديدة أثناء عمله في الخلفية.",
+  "notificationAccessCallsOff": "إشعارات المكالمات الواردة متوقفة. أثناء عمل Toxee في الخلفية لن يظهر إشعار للرد على المكالمات.",
+  "notificationAccessFullScreenOff": "لا يُسمح لـ Toxee بعرض المكالمات الواردة بملء الشاشة، لذا ستظهر كإشعار عادي فقط.",
+  "notificationAccessMessagesOff": "إشعارات الرسائل متوقفة. لن يتم تنبيهك بالرسائل الجديدة أثناء عمل Toxee في الخلفية.",
+  "notificationAccessOtherOff": "بعض إشعارات Toxee متوقفة (طلبات الصداقة أو دعوات المجموعات أو المكالمات الفائتة).",
+  "notificationAccessAlertsOff": "تنبيهات الإشعارات متوقفة. لن تظهر الرسائل الجديدة أثناء عمل Toxee في الخلفية.",
+  "notificationAccessProvisional": "تصل إشعارات Toxee بهدوء إلى مركز الإشعارات. شغّل التنبيهات لرؤية الرسائل الجديدة فورًا.",
+  "notificationAccessOpenSettings": "الإعدادات"
 }

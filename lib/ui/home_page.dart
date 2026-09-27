@@ -90,6 +90,8 @@ import 'applications/applications_page.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
 import 'home/master_detail_transition.dart';
+import 'home/notification_access_banner.dart';
+import '../notifications/notification_access.dart';
 import 'home/overlay_route_policy.dart';
 import 'home/profile_send_message_navigation.dart';
 import 'home/tim2tox_plugin_policy.dart';
@@ -363,6 +365,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    NotificationAccessMonitor.instance.access.addListener(_onAccessChanged);
     _sessionController = HomeSessionController(service: widget.service);
     _groupController = HomeGroupController(
       ops: GroupSyncOps.real(
@@ -677,6 +680,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// Rebuilds for the LAN banner, which yields to the notification notice.
+  void _onAccessChanged() => mounted ? setState(() {}) : null;
+
   @override
   void dispose() {
     if (_disposed) {
@@ -684,6 +690,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     _disposed = true;
+    NotificationAccessMonitor.instance.access.removeListener(_onAccessChanged);
 
     _applicationsScrollController.dispose();
     _settingsScrollController.dispose();
@@ -1406,8 +1413,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             duration: MediaQuery.disableAnimationsOf(context)
                                 ? Duration.zero
                                 : const Duration(milliseconds: 250),
+                            // Leave at once when yielding to the notification
+                            // notice, or its exit would still cover the notice.
                             reverseDuration:
-                                MediaQuery.disableAnimationsOf(context)
+                                MediaQuery.disableAnimationsOf(context) ||
+                                    NotificationAccessMonitor
+                                            .instance
+                                            .access
+                                            .value !=
+                                        NotificationAccess.ok
                                 ? Duration.zero
                                 : const Duration(milliseconds: 150),
                             switchInCurve: Curves.easeOut,
@@ -1428,6 +1442,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             child:
                                 (_lanBootstrapServiceRunning &&
                                     !_lanBannerDismissed &&
+                                    // Overlays the notification notice's spot;
+                                    // that one (a real problem) wins.
+                                    NotificationAccessMonitor
+                                            .instance
+                                            .access
+                                            .value ==
+                                        NotificationAccess.ok &&
                                     _lanBootstrapServiceIP != null &&
                                     _lanBootstrapServicePort != null)
                                 ? Material(
@@ -1745,9 +1766,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         builder: (context, locale, _) {
           // `setLocale` is driven by the global locale listener installed in
           // `initState` — no per-build scheduling needed here.
-          return TencentCloudChatConversation(
-            key: ValueKey('uikit-conversation-${locale.languageCode}'),
-            builders: conv_pkg.TencentCloudChatConversationManager.builder,
+          return NotificationAccessBanner(
+            child: TencentCloudChatConversation(
+              key: ValueKey('uikit-conversation-${locale.languageCode}'),
+              builders: conv_pkg.TencentCloudChatConversationManager.builder,
+            ),
           );
         },
       ),

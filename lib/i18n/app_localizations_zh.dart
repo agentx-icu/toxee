@@ -1937,6 +1937,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => '请输入群密码';
+
+  @override
+  String get notificationAccessAppOff => '通知已关闭。Toxee 在后台时无法提醒你新消息和来电。';
+
+  @override
+  String get notificationAccessCallsOff => '来电通知已关闭。Toxee 在后台时不会显示可接听来电的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff => 'Toxee 未获准全屏显示来电，来电只会以普通通知显示。';
+
+  @override
+  String get notificationAccessMessagesOff => '消息通知已关闭。Toxee 在后台时不会提醒新消息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已关闭（好友请求、群邀请或未接来电）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已关闭。Toxee 在后台时新消息不会弹出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以静默方式送达通知中心。打开提醒即可及时看到新消息。';
+
+  @override
+  String get notificationAccessOpenSettings => '设置';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3374,6 +3399,31 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get groupPasswordRequired => '请输入群密码';
+
+  @override
+  String get notificationAccessAppOff => '通知已关闭。Toxee 在后台时无法提醒你新消息和来电。';
+
+  @override
+  String get notificationAccessCallsOff => '来电通知已关闭。Toxee 在后台时不会显示可接听来电的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff => 'Toxee 未获准全屏显示来电，来电只会以普通通知显示。';
+
+  @override
+  String get notificationAccessMessagesOff => '消息通知已关闭。Toxee 在后台时不会提醒新消息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已关闭（好友请求、群邀请或未接来电）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已关闭。Toxee 在后台时新消息不会弹出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以静默方式送达通知中心。打开提醒即可及时看到新消息。';
+
+  @override
+  String get notificationAccessOpenSettings => '设置';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5308,4 +5358,30 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get groupPasswordRequired => '請輸入群組密碼';
+
+  @override
+  String get notificationAccessAppOff => '通知已關閉。Toxee 在背景時無法提醒你新訊息和來電。';
+
+  @override
+  String get notificationAccessCallsOff => '來電通知已關閉。Toxee 在背景時不會顯示可接聽來電的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee 未獲得全螢幕顯示來電的權限，來電只會以一般通知顯示。';
+
+  @override
+  String get notificationAccessMessagesOff => '訊息通知已關閉。Toxee 在背景時不會提醒新訊息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已關閉（好友請求、群組邀請或未接來電）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已關閉。Toxee 在背景時新訊息不會跳出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以靜默方式送達通知中心。開啟提醒即可及時看到新訊息。';
+
+  @override
+  String get notificationAccessOpenSettings => '設定';
 }

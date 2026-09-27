@@ -3645,6 +3645,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter the group password'**
   String get groupPasswordRequired;
+
+  /// Chats-tab notice: app notifications are turned off in system settings
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications are off. Toxee can\'t alert you to new messages or calls while it\'s in the background.'**
+  String get notificationAccessAppOff;
+
+  /// Chats-tab notice: the incoming-call notification channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming-call notifications are off. While Toxee is in the background you won\'t get a notification to answer calls.'**
+  String get notificationAccessCallsOff;
+
+  /// Chats-tab notice: full-screen intent permission not granted (Android 14+)
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee isn\'t allowed to show incoming calls full screen, so they appear only as a regular notification.'**
+  String get notificationAccessFullScreenOff;
+
+  /// Chats-tab notice: the message notification channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Message notifications are off. New messages won\'t alert you while Toxee is in the background.'**
+  String get notificationAccessMessagesOff;
+
+  /// Chats-tab notice: friend-request, group-invite or missed-call channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Some Toxee notifications are off (friend requests, group invites or missed calls).'**
+  String get notificationAccessOtherOff;
+
+  /// Chats-tab notice: notification alerts (banners) are off (iOS)
+  ///
+  /// In en, this message translates to:
+  /// **'Notification alerts are off. New messages won\'t pop up while Toxee is in the background.'**
+  String get notificationAccessAlertsOff;
+
+  /// Chats-tab notice: iOS provisional authorization, notifications delivered quietly
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.'**
+  String get notificationAccessProvisional;
+
+  /// Button on the notification notice: opens the system settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get notificationAccessOpenSettings;
 }
 
 class _AppLocalizationsDelegate

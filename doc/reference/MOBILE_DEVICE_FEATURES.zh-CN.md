@@ -118,7 +118,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | P1 | 运行时权限：相机、麦克风、相册、通知（Android 13+）；拒绝后的提示与跳转设置 | P0 | ◐ | `permission_handler`。2026-09-26 API 36 实测麦克风（语音消息）：首次拒绝无任何反馈；第二次拒绝起弹"权限被拒绝 / 去设置"对话框（fork `tencent_cloud_chat_permission_handlers.dart`）。相机 / 相册共用该 handler，未逐一实测。通知权限见 P1a |
-| P1a | 通知权限被拒：Android 上消息通知与来电全屏通知不再发出（iOS 消息提醒受限，来电走 CallKit）；用户拒绝时不知道后果 | P1 | ◐ | 2026-09-26 先修两个缺陷：启动时的权限请求被错误的 API 版本判断跳过（Android 13 算成 API 32）；拒绝结果整会话缓存，去系统设置开启后仍不发通知直到重启——现在回前台只读重查。另修 L3 禁止弹窗开关在 Android 无效。待做：区分总开关 / 单渠道 / Android 14+ 全屏意图 / iOS provisional 的状态模型，拒绝当下的说明、聊天页提示与设置页入口 |
+| P1a | 通知权限被拒：Android 上消息通知与来电全屏通知不再发出（iOS 消息提醒受限，来电走 CallKit）；用户拒绝时不知道后果 | P1 | ◐ | 2026-09-26 先修两个缺陷：启动时的权限请求被错误的 API 版本判断跳过（Android 13 算成 API 32）；拒绝结果整会话缓存，去系统设置开启后仍不发通知直到重启——现在回前台只读重查。另修 L3 禁止弹窗开关在 Android 无效。随后加入 `NotificationAccessMonitor`（`lib/notifications/notification_access.dart`）：区分总开关 / 来电渠道 / Android 14+ 全屏意图 / 消息渠道 / 其余渠道 / iOS 横幅关闭 / iOS provisional，权限请求结束与每次回前台即刷新；聊天标签顶部常驻提示条（`notification_access_banner.dart`，7 种语言）按状态说明并直达对应系统设置页。API 36 实测：拒绝后出现提示，设置里开启后返回即消失。iOS 未实测 |
 | P1b | 首次拒绝权限时静默无反馈；麦克风在原状态为拒绝、本次授予时仍返回失败（需再按一次） | P2 | ❌ | fork `tencent_cloud_chat_permission_handlers.dart:120-168` |
 | P2 | 权限在使用中被收回（设置里关掉后返回 App） | P1 | 🔍 | iOS 收回权限会杀进程；Android 不一定 |
 | P3 | Keychain / Keystore 安全存储；iOS 卸载重装后 Keychain 残留 | P1 | ◐ | `flutter_secure_storage`；重装后残留旧密码数据与新安装状态不一致的情况需确认 |

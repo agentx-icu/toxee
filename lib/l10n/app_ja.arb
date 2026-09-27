@@ -969,5 +969,13 @@
   "groupJoinRefusedFull": "このグループは満員です。",
   "groupJoinRefusedUnknown": "グループへの参加が拒否されました。",
   "groupJoinEnterPassword": "パスワードを入力",
-  "groupPasswordRequired": "グループのパスワードを入力してください"
+  "groupPasswordRequired": "グループのパスワードを入力してください",
+  "notificationAccessAppOff": "通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージや着信をお知らせできません。",
+  "notificationAccessCallsOff": "着信通知がオフです。Toxee がバックグラウンドにある間、着信に応答するための通知が表示されません。",
+  "notificationAccessFullScreenOff": "Toxee に着信の全画面表示が許可されていないため、着信は通常の通知としてのみ表示されます。",
+  "notificationAccessMessagesOff": "メッセージ通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージをお知らせしません。",
+  "notificationAccessOtherOff": "一部の Toxee 通知（友だちリクエスト、グループ招待、不在着信）がオフです。",
+  "notificationAccessAlertsOff": "通知のアラートがオフです。Toxee がバックグラウンドにある間、新しいメッセージが表示されません。",
+  "notificationAccessProvisional": "Toxee の通知は通知センターに目立たない形で届いています。アラートをオンにすると新しいメッセージをすぐに確認できます。",
+  "notificationAccessOpenSettings": "設定"
 }

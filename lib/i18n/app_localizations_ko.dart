@@ -1965,4 +1965,35 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => '그룹 비밀번호를 입력하세요';
+
+  @override
+  String get notificationAccessAppOff =>
+      '알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지와 전화를 알려 드릴 수 없습니다.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      '수신 전화 알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 전화를 받을 수 있는 알림이 표시되지 않습니다.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee에 전화 전체 화면 표시가 허용되지 않아 수신 전화가 일반 알림으로만 표시됩니다.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      '메시지 알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지를 알려 드리지 않습니다.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      '일부 Toxee 알림(친구 요청, 그룹 초대, 부재중 전화)이 꺼져 있습니다.';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      '알림 표시가 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지가 표시되지 않습니다.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 알림이 알림 센터에 조용히 전달되고 있습니다. 새 메시지를 바로 보려면 알림 표시를 켜세요.';
+
+  @override
+  String get notificationAccessOpenSettings => '설정';
 }

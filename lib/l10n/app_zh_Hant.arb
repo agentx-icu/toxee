@@ -980,5 +980,13 @@
   "groupJoinRefusedFull": "此群組已滿員。",
   "groupJoinRefusedUnknown": "此群組拒絕了你的加入。",
   "groupJoinEnterPassword": "輸入密碼",
-  "groupPasswordRequired": "請輸入群組密碼"
+  "groupPasswordRequired": "請輸入群組密碼",
+  "notificationAccessAppOff": "通知已關閉。Toxee 在背景時無法提醒你新訊息和來電。",
+  "notificationAccessCallsOff": "來電通知已關閉。Toxee 在背景時不會顯示可接聽來電的通知。",
+  "notificationAccessFullScreenOff": "Toxee 未獲得全螢幕顯示來電的權限，來電只會以一般通知顯示。",
+  "notificationAccessMessagesOff": "訊息通知已關閉。Toxee 在背景時不會提醒新訊息。",
+  "notificationAccessOtherOff": "部分 Toxee 通知已關閉（好友請求、群組邀請或未接來電）。",
+  "notificationAccessAlertsOff": "通知提醒已關閉。Toxee 在背景時新訊息不會跳出提醒。",
+  "notificationAccessProvisional": "Toxee 的通知正以靜默方式送達通知中心。開啟提醒即可及時看到新訊息。",
+  "notificationAccessOpenSettings": "設定"
 }

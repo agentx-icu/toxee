@@ -2047,4 +2047,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'Enter the group password';
+
+  @override
+  String get notificationAccessAppOff =>
+      'Notifications are off. Toxee can\'t alert you to new messages or calls while it\'s in the background.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      'Incoming-call notifications are off. While Toxee is in the background you won\'t get a notification to answer calls.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee isn\'t allowed to show incoming calls full screen, so they appear only as a regular notification.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'Message notifications are off. New messages won\'t alert you while Toxee is in the background.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      'Some Toxee notifications are off (friend requests, group invites or missed calls).';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      'Notification alerts are off. New messages won\'t pop up while Toxee is in the background.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.';
+
+  @override
+  String get notificationAccessOpenSettings => 'Settings';
 }

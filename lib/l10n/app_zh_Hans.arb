@@ -811,5 +811,13 @@
   "groupJoinRefusedFull": "该群已满员。",
   "groupJoinRefusedUnknown": "该群拒绝了你的加入。",
   "groupJoinEnterPassword": "输入密码",
-  "groupPasswordRequired": "请输入群密码"
+  "groupPasswordRequired": "请输入群密码",
+  "notificationAccessAppOff": "通知已关闭。Toxee 在后台时无法提醒你新消息和来电。",
+  "notificationAccessCallsOff": "来电通知已关闭。Toxee 在后台时不会显示可接听来电的通知。",
+  "notificationAccessFullScreenOff": "Toxee 未获准全屏显示来电，来电只会以普通通知显示。",
+  "notificationAccessMessagesOff": "消息通知已关闭。Toxee 在后台时不会提醒新消息。",
+  "notificationAccessOtherOff": "部分 Toxee 通知已关闭（好友请求、群邀请或未接来电）。",
+  "notificationAccessAlertsOff": "通知提醒已关闭。Toxee 在后台时新消息不会弹出提醒。",
+  "notificationAccessProvisional": "Toxee 的通知正以静默方式送达通知中心。打开提醒即可及时看到新消息。",
+  "notificationAccessOpenSettings": "设置"
 }
