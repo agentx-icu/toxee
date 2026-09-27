@@ -191,17 +191,24 @@ check_file() {
   # whole-file byte scan is a serviceable substitute — and it errs towards
   # failing, since it also matches a non-exported occurrence.
   #
-  # `grep -a`, NOT `strings`: macOS /usr/bin/strings scans loadable sections
-  # only and does NOT see the Mach-O symbol table even with -a. Measured
-  # 2026-09-26 on a hook-ENABLED libtim2tox_ffi.dylib: `nm -g` found the symbol
-  # and `grep -a` found it, `strings -a | grep` found nothing. A fallback that
-  # answers "clean" for a hook-enabled dylib is worse than no fallback, so
-  # strings is used only if grep itself is missing, never in preference to it.
+  # `grep -a`, and NO `strings` at all: macOS /usr/bin/strings scans loadable
+  # sections only and does NOT see the Mach-O symbol table even with -a.
+  # Measured 2026-09-26 on a hook-ENABLED libtim2tox_ffi.dylib: `nm -g` found
+  # the symbol and `grep -a` found it, `strings -a | grep` found nothing. An
+  # inspection that can answer "clean" for a hook-enabled binary is worse than
+  # none, so when neither an nm-like tool nor grep can read the file, this
+  # fails closed instead of falling back to strings.
+  #
+  # This is the branch the Windows jobs take: Git Bash ships no nm.
   if [[ -z "$method" ]] && command -v grep >/dev/null 2>&1; then
     local name rc
     for name in "${FORBIDDEN_NAMES[@]}"; do
-      grep -aq -- "$name" "$file"
-      rc=$?
+      # `|| rc=$?` and not a bare call: this script runs under `set -e`, which
+      # kills it on grep's perfectly normal "not found" exit 1 before the status
+      # can be read at all (that is how this broke both Windows jobs, the only
+      # ones with no nm-like tool to take the branch above).
+      rc=0
+      grep -aq -- "$name" "$file" || rc=$?
       # 0 = found, 1 = absent, ANYTHING ELSE = grep could not read the file.
       # Treating 2 as "absent" is how an unreadable binary got reported clean.
       if [[ $rc -eq 0 ]]; then
