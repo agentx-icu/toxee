@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,7 +23,7 @@ class MainActivity : FlutterActivity() {
     private var qrSaveChannel: MethodChannel? = null
     private var incomingCallWindowChannel: MethodChannel? = null
     private var pendingQrSaveResult: MethodChannel.Result? = null
-    private var pendingQrSavePath: String? = null
+    private var pendingGallerySave: GallerySaveRequest? = null
     private var activeIncomingCallWindowNonceDigest: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +73,16 @@ class MainActivity : FlutterActivity() {
                     result.error("INVALID_ARGS", "Expected readable image path", null)
                     return@setMethodCallHandler
                 }
+                val mimeType = call.argument<String>("mimeType") ?: "image/png"
+                if (!mimeType.startsWith("image/") && !mimeType.startsWith("video/")) {
+                    result.error("INVALID_ARGS", "Not an image or video: $mimeType", null)
+                    return@setMethodCallHandler
+                }
+                val request = GallerySaveRequest(
+                    path,
+                    mimeType,
+                    call.argument<String>("displayName"),
+                )
 
                 val needsLegacyPermission =
                     Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
@@ -81,12 +92,12 @@ class MainActivity : FlutterActivity() {
                     if (pendingQrSaveResult != null) {
                         result.error(
                             "SAVE_IN_PROGRESS",
-                            "Another QR image is waiting for storage permission",
+                            "Another save is waiting for storage permission",
                             null,
                         )
                         return@setMethodCallHandler
                     }
-                    pendingQrSavePath = path
+                    pendingGallerySave = request
                     pendingQrSaveResult = result
                     requestPermissions(
                         arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
@@ -95,7 +106,7 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                saveImageToGallery(path, result)
+                saveToGallery(request, result)
             }
         }
         incomingCallWindowChannel = MethodChannel(
@@ -256,40 +267,65 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun saveImageToGallery(path: String, result: MethodChannel.Result) {
+    /** A file to add to the photo library: an image or a video. */
+    private data class GallerySaveRequest(
+        val path: String,
+        val mimeType: String,
+        val displayName: String?,
+    )
+
+    /**
+     * Copies [request] into MediaStore (Pictures/Toxee or Movies/Toxee). The
+     * item stays pending until the copy is complete; any failure deletes it,
+     * so a half-written item never shows up in the gallery.
+     */
+    private fun saveToGallery(request: GallerySaveRequest, result: MethodChannel.Result) {
+        val source = File(request.path)
+        if (!source.exists()) {
+            result.error("NOT_FOUND", "Media file not found", null)
+            return
+        }
+        val isVideo = request.mimeType.startsWith("video/")
+        val collection = if (isVideo) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        val scoped = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, request.displayName ?: source.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, request.mimeType)
+            if (scoped) {
+                val dir = if (isVideo) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/Toxee")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val resolver = applicationContext.contentResolver
+        var uri: android.net.Uri? = null
         try {
-            val source = File(path)
-            if (!source.exists()) {
-                result.error("NOT_FOUND", "Image file not found", null)
-                return
-            }
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, source.name)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Toxee")
-                    put(MediaStore.Images.Media.IS_PENDING, 1)
+            uri = resolver.insert(collection, values)
+                ?: throw IllegalStateException("Could not create gallery item")
+            val output = resolver.openOutputStream(uri)
+                ?: throw IllegalStateException("Could not open gallery item")
+            output.use { out -> source.inputStream().use { it.copyTo(out) } }
+            if (scoped) {
+                val published = ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
                 }
-            }
-            val resolver = applicationContext.contentResolver
-            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            if (uri == null) {
-                result.error("INSERT_FAILED", "Could not create gallery item", null)
-                return
-            }
-            resolver.openOutputStream(uri)?.use { output ->
-                source.inputStream().use { input -> input.copyTo(output) }
-            } ?: run {
-                result.error("OPEN_FAILED", "Could not open gallery item", null)
-                return
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                if (resolver.update(uri, published, null, null) != 1) {
+                    throw IllegalStateException("Could not publish gallery item")
+                }
             }
             result.success(uri.toString())
         } catch (e: Exception) {
+            uri?.let {
+                try {
+                    resolver.delete(it, null, null)
+                } catch (_: Exception) {
+                    // Best effort: the pending item expires on its own.
+                }
+            }
             result.error("SAVE_FAILED", e.message, null)
         }
     }
@@ -303,17 +339,17 @@ class MainActivity : FlutterActivity() {
         if (requestCode != QR_SAVE_PERMISSION_REQUEST) return
 
         val result = pendingQrSaveResult
-        val path = pendingQrSavePath
+        val request = pendingGallerySave
         pendingQrSaveResult = null
-        pendingQrSavePath = null
-        if (result == null || path == null) return
+        pendingGallerySave = null
+        if (result == null || request == null) return
 
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            saveImageToGallery(path, result)
+            saveToGallery(request, result)
         } else {
             result.error(
                 "PERMISSION_DENIED",
-                "Storage permission is required to save images on Android 6-9",
+                "Storage permission is required to save to the gallery on Android 6-9",
                 null,
             )
         }
@@ -329,7 +365,7 @@ class MainActivity : FlutterActivity() {
             null,
         )
         pendingQrSaveResult = null
-        pendingQrSavePath = null
+        pendingGallerySave = null
         qrSaveChannel?.setMethodCallHandler(null)
         qrSaveChannel = null
         incomingCallWindowChannel?.setMethodCallHandler(null)

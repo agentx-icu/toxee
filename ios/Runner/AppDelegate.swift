@@ -89,27 +89,77 @@ import UIKit
           result(FlutterMethodNotImplemented)
           return
         }
+        // Images and videos are imported from the file, not a decoded
+        // UIImage, so the original format (GIF animation, HEIC) survives.
         guard
           let args = call.arguments as? [String: Any],
           let path = args["path"] as? String, !path.isEmpty,
-          let image = UIImage(contentsOfFile: path)
+          FileManager.default.isReadableFile(atPath: path)
         else {
           result(FlutterError(
             code: "INVALID_ARGS",
-            message: "Expected readable image path",
+            message: "Expected readable media path",
             details: nil))
           return
         }
+        let mimeType = args["mimeType"] as? String ?? "image/png"
+        let isVideo = mimeType.hasPrefix("video/")
+        guard isVideo || mimeType.hasPrefix("image/") else {
+          result(FlutterError(
+            code: "INVALID_ARGS",
+            message: "Not an image or video: \(mimeType)",
+            details: nil))
+          return
+        }
+        // Photos goes by the extension; received files often have none, so
+        // import a hard link (a copy if linking fails) named displayName.
+        var fileURL = URL(fileURLWithPath: path)
+        var stagingDir: URL?
+        if let displayName = args["displayName"] as? String, !displayName.isEmpty,
+          (displayName as NSString).pathExtension.lowercased()
+            != fileURL.pathExtension.lowercased()
+        {
+          let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+          let staged = dir.appendingPathComponent(
+            (displayName as NSString).lastPathComponent)
+          do {
+            try FileManager.default.createDirectory(
+              at: dir, withIntermediateDirectories: true)
+            stagingDir = dir
+            do {
+              try FileManager.default.linkItem(at: fileURL, to: staged)
+            } catch {
+              try FileManager.default.copyItem(at: fileURL, to: staged)
+            }
+            fileURL = staged
+          } catch {
+            if let dir = stagingDir { try? FileManager.default.removeItem(at: dir) }
+            result(FlutterError(
+              code: "SAVE_FAILED",
+              message: error.localizedDescription,
+              details: nil))
+            return
+          }
+        }
+        let importURL = fileURL
+        let cleanupDir = stagingDir
+        var created = false
         PHPhotoLibrary.shared().performChanges({
-          PHAssetChangeRequest.creationRequestForAsset(from: image)
+          let request = isVideo
+            ? PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: importURL)
+            : PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: importURL)
+          created = request != nil
         }) { success, error in
+          let success = success && created
+          if let dir = cleanupDir { try? FileManager.default.removeItem(at: dir) }
           DispatchQueue.main.async {
             if success {
               result(path)
             } else {
               result(FlutterError(
                 code: "SAVE_FAILED",
-                message: error?.localizedDescription ?? "Could not save image to Photos",
+                message: error?.localizedDescription ?? "Could not save to Photos",
                 details: nil))
             }
           }

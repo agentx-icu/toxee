@@ -30,14 +30,16 @@ void main() {
   });
 
   test(
-    'legacy QR permission flow keeps one pending result and resumes save',
+    'legacy gallery permission flow keeps one pending request and resumes save',
     () async {
       final source = await sourceFile.readAsString();
 
       expect(source, contains('pendingQrSaveResult'));
-      expect(source, contains('pendingQrSavePath'));
+      // The whole request (path, MIME type, display name) survives the
+      // permission round trip, not just the path (M3: images and videos).
+      expect(source, contains('pendingGallerySave = request'));
       expect(source, contains('SAVE_IN_PROGRESS'));
-      expect(source, contains('saveImageToGallery(path, result)'));
+      expect(source, contains('saveToGallery(request, result)'));
     },
   );
 }

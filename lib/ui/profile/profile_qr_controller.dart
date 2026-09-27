@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../../util/gallery_saver.dart';
 import '../../util/qr_card_generator.dart';
 
 /// Inputs that uniquely identify a QR-card render. When any of these change
@@ -94,15 +94,9 @@ Future<String?> pickDirectoryAndSaveQr(QrCardRenderInputs inputs) async {
   return inputs.saveToDirectory(Directory(directoryPath));
 }
 
-const MethodChannel _qrSaveChannel = MethodChannel('toxee/qr_save');
-
 /// Save an existing QR image to the user's system photo gallery.
 /// Returns the platform-specific URI/path reported by the native layer.
 Future<String?> saveQrToGallery(String path) async {
   if (!(Platform.isAndroid || Platform.isIOS)) return null;
-  final result = await _qrSaveChannel.invokeMethod<String>(
-    'saveImageToGallery',
-    {'path': path},
-  );
-  return result;
+  return GallerySaver.saveFile(path);
 }

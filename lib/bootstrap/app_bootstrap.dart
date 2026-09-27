@@ -6,6 +6,7 @@ import 'package:tencent_cloud_chat_common/widgets/avatar/tencent_cloud_chat_avat
 import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
+import '../util/gallery_saver.dart';
 import '../util/account_deletion_journal.dart';
 import '../util/account_export/tox_import_journal.dart';
 import '../util/placeholder_identity_discovery.dart';
@@ -85,6 +86,8 @@ class AppBootstrap {
     TencentCloudChatAvatar.defaultAvatarAsset =
         'assets/avatars/default_contact.png';
     TencentCloudChatAvatar.defaultAvatarAssetPackage = null;
+    // Phones: the media viewer's Save goes to the photo library (M3).
+    GallerySaver.install();
     // Learn whether this DEVICE actually has a camera before anything can offer
     // a video call, so a camera-less device never raises a camera permission
     // sheet it cannot resolve (that modal covers the app and blocks even VOICE

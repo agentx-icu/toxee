@@ -133,7 +133,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 |---|---|---|---|---|
 | M1 | 从相册 / 相机选择图片视频 | P0 | ✅ | `file_picker`、`camera` |
 | M2 | HEIC / HEVC 等 iOS 默认格式发给桌面端（Windows / Linux 可能无法显示） | P1 | ❌ | 发送路径把选中的文件原样传给 `sendFile`（`home_page.dart:892`），不转码；`.heic` 只在扩展名列表里识别（`ffi_chat_service.dart:8310`）。HEVC 视频常装在 `.mov` 里，不能按扩展名判断兼容性。P2P 没有服务端转码，必须在发送端处理 |
-| M3 | 保存到相册 | P1 | ◐ | 只有个人二维码走相册通道（`profile_qr_controller.dart:99`）；聊天收到的图片视频"保存"走文件保存选择器（fork `tencent_cloud_chat_message_viewer.dart:115`），不进相册 |
+| M3 | 保存到相册 | P1 | ✅ | 手机上媒体查看器的「保存」把收到的图片 / 视频直接存进相册（Android MediaStore `Pictures/Toxee` / `Movies/Toxee`；iOS Photos，按文件导入，GIF / HEIC 原格式保留）。类型按文件头字节判断（收到的文件常无扩展名；`lib/util/gallery_saver.dart`）；相册失败或权限被拒会报错，不会转去别处；只有相册收不了的内容（如 iOS 上的 WebM）才走保存对话框。fork 接缝：`MessageViewerMediaSaver.defaultGallerySaver`。桌面仍用目录选择器。文件消息没有「保存」操作（经系统打开，见 M4） |
 | M4 | iOS "文件" App 共享、Android SAF 选择器 | P1 | ◐ | `UIFileSharingEnabled`；Android SAF 已知有误触锁死问题 |
 | M5 | 存储空间不足时接收大文件 | P1 | 🔍 | 失败要有明确提示并清理半成品 |
 | M6 | 大图 / 视频缩略图的内存占用（移动端内存小，易被系统杀） | P1 | 🔍 | |
