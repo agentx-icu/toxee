@@ -26,7 +26,15 @@ class MainActivity : FlutterActivity() {
     private var activeIncomingCallWindowNonceDigest: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Claim before anything consumes this launch: a second instance (see
+        // SessionOwnerChannel) must neither take the one-shot incoming-call
+        // lease nor start a session. Its intent goes to the owner instead.
+        val owner = SessionOwnerChannel.claimOrOwner(this)
         super.onCreate(savedInstanceState)
+        if (owner != null) {
+            SessionOwnerChannel.handOver(this, owner, intent)
+            return
+        }
         clearExpiredIncomingCallWindowResidue()
         updateIncomingCallLockScreen(intent)
     }
@@ -34,6 +42,12 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         updateIncomingCallLockScreen(intent)
+    }
+
+    /** An intent that reached a second instance, delivered to this owner. */
+    fun receiveHandedOverIntent(handedOver: Intent) {
+        setIntent(handedOver)
+        onNewIntent(handedOver)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -46,6 +60,7 @@ class MainActivity : FlutterActivity() {
         }
         NotificationAccessChannel(applicationContext)
             .register(flutterEngine.dartExecutor.binaryMessenger)
+        SessionOwnerChannel(this).register(flutterEngine.dartExecutor.binaryMessenger)
         qrSaveChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "toxee/qr_save").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method != "saveImageToGallery") {
@@ -319,6 +334,7 @@ class MainActivity : FlutterActivity() {
         qrSaveChannel = null
         incomingCallWindowChannel?.setMethodCallHandler(null)
         incomingCallWindowChannel = null
+        SessionOwnerChannel.release(this)
         super.onDestroy()
     }
 

@@ -33,6 +33,7 @@ import 'call/call_effects_listener.dart';
 import 'navigation/active_conversation_route_observer.dart';
 import 'navigation/app_navigation.dart';
 import 'navigation/root_route_tracker.dart';
+import 'bootstrap/single_session_guard.dart';
 import 'ui/app_theme_data.dart';
 import 'util/app_theme_config.dart';
 import 'util/account_service.dart';
@@ -126,6 +127,8 @@ Future<void> main() async {
         registerUiDriveToolsIfDebug();
       }
 
+      // One engine per Android process owns the Tox session.
+      if (!await SingleSessionGuard.claimOrYield()) return;
       final result = await AppBootstrap.initialize();
 
       // A binding installed above (flutter_skill records every FlutterError

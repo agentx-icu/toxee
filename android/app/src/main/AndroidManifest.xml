@@ -59,6 +59,13 @@
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules">
+        <!-- singleTop on purpose. A second MainActivity is still possible
+             (FLAG_ACTIVITY_MULTIPLE_TASK while the app is in the background)
+             and would get its own Flutter engine on the process-wide tim2tox
+             session; SessionOwnerChannel makes it hand its intent to the owner
+             and close before any session work. singleTask was tried and
+             rejected: relaunching from the launcher cleared activities above
+             MainActivity, cancelling an open document picker. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
