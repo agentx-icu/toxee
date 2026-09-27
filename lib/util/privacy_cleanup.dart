@@ -26,6 +26,14 @@ final class AccountPrivacyCleanup {
   /// tim2tox `FfiChatService._pendingReadReceiptsKey`.
   static const String _pendingReadReceiptsKeyPrefix = 'pending_read_receipts_';
 
+  /// tim2tox `FfiChatService._pendingGroupReadReceiptsKey`.
+  ///
+  /// Note this is NOT a prefix of (nor prefixed by) the C2C
+  /// [_pendingReadReceiptsKeyPrefix] above — `pending_group_read_receipts_`
+  /// vs `pending_read_receipts_` — so the two sweeps cannot shadow each other.
+  static const String _pendingGroupReadReceiptsKeyPrefix =
+      'pending_group_read_receipts_';
+
   static const String _currentAccountKey = 'current_account_tox_id';
   static const String _nicknameKey = 'self_nickname';
   static const String _statusMessageKey = 'self_status_msg';
@@ -53,7 +61,7 @@ final class AccountPrivacyCleanup {
   ///
   /// `Prefs.clearScopedKeysForAccount` and `clearAccountData` only sweep keys
   /// ENDING in `_<first16>`, so anything keyed by a 64- or 76-char id slips
-  /// past them and survives account deletion outright. Two families do:
+  /// past them and survives account deletion outright. Three families do:
   ///
   ///   * `black_list_<toxId>` — the blocked-peer set (`Prefs._blackListKey` /
   ///     `SharedPreferencesAdapter._blackListKey`). tim2tox writes it under the
@@ -62,6 +70,13 @@ final class AccountPrivacyCleanup {
   ///   * `pending_read_receipts_<toxId>_<peerId>` — tim2tox's queue of READ
   ///     receipts that could not be sent (`FfiChatService`
   ///     `_pendingReadReceiptsKey`). Also per-peer, so also a contact list.
+  ///   * `pending_group_read_receipts_<toxId>` — the GROUP sibling of that
+  ///     queue (`FfiChatService._pendingGroupReadReceiptsKey`). One key holds
+  ///     the whole queue, and its VALUE is a list of JSON triples naming a
+  ///     group id, the author's public key and the row ids / `gmid:` aliases
+  ///     still owed a receipt — i.e. which groups this account was in, who it
+  ///     talked to there, and which of their messages it read. The account
+  ///     scope is the ENTIRE suffix here (no peer segment follows).
   ///
   /// Both are exactly the residue class [_removeFailedMessagePrefs] documents
   /// and fixes for the failed-message queue; this applies the same treatment.
@@ -81,6 +96,12 @@ final class AccountPrivacyCleanup {
       }
       final receiptScope = _pendingReadReceiptsAccountScope(key);
       if (receiptScope != null && _isSameAccount(receiptScope, toxId)) {
+        keysToRemove.add(key);
+        continue;
+      }
+      final groupReceiptScope = _pendingGroupReadReceiptsAccountSuffix(key);
+      if (groupReceiptScope != null &&
+          _isSameAccount(groupReceiptScope, toxId)) {
         keysToRemove.add(key);
       }
     }
@@ -110,6 +131,21 @@ final class AccountPrivacyCleanup {
     final separator = rest.indexOf('_');
     if (separator <= 0) return null;
     return _accountShapedId(rest.substring(0, separator));
+  }
+
+  /// The account-ID suffix of a `pending_group_read_receipts_<toxId>` key, or
+  /// null when [key] is not one.
+  ///
+  /// Unlike the C2C queue this family has NO peer segment: one key per account
+  /// holds the whole group queue, so the account scope is the entire suffix and
+  /// must be account-shaped in full. That also means the shape check is the only
+  /// guard here — a `pending_group_read_receipts_` key with any other suffix
+  /// (e.g. a future `_v2` schema variant) is left alone rather than guessed at.
+  static String? _pendingGroupReadReceiptsAccountSuffix(String key) {
+    if (!key.startsWith(_pendingGroupReadReceiptsKeyPrefix)) return null;
+    return _accountShapedId(
+      key.substring(_pendingGroupReadReceiptsKeyPrefix.length),
+    );
   }
 
   /// [candidate] when it has the shape of a Tox account id, else null.

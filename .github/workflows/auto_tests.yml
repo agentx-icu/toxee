@@ -93,16 +93,32 @@ jobs:
         # submodule was checked out in a given workflow.
         run: echo "sha=$(git rev-parse HEAD:third_party/tim2tox)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache libtim2tox_ffi (linux/release/toxav+dht)
+      # `-testhooks` in the key is load-bearing, not decoration: the library this
+      # job builds carries the auto_tests-only MM-6 hook (see the build step),
+      # and no packaging job may ever restore it. actions/cache matches keys
+      # exactly here (there are no restore-keys anywhere in this repo), so a
+      # distinct key is a hard partition. build-packages.yml caches nothing at
+      # all and always builds its own hook-free library.
+      - name: Cache libtim2tox_ffi (linux/release/toxav+dht+testhooks)
         id: cache_native
         uses: actions/cache@v4
         with:
           path: build/native-artifacts/linux
-          key: tim2tox-${{ runner.os }}-${{ runner.arch }}-linux-release-toxav-dht-${{ steps.t2t_rev.outputs.sha }}-${{ hashFiles('tool/ci/build_tim2tox.sh') }}
+          key: tim2tox-${{ runner.os }}-${{ runner.arch }}-linux-release-toxav-dht-testhooks-${{ steps.t2t_rev.outputs.sha }}-${{ hashFiles('tool/ci/build_tim2tox.sh') }}
 
-      - name: Build libtim2tox_ffi.so (Linux, toxav + DHT bootstrap)
+      # --enable-test-hooks compiles tim2tox_ffi_mm6_send_crafted_challenge in.
+      # Without it the MM-6 confidentiality leg of
+      # scenario_group_receipt_control_row_test cannot construct its packet, and
+      # before 2026-09-26 it silently SKIPPED — CI went green without ever
+      # checking that a forged challenge teaches the named member nothing.
+      # This artifact is a TEST artifact and stays inside this job: it is written
+      # only to build/native-artifacts/linux + third_party/tim2tox/build/ffi,
+      # cached under the -testhooks key above, and never uploaded (the only
+      # upload-artifact step in this workflow takes test logs) — no packaging
+      # step exists in this workflow at all.
+      - name: Build libtim2tox_ffi.so (Linux, toxav + DHT bootstrap + TEST HOOKS)
         if: steps.cache_native.outputs.cache-hit != 'true'
-        run: bash tool/ci/build_tim2tox.sh --target linux --mode release --toxav --dht-bootstrap
+        run: bash tool/ci/build_tim2tox.sh --target linux --mode release --toxav --dht-bootstrap --enable-test-hooks
 
       - name: Stage libtim2tox_ffi.so for runtime loader
         id: stage_lib
@@ -139,6 +155,11 @@ jobs:
           RETRY_COUNT: '1'
           # Skip the in-script `flutter pub get` since we just ran it above.
           SKIP_PUB_GET: 'auto'
+          # The library above was built WITH the test hooks, so a scenario that
+          # cannot find one is a broken build, not an unconstructible case:
+          # scenario_group_receipt_control_row_test must FAIL instead of calling
+          # markTestSkipped. Never set this for a run whose library is hook-free.
+          TIM2TOX_EXPECT_TEST_HOOKS: '1'
         run: |
           chmod +x ./run_tests_ordered.sh
           ./run_tests_ordered.sh 1-10 12-14

@@ -116,6 +116,12 @@ build_abi() {
   fi
 
   # --- toxcore + FFI shim ---
+  # TIM2TOX_ENABLE_TEST_HOOKS=OFF is passed EXPLICITLY below, not left to the
+  # CMake default: this build dir ($base/ffi-build) is reused across runs, so a
+  # tree once configured with the auto_tests hook ON would keep that cache entry
+  # and this script would drop a library exporting
+  # tim2tox_ffi_mm6_send_crafted_challenge straight into jniLibs/ — i.e. into
+  # every APK Gradle then packages.
   info "[$abi] configuring + building tim2tox_ffi (TOXAV=$toxav_on) ..."
   PKG_CONFIG_PATH="$dep_prefix/lib/pkgconfig" PKG_CONFIG_LIBDIR="$dep_prefix/lib/pkgconfig" \
   PKG_CONFIG_SYSROOT_DIR="" \
@@ -129,6 +135,7 @@ build_abi() {
     -DUNITTEST=OFF -DAUTOTEST=OFF -DBUILD_MISC_TESTS=OFF -DBUILD_FUN_UTILS=OFF \
     -DBUILD_FUZZ_TESTS=OFF -DUSE_IPV6=ON -DEXPERIMENTAL_API=OFF -DBUILD_FFI=ON \
     -DTIM2TOX_DISABLE_SQLITE=ON \
+    -DTIM2TOX_ENABLE_TEST_HOOKS=OFF \
     -DTIM2TOX_DEP_PREFIX="$dep_prefix" -DCMAKE_PREFIX_PATH="$dep_prefix" \
     -DCMAKE_FIND_ROOT_PATH="$dep_prefix" \
     >"$base/cmake-configure.log" 2>&1 || { err "[$abi] cmake configure failed"; tail -30 "$base/cmake-configure.log" >&2; exit 1; }
@@ -175,6 +182,11 @@ for abi in $ABIS; do
       err "[$abi] ToxAV requested but marker symbol missing — calling would be a stub"; exit 1
     fi
   fi
+  # Gradle packages whatever is in jniLibs/, including a .so some earlier run
+  # (or another tool) left there. Verify the bytes actually staged, not just the
+  # flags we configured with.
+  TIM2TOX_NM="$TOOLBIN/llvm-nm" \
+    bash "$SCRIPT_DIR/ci/assert_no_test_hooks.sh" "$JNI_LIBS/$abi/libtim2tox_ffi.so" >&2
 done
 
 info "DONE. jniLibs:"
