@@ -87,6 +87,7 @@ import 'search/custom_search.dart' as search_pkg;
 import 'settings/settings_page.dart';
 import 'settings/sidebar.dart';
 import 'applications/applications_page.dart';
+import 'home/group_receiver_badge.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
 import 'home/overlay_route_policy.dart';
@@ -130,6 +131,7 @@ part 'home_page_bootstrap.dart';
 part 'home_page_shortcuts.dart';
 
 enum _MediaPickType { file, image, video }
+
 
 @visibleForTesting
 List<PopupMenuEntry<String>> buildConversationContextMenuItems({
@@ -2377,27 +2379,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final receivers = manager.getMessageReceivers(msgID);
     if (receivers.isEmpty) {
-      _showSnackBar(AppLocalizations.of(context)!.noReceivers);
+      // An empty tally is NOT "nobody got it" (see [receiverBadge]): identities
+      // are never persisted, so explain that rather than open an empty dialog.
+      _showSnackBar(AppLocalizations.of(context)!.messageReceiversNotStored);
       return;
     }
 
-    // Get friend list to get nicknames
     final friends = await widget.service.getFriendList();
     final friendMap = {for (var f in friends) f.userId: f.nickName};
-
-    // Show dialog with receiver list
     if (!context.mounted) return;
+    final l10n = AppLocalizations.of(context)!; // after the await, never before
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
         ),
-        title: Text(
-          AppLocalizations.of(
-            context,
-          )!.messageReceivers(receivers.length.toString()),
-        ),
+        title: Text(l10n.messageReceivers('${receivers.length}')),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -2407,15 +2405,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               final userId = receivers[index];
               final nickname = friendMap[userId] ?? userId;
               final scheme = Theme.of(context).colorScheme;
+              final text = Theme.of(context).textTheme;
+              final sub = text.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant);
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: scheme.primary.withValues(alpha: 0.12),
                   foregroundColor: scheme.primary,
                   child: Text(
-                    nickname.isNotEmpty
-                        ? nickname.substring(0, 1).toUpperCase()
-                        : '?',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    nickname.isNotEmpty ? nickname[0].toUpperCase() : '?',
+                    style: text.titleSmall?.copyWith(
                       color: scheme.primary,
                       fontWeight: FontWeight.w600,
                     ),
@@ -2423,16 +2422,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 title: Text(
                   nickname.isNotEmpty ? nickname : userId,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                  style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 ),
-                subtitle: Text(
-                  userId,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
+                subtitle: Text(userId, style: sub),
               );
             },
           ),
@@ -2440,7 +2432,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => popDialogIfCurrent(ctx),
-            child: Text(AppLocalizations.of(context)!.close),
+            child: Text(l10n.close),
           ),
         ],
       ),

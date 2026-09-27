@@ -778,11 +778,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get noReceivers => '暂无接收者';
+  String get messageReceiversNotStored => '接收者名单不会保存，重启后需由实时回执重新累计。';
 
   @override
   String messageReceivers(String count) {
-    return '消息接收者 ($count)';
+    return '目前已知接收者 ($count)';
   }
 
   @override
@@ -2707,7 +2707,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get noReceivers => '暂无接收者';
+  String get messageReceiversNotStored => '接收者名单不会保存，重启后需由实时回执重新累计。';
 
   @override
   String get close => '关闭';
@@ -4150,11 +4150,11 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String get noReceivers => '暫無接收者';
+  String get messageReceiversNotStored => '接收者名單不會儲存，重新啟動後需由即時回執重新累計。';
 
   @override
   String messageReceivers(String count) {
-    return '消息接收者 ($count)';
+    return '目前已知接收者 ($count)';
   }
 
   @override

@@ -540,7 +540,7 @@
   "@lanModeDesc": {
     "description": "Description for LAN mode"
   },
-  "messageReceivers": "メッセージ受信者 ({count})",
+  "messageReceivers": "これまでの受信者 ({count})",
   "@messageReceivers": {
     "description": "Title for message receivers dialog",
     "placeholders": {
@@ -562,9 +562,9 @@
   "@noBootstrapService": {
     "description": "Message when no bootstrap service is found"
   },
-  "noReceivers": "受信者はいません",
-  "@noReceivers": {
-    "description": "Message shown when there are no message receivers"
+  "messageReceiversNotStored": "受信者の名前は保存されないため、再起動後はリアルタイムの受信確認から集計し直します。",
+  "@messageReceiversNotStored": {
+    "description": "Shown when the receiver list for one of our own group messages is empty. Receiver identities are deliberately never persisted, so this must NOT read as 'nobody received it'"
   },
   "nodeNotTestedWarning": "このノードはまだテストされていません。",
   "@nodeNotTestedWarning": {

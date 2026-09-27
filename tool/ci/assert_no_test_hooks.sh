@@ -62,7 +62,20 @@ FORBIDDEN_SYMBOL="tim2tox_ffi_mm6_send_crafted_challenge"
 # (_ZN16V2TIMManagerImpl23Mm6SendCraftedChallenge...) or demangled, and whether
 # the platform prefixes an underscore.
 FORBIDDEN_CXX_SYMBOL="Mm6SendCraftedChallenge"
-FORBIDDEN_NAMES=("$FORBIDDEN_SYMBOL" "$FORBIDDEN_CXX_SYMBOL")
+# The second test-only primitive behind the same TIM2TOX_ENABLE_TEST_HOOKS gate:
+# it lowers the inbound group-receipt budgets so the REFUSAL path can be tested
+# at all. Harmless-sounding and still not something to ship — a shipped library
+# whose rate limits an attacker can set to 1 has no rate limits. Listed in both
+# spellings for the same reason as the one above: the C wrapper is what a .dylib
+# exports, the mangled method is what survives in the static library.
+FORBIDDEN_BUDGET_SYMBOL="tim2tox_ffi_mm6_set_group_receipt_budgets"
+FORBIDDEN_BUDGET_CXX_SYMBOL="Mm6SetGroupReceiptBudgets"
+FORBIDDEN_NAMES=(
+  "$FORBIDDEN_SYMBOL"
+  "$FORBIDDEN_CXX_SYMBOL"
+  "$FORBIDDEN_BUDGET_SYMBOL"
+  "$FORBIDDEN_BUDGET_CXX_SYMBOL"
+)
 
 # First forbidden name present in "$1", or empty when none is.
 first_forbidden_in() {
@@ -80,9 +93,10 @@ usage() {
   cat <<EOF
 Usage: assert_no_test_hooks.sh <binary-or-directory> [more...]
 
-Fails if any inspected native binary exports $FORBIDDEN_SYMBOL or the C++
-method $FORBIDDEN_CXX_SYMBOL behind it (the auto_tests-only MM-6
-crafted-challenge hook).
+Fails if any inspected native binary carries a TIM2TOX_ENABLE_TEST_HOOKS
+primitive, in either its C or its C++ spelling:
+  $FORBIDDEN_SYMBOL / $FORBIDDEN_CXX_SYMBOL
+  $FORBIDDEN_BUDGET_SYMBOL / $FORBIDDEN_BUDGET_CXX_SYMBOL
 EOF
 }
 

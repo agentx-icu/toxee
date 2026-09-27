@@ -550,9 +550,9 @@
   "@noBootstrapService": {
     "description": "Message when no bootstrap service is found"
   },
-  "noReceivers": "暂无接收者",
-  "@noReceivers": {
-    "description": "Message shown when there are no message receivers"
+  "messageReceiversNotStored": "接收者名单不会保存，重启后需由实时回执重新累计。",
+  "@messageReceiversNotStored": {
+    "description": "Shown when the receiver list for one of our own group messages is empty. Receiver identities are deliberately never persisted, so this must NOT read as 'nobody received it'"
   },
   "nodeNotTestedWarning": "尚未测试此节点。",
   "@nodeNotTestedWarning": {

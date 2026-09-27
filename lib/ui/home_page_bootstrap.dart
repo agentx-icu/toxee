@@ -835,14 +835,16 @@ extension _HomePageBootstrap on _HomePageState {
             final msgID = data.message.msgID ?? '';
 
             if (isGroupMessage && isSelfMessage && msgID.isNotEmpty) {
-              final receiverCount =
-                  FakeUIKit.instance.messageManager?.getMessageReceiverCount(
-                    msgID,
-                  ) ??
-                  0;
+              // Both tallies from the service — see [receiverBadge].
+              final gid = data.groupID;
+              final badge = receiverBadge(
+                widget.service.groupRowReceiveTally(msgID, groupID: gid),
+                widget.service.groupRowReadTally(msgID, groupID: gid),
+              );
 
-              if (receiverCount > 0) {
+              if (badge.show) {
                 final scheme = Theme.of(context).colorScheme;
+                final label = Theme.of(context).textTheme.labelSmall;
                 return Stack(
                   children: [
                     defaultWidget,
@@ -876,19 +878,20 @@ extension _HomePageBootstrap on _HomePageState {
                                   size: 14,
                                   color: scheme.onPrimary,
                                 ),
-                                const SizedBox(width: AppSpacing.xs),
-                                Text(
-                                  '$receiverCount',
-                                  style: Theme.of(context).textTheme.labelSmall
-                                      ?.copyWith(
-                                        color: scheme.onPrimary,
-                                        fontWeight: FontWeight.w600,
-                                        height: 1.0,
-                                        fontFeatures: const [
-                                          FontFeature.tabularFigures(),
-                                        ],
-                                      ),
-                                ),
+                                if (badge.count != null) ...[
+                                  const SizedBox(width: AppSpacing.xs),
+                                  Text(
+                                    '${badge.count}',
+                                    style: label?.copyWith(
+                                      color: scheme.onPrimary,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.0,
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
