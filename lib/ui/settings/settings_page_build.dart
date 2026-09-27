@@ -465,8 +465,10 @@ extension _SettingsPageBuild on _SettingsPageState {
         ),
       ),
       AppSpacing.verticalMd,
+      wrap(2, const BackgroundSettingsSection()),
+      AppSpacing.verticalMd,
       wrap(
-        2,
+        3,
         BootstrapSettingsSection(
           service: widget.service,
           colorTheme: colorTheme,

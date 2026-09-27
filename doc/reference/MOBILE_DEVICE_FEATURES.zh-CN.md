@@ -96,7 +96,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | B3 | 后台 / 锁屏可接听的来电界面 | P0 | ✅ | iOS CallKit（`CallKitProvider.swift`，App 存活时）；Android 全屏通知（`notification_channels.dart:83`、`notification_service.dart:755`） |
 | B3a | Android `ConnectionService`：蓝牙按键接听、车机集成 | P2 | ❌ | 未接入 |
 | B4 | 生命周期：`paused` / `detached` 时落盘 profile | P0 | ✅ | `lib/ui/home_page.dart:613-617`；`inactive` 会被控制中心、来电等频繁触发，有意不处理 |
-| B5 | 厂商后台管控（MIUI / EMUI / ColorOS 自启动、电池优化白名单）、Doze | P1 | ❌ | 前台服务仍可能被厂商策略杀掉。至少应提供引导用户加白名单的入口（`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` 或厂商设置页） |
+| B5 | 厂商后台管控（MIUI / EMUI / ColorOS 自启动、电池优化白名单）、Doze | P1 | ◐ | 设置 → 后台与通知显示 toxee 是否已免除电池优化，并提供「允许」（`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，不可用时退到白名单列表页）；回到前台时重新读取状态（`NotificationAccessChannel.kt`、`lib/ui/settings/background_settings_section.dart`）。Play 政策：直接请求（`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`）面向无法依赖 FCM 高优先级消息的聊天 / 通话应用——toxee 没有推送服务器；上架时重新核对现行政策，若被拒就去掉该权限（列表页兜底不需要它）。仍未解决：厂商自启动页（MIUI / EMUI / ColorOS）没有公开 intent，没有通用修法 |
 | B6 | Android 进程被回收后的冷启动恢复（回到原会话） | P1 | 🔍 | 自动登录路径已有（`_StartupGate`），页面栈恢复未验证 |
 | B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
 | B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ✅ 🔍 | 2026-09-26 修复：常驻模式 API 34+ 改用无时长限制的 `specialUse`；实现 API 35 `onTimeout` 及时停止；`startForeground` 被拒时降级或停止；Dart `RuntimeForegroundService.ensureRunning` 回前台时查询原生实际状态并重放最后请求的模式（通话中保持通话模式）。待 API 36 真机 / 模拟器验证 |
@@ -146,7 +146,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | S1 | 本地通知、角标 | P0 | ✅ | `flutter_local_notifications`、`app_badge_plus`、`lib/notifications/` |
-| S2 | 锁屏通知隐藏消息内容的选项 | P1 | ❌ | |
+| S2 | 锁屏通知隐藏消息内容的选项 | P1 | ✅ | 设置 → 后台与通知 →「通知中隐藏消息内容」，默认关，整机生效，全平台。隐藏时消息通知只显示「Toxee / 新消息」，不带头像，且不再合并多行（开关打开前合并的行含真实内容）；打开时撤回已发出的消息通知，包括上一个进程发出的（`notification_service_privacy.dart`）；读不到设置时按隐藏处理，保存失败则开关回退（`lib/notifications/notification_privacy.dart`）。好友请求 / 群邀请 / 通话通知不属于消息内容，保持原样 |
 | S3 | 振动 / 触感反馈 | P1 | ✅ | |
 | S4 | 视频通话画中画（切后台继续小窗） | P2 | ❌ | iOS 需 `AVPictureInPictureVideoCallViewController` + 多任务摄像头授权，Android 需 `supportsPictureInPicture`，原生工作量大 |
 | S5 | 通话中的灵动岛 / Live Activity、Android 进行中通话通知 | P2 | ◐ | Android 前台服务通知已存在 |

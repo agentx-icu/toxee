@@ -2055,4 +2055,31 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get notificationAccessOpenSettings => 'الإعدادات';
+
+  @override
+  String get backgroundSettingsTitle => 'الخلفية والإشعارات';
+
+  @override
+  String get hideNotificationContent => 'إخفاء محتوى الرسائل في الإشعارات';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'تعرض إشعارات الرسائل «رسالة جديدة» فقط، دون المرسل أو النص.';
+
+  @override
+  String get notificationContentHidden => 'رسالة جديدة';
+
+  @override
+  String get backgroundRunningTitle => 'التشغيل في الخلفية';
+
+  @override
+  String get backgroundRunningAllowed =>
+      'مسموح. لن يوقف تحسين البطارية Toxee في الخلفية.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'مقيّد بتحسين البطارية. قد يوقف النظام Toxee في الخلفية، وعندها لن تصل الرسائل والمكالمات.';
+
+  @override
+  String get backgroundRunningAllow => 'السماح';
 }

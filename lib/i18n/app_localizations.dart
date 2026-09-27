@@ -3693,6 +3693,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings'**
   String get notificationAccessOpenSettings;
+
+  /// Settings section: background running and notification privacy
+  ///
+  /// In en, this message translates to:
+  /// **'Background & notifications'**
+  String get backgroundSettingsTitle;
+
+  /// Switch: message notifications show a generic text instead of sender and content
+  ///
+  /// In en, this message translates to:
+  /// **'Hide message content in notifications'**
+  String get hideNotificationContent;
+
+  /// Description under the hide-notification-content switch
+  ///
+  /// In en, this message translates to:
+  /// **'Message notifications show only “New message”, not the sender or the text.'**
+  String get hideNotificationContentDesc;
+
+  /// Notification body shown when message content is hidden
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get notificationContentHidden;
+
+  /// Settings row (Android): battery-optimization exemption status
+  ///
+  /// In en, this message translates to:
+  /// **'Background running'**
+  String get backgroundRunningTitle;
+
+  /// Background running status: exempt from battery optimization
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed. Battery optimization won\'t stop Toxee in the background.'**
+  String get backgroundRunningAllowed;
+
+  /// Background running status: subject to battery optimization
+  ///
+  /// In en, this message translates to:
+  /// **'Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won\'t arrive.'**
+  String get backgroundRunningRestricted;
+
+  /// Button: request the battery-optimization exemption
+  ///
+  /// In en, this message translates to:
+  /// **'Allow'**
+  String get backgroundRunningAllow;
 }
 
 class _AppLocalizationsDelegate

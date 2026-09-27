@@ -2078,4 +2078,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationAccessOpenSettings => 'Settings';
+
+  @override
+  String get backgroundSettingsTitle => 'Background & notifications';
+
+  @override
+  String get hideNotificationContent => 'Hide message content in notifications';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'Message notifications show only “New message”, not the sender or the text.';
+
+  @override
+  String get notificationContentHidden => 'New message';
+
+  @override
+  String get backgroundRunningTitle => 'Background running';
+
+  @override
+  String get backgroundRunningAllowed =>
+      'Allowed. Battery optimization won\'t stop Toxee in the background.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won\'t arrive.';
+
+  @override
+  String get backgroundRunningAllow => 'Allow';
 }

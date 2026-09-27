@@ -2108,5 +2108,37 @@
   "notificationAccessOpenSettings": "Settings",
   "@notificationAccessOpenSettings": {
     "description": "Button on the notification notice: opens the system settings page"
+  },
+  "backgroundSettingsTitle": "Background & notifications",
+  "@backgroundSettingsTitle": {
+    "description": "Settings section: background running and notification privacy"
+  },
+  "hideNotificationContent": "Hide message content in notifications",
+  "@hideNotificationContent": {
+    "description": "Switch: message notifications show a generic text instead of sender and content"
+  },
+  "hideNotificationContentDesc": "Message notifications show only “New message”, not the sender or the text.",
+  "@hideNotificationContentDesc": {
+    "description": "Description under the hide-notification-content switch"
+  },
+  "notificationContentHidden": "New message",
+  "@notificationContentHidden": {
+    "description": "Notification body shown when message content is hidden"
+  },
+  "backgroundRunningTitle": "Background running",
+  "@backgroundRunningTitle": {
+    "description": "Settings row (Android): battery-optimization exemption status"
+  },
+  "backgroundRunningAllowed": "Allowed. Battery optimization won't stop Toxee in the background.",
+  "@backgroundRunningAllowed": {
+    "description": "Background running status: exempt from battery optimization"
+  },
+  "backgroundRunningRestricted": "Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won't arrive.",
+  "@backgroundRunningRestricted": {
+    "description": "Background running status: subject to battery optimization"
+  },
+  "backgroundRunningAllow": "Allow",
+  "@backgroundRunningAllow": {
+    "description": "Button: request the battery-optimization exemption"
   }
 }

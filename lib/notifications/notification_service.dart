@@ -12,9 +12,12 @@ import '../util/logger.dart';
 import '../util/serialized_async_tail.dart';
 import 'incoming_call_window_lease.dart';
 import 'notification_channels.dart';
+import 'notification_privacy.dart';
 
 export 'notification_channels.dart'
     show buildAndroidIncomingCallNotificationDetails;
+
+part 'notification_service_privacy.dart';
 
 const int _androidIncomingCallNotificationId = 0x746f7865;
 const MethodChannel _androidIncomingCallWindowChannel = MethodChannel(
@@ -443,15 +446,19 @@ class NotificationService {
     }
 
     try {
-      // Body cap. Keep word boundary if we can — avoid breaking mid-grapheme
-      // by clamping on the rune-level codepoints, then trimming trailing
-      // whitespace before appending an ellipsis.
+      final hidden = await NotificationPrivacy.hidesContent();
+      if (hidden) {
+        (senderName, preview, avatarPath) = NotificationPrivacy.redacted();
+        _grouped.remove(conversationId); // older lines hold real text
+      }
       final clampedBody = _clampBody(preview);
 
       // Inbox-style grouping: accumulate up to 5 lines per conversation so
       // a burst of "Alice: hi / Alice: there / Alice: are you free?" shows
       // up as one expandable notification, not three separate banners.
-      final lines = _grouped.putIfAbsent(conversationId, () => <String>[]);
+      final lines = hidden
+          ? <String>[]
+          : _grouped.putIfAbsent(conversationId, () => <String>[]);
       lines.add(clampedBody);
       // Don't keep an unbounded list — only the last 5 lines are shown by
       // Android's inbox style; past that, switch the summary to a count.

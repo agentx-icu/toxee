@@ -50,6 +50,10 @@
          the device is locked. Without it Android 14+ silently downgrades the
          full-screen intent to a heads-up. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- Lets Settings > Background & notifications ask for the Doze /
+         battery-optimization exemption directly. Tox has no push server, so
+         the background session is the only way messages and calls arrive. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <application
         android:label="Toxee"
         android:name="${applicationName}"

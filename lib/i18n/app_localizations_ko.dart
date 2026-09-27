@@ -1996,4 +1996,31 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get notificationAccessOpenSettings => '설정';
+
+  @override
+  String get backgroundSettingsTitle => '백그라운드 및 알림';
+
+  @override
+  String get hideNotificationContent => '알림에서 메시지 내용 숨기기';
+
+  @override
+  String get hideNotificationContentDesc =>
+      '메시지 알림에 보낸 사람과 내용 없이 ‘새 메시지’만 표시됩니다.';
+
+  @override
+  String get notificationContentHidden => '새 메시지';
+
+  @override
+  String get backgroundRunningTitle => '백그라운드 실행';
+
+  @override
+  String get backgroundRunningAllowed =>
+      '허용됨. 배터리 최적화가 백그라운드에서 Toxee를 중지하지 않습니다.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '배터리 최적화로 제한됨. 시스템이 백그라운드에서 Toxee를 중지하면 메시지와 전화를 받을 수 없습니다.';
+
+  @override
+  String get backgroundRunningAllow => '허용';
 }

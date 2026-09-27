@@ -1012,5 +1012,13 @@
   "notificationAccessOtherOff": "بعض إشعارات Toxee متوقفة (طلبات الصداقة أو دعوات المجموعات أو المكالمات الفائتة).",
   "notificationAccessAlertsOff": "تنبيهات الإشعارات متوقفة. لن تظهر الرسائل الجديدة أثناء عمل Toxee في الخلفية.",
   "notificationAccessProvisional": "تصل إشعارات Toxee بهدوء إلى مركز الإشعارات. شغّل التنبيهات لرؤية الرسائل الجديدة فورًا.",
-  "notificationAccessOpenSettings": "الإعدادات"
+  "notificationAccessOpenSettings": "الإعدادات",
+  "backgroundSettingsTitle": "الخلفية والإشعارات",
+  "hideNotificationContent": "إخفاء محتوى الرسائل في الإشعارات",
+  "hideNotificationContentDesc": "تعرض إشعارات الرسائل «رسالة جديدة» فقط، دون المرسل أو النص.",
+  "notificationContentHidden": "رسالة جديدة",
+  "backgroundRunningTitle": "التشغيل في الخلفية",
+  "backgroundRunningAllowed": "مسموح. لن يوقف تحسين البطارية Toxee في الخلفية.",
+  "backgroundRunningRestricted": "مقيّد بتحسين البطارية. قد يوقف النظام Toxee في الخلفية، وعندها لن تصل الرسائل والمكالمات.",
+  "backgroundRunningAllow": "السماح"
 }

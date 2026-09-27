@@ -1962,6 +1962,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get notificationAccessOpenSettings => '设置';
+
+  @override
+  String get backgroundSettingsTitle => '后台与通知';
+
+  @override
+  String get hideNotificationContent => '通知中隐藏消息内容';
+
+  @override
+  String get hideNotificationContentDesc => '消息通知只显示“新消息”，不显示发送者和正文。';
+
+  @override
+  String get notificationContentHidden => '新消息';
+
+  @override
+  String get backgroundRunningTitle => '后台运行';
+
+  @override
+  String get backgroundRunningAllowed => '已允许。电池优化不会在后台停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受电池优化限制。系统可能会在后台停止 Toxee，届时将收不到消息和来电。';
+
+  @override
+  String get backgroundRunningAllow => '允许';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3424,6 +3449,31 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get notificationAccessOpenSettings => '设置';
+
+  @override
+  String get backgroundSettingsTitle => '后台与通知';
+
+  @override
+  String get hideNotificationContent => '通知中隐藏消息内容';
+
+  @override
+  String get hideNotificationContentDesc => '消息通知只显示“新消息”，不显示发送者和正文。';
+
+  @override
+  String get notificationContentHidden => '新消息';
+
+  @override
+  String get backgroundRunningTitle => '后台运行';
+
+  @override
+  String get backgroundRunningAllowed => '已允许。电池优化不会在后台停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受电池优化限制。系统可能会在后台停止 Toxee，届时将收不到消息和来电。';
+
+  @override
+  String get backgroundRunningAllow => '允许';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5384,4 +5434,29 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get notificationAccessOpenSettings => '設定';
+
+  @override
+  String get backgroundSettingsTitle => '背景與通知';
+
+  @override
+  String get hideNotificationContent => '通知中隱藏訊息內容';
+
+  @override
+  String get hideNotificationContentDesc => '訊息通知只顯示「新訊息」，不顯示傳送者和內文。';
+
+  @override
+  String get notificationContentHidden => '新訊息';
+
+  @override
+  String get backgroundRunningTitle => '背景執行';
+
+  @override
+  String get backgroundRunningAllowed => '已允許。電池最佳化不會在背景停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受電池最佳化限制。系統可能會在背景停止 Toxee，屆時將收不到訊息和來電。';
+
+  @override
+  String get backgroundRunningAllow => '允許';
 }

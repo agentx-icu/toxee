@@ -1996,4 +1996,31 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get notificationAccessOpenSettings => '設定';
+
+  @override
+  String get backgroundSettingsTitle => 'バックグラウンドと通知';
+
+  @override
+  String get hideNotificationContent => '通知にメッセージの内容を表示しない';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'メッセージの通知には「新しいメッセージ」とだけ表示され、送信者や本文は表示されません。';
+
+  @override
+  String get notificationContentHidden => '新しいメッセージ';
+
+  @override
+  String get backgroundRunningTitle => 'バックグラウンド実行';
+
+  @override
+  String get backgroundRunningAllowed =>
+      '許可されています。バッテリーの最適化によって Toxee がバックグラウンドで停止されることはありません。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'バッテリーの最適化で制限されています。システムがバックグラウンドで Toxee を停止すると、メッセージや着信を受け取れません。';
+
+  @override
+  String get backgroundRunningAllow => '許可';
 }

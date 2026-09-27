@@ -80,7 +80,7 @@ lib/ui/search/custom_search.dart:1018
 lib/ui/search/search_chat_history_window.dart:646
 lib/ui/settings/bootstrap_settings_section.dart:1461
 lib/ui/settings/global_settings_section.dart:706
-lib/ui/settings/settings_page.dart:1565
+lib/ui/settings/settings_page.dart:1429
 lib/ui/settings/sidebar.dart:951
 lib/util/account_service.dart:976
 lib/util/app_paths.dart:605

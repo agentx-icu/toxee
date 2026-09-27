@@ -988,5 +988,13 @@
   "notificationAccessOtherOff": "部分 Toxee 通知已關閉（好友請求、群組邀請或未接來電）。",
   "notificationAccessAlertsOff": "通知提醒已關閉。Toxee 在背景時新訊息不會跳出提醒。",
   "notificationAccessProvisional": "Toxee 的通知正以靜默方式送達通知中心。開啟提醒即可及時看到新訊息。",
-  "notificationAccessOpenSettings": "設定"
+  "notificationAccessOpenSettings": "設定",
+  "backgroundSettingsTitle": "背景與通知",
+  "hideNotificationContent": "通知中隱藏訊息內容",
+  "hideNotificationContentDesc": "訊息通知只顯示「新訊息」，不顯示傳送者和內文。",
+  "notificationContentHidden": "新訊息",
+  "backgroundRunningTitle": "背景執行",
+  "backgroundRunningAllowed": "已允許。電池最佳化不會在背景停止 Toxee。",
+  "backgroundRunningRestricted": "受電池最佳化限制。系統可能會在背景停止 Toxee，屆時將收不到訊息和來電。",
+  "backgroundRunningAllow": "允許"
 }
