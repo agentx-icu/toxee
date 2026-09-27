@@ -54,13 +54,35 @@ source "$SCRIPT_DIR/common.sh"
 # (build_all.sh, tool/ci/build_tim2tox.sh, the packaging workflows) goes through
 # this script precisely so this string is written down exactly once here.
 FORBIDDEN_SYMBOL="tim2tox_ffi_mm6_send_crafted_challenge"
+# ...and the C++ method the wrapper calls. It was gated one commit AFTER the
+# wrapper, so a binary built in between exports no C symbol and still carries
+# this one — on Linux it stays callable, and a check that looked only for the
+# wrapper reported such a binary clean (codex 2026-09-27). The name is matched as
+# a substring so it is found whether the tool prints it mangled
+# (_ZN16V2TIMManagerImpl23Mm6SendCraftedChallenge...) or demangled, and whether
+# the platform prefixes an underscore.
+FORBIDDEN_CXX_SYMBOL="Mm6SendCraftedChallenge"
+FORBIDDEN_NAMES=("$FORBIDDEN_SYMBOL" "$FORBIDDEN_CXX_SYMBOL")
+
+# First forbidden name present in "$1", or empty when none is.
+first_forbidden_in() {
+  local haystack="$1" name
+  for name in "${FORBIDDEN_NAMES[@]}"; do
+    if [[ "$haystack" == *"$name"* ]]; then
+      printf '%s' "$name"
+      return 0
+    fi
+  done
+  return 0
+}
 
 usage() {
   cat <<EOF
 Usage: assert_no_test_hooks.sh <binary-or-directory> [more...]
 
-Fails if any inspected native binary exports $FORBIDDEN_SYMBOL
-(the auto_tests-only MM-6 crafted-challenge hook).
+Fails if any inspected native binary exports $FORBIDDEN_SYMBOL or the C++
+method $FORBIDDEN_CXX_SYMBOL behind it (the auto_tests-only MM-6
+crafted-challenge hook).
 EOF
 }
 
@@ -116,18 +138,33 @@ nm_tools_for() {
 # Every tim2tox FFI binary under a directory argument.
 expand_dir() {
   local dir="$1"
-  find "$dir" -type f \
+  # -type f OR -type l: a STAGED LIBRARY IS OFTEN A SYMLINK, and skipping it
+  # meant its bytes were never checked while the caller's "does this directory
+  # hold a library" guard also stopped asking (codex 2026-09-27). check_file
+  # resolves the link and fails on a broken one.
+  find "$dir" \( -type f -o -type l \) \
     \( -name 'libtim2tox_ffi.so' \
+    -o -name 'libtim2tox_ffi.so.*' \
     -o -name 'libtim2tox_ffi.dylib' \
     -o -name 'tim2tox_ffi.dll' \
     -o -name 'tim2tox_ffi' \) | sort
 }
 
-# Inspect ONE regular file. Dies on a hook hit, on an unreadable file, or when
-# no method could read it at all.
+# Inspect ONE file. Dies on a hook hit, on an unreadable file, on a broken or
+# uninspectable symlink, or when no method could read it at all.
 check_file() {
   local file="$1"
   local label="${2:-$file}"
+
+  # A staged library is often a symlink. Resolve it and inspect the TARGET's
+  # bytes, and fail on a dangling one rather than skip it (codex 2026-09-27).
+  if [[ -L "$file" ]]; then
+    local target
+    target="$(cd "$(dirname "$file")" 2>/dev/null && readlink "$(basename "$file")" 2>/dev/null || true)"
+    [[ -n "$target" ]] || ci_die "$label: cannot read the symlink to verify it is hook-free: $file"
+    [[ -e "$file" ]] || ci_die "$label: symlink is broken (-> $target), cannot verify it is hook-free: $file"
+    label="$label (symlink -> $target)"
+  fi
 
   [[ -f "$file" ]] || ci_die "$label: file missing, cannot verify it is hook-free: $file"
   [[ -r "$file" ]] || ci_die "$label: file not readable, cannot verify it is hook-free: $file"
@@ -161,28 +198,38 @@ check_file() {
   # answers "clean" for a hook-enabled dylib is worse than no fallback, so
   # strings is used only if grep itself is missing, never in preference to it.
   if [[ -z "$method" ]] && command -v grep >/dev/null 2>&1; then
-    if grep -aq -- "$FORBIDDEN_SYMBOL" "$file"; then
-      ci_die "$label: FORBIDDEN test hook $FORBIDDEN_SYMBOL found (method: grep -a whole-file byte scan) in $file. This binary was built with -DTIM2TOX_ENABLE_TEST_HOOKS=ON and must never be packaged."
-    fi
-    ci_log "$label: hook-free, $FORBIDDEN_SYMBOL absent (method: grep -a whole-file byte scan; no nm-like tool could read this file)"
+    local name rc
+    for name in "${FORBIDDEN_NAMES[@]}"; do
+      grep -aq -- "$name" "$file"
+      rc=$?
+      # 0 = found, 1 = absent, ANYTHING ELSE = grep could not read the file.
+      # Treating 2 as "absent" is how an unreadable binary got reported clean.
+      if [[ $rc -eq 0 ]]; then
+        ci_die "$label: FORBIDDEN test hook $name found (method: grep -a whole-file byte scan) in $file. This binary was built with -DTIM2TOX_ENABLE_TEST_HOOKS=ON and must never be packaged."
+      elif [[ $rc -ne 1 ]]; then
+        ci_die "$label: grep could not read $file (exit $rc) — refusing to report it hook-free"
+      fi
+    done
+    ci_log "$label: hook-free, no forbidden hook symbol (method: grep -a whole-file byte scan; no nm-like tool could read this file)"
     return 0
   fi
 
-  if [[ -z "$method" ]] && command -v strings >/dev/null 2>&1; then
-    syms="$(strings -a "$file" 2>/dev/null || true)"
-    if [[ -n "$syms" ]]; then
-      method="strings -a (last resort: no nm-like tool and no grep; on Mach-O this can MISS symbol-table names)"
-    fi
-  fi
-
+  # NO `strings` fallback. macOS strings reads loadable sections and not the
+  # symbol table — measured 2026-09-26 on a hook-ENABLED dylib, where `nm -g`
+  # and `grep -a` both found the symbol and `strings -a | grep` found nothing.
+  # An inspection that can answer "clean" for a hook-enabled binary is worse
+  # than none, so when neither an nm-like tool nor grep can read the file this
+  # fails closed (codex 2026-09-27).
   if [[ -z "$method" ]]; then
-    ci_die "$label: no nm/llvm-nm/grep/strings method could inspect $file — refusing to report it hook-free"
+    ci_die "$label: no nm/llvm-nm/grep method could inspect $file — refusing to report it hook-free (strings is deliberately NOT accepted: on Mach-O it misses symbol-table names)"
   fi
 
-  if [[ "$syms" == *"$FORBIDDEN_SYMBOL"* ]]; then
-    ci_die "$label: FORBIDDEN test hook $FORBIDDEN_SYMBOL is present (method: $method) in $file. This binary was built with -DTIM2TOX_ENABLE_TEST_HOOKS=ON and must never be packaged. Rebuild with the option OFF (or delete the staged artifact) and re-run."
+  local hit
+  hit="$(first_forbidden_in "$syms")"
+  if [[ -n "$hit" ]]; then
+    ci_die "$label: FORBIDDEN test hook $hit is present (method: $method) in $file. This binary was built with -DTIM2TOX_ENABLE_TEST_HOOKS=ON and must never be packaged. Rebuild with the option OFF (or delete the staged artifact) and re-run."
   fi
-  ci_log "$label: hook-free, $FORBIDDEN_SYMBOL absent (method: $method)"
+  ci_log "$label: hook-free, no forbidden hook symbol (method: $method)"
 }
 
 main() {

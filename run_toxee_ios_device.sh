@@ -331,9 +331,14 @@ inject_ios_device_ffi_artifacts() {
   framework_src="$(resolve_ffi_framework_path || true)"
   dylib_src="$(resolve_ffi_dylib_path || true)"
 
+  # These artifacts can be PREBUILT (--ffi-framework / --ffi-dylib, or the
+  # TIM2TOX_IOS_* env vars Xcode's embed phase also reads), so they can carry the
+  # auto_tests-only MM-6 crafted-challenge hook. Checked before they enter the
+  # bundle, not after (codex 2026-09-27).
   if [[ -n "$framework_src" ]]; then
     info "Injecting framework: $framework_src"
     warn_if_not_arm64_binary "$framework_src/tim2tox_ffi"
+    bash "$SCRIPT_DIR/tool/ci/assert_no_test_hooks.sh" "$framework_src/tim2tox_ffi" || exit 1
     rm -rf "$frameworks_dir/tim2tox_ffi.framework"
     cp -R "$framework_src" "$frameworks_dir/"
     injected="true"
@@ -342,6 +347,7 @@ inject_ios_device_ffi_artifacts() {
   if [[ -n "$dylib_src" ]]; then
     info "Injecting dylib: $dylib_src"
     warn_if_not_arm64_binary "$dylib_src"
+    bash "$SCRIPT_DIR/tool/ci/assert_no_test_hooks.sh" "$dylib_src" || exit 1
     cp "$dylib_src" "$frameworks_dir/libtim2tox_ffi.dylib"
     injected="true"
   fi
