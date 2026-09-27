@@ -318,6 +318,10 @@ prepare_android_ffi_libs() {
       error "No libtim2tox_ffi.so found in $FFI_LIB_DIR/<abi>/"
       exit 1
     fi
+    # A PREBUILT can carry the auto_tests-only MM-6 crafted-challenge hook, and
+    # Gradle packages whatever is in jniLibs — so the bytes are checked here,
+    # where they enter the APK (codex 2026-09-27).
+    bash "$SCRIPT_DIR/tool/ci/assert_no_test_hooks.sh" "$JNI_LIBS_DIR" || exit 1
   fi
 
   if ! find "$JNI_LIBS_DIR" -type f -name "libtim2tox_ffi.so" | grep -q .; then

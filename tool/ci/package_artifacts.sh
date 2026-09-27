@@ -77,9 +77,16 @@ write_note() {
 # Symbol names are ASCII in ELF/PE/Mach-O symbol/export tables, so a binary
 # grep works host-tool-independently. Override (never for user-facing
 # releases) with TOXEE_ALLOW_STUB_AV=1.
-assert_staged_toxav() {
+# Both release gates on the library that is ABOUT TO BE PACKAGED. The second one
+# is here and not only in the builders because tool/ci/build_tim2tox.sh skips its
+# own assertion when --enable-test-hooks was asked for, so a locally built test
+# artifact could otherwise be packaged into a DEB/RPM/PKG (codex 2026-09-27).
+# TOXEE_ALLOW_STUB_AV deliberately does NOT reach the hook gate: an attack
+# primitive in a release is not a thing to opt out of.
+assert_staged_library() {
   local lib="$1"
   local label="${2:-$(basename "$lib")}"
+  bash "$SCRIPT_DIR/assert_no_test_hooks.sh" "$lib" >&2
   if [[ "${TOXEE_ALLOW_STUB_AV:-0}" == "1" ]]; then
     ci_warn "$label: TOXEE_ALLOW_STUB_AV=1 — skipping ToxAV packaging assertion"
     return 0
@@ -148,7 +155,7 @@ package_linux() {
   mkdir -p "$staged_dir/lib"
 
   if [[ -f "$NATIVE_DIR/libtim2tox_ffi.so" ]]; then
-    assert_staged_toxav "$NATIVE_DIR/libtim2tox_ffi.so" "linux"
+    assert_staged_library "$NATIVE_DIR/libtim2tox_ffi.so" "linux"
     cp "$NATIVE_DIR/libtim2tox_ffi.so" "$staged_dir/lib/"
     write_note "Bundled libtim2tox_ffi.so into Linux bundle."
   else
@@ -230,7 +237,7 @@ package_windows() {
   cp -R "$runner_dir"/. "$staged_dir/"
 
   if [[ -f "$NATIVE_DIR/tim2tox_ffi.dll" ]]; then
-    assert_staged_toxav "$NATIVE_DIR/tim2tox_ffi.dll" "windows"
+    assert_staged_library "$NATIVE_DIR/tim2tox_ffi.dll" "windows"
     cp "$NATIVE_DIR/tim2tox_ffi.dll" "$staged_dir/"
     write_note "Bundled tim2tox_ffi.dll into Windows package."
   else
@@ -296,7 +303,7 @@ package_macos() {
   mkdir -p "$macos_dir"
 
   if [[ -f "$ffi_lib" ]]; then
-    assert_staged_toxav "$ffi_lib" "macos"
+    assert_staged_library "$ffi_lib" "macos"
     cp "$ffi_lib" "$macos_dir/"
     write_note "Bundled libtim2tox_ffi.dylib into macOS app."
 
@@ -380,7 +387,7 @@ package_android() {
   # negative that would silently SKIP the ToxAV assertions below).
   if [[ -d "$NATIVE_DIR/jniLibs" && -n "$(find "$NATIVE_DIR/jniLibs" -type f -name "libtim2tox_ffi.so" -print -quit)" ]]; then
     while IFS= read -r jni_lib; do
-      assert_staged_toxav "$jni_lib" "android-$(basename "$(dirname "$jni_lib")")"
+      assert_staged_library "$jni_lib" "android-$(basename "$(dirname "$jni_lib")")"
     done < <(find "$NATIVE_DIR/jniLibs" -type f -name "libtim2tox_ffi.so")
     write_note "Android build used repository-provided Tim2Tox JNI libraries."
   else
@@ -402,12 +409,12 @@ package_ios() {
 
   mkdir -p "$frameworks_dir"
   if [[ -d "$framework_src" ]]; then
-    assert_staged_toxav "$framework_src/tim2tox_ffi" "ios-framework"
+    assert_staged_library "$framework_src/tim2tox_ffi" "ios-framework"
     rm -rf "$frameworks_dir/tim2tox_ffi.framework"
     cp -R "$framework_src" "$frameworks_dir/"
     injected="true"
   elif [[ -f "$dylib_src" ]]; then
-    assert_staged_toxav "$dylib_src" "ios-dylib"
+    assert_staged_library "$dylib_src" "ios-dylib"
     cp "$dylib_src" "$frameworks_dir/"
     injected="true"
   fi
