@@ -23,6 +23,60 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
+// Gradle packages whatever is staged in jniLibs, so this is the LAST place a
+// test-only tim2tox hook can be caught before it lands in an APK — and the only
+// one the scripts do not cover, because --ffi-lib-dir stages a prebuilt straight
+// into that directory and `flutter build apk` never touches those scripts.
+//
+// Done in Kotlin rather than by shelling out to tool/ci/assert_no_test_hooks.sh
+// on purpose: an Android build must work on a host with no bash. But the symbol
+// NAMES are read out of that script, so there is still exactly one list to
+// maintain — test/ci/test_hook_symbol_list_test.dart is what keeps it complete.
+// Export names are plain ASCII in the ELF .dynstr, so a byte scan finds them; it
+// errs towards failing, since it also matches a non-exported occurrence.
+fun forbiddenTestHookNames(repoRoot: File): List<String> {
+    val gate = File(repoRoot, "tool/ci/assert_no_test_hooks.sh")
+    if (!gate.isFile) {
+        throw GradleException(
+            "tool/ci/assert_no_test_hooks.sh is missing — cannot verify that the " +
+                "staged libtim2tox_ffi.so carries no test-only hook."
+        )
+    }
+    val pattern = Regex("^FORBIDDEN_[A-Z_]*=\"([^\"\$]+)\"", RegexOption.MULTILINE)
+    val names = pattern.findAll(gate.readText()).map { it.groupValues[1] }.toList()
+    if (names.isEmpty()) {
+        throw GradleException(
+            "no FORBIDDEN_* names parsed from tool/ci/assert_no_test_hooks.sh — " +
+                "the gate's format changed and this check would silently pass."
+        )
+    }
+    return names
+}
+
+fun assertNoTestHooks(lib: File, forbidden: List<String>) {
+    if (!lib.isFile) return
+    val bytes = lib.readBytes()
+    for (name in forbidden) {
+        val needle = name.toByteArray(Charsets.US_ASCII)
+        var i = 0
+        outer@ while (i <= bytes.size - needle.size) {
+            for (j in needle.indices) {
+                if (bytes[i + j] != needle[j]) {
+                    i++
+                    continue@outer
+                }
+            }
+            throw GradleException(
+                "${lib.path} carries the TEST-ONLY tim2tox hook $name and must not " +
+                    "be packaged. It was built with -DTIM2TOX_ENABLE_TEST_HOOKS=ON " +
+                    "(build_ffi.sh defaults it on for the auto_tests). Rebuild with " +
+                    "the option OFF — tool/build_android_ffi.sh passes it — or delete " +
+                    "the staged artifact."
+            )
+        }
+    }
+}
+
 fun isUnitTestOnlyInvocation(taskNames: List<String>): Boolean {
     if (taskNames.isEmpty()) return false
     return taskNames.all { taskName ->
@@ -71,6 +125,18 @@ android {
             ?.map { it.name }?.sorted() ?: emptyList()
         if (ffiAbis.isNotEmpty()) {
             ndk { abiFilters.addAll(ffiAbis) }
+            // Checked here, where the bytes about to be packaged are. A unit-test
+            // invocation packages nothing, so it is skipped for the same reason
+            // the branch below skips its own failure.
+            if (!isUnitTestOnlyInvocation(gradle.startParameter.taskNames)) {
+                val forbidden = forbiddenTestHookNames(rootProject.file(".."))
+                for (abi in ffiAbis) {
+                    assertNoTestHooks(
+                        file("src/main/jniLibs/" + abi + "/libtim2tox_ffi.so"),
+                        forbidden,
+                    )
+                }
+            }
         } else if (!isUnitTestOnlyInvocation(gradle.startParameter.taskNames)) {
             // jniLibs is gitignored, so a clean checkout has no FFI yet. Fail
             // fast rather than ship a libtim2tox_ffi.so-less APK that crashes on
