@@ -1029,5 +1029,7 @@
   "mediaConversionFailed": "تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء.",
   "videoConverting": "جارٍ تجهيز الفيديو…",
   "videoConvertingDesc": "جارٍ تحويله إلى صيغة تعمل على كل الأجهزة.",
-  "videoConversionFailed": "تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء."
+  "videoConversionFailed": "تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء.",
+  "cameraPausedMultitasking": "تتوقف الكاميرا مؤقتًا أثناء مشاركة الشاشة مع تطبيقات أخرى",
+  "cameraUnavailable": "الكاميرا غير متاحة"
 }

@@ -2137,4 +2137,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get videoConversionFailed =>
       'Couldn\'t convert this video for sending. Nothing was sent.';
+
+  @override
+  String get cameraPausedMultitasking =>
+      'Camera paused while other apps share the screen';
+
+  @override
+  String get cameraUnavailable => 'Camera unavailable';
 }

@@ -2016,6 +2016,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get videoConversionFailed => '无法转换这段视频，未发送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他应用共享屏幕时相机已暂停';
+
+  @override
+  String get cameraUnavailable => '相机不可用';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3532,6 +3538,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get videoConversionFailed => '无法转换这段视频，未发送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他应用共享屏幕时相机已暂停';
+
+  @override
+  String get cameraUnavailable => '相机不可用';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5546,4 +5558,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get videoConversionFailed => '無法轉換這段影片，未傳送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他 App 共用螢幕時相機已暫停';
+
+  @override
+  String get cameraUnavailable => '相機無法使用';
 }

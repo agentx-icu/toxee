@@ -2113,4 +2113,11 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get videoConversionFailed =>
       'تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء.';
+
+  @override
+  String get cameraPausedMultitasking =>
+      'تتوقف الكاميرا مؤقتًا أثناء مشاركة الشاشة مع تطبيقات أخرى';
+
+  @override
+  String get cameraUnavailable => 'الكاميرا غير متاحة';
 }

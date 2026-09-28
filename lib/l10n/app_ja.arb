@@ -994,5 +994,7 @@
   "mediaConversionFailed": "この写真を送信用に変換できませんでした。送信していません。",
   "videoConverting": "ビデオを準備しています…",
   "videoConvertingDesc": "どのデバイスでも再生できる形式に変換しています。",
-  "videoConversionFailed": "このビデオを送信用に変換できませんでした。送信していません。"
+  "videoConversionFailed": "このビデオを送信用に変換できませんでした。送信していません。",
+  "cameraPausedMultitasking": "他のアプリと画面を共有中はカメラが一時停止します",
+  "cameraUnavailable": "カメラを使用できません"
 }

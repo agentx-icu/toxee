@@ -81,6 +81,17 @@ void main() {
         ..writeAsBytesSync([0, 0, 0, 24, ...'ftypqt  '.codeUnits, 0, 0, 0, 0]))
       .path;
 
+  /// Real async work (file IO, channel mocks) runs outside fake time: poll
+  /// until [finder] shows up instead of guessing how long that takes.
+  Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
+    for (var i = 0; i < 250 && finder.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+  }
+
   testWidgets('progress, then the dialog closes when the video is ready', (
     tester,
   ) async {
@@ -89,9 +100,8 @@ void main() {
     late Future<String> result;
     await tester.runAsync(() async {
       result = OutgoingMedia.prepare(path, accountKey: 'A');
-      await Future<void>.delayed(const Duration(milliseconds: 150));
     });
-    await tester.pump();
+    await pumpUntilFound(tester, find.text('40%'));
     expect(find.text('Preparing video…'), findsOneWidget);
     expect(find.text('40%'), findsOneWidget);
 
@@ -115,9 +125,8 @@ void main() {
         (_) {},
         onError: (Object e) => error = e,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 150));
     });
-    await tester.pump();
+    await pumpUntilFound(tester, find.byKey(MediaTranscodeDialog.cancelKey));
     await tester.tap(find.byKey(MediaTranscodeDialog.cancelKey));
     await tester.runAsync(() => result);
     await tester.pumpAndSettle();
@@ -138,12 +147,16 @@ void main() {
     late Future<String> a, b;
     await tester.runAsync(() async {
       a = OutgoingMedia.prepare(first, accountKey: 'A');
-      await Future<void>.delayed(const Duration(milliseconds: 150));
       b = OutgoingMedia.prepare(second, accountKey: 'A');
-      await Future<void>.delayed(const Duration(milliseconds: 150));
     });
-    await tester.pump();
-    expect(find.text('Preparing video…'), findsNWidgets(2));
+    final both = find.text('Preparing video…');
+    for (var i = 0; i < 250 && both.evaluate().length < 2; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(both, findsNWidgets(2));
 
     // Both finish (the first one is under the second's dialog).
     await tester.runAsync(() async {

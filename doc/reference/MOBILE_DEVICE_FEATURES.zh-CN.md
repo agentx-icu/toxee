@@ -60,7 +60,7 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | V2 | 前置画面镜像（本地预览镜像、发给对端不镜像） | P0 | ✅ | `lib/call/call_video_transform.dart` |
 | V3 | 设备旋转时视频帧的旋转角 | P0 | ✅ | `call_video_transform.dart:108-133` |
 | V4 | 切后台后摄像头被系统停采，回前台后恢复；对端显示"视频已暂停"而不是卡帧 | P0 | ◐ | 停采与回前台重启已实现（`call_service_manager.dart:506`）；对端只显示最后一帧或通用占位（`in_call_view.dart:256`），没有"视频已暂停"状态 |
-| V5 | iPad 多任务（Split View / Slide Over / 台前调度）下摄像头被系统禁用 | P1 | ❌ | 采集失败只复位采集标志并记日志（`video_handler.dart:443-447`），没有面向用户的"摄像头不可用"状态。可检查并开启 `AVCaptureSession.isMultitaskingCameraAccessSupported/Enabled`（旧系统需 entitlement，且与 `voip` 后台模式相关，而当前 `Info.plist` 只有 `audio`、`fetch`）；至少要给出不可用状态而不是黑屏 |
+| V5 | iPad 多任务（Split View / Slide Over / 台前调度）下摄像头被系统禁用 | P1 | ◐ | 2026-09-27 评审。**已修复——toxee 自己关掉了相机**：通话在 `AppLifecycleState.inactive` 时挂起相机，也就是应用仍在屏幕上、只是失去焦点时（iPad 分屏 / 台前调度的另一半、Android 多窗口、桌面点了别的窗口、下拉控制中心），对方画面随之定格。现在只在应用离开屏幕时挂起（`cameraMayRunIn`，`call_video_lifecycle_controller.dart`）。**已修复——没有说明**：iPadOS 仍中断相机时（多任务、相机被占用、系统压力），本地预览说明原因而不是变黑（`ios/Runner/AppDelegate.swift` 中的 `ToxeeCameraMultitasking` → `lib/call/camera_availability.dart`）。**仍未解决**：真正在 iPad 多任务时保持相机，需要在会话启动前设置 `isMultitaskingCameraAccessEnabled`——只有相机插件能做到（camera_avfoundation 0.9.21+2 没做）——且 `isMultitaskingCameraAccessSupported` 可能需要 `voip` 后台模式或多任务相机 entitlement（部署目标 15.5）；需在 iPad 上确认。对方不会被告知视频为何暂停 |
 | V6 | 外接摄像头（iPad USB-C、Android UVC） | P2 | ◐ | 没有相反镜头时按列表轮到下一个设备（`video_handler.dart:170`），外接摄像头可被轮到，但无专门处理 |
 | V7 | 人物居中 Center Stage | P2 | 🔍 | 是否默认生效与 App 的后台模式 / 采集配置有关，并非一定无需代码；需在支持的 iPad 上实测 |
 | V8 | 变焦、闪光灯 | 不适配 | — | 通话场景不需要 |

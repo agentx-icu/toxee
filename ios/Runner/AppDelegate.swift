@@ -13,6 +13,7 @@ import UIKit
   private let callKitProvider = CallKitProvider()
   private let backgroundTasks = BackgroundTaskController()
   private var mediaTranscoder: ToxeeMediaTranscoder?
+  private var cameraMultitasking: ToxeeCameraMultitasking?
 
   override func application(
     _ application: UIApplication,
@@ -193,6 +194,10 @@ import UIKit
         default: result("error:\(status)")
         }
       }
+
+      cameraMultitasking = ToxeeCameraMultitasking(
+        channel: FlutterMethodChannel(
+          name: "toxee/camera_interruption", binaryMessenger: controller.binaryMessenger))
 
       mediaTranscoder = ToxeeMediaTranscoder(
         channel: FlutterMethodChannel(
@@ -484,5 +489,90 @@ final class ToxeeMediaTranscoder {
         result(error)
       }
     }
+  }
+}
+
+/// iPad multitasking vs the camera (checklist V5). iPadOS stops a capture
+/// session when other apps share the screen (Split View, Slide Over, Stage
+/// Manager) unless the session opted in before it started — which only the
+/// camera plugin can do, and it does not. Until then the call says why its
+/// camera stopped instead of showing a frozen picture: interruptions
+/// (multitasking, another app holding the camera, system pressure) reach
+/// Dart as `changed({unavailable, reason})`.
+final class ToxeeCameraMultitasking {
+  private final class Entry {
+    weak var session: AVCaptureSession?
+    let reason: Int
+    init(_ session: AVCaptureSession, _ reason: Int) {
+      self.session = session
+      self.reason = reason
+    }
+  }
+
+  private let channel: FlutterMethodChannel
+  private var interrupted: [ObjectIdentifier: Entry] = [:]
+  private var observers: [NSObjectProtocol] = []
+
+  init(channel: FlutterMethodChannel) {
+    self.channel = channel
+    let center = NotificationCenter.default
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession else { return }
+        let reason =
+          (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+        // In the background nothing is on screen to explain; the others
+        // (another app has the camera, multitasking, system pressure) are.
+        guard reason != AVCaptureSession.InterruptionReason.videoDeviceNotAvailableInBackground.rawValue,
+          reason != AVCaptureSession.InterruptionReason.audioDeviceInUseByAnotherClient.rawValue
+        else { return }
+        self.interrupted[ObjectIdentifier(session)] = Entry(session, reason)
+        self.report()
+      })
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession else { return }
+        if self.interrupted.removeValue(forKey: ObjectIdentifier(session)) != nil {
+          self.report()
+        }
+      })
+    // A session starting (the next call's camera) republishes the state
+    // without the entries of sessions released meanwhile.
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionDidStartRunning, object: nil, queue: .main
+      ) { [weak self] _ in self?.report() })
+    // An interruption can itself stop the session; only a stop while it is
+    // no longer interrupted (the call ended, the camera was closed) clears.
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionDidStopRunning, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession,
+          !session.isInterrupted,
+          self.interrupted.removeValue(forKey: ObjectIdentifier(session)) != nil
+        else { return }
+        self.report()
+      })
+  }
+
+  deinit {
+    observers.forEach(NotificationCenter.default.removeObserver)
+  }
+
+  private func report() {
+    // A session released while interrupted must not keep the next call's
+    // camera marked unavailable.
+    interrupted = interrupted.filter { $0.value.session != nil }
+    channel.invokeMethod(
+      "changed",
+      arguments: [
+        "unavailable": !interrupted.isEmpty,
+        "reason": interrupted.values.first?.reason ?? 0,
+      ])
   }
 }

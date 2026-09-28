@@ -1005,5 +1005,7 @@
   "mediaConversionFailed": "無法轉換這張相片，未傳送。",
   "videoConverting": "正在準備影片…",
   "videoConvertingDesc": "正在轉換為所有裝置都能播放的格式。",
-  "videoConversionFailed": "無法轉換這段影片，未傳送。"
+  "videoConversionFailed": "無法轉換這段影片，未傳送。",
+  "cameraPausedMultitasking": "其他 App 共用螢幕時相機已暫停",
+  "cameraUnavailable": "相機無法使用"
 }

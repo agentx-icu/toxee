@@ -2052,4 +2052,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get videoConversionFailed => '이 동영상을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
+
+  @override
+  String get cameraPausedMultitasking => '다른 앱과 화면을 함께 쓰는 동안 카메라가 일시 중지됩니다';
+
+  @override
+  String get cameraUnavailable => '카메라를 사용할 수 없습니다';
 }

@@ -2158,5 +2158,9 @@
   "videoConvertingDesc": "Converting it to a format every device can play.",
   "@videoConvertingDesc": {"description": "Dialog text: why the video is being converted"},
   "videoConversionFailed": "Couldn't convert this video for sending. Nothing was sent.",
-  "@videoConversionFailed": {"description": "Error: a video could not be converted before sending, so the send was stopped"}
+  "@videoConversionFailed": {"description": "Error: a video could not be converted before sending, so the send was stopped"},
+  "cameraPausedMultitasking": "Camera paused while other apps share the screen",
+  "@cameraPausedMultitasking": {"description": "Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen"},
+  "cameraUnavailable": "Camera unavailable",
+  "@cameraUnavailable": {"description": "Call: the local camera stopped (another app holds it, or system pressure)"}
 }

@@ -2052,4 +2052,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get videoConversionFailed => 'このビデオを送信用に変換できませんでした。送信していません。';
+
+  @override
+  String get cameraPausedMultitasking => '他のアプリと画面を共有中はカメラが一時停止します';
+
+  @override
+  String get cameraUnavailable => 'カメラを使用できません';
 }

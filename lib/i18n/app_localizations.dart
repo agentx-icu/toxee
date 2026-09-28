@@ -3795,6 +3795,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t convert this video for sending. Nothing was sent.'**
   String get videoConversionFailed;
+
+  /// Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen
+  ///
+  /// In en, this message translates to:
+  /// **'Camera paused while other apps share the screen'**
+  String get cameraPausedMultitasking;
+
+  /// Call: the local camera stopped (another app holds it, or system pressure)
+  ///
+  /// In en, this message translates to:
+  /// **'Camera unavailable'**
+  String get cameraUnavailable;
 }
 
 class _AppLocalizationsDelegate

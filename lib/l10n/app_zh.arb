@@ -833,5 +833,7 @@
   "mediaConversionFailed": "无法转换这张照片，未发送。",
   "videoConverting": "正在准备视频…",
   "videoConvertingDesc": "正在转换为所有设备都能播放的格式。",
-  "videoConversionFailed": "无法转换这段视频，未发送。"
+  "videoConversionFailed": "无法转换这段视频，未发送。",
+  "cameraPausedMultitasking": "其他应用共享屏幕时相机已暂停",
+  "cameraUnavailable": "相机不可用"
 }
