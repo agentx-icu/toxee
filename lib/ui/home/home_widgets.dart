@@ -220,7 +220,12 @@ class _NewEntryButtonState extends State<NewEntryButton> {
         child: Material(
           color: Colors.transparent,
           shape: const CircleBorder(),
-          child: InkWell(
+          // Screen readers (I5): the menu's tooltip labels the popup
+          // button, not this tap target inside it.
+          child: Semantics(
+            button: true,
+            label: AppLocalizations.of(context)?.newConversationTooltip,
+            child: InkWell(
             key: UiKeys.newEntryMenuButton,
             customBorder: const CircleBorder(),
             onTap: () => _menuKey.currentState?.showButtonMenu(),
@@ -246,6 +251,7 @@ class _NewEntryButtonState extends State<NewEntryButton> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+          ),
           ),
         ),
       ),
