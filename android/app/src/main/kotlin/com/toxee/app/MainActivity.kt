@@ -141,6 +141,19 @@ class MainActivity : FlutterActivity() {
                         activeIncomingCallWindowNonceDigest = nonceDigest
                         result.success(null)
                     }
+                    // Debug builds only: lets the real-UI harness exercise the
+                    // covering-activity close without a live incoming call.
+                    "debugCloseCoveringActivities" -> {
+                        val debuggable = applicationInfo.flags and
+                            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+                        if (!debuggable) {
+                            result.notImplemented()
+                        } else {
+                            val closed = pendingResultRequests.size
+                            closeCoveringActivities()
+                            result.success(closed)
+                        }
+                    }
                     "clearIncomingCallWindow" -> {
                         if (clearIncomingCallWindowState()) {
                             result.success(null)
@@ -159,7 +172,37 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun updateIncomingCallLockScreen(intent: Intent?) {
-        setIncomingCallLockScreenEnabled(isIncomingCallNotificationIntent(intent))
+        val incomingCall = isIncomingCallNotificationIntent(intent)
+        setIncomingCallLockScreenEnabled(incomingCall)
+        if (incomingCall) closeCoveringActivities()
+    }
+
+    /**
+     * Request codes of activities this one started for a result and that
+     * have not answered yet — a document picker, the camera, a SAF dialog.
+     * They sit above this activity in its task.
+     */
+    private val pendingResultRequests = mutableSetOf<Int>()
+
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        if (requestCode >= 0) pendingResultRequests.add(requestCode)
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        pendingResultRequests.remove(requestCode)
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    /**
+     * An incoming call must not ring under a picker (checklist L7a): with a
+     * document picker open, the call intent even reaches a second instance,
+     * which hands it here and brings this task forward — still under the
+     * picker. Close what this activity opened for a result; each reports
+     * RESULT_CANCELED to the plugin that asked, like a user's Back.
+     */
+    private fun closeCoveringActivities() {
+        for (requestCode in pendingResultRequests.toList()) finishActivity(requestCode)
     }
 
     private fun isIncomingCallNotificationIntent(intent: Intent?): Boolean {
