@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Flutter
 import UIKit
 
@@ -10,6 +11,7 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
   private var preferredRouteId: String?
   private var hasRegisteredNotifications = false
   private var isSessionActive = false
+  private let ringer = IncomingRinger()
 
   private override init() {
     super.init()
@@ -59,6 +61,12 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
       let routeId = args?["routeId"] as? String
       setRoute(routeId)
       result(makeState())
+    case "playIncomingRingtone":
+      let path = (call.arguments as? [String: Any])?["path"] as? String
+      result(path.map { ringer.start(path: $0) } ?? false)
+    case "stopIncomingRingtone":
+      ringer.stop()
+      result(nil)
     case "setProximityMonitoring":
       let args = call.arguments as? [String: Any]
       setProximityMonitoring(args?["enabled"] as? Bool ?? false)
@@ -346,5 +354,47 @@ final class CallAudioChannel: NSObject, FlutterStreamHandler {
       AVAudioSession.Port.lineOut.rawValue,
       AVAudioSession.Port.usbAudio.rawValue,
     ]
+  }
+}
+
+/// The in-app ringer used while the app is on screen when an incoming call
+/// could not be reported to CallKit (checklist A9). A system alert sound,
+/// looped: it honours the silent switch and the ringer volume, and — unlike
+/// an audioplayers ringtone — never touches the app-wide AVAudioSession,
+/// whose category the call itself owns. Whether it also vibrates depends on
+/// the device settings and the session category (not under playAndRecord).
+/// It cannot keep a backgrounded app alive; Dart moves to its audio loop
+/// when the app leaves the screen.
+final class IncomingRinger {
+  private var soundID: SystemSoundID = 0
+  private var generation = 0
+
+  /// Starts ringing [path] (a short WAV); false if iOS cannot load it.
+  func start(path: String) -> Bool {
+    stop()
+    var id: SystemSoundID = 0
+    let status = AudioServicesCreateSystemSoundID(URL(fileURLWithPath: path) as CFURL, &id)
+    guard status == kAudioServicesNoError else { return false }
+    soundID = id
+    generation += 1
+    ring(generation)
+    return true
+  }
+
+  func stop() {
+    generation += 1 // a completion still in flight rings no more
+    if soundID != 0 {
+      AudioServicesDisposeSystemSoundID(soundID)
+      soundID = 0
+    }
+  }
+
+  private func ring(_ current: Int) {
+    guard current == generation, soundID != 0 else { return }
+    AudioServicesPlayAlertSoundWithCompletion(soundID) { [weak self] in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        self?.ring(current)
+      }
+    }
   }
 }
