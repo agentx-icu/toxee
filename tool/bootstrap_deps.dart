@@ -346,22 +346,11 @@ void main(List<String> args) async {
     overridesFile.writeAsStringSync(newOverrides);
   }
 
-  // ...and one INSIDE tim2tox's Dart package, for the same reason one file up.
-  //
-  // That package declares `tencent_cloud_chat_sdk: any` and
-  // `tencent_cloud_chat_common: ^4.1.0+1`, but its code is written against the
-  // PATCHED sdk and the FORKED uikit — both of which only exist under
-  // third_party/ after this bootstrap. Analysed on its own it therefore resolved
-  // both from pub.dev and reported 21 errors that do not exist in any real
-  // build: one `uri_does_not_exist` for the fork's external/ file plus twenty
-  // undefined_* downstream of it. That is not cosmetic — a permanently red
-  // baseline HIDES new errors, which is exactly what happened: three genuine
-  // ones (a String? used as non-null) slipped in unnoticed because "is it red"
-  // was already yes, and they were only found by counting 21 -> 24.
-  //
-  // Generated, never committed: tim2tox must not depend on toxee, so the file is
-  // an integrator artifact and tim2tox's .gitignore ignores it. Paths are
-  // relative to the package, which is where pub resolves them from.
+  // ...and one INSIDE tim2tox's Dart package, so `flutter analyze` there resolves
+  // the PATCHED sdk and the FORKED uikit instead of pub.dev's — without it that
+  // package reports 21 errors no real build has, and a permanently red baseline
+  // hides new ones. Generated, never committed (tim2tox must not depend on
+  // toxee); third_party/tim2tox/.gitignore carries the full rationale.
   final tim2toxDart = Directory('$repoRoot/third_party/tim2tox/dart');
   if (tim2toxDart.existsSync()) {
     final pkgOverrides = StringBuffer(

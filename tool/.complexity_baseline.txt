@@ -137,7 +137,14 @@ lib/ui/testing/ui_keys.dart:656
 # override + its offline-check guard (double-reply FATAL fix).
 # bootstrap_deps.dart re-pinned 558 -> 562 (2026-08-24): the generated
 # overrides gained the vendored flutter_skill entry (screenshot-leak fix).
-tool/bootstrap_deps.dart:582
+# ...and 582 -> 606 (2026-09-27): it now also writes a pubspec_overrides.yaml
+# INSIDE third_party/tim2tox/dart, so analysing that package resolves the patched
+# sdk and the forked uikit instead of pub.dev's. Without it that package reported
+# 21 errors no real build has, and a permanently red baseline hid new ones. Not
+# split: this file is the documented single source of truth for what must happen
+# before `flutter pub get`, and carving 24 lines out of it would cost more than
+# the pin.
+tool/bootstrap_deps.dart:606
 tool/mcp_test/drive_fixture_c_block.dart:532
 tool/mcp_test/drive_fixture_c_concurrent.dart:583
 tool/mcp_test/drive_fixture_c_group.dart:598
