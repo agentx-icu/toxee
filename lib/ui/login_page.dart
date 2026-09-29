@@ -9,7 +9,6 @@ import 'dart:io';
 
 // ignore: directives_ordering
 import 'widgets/safe_dialog_pop.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../util/app_spacing.dart';
@@ -183,16 +182,7 @@ class _LoginPageState extends State<LoginPage> {
       override: widget.isDesktopExportPlatformOverride,
     );
     _mobileExportSaveFile =
-        widget.mobileExportSaveFile ??
-        ({
-          required String dialogTitle,
-          required String fileName,
-          required Uint8List bytes,
-        }) => FilePicker.platform.saveFile(
-          dialogTitle: dialogTitle,
-          fileName: fileName,
-          bytes: bytes,
-        );
+        widget.mobileExportSaveFile ?? saveWithSystemSaveSheet;
     _saveMobileExportCopy =
         widget.saveMobileExportCopyOverride ?? saveMobileExportCopy;
     // Listen to text changes to update UI
@@ -751,7 +741,12 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         if (mobileSaveResult?.disposition ==
             MobileExportSaveDisposition.cancelled) {
-          AppSnackBar.showInfo(context, l10n.importCancelled);
+          AppSnackBar.showInfo(
+            context,
+            mobileSaveResult!.cancelledCopyInFiles
+                ? l10n.exportCancelledCopyKept
+                : l10n.importCancelled,
+          );
         } else {
           AppSnackBar.showSuccess(
             context,

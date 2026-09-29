@@ -610,17 +610,16 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     final cancelled =
         mobileSaveResult?.disposition == MobileExportSaveDisposition.cancelled;
-    final message = cancelled
-        ? AppLocalizations.of(context)!.importCancelled
-        : AppLocalizations.of(
-            context,
-          )!.accountExportedSuccessfully(exportedPath);
+    final l10n = AppLocalizations.of(context)!;
+    final message = !cancelled
+        ? l10n.accountExportedSuccessfully(exportedPath)
+        : mobileSaveResult!.cancelledCopyInFiles
+        ? l10n.exportCancelledCopyKept
+        : l10n.importCancelled;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: cancelled
-            ? null
-            : Theme.of(context).colorScheme.primary,
+        backgroundColor: cancelled ? null : Theme.of(context).colorScheme.primary,
       ),
     );
   }

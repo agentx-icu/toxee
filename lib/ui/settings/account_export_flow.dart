@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 
 import '../../util/mobile_export_policy.dart';
@@ -73,16 +71,7 @@ Future<AccountExportFlowResult?> runAccountExportFlow({
     createInternalExport: () => export(),
     dialogTitle: dialogTitle,
     fileName: defaultFileName,
-    saveFile:
-        ({
-          required String dialogTitle,
-          required String fileName,
-          required Uint8List bytes,
-        }) => FilePicker.platform.saveFile(
-          dialogTitle: dialogTitle,
-          fileName: fileName,
-          bytes: bytes,
-        ),
+    saveFile: saveWithSystemSaveSheet,
   );
   return AccountExportFlowResult(
     filePath:

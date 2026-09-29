@@ -1807,6 +1807,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scanQr => 'Scan QR';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'Camera access is off. Allow it in Settings to scan QR codes.';
+
+  @override
+  String get scanQrCameraUnavailable => 'The camera could not be started.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'Export cancelled. A copy is in the Files app under Toxee › Downloads.';
+
+  @override
   String get sendingInProgress => 'Sending...';
 
   @override

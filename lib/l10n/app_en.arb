@@ -1731,6 +1731,18 @@
   "@scanQr": {
     "description": "Tooltip / screen title for scanning a QR code"
   },
+  "scanQrCameraPermissionDenied": "Camera access is off. Allow it in Settings to scan QR codes.",
+  "@scanQrCameraPermissionDenied": {
+    "description": "Scan QR page: the camera permission is denied; a button next to it opens the system Settings"
+  },
+  "scanQrCameraUnavailable": "The camera could not be started.",
+  "@scanQrCameraUnavailable": {
+    "description": "Scan QR page: the camera failed to start for a reason other than permission; a Retry button follows"
+  },
+  "exportCancelledCopyKept": "Export cancelled. A copy is in the Files app under Toxee › Downloads.",
+  "@exportCancelledCopyKept": {
+    "description": "iOS: an account export was cancelled in the save sheet; the export file was kept in the app's Files-visible Downloads folder"
+  },
   "sendingInProgress": "Sending...",
   "@sendingInProgress": {
     "description": "Tooltip on a submit button while a request is being sent"

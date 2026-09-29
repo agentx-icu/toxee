@@ -1733,6 +1733,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get scanQr => 'QR をスキャン';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'カメラへのアクセスがオフになっています。QR コードをスキャンするには、設定で許可してください。';
+
+  @override
+  String get scanQrCameraUnavailable => 'カメラを起動できませんでした。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'エクスポートをキャンセルしました。コピーは「ファイル」App の Toxee › Downloads にあります。';
+
+  @override
   String get sendingInProgress => '送信中...';
 
   @override

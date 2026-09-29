@@ -15,6 +15,7 @@ import '../../util/app_theme_config.dart';
 import '../../util/responsive_layout.dart';
 import '../../util/tox_utils.dart';
 import 'widgets/app_dialog.dart';
+import 'widgets/qr_scanner_view.dart';
 import 'testing/ui_keys.dart';
 
 // TOX_MAX_FRIEND_REQUEST_LENGTH — used for both inline counter and validation.
@@ -514,26 +515,10 @@ class _ScanToxIdPage extends StatefulWidget {
 }
 
 class _ScanToxIdPageState extends State<_ScanToxIdPage> {
-  late final MobileScannerController _controller;
   // Guard against the detection callback firing twice between the time we
   // decide to pop and the time the page actually unmounts (`onDetect`
   // can deliver a follow-up frame in the same tick).
   bool _handled = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = MobileScannerController(
-      formats: const [BarcodeFormat.qrCode],
-      detectionSpeed: DetectionSpeed.normal,
-    );
-  }
-
-  @override
-  void dispose() {
-    unawaited(_controller.dispose());
-    super.dispose();
-  }
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
@@ -549,22 +534,7 @@ class _ScanToxIdPageState extends State<_ScanToxIdPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(AppLocalizations.of(context)!.scanQr)),
-      body: Stack(
-        children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                margin: const EdgeInsets.all(AppSpacing.xxl),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white70, width: 2),
-                  borderRadius: BorderRadius.circular(AppRadii.card),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: QrScannerView(onDetect: _onDetect),
     );
   }
 }

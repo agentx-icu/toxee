@@ -156,6 +156,25 @@ class CallPermissionHelper {
     }
   }
 
+  /// Camera permission for QR scanning. Asks at most once per call and never
+  /// re-asks a permanently denied / restricted permission (the caller offers
+  /// Settings instead). Serialised with the call requests: `permission_handler`
+  /// is single-flight process-wide.
+  static Future<bool> requestCameraForScan() async {
+    if (!shouldRequestRuntimePermission()) return true;
+    try {
+      return await _serialised(() async {
+        final current = await Permission.camera.status;
+        if (current.isGranted) return true;
+        if (current.isPermanentlyDenied || current.isRestricted) return false;
+        return (await _requestSafely(Permission.camera)).isGranted;
+      });
+    } on MissingPluginException {
+      // Some desktop builds may not register permission_handler plugins.
+      return true;
+    }
+  }
+
   /// Request both microphone and camera (for video calls).
   static Future<bool> requestAllCallPermissions() async {
     if (!shouldRequestRuntimePermission()) return true;

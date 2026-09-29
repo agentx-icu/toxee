@@ -3244,6 +3244,24 @@ abstract class AppLocalizations {
   /// **'Scan QR'**
   String get scanQr;
 
+  /// Scan QR page: the camera permission is denied; a button next to it opens the system Settings
+  ///
+  /// In en, this message translates to:
+  /// **'Camera access is off. Allow it in Settings to scan QR codes.'**
+  String get scanQrCameraPermissionDenied;
+
+  /// Scan QR page: the camera failed to start for a reason other than permission; a Retry button follows
+  ///
+  /// In en, this message translates to:
+  /// **'The camera could not be started.'**
+  String get scanQrCameraUnavailable;
+
+  /// iOS: an account export was cancelled in the save sheet; the export file was kept in the app's Files-visible Downloads folder
+  ///
+  /// In en, this message translates to:
+  /// **'Export cancelled. A copy is in the Files app under Toxee › Downloads.'**
+  String get exportCancelledCopyKept;
+
   /// Tooltip on a submit button while a request is being sent
   ///
   /// In en, this message translates to:

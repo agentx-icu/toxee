@@ -1776,6 +1776,17 @@ class AppLocalizationsAr extends AppLocalizations {
   String get scanQr => 'مسح رمز QR';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'الوصول إلى الكاميرا متوقف. اسمح به في الإعدادات لمسح رموز QR.';
+
+  @override
+  String get scanQrCameraUnavailable => 'تعذّر تشغيل الكاميرا.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'تم إلغاء التصدير. توجد نسخة في تطبيق الملفات ضمن Toxee › Downloads.';
+
+  @override
   String get sendingInProgress => 'جارٍ الإرسال...';
 
   @override

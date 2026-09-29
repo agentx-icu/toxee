@@ -1709,6 +1709,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get scanQr => '扫描二维码';
 
   @override
+  String get scanQrCameraPermissionDenied => '相机权限已关闭。请在设置中允许后再扫描二维码。';
+
+  @override
+  String get scanQrCameraUnavailable => '无法启动相机。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '已取消导出。副本在“文件”App 的 Toxee › Downloads 中。';
+
+  @override
   String get sendingInProgress => '正在发送...';
 
   @override
@@ -5302,6 +5312,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get scanQr => '掃描 QR 碼';
+
+  @override
+  String get scanQrCameraPermissionDenied => '相機權限已關閉。請在設定中允許後再掃描 QR 碼。';
+
+  @override
+  String get scanQrCameraUnavailable => '無法啟動相機。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '已取消匯出。副本在「檔案」App 的 Toxee › Downloads 中。';
 
   @override
   String get sendingInProgress => '發送中...';

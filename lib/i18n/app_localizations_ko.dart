@@ -1732,6 +1732,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get scanQr => 'QR 스캔';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      '카메라 접근이 꺼져 있습니다. QR 코드를 스캔하려면 설정에서 허용하세요.';
+
+  @override
+  String get scanQrCameraUnavailable => '카메라를 시작할 수 없습니다.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '내보내기를 취소했습니다. 사본은 파일 앱의 Toxee › Downloads에 있습니다.';
+
+  @override
   String get sendingInProgress => '보내는 중...';
 
   @override
