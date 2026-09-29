@@ -116,6 +116,7 @@ class _IrcChannelDialogState extends State<IrcChannelDialog> {
                       ),
                       suffixIcon: IconButton(
                         key: UiKeys.ircChannelDialogPasswordVisibilityToggle,
+                        tooltip: appL10n?.passwordVisibility,
                         icon: Icon(
                           // State-suffixed sibling key so real-UI automation
                           // can assert the obscure FLIP (obscureText is not

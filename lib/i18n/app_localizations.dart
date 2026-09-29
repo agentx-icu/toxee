@@ -910,6 +910,12 @@ abstract class AppLocalizations {
   /// **'Failed to update avatar: {error}'**
   String failedToUpdateAvatar(String error);
 
+  /// Screen-reader name of the tappable own avatar that opens the photo picker
+  ///
+  /// In en, this message translates to:
+  /// **'Change profile photo'**
+  String get changeAvatar;
+
   /// No description provided for @failedToLoadQr.
   ///
   /// In en, this message translates to:

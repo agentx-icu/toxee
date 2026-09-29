@@ -185,6 +185,7 @@
   "failedToSave": "فشل الحفظ: {error}",
   "copyFailed": "فشل النسخ: {error}",
   "failedToUpdateAvatar": "فشل تحديث الصورة الرمزية: {error}",
+  "changeAvatar": "تغيير صورة الملف الشخصي",
   "failedToLoadQr": "فشل تحميل رمز QR",
   "helloFromToxee": "تحية من toxee",
   "attachFailed": "فشل المرفق: {error}",

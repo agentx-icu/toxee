@@ -295,6 +295,8 @@
       }
     }
   },
+  "changeAvatar": "Change profile photo",
+  "@changeAvatar": {"description": "Screen-reader name of the tappable own avatar that opens the photo picker"},
   "failedToLoadQr": "Failed to load QR",
   "helloFromToxee": "Hello from toxee",
   "attachFailed": "Attach failed: {error}",

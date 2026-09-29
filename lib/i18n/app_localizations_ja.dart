@@ -428,6 +428,9 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => 'プロフィール写真を変更';
+
+  @override
   String get failedToLoadQr => 'QRコードの読み込みに失敗しました';
 
   @override

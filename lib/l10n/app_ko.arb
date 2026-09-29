@@ -185,6 +185,7 @@
   "failedToSave": "저장 실패: {error}",
   "copyFailed": "복사 실패: {error}",
   "failedToUpdateAvatar": "아바타 업데이트 실패: {error}",
+  "changeAvatar": "프로필 사진 변경",
   "failedToLoadQr": "QR 코드 로드 실패",
   "helloFromToxee": "toxee로부터의 인사",
   "attachFailed": "첨부 실패: {error}",

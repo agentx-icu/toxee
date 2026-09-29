@@ -439,6 +439,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => 'Change profile photo';
+
+  @override
   String get failedToLoadQr => 'Failed to load QR';
 
   @override

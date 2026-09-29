@@ -185,6 +185,7 @@
   "failedToSave": "保存に失敗しました: {error}",
   "copyFailed": "コピーに失敗しました: {error}",
   "failedToUpdateAvatar": "アバターの更新に失敗しました: {error}",
+  "changeAvatar": "プロフィール写真を変更",
   "failedToLoadQr": "QRコードの読み込みに失敗しました",
   "helloFromToxee": "toxee からの挨拶",
   "attachFailed": "添付に失敗しました: {error}",

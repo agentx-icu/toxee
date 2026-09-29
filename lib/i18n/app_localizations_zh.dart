@@ -427,6 +427,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => '更换头像';
+
+  @override
   String get failedToLoadQr => '加载二维码失败';
 
   @override
@@ -2455,6 +2458,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
+  String get changeAvatar => '更换头像';
+
+  @override
   String get failedToLoadQr => '加载二维码失败';
 
   @override
@@ -3983,6 +3989,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String failedToUpdateAvatar(String error) {
     return '更新頭像失敗: $error';
   }
+
+  @override
+  String get changeAvatar => '更換頭像';
 
   @override
   String get failedToLoadQr => '載入 QR 碼失敗';

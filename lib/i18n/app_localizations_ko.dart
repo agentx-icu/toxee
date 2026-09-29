@@ -428,6 +428,9 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => '프로필 사진 변경';
+
+  @override
   String get failedToLoadQr => 'QR 코드 로드 실패';
 
   @override

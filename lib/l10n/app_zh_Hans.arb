@@ -185,6 +185,7 @@
   "failedToSave": "保存失败: {error}",
   "copyFailed": "复制失败: {error}",
   "failedToUpdateAvatar": "更新头像失败: {error}",
+  "changeAvatar": "更换头像",
   "failedToLoadQr": "加载二维码失败",
   "helloFromToxee": "来自 toxee 的问候",
   "attachFailed": "附件失败: {error}",

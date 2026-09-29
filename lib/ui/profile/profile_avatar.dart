@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../i18n/app_localizations.dart';
 import '../../util/app_theme_config.dart';
 import '../testing/ui_keys.dart';
 import '../widgets/user_avatar_circle.dart';
@@ -114,6 +115,16 @@ class ProfileAvatar extends StatelessWidget {
       return avatar;
     }
 
-    return Stack(clipBehavior: Clip.none, children: stackChildren);
+    final stack = Stack(clipBehavior: Clip.none, children: stackChildren);
+    if (!isEditable) return stack;
+    // The photo and its camera badge do the same thing: one screen-reader
+    // button with a name (checklist I5), not two unnamed tap targets.
+    return Semantics(
+      button: true,
+      label: AppLocalizations.of(context)?.changeAvatar,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: stack,
+    );
   }
 }
