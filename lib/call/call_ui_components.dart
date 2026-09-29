@@ -1,10 +1,9 @@
-import 'dart:io' show File;
-
 import 'package:flutter/material.dart';
 import '../i18n/app_localizations.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
+import '../ui/widgets/bounded_avatar_image.dart';
 import 'call_avatar_controller.dart';
 import 'call_ui_shell.dart';
 
@@ -123,7 +122,7 @@ class _CallUserAvatarState extends State<CallUserAvatar> {
       radius: widget.radius,
       // Slate-700 so the fallback initial still feels part of the dark surface.
       backgroundColor: _kCallHairline,
-      backgroundImage: hasImage && path != null ? FileImage(File(path)) : null,
+      backgroundImage: hasImage && path != null ? boundedAvatarImage(context, path, widget.radius * 2) : null,
       child: hasImage
           ? null
           : Text(

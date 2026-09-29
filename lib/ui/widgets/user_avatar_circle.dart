@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+
+import 'bounded_avatar_image.dart';
 
 /// The one circular "person" avatar used by every toxee-owned surface that
 /// renders the self account (sidebar rail, mobile settings header, profile
@@ -64,11 +64,6 @@ class UserAvatarCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Decode at the on-screen pixel size instead of the source resolution so a
-    // full-size photo doesn't cost a full-size decode for a 44pt circle.
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheDim = (size * dpr).ceil();
-
     final fallback = Center(
       child: Text(
         initial,
@@ -94,14 +89,14 @@ class UserAvatarCircle extends StatelessWidget {
       ),
       child: showImage
           ? ClipOval(
-              child: Image.file(
-                File(avatarPath!),
+              // Decoded at the on-screen pixel size (not the source
+              // resolution), keeping the aspect ratio for the cover crop.
+              child: Image(
+                image: boundedAvatarImage(context, avatarPath!, size),
                 key: ValueKey('user-avatar-$avatarPath-$avatarVersion'),
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
-                cacheWidth: cacheDim,
-                cacheHeight: cacheDim,
                 // A file that vanished or is not decodable degrades to the
                 // same initial every other surface shows — never to a
                 // broken-image glyph or a foreign placeholder.
