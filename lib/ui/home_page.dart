@@ -886,13 +886,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final path =
           selectedPath ??
           await runL3AwareAttachmentPicker(
-            pickFile: () async => (await FilePicker.platform.pickFiles(
+            pickFile: () => _pickForChat(userId, () async => (await FilePicker.platform.pickFiles(
               type: switch (type) {
                 _MediaPickType.file => FileType.any,
                 _MediaPickType.image => FileType.image,
                 _MediaPickType.video => FileType.video,
               },
-            ))?.files.single.path,
+            ))?.files.single.path),
           );
       if (path == null || path.isEmpty) {
         _showSnackBar(appL10n.noLabelSelected(label));

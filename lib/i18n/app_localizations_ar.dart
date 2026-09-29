@@ -2090,8 +2090,16 @@ class AppLocalizationsAr extends AppLocalizations {
   String get recoveredVideoTitle => 'هل تريد إرسال الفيديو الذي سجّلته؟';
 
   @override
+  String get recoveredFileTitle => 'هل تريد إرسال الملف الذي اخترته؟';
+
+  @override
   String recoveredCaptureBody(String name) {
     return 'أُغلق Toxee أثناء فتح الكاميرا. هل تريد إرسالها إلى $name؟';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'أُغلق Toxee أثناء فتح منتقي الملفات. هل تريد إرسال $file إلى $name؟';
   }
 
   @override

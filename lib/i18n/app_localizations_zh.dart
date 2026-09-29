@@ -1995,8 +1995,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recoveredVideoTitle => '发送刚录的视频？';
 
   @override
+  String get recoveredFileTitle => '发送刚选的文件？';
+
+  @override
   String recoveredCaptureBody(String name) {
     return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '文件选择器打开时 Toxee 被系统关闭了。要把 $file 发送给 $name 吗？';
   }
 
   @override
@@ -3517,8 +3525,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get recoveredVideoTitle => '发送刚录的视频？';
 
   @override
+  String get recoveredFileTitle => '发送刚选的文件？';
+
+  @override
   String recoveredCaptureBody(String name) {
     return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '文件选择器打开时 Toxee 被系统关闭了。要把 $file 发送给 $name 吗？';
   }
 
   @override
@@ -5537,8 +5553,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get recoveredVideoTitle => '傳送剛錄的影片？';
 
   @override
+  String get recoveredFileTitle => '傳送剛選的檔案？';
+
+  @override
   String recoveredCaptureBody(String name) {
     return '相機開啟時 Toxee 被系統關閉了。要傳送給 $name 嗎？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '檔案選擇器開啟時 Toxee 被系統關閉了。要把 $file 傳送給 $name 嗎？';
   }
 
   @override

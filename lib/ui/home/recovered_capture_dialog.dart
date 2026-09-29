@@ -6,8 +6,8 @@ import '../../i18n/app_localizations.dart';
 import '../../util/camera_capture_recovery.dart';
 import '../widgets/safe_dialog_pop.dart';
 
-/// Asks whether to send a photo / video taken before Android reclaimed the
-/// app (checklist M9). Pops true (send) or false (discard); nothing goes out
+/// Asks whether to send a photo / video taken, or a file picked, before
+/// Android reclaimed the app (checklist M9). Pops true (send) or false (discard); nothing goes out
 /// unseen.
 class RecoveredCaptureDialog extends StatelessWidget {
   const RecoveredCaptureDialog({
@@ -26,7 +26,10 @@ class RecoveredCaptureDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final scheme = Theme.of(context).colorScheme;
-    final preview = capture.isVideo
+    final fileName = capture.name ?? capture.path.split('/').last;
+    final preview = capture.isFile
+        ? Icon(Icons.insert_drive_file_outlined, size: 72, color: scheme.primary)
+        : capture.isVideo
         ? Icon(Icons.videocam_outlined, size: 72, color: scheme.primary)
         : ClipRRect(
             borderRadius: BorderRadius.circular(8),
@@ -40,7 +43,11 @@ class RecoveredCaptureDialog extends StatelessWidget {
           );
     return AlertDialog(
       title: Text(
-        capture.isVideo ? l10n.recoveredVideoTitle : l10n.recoveredPhotoTitle,
+        capture.isFile
+            ? l10n.recoveredFileTitle
+            : capture.isVideo
+            ? l10n.recoveredVideoTitle
+            : l10n.recoveredPhotoTitle,
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -52,7 +59,11 @@ class RecoveredCaptureDialog extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Text(l10n.recoveredCaptureBody(peerName)),
+          Text(
+            capture.isFile
+                ? l10n.recoveredFileBody(fileName, peerName)
+                : l10n.recoveredCaptureBody(peerName),
+          ),
         ],
       ),
       actions: [

@@ -7,6 +7,11 @@ import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/mobi
 
 import 'app_paths.dart';
 import 'logger.dart';
+import 'lost_file_pick.dart';
+
+export 'lost_file_pick.dart' show LostFilePickChannel;
+
+part 'camera_capture_recovery_file_pick.dart';
 
 /// A photo / video taken for a chat whose app process was reclaimed while the
 /// system camera was in front (checklist M9), waiting for its account's user
@@ -19,6 +24,8 @@ class RecoveredCapture {
     required this.isVideo,
     required this.capturedAt,
     this.sourcePath,
+    this.isFile = false,
+    this.name,
   });
 
   final String accountKey;
@@ -32,6 +39,21 @@ class RecoveredCapture {
   /// Where the picker left it, until the move into [path] has happened.
   final String? sourcePath;
 
+  /// A file from the document picker rather than a camera capture; [name] is
+  /// its original name (also the staged file's name, so the recipient sees it).
+  final bool isFile;
+  final String? name;
+
+  RecoveredCapture _moved() => RecoveredCapture(
+    accountKey: accountKey,
+    userId: userId,
+    path: path,
+    isVideo: isVideo,
+    capturedAt: capturedAt,
+    isFile: isFile,
+    name: name,
+  );
+
   Map<String, Object> toJson() => {
     'accountKey': accountKey,
     'userId': userId,
@@ -39,6 +61,8 @@ class RecoveredCapture {
     'isVideo': isVideo,
     'capturedAt': capturedAt.millisecondsSinceEpoch,
     if (sourcePath != null) 'sourcePath': sourcePath!,
+    if (isFile) 'isFile': true,
+    if (name != null) 'name': name!,
   };
 
   static RecoveredCapture? fromJson(Object? json) {
@@ -49,6 +73,7 @@ class RecoveredCapture {
       return null;
     }
     final source = json['sourcePath'];
+    final name = json['name'];
     return RecoveredCapture(
       accountKey: json['accountKey'] as String,
       userId: json['userId'] as String,
@@ -56,6 +81,8 @@ class RecoveredCapture {
       isVideo: json['isVideo'] == true,
       capturedAt: DateTime.fromMillisecondsSinceEpoch(at),
       sourcePath: source is String && source.isNotEmpty ? source : null,
+      isFile: json['isFile'] == true,
+      name: name is String && name.isNotEmpty ? name : null,
     );
   }
 }
@@ -182,14 +209,29 @@ class CameraCaptureRecovery {
       sourcePath: source,
     );
     // Record first: from here on the capture is findable whatever happens.
-    await _writeRecord(dir, capture);
-    await forget();
     // One pending capture per account: the newer one replaces it.
-    if (previous != null && previous.path != capture.path) {
-      await _delete(previous.path);
-    }
+    await _replaceRecord(dir, previous, capture);
+    await forget();
+    await _dropReplaced(dir, capture);
     await _finishMove(dir, capture);
   }
+
+  /// Records the document-picker files whose process was reclaimed (M9, see
+  /// [LostFilePickChannel]) in their account's storage, like a camera
+  /// capture; oldest first, so the newest ends up pending. The native side
+  /// keeps each pick until [ack], which follows the record and precedes the
+  /// move: a reclaim before the ack repeats this for a record that still
+  /// names the pick as its source, and after it the pick is gone.
+  static Future<void> stageFilePick({
+    Future<List<LostFilePick>> Function() peek = LostFilePickChannel.peek,
+    Future<void> Function(String path) ack = LostFilePickChannel.ack,
+    DateTime? now,
+  }) => _serialized(() async {
+    final at = now ?? DateTime.now();
+    for (final lost in await peek()) {
+      await _stageFilePick(lost, ack, at);
+    }
+  });
 
   /// A staged file name no other capture in [dir] uses (the directory can be
   /// shared by accounts with the same storage prefix).
@@ -214,6 +256,7 @@ class CameraCaptureRecovery {
     try {
       if (!File(capture.path).existsSync()) {
         if (!File(source).existsSync()) return null;
+        await File(capture.path).parent.create(recursive: true);
         try {
           await File(source).rename(capture.path);
         } on FileSystemException {
@@ -222,16 +265,13 @@ class CameraCaptureRecovery {
           final part = '${capture.path}.part';
           await File(source).copy(part);
           await File(part).rename(capture.path);
-          await _delete(source);
         }
       }
-      final moved = RecoveredCapture(
-        accountKey: capture.accountKey,
-        userId: capture.userId,
-        path: capture.path,
-        isVideo: capture.isVideo,
-        capturedAt: capture.capturedAt,
-      );
+      // Whole (renames are atomic): a source a reclaim left behind can go.
+      await _delete(source);
+      // A file pick's copy had a directory of its own in the cache.
+      if (capture.isFile) await _deleteIfEmpty(File(source).parent);
+      final moved = capture._moved();
       await _writeRecord(dir, moved);
       return moved;
     } catch (e) {
@@ -249,6 +289,7 @@ class CameraCaptureRecovery {
     if (accountKey.isEmpty) return null;
     final dir = Directory(await capturesRoot(accountKey));
     final record = await _readRecord(dir, accountKey);
+    await _dropReplaced(dir, record, accountKey: accountKey);
     if (record == null) return null;
     if ((now ?? DateTime.now()).difference(record.capturedAt) > pendingTtl) {
       await _drop(dir, record);
@@ -340,10 +381,71 @@ class CameraCaptureRecovery {
   }
 
   static Future<void> _drop(Directory dir, RecoveredCapture record) async {
+    await _dropFiles(record);
+    await _delete(_recordPath(dir, record.accountKey));
+  }
+
+  /// Writes [capture] as the account's record. The capture it replaces is
+  /// noted first, so its files are still deleted ([_dropReplaced]) if the app
+  /// is reclaimed right after the switch — nothing else names them then.
+  static Future<void> _replaceRecord(
+    Directory dir,
+    RecoveredCapture? previous,
+    RecoveredCapture capture,
+  ) async {
+    // An earlier replacement still unfinished would lose its marker.
+    await _dropReplaced(dir, previous, accountKey: capture.accountKey);
+    if (previous != null && previous.path != capture.path) {
+      final path = _replacedPath(dir, capture.accountKey);
+      final tmp = File('$path.tmp');
+      await tmp.writeAsString(jsonEncode(previous.toJson()), flush: true);
+      await tmp.rename(path);
+    }
+    await _writeRecord(dir, capture);
+  }
+
+  /// Deletes the files of a replaced capture — unless the replacement never
+  /// got written and [current] is still that capture.
+  static Future<void> _dropReplaced(
+    Directory dir,
+    RecoveredCapture? current, {
+    String? accountKey,
+  }) async {
+    final account = current?.accountKey ?? accountKey;
+    if (account == null) return;
+    final marker = File(_replacedPath(dir, account));
+    if (!await marker.exists()) return;
+    try {
+      final replaced = RecoveredCapture.fromJson(
+        jsonDecode(await marker.readAsString()),
+      );
+      if (replaced != null && replaced.path != current?.path) {
+        await _dropFiles(replaced);
+      }
+    } on FormatException {
+      // A torn marker names nothing.
+    }
+    await _delete(marker.path);
+  }
+
+  static String _replacedPath(Directory dir, String accountKey) =>
+      p.join(dir.path, 'replaced_${accountKey.toUpperCase()}.json');
+
+  static Future<void> _dropFiles(RecoveredCapture record) async {
     await _delete(record.path);
     final source = record.sourcePath;
     if (source != null) await _delete(source);
-    await _delete(_recordPath(dir, record.accountKey));
+    if (record.isFile) {
+      // The item's own directories (see [_freshItemPath]), once empty.
+      await _deleteIfEmpty(File(record.path).parent);
+      if (source != null) await _deleteIfEmpty(File(source).parent);
+    }
+  }
+
+  static Future<void> _deleteIfEmpty(Directory dir) async {
+    try {
+      if (dir.existsSync() && dir.listSync().isEmpty) await dir.delete();
+    } catch (_) {}
   }
 
   static Future<void> _delete(String path) async {

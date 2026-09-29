@@ -63,6 +63,7 @@ class MainActivity : FlutterActivity() {
             .register(flutterEngine.dartExecutor.binaryMessenger)
         SessionOwnerChannel(this).register(flutterEngine.dartExecutor.binaryMessenger)
         MediaTranscodeChannel(applicationContext).register(flutterEngine.dartExecutor.binaryMessenger)
+        LostFilePickChannel(applicationContext).register(flutterEngine.dartExecutor.binaryMessenger)
         qrSaveChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "toxee/qr_save").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method != "saveImageToGallery") {
@@ -186,12 +187,15 @@ class MainActivity : FlutterActivity() {
 
     override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
         if (requestCode >= 0) pendingResultRequests.add(requestCode)
+        LostFilePickChannel.onStartForResult(this, intent, requestCode)
         super.startActivityForResult(intent, requestCode, options)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         pendingResultRequests.remove(requestCode)
         super.onActivityResult(requestCode, resultCode, data)
+        // A document pick whose process was reclaimed meanwhile (M9).
+        LostFilePickChannel.onResult(this, requestCode, resultCode, data)
     }
 
     /**

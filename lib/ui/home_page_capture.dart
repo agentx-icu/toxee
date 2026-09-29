@@ -164,6 +164,7 @@ extension _HomePageCapture on _HomePageState {
   Future<RecoveredCapture?> _stageRecoveredCapture() async {
     try {
       await CameraCaptureRecovery.stage();
+      await CameraCaptureRecovery.stageFilePick();
       return await CameraCaptureRecovery.pendingFor(widget.service.accountKey);
     } catch (e) {
       AppLogger.warn('[HomePage] capture recovery unavailable: $e');
@@ -186,9 +187,32 @@ extension _HomePageCapture on _HomePageState {
     await _sendMedia(
       context,
       userId: capture.userId,
-      type: capture.isVideo ? _MediaPickType.video : _MediaPickType.image,
+      type: capture.isFile
+          ? _MediaPickType.file
+          : capture.isVideo
+          ? _MediaPickType.video
+          : _MediaPickType.image,
       selectedPath: capture.path,
     );
+  }
+
+  /// Runs the system file picker for [userId]'s chat. On Android the pick is
+  /// kept natively in case the process is reclaimed while the picker is in
+  /// front (M9, [LostFilePickChannel]).
+  Future<String?> _pickForChat(
+    String? userId,
+    Future<String?> Function() pick,
+  ) async {
+    if (userId == null || userId.isEmpty) return pick();
+    await LostFilePickChannel.arm(
+      accountKey: widget.service.accountKey,
+      userId: userId,
+    );
+    try {
+      return await pick();
+    } finally {
+      await LostFilePickChannel.disarm();
+    }
   }
 
   String _peerName(String userId) {

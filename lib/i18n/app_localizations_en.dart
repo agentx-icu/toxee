@@ -2113,8 +2113,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recoveredVideoTitle => 'Send the video you recorded?';
 
   @override
+  String get recoveredFileTitle => 'Send the file you picked?';
+
+  @override
   String recoveredCaptureBody(String name) {
     return 'Toxee was closed while the camera was open. Send it to $name?';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'Toxee was closed while the file picker was open. Send $file to $name?';
   }
 
   @override

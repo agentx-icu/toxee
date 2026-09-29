@@ -2031,8 +2031,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get recoveredVideoTitle => '録画したビデオを送信しますか？';
 
   @override
+  String get recoveredFileTitle => '選択したファイルを送信しますか？';
+
+  @override
   String recoveredCaptureBody(String name) {
     return 'カメラを開いている間に Toxee がシステムによって終了されました。$name に送信しますか？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'ファイル選択を開いている間に Toxee がシステムによって終了されました。$file を $name に送信しますか？';
   }
 
   @override

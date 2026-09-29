@@ -3754,11 +3754,23 @@ abstract class AppLocalizations {
   /// **'Send the video you recorded?'**
   String get recoveredVideoTitle;
 
+  /// Dialog title: a file picked before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the file you picked?'**
+  String get recoveredFileTitle;
+
   /// Dialog body: why the capture is offered again, and its recipient
   ///
   /// In en, this message translates to:
   /// **'Toxee was closed while the camera was open. Send it to {name}?'**
   String recoveredCaptureBody(String name);
+
+  /// Dialog body: why the picked file is offered again, its name and its recipient
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee was closed while the file picker was open. Send {file} to {name}?'**
+  String recoveredFileBody(String file, String name);
 
   /// Button: send the recovered photo/video
   ///

@@ -2031,8 +2031,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get recoveredVideoTitle => '방금 녹화한 동영상을 보낼까요?';
 
   @override
+  String get recoveredFileTitle => '방금 선택한 파일을 보낼까요?';
+
+  @override
   String recoveredCaptureBody(String name) {
     return '카메라가 열려 있는 동안 시스템이 Toxee를 종료했습니다. $name님에게 보낼까요?';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '파일 선택기가 열려 있는 동안 시스템이 Toxee를 종료했습니다. $file을(를) $name님에게 보낼까요?';
   }
 
   @override
