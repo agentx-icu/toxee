@@ -42,6 +42,7 @@ import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/settings/bootstrap_settings_section.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/bootstrap_node_probe.dart';
+import 'package:toxee/util/bootstrap_nodes.dart';
 import 'package:toxee/util/platform_utils.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -391,7 +392,7 @@ void main() {
       await _pumpSettled(tester);
 
       expect(
-        find.textContaining('seed.tox.example:33445'),
+        find.textContaining(displayBootstrapEndpoint('seed.tox.example', 33445)),
         findsOneWidget,
         reason: 'Current-node card surfaces the persisted host:port',
       );
@@ -409,7 +410,7 @@ void main() {
       await Prefs.setCurrentBootstrapNode('first.example', 33445, _validPubkey);
       await _pumpSettled(tester);
 
-      expect(find.textContaining('first.example:33445'), findsOneWidget);
+      expect(find.textContaining(displayBootstrapEndpoint('first.example', 33445)), findsOneWidget);
 
       // Persist a different node and rebuild the section from scratch (mirrors
       // what _loadCurrentBootstrapNode does after a successful set-as-current).
@@ -426,7 +427,7 @@ void main() {
       await _pumpSettled(tester);
 
       expect(
-        find.textContaining('second.example:44455'),
+        find.textContaining(displayBootstrapEndpoint('second.example', 44455)),
         findsOneWidget,
         reason: 'The card reads the latest persisted current node on load',
       );

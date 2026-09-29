@@ -74,10 +74,11 @@ class SearchUtils {
       ));
       start = i + keyword.length;
     }
-    return RichText(
+    // Text.rich, not RichText: RichText ignores the system text scale (L11).
+    return Text.rich(
+      TextSpan(children: spans, style: baseStyle),
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
-      text: TextSpan(children: spans, style: baseStyle),
     );
   }
 }

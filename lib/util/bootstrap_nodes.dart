@@ -10,6 +10,15 @@ String formatBootstrapEndpoint(String host, int port) {
       : '$trimmedHost:$port';
 }
 
+/// [formatBootstrapEndpoint] for display: a line may break before the port
+/// (a zero-width space), never inside it — with large system text the
+/// address wrapped as "…:3344" / "5" (checklist L11). Not for copying.
+String displayBootstrapEndpoint(String host, int port) =>
+    formatBootstrapEndpoint(host, port).replaceFirst(
+      RegExp(r':(?=\d+$)'),
+      ':\u200B',
+    );
+
 class BootstrapNode {
   final String ipv4;
   final String? ipv6;

@@ -27,6 +27,7 @@ import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/settings/bootstrap_settings_section.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/bootstrap_node_probe.dart';
+import 'package:toxee/util/bootstrap_nodes.dart';
 import 'package:toxee/util/lan_bootstrap_service.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -287,7 +288,7 @@ void main() {
       await _pumpSettled(tester);
 
       expect(
-        find.textContaining('bootstrap.example.com:33445'),
+        find.textContaining(displayBootstrapEndpoint('bootstrap.example.com', 33445)),
         findsOneWidget,
         reason: 'Current node card surfaces the host:port pair',
       );
@@ -300,8 +301,9 @@ void main() {
       await Prefs.setCurrentBootstrapNode('2001:db8::20', 33445, 'A' * 64);
       await _pumpSettled(tester);
 
-      expect(find.text('[2001:db8::20]:33445'), findsOneWidget);
-      expect(find.text('2001:db8::20:33445'), findsNothing);
+      // Shown with a line-break opportunity before the port (L11).
+      expect(find.text('[2001:db8::20]:\u200B33445'), findsOneWidget);
+      expect(find.textContaining('2001:db8::20:'), findsNothing);
     });
 
     testWidgets('manual-mode expand toggle flips the manual input row', (

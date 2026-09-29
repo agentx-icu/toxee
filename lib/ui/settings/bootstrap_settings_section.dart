@@ -776,7 +776,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                             ),
                             AppSpacing.verticalXs,
                             Text(
-                              formatBootstrapEndpoint(
+                              displayBootstrapEndpoint(
                                 _currentBootstrapNode!.host,
                                 _currentBootstrapNode!.port,
                               ),
@@ -1304,7 +1304,7 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
               contentPadding: EdgeInsets.zero,
               value: 'auto',
               title: Text(l10n.autoMode),
-              // The subtitle is a NON-interactive RichText: it merely DISPLAYS the
+              // The subtitle is a NON-interactive Text.rich: it merely DISPLAYS the
               // nodes.tox.chat source URL (styled as a link). It deliberately has no
               // tap recognizer / GestureDetector. Two reasons: (1) Flutter forbids
               // an interactive RichText inside a RadioListTile — the tile uses
@@ -1314,8 +1314,8 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
               // center, so selecting the 'auto' radio by tapping the tile silently
               // opened a browser instead. With a plain subtitle, ANY tap on the
               // tile (including its center) fires onChanged and selects 'auto'.
-              subtitle: RichText(
-                text: TextSpan(
+              subtitle: Text.rich(
+                TextSpan(
                   style: Theme.of(
                     context,
                   ).textTheme.labelSmall?.copyWith(color: secondaryTextColor),
@@ -1437,8 +1437,8 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
                 await launchUrl(url, mode: LaunchMode.externalApplication);
               }
             },
-            child: RichText(
-              text: TextSpan(
+            child: Text.rich(
+              TextSpan(
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

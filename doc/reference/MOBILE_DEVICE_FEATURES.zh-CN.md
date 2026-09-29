@@ -81,7 +81,7 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 | L8 | 折叠屏：展开 / 折叠时尺寸变化 | P1 | 🔍 | 本质同 L4；`configChanges` 含 `smallestScreenSize|screenLayout`，不会重建 |
 | L9 | 折叠屏铰链避让、Flex 半折模式 | P2 | ❌ | 无 `DisplayFeature` 处理 |
 | L10 | 软键盘：弹出遮挡、横屏键盘、iPad 悬浮 / 分离键盘 | P0 | ◐ | 2026-09-26 修复：手机横屏双栏右栏弹出键盘后窗格只剩约 125dp，标题栏 + 输入框放不下，溢出 19px。fork `tencent_cloud_chat_message_layout.dart` 的 desktopBuilder 现在：有软键盘且窗格低于标题栏 + 输入框时收起标题栏（左侧列表仍可见），并在此时把输入框高度约束在正文内（桌面输入框会撑满有限高度，故只在有软键盘的压缩态约束）。模拟器实测修复，回归测试 `mobile_composer_real_ui_test.dart`（无修复时失败）。竖屏键盘正常。iPad 悬浮 / 分离键盘未测（Flutter iOS 对悬浮键盘通常不报 inset） |
-| L11 | 系统字体缩放 / 辅助功能大字体 | P1 | ◐ | 部分页面用 `textScalerOf` 计算尺寸；最大档位下的溢出未系统排查 |
+| L11 | 系统字体缩放 / 辅助功能大字体 | P1 | ✅ | **2026-09-29 已全面检查**：Android 最大字号（字体缩放 2.0，API 36 模拟器）下走查了会话列表、聊天、附件面板、联系人及其子页面、好友资料、添加联系人对话框、全部设置页和应用页。任何地方都没有 RenderFlex 溢出；修复了截断或拆开单词的地方：附件面板（“Cam” / “era”）和联系人页面的“返回”（“Ba…”）现在随字号变宽；好友资料的发消息 / 语音 / 视频卡片在单词放不下时改为整行竖排（“mes” / “sage”）；账号管理的按钮改为换行而不是“Export A…”；三处完全不随系统字号缩放的 `RichText`（搜索高亮、Bootstrap 模式说明）改为 `Text.rich`；节点地址在端口前换行，而不是断在端口中间。保持原设计：底部导航标签（Flutter 的 `BottomNavigationBar` 不缩放它们，长按可显示）和应用卡片两行描述（网格行高已随字号缩放）。共享 Dart 代码，iOS 动态字体走同一路径 |
 | L12 | 深色模式跟随系统 | P1 | ✅ | `lib/main.dart:269-285`（`ThemeMode.system`） |
 | L13 | 通话期间屏幕常亮 | P0 | ✅ | `lib/call/call_effects_listener.dart:70,88`（`WakelockPlus`） |
 
@@ -120,7 +120,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | P1 | 运行时权限：相机、麦克风、相册、通知（Android 13+）；拒绝后的提示与跳转设置 | P0 | ◐ | `permission_handler`。2026-09-26 API 36 实测麦克风（语音消息）：首次拒绝无任何反馈；第二次拒绝起弹"权限被拒绝 / 去设置"对话框（fork `tencent_cloud_chat_permission_handlers.dart`）。相机 / 相册共用该 handler，未逐一实测。通知权限见 P1a |
 | P1a | 通知权限被拒：Android 上消息通知与来电全屏通知不再发出（iOS 消息提醒受限，来电走 CallKit）；用户拒绝时不知道后果 | P1 | ◐ | 2026-09-26 先修两个缺陷：启动时的权限请求被错误的 API 版本判断跳过（Android 13 算成 API 32）；拒绝结果整会话缓存，去系统设置开启后仍不发通知直到重启——现在回前台只读重查。另修 L3 禁止弹窗开关在 Android 无效。随后加入 `NotificationAccessMonitor`（`lib/notifications/notification_access.dart`）：区分总开关 / 来电渠道 / Android 14+ 全屏意图 / 消息渠道 / 其余渠道 / iOS 横幅关闭 / iOS provisional，权限请求结束与每次回前台即刷新；聊天标签顶部常驻提示条（`notification_access_banner.dart`，7 种语言）按状态说明并直达对应系统设置页。API 36 实测：拒绝后出现提示，设置里开启后返回即消失。iOS 未实测 |
 | P1b | 首次拒绝权限时静默无反馈；麦克风在原状态为拒绝、本次授予时仍返回失败（需再按一次） | P2 | ✅ | **2026-09-29 已修复**（fork `TencentCloudChatPermissionHandler.requestPermission`）。是否静默原由一个持久化的「每个权限字符串首次拒绝」缓存决定，因此权限已被封禁（Android「不再询问」、iOS 设置中关闭）时，只要该字符串没在 App 内被拒过，点按就毫无反应——已在 Android 模拟器上用相机复现。现在拒绝时是否弹「去设置」对话框，取决于从权限状态推断系统是否询问过（尽力而为的判断）：请求前已被封禁或受限，或系统未询问就直接拒绝（Android：请求前后 rationale 标志都为 false；首次提示被点外部关掉时标志也是如此，同样弹出说明——该标志无法区分二者，弹出说明是更安全的一侧——不能靠 App 生命周期判断，因为即便如此 Android 也会为一个不可见的 GrantPermissionsActivity 暂停 App）时弹出；用户刚在系统提示里拒绝的，不再叠加第二个对话框。已在 Android 模拟器验证：在系统提示中第一次、第二次拒绝都不再弹框，之后的点按给出说明；麦克风在提示中授权后显示提示语，下一次按住即可录音。iOS 的 `restricted` 不再算作已授权。麦克风：触发系统提示的那次按压仍不录音（手指已随提示离开），但现在会显示「按住录音，松开发送」提示；以指针取消或 App 被打断（系统弹窗、来电界面、通知栏）结束的按压会丢弃录音，而不是让它继续录。共享 Dart 代码，Android 与 iOS 同样适用 |
-| P2 | 权限在使用中被收回（设置里关掉后返回 App） | P1 | 🔍 | iOS 收回权限会杀进程；Android 不一定 |
+| P2 | 使用中权限被收回（去设置里关掉再回到 App） | P1 | ✅ | **2026-09-29 已在 API 36 模拟器验证**：收回已授予的运行时权限会杀掉进程，与 iOS 相同——麦克风（聊天打开时）和相机（P1b 复现过程中）均已观察到。任务被替换，下次启动干净地回到会话列表、没有残留状态，下次使用时重新请求（被封禁的由 P1b 给出说明）。收回本未授予的权限不产生任何变化。未实测：通话中收回（此处无 Tox 连接）——同样会因进程被杀而结束通话 |
 | P3 | Keychain / Keystore 安全存储；iOS 卸载重装后 Keychain 残留 | P1 | ◐ | `flutter_secure_storage`；重装后残留旧密码数据与新安装状态不一致的情况需确认 |
 | P4 | 敏感页防截屏 / 录屏、App 切换器快照模糊（私钥 / profile 导出、二维码） | P2 | ❌ | 无 `FLAG_SECURE`；属于产品决策 |
 | P5 | 生物识别解锁（Face ID / 指纹） | P2 | ❌ | |
