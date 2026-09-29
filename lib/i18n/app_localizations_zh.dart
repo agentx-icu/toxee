@@ -2033,6 +2033,22 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get cameraUnavailable => '相机不可用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '存储空间不足，无法接收“$fileName”。请释放空间后重试。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '存储空间不足，无法接收文件。请释放空间后重试。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '无法保存“$fileName”。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3566,6 +3582,22 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get cameraUnavailable => '相机不可用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '存储空间不足，无法接收“$fileName”。请释放空间后重试。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '存储空间不足，无法接收文件。请释放空间后重试。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '无法保存“$fileName”。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5597,4 +5629,20 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get cameraUnavailable => '相機無法使用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '儲存空間不足，無法接收「$fileName」。請釋放空間後再試一次。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '儲存空間不足，無法接收檔案。請釋放空間後再試一次。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '無法儲存「$fileName」。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '無法儲存收到的檔案。';
 }

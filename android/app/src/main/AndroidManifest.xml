@@ -24,6 +24,9 @@
          merge, but declared here so the requirement is visible and won't
          silently break if the merge order changes. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Normal (install-time) permission: NetworkPathChannel watches the
+         default network (Wi-Fi <-> cellular handover) to re-bootstrap Tox. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Foreground service permissions for ToxPollingService. The service
          keeps the Flutter engine and tox polling loop alive while the app is
          in the background. FOREGROUND_SERVICE is required on Android 9+ for

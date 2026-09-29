@@ -999,5 +999,9 @@
   "videoConvertingDesc": "どのデバイスでも再生できる形式に変換しています。",
   "videoConversionFailed": "このビデオを送信用に変換できませんでした。送信していません。",
   "cameraPausedMultitasking": "他のアプリと画面を共有中はカメラが一時停止します",
-  "cameraUnavailable": "カメラを使用できません"
+  "cameraUnavailable": "カメラを使用できません",
+  "fileReceiveNoSpace": "ストレージの空き容量が不足しているため「{fileName}」を受信できません。空き容量を増やしてから再試行してください。",
+  "fileReceiveNoSpaceUnnamed": "ストレージの空き容量が不足しているためファイルを受信できません。空き容量を増やしてから再試行してください。",
+  "fileReceiveFailed": "「{fileName}」を保存できませんでした。",
+  "fileReceiveFailedUnnamed": "受信したファイルを保存できませんでした。"
 }

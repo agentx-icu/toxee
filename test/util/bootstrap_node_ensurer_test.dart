@@ -90,8 +90,13 @@ void main() {
     await BootstrapNodeEnsurer.ensureForSession(service);
 
     final fallback = BootstrapNodesService.fallbackNodes;
-    // Up to maxAutoNodes fallback nodes applied immediately, no HTTP wait.
-    expect(service.added, hasLength(BootstrapNodeEnsurer.maxAutoNodes));
+    // Up to maxAutoNodes fallback nodes applied immediately, no HTTP wait —
+    // every advertised address of each (N3: IPv4 first, then IPv6).
+    final expectedHosts = fallback
+        .take(BootstrapNodeEnsurer.maxAutoNodes)
+        .expand((n) => n.bootstrapHosts)
+        .toList();
+    expect(service.added.map((n) => n.host).toList(), expectedHosts);
     expect(service.added.first.host, fallback.first.ipv4);
     // And prefs is seeded so settings / resume have a current node.
     final saved = await Prefs.getCurrentBootstrapNode();
@@ -184,5 +189,96 @@ void main() {
 
     expect(service.added, hasLength(1));
     expect(service.added.single.host, '2001:db8::20');
+  });
+
+  // Checklist N3 (IPv6-only / NAT64): a node that advertises both families is
+  // bootstrapped on both, IPv4 first (toxcore keeps the first onion / TCP
+  // address per key, so dual-stack behaviour is unchanged), and the IPv6 entry
+  // gives an IPv6-only phone a reachable address for the same node.
+  test('auto mode applies both advertised addresses of a dual-stack node, '
+      'IPv4 first', () async {
+    if (_skipWithoutFfi()) return;
+    await _resetPrefs();
+    await Prefs.setCurrentBootstrapNode('seed.example', 33445, 'B' * 64);
+    BootstrapNodeEnsurer.debugNodeFetcher = () async => [
+      BootstrapNode(
+        ipv4: '192.0.2.10',
+        ipv6: '2001:db8::10',
+        port: 33445,
+        publicKey: 'A' * 64,
+        status: 'ONLINE',
+      ),
+      BootstrapNode(
+        ipv4: 'tox.example.net',
+        ipv6: 'tox.example.net',
+        port: 443,
+        publicKey: 'C' * 64,
+        status: 'ONLINE',
+      ),
+    ];
+
+    final service = _RecordingService(connected: false);
+    await BootstrapNodeEnsurer.refreshIfDisconnected(service);
+
+    expect(service.added.map((n) => (n.host, n.port, n.pubkey)).toList(), [
+      ('192.0.2.10', 33445, 'A' * 64),
+      ('2001:db8::10', 33445, 'A' * 64),
+      // Same hostname in both fields is bootstrapped once.
+      ('tox.example.net', 443, 'C' * 64),
+    ]);
+  });
+
+  // Checklist N1: a default-network change re-applies nodes even though the
+  // (lagging) Tox status still reads "connected", and never writes prefs.
+  test('reapplyForNetworkChange applies saved, fallback and live nodes even '
+      'while connected', () async {
+    if (_skipWithoutFfi()) return;
+    await _resetPrefs();
+    await Prefs.setCurrentBootstrapNode('seed.example', 33445, 'B' * 64);
+    BootstrapNodeEnsurer.debugNodeFetcher = () async => [_node('198.51.100.7')];
+
+    final service = _RecordingService(connected: true);
+    await BootstrapNodeEnsurer.reapplyForNetworkChange(service);
+
+    final hosts = service.added.map((n) => n.host).toList();
+    expect(hosts.first, 'seed.example');
+    final fallbackHosts = BootstrapNodesService.fallbackNodes
+        .take(BootstrapNodeEnsurer.maxAutoNodes)
+        .expand((n) => n.bootstrapHosts);
+    expect(hosts, containsAll(fallbackHosts));
+    expect(hosts.last, '198.51.100.7');
+    expect((await Prefs.getCurrentBootstrapNode())?.host, 'seed.example');
+  });
+
+  test('reapplyForNetworkChange in manual mode re-applies only the saved '
+      'node', () async {
+    if (_skipWithoutFfi()) return;
+    await _resetPrefs();
+    await Prefs.setBootstrapNodeMode('manual');
+    await Prefs.setCurrentBootstrapNode('manual.example', 12345, 'B' * 64);
+    BootstrapNodeEnsurer.debugNodeFetcher = () async =>
+        throw StateError('manual mode must not hit the node list');
+
+    final service = _RecordingService(connected: true);
+    await BootstrapNodeEnsurer.reapplyForNetworkChange(service);
+
+    expect(service.added.map((n) => n.host).toList(), ['manual.example']);
+  });
+
+  test('reapplyForNetworkChange stops once the session is gone', () async {
+    if (_skipWithoutFfi()) return;
+    await _resetPrefs();
+    await Prefs.setCurrentBootstrapNode('seed.example', 33445, 'B' * 64);
+    var live = true;
+    BootstrapNodeEnsurer.debugNodeFetcher = () async {
+      live = false; // logout while the node list was being fetched
+      return [_node('198.51.100.7')];
+    };
+
+    final service = _RecordingService(connected: true);
+    await BootstrapNodeEnsurer.reapplyForNetworkChange(service,
+        isLive: () => live);
+
+    expect(service.added.map((n) => n.host), isNot(contains('198.51.100.7')));
   });
 }

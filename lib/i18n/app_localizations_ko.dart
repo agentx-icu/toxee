@@ -2069,4 +2069,21 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get cameraUnavailable => '카메라를 사용할 수 없습니다';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '저장 공간이 부족하여 \"$fileName\" 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      '저장 공간이 부족하여 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '\"$fileName\" 파일을 저장할 수 없습니다.';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '받은 파일을 저장할 수 없습니다.';
 }

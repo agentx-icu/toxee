@@ -3825,6 +3825,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Camera unavailable'**
   String get cameraUnavailable;
+
+  /// Toast: an incoming file was refused / stopped because the device storage is full (checklist M5)
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage to receive \"{fileName}\". Free up space and try again.'**
+  String fileReceiveNoSpace(String fileName);
+
+  /// Toast: like fileReceiveNoSpace when the file name is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage to receive a file. Free up space and try again.'**
+  String get fileReceiveNoSpaceUnnamed;
+
+  /// Toast: an incoming file could not be written or saved (I/O error other than a full disk)
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save \"{fileName}\".'**
+  String fileReceiveFailed(String fileName);
+
+  /// Toast: like fileReceiveFailed when the file name is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save a received file.'**
+  String get fileReceiveFailedUnnamed;
 }
 
 class _AppLocalizationsDelegate

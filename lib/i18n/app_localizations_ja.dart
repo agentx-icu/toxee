@@ -2069,4 +2069,21 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get cameraUnavailable => 'カメラを使用できません';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'ストレージの空き容量が不足しているため「$fileName」を受信できません。空き容量を増やしてから再試行してください。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'ストレージの空き容量が不足しているためファイルを受信できません。空き容量を増やしてから再試行してください。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '「$fileName」を保存できませんでした。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '受信したファイルを保存できませんでした。';
 }

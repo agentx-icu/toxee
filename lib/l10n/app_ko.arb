@@ -999,5 +999,9 @@
   "videoConvertingDesc": "모든 기기에서 재생할 수 있는 형식으로 변환하고 있습니다.",
   "videoConversionFailed": "이 동영상을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.",
   "cameraPausedMultitasking": "다른 앱과 화면을 함께 쓰는 동안 카메라가 일시 중지됩니다",
-  "cameraUnavailable": "카메라를 사용할 수 없습니다"
+  "cameraUnavailable": "카메라를 사용할 수 없습니다",
+  "fileReceiveNoSpace": "저장 공간이 부족하여 \"{fileName}\" 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.",
+  "fileReceiveNoSpaceUnnamed": "저장 공간이 부족하여 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.",
+  "fileReceiveFailed": "\"{fileName}\" 파일을 저장할 수 없습니다.",
+  "fileReceiveFailedUnnamed": "받은 파일을 저장할 수 없습니다."
 }

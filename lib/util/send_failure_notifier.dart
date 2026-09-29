@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
 import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_code_info.dart';
@@ -6,6 +7,7 @@ import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_code_info.dar
 import '../i18n/app_localizations.dart';
 import '../ui/widgets/app_snackbar.dart';
 import 'app_l10n.dart';
+import 'file_receive_failure_notifier.dart';
 import 'logger.dart';
 
 /// Surfaces send-failure feedback as snackbars on top of the running app.
@@ -57,6 +59,11 @@ class SendFailureNotifier {
       GlobalKey<ScaffoldMessengerState>();
 
   static const Duration _dedupWindow = Duration(seconds: 3);
+
+  /// Starts the session's incoming-file failure toasts (checklist M5, see
+  /// [FileReceiveFailureNotifier]); returns the disposer.
+  static void Function() watchFileReceiveFailures(FfiChatService service) =>
+      FileReceiveFailureNotifier.startForSession(service);
 
   /// Tox text payload upper bound the C layer enforces (see
   /// `MAX_MESSAGE_LENGTH` in `c-toxcore`). Used to render a precise toast for

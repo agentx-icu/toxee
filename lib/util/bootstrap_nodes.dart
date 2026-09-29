@@ -48,6 +48,25 @@ class BootstrapNode {
     return _usableHost(ipv6);
   }
 
+  /// Every address this node advertises, for bootstrapping: IPv4 then IPv6,
+  /// trimmed and de-duplicated (several nodes list the same hostname in both
+  /// fields). [preferredHost] stays the one address shown and persisted.
+  ///
+  /// Why all of them (checklist N3, IPv6-only networks): an IPv6-only phone
+  /// cannot reach an IPv4 literal unless the OS translates it — tim2tox
+  /// synthesizes the NAT64 address on Apple, Android relies on CLAT — so the
+  /// node's own IPv6 is bootstrapped as well. IPv4 stays first because toxcore
+  /// keeps only the first onion-bootstrap / TCP-relay address per key; on
+  /// IPv4 and dual-stack networks that is today's behaviour unchanged.
+  List<String> get bootstrapHosts {
+    final hosts = <String>[];
+    for (final value in [ipv4, ipv6]) {
+      final host = _usableHost(value);
+      if (host != null && !hosts.contains(host)) hosts.add(host);
+    }
+    return hosts;
+  }
+
   String? get formattedEndpoint {
     final host = preferredHost;
     if (host == null) return null;

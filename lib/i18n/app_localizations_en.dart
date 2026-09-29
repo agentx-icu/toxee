@@ -2155,4 +2155,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cameraUnavailable => 'Camera unavailable';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'Not enough storage to receive \"$fileName\". Free up space and try again.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'Not enough storage to receive a file. Free up space and try again.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return 'Couldn\'t save \"$fileName\".';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => 'Couldn\'t save a received file.';
 }

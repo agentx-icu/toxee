@@ -838,5 +838,9 @@
   "videoConvertingDesc": "正在转换为所有设备都能播放的格式。",
   "videoConversionFailed": "无法转换这段视频，未发送。",
   "cameraPausedMultitasking": "其他应用共享屏幕时相机已暂停",
-  "cameraUnavailable": "相机不可用"
+  "cameraUnavailable": "相机不可用",
+  "fileReceiveNoSpace": "存储空间不足，无法接收“{fileName}”。请释放空间后重试。",
+  "fileReceiveNoSpaceUnnamed": "存储空间不足，无法接收文件。请释放空间后重试。",
+  "fileReceiveFailed": "无法保存“{fileName}”。",
+  "fileReceiveFailedUnnamed": "无法保存收到的文件。"
 }

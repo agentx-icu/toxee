@@ -2131,4 +2131,21 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get cameraUnavailable => 'الكاميرا غير متاحة';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'لا توجد مساحة تخزين كافية لاستلام \"$fileName\". حرّر بعض المساحة وحاول مرة أخرى.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'لا توجد مساحة تخزين كافية لاستلام ملف. حرّر بعض المساحة وحاول مرة أخرى.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return 'تعذّر حفظ \"$fileName\".';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => 'تعذّر حفظ ملف مستلَم.';
 }
