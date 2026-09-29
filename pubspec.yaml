@@ -41,7 +41,11 @@ dependencies:
   path_provider: ^2.1.3
   path: ^1.8.3
   qr_flutter: ^4.1.0
-  mobile_scanner: ^6.0.11
+  # 7.x: iOS/macOS use Apple Vision (no GoogleMLKit), so the iOS simulator
+  # build is arm64 — the MLKit-era 6.x forced an x86_64 Runner that cannot
+  # launch without Rosetta. Capped below 7.2: from 7.2 the Android side pulls
+  # androidx.camera 1.6.1, which requires AGP 8.9.1 (toxee builds with 8.7.3).
+  mobile_scanner: '>=7.1.4 <7.2.0'
   http: ^1.2.0
   tray_manager: ^0.2.0
   window_manager: ^0.3.8

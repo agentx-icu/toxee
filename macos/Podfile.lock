@@ -26,7 +26,8 @@ PODS:
   - HydraAsync (2.0.6)
   - image_clipboard (0.0.1):
     - FlutterMacOS
-  - mobile_scanner (6.0.2):
+  - mobile_scanner (7.0.0):
+    - Flutter
     - FlutterMacOS
   - open_file_mac (0.0.1):
     - FlutterMacOS
@@ -78,7 +79,7 @@ DEPENDENCIES:
   - flutter_secure_storage_macos (from `Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_macos/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - image_clipboard (from `Flutter/ephemeral/.symlinks/plugins/image_clipboard/macos`)
-  - mobile_scanner (from `Flutter/ephemeral/.symlinks/plugins/mobile_scanner/macos`)
+  - mobile_scanner (from `Flutter/ephemeral/.symlinks/plugins/mobile_scanner/darwin`)
   - open_file_mac (from `Flutter/ephemeral/.symlinks/plugins/open_file_mac/macos`)
   - package_info_plus (from `Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos`)
   - pasteboard (from `Flutter/ephemeral/.symlinks/plugins/pasteboard/macos`)
@@ -127,7 +128,7 @@ EXTERNAL SOURCES:
   image_clipboard:
     :path: Flutter/ephemeral/.symlinks/plugins/image_clipboard/macos
   mobile_scanner:
-    :path: Flutter/ephemeral/.symlinks/plugins/mobile_scanner/macos
+    :path: Flutter/ephemeral/.symlinks/plugins/mobile_scanner/darwin
   open_file_mac:
     :path: Flutter/ephemeral/.symlinks/plugins/open_file_mac/macos
   package_info_plus:
@@ -172,7 +173,7 @@ SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   HydraAsync: 8d589bd725b0224f899afafc9a396327405f8063
   image_clipboard: ddded75e93e9535a8ae1c8e709bc04709efbd187
-  mobile_scanner: 0e365ed56cad24f28c0fd858ca04edefb40dfac3
+  mobile_scanner: 9157936403f5a0644ca3779a38ff8404c5434a93
   open_file_mac: 01874b6d6a2c1485ac9b126d7105b99102dea2cf
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
   pasteboard: 278d8100149f940fb795d6b3a74f0720c890ecb7
@@ -181,7 +182,7 @@ SPEC CHECKSUMS:
   screen_retriever: 4f97c103641aab8ce183fa5af3b87029df167936
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  tencent_cloud_chat_sdk: a90c15547a954997bbbaf0f4c58358a58cc4b65a
+  tencent_cloud_chat_sdk: 5c60b2edaeb54dff989e2df130d048ff6639e194
   tray_manager: a104b5c81b578d83f3c3d0f40a997c8b10810166
   TXIMSDK_Plus_Mac: ccaafbe51cb825c311eceb98790729268cc47264
   url_launcher_macos: 0fba8ddabfc33ce0a9afe7c5fef5aab3d8d2d673
