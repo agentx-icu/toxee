@@ -181,20 +181,74 @@ import UIKit
       FlutterMethodChannel(
         name: "toxee/keychain_probe", binaryMessenger: controller.binaryMessenger
       ).setMethodCallHandler { call, result in
-        guard call.method == "exists",
-          let key = (call.arguments as? [String: Any])?["key"] as? String
-        else { return result(FlutterMethodNotImplemented) }
-        let query: [CFString: Any] = [
-          kSecClass: kSecClassGenericPassword,
-          kSecAttrAccount: key,
-          kSecAttrService: "flutter_secure_storage_service",
-          kSecMatchLimit: kSecMatchLimitOne,
-        ]
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        switch status {
-        case errSecSuccess: result("found")
-        case errSecItemNotFound: result("missing")
-        default: result("error:\(status)")
+        let service = "flutter_secure_storage_service"
+        let args = call.arguments as? [String: Any]
+        switch call.method {
+        case "exists":
+          guard let key = args?["key"] as? String else {
+            return result(FlutterMethodNotImplemented)
+          }
+          let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: key,
+            kSecAttrService: service,
+            kSecMatchLimit: kSecMatchLimitOne,
+          ]
+          let status = SecItemCopyMatching(query as CFDictionary, nil)
+          switch status {
+          case errSecSuccess: result("found")
+          case errSecItemNotFound: result("missing")
+          default: result("error:\(status)")
+          }
+        // Reinstall cleanup (checklist P3, KeychainReinstallGuard): the
+        // Keychain outlives an uninstall, so a fresh install still holds the
+        // previous one's items. Explicit statuses, unlike the plugin's
+        // deleteAll/readAll, so a locked or refusing Keychain is never
+        // mistaken for "nothing there".
+        case "wipeAll":
+          let status = SecItemDelete([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+          ] as CFDictionary)
+          result(status == errSecSuccess || status == errSecItemNotFound
+            ? "ok" : "error:\(status)")
+        case "listKeys":
+          var items: CFTypeRef?
+          let status = SecItemCopyMatching([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+            kSecMatchLimit: kSecMatchLimitAll,
+            kSecReturnAttributes: true,
+          ] as CFDictionary, &items)
+          switch status {
+          case errSecSuccess:
+            let rows = items as? [[String: Any]] ?? []
+            result(rows.compactMap { $0[kSecAttrAccount as String] as? String })
+          case errSecItemNotFound: result([String]())
+          default: result(FlutterError(
+            code: "keychain", message: "listKeys: \(status)", details: nil))
+          }
+        case "deleteKeys":
+          guard let keys = args?["keys"] as? [String] else {
+            return result(FlutterMethodNotImplemented)
+          }
+          var failed: OSStatus = errSecSuccess
+          for key in keys {
+            let status = SecItemDelete([
+              kSecClass: kSecClassGenericPassword,
+              kSecAttrService: service,
+              kSecAttrAccount: key,
+              kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+            ] as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+              failed = status
+            }
+          }
+          result(failed == errSecSuccess ? "ok" : "error:\(failed)")
+        default:
+          result(FlutterMethodNotImplemented)
         }
       }
 
