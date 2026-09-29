@@ -162,8 +162,24 @@ void main() {
       transition.onBuild(false); // superseded before its frame runs
       transition.onBuild(true);
       runFrames();
-      expect(shell.configs, [true, true]);
+      expect(shell.configs, [true, false, true]);
       expect(shell.opened, isEmpty);
+    });
+
+    test('the layout mode switches in the crossing build itself (L4a)', () {
+      shell.wideNow = true;
+      transition.onBuild(true);
+      runFrames();
+      shell
+        ..selection = _peer
+        ..wideNow = false;
+      transition.onBuild(false);
+      // Before any post-frame callback: UIKit lays out this very frame.
+      expect(shell.configs, [true, false]);
+      expect(shell.opened, isEmpty, reason: 'navigation waits for the frame');
+      runFrames();
+      expect(shell.configs, [true, false]);
+      expect(shell.opened, [_peer]);
     });
 
     test('an account switch in between cancels the move', () {
@@ -208,6 +224,22 @@ void main() {
       runFrames();
       expect(shell.configs, [true, false]);
       expect(shell.opened, [_peer]);
+    });
+
+    test('a budget of one attempt is the synchronous one only', () {
+      final single = MasterDetailTransition(
+        host: shell.host,
+        tracker: tracker,
+        schedule: frames.add,
+        maxConfigAttempts: 1,
+      );
+      shell
+        ..wideNow = true
+        ..configFailures = 5;
+      single.onBuild(true);
+      expect(frames, isEmpty, reason: 'no retry beyond the budget');
+      expect(shell.configFailures, 4);
+      expect(single.lastWide, isNull, reason: 'the next build tries again');
     });
 
     test('after the retry budget the next build tries again', () {

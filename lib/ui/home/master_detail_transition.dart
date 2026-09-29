@@ -145,7 +145,27 @@ class MasterDetailTransition {
       '[MasterDetailTransition] crossing to wide=$wide gen=$generation '
       'target=$target',
     );
-    _schedule(() => _apply(generation, wide, target, account, 1));
+    // Switch UIKit's layout mode now, in this build, before the UIKit subtree
+    // (a descendant) lays out at the new size: applied a frame later, the
+    // crossing frame laid the master-detail split out at phone width and
+    // overflowed its right pane (checklist L4a). setConfigs only flips two
+    // fields; its change event reaches listeners asynchronously, after this
+    // frame. The chat itself moves after the frame, as navigation must.
+    if (_tryConfig(wide)) {
+      _schedule(() => _moveChat(generation, wide, target, account));
+    } else {
+      _configFailed(generation, wide, target, account, 1);
+    }
+  }
+
+  bool _tryConfig(bool wide) {
+    try {
+      host.applyConfig(wide);
+      return true;
+    } catch (_) {
+      // UIKit's config object may not exist yet (its init is async).
+      return false;
+    }
   }
 
   /// The conversation on screen right now in the current layout, or null
@@ -178,23 +198,41 @@ class MasterDetailTransition {
     int attempt,
   ) {
     if (!host.isMounted() || generation != _generation) return;
-    try {
-      host.applyConfig(wide);
-    } catch (_) {
-      // UIKit's config object may not exist yet (its init is async). Retry
-      // on the next frames rather than waiting for a rebuild that may never
-      // come; a newer transition cancels this one.
-      if (attempt < maxConfigAttempts) {
-        _schedule(() => _apply(generation, wide, target, account, attempt + 1));
-      } else {
-        // Out of attempts: forget the side so the next build re-applies the
-        // layout mode instead of believing it is already in place, and keep
-        // the chat it still has to carry across.
-        _lastWide = null;
-        if (target != null) _deferred = (target: target, account: account);
-      }
+    if (!_tryConfig(wide)) {
+      _configFailed(generation, wide, target, account, attempt);
       return;
     }
+    _moveChat(generation, wide, target, account);
+  }
+
+  /// Attempt number [attempt] of the layout switch failed: retry on the next
+  /// frames rather than waiting for a rebuild that may never come (a newer
+  /// transition cancels this one), within [maxConfigAttempts] in all.
+  void _configFailed(
+    int generation,
+    bool wide,
+    ChatTarget? target,
+    String account,
+    int attempt,
+  ) {
+    if (attempt < maxConfigAttempts) {
+      _schedule(() => _apply(generation, wide, target, account, attempt + 1));
+      return;
+    }
+    // Out of attempts: forget the side so the next build re-applies the
+    // layout mode instead of believing it is already in place, and keep the
+    // chat it still has to carry across.
+    _lastWide = null;
+    if (target != null) _deferred = (target: target, account: account);
+  }
+
+  void _moveChat(
+    int generation,
+    bool wide,
+    ChatTarget? target,
+    String account,
+  ) {
+    if (!host.isMounted() || generation != _generation) return;
     if (target != null) unawaited(_migrate(generation, wide, target, account));
   }
 
