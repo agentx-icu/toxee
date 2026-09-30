@@ -2098,4 +2098,22 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => '받은 파일을 저장할 수 없습니다.';
+
+  @override
+  String get passwordChangePending =>
+      '이전 비밀번호 변경이 아직 완료되지 않았습니다. 로그아웃 후 다시 로그인하세요';
+
+  @override
+  String get passwordRekeyFailed => '계정 파일을 다시 암호화할 수 없습니다. 아무것도 변경되지 않았습니다';
+
+  @override
+  String get exportRequiresLogin => '내보내기 전에 이 계정에 로그인하세요';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      '이 비밀번호로 계정 파일을 열 수 없습니다. 파일이 손상되었거나 비밀번호 변경이 중단되었을 수 있습니다.';
+
+  @override
+  String get passwordChangeInterrupted =>
+      '비밀번호 변경이 중단되었습니다. 변경 전 또는 변경 후의 비밀번호를 시도하세요.';
 }

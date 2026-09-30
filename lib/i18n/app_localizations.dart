@@ -3867,6 +3867,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t save a received file.'**
   String get fileReceiveFailedUnnamed;
+
+  /// Reason inserted into failedToSetPassword; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'a previous password change is still being finalised; log out and back in'**
+  String get passwordChangePending;
+
+  /// Reason inserted into failedToSetPassword; lower-case, it follows a colon
+  ///
+  /// In en, this message translates to:
+  /// **'the account file could not be re-encrypted; nothing was changed'**
+  String get passwordRekeyFailed;
+
+  /// Export refused because the protected account is not the live session, so its encrypted profile cannot be opened
+  ///
+  /// In en, this message translates to:
+  /// **'Log in to this account before exporting it'**
+  String get exportRequiresLogin;
+
+  /// Login failed: the verifier accepted the password but the encrypted profile did not open with it
+  ///
+  /// In en, this message translates to:
+  /// **'The account file did not open with this password. It may be damaged, or a password change may have been interrupted.'**
+  String get profileUnopenableWithPassword;
+
+  /// Login failed while a journaled password change is unfinished; the file is under the other password
+  ///
+  /// In en, this message translates to:
+  /// **'A password change was interrupted. Try the password from before or after the change.'**
+  String get passwordChangeInterrupted;
 }
 
 class _AppLocalizationsDelegate

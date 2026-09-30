@@ -287,7 +287,7 @@ void main() {
             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': Uint8List.fromList(<int>[1, 2, 3, 4]),
@@ -346,7 +346,7 @@ void main() {
         var importCalls = 0;
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 importCalls++;
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
@@ -391,7 +391,7 @@ void main() {
         final expectedProfilePath = AppPaths.profileFileInDirectory(profileDir);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
                 }
@@ -454,7 +454,7 @@ void main() {
         var passwordWriteCalls = 0;
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
                 }
@@ -512,7 +512,7 @@ void main() {
         final artifacts = await _seedExistingAccountArtifacts(toxId);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': Uint8List.fromList(<int>[2, 4, 6, 8]),
@@ -545,7 +545,7 @@ void main() {
         final artifacts = await _seedExistingAccountArtifacts(toxId);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': 'invalid profile bytes',
@@ -577,7 +577,7 @@ void main() {
             '3131313131313131313131313131313131313131313131313131313131313131';
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': Uint8List.fromList(<int>[3, 1, 3, 1]),
@@ -635,7 +635,7 @@ void main() {
         var passwordWriteCalls = 0;
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 suppliedPasswords.add(password);
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
@@ -691,13 +691,13 @@ void main() {
       var importCalls = 0;
       var addAccountCalls = 0;
       final controller = LoginPageController(
-        readFullBackupMetadataFn: (String filePath, {String? password}) async {
+        readFullBackupMetadataFn: (String filePath, {String? password, String? profilePassword}) async {
           throw const PasswordRequiredException(
             'Password required for encrypted full backup',
           );
         },
         importFullBackupFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, String? password, String? profilePassword}) async {
               importCalls++;
               fail('Import must not run without a full-backup password');
             },
@@ -748,7 +748,7 @@ void main() {
         var addAccountCalls = 0;
         final controller = LoginPageController(
           readFullBackupMetadataFn:
-              (String filePath, {String? password}) async {
+              (String filePath, {String? password, String? profilePassword}) async {
                 metadataCalls++;
                 if (password == null) {
                   throw const PasswordRequiredException(
@@ -758,7 +758,7 @@ void main() {
                 throw const InvalidBackupPasswordException();
               },
           importFullBackupFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 importCalls++;
                 fail('Import must not run after metadata authentication fails');
               },
@@ -817,7 +817,7 @@ void main() {
 
         final controller = LoginPageController(
           readFullBackupMetadataFn:
-              (String filePath, {String? password}) async {
+              (String filePath, {String? password, String? profilePassword}) async {
                 metadataCalls++;
                 if (password == null) {
                   throw const PasswordRequiredException(
@@ -828,7 +828,7 @@ void main() {
                 return <String, dynamic>{'toxId': toxId, 'nickname': 'Zip'};
               },
           importFullBackupFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 importPassword = password;
                 return <String, dynamic>{
                   'toxId': toxId,
@@ -885,12 +885,12 @@ void main() {
         final events = <String>[];
         final controller = LoginPageController(
           readFullBackupMetadataFn:
-              (String filePath, {String? password}) async => <String, dynamic>{
+              (String filePath, {String? password, String? profilePassword}) async => <String, dynamic>{
                 'toxId': toxId,
                 'nickname': 'Zip',
               },
           importFullBackupFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{'toxId': toxId, 'nickname': 'Zip'},
           addAccountFn:
               ({
@@ -933,12 +933,12 @@ void main() {
         String? rollbackToxId;
         final controller = LoginPageController(
           readFullBackupMetadataFn:
-              (String filePath, {String? password}) async => <String, dynamic>{
+              (String filePath, {String? password, String? profilePassword}) async => <String, dynamic>{
                 'toxId': toxId,
                 'nickname': 'Zip',
               },
           importFullBackupFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{'toxId': toxId, 'nickname': 'Zip'},
           addAccountFn:
               ({
@@ -983,12 +983,12 @@ void main() {
             'abababababababababababababababababababababababababababababababab';
         final controller = LoginPageController(
           readFullBackupMetadataFn:
-              (String filePath, {String? password}) async => <String, dynamic>{
+              (String filePath, {String? password, String? profilePassword}) async => <String, dynamic>{
                 'toxId': toxId,
                 'nickname': 'Zip',
               },
           importFullBackupFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{'toxId': toxId, 'nickname': 'Zip'},
           addAccountFn:
               ({
@@ -1036,7 +1036,7 @@ void main() {
         var importCalls = 0;
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 importCalls++;
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
@@ -1081,7 +1081,7 @@ void main() {
         final expectedProfilePath = AppPaths.profileFileInDirectory(profileDir);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
                 }
@@ -1144,7 +1144,7 @@ void main() {
         var passwordWriteCalls = 0;
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async {
+              ({required String filePath, String? password, String? profilePassword}) async {
                 if (password == null) {
                   throw const PasswordRequiredException('password required');
                 }
@@ -1199,7 +1199,7 @@ void main() {
         final artifacts = await _seedExistingAccountArtifacts(toxId);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': Uint8List.fromList(<int>[1, 2, 1, 2]),
@@ -1232,7 +1232,7 @@ void main() {
         final artifacts = await _seedExistingAccountArtifacts(toxId);
         final controller = LoginPageController(
           importAccountDataFn:
-              ({required String filePath, String? password}) async =>
+              ({required String filePath, String? password, String? profilePassword}) async =>
                   <String, dynamic>{
                     'toxId': toxId,
                     'toxProfile': 'invalid profile bytes',

@@ -86,7 +86,13 @@ Future<void> rollbackRestoreTransaction(
   // Only once the restore is known to have landed. Clearing on a failed write
   // discards the journal's snapshot, which is the only copy of the values it
   // just failed to put back.
-  if (prefsRestored) await RestoreTransactionJournalStore.clear();
+  // A verifier this transaction installed goes with the account it gated; if
+  // it cannot be removed the journal stays so recovery retries the rollback.
+  final verifierRemoved =
+      !journal.verifierInstalled || await Prefs.removeAccountPassword(journal.toxId);
+  if (prefsRestored && verifierRemoved) {
+    await RestoreTransactionJournalStore.clear();
+  }
 }
 
 Future<void> discardRestoreForDeletedAccount(String toxId) async {

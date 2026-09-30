@@ -147,6 +147,18 @@ abstract final class FullBackupRestoreTransaction {
       FullBackupRestoreTestHooks.maybeCrash(
         FullBackupRestoreFailurePoint.afterStaging,
       );
+      final accountPassword = input.accountPassword;
+      if (accountPassword != null && accountPassword.isNotEmpty) {
+        // Verifier BEFORE anything is published, recorded in the journal so
+        // a rollback removes it; the profile on disk stays ciphertext.
+        journal = journal.copyWith(verifierInstalled: true);
+        await RestoreTransactionJournalStore.write(journal);
+        if (!await Prefs.setAccountPassword(input.toxId, accountPassword)) {
+          throw StateError(
+            'could not persist the restored account password verifier',
+          );
+        }
+      }
 
       if (input.toxProfile != null) {
         await _renameDirectory(

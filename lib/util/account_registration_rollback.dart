@@ -31,6 +31,7 @@ final class AccountRegistrationRollbackPlan {
     required this.ownsFinalDir,
     required this.ownedDataRoots,
     required this.accountVisible,
+    this.verifierWritten = false,
     required this.previousAccount,
     required this.previousNickname,
     required this.previousStatusMessage,
@@ -58,6 +59,11 @@ final class AccountRegistrationRollbackPlan {
   /// Whether the account was published to `account_list` (and so needs
   /// removing again).
   final bool accountVisible;
+
+  /// The password verifier was persisted (it precedes publication); a failed
+  /// registration must take it with it or a later import of the same identity
+  /// would be gated by a password the file does not carry.
+  final bool verifierWritten;
 
   final String? previousAccount;
   final String? previousNickname;
@@ -99,6 +105,21 @@ Future<void> rollbackFailedRegistration(
   if (plan.accountVisible && toxId != null && toxId.isNotEmpty) {
     await Prefs.clearAccountData(toxId);
     await Prefs.removeAccount(toxId);
+  }
+  if (plan.verifierWritten && toxId != null && toxId.isNotEmpty) {
+    final removed = await Prefs.removeAccountPassword(toxId);
+    final journalCleared = await Prefs.passwordChanges.abort(toxId);
+    if (!removed || !journalCleared) {
+      // Not retried durably on purpose: this identity's only private key is
+      // in the temp/profile directory this same rollback deletes, so nothing
+      // can ever be imported under it and the stray verifier gates nothing.
+      // Logged because a secure store that refuses deletes is worth knowing.
+      SafeDiagnostics.logFailure(
+        '[AccountService] registration_rollback_incomplete '
+        'stage=verifier_removal removed=$removed journalCleared=$journalCleared',
+        StateError('secure storage refused the verifier / journal delete'),
+      );
+    }
   }
 
   // Best-effort: the remaining cleanup (labels, temp / profile directories)

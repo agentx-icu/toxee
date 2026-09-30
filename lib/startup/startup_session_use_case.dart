@@ -130,6 +130,9 @@ class StartupSessionUseCase {
         // throws also routes to login. An unnecessary password prompt is a
         // minor annoyance; skipping one is a security failure.
         try {
+          // Finishes a rekeyed password removal first (decidable without the
+          // password); every other in-flight change keeps the gate closed.
+          await Prefs.passwordChanges.reconcileForGate(toxIdForStartup);
           final protection = await Prefs.accountProtectionState(
             toxIdForStartup,
           );

@@ -1006,5 +1006,10 @@
   "fileReceiveNoSpace": "ストレージの空き容量が不足しているため「{fileName}」を受信できません。空き容量を増やしてから再試行してください。",
   "fileReceiveNoSpaceUnnamed": "ストレージの空き容量が不足しているためファイルを受信できません。空き容量を増やしてから再試行してください。",
   "fileReceiveFailed": "「{fileName}」を保存できませんでした。",
-  "fileReceiveFailedUnnamed": "受信したファイルを保存できませんでした。"
+  "fileReceiveFailedUnnamed": "受信したファイルを保存できませんでした。",
+  "passwordChangePending": "前回のパスワード変更がまだ完了していません。ログアウトして再度ログインしてください",
+  "passwordRekeyFailed": "アカウントファイルを再暗号化できませんでした。変更は行われていません",
+  "exportRequiresLogin": "エクスポートする前にこのアカウントにログインしてください",
+  "profileUnopenableWithPassword": "このパスワードではアカウントファイルを開けませんでした。ファイルが破損しているか、パスワード変更が中断された可能性があります。",
+  "passwordChangeInterrupted": "パスワード変更が中断されました。変更前または変更後のパスワードを試してください。"
 }

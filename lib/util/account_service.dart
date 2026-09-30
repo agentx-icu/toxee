@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -13,7 +12,9 @@ import '../adapters/bootstrap_adapter.dart';
 import 'active_session.dart';
 import 'prefs.dart';
 import 'prefs_upgrader.dart';
+import 'profile_open_failure.dart';
 import 'account_deletion.dart';
+import 'account_password_change.dart';
 import 'account_registration_rollback.dart';
 import 'account_scoped_service_factory.dart';
 import 'account_session_cleanup.dart';
@@ -276,53 +277,25 @@ class AccountService {
   // Live-session password updates
   // ---------------------------------------------------------------------------
   //
-  // The on-disk profile is plaintext during an active session
-  // (initializeServiceForAccount decrypts it before init); teardownCurrentSession
-  // re-encrypts it on logout using the password in SessionPasswordStore. So any
-  // mid-session password change MUST update SessionPasswordStore, or logout will
-  // encrypt with the wrong (stale) password — or skip encryption — leaving the
-  // on-disk encryption state out of sync with the verifier and breaking the next
-  // launch. These two helpers own that contract so callers (the Settings page)
-  // can't get it wrong. Both derive the canonical toxId from the live service
-  // (getSelfToxId) — never the accountKey placeholder fallback, which must not
-  // key durable password state.
+  // The profile on disk is ciphertext under the account password for the whole
+  // session (native savedata encryption, staged before init below), so a
+  // mid-session change must re-key the FILE, not just the verifier — and a
+  // kill between the two must be recoverable. Both live in
+  // `AccountPasswordChange` (journaled; see password_change_journal.dart).
+  // Both derive the canonical toxId from the live service (getSelfToxId) —
+  // never the accountKey placeholder fallback.
 
-  /// Set or change the account password mid-session. Writes the durable
-  /// verifier (Prefs) AND updates the in-memory [SessionPasswordStore] so
-  /// [teardownCurrentSession] re-encrypts the profile with the NEW password on
-  /// logout. Returns whether the verifier write succeeded; the session store is
-  /// only updated when it did (a failed verifier write must not arm logout to
-  /// encrypt under a password the user can't later verify).
-  static Future<bool> setAccountPassword(
+  /// Set or change the account password mid-session (re-key + verifier +
+  /// [SessionPasswordStore], journaled). See [AccountPasswordChange.set].
+  static Future<PasswordChangeOutcome> setAccountPassword(
     FfiChatService service,
     String password,
-  ) async {
-    final toxId = service.getSelfToxId();
-    if (toxId == null || toxId.isEmpty) return false;
-    final ok = await Prefs.setAccountPassword(toxId, password);
-    if (ok) {
-      SessionPasswordStore.set(toxId, password);
-    }
-    return ok;
-  }
+  ) => AccountPasswordChange.set(service, password);
 
-  /// Remove the account password mid-session. Removes the durable verifier
-  /// (Prefs) AND clears the in-memory [SessionPasswordStore], so
-  /// [teardownCurrentSession] does NOT re-encrypt the profile the user just
-  /// chose to leave unprotected. Without the clear, logout re-encrypts with the
-  /// now-removed password while the verifier is gone → next launch shows no
-  /// password prompt and hands FFI an undecryptable blob (silent startup
-  /// failure). Returns whether the verifier removal succeeded; the session
-  /// password is retained when durable removal fails.
-  static Future<bool> removeAccountPassword(FfiChatService service) async {
-    final toxId = service.getSelfToxId();
-    if (toxId == null || toxId.isEmpty) return false;
-    final ok = await Prefs.removeAccountPassword(toxId);
-    if (ok) {
-      SessionPasswordStore.clear(toxId);
-    }
-    return ok;
-  }
+  /// Remove the account password mid-session. See [AccountPasswordChange.remove].
+  static Future<PasswordChangeOutcome> removeAccountPassword(
+    FfiChatService service,
+  ) => AccountPasswordChange.remove(service);
 
   // ---------------------------------------------------------------------------
   // Initialization
@@ -358,8 +331,6 @@ class AccountService {
     final previousAvatarPath = await Prefs.getAvatarPath();
     FfiChatService? service;
     String? profileFile;
-    bool profileWasDecrypted = false;
-    bool initSucceeded = false;
     // Hoisted so the catch path can clear the post-backfill session-password
     // cache too — see the catch block below for why this matters.
     String? canonicalToxId;
@@ -425,19 +396,6 @@ class AccountService {
         AppLogger.log('[AccountService] profile_migration status=completed');
       }
 
-      if (password != null && password.isNotEmpty) {
-        final isEncrypted = await AccountExportService.isProfileFileEncrypted(
-          profileFile,
-        );
-        if (isEncrypted) {
-          await AccountExportService.decryptProfileFile(profileFile, password);
-          // Only mark as decrypted if we actually performed the decrypt — the
-          // finally re-encrypt path uses this flag to decide whether to restore
-          // on-disk encryption, and must not encrypt a profile that was already
-          // plaintext.
-          profileWasDecrypted = true;
-        }
-      }
 
       final prefs = await SharedPreferences.getInstance();
       service = FfiChatService(
@@ -453,7 +411,17 @@ class AccountService {
         avatarsPath: avatarsPath,
       );
 
-      await service.init(profileDirectory: profileDir);
+      // The password goes to the native layer BEFORE init (single-use stage):
+      // an encrypted profile is opened in place and every save stays
+      // ciphertext, a plaintext one is re-written encrypted by the init itself
+      // (or the init fails and leaves it untouched). The file is never
+      // decrypted on disk, so an OS kill mid-session finds ciphertext.
+      await _stageProfilePassphrase(service, password);
+      try {
+        await service.init(profileDirectory: profileDir);
+      } catch (e) {
+        throw await _classifyInitFailure(e, toxId, profileFile, password);
+      }
       await service.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
 
       // F12 backfill: imported accounts land in account_list with a
@@ -498,6 +466,17 @@ class AccountService {
         // the long form, so the session cache must agree or `verifyPassword`
         // on next login would see a stale short-form cache hit.
         SessionPasswordStore.set(activeToxId, password);
+        // A password change this account did not finish (kill between its
+        // steps) is settled now that the profile provably opened with
+        // `password`: promoted, abandoned, or a removal completed.
+        final settled = await Prefs.passwordChanges.reconcileAfterLogin(
+          activeToxId,
+          password,
+          rekeyLive: (pw) async => service!.rekeyLiveProfilePassphrase(pw),
+        );
+        if (settled == PasswordChangeReconcile.removalCompleted) {
+          SessionPasswordStore.clear(activeToxId);
+        }
       }
 
       await Prefs.setCurrentAccountToxId(activeToxId);
@@ -525,7 +504,6 @@ class AccountService {
       // switch, L3 boot), so no account can stay in that state. Never
       // throws; on failure the stores keep whatever they had.
       await DefaultAvatarInstaller.ensureSelfAvatar(toxId: activeToxId);
-      initSucceeded = true;
       return service;
     } catch (e) {
       await service?.dispose();
@@ -550,27 +528,49 @@ class AccountService {
         }
       }
       rethrow;
-    } finally {
-      // Re-encrypt the on-disk profile if we decrypted it but didn't succeed.
-      // try/finally (vs catch-rethrow) guarantees this runs even on a future
-      // early-return path that bypasses the catch. On the success path the
-      // session owns the running profile and the file is re-encrypted later
-      // by teardownCurrentSession, so we skip it here.
-      if (!initSucceeded &&
-          profileWasDecrypted &&
-          profileFile != null &&
-          password != null &&
-          password.isNotEmpty) {
-        try {
-          await AccountExportService.encryptProfileFile(profileFile, password);
-        } catch (encryptError) {
-          SafeDiagnostics.logFailure(
-            '[AccountService] initialization_rollback_failed '
-            'stage=profile_reencryption',
-            encryptError,
-          );
-        }
+    }
+  }
+
+  /// Hands [password] to the native layer for the NEXT init. Refuses to run
+  /// on a native library without savedata encryption: silently falling back
+  /// to decrypt-in-place would reopen the plaintext-at-rest gap this exists
+  /// to close.
+  static Future<void> _stageProfilePassphrase(
+    FfiChatService service,
+    String? password,
+  ) async {
+    if (password == null || password.isEmpty) return;
+    if (!service.setProfilePassphrase(password)) {
+      throw StateError(
+        'native library lacks savedata encryption '
+        '(tim2tox_ffi_set_profile_passphrase); refusing to open a protected '
+        'profile in plaintext',
+      );
+    }
+  }
+
+  /// A failed init under a verified password is reported as such, with the
+  /// hint that matters: whether a journaled password change was interrupted
+  /// (then the file is most likely under the other password).
+  static Future<Object> _classifyInitFailure(
+    Object error,
+    String toxId,
+    String? profileFile,
+    String? password,
+  ) async {
+    if (password == null || password.isEmpty || profileFile == null) {
+      return error;
+    }
+    try {
+      if (!await AccountExportService.isProfileFileEncrypted(profileFile)) {
+        return error;
       }
+      final pending = await Prefs.passwordChanges.pending(toxId);
+      return ProfileUnopenableWithPasswordException(
+        passwordChangeInFlight: pending.record != null,
+      );
+    } catch (_) {
+      return error;
     }
   }
 
@@ -589,9 +589,6 @@ class AccountService {
     required String nickname,
     String statusMessage = '',
     String password = '',
-    @visibleForTesting
-    Future<void> Function(String profileFilePath, String password)?
-    encryptProfileFileOverride,
   }) async {
     // 1. Validate uniqueness
     final existingAccount = await Prefs.getAccountByNickname(nickname);
@@ -616,6 +613,7 @@ class AccountService {
     String? toxId;
     String? finalDir;
     bool accountVisible = false;
+    bool verifierWritten = false;
     // Per-resource ownership. Rollback may only delete what THIS registration
     // created; a directory that already belonged to another account with the
     // same 16-char prefix must survive. `ownsFinalDir` flips only after the
@@ -648,6 +646,8 @@ class AccountService {
         );
 
         service = svc;
+        // The very first save of the new identity is already ciphertext.
+        await _stageProfilePassphrase(svc, password);
         await service.init(profileDirectory: tempDir);
         await service.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
 
@@ -713,6 +713,14 @@ class AccountService {
       // and not a line earlier: if the rename throws (e.g. the destination
       // exists and is non-empty), the directory is someone else's.
       final profileDir = finalDir!;
+      if (password.isNotEmpty) {
+        // Verifier BEFORE the account is published: a kill after the rename
+        // must never leave an encrypted profile with no password gate.
+        if (!await Prefs.setAccountPassword(toxId!, password)) {
+          throw StateError('Failed to persist account password verifier');
+        }
+        verifierWritten = true;
+      }
       await Directory(tempDir!).rename(profileDir);
       ownsFinalDir = true;
 
@@ -753,31 +761,21 @@ class AccountService {
       accountVisible = true;
       await Prefs.setAvatarPath(defaultAvatarPath);
 
-      // 7. Handle password encryption if needed
+      // 7. Protected account: reopen with account-scoped paths, passphrase staged
       if (password.isNotEmpty) {
-        final passwordPersisted = await Prefs.setAccountPassword(tid, password);
-        if (!passwordPersisted) {
-          throw StateError('Failed to persist account password verifier');
-        }
         SessionPasswordStore.set(tid, password);
-
-        // Encrypt then decrypt to verify, then re-init with account-scoped paths
         await svc.dispose();
         await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
         service = null;
-        final profilePath = AppPaths.profileFileInDirectory(profileDir);
-        final encryptProfileFile =
-            encryptProfileFileOverride ??
-            AccountRegistrationTestHooks.encryptProfileFile ??
-            AccountExportService.encryptProfileFile;
-        await encryptProfileFile(profilePath, password);
-        await AccountExportService.decryptProfileFile(profilePath, password);
+        final beforeReopen = AccountRegistrationTestHooks.beforeScopedReopen;
+        if (beforeReopen != null) await beforeReopen(tid);
 
         final prefsForNew = await SharedPreferences.getInstance();
         final newService = await createAccountScopedService(
           prefs: prefsForNew,
           toxId: tid,
           profileDirectory: profileDir,
+          password: password,
         );
         service = newService;
         // The `updateSelfProfile` above ran on the now-disposed temp service;
@@ -837,6 +835,7 @@ class AccountService {
           ownsFinalDir: ownsFinalDir,
           ownedDataRoots: ownedDataRoots,
           accountVisible: accountVisible,
+          verifierWritten: verifierWritten,
           previousAccount: previousAccount,
           previousNickname: previousNickname,
           previousStatusMessage: previousStatusMessage,

@@ -95,11 +95,35 @@ class MissingBackupProfileException implements Exception {
 /// Thrown when an export cannot determine whether the on-disk profile is
 /// already encrypted, and therefore cannot decide whether to encrypt it.
 ///
-/// Both guesses are harmful: assuming "already encrypted" publishes a PLAINTEXT
-/// copy of a password-protected account (the profile is plaintext for the whole
-/// of an authenticated session), and assuming "not encrypted" produces a
-/// double-encrypted file that neither toxee nor qTox can import. So the export
-/// aborts instead.
+/// Both guesses are harmful: assuming "already encrypted" would export the
+/// at-rest ciphertext under a password the user did not choose, and assuming
+/// "not encrypted" produces a double-encrypted file that neither toxee nor
+/// qTox can import. So the export aborts instead.
+/// Thrown by the exporters when the profile on disk is ciphertext (a
+/// protected account at rest) and no password that opens it is available:
+/// neither the caller passed a verified account password nor is the account
+/// the live session's. The UI tells the user to log in to the account first.
+class SessionPasswordUnavailableException implements Exception {
+  const SessionPasswordUnavailableException();
+
+  @override
+  String toString() =>
+      'SessionPasswordUnavailableException: the profile is encrypted at rest '
+      'and no password that opens it is available for this export';
+}
+
+/// Thrown by the full-backup readers when the archive's `tox_profile.tox` is
+/// itself encrypted (an older archive of a protected account) and no ACCOUNT
+/// password was supplied. Independent of the archive password.
+class BackupProfilePasswordRequiredException implements Exception {
+  const BackupProfilePasswordRequiredException();
+
+  @override
+  String toString() =>
+      'BackupProfilePasswordRequiredException: the profile inside this backup '
+      'is encrypted; the account password is required';
+}
+
 class UndeterminedProfileEncryptionException implements Exception {
   const UndeterminedProfileEncryptionException();
 

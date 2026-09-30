@@ -2184,4 +2184,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => 'Couldn\'t save a received file.';
+
+  @override
+  String get passwordChangePending =>
+      'a previous password change is still being finalised; log out and back in';
+
+  @override
+  String get passwordRekeyFailed =>
+      'the account file could not be re-encrypted; nothing was changed';
+
+  @override
+  String get exportRequiresLogin =>
+      'Log in to this account before exporting it';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      'The account file did not open with this password. It may be damaged, or a password change may have been interrupted.';
+
+  @override
+  String get passwordChangeInterrupted =>
+      'A password change was interrupted. Try the password from before or after the change.';
 }

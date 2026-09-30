@@ -76,6 +76,7 @@ Future<PasswordGateOutcome> resolveAccountPassword({
   // was wrong. The condition is transient (a locked keychain, a missing
   // entitlement, a plugin that failed to register), so name it and let them
   // retry.
+  if (!hasCached) await Prefs.passwordChanges.reconcileForGate(toxId);
   final protection = hasCached
       ? AccountProtectionState.protected
       : await Prefs.accountProtectionState(toxId);

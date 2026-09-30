@@ -2188,5 +2188,25 @@
   "fileReceiveFailed": "Couldn't save \"{fileName}\".",
   "@fileReceiveFailed": {"description": "Toast: an incoming file could not be written or saved (I/O error other than a full disk)", "placeholders": {"fileName": {"type": "String"}}},
   "fileReceiveFailedUnnamed": "Couldn't save a received file.",
-  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"}
+  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"},
+  "passwordChangePending": "a previous password change is still being finalised; log out and back in",
+  "@passwordChangePending": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "passwordRekeyFailed": "the account file could not be re-encrypted; nothing was changed",
+  "@passwordRekeyFailed": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "exportRequiresLogin": "Log in to this account before exporting it",
+  "@exportRequiresLogin": {
+    "description": "Export refused because the protected account is not the live session, so its encrypted profile cannot be opened"
+  },
+  "profileUnopenableWithPassword": "The account file did not open with this password. It may be damaged, or a password change may have been interrupted.",
+  "@profileUnopenableWithPassword": {
+    "description": "Login failed: the verifier accepted the password but the encrypted profile did not open with it"
+  },
+  "passwordChangeInterrupted": "A password change was interrupted. Try the password from before or after the change.",
+  "@passwordChangeInterrupted": {
+    "description": "Login failed while a journaled password change is unfinished; the file is under the other password"
+  }
 }
