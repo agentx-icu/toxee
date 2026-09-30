@@ -46,13 +46,7 @@ extension LoginRestoreFromTox on LoginPageController {
         filePath = filePathOverride;
       } else {
         filePath = await runL3AwareAccountImportPicker(
-          pickFile: () async {
-            final picked = await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['tox'],
-            );
-            return picked?.files.single.path;
-          },
+          pickFile: () => pickAccountImportFile(const ['tox']),
         );
         if (filePath == null) {
           return const RestoreFailure(RestoreFailureKind.noFileSelected);

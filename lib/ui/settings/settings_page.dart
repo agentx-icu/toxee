@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
-import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../../util/app_paths.dart';
 import '../../util/camera_capture_recovery.dart';
@@ -32,6 +31,7 @@ import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
+import '../account_import_file_picker.dart';
 import '../account_password_texts.dart';
 import '../../util/account_export/exceptions.dart';
 import '../../util/account_password_change.dart';
@@ -106,12 +106,8 @@ typedef SettingsAddImportedAccountFn =
 typedef SettingsSetImportedAccountPasswordFn =
     Future<bool> Function(String toxId, String password);
 
-Future<String?> _pickSettingsImportFile() async {
-  return (await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: ['tox', 'zip'],
-  ))?.files.single.path;
-}
+Future<String?> _pickSettingsImportFile() =>
+    pickAccountImportFile(const ['tox', 'zip']);
 
 Future<void> _addSettingsImportedAccount({
   required String toxId,

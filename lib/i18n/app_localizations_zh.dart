@@ -2075,6 +2075,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get passwordChangeInterrupted => '密码修改被中断。请尝试修改前或修改后的密码。';
+
+  @override
+  String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3640,6 +3643,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get passwordChangeInterrupted => '密码修改被中断。请尝试修改前或修改后的密码。';
+
+  @override
+  String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5713,4 +5719,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get passwordChangeInterrupted => '密碼修改被中斷。請嘗試修改前或修改後的密碼。';
+
+  @override
+  String get importUnsupportedFileType => '請選擇 .tox 資料檔或 .zip 完整備份';
 }

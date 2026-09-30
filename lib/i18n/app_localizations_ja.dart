@@ -2116,4 +2116,8 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get passwordChangeInterrupted =>
       'パスワード変更が中断されました。変更前または変更後のパスワードを試してください。';
+
+  @override
+  String get importUnsupportedFileType =>
+      '.tox プロファイルまたは .zip の完全バックアップを選択してください';
 }

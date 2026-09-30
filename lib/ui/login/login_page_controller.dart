@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../auth/login_use_case.dart';
@@ -17,6 +16,7 @@ import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
 import '../testing/l3_debug_tools.dart';
+import '../account_import_file_picker.dart';
 import 'login_controller_results.dart';
 
 export 'login_controller_results.dart';
@@ -202,13 +202,14 @@ class LoginPageController {
       final filePath =
           filePathOverride ??
           await runL3AwareAccountImportPicker(
-            pickFile: () async => (await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['tox', 'zip'],
-            ))?.files.single.path,
+            pickFile: () => pickAccountImportFile(const ['tox', 'zip']),
           );
       if (filePath == null) {
         return const ImportFailure(ImportFailureKind.noFileSelected);
+      }
+      if (!hasAccountImportExtension(filePath, const ['tox', 'zip'])) {
+        // The Android picker is unfiltered (no MIME type for .tox).
+        return const ImportFailure(ImportFailureKind.unsupportedFile);
       }
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
