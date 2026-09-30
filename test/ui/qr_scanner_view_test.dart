@@ -20,6 +20,10 @@ import 'package:toxee/ui/widgets/qr_scanner_view.dart';
 
 const _method = MethodChannel('dev.steenbakker.mobile_scanner/scanner/method');
 const _events = EventChannel('dev.steenbakker.mobile_scanner/scanner/event');
+// mobile_scanner 7.x also listens to the device orientation while running.
+const _orientation = EventChannel(
+  'dev.steenbakker.mobile_scanner/scanner/deviceOrientation',
+);
 
 /// The camera side of the platform, as the plugin reports it, plus the
 /// app-level permission answers (permission_handler's seams).
@@ -57,6 +61,10 @@ class _FakeCamera {
           'numberOfCameras': 1,
           'currentTorchState': -1,
           'size': <String, Object?>{'width': 1080.0, 'height': 1920.0},
+          // mobile_scanner 7.x (Android): the surface-producer configuration.
+          'handlesCropAndRotation': true,
+          'naturalDeviceOrientation': 'PORTRAIT_UP',
+          'sensorOrientation': 90,
         };
     }
     return null;
@@ -76,11 +84,16 @@ void main() {
       _events,
       MockStreamHandler.inline(onListen: (_, _) {}),
     );
+    messenger.setMockStreamHandler(
+      _orientation,
+      MockStreamHandler.inline(onListen: (_, _) {}),
+    );
   });
 
   tearDown(() async {
     messenger.setMockMethodCallHandler(_method, null);
     messenger.setMockStreamHandler(_events, null);
+    messenger.setMockStreamHandler(_orientation, null);
   });
 
   Future<void> pumpView(

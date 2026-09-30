@@ -372,7 +372,7 @@ class QrScannerViewState extends State<QrScannerView>
           // Access is settled before the camera starts (and revoking it kills
           // the process on Android); should the plugin still report a denial,
           // it gets the Settings view, any other failure Retry.
-          errorBuilder: (context, error, _) =>
+          errorBuilder: (context, error) =>
               error.errorCode == MobileScannerErrorCode.permissionDenied
               ? _buildDenied(l10n)
               : _buildFailed(l10n),
