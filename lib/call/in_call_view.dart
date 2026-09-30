@@ -11,6 +11,7 @@ import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
 import 'call_audio_route_sheet.dart';
+import 'camera_availability.dart';
 import 'call_state_notifier.dart';
 import 'call_media_capabilities.dart';
 import 'call_ui_shell.dart';
@@ -323,9 +324,13 @@ class InCallView extends StatelessWidget {
     final previewWidth = (shortSide * 0.35).clamp(120.0, 280.0);
     final previewHeight = previewWidth * 4 / 3;
     return ListenableBuilder(
-      listenable: manager.previewListenable,
+      listenable: Listenable.merge([
+        manager.previewListenable,
+        CameraAvailability.unavailable,
+      ]),
       builder: (context, _) {
         final preview = manager.localPreview;
+        final paused = CameraAvailability.unavailable.value;
         // The video stage is edge-to-edge (overlayBars), so clear BOTH the
         // system inset and the floating top bar here — exactly once.
         final topInset = MediaQuery.paddingOf(context).top +
@@ -349,9 +354,21 @@ class InCallView extends StatelessWidget {
                 boxShadow: kCallPipShadow,
               ),
               clipBehavior: Clip.antiAlias,
-              child:
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
                   preview ??
-                  const ColoredBox(color: _kCallLocalPreviewPlaceholder),
+                      const ColoredBox(color: _kCallLocalPreviewPlaceholder),
+                  // iPadOS stopped the camera (V5): say why, instead of a
+                  // frozen or black picture.
+                  if (paused != null)
+                    _CameraPausedOverlay(
+                      message: paused == CameraUnavailableReason.multitasking
+                          ? l10n.cameraPausedMultitasking
+                          : l10n.cameraUnavailable,
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -378,6 +395,44 @@ class InCallView extends StatelessWidget {
         name: name,
         radius: radius,
         fontSize: fontSize,
+      ),
+    );
+  }
+}
+
+class _CameraPausedOverlay extends StatelessWidget {
+  const _CameraPausedOverlay({required this.message});
+
+  static const overlayKey = ValueKey('call-local-camera-paused');
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      key: overlayKey,
+      color: Colors.black.withValues(alpha: 0.72),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        // The card can be 120x160 and the text large: shrink, never overflow.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: 104,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.videocam_off_outlined, color: Colors.white),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

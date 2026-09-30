@@ -6,6 +6,12 @@ import 'package:tencent_cloud_chat_common/widgets/avatar/tencent_cloud_chat_avat
 import '../call/call_media_capabilities.dart';
 import '../notifications/notification_service.dart';
 import '../util/account_export_service.dart';
+import '../call/camera_availability.dart';
+import '../util/gallery_saver.dart';
+import '../util/outgoing_media.dart';
+import '../util/send_failure_notifier.dart';
+import '../ui/widgets/app_snackbar.dart';
+import '../ui/widgets/media_transcode_dialog.dart';
 import '../util/account_deletion_journal.dart';
 import '../util/account_export/tox_import_journal.dart';
 import '../util/placeholder_identity_discovery.dart';
@@ -85,6 +91,21 @@ class AppBootstrap {
     TencentCloudChatAvatar.defaultAvatarAsset =
         'assets/avatars/default_contact.png';
     TencentCloudChatAvatar.defaultAvatarAssetPackage = null;
+    // Phones: the media viewer's Save goes to the photo library (M3).
+    GallerySaver.install();
+    // iPad: why the call camera stopped under multitasking (V5).
+    CameraAvailability.listen();
+    // HEIC photos go out as JPEG, HEVC videos as H.264: desktop peers often
+    // cannot show them (M2). A video conversion shows its progress.
+    OutgoingMedia.presenter = MediaTranscodeDialog.present;
+    OutgoingMedia.installForUiKit(
+      onFailure: (message) {
+        final messenger = SendFailureNotifier.scaffoldMessengerKey.currentState;
+        if (messenger != null) {
+          AppSnackBar.showOn(messenger, message, isError: true);
+        }
+      },
+    );
     // Learn whether this DEVICE actually has a camera before anything can offer
     // a video call, so a camera-less device never raises a camera permission
     // sheet it cannot resolve (that modal covers the app and blocks even VOICE

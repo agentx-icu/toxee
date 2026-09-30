@@ -71,4 +71,38 @@ void main() {
     expect(captured, contains('show'),
         reason: 'a granted permission must emit the platform show call');
   });
+
+  group('a denial is not cached for the session', () {
+    Future<void> send(NotificationService svc) => svc.showMessageNotification(
+          conversationId: 'c2c_peer',
+          senderName: 'Alice',
+          preview: 'hello',
+        );
+
+    test('the app switch observed on again -> notifications resume', () async {
+      final svc = NotificationService.instance;
+      await svc.init();
+      NotificationService.debugForceIsAndroid = true;
+      svc.debugAndroidPermissionGranted = false;
+
+      svc.observeAndroidAppSwitch(enabled: true);
+      captured.clear();
+      await send(svc);
+      expect(captured, contains('show'),
+          reason: 'turning notifications on in settings must take effect '
+              'without restarting the app');
+    });
+
+    test('still off -> still suppressed', () async {
+      final svc = NotificationService.instance;
+      await svc.init();
+      NotificationService.debugForceIsAndroid = true;
+      svc.debugAndroidPermissionGranted = false;
+
+      svc.observeAndroidAppSwitch(enabled: false);
+      captured.clear();
+      await send(svc);
+      expect(captured, isNot(contains('show')));
+    });
+  });
 }

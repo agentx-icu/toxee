@@ -659,5 +659,101 @@ void main() {
         reason: 'releasing the mic should stop the real recorder',
       );
     });
+
+    // P1b: the three ways a press ends without a release.
+    Future<Finder> pumpComposer(
+      WidgetTester tester,
+      List<RecordInfo> finished,
+    ) async {
+      useMobileSurface(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            debugIsMobile: () => true,
+            inputData: _data(),
+            inputMethods: _methods(onVoice: finished.add),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return find.byIcon(Icons.mic);
+    }
+
+    Future<void> waitFor(bool Function() done) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!done() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    for (final interruption in ['pointer cancel', 'app interrupted']) {
+      testWidgets('$interruption while recording discards the recording', (
+        tester,
+      ) async {
+        final finished = <RecordInfo>[];
+        final mic = await pumpComposer(tester, finished);
+        late TestGesture gesture;
+        await tester.runAsync(() async {
+          gesture = await tester.startGesture(tester.getCenter(mic));
+          await waitFor(() => recorder.methods.contains('start'));
+        });
+        await tester.pump();
+        expect(recorder.methods, contains('start'));
+
+        await tester.runAsync(() async {
+          if (interruption == 'pointer cancel') {
+            await gesture.cancel();
+          } else {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+          }
+          await waitFor(() => recorder.methods.contains('stop'));
+          // Let the discard path finish before checking nothing was sent.
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        });
+        await tester.pumpAndSettle();
+        expect(recorder.methods, contains('stop'));
+        expect(finished, isEmpty, reason: 'nobody released: nothing is sent');
+        expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsNothing);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      });
+    }
+
+    testWidgets('a press consumed by the permission prompt explains itself', (
+      tester,
+    ) async {
+      // Never asked before; the user grants in the system prompt.
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('flutter.baseflow.com/permissions/methods'),
+        (call) async {
+          if (call.method == 'requestPermissions') {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.resumed,
+            );
+            final requested = (call.arguments as List).cast<int>();
+            return <int, int>{for (final v in requested) v: 1};
+          }
+          if (call.method == 'shouldShowRequestPermissionRationale') {
+            return false;
+          }
+          return 0; // denied (never asked)
+        },
+      );
+      final mic = await pumpComposer(tester, []);
+      await tester.runAsync(() async {
+        final gesture = await tester.startGesture(tester.getCenter(mic));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await gesture.up();
+      });
+      await tester.pump();
+      expect(recorder.methods, isNot(contains('start')));
+      expect(find.text('Hold to record, release to send'), findsWidgets);
+      await tester.pump(const Duration(seconds: 3));
+    });
   });
 }

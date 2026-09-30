@@ -100,6 +100,53 @@ void main() {
     );
   });
 
+  testWidgets('UIKit times follow the device 24-hour setting', (tester) async {
+    // Regression: the locale convention alone showed "9:28 PM" to users who
+    // set their device to 24-hour time.
+    final now = DateTime.now();
+    final ts =
+        DateTime(now.year, now.month, now.day, 21, 28).millisecondsSinceEpoch ~/
+        1000;
+    Future<BuildContext> pumpWith({required bool use24}) async {
+      tester.platformDispatcher.alwaysUse24HourFormatTestValue = use24;
+      // The root MediaQuery re-reads the platform settings only on a platform
+      // event (the engine's settings update on a device); the test value
+      // setter sends none, so raise one.
+      tester.binding.handleAccessibilityFeaturesChanged();
+      late BuildContext ctx;
+      await _pumpMaterial(
+        tester,
+        Builder(
+          builder: (context) {
+            ctx = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+      return ctx;
+    }
+
+    addTearDown(() {
+      tester.platformDispatcher.clearAlwaysUse24HourTestValue();
+      // Refresh the root MediaQuery too, or later tests inherit 24-hour time.
+      tester.binding.handleAccessibilityFeaturesChanged();
+    });
+    _useEnglish();
+    var ctx = await pumpWith(use24: false);
+    expect(
+      TencentCloudChatIntl.formatTimestampToTime(ts, ctx),
+      matches(RegExp(r'^9:28\sPM$')),
+    );
+
+    ctx = await pumpWith(use24: true);
+    expect(TencentCloudChatIntl.formatTimestampToTime(ts, ctx), '21:28');
+    expect(
+      TencentCloudChatIntl.formatTimestampToHumanReadable(ts, ctx),
+      '21:28',
+      reason: 'the conversation list uses the same setting',
+    );
+  });
+
   testWidgets(
     'UIKit member date-times use the UIKit locale, not the log format',
     (tester) async {

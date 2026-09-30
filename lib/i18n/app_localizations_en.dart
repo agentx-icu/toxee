@@ -439,6 +439,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => 'Change profile photo';
+
+  @override
   String get failedToLoadQr => 'Failed to load QR';
 
   @override
@@ -1805,6 +1808,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scanQr => 'Scan QR';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'Camera access is off. Allow it in Settings to scan QR codes.';
+
+  @override
+  String get scanQrCameraUnavailable => 'The camera could not be started.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'Export cancelled. A copy is in the Files app under Toxee › Downloads.';
+
+  @override
   String get sendingInProgress => 'Sending...';
 
   @override
@@ -2048,4 +2062,126 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'Enter the group password';
+
+  @override
+  String get notificationAccessAppOff =>
+      'Notifications are off. Toxee can\'t alert you to new messages or calls while it\'s in the background.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      'Incoming-call notifications are off. While Toxee is in the background you won\'t get a notification to answer calls.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee isn\'t allowed to show incoming calls full screen, so they appear only as a regular notification.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'Message notifications are off. New messages won\'t alert you while Toxee is in the background.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      'Some Toxee notifications are off (friend requests, group invites or missed calls).';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      'Notification alerts are off. New messages won\'t pop up while Toxee is in the background.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.';
+
+  @override
+  String get notificationAccessOpenSettings => 'Settings';
+
+  @override
+  String get backgroundSettingsTitle => 'Background & notifications';
+
+  @override
+  String get hideNotificationContent => 'Hide message content in notifications';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'Message notifications show only “New message”, not the sender or the text.';
+
+  @override
+  String get notificationContentHidden => 'New message';
+
+  @override
+  String get backgroundRunningTitle => 'Background running';
+
+  @override
+  String get backgroundRunningAllowed =>
+      'Allowed. Battery optimization won\'t stop Toxee in the background.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won\'t arrive.';
+
+  @override
+  String get backgroundRunningAllow => 'Allow';
+
+  @override
+  String get recoveredPhotoTitle => 'Send the photo you took?';
+
+  @override
+  String get recoveredVideoTitle => 'Send the video you recorded?';
+
+  @override
+  String get recoveredFileTitle => 'Send the file you picked?';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'Toxee was closed while the camera was open. Send it to $name?';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'Toxee was closed while the file picker was open. Send $file to $name?';
+  }
+
+  @override
+  String get recoveredCaptureSend => 'Send';
+
+  @override
+  String get recoveredCaptureDiscard => 'Discard';
+
+  @override
+  String get mediaConversionFailed =>
+      'Couldn\'t convert this photo for sending. Nothing was sent.';
+
+  @override
+  String get videoConverting => 'Preparing video…';
+
+  @override
+  String get videoConvertingDesc =>
+      'Converting it to a format every device can play.';
+
+  @override
+  String get videoConversionFailed =>
+      'Couldn\'t convert this video for sending. Nothing was sent.';
+
+  @override
+  String get cameraPausedMultitasking =>
+      'Camera paused while other apps share the screen';
+
+  @override
+  String get cameraUnavailable => 'Camera unavailable';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'Not enough storage to receive \"$fileName\". Free up space and try again.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'Not enough storage to receive a file. Free up space and try again.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return 'Couldn\'t save \"$fileName\".';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => 'Couldn\'t save a received file.';
 }

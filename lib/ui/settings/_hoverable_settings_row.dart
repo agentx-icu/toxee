@@ -26,20 +26,25 @@ class _HoverableSettingsRowState extends State<HoverableSettingsRow> {
     final scheme = Theme.of(context).colorScheme;
     final hoverColor = scheme.primary.withValues(alpha: 0.08);
     final disableAnims = MediaQuery.disableAnimationsOf(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: disableAnims ? Duration.zero : AppDurations.fast,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
+    // One screen-reader node per row (checklist I5): a switch is read with
+    // its title and description ("Auto Login, …, switch, on") instead of as
+    // an unnamed switch. Every row holds a single control.
+    return MergeSemantics(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: AnimatedContainer(
+          duration: disableAnims ? Duration.zero : AppDurations.fast,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: _isHovered ? hoverColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadii.input),
+          ),
+          child: widget.child,
         ),
-        decoration: BoxDecoration(
-          color: _isHovered ? hoverColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadii.input),
-        ),
-        child: widget.child,
       ),
     );
   }

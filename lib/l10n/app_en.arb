@@ -295,6 +295,8 @@
       }
     }
   },
+  "changeAvatar": "Change profile photo",
+  "@changeAvatar": {"description": "Screen-reader name of the tappable own avatar that opens the photo picker"},
   "failedToLoadQr": "Failed to load QR",
   "helloFromToxee": "Hello from toxee",
   "attachFailed": "Attach failed: {error}",
@@ -1729,6 +1731,18 @@
   "@scanQr": {
     "description": "Tooltip / screen title for scanning a QR code"
   },
+  "scanQrCameraPermissionDenied": "Camera access is off. Allow it in Settings to scan QR codes.",
+  "@scanQrCameraPermissionDenied": {
+    "description": "Scan QR page: the camera permission is denied; a button next to it opens the system Settings"
+  },
+  "scanQrCameraUnavailable": "The camera could not be started.",
+  "@scanQrCameraUnavailable": {
+    "description": "Scan QR page: the camera failed to start for a reason other than permission; a Retry button follows"
+  },
+  "exportCancelledCopyKept": "Export cancelled. A copy is in the Files app under Toxee › Downloads.",
+  "@exportCancelledCopyKept": {
+    "description": "iOS: an account export was cancelled in the save sheet; the export file was kept in the app's Files-visible Downloads folder"
+  },
   "sendingInProgress": "Sending...",
   "@sendingInProgress": {
     "description": "Tooltip on a submit button while a request is being sent"
@@ -2076,5 +2090,103 @@
   "groupPasswordRequired": "Enter the group password",
   "@groupPasswordRequired": {
     "description": "Validation error: the group password field is empty"
-  }
+  },
+  "notificationAccessAppOff": "Notifications are off. Toxee can't alert you to new messages or calls while it's in the background.",
+  "@notificationAccessAppOff": {
+    "description": "Chats-tab notice: app notifications are turned off in system settings"
+  },
+  "notificationAccessCallsOff": "Incoming-call notifications are off. While Toxee is in the background you won't get a notification to answer calls.",
+  "@notificationAccessCallsOff": {
+    "description": "Chats-tab notice: the incoming-call notification channel is off (Android)"
+  },
+  "notificationAccessFullScreenOff": "Toxee isn't allowed to show incoming calls full screen, so they appear only as a regular notification.",
+  "@notificationAccessFullScreenOff": {
+    "description": "Chats-tab notice: full-screen intent permission not granted (Android 14+)"
+  },
+  "notificationAccessMessagesOff": "Message notifications are off. New messages won't alert you while Toxee is in the background.",
+  "@notificationAccessMessagesOff": {
+    "description": "Chats-tab notice: the message notification channel is off (Android)"
+  },
+  "notificationAccessOtherOff": "Some Toxee notifications are off (friend requests, group invites or missed calls).",
+  "@notificationAccessOtherOff": {
+    "description": "Chats-tab notice: friend-request, group-invite or missed-call channel is off (Android)"
+  },
+  "notificationAccessAlertsOff": "Notification alerts are off. New messages won't pop up while Toxee is in the background.",
+  "@notificationAccessAlertsOff": {
+    "description": "Chats-tab notice: notification alerts (banners) are off (iOS)"
+  },
+  "notificationAccessProvisional": "Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.",
+  "@notificationAccessProvisional": {
+    "description": "Chats-tab notice: iOS provisional authorization, notifications delivered quietly"
+  },
+  "notificationAccessOpenSettings": "Settings",
+  "@notificationAccessOpenSettings": {
+    "description": "Button on the notification notice: opens the system settings page"
+  },
+  "backgroundSettingsTitle": "Background & notifications",
+  "@backgroundSettingsTitle": {
+    "description": "Settings section: background running and notification privacy"
+  },
+  "hideNotificationContent": "Hide message content in notifications",
+  "@hideNotificationContent": {
+    "description": "Switch: message notifications show a generic text instead of sender and content"
+  },
+  "hideNotificationContentDesc": "Message notifications show only “New message”, not the sender or the text.",
+  "@hideNotificationContentDesc": {
+    "description": "Description under the hide-notification-content switch"
+  },
+  "notificationContentHidden": "New message",
+  "@notificationContentHidden": {
+    "description": "Notification body shown when message content is hidden"
+  },
+  "backgroundRunningTitle": "Background running",
+  "@backgroundRunningTitle": {
+    "description": "Settings row (Android): battery-optimization exemption status"
+  },
+  "backgroundRunningAllowed": "Allowed. Battery optimization won't stop Toxee in the background.",
+  "@backgroundRunningAllowed": {
+    "description": "Background running status: exempt from battery optimization"
+  },
+  "backgroundRunningRestricted": "Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won't arrive.",
+  "@backgroundRunningRestricted": {
+    "description": "Background running status: subject to battery optimization"
+  },
+  "backgroundRunningAllow": "Allow",
+  "@backgroundRunningAllow": {
+    "description": "Button: request the battery-optimization exemption"
+  },
+  "recoveredPhotoTitle": "Send the photo you took?",
+  "@recoveredPhotoTitle": {"description": "Dialog title: a photo taken before the app was reclaimed by the system is waiting"},
+  "recoveredVideoTitle": "Send the video you recorded?",
+  "@recoveredVideoTitle": {"description": "Dialog title: a video recorded before the app was reclaimed by the system is waiting"},
+  "recoveredFileTitle": "Send the file you picked?",
+  "@recoveredFileTitle": {"description": "Dialog title: a file picked before the app was reclaimed by the system is waiting"},
+  "recoveredCaptureBody": "Toxee was closed while the camera was open. Send it to {name}?",
+  "@recoveredCaptureBody": {"description": "Dialog body: why the capture is offered again, and its recipient", "placeholders": {"name": {"type": "String"}}},
+  "recoveredFileBody": "Toxee was closed while the file picker was open. Send {file} to {name}?",
+  "@recoveredFileBody": {"description": "Dialog body: why the picked file is offered again, its name and its recipient", "placeholders": {"file": {"type": "String"}, "name": {"type": "String"}}},
+  "recoveredCaptureSend": "Send",
+  "@recoveredCaptureSend": {"description": "Button: send the recovered photo/video"},
+  "recoveredCaptureDiscard": "Discard",
+  "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"},
+  "mediaConversionFailed": "Couldn't convert this photo for sending. Nothing was sent.",
+  "@mediaConversionFailed": {"description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"},
+  "videoConverting": "Preparing video…",
+  "@videoConverting": {"description": "Dialog title while an HEVC video is converted to H.264 before sending"},
+  "videoConvertingDesc": "Converting it to a format every device can play.",
+  "@videoConvertingDesc": {"description": "Dialog text: why the video is being converted"},
+  "videoConversionFailed": "Couldn't convert this video for sending. Nothing was sent.",
+  "@videoConversionFailed": {"description": "Error: a video could not be converted before sending, so the send was stopped"},
+  "cameraPausedMultitasking": "Camera paused while other apps share the screen",
+  "@cameraPausedMultitasking": {"description": "Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen"},
+  "cameraUnavailable": "Camera unavailable",
+  "@cameraUnavailable": {"description": "Call: the local camera stopped (another app holds it, or system pressure)"},
+  "fileReceiveNoSpace": "Not enough storage to receive \"{fileName}\". Free up space and try again.",
+  "@fileReceiveNoSpace": {"description": "Toast: an incoming file was refused / stopped because the device storage is full (checklist M5)", "placeholders": {"fileName": {"type": "String"}}},
+  "fileReceiveNoSpaceUnnamed": "Not enough storage to receive a file. Free up space and try again.",
+  "@fileReceiveNoSpaceUnnamed": {"description": "Toast: like fileReceiveNoSpace when the file name is unknown"},
+  "fileReceiveFailed": "Couldn't save \"{fileName}\".",
+  "@fileReceiveFailed": {"description": "Toast: an incoming file could not be written or saved (I/O error other than a full disk)", "placeholders": {"fileName": {"type": "String"}}},
+  "fileReceiveFailedUnnamed": "Couldn't save a received file.",
+  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"}
 }

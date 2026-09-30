@@ -71,10 +71,11 @@ const IconData _accountInfoTileIcon = Icons.badge_outlined;
 /// Trailing icon of the profile card at the top of the mobile index.
 const IconData _profileCardIcon = Icons.edit_outlined;
 
-/// The mobile index renders exactly five drill-down section tiles (account
-/// info, account management, appearance, general, bootstrap nodes), each with a
-/// trailing chevron. The desktop branch renders none.
-const int _sectionTileCount = 5;
+/// The mobile index renders exactly six drill-down section tiles (account
+/// info, account management, appearance, general, background & notifications,
+/// bootstrap nodes), each with a trailing chevron. The desktop branch renders
+/// none.
+const int _sectionTileCount = 6;
 
 void _usePhoneSurface(WidgetTester tester, Size size) {
   tester.view.physicalSize = size;
@@ -141,7 +142,7 @@ void main() {
 
       await _pumpSettings(tester, service);
 
-      // Branch discriminator: the mobile index shows five chevroned section
+      // Branch discriminator: the mobile index shows six chevroned section
       // tiles and NO inline auto-login switch. The desktop branch is the exact
       // inverse (inline switch, no section tiles), so these two assertions
       // together prove `_buildMobileSettingsIndex` is what rendered.
@@ -326,10 +327,12 @@ void main() {
 
       // Premise, proven by a rendered widget rather than a boolean helper:
       // shortestSide is still 390, so the device is still in the MOBILE tier
-      // and the drill-down index (not the desktop list) is what renders.
+      // and the drill-down index (not the desktop list) is what renders. At
+      // 390 high the lazy ListView builds only the tiles that fit, so the
+      // count is not the full _sectionTileCount.
       expect(
         find.byIcon(Icons.chevron_right),
-        findsNWidgets(_sectionTileCount),
+        findsAtLeastNWidgets(1),
         reason:
             'a rotated phone keeps the mobile settings index (device class is '
             'shortestSide-based)',

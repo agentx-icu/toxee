@@ -139,7 +139,11 @@ extension _AccountActionButtons on _SettingsPageState {
       return OutlinedButton.icon(
         key: key,
         icon: Icon(icon, size: 18),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        // Compact cells wrap instead of cutting the label: at large system
+        // font sizes "Export Account" ended as "Export A…" (checklist L11).
+        label: compact
+            ? Text(label, textAlign: TextAlign.center)
+            : Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
         style: OutlinedButton.styleFrom(
           foregroundColor: danger ? errorColor : null,
           side: danger ? BorderSide(color: errorColor) : null,
@@ -201,12 +205,15 @@ extension _AccountActionButtons on _SettingsPageState {
           );
         }
         final buttons = buildAccountButtons(compact: true);
-        Widget gridRow(Widget left, Widget right) => Row(
-          children: [
-            Expanded(child: left),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(child: right),
-          ],
+        Widget gridRow(Widget left, Widget right) => IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: left),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(child: right),
+            ],
+          ),
         );
         return Column(
           children: [

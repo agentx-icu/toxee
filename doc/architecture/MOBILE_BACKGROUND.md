@@ -13,7 +13,7 @@ realistic ceiling is for a pure-P2P chat client.
 | Scenario | Android | iOS |
 |---|---|---|
 | App foregrounded | Works | Works |
-| App backgrounded, screen on | Works (foreground service keeps polling) | Works (~few min — VoIP + audio background mode + BG refresh keep socket warm) |
+| App backgrounded, screen on | Works (foreground service keeps polling) | Best-effort (suspended shortly after backgrounding unless a call keeps the `audio` session active; BGAppRefreshTask gives sporadic CPU time) |
 | App backgrounded, screen off | Works | Best-effort (iOS suspends after a brief window; BGAppRefreshTask gives sporadic CPU time) |
 | App force-quit by user | Stops | Stops |
 | Phone rebooted, app not launched | Stops | Stops |
@@ -24,14 +24,14 @@ gap in toxee. See [PushKit limitation](#why-pure-terminated-app-call-receive-is-
 
 ## iOS implementation
 
-Three pieces work together to extend background lifetime:
+`UIBackgroundModes` declares only `audio` and `fetch`. The `voip` mode was
+declared earlier and removed in `285c6f7` (fix(call): harden mobile
+incoming-call surfaces): without PushKit it grants nothing useful — it does
+not wake a terminated app, and its legacy keep-alive socket API is long
+deprecated — so the app does NOT stay connected in background outside a call.
 
-### 1. `voip` background mode (`Info.plist` `UIBackgroundModes`)
-Lets the existing Tox socket survive entering background for "as long as
-the OS allows" (in practice, a few minutes; depends on memory pressure and
-other apps). Important: in iOS 13+ the `voip` background mode by itself
-does NOT wake a terminated app — it only extends the socket lifetime while
-the app is already running.
+### 1. (removed) `voip` background mode
+See above. Listed so older references to "§1" still resolve.
 
 ### 2. `audio` background mode
 Keeps the AVAudioSession running so a call already in progress (or the
@@ -62,10 +62,19 @@ the two namespaces decoupled.
 ## Android implementation
 
 Lives in the parallel work under `android/`. Briefly:
-- Manifest declares `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_PHONE_CALL` /
+- Manifest declares `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` /
+  `FOREGROUND_SERVICE_DATA_SYNC` / `FOREGROUND_SERVICE_PHONE_CALL` /
   `USE_FULL_SCREEN_INTENT`.
-- The foreground service keeps the polling loop alive indefinitely; the OS
+- `ToxPollingService` keeps the polling loop alive while backgrounded; the OS
   will not freeze the app as long as the persistent notification is shown.
+  Its always-on mode uses the `specialUse` type on API 34+ and `dataSync`
+  below: `dataSync` is capped at 6 h per 24 h in background on API 35+ (then
+  the service must stop), which a session that stays open indefinitely would
+  hit. During a call it switches to `phoneCall` (+ `microphone` / `camera`).
+- If the OS stops the service anyway (a time limit, a refused start), the Dart
+  wrapper `RuntimeForegroundService` notices on the next resume — it asks the
+  native side whether the service is running — and re-issues the last
+  requested mode.
 - `ConnectionService` integration would surface a system call UI but is not
   currently implemented.
 

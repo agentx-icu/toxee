@@ -15,6 +15,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -355,7 +356,7 @@ class CallAudioChannel(
         stopBluetoothScoIfActive()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             findSpeakerDevice()?.let {
-                audioManager.setCommunicationDevice(it)
+                setCommunicationDeviceSafely(it)
             }
         }
         audioManager.isSpeakerphoneOn = true
@@ -365,7 +366,7 @@ class CallAudioChannel(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             audioManager.clearCommunicationDevice()
             findEarpieceDevice()?.let {
-                audioManager.setCommunicationDevice(it)
+                setCommunicationDeviceSafely(it)
             }
         }
         audioManager.isSpeakerphoneOn = false
@@ -382,7 +383,7 @@ class CallAudioChannel(
         when (classifyDevice(device)) {
             "bluetooth" -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.setCommunicationDevice(device)
+                    setCommunicationDeviceSafely(device)
                 } else {
                     @Suppress("DEPRECATION")
                     audioManager.startBluetoothSco()
@@ -394,7 +395,7 @@ class CallAudioChannel(
             "wired" -> {
                 stopBluetoothScoIfActive()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.setCommunicationDevice(device)
+                    setCommunicationDeviceSafely(device)
                 }
                 audioManager.isSpeakerphoneOn = false
             }
@@ -494,11 +495,42 @@ class CallAudioChannel(
             "selected" to selected,
         )
 
+    /**
+     * Devices a call can be routed to. On API 31+ this must be the system's
+     * communication-device list: setCommunicationDevice only accepts those,
+     * and an A2DP (media-only) entry — which getDevices(OUTPUTS) also returns
+     * for a Bluetooth headset — is not one. Below 31, calls reach Bluetooth
+     * through SCO, so the A2DP twin is dropped for the same reason.
+     */
     private fun availableOutputDevices(): List<AudioDeviceInfo> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return audioManager.availableCommunicationDevices
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return emptyList()
         }
-        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { it.type != AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+    }
+
+    /**
+     * setCommunicationDevice rejects an invalid device with
+     * IllegalArgumentException and returns false when the device is valid
+     * but unavailable (e.g. it disconnected between listing and selecting).
+     * Neither may escape to the method channel as a crash-shaped error; the
+     * caller reports the route actually in effect via makeState().
+     */
+    private fun setCommunicationDeviceSafely(device: AudioDeviceInfo): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        val accepted = try {
+            audioManager.setCommunicationDevice(device)
+        } catch (e: IllegalArgumentException) {
+            false
+        }
+        if (!accepted) {
+            Log.w(TAG, "setCommunicationDevice refused type=${device.type} id=${device.id}")
+        }
+        return accepted
     }
 
     private fun currentRouteId(): String? {
@@ -527,6 +559,9 @@ class CallAudioChannel(
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_HEARING_AID,
             -> "bluetooth"
 
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
@@ -569,5 +604,9 @@ class CallAudioChannel(
             return findEarpieceDevice() != null
         }
         return context.packageManager.hasSystemFeature("android.hardware.telephony")
+    }
+
+    private companion object {
+        const val TAG = "CallAudioChannel"
     }
 }

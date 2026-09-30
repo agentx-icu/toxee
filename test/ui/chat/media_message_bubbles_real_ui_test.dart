@@ -39,6 +39,7 @@ import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_componen
 import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
 import 'package:tencent_cloud_chat_common/data/message/tencent_cloud_chat_message_data.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_bounded_image.dart';
 import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_download_utils.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message.dart';
@@ -503,6 +504,20 @@ void main() {
         );
         expect(imageInRow, findsWidgets,
             reason: 'image bubble must render a real Image widget');
+
+        // Checklist M6: the bubble decodes at its own width (x DPR), capped,
+        // never at the photo's full resolution.
+        // (The row's other Image is the sender avatar.)
+        final providers =
+            tester.widgetList<Image>(imageInRow).map((w) => w.image).toList();
+        final boundedList =
+            providers.whereType<TencentCloudChatBoundedImage>().toList();
+        expect(boundedList, hasLength(1),
+            reason: 'bubble decode must be bounded; got $providers');
+        final bounded = boundedList.single;
+        expect(bounded.width, isNotNull);
+        expect(bounded.width, lessThanOrEqualTo((198 * 3.0).ceil()));
+        expect(bounded.maxPixels, 2 * 1024 * 1024);
 
         _expectNoFatalException(tester);
       },

@@ -210,7 +210,7 @@ class CallServiceManager
   bool? _foregroundUsesCamera;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
 
-  bool get _isAppForeground => _appLifecycleState == AppLifecycleState.resumed;
+  bool get _isAppForeground => cameraMayRunIn(_appLifecycleState);
 
   bool _foregroundCallUsesCamera() {
     return callForegroundUsesCamera(
@@ -518,7 +518,6 @@ class CallServiceManager
     }
 
     switch (state) {
-      case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
@@ -538,6 +537,8 @@ class CallServiceManager
               }),
         );
         break;
+      // On screen, focused or not (cameraMayRunIn, V5): resume the camera.
+      case AppLifecycleState.inactive:
       case AppLifecycleState.resumed:
         unawaited(
           _videoLifecycle

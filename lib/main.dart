@@ -32,6 +32,8 @@ import 'call/call_overlay.dart';
 import 'call/call_effects_listener.dart';
 import 'navigation/active_conversation_route_observer.dart';
 import 'navigation/app_navigation.dart';
+import 'navigation/root_route_tracker.dart';
+import 'bootstrap/single_session_guard.dart';
 import 'ui/app_theme_data.dart';
 import 'util/app_theme_config.dart';
 import 'util/account_service.dart';
@@ -125,6 +127,8 @@ Future<void> main() async {
         registerUiDriveToolsIfDebug();
       }
 
+      // One engine per Android process owns the Tox session.
+      if (!await SingleSessionGuard.claimOrYield()) return;
       final result = await AppBootstrap.initialize();
 
       // A binding installed above (flutter_skill records every FlutterError
@@ -394,8 +398,11 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
               // of binding a master-detail pane, and nothing used to clear the
               // binding on the way back — which suppressed that peer's unread
               // count indefinitely. See the observer's doc comment.
+              // RootRouteTracker mirrors the root route stack for the
+              // master-detail transition; it must stay the one instance.
               navigatorObservers: [
                 ActiveConversationRouteObserver(),
+                RootRouteTracker.instance,
                 DesktopWindowFrame.modalBarrierObserver,
               ],
               theme: buildLightTheme(),

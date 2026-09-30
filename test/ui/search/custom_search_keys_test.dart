@@ -144,9 +144,10 @@ void main() {
       const base = TextStyle(fontSize: 14);
       final widget =
           SearchUtils.buildHighlightedText('order a pizza tonight', 'pizza', base);
-      expect(widget, isA<RichText>(),
-          reason: 'a non-empty keyword match must produce a RichText, not Text');
-      final spans = ((widget as RichText).text as TextSpan)
+      // Text.rich (not RichText: that ignores the system text scale, L11).
+      expect(widget, isA<Text>().having((t) => t.textSpan, 'textSpan', isNotNull),
+          reason: 'a non-empty keyword match must produce spans, not a plain Text');
+      final spans = ((widget as Text).textSpan! as TextSpan)
           .children!
           .cast<TextSpan>();
 
@@ -173,14 +174,16 @@ void main() {
         () {
       const base = TextStyle();
       final ci = SearchUtils.buildHighlightedText('Pizza party', 'PIZZA', base);
-      final spans = ((ci as RichText).text as TextSpan).children!.cast<TextSpan>();
+      final spans = ((ci as Text).textSpan! as TextSpan).children!.cast<TextSpan>();
       expect(
           spans.any(
               (s) => s.text == 'Pizza' && s.style?.fontWeight == FontWeight.w600),
           isTrue,
           reason: 'case-insensitive match must still highlight the original case');
 
-      expect(SearchUtils.buildHighlightedText('hello', '', base), isA<Text>(),
+      expect(
+          SearchUtils.buildHighlightedText('hello', '', base),
+          isA<Text>().having((t) => t.textSpan, 'textSpan', isNull),
           reason: 'an empty keyword must fall back to a plain Text (no highlight)');
     });
   });

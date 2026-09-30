@@ -8,6 +8,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
           appBar: AppBar(
             leading: IconButton(
               key: UiKeys.settingsMobileSectionBackButton,
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
               icon: const Icon(Icons.arrow_back_ios_new),
               onPressed: () => Navigator.of(context).maybePop(),
             ),

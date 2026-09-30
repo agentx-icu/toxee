@@ -58,6 +58,18 @@ typedef ShowFirstRunBackupWizardFn =
 typedef NavigateToHomeFn =
     Future<void> Function(BuildContext context, FfiChatService service);
 
+/// Opens [home] as the ONLY route. Registration runs on a page pushed over the
+/// login page (StartupGate's child); a plain pushReplacement kept that login
+/// route underneath Home — a back arrow in the Chats header, and Android's
+/// system back returned to the login page with the new session still live.
+/// Same as AccountSwitcher's hand-over to Home.
+///
+/// The returned future is Home's lifetime (it completes when Home is removed).
+Future<void> openHomeReplacingStack(BuildContext context, Widget home) =>
+    Navigator.of(
+      context,
+    ).pushAndRemoveUntil(AppPageRoute(page: home), (route) => false);
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({
     super.key,
@@ -66,6 +78,7 @@ class RegisterPage extends StatefulWidget {
     this.teardownSession,
     this.showFirstRunBackupWizard,
     this.navigateToHome,
+    @visibleForTesting this.homePageBuilder,
   });
 
   final RegisterAccountFn? registerAccount;
@@ -73,6 +86,11 @@ class RegisterPage extends StatefulWidget {
   final RegisterTeardownSessionFn? teardownSession;
   final ShowFirstRunBackupWizardFn? showFirstRunBackupWizard;
   final NavigateToHomeFn? navigateToHome;
+
+  /// Test seam for the DEFAULT [navigateToHome]: the page it opens (production:
+  /// the real [HomePage]). Lets a test drive the production navigation without
+  /// a live session.
+  final Widget Function(FfiChatService service)? homePageBuilder;
 
   @override
   State<RegisterPage> createState() => _RegisterPageState();
@@ -150,11 +168,12 @@ class _RegisterPageState extends State<RegisterPage> {
         ).then((_) {});
     _navigateToHome =
         widget.navigateToHome ??
-        (BuildContext context, FfiChatService service) {
-          return Navigator.of(
-            context,
-          ).pushReplacement(AppPageRoute(page: HomePage(service: service)));
-        };
+        (BuildContext context, FfiChatService service) =>
+            openHomeReplacingStack(
+              context,
+              widget.homePageBuilder?.call(service) ??
+                  HomePage(service: service),
+            );
     _nicknameController.addListener(() {
       if (mounted) setState(() {});
     });

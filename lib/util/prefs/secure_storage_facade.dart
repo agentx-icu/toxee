@@ -5,8 +5,11 @@
 // backend ANSWERED, and `AccountProtectionState` is how that reaches the callers
 // who must fail closed when it did not.
 
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart'
-    show MissingPluginException, PlatformException;
+    show MethodChannel, MissingPluginException, PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Narrow read/write/delete facade over the platform secure-storage backend.
@@ -93,9 +96,28 @@ enum AccountProtectionState {
 /// a mock) and [PlatformException] (e.g. sandboxed macOS without the
 /// keychain entitlement) degrade to null/false instead of crashing.
 class FlutterSecureStorageFacade implements SecureStorageFacade {
-  FlutterSecureStorageFacade(this._storage);
+  FlutterSecureStorageFacade(
+    this._storage, {
+    @visibleForTesting Future<String?> Function(String key)? existenceProbe,
+    @visibleForTesting bool? isIOS,
+  }) : _probe = existenceProbe ?? _keychainExists,
+       _isIOS = isIOS ?? (!kIsWeb && Platform.isIOS);
 
   final FlutterSecureStorage _storage;
+  final Future<String?> Function(String key) _probe;
+  final bool _isIOS;
+
+  static const MethodChannel _probeChannel = MethodChannel(
+    'toxee/keychain_probe',
+  );
+
+  static Future<String?> _keychainExists(String key) =>
+      _probeChannel.invokeMethod<String>('exists', {'key': key});
+
+  /// The raw probe answer ("found" / "missing" / "error:<status>"), for
+  /// on-device checks.
+  @visibleForTesting
+  static Future<String?> debugProbe(String key) => _keychainExists(key);
 
   @override
   Future<String?> read(String key) async {
@@ -104,13 +126,26 @@ class FlutterSecureStorageFacade implements SecureStorageFacade {
 
   @override
   Future<SecureStorageReadOutcome> readOutcome(String key) async {
+    final String? value;
     try {
-      return SecureStorageReadOutcome.answered(await _storage.read(key: key));
+      value = await _storage.read(key: key);
     } on MissingPluginException {
       return const SecureStorageReadOutcome.unavailable();
     } on PlatformException {
       return const SecureStorageReadOutcome.unavailable();
     }
+    if (value != null || !_isIOS) return SecureStorageReadOutcome.answered(value);
+    // iOS: the plugin reports a locked Keychain as "no value" (see the
+    // toxee/keychain_probe handler in AppDelegate.swift). Absence counts
+    // only when the Keychain itself says the item does not exist; anything
+    // else — the item exists but was unreadable, an error, no answer — is
+    // "unavailable", which password gates treat as protected (B9).
+    try {
+      if (await _probe(key) == 'missing') {
+        return const SecureStorageReadOutcome.answered(null);
+      }
+    } catch (_) {}
+    return const SecureStorageReadOutcome.unavailable();
   }
 
   @override

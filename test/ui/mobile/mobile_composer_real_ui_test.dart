@@ -20,6 +20,8 @@
 // re-implemented here.
 //
 // ignore_for_file: depend_on_referenced_packages, directives_ordering
+import 'dart:async';
+
 import 'package:extended_text_field/extended_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -72,10 +74,19 @@ Widget _localized({required Widget child}) {
 class _RecordingMethods {
   final List<String> sentText = [];
 
+  /// When set, each text send stays in flight until this completes.
+  Completer<void>? inFlight;
+
+  /// Texts whose send reports failure (after [inFlight], if set).
+  final Set<String> failing = {};
+
   MessageInputBuilderMethods build() {
     return MessageInputBuilderMethods(
       sendTextMessage: ({required String text, List<String>? mentionedUsers}) {
         sentText.add(text);
+        final gate = inFlight?.future;
+        if (!failing.contains(text)) return gate;
+        return gate == null ? Future<bool>.value(false) : gate.then((_) => false);
       },
       sendImageMessage:
           ({String? imagePath, String? imageName, dynamic inputElement}) {},
@@ -160,18 +171,49 @@ Future<TextEditingController> _focusComposerAndEnterText(
   return tester.widget<ExtendedTextField>(field).controller!;
 }
 
-Future<void> _pressModifiedEnter(
+/// Press Enter (optionally with [modifier]) the way a hardware keyboard does:
+/// when the framework leaves the press unhandled, the platform text input then
+/// inserts `\n` at the caret of the multiline field (iOS UIKit `insertText:`,
+/// Android `InputConnectionAdaptor.handleKeyEvent`). [platformText] is the
+/// field text as the PLATFORM has it by then — it can be ahead of the
+/// controller when characters typed just before Enter are still in flight.
+Future<void> _pressEnter(
   WidgetTester tester,
-  LogicalKeyboardKey modifier,
-) async {
-  await tester.sendKeyDownEvent(modifier);
+  TextEditingController controller, {
+  LogicalKeyboardKey? modifier,
+  String? platformText,
+}) async {
+  if (modifier != null) await tester.sendKeyDownEvent(modifier);
+  bool handled;
   try {
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+    handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
   } finally {
-    await tester.sendKeyUpEvent(modifier);
+    if (modifier != null) await tester.sendKeyUpEvent(modifier);
   }
   await tester.pump();
+  if (platformText != null) {
+    tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: platformText,
+        selection: TextSelection.collapsed(offset: platformText.length),
+      ),
+    );
+    await tester.pump();
+  }
+  if (!handled) {
+    final value = controller.value;
+    final caret = value.selection.isValid
+        ? value.selection.baseOffset
+        : value.text.length;
+    tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: value.text.replaceRange(caret, caret, '\n'),
+        selection: TextSelection.collapsed(offset: caret + 1),
+      ),
+    );
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -235,66 +277,319 @@ void main() {
           child: TencentCloudChatMessageDataProviderInherited(
             dataProvider: provider,
             child: TencentCloudChatMessageLayout(
-            data: MessageLayoutBuilderData(
-              currentConversationShowName: 'Friend One',
-              desktopMentionBoxPositionX: 0,
-              desktopMentionBoxPositionY: 0,
-              activeMentionIndex: -1,
-              currentFilteredMembersListForMention: const [],
-              desktopStickerBoxPositionX: 0,
-              desktopStickerBoxPositionY: 0,
-              hasStickerPlugin: false,
-            ),
-            methods: MessageLayoutBuilderMethods(
-              sendTextMessage:
-                  ({required String text, List<String>? mentionedUsers}) {},
-              sendImageMessage:
-                  ({String? imagePath, String? imageName, dynamic inputElement}) {},
-              sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
-              sendFileMessage:
-                  ({String? filePath, String? fileName, dynamic inputElement}) {},
-              sendVoiceMessage:
-                  ({required String voicePath, required int duration}) {},
-              desktopInputMemberSelectionPanelScroll: AutoScrollController(),
-              onSelectMember: (_) {},
-              closeSticker: () {},
-            ),
-            widgets: MessageLayoutBuilderWidgets(
-              header: AppBar(title: const Text('Friend One')),
-              messageListView: const ColoredBox(
-                key: listKey,
-                color: Colors.white,
-                child: SizedBox.expand(),
+              data: MessageLayoutBuilderData(
+                currentConversationShowName: 'Friend One',
+                desktopMentionBoxPositionX: 0,
+                desktopMentionBoxPositionY: 0,
+                activeMentionIndex: -1,
+                currentFilteredMembersListForMention: const [],
+                desktopStickerBoxPositionX: 0,
+                desktopStickerBoxPositionY: 0,
+                hasStickerPlugin: false,
               ),
-              messageInput: TencentCloudChatMessageInputMobile(
-                inputData: _data(repliedMessage: replied),
-                inputMethods: methods.build(),
+              methods: MessageLayoutBuilderMethods(
+                sendTextMessage:
+                    ({required String text, List<String>? mentionedUsers}) {},
+                sendImageMessage:
+                    ({
+                      String? imagePath,
+                      String? imageName,
+                      dynamic inputElement,
+                    }) {},
+                sendVideoMessage:
+                    ({String? videoPath, dynamic inputElement}) {},
+                sendFileMessage:
+                    ({
+                      String? filePath,
+                      String? fileName,
+                      dynamic inputElement,
+                    }) {},
+                sendVoiceMessage:
+                    ({required String voicePath, required int duration}) {},
+                desktopInputMemberSelectionPanelScroll: AutoScrollController(),
+                onSelectMember: (_) {},
+                closeSticker: () {},
+              ),
+              widgets: MessageLayoutBuilderWidgets(
+                header: AppBar(title: const Text('Friend One')),
+                messageListView: const ColoredBox(
+                  key: listKey,
+                  color: Colors.white,
+                  child: SizedBox.expand(),
+                ),
+                messageInput: TencentCloudChatMessageInputMobile(
+                  inputData: _data(repliedMessage: replied),
+                  inputMethods: methods.build(),
+                ),
               ),
             ),
-          ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'the composer must fit the keyboard-shrunk body');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the composer must fit the keyboard-shrunk body',
+      );
 
-      await _focusComposerAndEnterText(tester, 'line one\nline two\nline three');
+      await _focusComposerAndEnterText(
+        tester,
+        'line one\nline two\nline three',
+      );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull,
-          reason: 'a multi-line draft under a reply bar must still fit');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'a multi-line draft under a reply bar must still fit',
+      );
 
       final field = tester.getRect(find.byType(ExtendedTextField));
       final list = tester.getRect(find.byKey(listKey));
       expect(field.height, greaterThan(0));
-      expect(list.bottom, lessThanOrEqualTo(field.top + 0.01),
-          reason: 'the list yields; it never paints over the composer');
+      expect(
+        list.bottom,
+        lessThanOrEqualTo(field.top + 0.01),
+        reason: 'the list yields; it never paints over the composer',
+      );
       // Reply bar + three lines exceed the ~118-px body: the composer scrolls
       // anchored at the text field, which must stay fully above the keyboard.
-      expect(field.bottom, lessThanOrEqualTo(390 - 216 + 0.01),
-          reason: 'the text field stays visible above the keyboard');
+      expect(
+        field.bottom,
+        lessThanOrEqualTo(390 - 216 + 0.01),
+        reason: 'the text field stays visible above the keyboard',
+      );
     },
   );
+
+  group('desktop-builder chat on a landscape phone with the keyboard up', () {
+    // A phone in landscape classifies as a desktop screen, so the fork
+    // layout's DESKTOP builder hosts the chat: as the master-detail right pane
+    // (inside the home shell's Scaffold, which consumes the keyboard inset)
+    // and as a pushed route on a 720-800 dp phone (nothing consumes it). On
+    // an API 36 emulator (914x411 dp, 262-dp keyboard) the right pane was
+    // ~125 dp — less than header + composer — and overflowed by ~19 px. The
+    // test host is a desktop OS, where the fork classifies by diagonal
+    // (>= 11" = desktop), hence 1000x420 here.
+    Future<void> pumpChat(
+      WidgetTester tester, {
+      required double keyboard,
+      double? paneHeight,
+      bool asRoute = false,
+      bool reply = false,
+    }) async {
+      tester.view.physicalSize = const Size(1000, 420);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      TencentCloudChatScreenAdapter.deviceScreenType = DeviceScreenType.desktop;
+      TencentCloudChatScreenAdapter.hasInitialized = true;
+      addTearDown(() {
+        TencentCloudChatScreenAdapter.deviceScreenType = null;
+        TencentCloudChatScreenAdapter.hasInitialized = false;
+      });
+      final methods = _RecordingMethods();
+      final provider = TencentCloudChatMessageSeparateDataProvider()
+        ..messageBuilders = TencentCloudChatMessageBuilders();
+      final replied = V2TimMessage.fromJson({})
+        ..msgID = 'reply-1'
+        ..elemType = 1
+        ..timestamp = 1
+        ..sender = 'peer'
+        ..nickName = 'Peer';
+      final layout = TencentCloudChatMessageDataProviderInherited(
+        dataProvider: provider,
+        child: TencentCloudChatMessageLayout(
+          data: MessageLayoutBuilderData(
+            currentConversationShowName: 'Friend One',
+            desktopMentionBoxPositionX: 0,
+            desktopMentionBoxPositionY: 0,
+            activeMentionIndex: -1,
+            currentFilteredMembersListForMention: const [],
+            desktopStickerBoxPositionX: 0,
+            desktopStickerBoxPositionY: 0,
+            hasStickerPlugin: false,
+          ),
+          methods: MessageLayoutBuilderMethods(
+            sendTextMessage:
+                ({required String text, List<String>? mentionedUsers}) {},
+            sendImageMessage:
+                ({
+                  String? imagePath,
+                  String? imageName,
+                  dynamic inputElement,
+                }) {},
+            sendVideoMessage: ({String? videoPath, dynamic inputElement}) {},
+            sendFileMessage:
+                ({String? filePath, String? fileName, dynamic inputElement}) {},
+            sendVoiceMessage:
+                ({required String voicePath, required int duration}) {},
+            desktopInputMemberSelectionPanelScroll: AutoScrollController(),
+            onSelectMember: (_) {},
+            closeSticker: () {},
+          ),
+          widgets: MessageLayoutBuilderWidgets(
+            header: AppBar(title: const Text('Friend One')),
+            messageListView: const ColoredBox(
+              key: ValueKey('pane-list'),
+              color: Colors.white,
+              child: SizedBox.expand(),
+            ),
+            messageInput: TencentCloudChatMessageInputMobile(
+              inputData: _data(repliedMessage: reply ? replied : null),
+              inputMethods: methods.build(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        asRoute
+            // A pushed chat route: the layout is the page, no outer Scaffold.
+            ? MaterialApp(
+                locale: const Locale('en'),
+                supportedLocales: const [Locale('en')],
+                localizationsDelegates: const [
+                  TencentCloudChatLocalizations.delegate,
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: Builder(
+                  builder: (context) {
+                    TencentCloudChatIntl().init(context);
+                    return layout;
+                  },
+                ),
+              )
+            : _localized(
+                // The home shell: a Scaffold whose body hosts the right pane.
+                child: Scaffold(
+                  body: Align(
+                    alignment: Alignment.topRight,
+                    child: SizedBox(
+                      width: 670,
+                      height: paneHeight,
+                      child: layout,
+                    ),
+                  ),
+                ),
+              ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    void expectFieldAboveKeyboard(WidgetTester tester, double keyboard) {
+      final field = tester.getRect(find.byType(ExtendedTextField));
+      expect(field.height, greaterThan(0));
+      expect(
+        field.bottom,
+        lessThanOrEqualTo(420 - keyboard + 0.01),
+        reason: 'the text field stays above the keyboard',
+      );
+    }
+
+    testWidgets('right pane: the header yields, the composer fits', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the keyboard-shrunk pane must not overflow',
+      );
+      expect(
+        find.text('Friend One'),
+        findsNothing,
+        reason: 'no room for the header while the keyboard is up',
+      );
+      expectFieldAboveKeyboard(tester, 262);
+    });
+
+    testWidgets('right pane: the header comes back when the keyboard closes', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262);
+      expect(find.text('Friend One'), findsNothing);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsOneWidget);
+    });
+
+    testWidgets('the focused composer keeps focus as the keyboard opens', (
+      tester,
+    ) async {
+      // Opening the keyboard switches the layout (header dropped, composer
+      // bounded). If that changed the composer's ancestors, its element would
+      // be rebuilt and lose focus — closing the keyboard it just opened
+      // (seen on an API 36 emulator).
+      await pumpChat(tester, keyboard: 0);
+      await tester.tap(find.byType(ExtendedTextField));
+      await tester.pumpAndSettle();
+      bool fieldFocused() {
+        final focused = FocusManager.instance.primaryFocus?.context;
+        return focused != null &&
+            find
+                .descendant(
+                  of: find.byType(ExtendedTextField),
+                  matching: find.byWidget(focused.widget),
+                )
+                .evaluate()
+                .isNotEmpty;
+      }
+
+      expect(fieldFocused(), isTrue, reason: 'tapping focuses the composer');
+      tester.view.viewInsets = const FakeViewPadding(bottom: 262);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsNothing);
+      expect(
+        fieldFocused(),
+        isTrue,
+        reason: 'the keyboard opening must not rebuild the composer',
+      );
+    });
+
+    testWidgets('pushed route: the unconsumed inset is counted, no overflow', (
+      tester,
+    ) async {
+      await pumpChat(tester, keyboard: 262, asRoute: true);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Friend One'), findsNothing);
+      expectFieldAboveKeyboard(tester, 262);
+    });
+
+    testWidgets(
+      'just above the threshold: header kept, a reply bar and multi-line '
+      'draft still fit',
+      (tester) async {
+        // 420 - 200 = 220 dp for header + body: not compact (56 + 140), so
+        // the header stays and only the composer bound keeps things in.
+        await pumpChat(tester, keyboard: 200, reply: true);
+        expect(find.text('Friend One'), findsOneWidget);
+        await _focusComposerAndEnterText(
+          tester,
+          'line one\nline two\nline three',
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expectFieldAboveKeyboard(tester, 200);
+      },
+    );
+
+    testWidgets('a short pane without a soft keyboard keeps its header', (
+      tester,
+    ) async {
+      // Desktops have no soft keyboard: a short window is not a reason to
+      // drop the header. (Overflow at this artificial height is not what
+      // this case checks.)
+      await pumpChat(tester, keyboard: 0, paneHeight: 149);
+      tester.takeException();
+      expect(find.text('Friend One'), findsOneWidget);
+    });
+  });
 
   testWidgets(
     'mobile composer: empty field shows mic, typing reveals send button, tap drives sendTextMessage',
@@ -448,9 +743,7 @@ void main() {
         tester,
         'hardware-enter',
       );
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
 
       expect(methods.sentText, ['hardware-enter']);
       expect(
@@ -488,7 +781,9 @@ void main() {
           text: 'line',
           selection: TextSelection.collapsed(offset: 4),
         );
-        await _pressModifiedEnter(tester, modifier);
+        tester.testTextInput.updateEditingValue(controller.value);
+        await tester.pump();
+        await _pressEnter(tester, controller, modifier: modifier);
         expect(
           controller.text,
           'line\n',
@@ -525,10 +820,11 @@ void main() {
         selection: TextSelection.collapsed(offset: 2),
         composing: TextRange(start: 0, end: 2),
       );
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      final handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
       await tester.pump();
 
+      expect(handled, isFalse, reason: 'the IME owns this Enter');
       expect(methods.sentText, isEmpty);
       expect(
         controller.text,
@@ -556,20 +852,19 @@ void main() {
       await tester.pumpAndSettle();
 
       final controller = await _focusComposerAndEnterText(tester, '');
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
       expect(methods.sentText, isEmpty, reason: 'empty Enter must not send');
+      expect(controller.text, isEmpty, reason: 'nor leave a stray newline');
 
       final overLimit = 'x' * 1373;
-      controller.value = TextEditingValue(
-        text: overLimit,
-        selection: TextSelection.collapsed(offset: overLimit.length),
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: overLimit,
+          selection: TextSelection.collapsed(offset: overLimit.length),
+        ),
       );
       await tester.pump();
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
 
       expect(
         methods.sentText,
@@ -583,4 +878,269 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'mobile composer: hardware Enter sends the text typed just before it '
+    '(characters still in flight at key time)',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // iPad simulator, 2026-09-29: "qwerty" + Enter without a pause sent
+      // "qwe" — the framework saw Enter before UIKit had delivered "rty".
+      final controller = await _focusComposerAndEnterText(tester, 'qwe');
+      await _pressEnter(tester, controller, platformText: 'qwerty');
+
+      expect(methods.sentText, ['qwerty']);
+      expect(controller.text, isEmpty);
+
+      // A letter typed right after Enter: the platform still held "qwerty\n"
+      // when it inserted it (iPad simulator: "abc" Enter "h" left "abc\nh").
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'qwerty\nh',
+          selection: TextSelection.collapsed(offset: 8),
+        ),
+      );
+      await tester.pump();
+      expect(controller.text, 'h');
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0)),
+      );
+      await tester.pump();
+
+      // Shift+Enter the same way keeps the newline after the late characters.
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'ab',
+          selection: TextSelection.collapsed(offset: 2),
+        ),
+      );
+      await tester.pump();
+      await _pressEnter(
+        tester,
+        controller,
+        modifier: LogicalKeyboardKey.shiftLeft,
+        platformText: 'abc',
+      );
+      expect(controller.text, 'abc\n');
+      expect(methods.sentText, ['qwerty'], reason: 'Shift+Enter never sends');
+    },
+  );
+
+  testWidgets(
+    'mobile composer: a second hardware Enter while the first message is still '
+    'being sent is queued, not dropped',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods()..inFlight = Completer<void>();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(tester, 'a');
+      await _pressEnter(tester, controller);
+      expect(methods.sentText, ['a']);
+
+      // "b" + Enter before the first send finished; the platform still echoes
+      // the first message ("a\nb", then "a\nb\n").
+      await _pressEnter(tester, controller, platformText: 'a\nb');
+      expect(methods.sentText, ['a'], reason: 'b waits for a');
+
+      final first = methods.inFlight!;
+      methods.inFlight = null;
+      first.complete();
+      await tester.pumpAndSettle();
+      expect(methods.sentText, ['a', 'b']);
+    },
+  );
+
+  group('mobile composer: hardware Enter in the middle of the draft, and failed sends', () {
+    Future<(_RecordingMethods, TextEditingController)> pumpComposer(
+      WidgetTester tester, {
+      bool holdSends = true,
+      Set<String> failing = const {},
+    }) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+      if (holdSends) methods.inFlight = Completer<void>();
+      methods.failing.addAll(failing);
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final controller = await _focusComposerAndEnterText(tester, '');
+      return (methods, controller);
+    }
+
+    void platformUpdate(WidgetTester tester, String text, [int? caret]) {
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: caret ?? text.length),
+        ),
+      );
+    }
+
+    Future<void> finishSends(
+      WidgetTester tester,
+      _RecordingMethods methods,
+    ) async {
+      final held = methods.inFlight!;
+      methods.inFlight = null;
+      held.complete();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a key typed right after a mid-draft Enter does not bring the '
+        'sent message back', (tester) async {
+      final (methods, controller) = await pumpComposer(tester);
+      platformUpdate(tester, 'abcd', 2); // caret after "b"
+      await tester.pump();
+      await _pressEnter(tester, controller); // platform: "ab\ncd", caret 3
+      expect(methods.sentText, ['abcd']);
+      expect(controller.text, 'abcd', reason: 'kept until the send completes');
+
+      // The platform still held "ab\ncd" when it inserted the next key.
+      platformUpdate(tester, 'ab\nhcd', 4);
+      await tester.pump();
+      expect(controller.text, 'h');
+      expect(controller.selection, const TextSelection.collapsed(offset: 1));
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'h');
+      expect(methods.sentText, ['abcd']);
+    });
+
+    testWidgets('a failed send the user typed past is put back in front of '
+        'the new text', (tester) async {
+      final (methods, controller) =
+          await pumpComposer(tester, failing: {'abc'});
+      platformUpdate(tester, 'abc');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      platformUpdate(tester, 'abc\nh'); // typed "h" within the echo
+      await tester.pump();
+      expect(controller.text, 'h');
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'abc\nh', reason: 'the failed text is not lost');
+      expect(controller.selection, const TextSelection.collapsed(offset: 5),
+          reason: 'the caret stays after what the user typed');
+
+      // Typing continues on the restored text (no rebase off it).
+      platformUpdate(tester, 'abc\nhi');
+      await tester.pump();
+      expect(controller.text, 'abc\nhi');
+      expect(methods.sentText, ['abc']);
+    });
+
+    testWidgets('a failed send still in the field stays there once', (
+      tester,
+    ) async {
+      final (methods, controller) =
+          await pumpComposer(tester, holdSends: false, failing: {'abc'});
+      platformUpdate(tester, 'abc');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      await tester.pumpAndSettle();
+      expect(methods.sentText, ['abc']);
+      expect(controller.text, 'abc');
+    });
+
+    testWidgets('a failed send the user edited after the echo ended is not '
+        'inserted again', (tester) async {
+      final (methods, controller) =
+          await pumpComposer(tester, failing: {'hi'});
+      platformUpdate(tester, 'hi');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      // The platform caught up ("hi"), then the user kept typing in it.
+      platformUpdate(tester, 'high');
+      await tester.pump();
+      expect(controller.text, 'high');
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'high');
+    });
+
+    testWidgets('first send fails while the second is queued: the second is '
+        'sent and cleared, the first comes back once', (tester) async {
+      final (methods, controller) = await pumpComposer(tester, failing: {'a'});
+      platformUpdate(tester, 'a');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      await _pressEnter(tester, controller, platformText: 'a\nb');
+      expect(methods.sentText, ['a']);
+
+      await finishSends(tester, methods);
+      expect(methods.sentText, ['a', 'b']);
+      expect(controller.text, 'a', reason: 'b went out; only a is put back');
+    });
+
+    testWidgets('failed first + sent second: a stale platform echo after the '
+        'restore keeps the first and does not bring the second back', (
+      tester,
+    ) async {
+      final (methods, controller) = await pumpComposer(tester, failing: {'a'});
+      platformUpdate(tester, 'a');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      // "b" and Enter arrive while the platform still echoes "a\n".
+      platformUpdate(tester, 'a\nb');
+      await tester.pump();
+      expect(controller.text, 'b');
+      final handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      expect(handled, isFalse);
+      platformUpdate(tester, 'a\nb\n');
+      await tester.pump();
+      expect(methods.sentText, ['a']);
+
+      await finishSends(tester, methods);
+      expect(methods.sentText, ['a', 'b']);
+      expect(controller.text, 'a');
+
+      // The platform had not processed the restore yet when "x" was typed.
+      platformUpdate(tester, 'a\nb\nx');
+      await tester.pump();
+      expect(controller.text, 'a\nx');
+    });
+
+    testWidgets('a mid-draft Enter after a quick caret move then a key does '
+        'not bring the sent message back', (tester) async {
+      final (methods, controller) = await pumpComposer(tester);
+      platformUpdate(tester, 'abcd', 2);
+      await tester.pump();
+      await _pressEnter(tester, controller); // platform: "ab\ncd", caret 3
+      platformUpdate(tester, 'ab\nchd', 5); // right arrow, then "h"
+      await tester.pump();
+      expect(controller.text, 'h');
+      await finishSends(tester, methods);
+      expect(controller.text, 'h');
+      expect(methods.sentText, ['abcd']);
+    });
+  });
 }

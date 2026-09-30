@@ -436,7 +436,7 @@ void main() {
     }
 
     final settings = File(
-      'lib/ui/settings/settings_page.dart',
+      'lib/ui/settings/settings_page_mobile_index.dart',
     ).readAsStringSync();
     expect(settings, contains('UiKeys.settingsMobileProfileTile'));
     expect(settings, contains('UiKeys.settingsMobileAppearanceSection'));

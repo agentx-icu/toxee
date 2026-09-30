@@ -395,20 +395,19 @@ extension _HomePageBootstrap on _HomePageState {
           );
         }
         Future.delayed(const Duration(milliseconds: 2000), () async {
-          if (mounted) {
-            await _syncPersistedFriendsToTox();
-          }
+          if (mounted) await _syncPersistedFriendsToTox();
         });
       }
     });
     _bag.add(() => _connectionStatusSub?.cancel());
+    // N1 re-bootstrap on a default-network change; M5 receive-failure toasts.
+    _bag.add(BootstrapNodeEnsurer.watchNetworkChanges(widget.service));
+    _bag.add(SendFailureNotifier.watchFileReceiveFailures(widget.service));
 
     if (PlatformUtils.isDesktop) {
       _loadBootstrapServiceStatus();
       _bootstrapServiceStatusTimer = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) => _loadBootstrapServiceStatus(),
-      );
+          const Duration(seconds: 2), (_) => _loadBootstrapServiceStatus());
       _bag.add(() => _bootstrapServiceStatusTimer?.cancel());
     }
 
@@ -1057,15 +1056,7 @@ extension _HomePageBootstrap on _HomePageState {
         // contacts load completes so historical messages don't fire banners
         // on first launch. The listener is idempotent — calling register()
         // twice is a no-op (see NotificationMessageListener._registered).
-        if (mounted) {
-          unawaited(
-            NotificationMessageListener.forService(widget.service).register(
-              onConversationTapped: (payload) {
-                _routeToNotificationPayload(payload);
-              },
-            ),
-          );
-        }
+        if (mounted) unawaited(_registerNotificationsThenRecoverCapture());
       }
     });
 

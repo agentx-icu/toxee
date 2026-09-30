@@ -254,9 +254,20 @@ Future<String> exportAccountData({
     );
     final fileName = '${safeNickname}_$toxIdPrefix.tox';
 
-    // Save to Downloads directory
+    // Save to Downloads directory — under a name nothing uses yet. On iOS
+    // this directory is visible in the Files app and a cancelled mobile export
+    // deliberately leaves its copy here (the user is told so); the next export
+    // must not silently replace that snapshot with a newer one.
     final downloadsDir = await AppPaths.getDownloadsPath();
     finalFilePath = p.join(downloadsDir, fileName);
+    for (
+      var n = 2;
+      await FileSystemEntity.type(finalFilePath) !=
+          FileSystemEntityType.notFound;
+      n++
+    ) {
+      finalFilePath = p.join(downloadsDir, '${safeNickname}_$toxIdPrefix ($n).tox');
+    }
   }
 
   // Write to file

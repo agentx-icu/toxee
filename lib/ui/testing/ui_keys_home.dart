@@ -35,4 +35,17 @@ class HomeUiKeys {
   static const Key conversationGlobalSearchButton = Key(
     'conversation_global_search_button',
   );
+
+  // ---------------------------------------------------------------------
+  // NotificationAccessBanner (lib/ui/home/notification_access_banner.dart)
+  // ---------------------------------------------------------------------
+
+  /// The Chats-tab notice shown while system notifications cannot alert the
+  /// user in the background (see NotificationAccess).
+  static const Key notificationAccessBanner = Key('notification_access_banner');
+
+  /// Its button: opens the system settings page that fixes the problem.
+  static const Key notificationAccessSettings = Key(
+    'notification_access_settings',
+  );
 }

@@ -70,8 +70,20 @@ void main() {
       expect(
         manifest,
         contains(
-          'android:foregroundServiceType="dataSync|phoneCall|microphone|camera"',
+          'android:foregroundServiceType='
+          '"specialUse|dataSync|phoneCall|microphone|camera"',
         ),
+      );
+      // The always-on runtime mode is specialUse on API 34+ (dataSync is
+      // capped at 6 h / 24 h in background on API 35+): it needs its own
+      // permission and the subtype property, or startForeground throws.
+      expect(
+        manifest,
+        contains('android.permission.FOREGROUND_SERVICE_SPECIAL_USE'),
+      );
+      expect(
+        manifest,
+        contains('android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE'),
       );
     },
   );

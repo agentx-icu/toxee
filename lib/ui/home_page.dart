@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../bootstrap/session_shutdown.dart';
 import '../util/app_spacing.dart';
+import '../util/camera_capture_recovery.dart';
+import '../util/outgoing_media.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
@@ -30,8 +32,6 @@ import '../sdk_fake/fake_msg_provider.dart';
 import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart';
 import 'package:tencent_cloud_chat_common/components/component_options/tencent_cloud_chat_message_options.dart';
-import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_navigator.dart'
-    show navigateToMessage;
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation_controller.dart';
 import 'package:tencent_cloud_chat_conversation/tencent_cloud_chat_conversation.dart'
@@ -90,7 +90,12 @@ import 'applications/applications_page.dart';
 import 'home/group_receiver_badge.dart';
 import 'home/home_utils.dart';
 import 'home/mobile_attachment_policy.dart';
+import 'home/master_detail_transition.dart';
+import 'home/open_chat_restoration.dart';
+import 'home/notification_access_banner.dart';
+import '../notifications/notification_access.dart';
 import 'home/overlay_route_policy.dart';
+import 'home/recovered_capture_dialog.dart';
 import 'home/profile_send_message_navigation.dart';
 import 'home/tim2tox_plugin_policy.dart';
 import 'home/toxee_message_header_info.dart';
@@ -129,6 +134,8 @@ import 'testing/l3_debug_tools.dart';
 part 'home_page_plugins.dart';
 part 'home_page_bootstrap.dart';
 part 'home_page_shortcuts.dart';
+part 'home_page_master_detail.dart';
+part 'home_page_capture.dart';
 
 enum _MediaPickType { file, image, video }
 
@@ -337,10 +344,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   GroupProfileBuilderOverrideHandle? _groupBuilderOverride;
   late final HomeSessionController _sessionController;
   late final HomeGroupController _groupController;
-  // Tracks the last computed `shouldShowMasterDetail` so we only schedule the
-  // UIKit `setConfigs(forceDesktopLayout: ...)` post-frame callback when the
-  // breakpoint actually crosses, instead of on every rebuild.
-  bool? _lastShouldShowMasterDetail;
+  // Master-detail breakpoint crossings: UIKit layout mode + open-chat carry.
+  late final MasterDetailTransition _masterDetail =
+      _createMasterDetailTransition();
   // True while the contact-profile route is on screen. Drives `_onTapContactItem`
   // to decide whether a contact tap means "open profile" (false) vs "Send
   // Message from inside profile" (true). Replaces the old `Navigator.canPop()`
@@ -364,6 +370,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    NotificationAccessMonitor.instance.access.addListener(_onAccessChanged);
     _sessionController = HomeSessionController(service: widget.service);
     _groupController = HomeGroupController(
       ops: GroupSyncOps.real(
@@ -678,6 +685,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// Rebuilds for the LAN banner, which yields to the notification notice.
+  void _onAccessChanged() => mounted ? setState(() {}) : null;
+
   @override
   void dispose() {
     if (_disposed) {
@@ -685,6 +695,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     _disposed = true;
+    NotificationAccessMonitor.instance.access.removeListener(_onAccessChanged);
 
     _applicationsScrollController.dispose();
     _settingsScrollController.dispose();
@@ -877,13 +888,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final path =
           selectedPath ??
           await runL3AwareAttachmentPicker(
-            pickFile: () async => (await FilePicker.platform.pickFiles(
+            pickFile: () => _pickForChat(userId, () async => (await FilePicker.platform.pickFiles(
               type: switch (type) {
                 _MediaPickType.file => FileType.any,
                 _MediaPickType.image => FileType.image,
                 _MediaPickType.video => FileType.video,
               },
-            ))?.files.single.path,
+            ))?.files.single.path),
           );
       if (path == null || path.isEmpty) {
         _showSnackBar(appL10n.noLabelSelected(label));
@@ -891,7 +902,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       pickedPath = path;
       if (userId != null) {
-        await widget.service.sendFile(userId, pickedPath);
+        if (!await _sendPreparedMedia(userId, pickedPath)) return;
         _showSnackBar(appL10n.mediaSent(label));
       }
     } catch (e) {
@@ -940,54 +951,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       _showSnackBar(userMsg);
     }
-  }
-
-  Future<void> _showCameraMediaOptions(
-    BuildContext context, {
-    String? userId,
-    String? groupId,
-  }) async {
-    if ((userId == null || userId.isEmpty) &&
-        (groupId == null || groupId.isEmpty)) {
-      final current = UikitDataFacade.currentConversation;
-      userId = current?.userID;
-      groupId = current?.groupID;
-    }
-
-    final cameraLabel =
-        TencentCloudChatLocalizations.of(context)?.camera ?? 'Camera';
-    if (groupId != null && groupId.isNotEmpty) {
-      _showSnackBar(
-        AppLocalizations.of(context)!.sendingToGroupsNotSupported(cameraLabel),
-      );
-      return;
-    }
-
-    await TencentCloudChatMessageCamera.showCameraOptions(
-      context: context,
-      onSendImage: ({required String imagePath}) {
-        if (!mounted) return;
-        unawaited(
-          _sendMedia(
-            context,
-            userId: userId,
-            type: _MediaPickType.image,
-            selectedPath: imagePath,
-          ),
-        );
-      },
-      onSendVideo: ({required String videoPath}) {
-        if (!mounted) return;
-        unawaited(
-          _sendMedia(
-            context,
-            userId: userId,
-            type: _MediaPickType.video,
-            selectedPath: videoPath,
-          ),
-        );
-      },
-    );
   }
 
   Future<String> _createSelfQrCardImage() async {
@@ -1270,27 +1233,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             );
 
             // Drive UIKit's master-detail layout from toxee's responsive
-            // breakpoint. UIKit only renders desktop-mode automatically on
-            // "desktop platform"; `forceDesktopLayout` lets us opt wide
-            // touch devices (e.g. iPad landscape) into the same split.
-            //
-            // Only schedule the post-frame callback when the value actually
-            // crosses the breakpoint — `build` runs on every `setState`, but
-            // `setConfigs` only needs to be called on threshold transitions.
-            if (showMasterDetail != _lastShouldShowMasterDetail) {
-              _lastShouldShowMasterDetail = showMasterDetail;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                try {
-                  UikitDataFacade.setConversationConfig(
-                    useDesktopMode: showMasterDetail,
-                    forceDesktopLayout: showMasterDetail,
-                  );
-                } catch (_) {
-                  // Config object may not exist yet on the very first frame
-                  // (UIKit init is async); next layout pass will pick it up.
-                }
-              });
-            }
+            // breakpoint (UIKit only goes desktop-mode on desktop platforms
+            // by itself) and carry the open chat across the switch.
+            _masterDetail.onBuild(showMasterDetail);
 
             // Intercept Android back only when we're truly at the root of the
             // navigator stack AND on a non-Chats tab (so back returns to
@@ -1425,8 +1370,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             duration: MediaQuery.disableAnimationsOf(context)
                                 ? Duration.zero
                                 : const Duration(milliseconds: 250),
+                            // Leave at once when yielding to the notification
+                            // notice, or its exit would still cover the notice.
                             reverseDuration:
-                                MediaQuery.disableAnimationsOf(context)
+                                MediaQuery.disableAnimationsOf(context) ||
+                                    NotificationAccessMonitor
+                                            .instance
+                                            .access
+                                            .value !=
+                                        NotificationAccess.ok
                                 ? Duration.zero
                                 : const Duration(milliseconds: 150),
                             switchInCurve: Curves.easeOut,
@@ -1447,6 +1399,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             child:
                                 (_lanBootstrapServiceRunning &&
                                     !_lanBannerDismissed &&
+                                    // Overlays the notification notice's spot;
+                                    // that one (a real problem) wins.
+                                    NotificationAccessMonitor
+                                            .instance
+                                            .access
+                                            .value ==
+                                        NotificationAccess.ok &&
                                     _lanBootstrapServiceIP != null &&
                                     _lanBootstrapServicePort != null)
                                 ? Material(
@@ -1764,9 +1723,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         builder: (context, locale, _) {
           // `setLocale` is driven by the global locale listener installed in
           // `initState` — no per-build scheduling needed here.
-          return TencentCloudChatConversation(
-            key: ValueKey('uikit-conversation-${locale.languageCode}'),
-            builders: conv_pkg.TencentCloudChatConversationManager.builder,
+          return NotificationAccessBanner(
+            child: TencentCloudChatConversation(
+              key: ValueKey('uikit-conversation-${locale.languageCode}'),
+              builders: conv_pkg.TencentCloudChatConversationManager.builder,
+            ),
           );
         },
       ),

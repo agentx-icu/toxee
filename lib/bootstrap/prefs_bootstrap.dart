@@ -5,6 +5,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 
 import 'app_bootstrap_result.dart';
 import 'isolated_prefs_store.dart';
+import 'keychain_reinstall_guard.dart';
 import '../util/harness_environment.dart';
 import '../util/lan_bootstrap_service.dart';
 import '../util/logger.dart';
@@ -63,6 +64,10 @@ class PrefsBootstrap {
         currentVersion: e.currentVersion,
       );
     }
+    // Only once the stored schema is known to be ours, and before anything
+    // reads secure storage: a reinstalled iOS app still holds the previous
+    // installation's Keychain items (P3).
+    await KeychainReinstallGuard.run(prefs);
     return null;
   }
 }

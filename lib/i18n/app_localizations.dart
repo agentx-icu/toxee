@@ -910,6 +910,12 @@ abstract class AppLocalizations {
   /// **'Failed to update avatar: {error}'**
   String failedToUpdateAvatar(String error);
 
+  /// Screen-reader name of the tappable own avatar that opens the photo picker
+  ///
+  /// In en, this message translates to:
+  /// **'Change profile photo'**
+  String get changeAvatar;
+
   /// No description provided for @failedToLoadQr.
   ///
   /// In en, this message translates to:
@@ -3238,6 +3244,24 @@ abstract class AppLocalizations {
   /// **'Scan QR'**
   String get scanQr;
 
+  /// Scan QR page: the camera permission is denied; a button next to it opens the system Settings
+  ///
+  /// In en, this message translates to:
+  /// **'Camera access is off. Allow it in Settings to scan QR codes.'**
+  String get scanQrCameraPermissionDenied;
+
+  /// Scan QR page: the camera failed to start for a reason other than permission; a Retry button follows
+  ///
+  /// In en, this message translates to:
+  /// **'The camera could not be started.'**
+  String get scanQrCameraUnavailable;
+
+  /// iOS: an account export was cancelled in the save sheet; the export file was kept in the app's Files-visible Downloads folder
+  ///
+  /// In en, this message translates to:
+  /// **'Export cancelled. A copy is in the Files app under Toxee › Downloads.'**
+  String get exportCancelledCopyKept;
+
   /// Tooltip on a submit button while a request is being sent
   ///
   /// In en, this message translates to:
@@ -3645,6 +3669,204 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter the group password'**
   String get groupPasswordRequired;
+
+  /// Chats-tab notice: app notifications are turned off in system settings
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications are off. Toxee can\'t alert you to new messages or calls while it\'s in the background.'**
+  String get notificationAccessAppOff;
+
+  /// Chats-tab notice: the incoming-call notification channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming-call notifications are off. While Toxee is in the background you won\'t get a notification to answer calls.'**
+  String get notificationAccessCallsOff;
+
+  /// Chats-tab notice: full-screen intent permission not granted (Android 14+)
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee isn\'t allowed to show incoming calls full screen, so they appear only as a regular notification.'**
+  String get notificationAccessFullScreenOff;
+
+  /// Chats-tab notice: the message notification channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Message notifications are off. New messages won\'t alert you while Toxee is in the background.'**
+  String get notificationAccessMessagesOff;
+
+  /// Chats-tab notice: friend-request, group-invite or missed-call channel is off (Android)
+  ///
+  /// In en, this message translates to:
+  /// **'Some Toxee notifications are off (friend requests, group invites or missed calls).'**
+  String get notificationAccessOtherOff;
+
+  /// Chats-tab notice: notification alerts (banners) are off (iOS)
+  ///
+  /// In en, this message translates to:
+  /// **'Notification alerts are off. New messages won\'t pop up while Toxee is in the background.'**
+  String get notificationAccessAlertsOff;
+
+  /// Chats-tab notice: iOS provisional authorization, notifications delivered quietly
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee notifications are delivered quietly to Notification Center. Turn on alerts to see new messages right away.'**
+  String get notificationAccessProvisional;
+
+  /// Button on the notification notice: opens the system settings page
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get notificationAccessOpenSettings;
+
+  /// Settings section: background running and notification privacy
+  ///
+  /// In en, this message translates to:
+  /// **'Background & notifications'**
+  String get backgroundSettingsTitle;
+
+  /// Switch: message notifications show a generic text instead of sender and content
+  ///
+  /// In en, this message translates to:
+  /// **'Hide message content in notifications'**
+  String get hideNotificationContent;
+
+  /// Description under the hide-notification-content switch
+  ///
+  /// In en, this message translates to:
+  /// **'Message notifications show only “New message”, not the sender or the text.'**
+  String get hideNotificationContentDesc;
+
+  /// Notification body shown when message content is hidden
+  ///
+  /// In en, this message translates to:
+  /// **'New message'**
+  String get notificationContentHidden;
+
+  /// Settings row (Android): battery-optimization exemption status
+  ///
+  /// In en, this message translates to:
+  /// **'Background running'**
+  String get backgroundRunningTitle;
+
+  /// Background running status: exempt from battery optimization
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed. Battery optimization won\'t stop Toxee in the background.'**
+  String get backgroundRunningAllowed;
+
+  /// Background running status: subject to battery optimization
+  ///
+  /// In en, this message translates to:
+  /// **'Restricted by battery optimization. The system may stop Toxee in the background, and then messages and calls won\'t arrive.'**
+  String get backgroundRunningRestricted;
+
+  /// Button: request the battery-optimization exemption
+  ///
+  /// In en, this message translates to:
+  /// **'Allow'**
+  String get backgroundRunningAllow;
+
+  /// Dialog title: a photo taken before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the photo you took?'**
+  String get recoveredPhotoTitle;
+
+  /// Dialog title: a video recorded before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the video you recorded?'**
+  String get recoveredVideoTitle;
+
+  /// Dialog title: a file picked before the app was reclaimed by the system is waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Send the file you picked?'**
+  String get recoveredFileTitle;
+
+  /// Dialog body: why the capture is offered again, and its recipient
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee was closed while the camera was open. Send it to {name}?'**
+  String recoveredCaptureBody(String name);
+
+  /// Dialog body: why the picked file is offered again, its name and its recipient
+  ///
+  /// In en, this message translates to:
+  /// **'Toxee was closed while the file picker was open. Send {file} to {name}?'**
+  String recoveredFileBody(String file, String name);
+
+  /// Button: send the recovered photo/video
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get recoveredCaptureSend;
+
+  /// Button: delete the recovered photo/video
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get recoveredCaptureDiscard;
+
+  /// Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t convert this photo for sending. Nothing was sent.'**
+  String get mediaConversionFailed;
+
+  /// Dialog title while an HEVC video is converted to H.264 before sending
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing video…'**
+  String get videoConverting;
+
+  /// Dialog text: why the video is being converted
+  ///
+  /// In en, this message translates to:
+  /// **'Converting it to a format every device can play.'**
+  String get videoConvertingDesc;
+
+  /// Error: a video could not be converted before sending, so the send was stopped
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t convert this video for sending. Nothing was sent.'**
+  String get videoConversionFailed;
+
+  /// Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen
+  ///
+  /// In en, this message translates to:
+  /// **'Camera paused while other apps share the screen'**
+  String get cameraPausedMultitasking;
+
+  /// Call: the local camera stopped (another app holds it, or system pressure)
+  ///
+  /// In en, this message translates to:
+  /// **'Camera unavailable'**
+  String get cameraUnavailable;
+
+  /// Toast: an incoming file was refused / stopped because the device storage is full (checklist M5)
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage to receive \"{fileName}\". Free up space and try again.'**
+  String fileReceiveNoSpace(String fileName);
+
+  /// Toast: like fileReceiveNoSpace when the file name is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough storage to receive a file. Free up space and try again.'**
+  String get fileReceiveNoSpaceUnnamed;
+
+  /// Toast: an incoming file could not be written or saved (I/O error other than a full disk)
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save \"{fileName}\".'**
+  String fileReceiveFailed(String fileName);
+
+  /// Toast: like fileReceiveFailed when the file name is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save a received file.'**
+  String get fileReceiveFailedUnnamed;
 }
 
 class _AppLocalizationsDelegate

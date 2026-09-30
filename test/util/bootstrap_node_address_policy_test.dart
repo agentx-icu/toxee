@@ -46,6 +46,45 @@ void main() {
     });
   });
 
+  group('BootstrapNode bootstrap hosts (N3)', () {
+    BootstrapNode node(String ipv4, String? ipv6) => BootstrapNode(
+      ipv4: ipv4,
+      ipv6: ipv6,
+      port: 33445,
+      publicKey: 'A' * 64,
+      status: 'ONLINE',
+    );
+
+    test('lists IPv4 then IPv6, trimmed', () {
+      expect(node(' 192.0.2.1 ', ' 2001:db8::1 ').bootstrapHosts, [
+        '192.0.2.1',
+        '2001:db8::1',
+      ]);
+    });
+
+    test('de-duplicates a hostname listed in both fields', () {
+      expect(node('tox.example.net', 'tox.example.net').bootstrapHosts, [
+        'tox.example.net',
+      ]);
+    });
+
+    test('drops unusable placeholders', () {
+      expect(node('192.0.2.1', '-').bootstrapHosts, ['192.0.2.1']);
+      expect(node('NONE', '2001:db8::1').bootstrapHosts, ['2001:db8::1']);
+      expect(node('', null).bootstrapHosts, isEmpty);
+    });
+
+    test('built-in fallback nodes with an IPv6 address expose it', () {
+      final withV6 = BootstrapNodesService.fallbackNodes
+          .where((n) => n.ipv6 != null && n.ipv6 != n.ipv4)
+          .toList();
+      expect(withV6, isNotEmpty);
+      for (final n in withV6) {
+        expect(n.bootstrapHosts, [n.ipv4, n.ipv6]);
+      }
+    });
+  });
+
   group('LAN address policy', () {
     const virtualIpv4 = LanAddressCandidate(
       interfaceName: 'docker0',

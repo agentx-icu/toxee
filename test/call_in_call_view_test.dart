@@ -7,6 +7,7 @@ import 'package:toxee/call/call_state_notifier.dart';
 import 'package:toxee/call/in_call_view.dart';
 import 'package:toxee/call/in_call_manager.dart';
 import 'package:toxee/call/call_audio_platform.dart';
+import 'package:toxee/call/camera_availability.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 
 class FakeInCallManager implements InCallManager {
@@ -84,4 +85,82 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
     },
   );
+
+  testWidgets(
+    'V5: a camera iPadOS paused shows why on the local preview, and clears',
+    (tester) async {
+      addTearDown(
+        () => CameraAvailability.apply(unavailable: false, reason: 0),
+      );
+      final callState = CallStateNotifier()
+        ..startRinging(
+          mode: CallMode.video,
+          direction: CallDirection.outgoing,
+          inviteID: 'invite-2',
+          remoteUserID: 'alice',
+          remoteNickname: 'Alice',
+        )
+        ..enterCall();
+      await tester.pumpWidget(buildInCallTestApp(callState));
+      expect(find.byIcon(Icons.videocam_off_outlined), findsNothing);
+
+      // Split View / Slide Over / Stage Manager took the camera.
+      CameraAvailability.apply(unavailable: true, reason: 4);
+      await tester.pump();
+      expect(
+        find.text('Camera paused while other apps share the screen'),
+        findsOneWidget,
+      );
+
+      // Another app holds it.
+      CameraAvailability.apply(unavailable: true, reason: 3);
+      await tester.pump();
+      expect(find.text('Camera unavailable'), findsOneWidget);
+
+      // Back to full screen.
+      CameraAvailability.apply(unavailable: false, reason: 0);
+      await tester.pump();
+      expect(find.byIcon(Icons.videocam_off_outlined), findsNothing);
+      expect(find.byKey(const ValueKey('fake-local-preview')), findsOneWidget);
+
+      callState.endCall();
+      await tester.pump(const Duration(seconds: 3));
+    },
+  );
+
+  testWidgets('V5: the paused-camera note fits the smallest card at 2x text', (
+    tester,
+  ) async {
+    addTearDown(() => CameraAvailability.apply(unavailable: false, reason: 0));
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final callState = CallStateNotifier()
+      ..startRinging(
+        mode: CallMode.video,
+        direction: CallDirection.outgoing,
+        inviteID: 'invite-3',
+        remoteUserID: 'alice',
+        remoteNickname: 'Alice',
+      )
+      ..enterCall();
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(320, 640),
+          textScaler: TextScaler.linear(2),
+        ),
+        child: buildInCallTestApp(callState),
+      ),
+    );
+    CameraAvailability.apply(unavailable: true, reason: 4);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Camera paused while other apps share the screen'),
+      findsOneWidget,
+    );
+    callState.endCall();
+    await tester.pump(const Duration(seconds: 3));
+  });
 }

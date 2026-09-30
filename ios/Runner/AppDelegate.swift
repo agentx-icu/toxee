@@ -1,6 +1,8 @@
 import Flutter
 import AVFoundation
 import Foundation
+import ImageIO
+import Network
 import Photos
 import UIKit
 
@@ -11,6 +13,9 @@ import UIKit
   // references back into us via their handlers.
   private let callKitProvider = CallKitProvider()
   private let backgroundTasks = BackgroundTaskController()
+  private var mediaTranscoder: ToxeeMediaTranscoder?
+  private var cameraMultitasking: ToxeeCameraMultitasking?
+  private let networkPath = ToxeeNetworkPathChannel()
 
   override func application(
     _ application: UIApplication,
@@ -28,6 +33,7 @@ import UIKit
       CallAudioChannel.shared.register(binaryMessenger: controller.binaryMessenger)
       callKitProvider.register(binaryMessenger: controller.binaryMessenger)
       backgroundTasks.register(binaryMessenger: controller.binaryMessenger)
+      networkPath.register(binaryMessenger: controller.binaryMessenger)
 
       // iOS backup-exclusion channel — used by Dart-side AppPaths to mark
       // derivable / ephemeral directories (logs, file_recv, QR cache) with
@@ -89,32 +95,170 @@ import UIKit
           result(FlutterMethodNotImplemented)
           return
         }
+        // Images and videos are imported from the file, not a decoded
+        // UIImage, so the original format (GIF animation, HEIC) survives.
         guard
           let args = call.arguments as? [String: Any],
           let path = args["path"] as? String, !path.isEmpty,
-          let image = UIImage(contentsOfFile: path)
+          FileManager.default.isReadableFile(atPath: path)
         else {
           result(FlutterError(
             code: "INVALID_ARGS",
-            message: "Expected readable image path",
+            message: "Expected readable media path",
             details: nil))
           return
         }
+        let mimeType = args["mimeType"] as? String ?? "image/png"
+        let isVideo = mimeType.hasPrefix("video/")
+        guard isVideo || mimeType.hasPrefix("image/") else {
+          result(FlutterError(
+            code: "INVALID_ARGS",
+            message: "Not an image or video: \(mimeType)",
+            details: nil))
+          return
+        }
+        // Photos goes by the extension; received files often have none, so
+        // import a hard link (a copy if linking fails) named displayName.
+        var fileURL = URL(fileURLWithPath: path)
+        var stagingDir: URL?
+        if let displayName = args["displayName"] as? String, !displayName.isEmpty,
+          (displayName as NSString).pathExtension.lowercased()
+            != fileURL.pathExtension.lowercased()
+        {
+          let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+          let staged = dir.appendingPathComponent(
+            (displayName as NSString).lastPathComponent)
+          do {
+            try FileManager.default.createDirectory(
+              at: dir, withIntermediateDirectories: true)
+            stagingDir = dir
+            do {
+              try FileManager.default.linkItem(at: fileURL, to: staged)
+            } catch {
+              try FileManager.default.copyItem(at: fileURL, to: staged)
+            }
+            fileURL = staged
+          } catch {
+            if let dir = stagingDir { try? FileManager.default.removeItem(at: dir) }
+            result(FlutterError(
+              code: "SAVE_FAILED",
+              message: error.localizedDescription,
+              details: nil))
+            return
+          }
+        }
+        let importURL = fileURL
+        let cleanupDir = stagingDir
+        var created = false
         PHPhotoLibrary.shared().performChanges({
-          PHAssetChangeRequest.creationRequestForAsset(from: image)
+          let request = isVideo
+            ? PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: importURL)
+            : PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: importURL)
+          created = request != nil
         }) { success, error in
+          let success = success && created
+          if let dir = cleanupDir { try? FileManager.default.removeItem(at: dir) }
           DispatchQueue.main.async {
             if success {
               result(path)
             } else {
               result(FlutterError(
                 code: "SAVE_FAILED",
-                message: error?.localizedDescription ?? "Could not save image to Photos",
+                message: error?.localizedDescription ?? "Could not save to Photos",
                 details: nil))
             }
           }
         }
       }
+
+      // flutter_secure_storage 9.2.4 retries a read that found no value with
+      // kSecAttrSynchronizable=true and returns THAT result, so a locked
+      // device's errSecInteractionNotAllowed on an existing item comes back
+      // as "not found". The password gate must not read absence into that:
+      // this asks the Keychain directly, with the plugin's query and no
+      // retry, whether the item exists (checklist B9).
+      FlutterMethodChannel(
+        name: "toxee/keychain_probe", binaryMessenger: controller.binaryMessenger
+      ).setMethodCallHandler { call, result in
+        let service = "flutter_secure_storage_service"
+        let args = call.arguments as? [String: Any]
+        switch call.method {
+        case "exists":
+          guard let key = args?["key"] as? String else {
+            return result(FlutterMethodNotImplemented)
+          }
+          let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: key,
+            kSecAttrService: service,
+            kSecMatchLimit: kSecMatchLimitOne,
+          ]
+          let status = SecItemCopyMatching(query as CFDictionary, nil)
+          switch status {
+          case errSecSuccess: result("found")
+          case errSecItemNotFound: result("missing")
+          default: result("error:\(status)")
+          }
+        // Reinstall cleanup (checklist P3, KeychainReinstallGuard): the
+        // Keychain outlives an uninstall, so a fresh install still holds the
+        // previous one's items. Explicit statuses, unlike the plugin's
+        // deleteAll/readAll, so a locked or refusing Keychain is never
+        // mistaken for "nothing there".
+        case "wipeAll":
+          let status = SecItemDelete([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+          ] as CFDictionary)
+          result(status == errSecSuccess || status == errSecItemNotFound
+            ? "ok" : "error:\(status)")
+        case "listKeys":
+          var items: CFTypeRef?
+          let status = SecItemCopyMatching([
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+            kSecMatchLimit: kSecMatchLimitAll,
+            kSecReturnAttributes: true,
+          ] as CFDictionary, &items)
+          switch status {
+          case errSecSuccess:
+            let rows = items as? [[String: Any]] ?? []
+            result(rows.compactMap { $0[kSecAttrAccount as String] as? String })
+          case errSecItemNotFound: result([String]())
+          default: result(FlutterError(
+            code: "keychain", message: "listKeys: \(status)", details: nil))
+          }
+        case "deleteKeys":
+          guard let keys = args?["keys"] as? [String] else {
+            return result(FlutterMethodNotImplemented)
+          }
+          var failed: OSStatus = errSecSuccess
+          for key in keys {
+            let status = SecItemDelete([
+              kSecClass: kSecClassGenericPassword,
+              kSecAttrService: service,
+              kSecAttrAccount: key,
+              kSecAttrSynchronizable: kSecAttrSynchronizableAny,
+            ] as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+              failed = status
+            }
+          }
+          result(failed == errSecSuccess ? "ok" : "error:\(failed)")
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+
+      cameraMultitasking = ToxeeCameraMultitasking(
+        channel: FlutterMethodChannel(
+          name: "toxee/camera_interruption", binaryMessenger: controller.binaryMessenger))
+
+      mediaTranscoder = ToxeeMediaTranscoder(
+        channel: FlutterMethodChannel(
+          name: "toxee/media_transcode", binaryMessenger: controller.binaryMessenger))
 
       #if DEBUG
       // L3 test seam, DEBUG builds only (release Dart must not be able to pop
@@ -166,5 +310,414 @@ import UIKit
     // Without this the system would only ever run the first refresh.
     backgroundTasks.scheduleNextRefresh()
     super.applicationDidEnterBackground(application)
+  }
+}
+
+/// HEIC / HEIF -> JPEG for sending (checklist M2): desktop peers often cannot
+/// show HEIC. The first image is re-encoded at quality 0.9 with its
+/// orientation and colour metadata, minus the GPS block. Returns an error
+/// message, or nil on success.
+func toxeeHeicToJpeg(source: String, target: String) -> String? {
+  guard
+    let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: source) as CFURL, nil),
+    CGImageSourceGetCount(src) > 0
+  else { return "unreadable image" }
+  guard
+    let dest = CGImageDestinationCreateWithURL(
+      URL(fileURLWithPath: target) as CFURL, "public.jpeg" as CFString, 1, nil)
+  else { return "cannot create JPEG" }
+  let properties: [CFString: Any] = [
+    kCGImageDestinationLossyCompressionQuality: 0.9,
+    // kCFNull removes the key: no location leaves the device.
+    kCGImagePropertyGPSDictionary: kCFNull as Any,
+  ]
+  CGImageDestinationAddImageFromSource(dest, src, 0, properties as CFDictionary)
+  return CGImageDestinationFinalize(dest) ? nil : "JPEG encoding failed"
+}
+
+/// `toxee/media_transcode` (checklist M2): converts outgoing media that
+/// desktop peers may not display.
+///
+///  - `heicToJpeg({source, target})` — see [toxeeHeicToJpeg].
+///  - `probeVideo({source})` — the video track's codec four-char code
+///    ("hvc1" / "hev1" for HEVC, "avc1" for H.264), nil if unreadable.
+///  - `transcodeToH264({id, source, target})` — H.264 / AAC MP4 at up to
+///    1920x1080 (AVAssetExportPreset1920x1080, one of the size presets
+///    documented to produce H.264; HDR is tone-mapped to SDR). Reports
+///    `progress({id, progress})` back to Dart every 0.25 s; the result is
+///    checked to really be H.264 before success.
+///  - `cancelTranscode({id})` — the transcode then fails with CANCELLED.
+final class ToxeeMediaTranscoder {
+  private let channel: FlutterMethodChannel
+  private var sessions: [String: AVAssetExportSession] = [:]
+
+  init(channel: FlutterMethodChannel) {
+    self.channel = channel
+    channel.setMethodCallHandler { [weak self] call, result in
+      self?.handle(call, result)
+    }
+  }
+
+  private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    let args = call.arguments as? [String: Any] ?? [:]
+    let source = args["source"] as? String
+    let target = args["target"] as? String
+    let id = args["id"] as? String
+    // AVFoundation goes by the extension; received files often have none.
+    let ext = args["ext"] as? String
+    switch call.method {
+    case "heicToJpeg":
+      guard let source, let target else { return result(Self.badArgs) }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let error = toxeeHeicToJpeg(source: source, target: target)
+        DispatchQueue.main.async {
+          result(error.map { FlutterError(code: "FAILED", message: $0, details: nil) })
+        }
+      }
+    case "probeVideo":
+      guard let source else { return result(Self.badArgs) }
+      DispatchQueue.global(qos: .userInitiated).async {
+        guard let staged = Self.readable(source, ext: ext) else {
+          return DispatchQueue.main.async { result(Self.stagingFailed) }
+        }
+        let (url, staging) = staged
+        let codec = Self.codec(of: url.path, media: .video)
+        Self.remove(staging)
+        DispatchQueue.main.async { result(codec) }
+      }
+    case "transcodeToH264":
+      guard let source, let target, let id else { return result(Self.badArgs) }
+      transcode(id: id, source: source, ext: ext, target: target, result: result)
+    case "cancelTranscode":
+      if let id { sessions[id]?.cancelExport() }
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  /// Could not give the file a readable name: probing it as-is would read
+  /// "no video" and let an HEVC file through, so this is an error.
+  private static let stagingFailed =
+    FlutterError(code: "FAILED", message: "cannot open the video", details: nil)
+
+  private static let badArgs =
+    FlutterError(code: "INVALID_ARGS", message: "missing arguments", details: nil)
+
+  /// [path], or a hard link (a copy if linking fails) to it named with
+  /// [ext] in a fresh temp dir — returned second, for [remove] afterwards.
+  /// Nil when that staging fails. May copy: call off the main thread.
+  private static func readable(_ path: String, ext: String?) -> (URL, URL?)? {
+    let url = URL(fileURLWithPath: path)
+    guard let ext, !ext.isEmpty, url.pathExtension.lowercased() != ext else {
+      return (url, nil)
+    }
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let staged = dir.appendingPathComponent("source.\(ext)")
+    do {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      do {
+        try FileManager.default.linkItem(at: url, to: staged)
+      } catch {
+        try FileManager.default.copyItem(at: url, to: staged)
+      }
+      return (staged, dir)
+    } catch {
+      remove(dir)
+      return nil
+    }
+  }
+
+  private static func remove(_ dir: URL?) {
+    if let dir { try? FileManager.default.removeItem(at: dir) }
+  }
+
+  /// True when [path]'s video track holds a real frame and a duration: an
+  /// export can complete with an empty track, and that must not be sent.
+  private static func hasVideoSamples(_ path: String) -> Bool {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    guard let track = asset.tracks(withMediaType: .video).first,
+      track.timeRange.duration.seconds > 0,
+      let reader = try? AVAssetReader(asset: asset)
+    else { return false }
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+    reader.add(output)
+    guard reader.startReading() else { return false }
+    defer { reader.cancelReading() }
+    while let buffer = output.copyNextSampleBuffer() {
+      if CMSampleBufferGetNumSamples(buffer) > 0 { return true }
+    }
+    return false
+  }
+
+  private static func codec(of path: String, media: AVMediaType) -> String? {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+    guard let track = asset.tracks(withMediaType: media).first,
+      let first = track.formatDescriptions.first
+    else { return nil }
+    let type = CMFormatDescriptionGetMediaSubType(first as! CMFormatDescription)
+    let bytes = [24, 16, 8, 0].map { UInt8((type >> UInt32($0)) & 0xFF) }
+    return String(bytes: bytes, encoding: .ascii)
+  }
+
+  private func transcode(
+    id: String, source: String, ext: String?, target: String,
+    result: @escaping FlutterResult
+  ) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let staged = Self.readable(source, ext: ext)
+      DispatchQueue.main.async { [weak self] in
+        guard let staged else { return result(Self.stagingFailed) }
+        self?.export(id: id, url: staged.0, staging: staged.1, target: target, result: result)
+      }
+    }
+  }
+
+  /// Main thread: owns [sessions] and the progress timer.
+  private func export(
+    id: String, url: URL, staging: URL?, target: String,
+    result: @escaping FlutterResult
+  ) {
+    let asset = AVURLAsset(url: url)
+    guard
+      let session = AVAssetExportSession(
+        asset: asset, presetName: AVAssetExportPreset1920x1080),
+      session.supportedFileTypes.contains(.mp4)
+    else {
+      Self.remove(staging)
+      return result(
+        FlutterError(code: "FAILED", message: "cannot export this video", details: nil))
+    }
+    // Export to a .mp4 name (the session goes by it), then move onto target.
+    let outDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let output = outDir.appendingPathComponent("out.mp4")
+    try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+    session.outputURL = output
+    session.outputFileType = .mp4
+    session.shouldOptimizeForNetworkUse = true
+    sessions[id] = session
+    let hasAudio = !asset.tracks(withMediaType: .audio).isEmpty
+    let timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) {
+      [weak self, weak session] _ in
+      guard let session else { return }
+      self?.channel.invokeMethod(
+        "progress", arguments: ["id": id, "progress": Double(session.progress)])
+    }
+    session.exportAsynchronously { [weak self] in
+      let status = session.status
+      let message = session.error?.localizedDescription
+      // The preset is a promise, not a proof: check what came out.
+      let video = Self.codec(of: output.path, media: .video)
+      let audio = hasAudio ? Self.codec(of: output.path, media: .audio) : "none"
+      let playable = Self.hasVideoSamples(output.path)
+      Self.remove(staging)
+      var moveError: String?
+      if status == .completed {
+        do {
+          try? FileManager.default.removeItem(atPath: target)
+          try FileManager.default.moveItem(at: output, to: URL(fileURLWithPath: target))
+        } catch {
+          moveError = error.localizedDescription
+        }
+      }
+      Self.remove(outDir)
+      DispatchQueue.main.async {
+        timer.invalidate()
+        self?.sessions[id] = nil
+        let error: FlutterError?
+        switch status {
+        case .completed where moveError != nil:
+          error = FlutterError(code: "FAILED", message: moveError, details: nil)
+        case .completed where video == "avc1" && (audio == "aac " || audio == "none") && playable:
+          error = nil
+        case .completed:
+          error = FlutterError(
+            code: "FAILED",
+            message: "unexpected output: \(video ?? "no video") / \(audio ?? "no audio")",
+            details: nil)
+        case .cancelled:
+          error = FlutterError(code: "CANCELLED", message: nil, details: nil)
+        default:
+          error = FlutterError(code: "FAILED", message: message ?? "export failed", details: nil)
+        }
+        if error != nil { try? FileManager.default.removeItem(atPath: target) }
+        result(error)
+      }
+    }
+  }
+}
+
+/// iPad multitasking vs the camera (checklist V5). iPadOS stops a capture
+/// session when other apps share the screen (Split View, Slide Over, Stage
+/// Manager) unless the session opted in before it started — which only the
+/// camera plugin can do, and it does not. Until then the call says why its
+/// camera stopped instead of showing a frozen picture: interruptions
+/// (multitasking, another app holding the camera, system pressure) reach
+/// Dart as `changed({unavailable, reason})`.
+final class ToxeeCameraMultitasking {
+  private final class Entry {
+    weak var session: AVCaptureSession?
+    let reason: Int
+    init(_ session: AVCaptureSession, _ reason: Int) {
+      self.session = session
+      self.reason = reason
+    }
+  }
+
+  private let channel: FlutterMethodChannel
+  private var interrupted: [ObjectIdentifier: Entry] = [:]
+  private var observers: [NSObjectProtocol] = []
+
+  init(channel: FlutterMethodChannel) {
+    self.channel = channel
+    let center = NotificationCenter.default
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession else { return }
+        let reason =
+          (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue ?? 0
+        // In the background nothing is on screen to explain; the others
+        // (another app has the camera, multitasking, system pressure) are.
+        guard reason != AVCaptureSession.InterruptionReason.videoDeviceNotAvailableInBackground.rawValue,
+          reason != AVCaptureSession.InterruptionReason.audioDeviceInUseByAnotherClient.rawValue
+        else { return }
+        self.interrupted[ObjectIdentifier(session)] = Entry(session, reason)
+        self.report()
+      })
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession else { return }
+        if self.interrupted.removeValue(forKey: ObjectIdentifier(session)) != nil {
+          self.report()
+        }
+      })
+    // A session starting (the next call's camera) republishes the state
+    // without the entries of sessions released meanwhile.
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionDidStartRunning, object: nil, queue: .main
+      ) { [weak self] _ in self?.report() })
+    // An interruption can itself stop the session; only a stop while it is
+    // no longer interrupted (the call ended, the camera was closed) clears.
+    observers.append(
+      center.addObserver(
+        forName: .AVCaptureSessionDidStopRunning, object: nil, queue: .main
+      ) { [weak self] note in
+        guard let self, let session = note.object as? AVCaptureSession,
+          !session.isInterrupted,
+          self.interrupted.removeValue(forKey: ObjectIdentifier(session)) != nil
+        else { return }
+        self.report()
+      })
+  }
+
+  deinit {
+    observers.forEach(NotificationCenter.default.removeObserver)
+  }
+
+  private func report() {
+    // A session released while interrupted must not keep the next call's
+    // camera marked unavailable.
+    interrupted = interrupted.filter { $0.value.session != nil }
+    channel.invokeMethod(
+      "changed",
+      arguments: [
+        "unavailable": !interrupted.isEmpty,
+        "reason": interrupted.values.first?.reason ?? 0,
+      ])
+  }
+}
+
+/// Reports the default network path to Dart so the Tox session can be
+/// re-bootstrapped after a Wi-Fi <-> cellular handover or an address change
+/// (checklist N1; Dart side: lib/util/network_change_rebootstrapper.dart).
+///
+/// Channel `toxee/network_path` (EventChannel), events
+/// `{available: Bool, identity: String?}`; see `identity(of:)`. Dart only
+/// compares identities and ignores the first snapshot.
+final class ToxeeNetworkPathChannel: NSObject, FlutterStreamHandler {
+  private let queue = DispatchQueue(label: "toxee.network_path")
+  private var monitor: NWPathMonitor?
+  private var sink: FlutterEventSink?
+  private var lastSent: (Bool, String?)?
+
+  func register(binaryMessenger: FlutterBinaryMessenger) {
+    FlutterEventChannel(name: "toxee/network_path", binaryMessenger: binaryMessenger)
+      .setStreamHandler(self)
+  }
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink)
+    -> FlutterError?
+  {
+    sink = events
+    lastSent = nil
+    let monitor = NWPathMonitor()
+    monitor.pathUpdateHandler = { [weak self] path in
+      let available = path.status == .satisfied
+      let identity = available ? ToxeeNetworkPathChannel.identity(of: path) : nil
+      DispatchQueue.main.async { self?.emit(available: available, identity: identity) }
+    }
+    monitor.start(queue: queue)
+    self.monitor = monitor
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    monitor?.cancel()
+    monitor = nil
+    sink = nil
+    return nil
+  }
+
+  private func emit(available: Bool, identity: String?) {
+    guard let sink else { return }
+    if let last = lastSent, last.0 == available, last.1 == identity { return }
+    lastSent = (available, identity)
+    sink(["available": available, "identity": identity.map { $0 as Any } ?? NSNull()])
+  }
+
+  /// What the default path is USING: the interface types it routes over
+  /// (`usesInterfaceType`, not merely the available list), the interfaces of
+  /// those types with their current addresses, and the path's gateways — so a
+  /// Wi-Fi <-> cellular handover, a new address, or a new router all change it.
+  private static func identity(of path: NWPath) -> String {
+    let kinds: [NWInterface.InterfaceType] = [.wifi, .cellular, .wiredEthernet, .other]
+    let used = kinds.filter { path.usesInterfaceType($0) }
+    let interfaces = path.availableInterfaces
+      .filter { iface in used.contains(iface.type) }
+      .map { "\($0.name)=\(addresses(of: $0.name).joined(separator: ","))" }
+      .sorted()
+    let gateways = path.gateways.map { "\($0)" }.sorted()
+    return "\(used.map { "\($0)" }.joined(separator: "+"))|"
+      + "\(interfaces.joined(separator: ";"))|\(gateways.joined(separator: ","))"
+  }
+
+  /// Sorted numeric addresses (IPv4 + IPv6) currently on [name].
+  private static func addresses(of name: String) -> [String] {
+    var result: [String] = []
+    var head: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&head) == 0, let first = head else { return result }
+    defer { freeifaddrs(head) }
+    var cursor: UnsafeMutablePointer<ifaddrs>? = first
+    while let entry = cursor {
+      defer { cursor = entry.pointee.ifa_next }
+      guard String(cString: entry.pointee.ifa_name) == name,
+        let addr = entry.pointee.ifa_addr
+      else { continue }
+      let family = Int32(addr.pointee.sa_family)
+      guard family == AF_INET || family == AF_INET6 else { continue }
+      var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+      let len = socklen_t(family == AF_INET ? MemoryLayout<sockaddr_in>.size : MemoryLayout<sockaddr_in6>.size)
+      if getnameinfo(addr, len, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+        result.append(String(cString: host))
+      }
+    }
+    return result.sorted()
   }
 }

@@ -427,6 +427,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => '更换头像';
+
+  @override
   String get failedToLoadQr => '加载二维码失败';
 
   @override
@@ -1706,6 +1709,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get scanQr => '扫描二维码';
 
   @override
+  String get scanQrCameraPermissionDenied => '相机权限已关闭。请在设置中允许后再扫描二维码。';
+
+  @override
+  String get scanQrCameraUnavailable => '无法启动相机。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '已取消导出。副本在“文件”App 的 Toxee › Downloads 中。';
+
+  @override
   String get sendingInProgress => '正在发送...';
 
   @override
@@ -1937,6 +1950,115 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => '请输入群密码';
+
+  @override
+  String get notificationAccessAppOff => '通知已关闭。Toxee 在后台时无法提醒你新消息和来电。';
+
+  @override
+  String get notificationAccessCallsOff => '来电通知已关闭。Toxee 在后台时不会显示可接听来电的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff => 'Toxee 未获准全屏显示来电，来电只会以普通通知显示。';
+
+  @override
+  String get notificationAccessMessagesOff => '消息通知已关闭。Toxee 在后台时不会提醒新消息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已关闭（好友请求、群邀请或未接来电）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已关闭。Toxee 在后台时新消息不会弹出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以静默方式送达通知中心。打开提醒即可及时看到新消息。';
+
+  @override
+  String get notificationAccessOpenSettings => '设置';
+
+  @override
+  String get backgroundSettingsTitle => '后台与通知';
+
+  @override
+  String get hideNotificationContent => '通知中隐藏消息内容';
+
+  @override
+  String get hideNotificationContentDesc => '消息通知只显示“新消息”，不显示发送者和正文。';
+
+  @override
+  String get notificationContentHidden => '新消息';
+
+  @override
+  String get backgroundRunningTitle => '后台运行';
+
+  @override
+  String get backgroundRunningAllowed => '已允许。电池优化不会在后台停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受电池优化限制。系统可能会在后台停止 Toxee，届时将收不到消息和来电。';
+
+  @override
+  String get backgroundRunningAllow => '允许';
+
+  @override
+  String get recoveredPhotoTitle => '发送刚拍的照片？';
+
+  @override
+  String get recoveredVideoTitle => '发送刚录的视频？';
+
+  @override
+  String get recoveredFileTitle => '发送刚选的文件？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '文件选择器打开时 Toxee 被系统关闭了。要把 $file 发送给 $name 吗？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '发送';
+
+  @override
+  String get recoveredCaptureDiscard => '丢弃';
+
+  @override
+  String get mediaConversionFailed => '无法转换这张照片，未发送。';
+
+  @override
+  String get videoConverting => '正在准备视频…';
+
+  @override
+  String get videoConvertingDesc => '正在转换为所有设备都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '无法转换这段视频，未发送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他应用共享屏幕时相机已暂停';
+
+  @override
+  String get cameraUnavailable => '相机不可用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '存储空间不足，无法接收“$fileName”。请释放空间后重试。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '存储空间不足，无法接收文件。请释放空间后重试。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '无法保存“$fileName”。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -2360,6 +2482,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String failedToUpdateAvatar(String error) {
     return '更新头像失败: $error';
   }
+
+  @override
+  String get changeAvatar => '更换头像';
 
   @override
   String get failedToLoadQr => '加载二维码失败';
@@ -3374,6 +3499,115 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get groupPasswordRequired => '请输入群密码';
+
+  @override
+  String get notificationAccessAppOff => '通知已关闭。Toxee 在后台时无法提醒你新消息和来电。';
+
+  @override
+  String get notificationAccessCallsOff => '来电通知已关闭。Toxee 在后台时不会显示可接听来电的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff => 'Toxee 未获准全屏显示来电，来电只会以普通通知显示。';
+
+  @override
+  String get notificationAccessMessagesOff => '消息通知已关闭。Toxee 在后台时不会提醒新消息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已关闭（好友请求、群邀请或未接来电）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已关闭。Toxee 在后台时新消息不会弹出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以静默方式送达通知中心。打开提醒即可及时看到新消息。';
+
+  @override
+  String get notificationAccessOpenSettings => '设置';
+
+  @override
+  String get backgroundSettingsTitle => '后台与通知';
+
+  @override
+  String get hideNotificationContent => '通知中隐藏消息内容';
+
+  @override
+  String get hideNotificationContentDesc => '消息通知只显示“新消息”，不显示发送者和正文。';
+
+  @override
+  String get notificationContentHidden => '新消息';
+
+  @override
+  String get backgroundRunningTitle => '后台运行';
+
+  @override
+  String get backgroundRunningAllowed => '已允许。电池优化不会在后台停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受电池优化限制。系统可能会在后台停止 Toxee，届时将收不到消息和来电。';
+
+  @override
+  String get backgroundRunningAllow => '允许';
+
+  @override
+  String get recoveredPhotoTitle => '发送刚拍的照片？';
+
+  @override
+  String get recoveredVideoTitle => '发送刚录的视频？';
+
+  @override
+  String get recoveredFileTitle => '发送刚选的文件？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相机打开时 Toxee 被系统关闭了。要发送给 $name 吗？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '文件选择器打开时 Toxee 被系统关闭了。要把 $file 发送给 $name 吗？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '发送';
+
+  @override
+  String get recoveredCaptureDiscard => '丢弃';
+
+  @override
+  String get mediaConversionFailed => '无法转换这张照片，未发送。';
+
+  @override
+  String get videoConverting => '正在准备视频…';
+
+  @override
+  String get videoConvertingDesc => '正在转换为所有设备都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '无法转换这段视频，未发送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他应用共享屏幕时相机已暂停';
+
+  @override
+  String get cameraUnavailable => '相机不可用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '存储空间不足，无法接收“$fileName”。请释放空间后重试。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '存储空间不足，无法接收文件。请释放空间后重试。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '无法保存“$fileName”。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3797,6 +4031,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String failedToUpdateAvatar(String error) {
     return '更新頭像失敗: $error';
   }
+
+  @override
+  String get changeAvatar => '更換頭像';
 
   @override
   String get failedToLoadQr => '載入 QR 碼失敗';
@@ -5077,6 +5314,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get scanQr => '掃描 QR 碼';
 
   @override
+  String get scanQrCameraPermissionDenied => '相機權限已關閉。請在設定中允許後再掃描 QR 碼。';
+
+  @override
+  String get scanQrCameraUnavailable => '無法啟動相機。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '已取消匯出。副本在「檔案」App 的 Toxee › Downloads 中。';
+
+  @override
   String get sendingInProgress => '發送中...';
 
   @override
@@ -5308,4 +5555,114 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get groupPasswordRequired => '請輸入群組密碼';
+
+  @override
+  String get notificationAccessAppOff => '通知已關閉。Toxee 在背景時無法提醒你新訊息和來電。';
+
+  @override
+  String get notificationAccessCallsOff => '來電通知已關閉。Toxee 在背景時不會顯示可接聽來電的通知。';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee 未獲得全螢幕顯示來電的權限，來電只會以一般通知顯示。';
+
+  @override
+  String get notificationAccessMessagesOff => '訊息通知已關閉。Toxee 在背景時不會提醒新訊息。';
+
+  @override
+  String get notificationAccessOtherOff => '部分 Toxee 通知已關閉（好友請求、群組邀請或未接來電）。';
+
+  @override
+  String get notificationAccessAlertsOff => '通知提醒已關閉。Toxee 在背景時新訊息不會跳出提醒。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 的通知正以靜默方式送達通知中心。開啟提醒即可及時看到新訊息。';
+
+  @override
+  String get notificationAccessOpenSettings => '設定';
+
+  @override
+  String get backgroundSettingsTitle => '背景與通知';
+
+  @override
+  String get hideNotificationContent => '通知中隱藏訊息內容';
+
+  @override
+  String get hideNotificationContentDesc => '訊息通知只顯示「新訊息」，不顯示傳送者和內文。';
+
+  @override
+  String get notificationContentHidden => '新訊息';
+
+  @override
+  String get backgroundRunningTitle => '背景執行';
+
+  @override
+  String get backgroundRunningAllowed => '已允許。電池最佳化不會在背景停止 Toxee。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '受電池最佳化限制。系統可能會在背景停止 Toxee，屆時將收不到訊息和來電。';
+
+  @override
+  String get backgroundRunningAllow => '允許';
+
+  @override
+  String get recoveredPhotoTitle => '傳送剛拍的相片？';
+
+  @override
+  String get recoveredVideoTitle => '傳送剛錄的影片？';
+
+  @override
+  String get recoveredFileTitle => '傳送剛選的檔案？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '相機開啟時 Toxee 被系統關閉了。要傳送給 $name 嗎？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '檔案選擇器開啟時 Toxee 被系統關閉了。要把 $file 傳送給 $name 嗎？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '傳送';
+
+  @override
+  String get recoveredCaptureDiscard => '捨棄';
+
+  @override
+  String get mediaConversionFailed => '無法轉換這張相片，未傳送。';
+
+  @override
+  String get videoConverting => '正在準備影片…';
+
+  @override
+  String get videoConvertingDesc => '正在轉換為所有裝置都能播放的格式。';
+
+  @override
+  String get videoConversionFailed => '無法轉換這段影片，未傳送。';
+
+  @override
+  String get cameraPausedMultitasking => '其他 App 共用螢幕時相機已暫停';
+
+  @override
+  String get cameraUnavailable => '相機無法使用';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '儲存空間不足，無法接收「$fileName」。請釋放空間後再試一次。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed => '儲存空間不足，無法接收檔案。請釋放空間後再試一次。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '無法儲存「$fileName」。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '無法儲存收到的檔案。';
 }

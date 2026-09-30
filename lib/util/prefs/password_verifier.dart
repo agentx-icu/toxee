@@ -145,7 +145,13 @@ class PasswordVerifier {
     if (legacy != null && legacy.isNotEmpty) {
       return AccountProtectionState.protected;
     }
-    return secure.unavailable
+    // The alias read above cannot tell "no hash" from "could not read" (a
+    // locked iPhone); ask again with the outcome, or a verifier still under
+    // the alias would pass the gate as "none" (B9).
+    final alias = _publicKeyAlias(toxId);
+    final aliasUnreadable = alias != null &&
+        (await _secureStorage.readOutcome(secureHashKey(alias))).unavailable;
+    return secure.unavailable || aliasUnreadable
         ? AccountProtectionState.unknown
         : AccountProtectionState.none;
   }

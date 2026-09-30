@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 // ignore: directives_ordering
 import 'safe_dialog_pop.dart';
@@ -222,24 +221,16 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
           },
           dialogTitle: l10n.firstRunBackupWizardTitle,
           fileName: defaultFileName,
-          saveFile:
-              widget.mobileExportSaveFile ??
-              ({
-                required String dialogTitle,
-                required String fileName,
-                required Uint8List bytes,
-              }) => FilePicker.platform.saveFile(
-                dialogTitle: dialogTitle,
-                fileName: fileName,
-                bytes: bytes,
-              ),
+          saveFile: widget.mobileExportSaveFile ?? saveWithSystemSaveSheet,
         );
         if (mobileSaveResult.disposition ==
             MobileExportSaveDisposition.cancelled) {
           if (mounted) {
             setState(() {
               _busy = false;
-              _statusMessage = l10n.importCancelled;
+              _statusMessage = mobileSaveResult!.cancelledCopyInFiles
+                  ? l10n.exportCancelledCopyKept
+                  : l10n.importCancelled;
               _statusIsError = false;
             });
           }

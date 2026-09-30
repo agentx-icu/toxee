@@ -141,6 +141,30 @@ void main() {
 
     tearDown(() => env.dispose());
 
+    test(
+      'default-named exports never replace an earlier one in Downloads '
+      '(a kept, cancelled mobile export stays)',
+      () async {
+        final first = await AccountExportService.exportAccountData(
+          toxId: fixture.toxId,
+        );
+        await File(first).writeAsBytes(const [1, 2, 3]); // "older snapshot"
+        final second = await AccountExportService.exportAccountData(
+          toxId: fixture.toxId,
+        );
+        final third = await AccountExportService.exportAccountData(
+          toxId: fixture.toxId,
+        );
+        expect(p.dirname(first), env.downloads);
+        expect(second, isNot(first));
+        expect(third, isNot(second));
+        expect(p.basename(second), endsWith(' (2).tox'));
+        expect(p.basename(third), endsWith(' (3).tox'));
+        expect(await File(first).readAsBytes(), const [1, 2, 3]);
+        expect(await File(second).readAsBytes(), equals(fixture.savedata));
+      },
+    );
+
     test('unencrypted export/import produces identical profile bytes', () async {
       final exportPath = await AccountExportService.exportAccountData(
         toxId: fixture.toxId,

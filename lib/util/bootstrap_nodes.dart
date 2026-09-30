@@ -10,6 +10,15 @@ String formatBootstrapEndpoint(String host, int port) {
       : '$trimmedHost:$port';
 }
 
+/// [formatBootstrapEndpoint] for display: a line may break before the port
+/// (a zero-width space), never inside it — with large system text the
+/// address wrapped as "…:3344" / "5" (checklist L11). Not for copying.
+String displayBootstrapEndpoint(String host, int port) =>
+    formatBootstrapEndpoint(host, port).replaceFirst(
+      RegExp(r':(?=\d+$)'),
+      ':\u200B',
+    );
+
 class BootstrapNode {
   final String ipv4;
   final String? ipv6;
@@ -37,6 +46,25 @@ class BootstrapNode {
     final ipv4Host = _usableHost(ipv4);
     if (ipv4Host != null) return ipv4Host;
     return _usableHost(ipv6);
+  }
+
+  /// Every address this node advertises, for bootstrapping: IPv4 then IPv6,
+  /// trimmed and de-duplicated (several nodes list the same hostname in both
+  /// fields). [preferredHost] stays the one address shown and persisted.
+  ///
+  /// Why all of them (checklist N3, IPv6-only networks): an IPv6-only phone
+  /// cannot reach an IPv4 literal unless the OS translates it — tim2tox
+  /// synthesizes the NAT64 address on Apple, Android relies on CLAT — so the
+  /// node's own IPv6 is bootstrapped as well. IPv4 stays first because toxcore
+  /// keeps only the first onion-bootstrap / TCP-relay address per key; on
+  /// IPv4 and dual-stack networks that is today's behaviour unchanged.
+  List<String> get bootstrapHosts {
+    final hosts = <String>[];
+    for (final value in [ipv4, ipv6]) {
+      final host = _usableHost(value);
+      if (host != null && !hosts.contains(host)) hosts.add(host);
+    }
+    return hosts;
   }
 
   String? get formattedEndpoint {

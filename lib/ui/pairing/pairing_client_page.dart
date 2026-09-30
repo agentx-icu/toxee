@@ -13,6 +13,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_client.dart';
+import '../widgets/qr_scanner_view.dart';
 import 'pairing_centered_message.dart';
 import 'pairing_status_indicator.dart';
 
@@ -44,12 +45,15 @@ class PairingClientPage extends StatefulWidget {
 class _PairingClientPageState extends State<PairingClientPage> {
   PairingClient? _client;
   StreamSubscription<ClientEvent>? _sub;
-  MobileScannerController? _scannerController;
   String? _sas;
   String? _error;
   String? _completedToxId;
   bool _connecting = false;
+  // Set as soon as a URL arrives, before the awaited camera stop: a second
+  // scan/paste in that window must not start another client.
+  bool _urlReceived = false;
   final _pasteController = TextEditingController();
+  final _scannerKey = GlobalKey<QrScannerViewState>();
 
   // Desktop platforms get a paste-URL fallback because typical desktop setups
   // either lack a webcam or have one that's awkward to point at a phone.
@@ -57,27 +61,23 @@ class _PairingClientPageState extends State<PairingClientPage> {
       !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   @override
-  void initState() {
-    super.initState();
-    if (_supportsCameraScan) {
-      _scannerController = MobileScannerController(
-        formats: const [BarcodeFormat.qrCode],
-        detectionSpeed: DetectionSpeed.normal,
-      );
-    }
-  }
-
-  @override
   void dispose() {
     _sub?.cancel();
     unawaited(_client?.cancel(reason: 'page disposed'));
-    _scannerController?.dispose();
     _pasteController.dispose();
     super.dispose();
   }
 
   Future<void> _onUrlReceived(String url) async {
-    if (_connecting || _client != null) return;
+    if (_connecting || _client != null || _urlReceived) return;
+    _urlReceived = true;
+    // Stop the camera BEFORE the scanner leaves the tree (the `_connecting`
+    // rebuild below swaps it out, and AnimatedSwitcher then keeps it for the
+    // out-transition): stopCamera() waits for a start still in flight, which
+    // it can only observe while the scanner is mounted. So the preview can't
+    // be running during the handshake.
+    await _scannerKey.currentState?.stopCamera();
+    if (!mounted) return;
     setState(() => _connecting = true);
 
     final client = PairingClient(
@@ -117,12 +117,6 @@ class _PairingClientPageState extends State<PairingClientPage> {
     );
     _client = client;
     _sub = client.events.listen(_onEvent);
-    // Stop the camera so the preview doesn't fight us during handshake.
-    try {
-      await _scannerController?.stop();
-    } catch (e) {
-      AppLogger.warn('[PairingClientPage] scanner stop failed: $e');
-    }
     try {
       await client.connect(url);
     } catch (e, st) {
@@ -260,27 +254,14 @@ class _PairingClientPageState extends State<PairingClientPage> {
     return LayoutBuilder(
       builder: (context, constraints) => Column(
       children: [
-        if (_supportsCameraScan && _scannerController != null)
+        if (_supportsCameraScan)
           Expanded(
             child: Stack(
               children: [
-                MobileScanner(
-                  controller: _scannerController,
+                QrScannerView(
+                  key: _scannerKey,
                   onDetect: _onScannedBarcode,
-                ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      margin: const EdgeInsets.all(AppSpacing.xxl),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _kViewfinderStroke,
-                          width: 2,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadii.card),
-                      ),
-                    ),
-                  ),
+                  viewfinderColor: _kViewfinderStroke,
                 ),
                 const Positioned(
                   top: AppSpacing.lg,

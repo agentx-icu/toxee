@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /**
@@ -22,7 +23,8 @@ import androidx.core.app.NotificationCompat
  *
  *  - [TYPE_MODE_DATA_SYNC] (default): for keeping the Tox connection alive so
  *    inbound messages, friend events, and ToxAV invites continue to arrive.
- *    Backed by `FOREGROUND_SERVICE_TYPE_DATA_SYNC`.
+ *    Backed by `FOREGROUND_SERVICE_TYPE_SPECIAL_USE` on API 34+ and
+ *    `FOREGROUND_SERVICE_TYPE_DATA_SYNC` below that (see [runtimeServiceType]).
  *  - [TYPE_MODE_PHONE_CALL]: elevated while a ToxAV call is in progress so
  *    audio/video capture isn't throttled and the OS treats the process as a
  *    real call. Backed by `FOREGROUND_SERVICE_TYPE_PHONE_CALL`.
@@ -65,6 +67,7 @@ class ToxPollingService : Service() {
                 startInForeground(intent, TYPE_MODE_DATA_SYNC)
             }
             ACTION_STOP -> {
+                markStopped()
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
@@ -78,8 +81,24 @@ class ToxPollingService : Service() {
     }
 
     override fun onDestroy() {
+        markStopped()
         stopForegroundCompat()
         super.onDestroy()
+    }
+
+    /**
+     * API 35+ time-limit callback. The runtime mode never uses a time-limited
+     * type on API 34+ (see [runtimeServiceType]) and phoneCall has no limit, so
+     * this should not fire; if it ever does, the system requires the service
+     * to stop within seconds or it raises a fatal RemoteServiceException. Stop
+     * cleanly — Dart restarts the service on the next resume (see
+     * `RuntimeForegroundService.ensureRunning`), when the budget has reset.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "foreground service timed out (fgsType=$fgsType); stopping")
+        markStopped()
+        stopForegroundCompat()
+        stopSelf()
     }
 
     private fun startInForeground(intent: Intent?, typeMode: Int) {
@@ -121,19 +140,66 @@ class ToxPollingService : Service() {
                     }
                     callTypes
                 }
-                else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                else -> runtimeServiceType()
             }
         } else {
             0
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, serviceType)
-        } else {
-            @Suppress("DEPRECATION")
-            startForeground(NOTIFICATION_ID, notification)
+        // startForeground can still be refused inside the service even though
+        // startForegroundService was accepted — e.g. microphone/camera types
+        // requested while the app has no while-in-use access (backgrounded).
+        // Degrade one while-in-use type at a time (camera first, so an audio
+        // call keeps its microphone type), and record what actually took
+        // effect so Dart can re-request the full mode on the next resume. If
+        // nothing is accepted and the service is not already foreground, stop
+        // rather than leave the startForegroundService promise unmet.
+        requestedType = serviceType
+        val attempts = linkedSetOf(serviceType)
+        if (typeMode == TYPE_MODE_PHONE_CALL &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        ) {
+            attempts.add(serviceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA.inv())
+            attempts.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
         }
+        for (type in attempts) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIFICATION_ID, notification, type)
+                } else {
+                    @Suppress("DEPRECATION")
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                running = true
+                activeType = type
+                return
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "startForeground(type=$type) refused: $e")
+            }
+        }
+        if (!running) stopSelf()
     }
+
+    private fun markStopped() {
+        running = false
+        activeType = 0
+        requestedType = 0
+    }
+
+    /**
+     * Foreground-service type for the always-on runtime mode. The service
+     * holds a Tox P2P session open indefinitely, which is not a bounded data
+     * transfer: on API 35+ `dataSync` is capped at 6 h per 24 h in background
+     * and then must stop. `specialUse` (API 34+) carries no such cap and is
+     * justified in the manifest's PROPERTY_SPECIAL_USE_FGS_SUBTYPE. Below
+     * API 34 `specialUse` does not exist and `dataSync` has no time limit.
+     */
+    private fun runtimeServiceType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        }
 
     private fun buildNotification(
         typeMode: Int,
@@ -269,6 +335,27 @@ class ToxPollingService : Service() {
     }
 
     companion object {
+        private const val TAG = "ToxPollingService"
+
+        @Volatile
+        private var running: Boolean = false
+
+        @Volatile
+        private var requestedType: Int = 0
+
+        @Volatile
+        private var activeType: Int = 0
+
+        /**
+         * Whether the service is in the foreground with exactly the type its
+         * last request asked for. False when the OS stopped it (time limit,
+         * refused start) or only accepted a degraded type — either way Dart
+         * should re-issue its last request, instead of assuming it took
+         * effect. Process death resets it along with the process.
+         */
+        val inRequestedMode: Boolean
+            get() = running && activeType == requestedType
+
         // Channel IDs — kept distinct from
         // `lib/notifications/notification_service.dart`'s channels
         // (`toxee_messages`, `toxee_friend_requests`, `toxee_missed_calls`).

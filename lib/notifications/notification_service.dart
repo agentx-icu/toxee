@@ -12,9 +12,12 @@ import '../util/logger.dart';
 import '../util/serialized_async_tail.dart';
 import 'incoming_call_window_lease.dart';
 import 'notification_channels.dart';
+import 'notification_privacy.dart';
 
 export 'notification_channels.dart'
     show buildAndroidIncomingCallNotificationDetails;
+
+part 'notification_service_privacy.dart';
 
 const int _androidIncomingCallNotificationId = 0x746f7865;
 const MethodChannel _androidIncomingCallWindowChannel = MethodChannel(
@@ -304,9 +307,9 @@ class NotificationService {
         // app launch behind the permission dialog (blank screen). Fire it
         // unawaited; the lazy await on the first showMessageNotification still
         // gates actual delivery.
-        if (_androidApiLevelAtLeast(33)) {
-          unawaited(_ensureAndroidPermission());
-        }
+        // Every Android release: below API 33 the plugin reports
+        // notifications enabled (fast path) and never prompts.
+        unawaited(_ensureAndroidPermission());
       }
 
       // iOS / macOS: ask for alert + badge + sound. CRITICAL: do NOT await the
@@ -326,6 +329,7 @@ class NotificationService {
         AppLogger.info(
           '[NotificationService] Notification permission prompt disabled by harness',
         );
+        _settlePermission();
       } else if (Platform.isIOS) {
         final iosImpl = _plugin
             .resolvePlatformSpecificImplementation<
@@ -342,7 +346,8 @@ class NotificationService {
                   onError: (Object e) => AppLogger.warn(
                     '[NotificationService] iOS permission request failed: $e',
                   ),
-                ),
+                )
+                .whenComplete(_settlePermission),
           );
         }
       } else if (Platform.isMacOS) {
@@ -441,15 +446,19 @@ class NotificationService {
     }
 
     try {
-      // Body cap. Keep word boundary if we can — avoid breaking mid-grapheme
-      // by clamping on the rune-level codepoints, then trimming trailing
-      // whitespace before appending an ellipsis.
+      final hidden = await NotificationPrivacy.hidesContent();
+      if (hidden) {
+        (senderName, preview, avatarPath) = NotificationPrivacy.redacted();
+        _grouped.remove(conversationId); // older lines hold real text
+      }
       final clampedBody = _clampBody(preview);
 
       // Inbox-style grouping: accumulate up to 5 lines per conversation so
       // a burst of "Alice: hi / Alice: there / Alice: are you free?" shows
       // up as one expandable notification, not three separate banners.
-      final lines = _grouped.putIfAbsent(conversationId, () => <String>[]);
+      final lines = hidden
+          ? <String>[]
+          : _grouped.putIfAbsent(conversationId, () => <String>[]);
       lines.add(clampedBody);
       // Don't keep an unbounded list — only the last 5 lines are shown by
       // Android's inbox style; past that, switch the summary to a count.
@@ -1058,6 +1067,18 @@ class NotificationService {
           );
           return;
         }
+        // The L3 harness forbids the system prompt (it would block the
+        // automation): keep notifications off rather than asking. Checked
+        // here so the startup warm-up and the first-send path both obey it.
+        if (HarnessEnvironment.boolValue(
+          HarnessEnvironment.disableNotificationPermissionKey,
+        )) {
+          _androidPermissionGranted = false;
+          AppLogger.info(
+            '[NotificationService] Android permission prompt disabled by harness',
+          );
+          return;
+        }
         // alreadyEnabled is false or null — ask. The plugin returns true if
         // granted, false if denied, null on platforms / API levels where the
         // request is a no-op (treat null as granted — pre-Android-13).
@@ -1084,41 +1105,33 @@ class NotificationService {
       }
     } finally {
       _androidPermissionInFlight = null;
+      _settlePermission();
     }
   }
 
-  /// Returns true if the Android release suggests we're at or above [minApi].
-  ///
-  /// Currently only used for `minApi == 33` (POST_NOTIFICATIONS), where
-  /// `release >= 13` is the correct check. The `30 + (release - 11)` formula
-  /// IS NOT a general release→API mapping (Android 12.1 = API 32, Android 15
-  /// = API 35, etc. would all be off by 1). Do not reuse this for other
-  /// thresholds without first validating against the actual API level via
-  /// a native platform channel.
-  ///
-  /// Parses [Platform.operatingSystemVersion] for the leading integer — on
-  /// Android the string is of the form `"<release> <kernel>"` (e.g.
-  /// `"13 5.10.81-android13-..."`). When the parse fails we conservatively
-  /// return true so the permission gate still runs — the plugin's
-  /// [requestNotificationsPermission] is itself a no-op on pre-Android-13,
-  /// so an unnecessary call costs nothing.
-  bool _androidApiLevelAtLeast(int minApi) {
-    if (!Platform.isAndroid) return false;
-    try {
-      final version = Platform.operatingSystemVersion;
-      // The first whitespace-delimited token is the release version on
-      // Android (e.g. "13").
-      final match = RegExp(r'^\s*(\d+)').firstMatch(version);
-      final release = int.tryParse(match?.group(1) ?? '');
-      if (release == null) return true; // Unknown — let the plugin decide.
-      // Release -> API: 11->30, 12->31/32, 13->33, 14->34, 15->35.
-      // This is a coarse approximation; see doc comment above for the
-      // strict constraint on which `minApi` values are safe.
-      final estimatedApi = 30 + (release - 11);
-      return estimatedApi >= minApi;
-    } catch (_) {
-      return true;
-    }
+  /// Whether the startup permission request has been answered (or skipped).
+  /// Until then iOS reports "not enabled" for an undecided prompt too, so the
+  /// user-facing notice (NotificationAccessMonitor) must not call that "off".
+  bool get permissionRequestSettled => _permissionRequestSettled;
+  bool _permissionRequestSettled = false;
+
+  /// Called once the permission request settles, so the notice can explain a
+  /// denial right away instead of waiting for the next resume.
+  VoidCallback? onPermissionSettled;
+
+  void _settlePermission() {
+    _permissionRequestSettled = true;
+    onPermissionSettled?.call();
+  }
+
+  /// The system's app-level notification switch, as last read by
+  /// NotificationAccessMonitor. A denial used to be cached for the whole
+  /// session: enabling notifications in system settings then did nothing
+  /// until restart. Re-enabling (read without prompting) lifts the gate.
+  void observeAndroidAppSwitch({required bool enabled}) {
+    if (!enabled || _androidPermissionGranted != false) return;
+    _androidPermissionGranted = true;
+    AppLogger.info('[NotificationService] notifications re-enabled');
   }
 
   /// Test-only / shutdown hook. Cancels the broadcast controller.
@@ -1133,5 +1146,7 @@ class NotificationService {
     _channelLocaleListener = null;
     _androidPermissionGranted = null;
     _lastIncomingCallNotificationOutcome = null;
+    _permissionRequestSettled = false;
+    onPermissionSettled = null;
   }
 }

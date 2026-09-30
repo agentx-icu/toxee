@@ -428,6 +428,9 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => '프로필 사진 변경';
+
+  @override
   String get failedToLoadQr => 'QR 코드 로드 실패';
 
   @override
@@ -1730,6 +1733,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get scanQr => 'QR 스캔';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      '카메라 접근이 꺼져 있습니다. QR 코드를 스캔하려면 설정에서 허용하세요.';
+
+  @override
+  String get scanQrCameraUnavailable => '카메라를 시작할 수 없습니다.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      '내보내기를 취소했습니다. 사본은 파일 앱의 Toxee › Downloads에 있습니다.';
+
+  @override
   String get sendingInProgress => '보내는 중...';
 
   @override
@@ -1966,4 +1980,122 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => '그룹 비밀번호를 입력하세요';
+
+  @override
+  String get notificationAccessAppOff =>
+      '알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지와 전화를 알려 드릴 수 없습니다.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      '수신 전화 알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 전화를 받을 수 있는 알림이 표시되지 않습니다.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee에 전화 전체 화면 표시가 허용되지 않아 수신 전화가 일반 알림으로만 표시됩니다.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      '메시지 알림이 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지를 알려 드리지 않습니다.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      '일부 Toxee 알림(친구 요청, 그룹 초대, 부재중 전화)이 꺼져 있습니다.';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      '알림 표시가 꺼져 있습니다. Toxee가 백그라운드에 있을 때 새 메시지가 표시되지 않습니다.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee 알림이 알림 센터에 조용히 전달되고 있습니다. 새 메시지를 바로 보려면 알림 표시를 켜세요.';
+
+  @override
+  String get notificationAccessOpenSettings => '설정';
+
+  @override
+  String get backgroundSettingsTitle => '백그라운드 및 알림';
+
+  @override
+  String get hideNotificationContent => '알림에서 메시지 내용 숨기기';
+
+  @override
+  String get hideNotificationContentDesc =>
+      '메시지 알림에 보낸 사람과 내용 없이 ‘새 메시지’만 표시됩니다.';
+
+  @override
+  String get notificationContentHidden => '새 메시지';
+
+  @override
+  String get backgroundRunningTitle => '백그라운드 실행';
+
+  @override
+  String get backgroundRunningAllowed =>
+      '허용됨. 배터리 최적화가 백그라운드에서 Toxee를 중지하지 않습니다.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      '배터리 최적화로 제한됨. 시스템이 백그라운드에서 Toxee를 중지하면 메시지와 전화를 받을 수 없습니다.';
+
+  @override
+  String get backgroundRunningAllow => '허용';
+
+  @override
+  String get recoveredPhotoTitle => '방금 찍은 사진을 보낼까요?';
+
+  @override
+  String get recoveredVideoTitle => '방금 녹화한 동영상을 보낼까요?';
+
+  @override
+  String get recoveredFileTitle => '방금 선택한 파일을 보낼까요?';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return '카메라가 열려 있는 동안 시스템이 Toxee를 종료했습니다. $name님에게 보낼까요?';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return '파일 선택기가 열려 있는 동안 시스템이 Toxee를 종료했습니다. $file을(를) $name님에게 보낼까요?';
+  }
+
+  @override
+  String get recoveredCaptureSend => '보내기';
+
+  @override
+  String get recoveredCaptureDiscard => '삭제';
+
+  @override
+  String get mediaConversionFailed => '이 사진을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
+
+  @override
+  String get videoConverting => '동영상 준비 중…';
+
+  @override
+  String get videoConvertingDesc => '모든 기기에서 재생할 수 있는 형식으로 변환하고 있습니다.';
+
+  @override
+  String get videoConversionFailed => '이 동영상을 전송용으로 변환하지 못했습니다. 보내지 않았습니다.';
+
+  @override
+  String get cameraPausedMultitasking => '다른 앱과 화면을 함께 쓰는 동안 카메라가 일시 중지됩니다';
+
+  @override
+  String get cameraUnavailable => '카메라를 사용할 수 없습니다';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return '저장 공간이 부족하여 \"$fileName\" 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      '저장 공간이 부족하여 파일을 받을 수 없습니다. 공간을 확보한 후 다시 시도하세요.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '\"$fileName\" 파일을 저장할 수 없습니다.';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '받은 파일을 저장할 수 없습니다.';
 }

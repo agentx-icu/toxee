@@ -439,6 +439,9 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => 'تغيير صورة الملف الشخصي';
+
+  @override
   String get failedToLoadQr => 'فشل تحميل رمز QR';
 
   @override
@@ -1774,6 +1777,17 @@ class AppLocalizationsAr extends AppLocalizations {
   String get scanQr => 'مسح رمز QR';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'الوصول إلى الكاميرا متوقف. اسمح به في الإعدادات لمسح رموز QR.';
+
+  @override
+  String get scanQrCameraUnavailable => 'تعذّر تشغيل الكاميرا.';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'تم إلغاء التصدير. توجد نسخة في تطبيق الملفات ضمن Toxee › Downloads.';
+
+  @override
   String get sendingInProgress => 'جارٍ الإرسال...';
 
   @override
@@ -2025,4 +2039,125 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'أدخل كلمة مرور المجموعة';
+
+  @override
+  String get notificationAccessAppOff =>
+      'الإشعارات متوقفة. لا يمكن لـ Toxee تنبيهك بالرسائل أو المكالمات الجديدة أثناء عمله في الخلفية.';
+
+  @override
+  String get notificationAccessCallsOff =>
+      'إشعارات المكالمات الواردة متوقفة. أثناء عمل Toxee في الخلفية لن يظهر إشعار للرد على المكالمات.';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'لا يُسمح لـ Toxee بعرض المكالمات الواردة بملء الشاشة، لذا ستظهر كإشعار عادي فقط.';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'إشعارات الرسائل متوقفة. لن يتم تنبيهك بالرسائل الجديدة أثناء عمل Toxee في الخلفية.';
+
+  @override
+  String get notificationAccessOtherOff =>
+      'بعض إشعارات Toxee متوقفة (طلبات الصداقة أو دعوات المجموعات أو المكالمات الفائتة).';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      'تنبيهات الإشعارات متوقفة. لن تظهر الرسائل الجديدة أثناء عمل Toxee في الخلفية.';
+
+  @override
+  String get notificationAccessProvisional =>
+      'تصل إشعارات Toxee بهدوء إلى مركز الإشعارات. شغّل التنبيهات لرؤية الرسائل الجديدة فورًا.';
+
+  @override
+  String get notificationAccessOpenSettings => 'الإعدادات';
+
+  @override
+  String get backgroundSettingsTitle => 'الخلفية والإشعارات';
+
+  @override
+  String get hideNotificationContent => 'إخفاء محتوى الرسائل في الإشعارات';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'تعرض إشعارات الرسائل «رسالة جديدة» فقط، دون المرسل أو النص.';
+
+  @override
+  String get notificationContentHidden => 'رسالة جديدة';
+
+  @override
+  String get backgroundRunningTitle => 'التشغيل في الخلفية';
+
+  @override
+  String get backgroundRunningAllowed =>
+      'مسموح. لن يوقف تحسين البطارية Toxee في الخلفية.';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'مقيّد بتحسين البطارية. قد يوقف النظام Toxee في الخلفية، وعندها لن تصل الرسائل والمكالمات.';
+
+  @override
+  String get backgroundRunningAllow => 'السماح';
+
+  @override
+  String get recoveredPhotoTitle => 'هل تريد إرسال الصورة التي التقطتها؟';
+
+  @override
+  String get recoveredVideoTitle => 'هل تريد إرسال الفيديو الذي سجّلته؟';
+
+  @override
+  String get recoveredFileTitle => 'هل تريد إرسال الملف الذي اخترته؟';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'أُغلق Toxee أثناء فتح الكاميرا. هل تريد إرسالها إلى $name؟';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'أُغلق Toxee أثناء فتح منتقي الملفات. هل تريد إرسال $file إلى $name؟';
+  }
+
+  @override
+  String get recoveredCaptureSend => 'إرسال';
+
+  @override
+  String get recoveredCaptureDiscard => 'تجاهل';
+
+  @override
+  String get mediaConversionFailed =>
+      'تعذّر تحويل هذه الصورة للإرسال. لم يُرسَل شيء.';
+
+  @override
+  String get videoConverting => 'جارٍ تجهيز الفيديو…';
+
+  @override
+  String get videoConvertingDesc => 'جارٍ تحويله إلى صيغة تعمل على كل الأجهزة.';
+
+  @override
+  String get videoConversionFailed =>
+      'تعذّر تحويل هذا الفيديو للإرسال. لم يُرسَل شيء.';
+
+  @override
+  String get cameraPausedMultitasking =>
+      'تتوقف الكاميرا مؤقتًا أثناء مشاركة الشاشة مع تطبيقات أخرى';
+
+  @override
+  String get cameraUnavailable => 'الكاميرا غير متاحة';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'لا توجد مساحة تخزين كافية لاستلام \"$fileName\". حرّر بعض المساحة وحاول مرة أخرى.';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'لا توجد مساحة تخزين كافية لاستلام ملف. حرّر بعض المساحة وحاول مرة أخرى.';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return 'تعذّر حفظ \"$fileName\".';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => 'تعذّر حفظ ملف مستلَم.';
 }

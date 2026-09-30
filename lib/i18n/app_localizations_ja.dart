@@ -428,6 +428,9 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get changeAvatar => 'プロフィール写真を変更';
+
+  @override
   String get failedToLoadQr => 'QRコードの読み込みに失敗しました';
 
   @override
@@ -1731,6 +1734,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get scanQr => 'QR をスキャン';
 
   @override
+  String get scanQrCameraPermissionDenied =>
+      'カメラへのアクセスがオフになっています。QR コードをスキャンするには、設定で許可してください。';
+
+  @override
+  String get scanQrCameraUnavailable => 'カメラを起動できませんでした。';
+
+  @override
+  String get exportCancelledCopyKept =>
+      'エクスポートをキャンセルしました。コピーは「ファイル」App の Toxee › Downloads にあります。';
+
+  @override
   String get sendingInProgress => '送信中...';
 
   @override
@@ -1966,4 +1980,122 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get groupPasswordRequired => 'グループのパスワードを入力してください';
+
+  @override
+  String get notificationAccessAppOff =>
+      '通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージや着信をお知らせできません。';
+
+  @override
+  String get notificationAccessCallsOff =>
+      '着信通知がオフです。Toxee がバックグラウンドにある間、着信に応答するための通知が表示されません。';
+
+  @override
+  String get notificationAccessFullScreenOff =>
+      'Toxee に着信の全画面表示が許可されていないため、着信は通常の通知としてのみ表示されます。';
+
+  @override
+  String get notificationAccessMessagesOff =>
+      'メッセージ通知がオフです。Toxee がバックグラウンドにある間、新しいメッセージをお知らせしません。';
+
+  @override
+  String get notificationAccessOtherOff =>
+      '一部の Toxee 通知（友だちリクエスト、グループ招待、不在着信）がオフです。';
+
+  @override
+  String get notificationAccessAlertsOff =>
+      '通知のアラートがオフです。Toxee がバックグラウンドにある間、新しいメッセージが表示されません。';
+
+  @override
+  String get notificationAccessProvisional =>
+      'Toxee の通知は通知センターに目立たない形で届いています。アラートをオンにすると新しいメッセージをすぐに確認できます。';
+
+  @override
+  String get notificationAccessOpenSettings => '設定';
+
+  @override
+  String get backgroundSettingsTitle => 'バックグラウンドと通知';
+
+  @override
+  String get hideNotificationContent => '通知にメッセージの内容を表示しない';
+
+  @override
+  String get hideNotificationContentDesc =>
+      'メッセージの通知には「新しいメッセージ」とだけ表示され、送信者や本文は表示されません。';
+
+  @override
+  String get notificationContentHidden => '新しいメッセージ';
+
+  @override
+  String get backgroundRunningTitle => 'バックグラウンド実行';
+
+  @override
+  String get backgroundRunningAllowed =>
+      '許可されています。バッテリーの最適化によって Toxee がバックグラウンドで停止されることはありません。';
+
+  @override
+  String get backgroundRunningRestricted =>
+      'バッテリーの最適化で制限されています。システムがバックグラウンドで Toxee を停止すると、メッセージや着信を受け取れません。';
+
+  @override
+  String get backgroundRunningAllow => '許可';
+
+  @override
+  String get recoveredPhotoTitle => '撮影した写真を送信しますか？';
+
+  @override
+  String get recoveredVideoTitle => '録画したビデオを送信しますか？';
+
+  @override
+  String get recoveredFileTitle => '選択したファイルを送信しますか？';
+
+  @override
+  String recoveredCaptureBody(String name) {
+    return 'カメラを開いている間に Toxee がシステムによって終了されました。$name に送信しますか？';
+  }
+
+  @override
+  String recoveredFileBody(String file, String name) {
+    return 'ファイル選択を開いている間に Toxee がシステムによって終了されました。$file を $name に送信しますか？';
+  }
+
+  @override
+  String get recoveredCaptureSend => '送信';
+
+  @override
+  String get recoveredCaptureDiscard => '破棄';
+
+  @override
+  String get mediaConversionFailed => 'この写真を送信用に変換できませんでした。送信していません。';
+
+  @override
+  String get videoConverting => 'ビデオを準備しています…';
+
+  @override
+  String get videoConvertingDesc => 'どのデバイスでも再生できる形式に変換しています。';
+
+  @override
+  String get videoConversionFailed => 'このビデオを送信用に変換できませんでした。送信していません。';
+
+  @override
+  String get cameraPausedMultitasking => '他のアプリと画面を共有中はカメラが一時停止します';
+
+  @override
+  String get cameraUnavailable => 'カメラを使用できません';
+
+  @override
+  String fileReceiveNoSpace(String fileName) {
+    return 'ストレージの空き容量が不足しているため「$fileName」を受信できません。空き容量を増やしてから再試行してください。';
+  }
+
+  @override
+  String get fileReceiveNoSpaceUnnamed =>
+      'ストレージの空き容量が不足しているためファイルを受信できません。空き容量を増やしてから再試行してください。';
+
+  @override
+  String fileReceiveFailed(String fileName) {
+    return '「$fileName」を保存できませんでした。';
+  }
+
+  @override
+  String get fileReceiveFailedUnnamed => '受信したファイルを保存できませんでした。';
 }

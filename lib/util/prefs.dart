@@ -149,19 +149,11 @@ class Prefs {
   /// not [_secureRead]: collapsing "absent" and "refused" into null is how a
   /// keychain outage came to look like "this account has no password". See
   /// `SecureStorageReadOutcome` and `prefs/password_key_migration.dart`.
-  static Future<SecureStorageReadOutcome> _secureReadOutcome(
-    String key,
-  ) async {
-    try {
-      return SecureStorageReadOutcome.answered(
-        await _secureStorage.read(key: key),
-      );
-    } on MissingPluginException {
-      return const SecureStorageReadOutcome.unavailable();
-    } on PlatformException {
-      return const SecureStorageReadOutcome.unavailable();
-    }
-  }
+  ///
+  /// Through [FlutterSecureStorageFacade]: on iOS it tells a locked Keychain
+  /// from a missing item, which the plugin alone reports the same way (B9).
+  static Future<SecureStorageReadOutcome> _secureReadOutcome(String key) =>
+      FlutterSecureStorageFacade(_secureStorage).readOutcome(key);
 
   /// Write to secure storage; swallow [MissingPluginException] so tests don't
   /// need a platform-channel mock for code paths that don't specifically test

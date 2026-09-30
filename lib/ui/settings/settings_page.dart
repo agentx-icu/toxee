@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
-import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../../util/app_paths.dart';
+import '../../util/camera_capture_recovery.dart';
 import '../../util/ffi_chat_service_account_key.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../widgets/user_avatar_circle.dart';
@@ -28,6 +28,7 @@ import '../widgets/safe_dialog_pop.dart';
 import '../widgets/section_header.dart';
 import '../widgets/stagger_list_item.dart';
 import '../testing/ui_keys.dart';
+import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
@@ -42,6 +43,7 @@ import '../../util/logger.dart';
 import '../../util/responsive_layout.dart';
 import '../../util/safe_diagnostics.dart';
 import '../login_page.dart';
+import 'background_settings_section.dart';
 import 'bootstrap_settings_section.dart';
 import 'global_settings_section.dart';
 import 'sidebar.dart' show showSelfProfile;
@@ -52,6 +54,7 @@ part 'settings_page_mobile_widgets.dart';
 part 'settings_page_session_actions.dart';
 part 'settings_page_import.dart';
 part 'settings_page_build.dart';
+part 'settings_page_mobile_index.dart';
 
 /// Test seam for the logout teardown step. Production binds this to
 /// [AccountService.teardownCurrentSession]; widget tests inject a recording
@@ -607,17 +610,16 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     final cancelled =
         mobileSaveResult?.disposition == MobileExportSaveDisposition.cancelled;
-    final message = cancelled
-        ? AppLocalizations.of(context)!.importCancelled
-        : AppLocalizations.of(
-            context,
-          )!.accountExportedSuccessfully(exportedPath);
+    final l10n = AppLocalizations.of(context)!;
+    final message = !cancelled
+        ? l10n.accountExportedSuccessfully(exportedPath)
+        : mobileSaveResult!.cancelledCopyInFiles
+        ? l10n.exportCancelledCopyKept
+        : l10n.importCancelled;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: cancelled
-            ? null
-            : Theme.of(context).colorScheme.primary,
+        backgroundColor: cancelled ? null : Theme.of(context).colorScheme.primary,
       ),
     );
   }
@@ -1105,145 +1107,6 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     await _loadCurrentNickname();
     await _loadAvatarPath();
-  }
-
-  Widget _buildMobileSettingsIndex(BuildContext context, dynamic colorTheme) {
-    final appL10n = AppLocalizations.of(context)!;
-    final tL10n = TencentCloudChatLocalizations.of(context);
-    final outlineVariant = Theme.of(context).colorScheme.outlineVariant;
-
-    Widget sectionTile({
-      required Key key,
-      required IconData icon,
-      required String title,
-      String? subtitle,
-      required VoidCallback onTap,
-    }) {
-      return Card(
-        elevation: 0,
-        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: outlineVariant),
-          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-        ),
-        child: ListTile(
-          key: key,
-          leading: Icon(icon),
-          title: Text(title),
-          subtitle: subtitle == null ? null : Text(subtitle),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: onTap,
-        ),
-      );
-    }
-
-    // Mobile counterpart of the desktop sidebar avatar: the same shared
-    // widget, so phone and desktop show the same fallback for one account.
-    Widget avatar() {
-      return UserAvatarCircle(
-        size: 56,
-        initial: UserAvatarCircle.initialFor(_currentNickname),
-        backgroundColor: colorTheme.primaryColor,
-        foregroundColor: colorTheme.onPrimary,
-        avatarPath: _avatarPath,
-        avatarFileExists:
-            _avatarPath != null &&
-            _avatarPath!.isNotEmpty &&
-            File(_avatarPath!).existsSync(),
-      );
-    }
-
-    return ListView(
-      key: UiKeys.settingsScrollView,
-      controller: widget.scrollController,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      children: [
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: outlineVariant),
-            borderRadius: BorderRadius.circular(
-              AppThemeConfig.cardBorderRadius,
-            ),
-          ),
-          child: ListTile(
-            key: UiKeys.settingsMobileProfileTile,
-            contentPadding: const EdgeInsets.all(AppSpacing.md),
-            leading: avatar(),
-            title: Text(_currentNickname ?? appL10n.profile),
-            subtitle: Text(appL10n.profile),
-            trailing: const Icon(Icons.edit_outlined),
-            onTap: _openMobileProfile,
-          ),
-        ),
-        AppSpacing.verticalMd,
-        sectionTile(
-          key: UiKeys.settingsMobileAccountInfoSection,
-          icon: Icons.badge_outlined,
-          title: appL10n.accountInfo,
-          onTap: () => _pushMobileSettingsSection(
-            appL10n.accountInfo,
-            _buildMobileAccountInfoCard(context, colorTheme),
-          ),
-        ),
-        sectionTile(
-          key: UiKeys.settingsMobileAccountManagementSection,
-          icon: Icons.manage_accounts_outlined,
-          title: appL10n.accountManagement,
-          onTap: () => _pushMobileSettingsSection(
-            appL10n.accountManagement,
-            _buildMobileAccountManagementCard(context, colorTheme),
-          ),
-        ),
-        sectionTile(
-          key: UiKeys.settingsMobileAppearanceSection,
-          icon: Icons.palette_outlined,
-          title: tL10n?.appearance ?? appL10n.appearance,
-          onTap: () => _pushMobileSettingsSection(
-            tL10n?.appearance ?? appL10n.appearance,
-            GlobalSettingsSection(
-              colorTheme: colorTheme,
-              toxId: widget.service.accountKey,
-              view: GlobalSettingsView.appearance,
-              onDownloadsConfigChanged: () {
-                AppLogger.debug('[Settings] downloads config changed');
-              },
-            ),
-          ),
-        ),
-        // "General" holds notification sound, downloads directory, and
-        // auto-download size limit — moved off the Appearance page (which now
-        // only carries theme + language) so each page stays focused on mobile.
-        sectionTile(
-          key: UiKeys.settingsMobileGeneralSection,
-          icon: Icons.tune,
-          title: appL10n.general,
-          onTap: () => _pushMobileSettingsSection(
-            appL10n.general,
-            GlobalSettingsSection(
-              colorTheme: colorTheme,
-              toxId: widget.service.accountKey,
-              view: GlobalSettingsView.general,
-              onDownloadsConfigChanged: () {
-                AppLogger.debug('[Settings] downloads config changed');
-              },
-            ),
-          ),
-        ),
-        sectionTile(
-          key: UiKeys.settingsMobileBootstrapSection,
-          icon: Icons.hub_outlined,
-          title: appL10n.bootstrapNodes,
-          onTap: () => _pushMobileSettingsSection(
-            appL10n.bootstrapNodes,
-            BootstrapSettingsSection(
-              service: widget.service,
-              colorTheme: colorTheme,
-            ),
-          ),
-        ),
-      ],
-    );
   }
 
   @override

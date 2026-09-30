@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -7,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_bounded_image.dart';
 import 'app_paths.dart';
 import 'app_theme_config.dart';
 
@@ -153,7 +153,13 @@ class ContactQrCardGenerator {
     );
 
     final picture = recorder.endRecording();
-    final image = await picture.toImage(width.toInt(), height.toInt());
+    final ui.Image image;
+    try {
+      image = await picture.toImage(width.toInt(), height.toInt());
+    } finally {
+      avatarImage?.dispose();
+      picture.dispose();
+    }
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     if (byteData == null) {
       throw Exception('Failed to encode QR card image');
@@ -270,18 +276,37 @@ class ContactQrCardGenerator {
     return file.path;
   }
 
+  /// Decodes the avatar at the card's avatar size (a 120 px circle, 2x
+  /// oversampled), never at the file's full resolution (checklist M6: an
+  /// avatar can be a 10 MiB photo). The caller disposes the image.
   static Future<ui.Image?> _loadAvatarImage(String? path) async {
     if (path == null || path.isEmpty) return null;
-    final completer = Completer<ui.Image>();
+    ui.Codec? codec;
     try {
-      final file = File(path);
-      if (!await file.exists()) return null;
-      final bytes = await file.readAsBytes();
-      ui.decodeImageFromList(bytes, (image) => completer.complete(image));
-      return await completer.future;
-    } catch (error, stackTrace) {
-      completer.completeError(error, stackTrace);
+      if (!await File(path).exists()) return null;
+      // Ownership of the buffer passes to instantiateImageCodecWithSize.
+      final buffer = await ui.ImmutableBuffer.fromFilePath(path);
+      codec = await ui.instantiateImageCodecWithSize(
+        buffer,
+        getTargetSize: (int w, int h) => TencentCloudChatBoundedImage.targetSize(
+          intrinsicWidth: w,
+          intrinsicHeight: h,
+          width: _kAvatarDecodePx,
+          height: _kAvatarDecodePx,
+          maxPixels: TencentCloudChatBoundedImage.defaultMaxPixelsFor(
+            _kAvatarDecodePx,
+            _kAvatarDecodePx,
+          ),
+        ),
+      );
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } catch (_) {
       return null;
+    } finally {
+      codec?.dispose();
     }
   }
+
+  static const int _kAvatarDecodePx = 240;
 }

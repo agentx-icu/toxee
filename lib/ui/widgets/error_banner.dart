@@ -66,6 +66,7 @@ class ErrorBanner extends StatelessWidget {
             ),
           if (onDismiss != null)
             IconButton(
+              tooltip: AppLocalizations.of(context)?.close,
               icon: Icon(Icons.close, size: 18, color: cs.onSurfaceVariant),
               onPressed: onDismiss,
               // 44x44 minimum tap area for mobile (Apple HIG / Material 48dp).
