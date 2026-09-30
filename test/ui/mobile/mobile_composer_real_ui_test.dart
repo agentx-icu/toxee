@@ -20,6 +20,8 @@
 // re-implemented here.
 //
 // ignore_for_file: depend_on_referenced_packages, directives_ordering
+import 'dart:async';
+
 import 'package:extended_text_field/extended_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -72,10 +74,14 @@ Widget _localized({required Widget child}) {
 class _RecordingMethods {
   final List<String> sentText = [];
 
+  /// When set, each text send stays in flight until this completes.
+  Completer<void>? inFlight;
+
   MessageInputBuilderMethods build() {
     return MessageInputBuilderMethods(
       sendTextMessage: ({required String text, List<String>? mentionedUsers}) {
         sentText.add(text);
+        return inFlight?.future;
       },
       sendImageMessage:
           ({String? imagePath, String? imageName, dynamic inputElement}) {},
@@ -160,18 +166,49 @@ Future<TextEditingController> _focusComposerAndEnterText(
   return tester.widget<ExtendedTextField>(field).controller!;
 }
 
-Future<void> _pressModifiedEnter(
+/// Press Enter (optionally with [modifier]) the way a hardware keyboard does:
+/// when the framework leaves the press unhandled, the platform text input then
+/// inserts `\n` at the caret of the multiline field (iOS UIKit `insertText:`,
+/// Android `InputConnectionAdaptor.handleKeyEvent`). [platformText] is the
+/// field text as the PLATFORM has it by then — it can be ahead of the
+/// controller when characters typed just before Enter are still in flight.
+Future<void> _pressEnter(
   WidgetTester tester,
-  LogicalKeyboardKey modifier,
-) async {
-  await tester.sendKeyDownEvent(modifier);
+  TextEditingController controller, {
+  LogicalKeyboardKey? modifier,
+  String? platformText,
+}) async {
+  if (modifier != null) await tester.sendKeyDownEvent(modifier);
+  bool handled;
   try {
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+    handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
   } finally {
-    await tester.sendKeyUpEvent(modifier);
+    if (modifier != null) await tester.sendKeyUpEvent(modifier);
   }
   await tester.pump();
+  if (platformText != null) {
+    tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: platformText,
+        selection: TextSelection.collapsed(offset: platformText.length),
+      ),
+    );
+    await tester.pump();
+  }
+  if (!handled) {
+    final value = controller.value;
+    final caret = value.selection.isValid
+        ? value.selection.baseOffset
+        : value.text.length;
+    tester.testTextInput.updateEditingValue(
+      TextEditingValue(
+        text: value.text.replaceRange(caret, caret, '\n'),
+        selection: TextSelection.collapsed(offset: caret + 1),
+      ),
+    );
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -701,9 +738,7 @@ void main() {
         tester,
         'hardware-enter',
       );
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
 
       expect(methods.sentText, ['hardware-enter']);
       expect(
@@ -741,7 +776,9 @@ void main() {
           text: 'line',
           selection: TextSelection.collapsed(offset: 4),
         );
-        await _pressModifiedEnter(tester, modifier);
+        tester.testTextInput.updateEditingValue(controller.value);
+        await tester.pump();
+        await _pressEnter(tester, controller, modifier: modifier);
         expect(
           controller.text,
           'line\n',
@@ -778,10 +815,11 @@ void main() {
         selection: TextSelection.collapsed(offset: 2),
         composing: TextRange(start: 0, end: 2),
       );
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      final handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
       await tester.pump();
 
+      expect(handled, isFalse, reason: 'the IME owns this Enter');
       expect(methods.sentText, isEmpty);
       expect(
         controller.text,
@@ -809,20 +847,19 @@ void main() {
       await tester.pumpAndSettle();
 
       final controller = await _focusComposerAndEnterText(tester, '');
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
       expect(methods.sentText, isEmpty, reason: 'empty Enter must not send');
+      expect(controller.text, isEmpty, reason: 'nor leave a stray newline');
 
       final overLimit = 'x' * 1373;
-      controller.value = TextEditingValue(
-        text: overLimit,
-        selection: TextSelection.collapsed(offset: overLimit.length),
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: overLimit,
+          selection: TextSelection.collapsed(offset: overLimit.length),
+        ),
       );
       await tester.pump();
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
+      await _pressEnter(tester, controller);
 
       expect(
         methods.sentText,
@@ -834,6 +871,99 @@ void main() {
         overLimit,
         reason: 'rejected keyboard send must preserve the draft',
       );
+    },
+  );
+
+  testWidgets(
+    'mobile composer: hardware Enter sends the text typed just before it '
+    '(characters still in flight at key time)',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // iPad simulator, 2026-09-29: "qwerty" + Enter without a pause sent
+      // "qwe" — the framework saw Enter before UIKit had delivered "rty".
+      final controller = await _focusComposerAndEnterText(tester, 'qwe');
+      await _pressEnter(tester, controller, platformText: 'qwerty');
+
+      expect(methods.sentText, ['qwerty']);
+      expect(controller.text, isEmpty);
+
+      // A letter typed right after Enter: the platform still held "qwerty\n"
+      // when it inserted it (iPad simulator: "abc" Enter "h" left "abc\nh").
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'qwerty\nh',
+          selection: TextSelection.collapsed(offset: 8),
+        ),
+      );
+      await tester.pump();
+      expect(controller.text, 'h');
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0)),
+      );
+      await tester.pump();
+
+      // Shift+Enter the same way keeps the newline after the late characters.
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'ab',
+          selection: TextSelection.collapsed(offset: 2),
+        ),
+      );
+      await tester.pump();
+      await _pressEnter(
+        tester,
+        controller,
+        modifier: LogicalKeyboardKey.shiftLeft,
+        platformText: 'abc',
+      );
+      expect(controller.text, 'abc\n');
+      expect(methods.sentText, ['qwerty'], reason: 'Shift+Enter never sends');
+    },
+  );
+
+  testWidgets(
+    'mobile composer: a second hardware Enter while the first message is still '
+    'being sent is queued, not dropped',
+    (tester) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods()..inFlight = Completer<void>();
+
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final controller = await _focusComposerAndEnterText(tester, 'a');
+      await _pressEnter(tester, controller);
+      expect(methods.sentText, ['a']);
+
+      // "b" + Enter before the first send finished; the platform still echoes
+      // the first message ("a\nb", then "a\nb\n").
+      await _pressEnter(tester, controller, platformText: 'a\nb');
+      expect(methods.sentText, ['a'], reason: 'b waits for a');
+
+      final first = methods.inFlight!;
+      methods.inFlight = null;
+      first.complete();
+      await tester.pumpAndSettle();
+      expect(methods.sentText, ['a', 'b']);
     },
   );
 }

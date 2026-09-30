@@ -193,6 +193,99 @@ void main() {
     });
   });
 
+  group('mobile composer: mention matching', () {
+    testWidgets('a recorded @Bob is not addressed by text that says @Bobby', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      List<String>? sentMentions;
+      final provider = TencentCloudChatMessageSeparateDataProvider();
+      Future<TextEditingController> pump({
+        List<V2TimGroupMemberFullInfo>? mention,
+      }) async {
+        await tester.pumpWidget(
+          _localized(
+            child: TencentCloudChatMessageDataProviderInherited(
+              dataProvider: provider,
+              child: TencentCloudChatMessageInputMobile(
+                inputData: _data(membersNeedToMention: mention),
+                inputMethods: _methods(
+                  onSend: (text, mentions) => sentMentions = mentions,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        return tester
+            .widget<ExtendedTextField>(find.byType(ExtendedTextField).first)
+            .controller!;
+      }
+
+      final controller = await pump();
+      await pump(mention: [bob]);
+      expect(controller.text, contains('@Bob '));
+      // The recorded mention outlives its token (as after a hardware-Enter
+      // send rebased out of the field); the next text only prefixes it.
+      controller.value = const TextEditingValue(
+        text: '@Bobby hi',
+        selection: TextSelection.collapsed(offset: 9),
+      );
+      await tester.pump();
+      debugRealUiMobileComposerSend!();
+      await tester.pumpAndSettle();
+      expect(sentMentions, isEmpty);
+    });
+
+    testWidgets('punctuation right after the name still addresses the member', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      List<String>? sentMentions;
+      final provider = TencentCloudChatMessageSeparateDataProvider();
+      Future<TextEditingController> pump({
+        List<V2TimGroupMemberFullInfo>? mention,
+      }) async {
+        await tester.pumpWidget(
+          _localized(
+            child: TencentCloudChatMessageDataProviderInherited(
+              dataProvider: provider,
+              child: TencentCloudChatMessageInputMobile(
+                inputData: _data(membersNeedToMention: mention),
+                inputMethods: _methods(
+                  onSend: (text, mentions) => sentMentions = mentions,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        return tester
+            .widget<ExtendedTextField>(find.byType(ExtendedTextField).first)
+            .controller!;
+      }
+
+      final controller = await pump();
+      await pump(mention: [bob]);
+      controller.value = const TextEditingValue(
+        text: '@Bob, hi',
+        selection: TextSelection.collapsed(offset: 8),
+      );
+      await tester.pump();
+      debugRealUiMobileComposerSend!();
+      await tester.pumpAndSettle();
+      expect(sentMentions, ['bob']);
+    });
+  });
+
   group('desktop composer', () {
     testWidgets('deleting a mention token drops that user from the send', (
       tester,
