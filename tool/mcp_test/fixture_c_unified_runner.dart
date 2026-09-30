@@ -416,6 +416,10 @@ const _sharedRealUiCampaigns = <String, List<String>>{
   //  - clear-history (S122): B seeds history, A clears → messageCount→0, row stays.
   //  - clear-preserves-pin (S154): A pins + B seeds, A clears → still pinned.
   'group-menu-mark-read-unread': ['handshake', 'group_menu_mark_read_unread'],
+  //  - read-receipt-tick: A authors, B marks read, A's OWN row must flip isRead.
+  //    The unread case above proves the READER's local state; only this one
+  //    proves a group receipt crossed the wire (codex 2026-09-29).
+  'group-read-receipt-tick': ['handshake', 'group_read_receipt_tick'],
   'group-clear-history': ['handshake', 'group_clear_history'],
   'group-clear-preserves-pin': ['handshake', 'group_clear_preserves_pin'],
   // Legacy Tox conference, same two-process invite+delivery shape as group.
@@ -1374,6 +1378,7 @@ String _requiredRealUiState(String scenario) {
     case 'group_burst':
     case 'group_member_list':
     case 'group_menu_mark_read_unread':
+    case 'group_read_receipt_tick':
     case 'group_clear_history':
     case 'group_clear_preserves_pin':
     case 'group_add_member_picker':
@@ -1745,6 +1750,7 @@ String _resultRealUiState(String scenario) {
     case 'group_burst':
     case 'group_member_list':
     case 'group_menu_mark_read_unread':
+    case 'group_read_receipt_tick':
     case 'group_clear_history':
     case 'group_clear_preserves_pin':
     case 'group_add_member_picker':

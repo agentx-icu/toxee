@@ -2850,16 +2850,18 @@ MCPCallEntry _l3OpenConversationMenuEntry() => MCPCallEntry.tool(
   ),
 );
 
-/// Mark a C2C conversation read through the REAL product path: the same
+/// Mark a conversation read through the REAL product path: the same
 /// `cleanConversationUnreadMessageCount` call the conversation-row context menu
 /// dispatches (`HomePage._dispatchConversationMenuAction` case `'mark_read'`),
-/// which `TencentCloudChatSdkPlatform.isPlatformRouted` routes into
-/// `Tim2ToxSdkPlatform.cleanConversationUnreadMessageCount` →
-/// `FfiChatService.markConversationRead` (awaited barrier + `isRead` flags) →
-/// `onConversationUnreadCleared` (conversation-list + badge refresh hook).
-/// `getC2CUnreadCount` (surfaced as `unreadCount` in l3_dump_state) then drops
-/// to 0, so a scenario can assert unread>0 → mark-read → unread==0 (S19).
-/// Test/seed account only; C2C only.
+/// routed into `FfiChatService.markConversationRead` (awaited barrier + `isRead`
+/// flags) → `onConversationUnreadCleared`. `unreadCount` in l3_dump_state then
+/// drops to 0, so a scenario can assert unread>0 → mark-read → unread==0 (S19).
+///
+/// C2C and GROUP. The group branch lives in `l3_group_receipt_tools.dart`,
+/// which documents what a green group call does and does not prove; it used to
+/// be refused here on the strength of a comment claiming that path sent C2C
+/// receipts only, which stopped being true (codex 2026-09-29).
+/// Test/seed account only.
 MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
   handler: (request) async {
     if (!await _activeAccountIsTest()) {
@@ -2876,27 +2878,30 @@ MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
       );
     }
     var userId = request['userId'] ?? request['conversationId'] ?? '';
-    if (userId.startsWith('group_') || request['groupId'] != null) {
-      return MCPCallResult(
-        message: 'l3_mark_read: C2C only — group ids unsupported',
-        parameters: {'ok': false, 'error': 'group_unsupported'},
-      );
+    // The active-peer fallback is applied BEFORE the group check, not after:
+    // a quit group can leave activePeerId set, and resolving it only on the
+    // C2C path let a bare call route that group through the C2C branch --
+    // past the quit/unknown refusals, to an `ok: true` that wired nothing
+    // (codex 2026-09-30). An explicit groupId key still wins outright.
+    if (userId.isEmpty && request['groupId'] == null) {
+      userId = ffi.activePeerId ?? '';
     }
+    // A GROUP target takes its own branch. Null means "no group named here"
+    // and the C2C path continues; the branch itself refuses an unknown or
+    // quit group, because for those `markConversationRead` would advance a
+    // barrier, skip the receipt walk and still return success.
+    final groupResult = await l3MarkGroupConversationRead(
+      groupId: request['groupId'],
+      conversationId: userId,
+    );
+    if (groupResult != null) return groupResult;
     if (userId.startsWith('c2c_')) userId = userId.substring(4);
-    if (userId.isEmpty) userId = ffi.activePeerId ?? '';
     if (userId.isEmpty) {
       return MCPCallResult(
         message: 'l3_mark_read: no target — pass userId',
         parameters: {'ok': false, 'error': 'no_target'},
       );
     }
-    final groupReject = await _rejectIfGroupTarget(
-      'l3_mark_read',
-      userId,
-      ffi.knownGroups,
-      ffi.quitGroups,
-    );
-    if (groupReject != null) return groupReject;
     try {
       // REAL PRODUCT PATH (self-证 closure fix, 2026-08).
       //
@@ -2959,18 +2964,20 @@ MCPCallEntry _l3MarkReadEntry() => MCPCallEntry.tool(
         'L3 TEST ONLY: mark a C2C conversation read through the REAL '
         'production path — the same '
         'getConversationManager().cleanConversationUnreadMessageCount the '
-        'conversation-row "Mark as read" menu item dispatches (routed into '
-        'Tim2ToxSdkPlatform → FfiChatService.markConversationRead → the '
-        'onConversationUnreadCleared refresh hook). Does NOT open the '
-        'conversation and does NOT change activePeerId. The lastView barrier '
-        'write is AWAITED, so both the immediate unreadCount assertion and a '
-        'kill+reload assertion are safe. Targets userId/conversationId, or '
-        'the active conversation.',
+        'conversation-row "Mark as read" menu item dispatches. Does NOT open '
+        'the conversation and does NOT change activePeerId. The lastView '
+        'barrier write is AWAITED, so both the immediate unreadCount assertion '
+        'and a kill+reload assertion are safe. C2C via userId/conversationId '
+        'or the active conversation; GROUP via groupId or group_<gid>, which '
+        'also wires group read receipts and refuses an unknown or quit group.',
     inputSchema: ObjectSchema(
       properties: {
         'userId': StringSchema(description: 'Target Tox ID (64/76 hex).'),
         'conversationId': StringSchema(
-          description: 'c2c_<toxId> alternative to userId.',
+          description: 'c2c_<toxId> or group_<gid> alternative.',
+        ),
+        'groupId': StringSchema(
+          description: 'Target group id; takes precedence over conversationId.',
         ),
       },
     ),
@@ -6666,6 +6673,13 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
         params['conversation'] = conv;
         params['conversationKind'] = 'group';
         params['messageCount'] = history.length;
+        // The GROUP unread counter (`getUnreadOf` routes on the authoritative
+        // knownGroups / quitGroups sets), never the C2C one: groups stay on the
+        // in-memory bucket because there is no persisted read-barrier
+        // reconciliation for them, so the C2C accessor would answer from
+        // persistence and a mark-read assertion could pass without the product
+        // badge ever changing.
+        params['unreadCount'] = ffi.getUnreadOf(conv);
         params['messages'] = history
             .map(
               (m) => {
@@ -6681,6 +6695,11 @@ MCPCallEntry _l3DumpStateEntry() => MCPCallEntry.tool(
                 // the connected path, not a disconnected local-queue write that
                 // would otherwise persist an identical row (codex P1).
                 'isPending': m.isPending,
+                // The AUTHOR's own row flips this when a matching group READ
+                // receipt arrives, so it is the only field that proves the
+                // receipt reached the wire and came back. A reader-side unread
+                // transition proves local marking only (codex 2026-09-29).
+                'isRead': m.isRead,
               },
             )
             .toList();

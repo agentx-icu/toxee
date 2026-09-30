@@ -1,13 +1,28 @@
 // L3 seam for GROUP read receipts.
 //
-// `l3_mark_read` is deliberately C2C-only: it dispatches
-// cleanConversationUnreadMessageCount, which routes to
-// FfiChatService.markConversationRead — and that function only sends C2C
-// receipts. A group read receipt is a different product path entirely
-// (V2TIMMessageManager.sendMessageReadReceipts -> markMessageAsRead with a
-// groupID), the one the fork's message list dispatches for group messages
-// carrying needReadReceipt. Driving group receipts through the C2C tool would
-// have proven nothing, so this tool mirrors the real group path instead.
+// TWO group read paths exist, and they prove different things:
+//
+//   * `l3_mark_group_read` (this file) drives
+//     `V2TIMMessageManager.sendMessageReadReceipts` directly — the call the
+//     fork's message list dispatches for group rows carrying
+//     `needReadReceipt`. That author intent has NO carrier on the Tox wire, so
+//     an inbound group row never has it set and this tool needs `force: true`
+//     to do anything; the flag exists so a scenario can never quietly claim the
+//     product gate was exercised when it was bypassed.
+//   * `l3_mark_read` with a group target (helper below) drives
+//     `cleanConversationUnreadMessageCount` → `FfiChatService.markConversationRead`,
+//     the same entry point the conversation-row "mark as read" menu item
+//     dispatches. That path does NOT consult `needReadReceipt` — the group
+//     receipt work deliberately stopped depending on a flag that never travels
+//     — so it is the only l3 way to wire group receipts through a path the
+//     product really takes, with no force flag to void the claim.
+//
+// The header here used to say `l3_mark_read` was C2C-only "because
+// markConversationRead only sends C2C receipts". That stopped being true when
+// `_sendReadReceiptsOnView` learned to dispatch a known group to
+// `_sendGroupReadReceiptsOnView` (third_party/tim2tox/dart/lib/service/
+// ffi_chat_service.dart), and the claim survived in a comment long enough to be
+// planned against. Hence the helper below rather than a second bespoke tool.
 //
 // Lives in its own file so the pinned l3_debug_tools.dart does not keep
 // growing; registered from there behind the same kDebugMode + TOXEE_L3_TEST
@@ -18,6 +33,7 @@ import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../util/logger.dart';
+import '../../util/prefs.dart';
 
 /// Adds the group receipt tools to the MCP registry. [isTestAccount] is the
 /// caller's account gate (l3_debug_tools' `_activeAccountIsTest`).
@@ -149,7 +165,11 @@ MCPCallEntry _l3MarkGroupReadEntry(
         'FfiChatService.markMessageAsRead with a groupID, which echoes the '
         'cross-peer gmid alias so the AUTHOR can tally the reader). Only rows '
         'whose author requested a receipt are receipted; if none did, the call '
-        'fails loudly instead of inventing traffic. Use l3_mark_read for C2C.',
+        'fails loudly instead of inventing traffic, and `force: "true"` has to be '
+        'spelled out to bypass that gate. For the OTHER group read path -- '
+        'the conversation-row mark-as-read, which does not consult '
+        'needReadReceipt and is therefore drivable without force -- call '
+        'l3_mark_read with a groupId.',
     inputSchema: ObjectSchema(
       properties: {
         'groupId': StringSchema(description: 'Target group id.'),
@@ -166,3 +186,118 @@ MCPCallEntry _l3MarkGroupReadEntry(
     ),
   ),
 );
+
+/// `l3_mark_read`'s GROUP branch, or null when [conversationId] / [groupId]
+/// name no group at all — the caller then continues down its C2C path.
+///
+/// Drives the SAME `cleanConversationUnreadMessageCount` the conversation-row
+/// menu item dispatches, so the tool models "marked read WITHOUT opening the
+/// conversation" for a group exactly as it already does for a C2C peer.
+///
+/// WHAT A GREEN RESULT DOES NOT PROVE. `markConversationRead` starts the group
+/// receipt walk only for a group in `knownGroups`, the walk runs over the
+/// history that is LOADED (it returns early for a conversation this session
+/// never loaded), and the sends are not awaited. So `ok: true` is evidence that
+/// the reader's local read state advanced — not that a receipt reached the
+/// author. The only assertion that proves the round trip is the AUTHOR's own
+/// row flipping `isRead` false → true, which is why the group branch of
+/// `l3_dump_state` surfaces `isRead`.
+///
+/// An UNKNOWN or QUIT group is refused rather than dispatched: for a group the
+/// service does not know, `markConversationRead` would advance a barrier, skip
+/// the receipt walk entirely, and still return success — a green call that
+/// wired nothing. A quit group additionally has no unread bucket left, so its
+/// count would read 0 and look like a successful clear.
+Future<MCPCallResult?> l3MarkGroupConversationRead({
+  required String? groupId,
+  required String conversationId,
+}) async {
+  final ffi = FakeUIKit.instance.im?.ffi;
+  if (ffi == null) return null;
+  // `groupId` wins over anything parsed out of a conversation id, and over the
+  // active-peer fallback the C2C path applies: an explicit group target must
+  // never be resolved into some other conversation.
+  var gid = (groupId ?? '').trim();
+  // A groupId KEY that is present but blank is an explicit group target with no
+  // value, not an invitation to fall through to the C2C path.
+  if (groupId != null && gid.isEmpty) {
+    return MCPCallResult(
+      message: 'l3_mark_read: no target -- groupId was empty',
+      parameters: {'ok': false, 'error': 'no_target'},
+    );
+  }
+  if (gid.isEmpty && conversationId.startsWith('group_')) {
+    gid = conversationId.substring('group_'.length).trim();
+  }
+  if (gid.isEmpty) {
+    final bare = conversationId.trim();
+    final isGroupId = ffi.knownGroups.contains(bare) ||
+        ffi.quitGroups.contains(bare) ||
+        (bare.isNotEmpty && (await Prefs.getGroups()).contains(bare));
+    if (!isGroupId) return null;
+    gid = bare;
+  }
+  if (gid.isEmpty) {
+    return MCPCallResult(
+      message: 'l3_mark_read: no target — pass groupId',
+      parameters: {'ok': false, 'error': 'no_target'},
+    );
+  }
+  if (ffi.quitGroups.contains(gid)) {
+    return MCPCallResult(
+      message: 'l3_mark_read: $gid is a group this account has quit',
+      parameters: {'ok': false, 'error': 'group_quit', 'groupId': gid},
+    );
+  }
+  if (!ffi.knownGroups.contains(gid)) {
+    return MCPCallResult(
+      message: 'l3_mark_read: unknown group $gid — mark-read would clear the '
+          'barrier without wiring a single receipt',
+      parameters: {'ok': false, 'error': 'group_unknown', 'groupId': gid},
+    );
+  }
+  try {
+    final res = await TencentImSDKPlugin.v2TIMManager
+        .getConversationManager()
+        .cleanConversationUnreadMessageCount(
+          conversationID: 'group_$gid',
+          cleanTimestamp: 0,
+          cleanSequence: 0,
+        );
+    if (res.code != 0) {
+      AppLogger.info(
+        '[L3] l3_mark_read(group): SDK returned ${res.code}: ${res.desc}',
+      );
+      return MCPCallResult(
+        message: 'l3_mark_read: SDK returned ${res.code}: ${res.desc}',
+        parameters: {
+          'ok': false,
+          'error': 'sdk_error',
+          'code': res.code,
+          'detail': res.desc,
+        },
+      );
+    }
+    // The GROUP counter, not the C2C one: groups deliberately stay on the
+    // in-memory `_unreadByPeer` bucket because there is no persisted
+    // read-barrier reconciliation for them, and `getUnreadOf` is the accessor
+    // that routes on the authoritative knownGroups / quitGroups sets.
+    final unread = ffi.getUnreadOf(gid);
+    AppLogger.info('[L3] l3_mark_read(group): $gid → unread=$unread');
+    return MCPCallResult(
+      message: 'marked group read',
+      parameters: {
+        'ok': true,
+        'groupId': gid,
+        'conversationId': 'group_$gid',
+        'unreadCount': unread,
+      },
+    );
+  } catch (e, st) {
+    AppLogger.logError('[L3] l3_mark_read(group) failed', e, st);
+    return MCPCallResult(
+      message: 'l3_mark_read: failed: $e',
+      parameters: {'ok': false, 'error': 'mark_read_failed', 'detail': '$e'},
+    );
+  }
+}
