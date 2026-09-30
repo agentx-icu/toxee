@@ -71,21 +71,54 @@ include(flutter/generated_plugins.cmake)
 # sources are not valid C++20 (C4596 on qualified names in member
 # declarations, and an ATL::CW2A conversion).
 #
-#   * audioplayers_windows asks for no standard of its own, so C++17 was
-#     chosen for it and the fallback was taken. C++20 fixes it.
+#   * audioplayers_windows asks for no standard of its own, so
+#     APPLY_STANDARD_SETTINGS (this file) gave it C++17 and the fallback was
+#     taken. C++20 fixes it.
 #   * permission_handler_windows already requests C++20 and still lands on the
 #     deprecated header, so it additionally needs the escape hatch the error
-#     message itself names. This is a stopgap: Microsoft says the header is
-#     going away, and the real fix is upstream (or a plugin version that no
-#     longer reaches it).
-if(TARGET audioplayers_windows_plugin)
-  target_compile_features(audioplayers_windows_plugin PRIVATE cxx_std_20)
-endif()
-if(TARGET permission_handler_windows_plugin)
-  target_compile_features(permission_handler_windows_plugin PRIVATE cxx_std_20)
-  target_compile_definitions(permission_handler_windows_plugin
-    PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
-endif()
+#     message itself names.
+#
+# UPSTREAM STATE, checked 2026-09-28 - do not re-derive this:
+#   * audioplayers_windows fixed it in 4.4.1, with literally the same
+#     `target_compile_features(... cxx_std_20)` line applied below. We cannot
+#     take that fix by upgrading: 4.4.1 needs Flutter >= 3.44 and CI pins
+#     3.41.9. 4.3.1 is the newest release our Flutter pin allows and it does
+#     NOT carry the fix, so a partial upgrade buys nothing. The override goes
+#     away when the Flutter pin moves, not before. When that day comes, check
+#     CMP0091 as well: 4.4.x documents needing it set BEFORE project(), and this
+#     file sets its policy range after (codex 2026-09-28).
+#   * permission_handler_windows is unfixed at its latest release, 0.2.2 (that
+#     release only added two permission enums). Reported upstream as
+#     flutter-permission-handler issue #1534. Microsoft says the header is
+#     going away, so the escape hatch is a stopgap either way.
+#
+# Keyed by TARGET NAME, which is the fragile part: a renamed target would make
+# `if(TARGET ...)` fall through silently and the build would fail again with
+# the same cryptic STL1011 error, pointing at the plugin rather than at this
+# lapsed workaround. So a package still in FLUTTER_PLUGIN_LIST with no matching
+# target is a hard error, not a skip; a package that has left the list needs
+# nothing.
+#
+# test/ci/windows_winrt_workaround_expiry_test.dart fails once a locked version
+# moves past what is recorded above, so this stopgap cannot outlive its need
+# without someone being told.
+foreach(winrt_plugin audioplayers_windows permission_handler_windows)
+  if(NOT "${winrt_plugin}" IN_LIST FLUTTER_PLUGIN_LIST)
+    continue()
+  endif()
+  if(NOT TARGET ${winrt_plugin}_plugin)
+    message(FATAL_ERROR
+      "${winrt_plugin} is in FLUTTER_PLUGIN_LIST but no target "
+      "${winrt_plugin}_plugin exists, so the C++/WinRT coroutine workaround "
+      "cannot be applied and this build would fail with STL1011 inside "
+      "winrt/base.h. Fix the target name in windows/CMakeLists.txt.")
+  endif()
+  target_compile_features(${winrt_plugin}_plugin PRIVATE cxx_std_20)
+  if(winrt_plugin STREQUAL "permission_handler_windows")
+    target_compile_definitions(${winrt_plugin}_plugin
+      PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+  endif()
+endforeach()
 
 
 # === Installation ===

@@ -1564,16 +1564,16 @@ abstract class AppLocalizations {
   /// **'Failed to send {label}: {error}'**
   String failedToSendFile(String label, String error);
 
-  /// Message shown when there are no message receivers
+  /// Shown when the receiver list for one of our own group messages is empty. Receiver identities are deliberately never persisted, so this must NOT read as 'nobody received it'
   ///
   /// In en, this message translates to:
-  /// **'No receivers yet'**
-  String get noReceivers;
+  /// **'Receiver names aren\'t stored, so this list is rebuilt from live receipts after a restart.'**
+  String get messageReceiversNotStored;
 
-  /// Title for message receivers dialog
+  /// Title for the group message receiver list. NOT a total: the count is only the receipts tallied so far, since receiver identities are never persisted
   ///
   /// In en, this message translates to:
-  /// **'Message Receivers ({count})'**
+  /// **'Receivers so far ({count})'**
   String messageReceivers(String count);
 
   /// Button text to close dialog

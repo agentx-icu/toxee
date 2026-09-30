@@ -791,11 +791,12 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get noReceivers => '受信者はいません';
+  String get messageReceiversNotStored =>
+      '受信者の名前は保存されないため、再起動後はリアルタイムの受信確認から集計し直します。';
 
   @override
   String messageReceivers(String count) {
-    return 'メッセージ受信者 ($count)';
+    return 'これまでの受信者 ($count)';
   }
 
   @override

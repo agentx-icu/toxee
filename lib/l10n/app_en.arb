@@ -685,13 +685,13 @@
       }
     }
   },
-  "noReceivers": "No receivers yet",
-  "@noReceivers": {
-    "description": "Message shown when there are no message receivers"
+  "messageReceiversNotStored": "Receiver names aren't stored, so this list is rebuilt from live receipts after a restart.",
+  "@messageReceiversNotStored": {
+    "description": "Shown when the receiver list for one of our own group messages is empty. Receiver identities are deliberately never persisted, so this must NOT read as 'nobody received it'"
   },
-  "messageReceivers": "Message Receivers ({count})",
+  "messageReceivers": "Receivers so far ({count})",
   "@messageReceivers": {
-    "description": "Title for message receivers dialog",
+    "description": "Title for the group message receiver list. NOT a total: the count is only the receipts tallied so far, since receiver identities are never persisted",
     "placeholders": {
       "count": {
         "type": "String"

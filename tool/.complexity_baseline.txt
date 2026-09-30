@@ -42,7 +42,7 @@
 #
 # Baseline as of the 2026-05-20 review (Batch 6, F11). New files must
 # stay <= 500 LOC; existing entries may stay until they are split.
-lib/adapters/shared_prefs_adapter.dart:739
+lib/adapters/shared_prefs_adapter.dart:737
 lib/call/call_service_manager.dart:1837
 lib/call/call_ui_components.dart:678
 # [2026-09-22] 759 -> 769: the camera-start path now re-checks `_disposed`
@@ -55,15 +55,15 @@ lib/call/call_ui_components.dart:678
 # (the guards are single statements inside one platform-branching method).
 lib/call/video_handler.dart:769
 lib/notifications/notification_service.dart:1152
-lib/sdk_fake/fake_im.dart:876
+lib/sdk_fake/fake_im.dart:871
 lib/sdk_fake/fake_managers.dart:802
 lib/sdk_fake/fake_msg_provider.dart:806
 lib/sdk_fake/fake_msg_provider_file_progress.dart:555
-lib/sdk_fake/fake_msg_provider_mapping.dart:1061
+lib/sdk_fake/fake_msg_provider_mapping.dart:1004
 lib/sdk_fake/fake_msg_provider_routing.dart:906
-lib/sdk_fake/fake_provider.dart:1096
-lib/ui/add_friend_dialog.dart:708
-lib/ui/add_group_dialog.dart:845
+lib/sdk_fake/fake_provider.dart:1093
+lib/ui/add_friend_dialog.dart:608
+lib/ui/add_group_dialog.dart:711
 # [2026-09-03] +7 (1453 -> 1460): the page now accepts a host-owned
 # ScrollController so a bottom-nav re-tap can scroll it to the top (the same
 # convention tabs 0/1 get from their UIKit component controllers). The change
@@ -72,8 +72,8 @@ lib/ui/add_group_dialog.dart:845
 # per line. A re-pin, not an amnesty.
 lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:887
-lib/ui/home_page.dart:2410
-lib/ui/home_page_bootstrap.dart:1629
+lib/ui/home_page.dart:2402
+lib/ui/home_page_bootstrap.dart:1631
 lib/ui/login_page.dart:1508
 lib/ui/profile_page.dart:577
 lib/ui/search/custom_search.dart:1018
@@ -137,7 +137,14 @@ lib/ui/testing/ui_keys.dart:656
 # override + its offline-check guard (double-reply FATAL fix).
 # bootstrap_deps.dart re-pinned 558 -> 562 (2026-08-24): the generated
 # overrides gained the vendored flutter_skill entry (screenshot-leak fix).
-tool/bootstrap_deps.dart:582
+# ...and 582 -> 606 (2026-09-27): it now also writes a pubspec_overrides.yaml
+# INSIDE third_party/tim2tox/dart, so analysing that package resolves the patched
+# sdk and the forked uikit instead of pub.dev's. Without it that package reported
+# 21 errors no real build has, and a permanently red baseline hid new ones. Not
+# split: this file is the documented single source of truth for what must happen
+# before `flutter pub get`, and carving 24 lines out of it would cost more than
+# the pin.
+tool/bootstrap_deps.dart:606
 tool/mcp_test/drive_fixture_c_block.dart:532
 tool/mcp_test/drive_fixture_c_concurrent.dart:583
 tool/mcp_test/drive_fixture_c_group.dart:598

@@ -171,7 +171,11 @@ build_native() {
   : > "$NATIVE_BUILD_LOG"
 
   # Configure tim2tox if needed
-  local cmake_ffi_args=(-DBUILD_FFI=ON -DBUILD_TOXAV=ON -DMUST_BUILD_TOXAV=ON -DDHT_BOOTSTRAP=ON -DBOOTSTRAP_DAEMON=ON)
+  # TIM2TOX_ENABLE_TEST_HOOKS=OFF explicitly: this build tree is the SAME one
+  # third_party/tim2tox/build_ffi.sh uses, and that script turns the hooks on for
+  # the auto_tests. Without this the app dev loop would inherit a cache left ON
+  # and ship the MM-6 crafted-challenge test hook.
+  local cmake_ffi_args=(-DBUILD_FFI=ON -DBUILD_TOXAV=ON -DMUST_BUILD_TOXAV=ON -DDHT_BOOTSTRAP=ON -DBOOTSTRAP_DAEMON=ON -DTIM2TOX_ENABLE_TEST_HOOKS=OFF)
   local needs_configure=false
 
   if [[ ! -f "$TIM2TOX_BUILD_DIR/CMakeCache.txt" ]] || \
@@ -181,7 +185,8 @@ build_native() {
        ! grep -q "BUILD_TOXAV:BOOL=ON" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null || \
        ! grep -q "MUST_BUILD_TOXAV:BOOL=ON" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null || \
        ! grep -q "DHT_BOOTSTRAP:BOOL=ON" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null || \
-       ! grep -q "BOOTSTRAP_DAEMON:BOOL=ON" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
+       ! grep -q "BOOTSTRAP_DAEMON:BOOL=ON" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null || \
+       ! grep -q "TIM2TOX_ENABLE_TEST_HOOKS:BOOL=OFF" "$TIM2TOX_BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
     echo -e "${YELLOW}    Reconfiguring to enable required build options (e.g. BUILD_FFI)...${NC}"
     needs_configure=true
   fi

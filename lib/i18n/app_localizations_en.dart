@@ -814,11 +814,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get noReceivers => 'No receivers yet';
+  String get messageReceiversNotStored =>
+      'Receiver names aren\'t stored, so this list is rebuilt from live receipts after a restart.';
 
   @override
   String messageReceivers(String count) {
-    return 'Message Receivers ($count)';
+    return 'Receivers so far ($count)';
   }
 
   @override

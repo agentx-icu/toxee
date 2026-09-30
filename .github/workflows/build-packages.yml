@@ -536,6 +536,13 @@ jobs:
           TIM2TOX_ANDROID_ABIS: arm64-v8a
         run: bash tool/ci/build_tim2tox.sh --target android --mode "$BUILD_MODE"
 
+      # Gradle packages whatever .so is in jniLibs/, built here or not, so the
+      # release gate is on the staged BYTES rather than on the CMake flags the
+      # step above used. Fails if any staged library exports the auto_tests-only
+      # MM-6 crafted-challenge hook.
+      - name: Assert staged Android JNI libs carry no test hooks
+        run: bash tool/ci/assert_no_test_hooks.sh android/app/src/main/jniLibs
+
       - name: Build Android APK
         run: flutter build apk --release --target-platform android-arm64 --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
 
@@ -611,6 +618,11 @@ jobs:
 
       - name: Stage optional iOS Tim2Tox artifacts
         run: bash tool/ci/build_tim2tox.sh --target ios --mode "$BUILD_MODE"
+
+      # Xcode's embed phase takes the staged framework as-is (the build step
+      # below only checks that it EXISTS), so gate the bytes that ship.
+      - name: Assert staged iOS framework carries no test hooks
+        run: bash tool/ci/assert_no_test_hooks.sh build/native-artifacts/ios/tim2tox_ffi.framework
 
       - name: Build iOS app
         run: |

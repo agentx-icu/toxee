@@ -156,6 +156,11 @@ build_arch() {
   fi
 
   # --- tim2tox FFI ---
+  # TIM2TOX_ENABLE_TEST_HOOKS=OFF is passed EXPLICITLY below rather than left to
+  # the CMake default: $ffi_build is reused across runs, and a tree once
+  # configured with the auto_tests hook ON keeps that cache entry, so the
+  # framework/dylib Xcode embeds would export
+  # tim2tox_ffi_mm6_send_crafted_challenge.
   info "[$arch] configuring + building tim2tox_ffi (TOXAV=$toxav_on) ..."
   PKG_CONFIG_PATH="$dep_prefix/lib/pkgconfig" PKG_CONFIG_LIBDIR="$dep_prefix/lib/pkgconfig" \
   cmake -S "$TIM2TOX_DIR" -B "$ffi_build" \
@@ -170,6 +175,7 @@ build_arch() {
     -DDHT_BOOTSTRAP=OFF -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
     -DUNITTEST=OFF -DAUTOTEST=OFF -DBUILD_MISC_TESTS=OFF -DBUILD_FUN_UTILS=OFF \
     -DBUILD_FUZZ_TESTS=OFF -DUSE_IPV6=ON -DEXPERIMENTAL_API=OFF -DBUILD_FFI=ON \
+    -DTIM2TOX_ENABLE_TEST_HOOKS=OFF \
     -DTIM2TOX_DEP_PREFIX="$dep_prefix" -DCMAKE_PREFIX_PATH="$dep_prefix" \
     -DCMAKE_FIND_ROOT_PATH="$dep_prefix" \
     >"$base/cmake-configure.log" 2>&1 || { err "[$arch] cmake configure failed"; tail -25 "$base/cmake-configure.log" >&2; exit 1; }
@@ -226,6 +232,10 @@ if [[ "$TOXAV" == "1" ]]; then
     err "ToxAV requested but marker symbol missing — calling would be a stub"; exit 1
   fi
 fi
+# Xcode's embed phase takes whatever framework/dylib is staged below, so verify
+# the bytes we are about to package, not just the flags we configured with. Both
+# outputs are copies of $UNIVERSAL, so one check covers them.
+bash "$SCRIPT_DIR/ci/assert_no_test_hooks.sh" "$UNIVERSAL"
 
 # ---------------------------------------------------------------------------
 # Package: framework (primary) + raw dylib, ad-hoc signed

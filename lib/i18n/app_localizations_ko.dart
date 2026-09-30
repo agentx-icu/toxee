@@ -791,11 +791,12 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get noReceivers => '아직 수신자가 없습니다';
+  String get messageReceiversNotStored =>
+      '수신자 이름은 저장되지 않으므로 재시작 후에는 실시간 수신 확인으로 다시 집계됩니다.';
 
   @override
   String messageReceivers(String count) {
-    return '메시지 수신자 ($count)';
+    return '현재까지 수신자 ($count)';
   }
 
   @override
