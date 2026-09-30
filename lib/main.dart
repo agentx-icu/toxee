@@ -317,17 +317,15 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
     AppLogger.info('[EchoUIKitApp] lifecycle -> ${state.name}');
     // MOBILE PARITY for the desktop window-close teardown
     // (`DesktopShellBootstrap.onWindowClose`). iOS/Android never deliver a
-    // window-close, so `detached` is the only exit notice we get, and without
-    // acting on it a password-protected account's `tox_profile.tox` stays
-    // plaintext on disk — the session decrypts it in place and only
-    // `teardownCurrentSession` re-encrypts.
+    // window-close, so `detached` is the only exit notice we get.
     //
-    // This is a MITIGATION, not a guarantee: Flutter explicitly permits
-    // `detached` to be skipped, and an OS kill (the normal way a backgrounded
-    // mobile app dies) delivers nothing at all. The durable fix is to encrypt
-    // at the savedata persistence boundary so the file is never plaintext at
-    // rest; that work is tracked separately. Until then the authentication
-    // consequence is already closed elsewhere — the startup gate keys off the
+    // Since the native savedata encryption (tim2tox PR #19, staged in
+    // `AccountService.initializeServiceForAccount`) a protected account's
+    // `tox_profile.tox` is ciphertext for the whole session, so an OS kill
+    // that skips this — Flutter permits `detached` to be skipped, and a kill
+    // delivers nothing — no longer strands plaintext. This teardown still
+    // matters for the orderly parts (final save, session-password clear).
+    // The authentication side is closed elsewhere — the startup gate keys off the
     // durable verifier, never the file's encryption state.
     if (state == AppLifecycleState.detached) {
       // Desktop already tore down in `onWindowClose` and only reaches here on

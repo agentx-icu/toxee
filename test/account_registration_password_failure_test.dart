@@ -91,7 +91,7 @@ void main() {
 
       var encryptionCalls = 0;
       var disposeCalls = 0;
-      AccountRegistrationTestHooks.encryptProfileFile = (_, __) async {
+      AccountRegistrationTestHooks.beforeScopedReopen = (_) async {
         encryptionCalls++;
       };
       AccountRegistrationTestHooks.disposeService = (service) async {

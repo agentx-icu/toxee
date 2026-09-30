@@ -29,9 +29,11 @@ class AccountExportService {
     required String toxId,
     String? password,
     String? filePath,
+    String? accountPassword,
   }) => tox.exportAccountData(
     toxId: toxId,
     password: password,
+    accountPassword: accountPassword,
     filePath: filePath,
   );
 
@@ -66,9 +68,11 @@ class AccountExportService {
     required String toxId,
     String? password,
     String? filePath,
+    String? accountPassword,
   }) => backup.exportFullBackup(
     toxId: toxId,
     password: password,
+    accountPassword: accountPassword,
     filePath: filePath,
   );
 
@@ -77,13 +81,23 @@ class AccountExportService {
   static Future<Map<String, String>> readFullBackupMetadata(
     String filePath, {
     String? password,
-  }) => backup.readFullBackupMetadata(filePath, password: password);
+    String? profilePassword,
+  }) => backup.readFullBackupMetadata(
+    filePath,
+    password: password,
+    profilePassword: profilePassword,
+  );
 
   /// Import a full backup from a .zip (or .tox). See [backup.importFullBackup].
   static Future<Map<String, dynamic>> importFullBackup({
     required String filePath,
     String? password,
-  }) => backup.importFullBackup(filePath: filePath, password: password);
+    String? profilePassword,
+  }) => backup.importFullBackup(
+    filePath: filePath,
+    password: password,
+    profilePassword: profilePassword,
+  );
 
   /// Mark a journaled full-backup import visible after the caller successfully
   /// persists the account registry row.

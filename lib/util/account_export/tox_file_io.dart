@@ -18,6 +18,7 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import '../app_paths.dart';
 import '../logger.dart';
 import '../prefs.dart';
+import '../session_password_store.dart';
 import 'atomic_file_write.dart';
 import 'encryption.dart';
 import 'exceptions.dart';
@@ -39,10 +40,14 @@ String sanitizeFileName(String fileName) {
 ///   naming: `{nickname}_{toxId前8位}.tox`.
 ///
 /// Returns the absolute path to the exported file.
+/// [accountPassword]: the password that opens the profile at rest when the
+/// account is protected — the login page passes the one it just verified; a
+/// live session's is taken from [SessionPasswordStore] when omitted.
 Future<String> exportAccountData({
   required String toxId,
   String? password,
   String? filePath,
+  String? accountPassword,
 }) async {
   if (toxId.isEmpty) {
     throw ArgumentError('toxId cannot be empty');
@@ -191,34 +196,15 @@ Future<String> exportAccountData({
   // already ciphertext — a file that needs two passphrase rounds and so is
   // neither importable by toxee nor readable by qTox, despite the export
   // reporting success. Only ever produce the single-layer format.
+  toxProfileData = await plaintextProfileForExport(
+    toxProfileData,
+    toxId: normalizedToxId,
+    accountPassword: accountPassword,
+  );
+
   Uint8List finalData;
   if (password != null && password.isNotEmpty) {
-    final bool alreadyEncrypted;
-    try {
-      alreadyEncrypted = isDataEncrypted(toxProfileData);
-    } catch (error) {
-      // ABORT. Do not guess.
-      //
-      // Guessing "already encrypted" here would publish the profile verbatim —
-      // and during an authenticated session that profile is PLAINTEXT, so a
-      // failed probe (FFI not loadable, symbol lookup failure) would silently
-      // produce an unencrypted export of an account the user asked to protect
-      // with a password. Guessing the other way double-encrypts. Neither is
-      // acceptable for a file the user is about to store as a backup, so refuse
-      // and let the caller surface it.
-      AppLogger.error(
-        '[AccountExportService] Export: aborted — cannot determine whether the '
-        'profile is already encrypted (errorType=${error.runtimeType})',
-      );
-      throw const UndeterminedProfileEncryptionException();
-    }
-    if (alreadyEncrypted) {
-      finalData = toxProfileData;
-      AppLogger.log(
-        '[AccountExportService] Export: profile already encrypted at rest; '
-        'exported verbatim (no second layer)',
-      );
-    } else {
+    {
       AppLogger.log('[AccountExportService] Export: Encryption requested=true');
       try {
         finalData = passEncrypt(toxProfileData, password);
@@ -398,6 +384,36 @@ Future<Map<String, dynamic>> importAccountData({
 /// [passphrase] is forwarded to the FFI extractor for the path where the
 /// caller wants the extractor to perform decryption — in practice the
 /// importers in this file have already decrypted, so they pass null.
+/// The profile as PLAINTEXT. At rest, a protected account's file is
+/// ciphertext under the account password (native savedata encryption), so an
+/// export opens it with that password — [accountPassword], or the live
+/// session's — BEFORE applying whatever export password the user chose. It
+/// never exports ciphertext under a password the user did not pick.
+Future<Uint8List> plaintextProfileForExport(
+  Uint8List data, {
+  required String toxId,
+  String? accountPassword,
+}) async {
+  final bool encrypted;
+  try {
+    encrypted = isDataEncrypted(data);
+  } catch (error) {
+    AppLogger.error(
+      '[AccountExportService] Export: aborted — cannot determine whether the '
+      'profile is encrypted at rest (errorType=${error.runtimeType})',
+    );
+    throw const UndeterminedProfileEncryptionException();
+  }
+  if (!encrypted) return data;
+  final opener = (accountPassword != null && accountPassword.isNotEmpty)
+      ? accountPassword
+      : SessionPasswordStore.get(toxId);
+  if (opener == null || opener.isEmpty) {
+    throw const SessionPasswordUnavailableException();
+  }
+  return passDecrypt(data, opener);
+}
+
 String extractToxIdFromProfile(Uint8List profileData, [String? passphrase]) =>
     _extractToxIdFromProfile(profileData, passphrase);
 

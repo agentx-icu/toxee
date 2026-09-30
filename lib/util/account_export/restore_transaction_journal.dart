@@ -36,6 +36,7 @@ final class RestoreTransactionJournal {
     required this.accountDataFinalDir,
     required this.hasProfile,
     this.rollbackRequested = false,
+    this.verifierInstalled = false,
     this.priorBlackListCaptured = false,
     this.priorBlackList = const <String>[],
     this.priorFailedQueueCaptured = false,
@@ -83,6 +84,11 @@ final class RestoreTransactionJournal {
   /// snapshots of the user's blocked peers and pending messages with it.
   final bool rollbackRequested;
 
+  /// The transaction wrote the account's password verifier (the archive's
+  /// profile is ciphertext under it). Rollback removes it; recovery keeps it
+  /// exactly when it keeps the committed account.
+  final bool verifierInstalled;
+
   final bool priorBlackListCaptured;
   final List<String> priorBlackList;
   final bool priorFailedQueueCaptured;
@@ -100,6 +106,7 @@ final class RestoreTransactionJournal {
   RestoreTransactionJournal copyWith({
     RestoreTransactionState? state,
     bool? rollbackRequested,
+    bool? verifierInstalled,
     bool? priorBlackListCaptured,
     List<String>? priorBlackList,
     bool? priorFailedQueueCaptured,
@@ -115,6 +122,7 @@ final class RestoreTransactionJournal {
       accountDataFinalDir: accountDataFinalDir,
       hasProfile: hasProfile,
       rollbackRequested: rollbackRequested ?? this.rollbackRequested,
+      verifierInstalled: verifierInstalled ?? this.verifierInstalled,
       priorBlackListCaptured:
           priorBlackListCaptured ?? this.priorBlackListCaptured,
       priorBlackList: priorBlackList ?? this.priorBlackList,
@@ -137,6 +145,7 @@ final class RestoreTransactionJournal {
     'accountDataFinalDir': accountDataFinalDir,
     'hasProfile': hasProfile,
     'rollbackRequested': rollbackRequested,
+    'verifierInstalled': verifierInstalled,
     'priorBlackListCaptured': priorBlackListCaptured,
     'priorBlackList': priorBlackList,
     'priorFailedQueueCaptured': priorFailedQueueCaptured,
@@ -164,6 +173,7 @@ final class RestoreTransactionJournal {
       // other way (assuming we own them) is what caused the data loss in the
       // first place, and it would reappear exactly once, during the upgrade.
       rollbackRequested: json['rollbackRequested'] as bool? ?? false,
+      verifierInstalled: json['verifierInstalled'] as bool? ?? false,
       priorBlackListCaptured: json['priorBlackListCaptured'] as bool? ?? false,
       priorFailedQueueCaptured:
           json['priorFailedQueueCaptured'] as bool? ?? false,

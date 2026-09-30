@@ -38,6 +38,8 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:toxee/startup/startup_outcome.dart';
 import 'package:toxee/startup/startup_session_use_case.dart';
 import 'package:toxee/util/account_export/account_export_service.dart';
+import 'package:toxee/util/account_password_change.dart';
+import 'package:toxee/util/prefs/password_change_transactions.dart';
 import 'package:toxee/util/account_service.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/prefs.dart';
@@ -122,6 +124,73 @@ void main() {
         .setMockMethodCallHandler(secureChannel, null);
     SessionPasswordStore.clear();
     await env.dispose();
+  });
+
+  group('Savedata at rest — the profile is ciphertext for the whole session',
+      () {
+    test('an encrypted profile opened with its password stays ciphertext '
+        'after init and after an explicit save', () async {
+      final fixture = ToxProfileFixture.create();
+      if (fixture == null) {
+        markTestSkipped('ToxProfileFixture.create() returned null');
+        return;
+      }
+      const password = 'at-rest-pw';
+      final profilePath = await _stageProfile(fixture);
+      await AccountExportService.encryptProfileFile(profilePath, password);
+      await Prefs.addAccount(toxId: fixture.toxId, nickname: 'AtRest');
+      await Prefs.setCurrentAccountToxId(fixture.toxId);
+
+      final service = await AccountService.initializeServiceForAccount(
+        toxId: fixture.toxId,
+        password: password,
+        startPolling: false,
+      );
+      addTearDown(() async {
+        try {
+          await service.dispose();
+        } catch (_) {}
+      });
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isTrue,
+          reason: 'never decrypted in place: an OS kill right now finds '
+              'ciphertext');
+      service.saveToxProfileNow();
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isTrue,
+          reason: 'every native save writes ciphertext');
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isTrue);
+    }, skip: skipReason);
+
+    test('a PLAINTEXT profile opened with a password is re-written encrypted '
+        'by the init itself', () async {
+      final fixture = ToxProfileFixture.create();
+      if (fixture == null) {
+        markTestSkipped('ToxProfileFixture.create() returned null');
+        return;
+      }
+      const password = 'upgrade-pw';
+      final profilePath = await _stageProfile(fixture);
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isFalse);
+      await Prefs.addAccount(toxId: fixture.toxId, nickname: 'Upgrade');
+      await Prefs.setCurrentAccountToxId(fixture.toxId);
+
+      final service = await AccountService.initializeServiceForAccount(
+        toxId: fixture.toxId,
+        password: password,
+        startPolling: false,
+      );
+      addTearDown(() async {
+        try {
+          await service.dispose();
+        } catch (_) {}
+      });
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isTrue,
+          reason: 'the init encrypts a legacy plaintext profile at once');
+    }, skip: skipReason);
   });
 
   group('Bug 1 — SessionPasswordStore keyed under canonical toxId', () {
@@ -223,9 +292,9 @@ void main() {
           reason: 'precondition: login armed the session password');
 
       // The fix under test.
-      final ok = await AccountService.removeAccountPassword(service);
-      expect(ok, isTrue,
-          reason: 'the secure-storage delete completed durably');
+      final outcome = await AccountService.removeAccountPassword(service);
+      expect(outcome, PasswordChangeOutcome.ok,
+          reason: 'the re-key and the secure-storage delete completed durably');
       expect(SessionPasswordStore.get(toxId), isNull,
           reason: 'remove must clear the in-memory session password');
 
@@ -268,13 +337,30 @@ void main() {
           reason: 'precondition: login armed the session password');
 
       failSecureDeletes = true;
-      final ok = await AccountService.removeAccountPassword(service);
+      final outcome = await AccountService.removeAccountPassword(service);
 
-      expect(ok, isFalse,
-          reason: 'the secure-storage facade rejected durable deletion');
-      expect(SessionPasswordStore.get(toxId), password,
-          reason: 'a failed durable removal must retain the password so the '
-              'still-protected account can be re-encrypted on logout');
+      // The profile was re-keyed to plaintext BEFORE the verifier deletes ran,
+      // so the removal is committed even though the deletes were refused: the
+      // journal keeps a rekeyed `remove` record and the gate finishes it.
+      expect(outcome, PasswordChangeOutcome.ok,
+          reason: 'a removal whose re-key reached disk is committed');
+      expect(SessionPasswordStore.get(toxId), isNull,
+          reason: 'the profile is plaintext: nothing to re-encrypt on logout');
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isFalse);
+      final pending = await Prefs.passwordChanges.pending(toxId);
+      expect(pending.record?.kind, PasswordChangeKind.remove);
+      expect(pending.record?.phase, PasswordChangePhase.rekeyed);
+      expect(await Prefs.accountProtectionState(toxId),
+          AccountProtectionState.unknown,
+          reason: 'closed until every verifier source is provably gone');
+
+      // Deletes work again: the gate's reconcile completes the removal.
+      failSecureDeletes = false;
+      await Prefs.passwordChanges.reconcileForGate(toxId);
+      expect((await Prefs.passwordChanges.pending(toxId)).record, isNull);
+      expect(await Prefs.accountProtectionState(toxId),
+          AccountProtectionState.none);
     }, skip: skipReason);
 
     test(
@@ -307,9 +393,13 @@ void main() {
 
       // The fix under test (set/change branch).
       const newPassword = 'fresh-pw';
-      final ok = await AccountService.setAccountPassword(service, newPassword);
-      expect(ok, isTrue,
+      final outcome =
+          await AccountService.setAccountPassword(service, newPassword);
+      expect(outcome, PasswordChangeOutcome.ok,
           reason: 'verifier write must succeed (secure-storage mock)');
+      expect(await AccountExportService.isProfileFileEncrypted(profilePath),
+          isTrue,
+          reason: 'the live re-key encrypts the profile at once, before logout');
       expect(SessionPasswordStore.get(toxId), newPassword,
           reason: 'set must arm the session password for logout encryption');
 

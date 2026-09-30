@@ -1017,5 +1017,10 @@
   "fileReceiveNoSpace": "儲存空間不足，無法接收「{fileName}」。請釋放空間後再試一次。",
   "fileReceiveNoSpaceUnnamed": "儲存空間不足，無法接收檔案。請釋放空間後再試一次。",
   "fileReceiveFailed": "無法儲存「{fileName}」。",
-  "fileReceiveFailedUnnamed": "無法儲存收到的檔案。"
+  "fileReceiveFailedUnnamed": "無法儲存收到的檔案。",
+  "passwordChangePending": "上一次密碼修改尚未完成；請登出後重新登入",
+  "passwordRekeyFailed": "帳號檔案無法重新加密；未做任何變更",
+  "exportRequiresLogin": "請先登入該帳號再匯出",
+  "profileUnopenableWithPassword": "無法用此密碼開啟帳號檔案。檔案可能已損壞，或上次修改密碼被中斷。",
+  "passwordChangeInterrupted": "密碼修改被中斷。請嘗試修改前或修改後的密碼。"
 }

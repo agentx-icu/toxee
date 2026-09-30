@@ -25,6 +25,7 @@ import '../prefs.dart';
 import '../safe_diagnostics.dart';
 import '../tox_utils.dart';
 import 'atomic_file_write.dart';
+import 'backup_profile_identity.dart';
 import 'exceptions.dart';
 import 'full_backup_crypto.dart';
 import 'restore_transaction.dart';
@@ -48,22 +49,6 @@ String? _metadataToxId(Map<String, dynamic> metadata) {
   return rawToxId.trim();
 }
 
-String _extractProfileToxId(Uint8List toxProfile) {
-  final testExtractor = FullBackupRestoreTestHooks.profileIdentityExtractor;
-  if (testExtractor != null) return testExtractor(toxProfile);
-  return extractToxIdFromProfile(toxProfile);
-}
-
-void _requireProfileMatchesMetadata({
-  required String metadataToxId,
-  required Uint8List toxProfile,
-}) {
-  final profileToxId = _extractProfileToxId(toxProfile);
-  if (!compareToxIds(metadataToxId, profileToxId)) {
-    throw StateError('Backup metadata toxId does not match tox_profile.tox');
-  }
-}
-
 /// Export a comprehensive .zip backup containing:
 /// - `tox_profile.tox` (the Tox identity/profile, optionally encrypted)
 /// - `chat_history/` (all JSON chat history files)
@@ -85,6 +70,7 @@ Future<String> exportFullBackup({
   required String toxId,
   String? password,
   String? filePath,
+  String? accountPassword,
 }) async {
   if (toxId.isEmpty) {
     throw ArgumentError('toxId cannot be empty');
@@ -109,12 +95,19 @@ Future<String> exportFullBackup({
   if (resolvedToxPath == null) {
     throw const MissingBackupProfileException();
   }
-  final profileData = await File(resolvedToxPath).readAsBytes();
+  var profileData = await File(resolvedToxPath).readAsBytes();
   if (profileData.isEmpty) {
     throw const MissingBackupProfileException(
       'the account profile on disk is empty',
     );
   }
+  // Plaintext inside the password-encrypted archive is the invariant; the
+  // at-rest ciphertext of a protected account is opened with its password.
+  profileData = await plaintextProfileForExport(
+    profileData,
+    toxId: normalizedToxId,
+    accountPassword: accountPassword,
+  );
   archive.addFile(
     ArchiveFile('tox_profile.tox', profileData.length, profileData),
   );
@@ -269,6 +262,7 @@ Future<String> exportFullBackup({
       // referenced by chat history but stored outside the account data this
       // archive walks, so history entries can restore with their media missing.
       'notIncluded': const <String>['receivedAttachments'],
+      'profileEncrypted': false,
     };
     final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
     final metadataBytes = utf8.encode(metadataJson);
@@ -319,6 +313,7 @@ Future<String> exportFullBackup({
 Future<Map<String, String>> readFullBackupMetadata(
   String filePath, {
   String? password,
+  String? profilePassword,
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
@@ -353,17 +348,22 @@ Future<Map<String, String>> readFullBackupMetadata(
     final toxProfile = Uint8List.fromList(profileFile.content as List<int>);
     if (toxId == null || toxId.isEmpty) {
       try {
-        toxId = _extractProfileToxId(toxProfile);
+        toxId = extractBackupProfileToxId(toxProfile, profilePassword);
       } catch (e) {
+        if (e is BackupProfilePasswordRequiredException ||
+            e is InvalidBackupPasswordException) {
+          rethrow;
+        }
         SafeDiagnostics.logFailure(
           'readFullBackupMetadata: Error extracting toxId',
           e,
         );
       }
     } else {
-      _requireProfileMatchesMetadata(
+      requireBackupProfileMatchesMetadata(
         metadataToxId: toxId,
         toxProfile: toxProfile,
+        profilePassword: profilePassword,
       );
     }
   }
@@ -385,6 +385,7 @@ Future<Map<String, String>> readFullBackupMetadata(
 Future<Map<String, dynamic>> importFullBackup({
   required String filePath,
   String? password,
+  String? profilePassword,
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
@@ -441,19 +442,23 @@ Future<Map<String, dynamic>> importFullBackup({
     toxProfile = Uint8List.fromList(profileFile.content as List<int>);
 
     if (toxId == null || toxId.isEmpty) {
-      // Extract toxId from profile
       try {
-        toxId = _extractProfileToxId(toxProfile);
+        toxId = extractBackupProfileToxId(toxProfile, profilePassword);
       } catch (e) {
+        if (e is BackupProfilePasswordRequiredException ||
+            e is InvalidBackupPasswordException) {
+          rethrow;
+        }
         SafeDiagnostics.logFailure(
           'Full backup import: Error extracting toxId',
           e,
         );
       }
     } else {
-      _requireProfileMatchesMetadata(
+      requireBackupProfileMatchesMetadata(
         metadataToxId: toxId,
         toxProfile: toxProfile,
+        profilePassword: profilePassword,
       );
     }
   }
@@ -469,6 +474,11 @@ Future<Map<String, dynamic>> importFullBackup({
       archive: archive,
       metadata: metadata,
       toxProfile: toxProfile,
+      // The restored file stays ciphertext on disk; the password that opened
+      // it becomes the account's verifier inside the restore transaction.
+      accountPassword: toxProfile != null && isBackupProfileEncrypted(toxProfile)
+          ? profilePassword
+          : null,
     ),
   );
 }

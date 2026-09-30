@@ -32,6 +32,9 @@ import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
+import '../account_password_texts.dart';
+import '../../util/account_export/exceptions.dart';
+import '../../util/account_password_change.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/account_switcher.dart';
 import '../../util/feature_flags.dart';
@@ -677,9 +680,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              AppLocalizations.of(
-                context,
-              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
+              exportFailureText(AppLocalizations.of(context)!, e),
             ),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
@@ -754,9 +755,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              AppLocalizations.of(
-                context,
-              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
+              exportFailureText(AppLocalizations.of(context)!, e),
             ),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
@@ -804,9 +803,8 @@ class _SettingsPageState extends State<SettingsPage> {
     // Read the has-password state under the canonical Tox ID (getSelfToxId),
     // matching the write path below — accountKey can be a placeholder when the
     // FFI hasn't resolved the address, which would mis-title the dialog.
-    final hasPassword = await Prefs.hasAccountPassword(
-      widget.service.getSelfToxId() ?? toxId,
-    );
+    final hasPassword =
+        await Prefs.hasAccountPassword(widget.service.getSelfToxId() ?? toxId);
 
     // Show password input dialog
     final password = await _showSetPasswordDialog(hasPassword);
@@ -817,7 +815,8 @@ class _SettingsPageState extends State<SettingsPage> {
         // Remove password — routes through AccountService so the in-memory
         // session password is cleared too (else logout re-encrypts the
         // now-unprotected profile → silent next-launch failure).
-        final ok = await AccountService.removeAccountPassword(widget.service);
+        final outcome = await AccountService.removeAccountPassword(widget.service);
+        final ok = outcome == PasswordChangeOutcome.ok;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -825,7 +824,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ok
                     ? AppLocalizations.of(context)!.passwordRemoved
                     : AppLocalizations.of(context)!.failedToSetPassword(
-                        AppLocalizations.of(context)!.couldNotRemovePassword,
+                        passwordChangeFailureText(AppLocalizations.of(context)!, outcome, removing: true),
                       ),
               ),
               backgroundColor: ok
@@ -839,10 +838,8 @@ class _SettingsPageState extends State<SettingsPage> {
         // session password is updated too (else logout encrypts with the stale
         // login password, corrupting the profile vs the new verifier). A false
         // return means nothing was persisted — must NOT report success.
-        final ok = await AccountService.setAccountPassword(
-          widget.service,
-          password,
-        );
+        final outcome = await AccountService.setAccountPassword(widget.service, password);
+        final ok = outcome == PasswordChangeOutcome.ok;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -850,7 +847,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ok
                     ? AppLocalizations.of(context)!.passwordSetSuccessfully
                     : AppLocalizations.of(context)!.failedToSetPassword(
-                        AppLocalizations.of(context)!.couldNotSavePassword,
+                        passwordChangeFailureText(AppLocalizations.of(context)!, outcome, removing: false),
                       ),
               ),
               backgroundColor: ok

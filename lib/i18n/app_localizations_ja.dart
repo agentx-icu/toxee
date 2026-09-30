@@ -2098,4 +2098,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => '受信したファイルを保存できませんでした。';
+
+  @override
+  String get passwordChangePending =>
+      '前回のパスワード変更がまだ完了していません。ログアウトして再度ログインしてください';
+
+  @override
+  String get passwordRekeyFailed => 'アカウントファイルを再暗号化できませんでした。変更は行われていません';
+
+  @override
+  String get exportRequiresLogin => 'エクスポートする前にこのアカウントにログインしてください';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      'このパスワードではアカウントファイルを開けませんでした。ファイルが破損しているか、パスワード変更が中断された可能性があります。';
+
+  @override
+  String get passwordChangeInterrupted =>
+      'パスワード変更が中断されました。変更前または変更後のパスワードを試してください。';
 }

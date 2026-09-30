@@ -108,9 +108,13 @@ abstract final class AccountDeletionCoordinator {
       AccountDeletionStage.securePassword,
       AccountDeletionState.securePasswordCleared,
       () async {
+        // Every verifier source AND the password-change journal (it carries
+        // a verifier of its own: left behind, a later import of the same
+        // identity would inherit a record that gates it with a password
+        // nothing can verify).
         final removed =
             await (AccountDeletionTestHooks.removePassword?.call(toxId) ??
-                Prefs.removeAccountPassword(toxId));
+                Prefs.passwordChanges.removeAllCredentials(toxId));
         if (!removed) {
           throw StateError('secure password deletion failed');
         }

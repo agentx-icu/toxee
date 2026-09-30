@@ -16,6 +16,7 @@ import 'async_gate.dart';
 import 'auto_download_policy.dart';
 import 'group_avatar_path.dart';
 import 'prefs/draft_prefs.dart';
+import 'prefs/password_change_transactions.dart';
 import 'prefs/password_verifier.dart';
 import 'prefs/scoped_key.dart';
 
@@ -2170,46 +2171,41 @@ class Prefs {
     );
   }
 
+  /// The verifier plus the password-change journal: the authority the gates,
+  /// the verify path and a mid-session change go through.
+  static PasswordChangeTransactions? _passwordChanges;
+  static PasswordChangeTransactions get passwordChanges =>
+      _passwordChanges ??= PasswordChangeTransactions(
+        verifier: _verifier(),
+        journal: PasswordChangeJournal(FlutterSecureStorageFacade(_secureStorage)),
+      );
+
   /// Check if an account has a password set.
   ///
   /// Fail-closed: an unreadable secure store reports `true`. See
   /// [accountProtectionState] when the caller needs to tell the two apart.
   static Future<bool> hasAccountPassword(String toxId) =>
-      _verifier().hasPassword(toxId);
+      passwordChanges.hasPassword(toxId);
 
-  /// Durable protection state for an account — the authority on "does this
-  /// account require a password", independent of whether its `tox_profile.tox`
-  /// happens to be encrypted on disk right now. Callers gating access MUST NOT
-  /// infer protection from file encryption: the profile is plaintext for the
-  /// whole of an authenticated session and stays that way after any exit that
-  /// skips `AccountService.teardownCurrentSession`.
+  /// Durable protection state — the authority on "does this account require
+  /// a password"; never infer it from whether `tox_profile.tox` is encrypted.
+  /// An in-flight password change (journal record) keeps the account closed.
   static Future<AccountProtectionState> accountProtectionState(String toxId) =>
-      _verifier().protectionState(toxId);
+      passwordChanges.protectionState(toxId);
 
   /// Get account password hash (for verification). Migrates legacy plain-prefs
   /// values into secure storage on first read.
   static Future<String?> getAccountPasswordHash(String toxId) =>
       _verifier().getPasswordHash(toxId);
 
-  /// Set account password (stores PBKDF2 hash + salt in secure storage).
-  /// New accounts use PBKDF2; legacy SHA256 hashes are migrated on next
-  /// successful verify. Also clears any legacy plain-prefs entries.
-  ///
-  /// Returns true when both the hash and salt were persisted to secure
-  /// storage; false when either secure write was swallowed (in which case
-  /// the legacy plain-prefs entries are intentionally left intact so a
-  /// subsequent attempt can recover). The empty-password short-circuit
-  /// (which removes any existing password) returns true on full cleanup.
+  /// Set the verifier only (PBKDF2 hash + salt in secure storage). For a LIVE
+  /// session use `AccountPasswordChange`, which also re-keys the profile.
+  /// Returns true when both writes persisted.
   static Future<bool> setAccountPassword(String toxId, String password) =>
       _verifier().setPassword(toxId, password);
 
-  /// Remove account password and its salt from both secure storage and any
-  /// remaining legacy SharedPreferences entries.
-  ///
-  /// Returns true when both secure deletes succeeded (and the legacy
-  /// plain-prefs entries were also cleared); false when either secure
-  /// delete was swallowed, in which case the legacy entries are left in
-  /// place so we don't destroy the last remaining copy.
+  /// Remove the verifier only (every source). For a LIVE session use
+  /// `AccountPasswordChange.remove`. True only when every delete succeeded.
   static Future<bool> removeAccountPassword(String toxId) =>
       _verifier().removePassword(toxId);
 
@@ -2218,7 +2214,7 @@ class Prefs {
   /// on success. Reads from secure storage with backward-compat plain-prefs
   /// migration.
   static Future<bool> verifyAccountPassword(String toxId, String password) =>
-      _verifier().verifyPassword(toxId, password);
+      passwordChanges.verifyPassword(toxId, password);
 
   /// Move every password-related key (secure-storage hash + salt, plus legacy
   /// plain-prefs hash + salt) from one toxId namespace to another.
