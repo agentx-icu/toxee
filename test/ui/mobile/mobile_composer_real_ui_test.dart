@@ -77,11 +77,16 @@ class _RecordingMethods {
   /// When set, each text send stays in flight until this completes.
   Completer<void>? inFlight;
 
+  /// Texts whose send reports failure (after [inFlight], if set).
+  final Set<String> failing = {};
+
   MessageInputBuilderMethods build() {
     return MessageInputBuilderMethods(
       sendTextMessage: ({required String text, List<String>? mentionedUsers}) {
         sentText.add(text);
-        return inFlight?.future;
+        final gate = inFlight?.future;
+        if (!failing.contains(text)) return gate;
+        return gate == null ? Future<bool>.value(false) : gate.then((_) => false);
       },
       sendImageMessage:
           ({String? imagePath, String? imageName, dynamic inputElement}) {},
@@ -966,4 +971,176 @@ void main() {
       expect(methods.sentText, ['a', 'b']);
     },
   );
+
+  group('mobile composer: hardware Enter in the middle of the draft, and failed sends', () {
+    Future<(_RecordingMethods, TextEditingController)> pumpComposer(
+      WidgetTester tester, {
+      bool holdSends = true,
+      Set<String> failing = const {},
+    }) async {
+      useMobileSurface(tester);
+      final methods = _RecordingMethods();
+      if (holdSends) methods.inFlight = Completer<void>();
+      methods.failing.addAll(failing);
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageInputMobile(
+            inputData: _data(),
+            inputMethods: methods.build(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final controller = await _focusComposerAndEnterText(tester, '');
+      return (methods, controller);
+    }
+
+    void platformUpdate(WidgetTester tester, String text, [int? caret]) {
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: caret ?? text.length),
+        ),
+      );
+    }
+
+    Future<void> finishSends(
+      WidgetTester tester,
+      _RecordingMethods methods,
+    ) async {
+      final held = methods.inFlight!;
+      methods.inFlight = null;
+      held.complete();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a key typed right after a mid-draft Enter does not bring the '
+        'sent message back', (tester) async {
+      final (methods, controller) = await pumpComposer(tester);
+      platformUpdate(tester, 'abcd', 2); // caret after "b"
+      await tester.pump();
+      await _pressEnter(tester, controller); // platform: "ab\ncd", caret 3
+      expect(methods.sentText, ['abcd']);
+      expect(controller.text, 'abcd', reason: 'kept until the send completes');
+
+      // The platform still held "ab\ncd" when it inserted the next key.
+      platformUpdate(tester, 'ab\nhcd', 4);
+      await tester.pump();
+      expect(controller.text, 'h');
+      expect(controller.selection, const TextSelection.collapsed(offset: 1));
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'h');
+      expect(methods.sentText, ['abcd']);
+    });
+
+    testWidgets('a failed send the user typed past is put back in front of '
+        'the new text', (tester) async {
+      final (methods, controller) =
+          await pumpComposer(tester, failing: {'abc'});
+      platformUpdate(tester, 'abc');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      platformUpdate(tester, 'abc\nh'); // typed "h" within the echo
+      await tester.pump();
+      expect(controller.text, 'h');
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'abc\nh', reason: 'the failed text is not lost');
+      expect(controller.selection, const TextSelection.collapsed(offset: 5),
+          reason: 'the caret stays after what the user typed');
+
+      // Typing continues on the restored text (no rebase off it).
+      platformUpdate(tester, 'abc\nhi');
+      await tester.pump();
+      expect(controller.text, 'abc\nhi');
+      expect(methods.sentText, ['abc']);
+    });
+
+    testWidgets('a failed send still in the field stays there once', (
+      tester,
+    ) async {
+      final (methods, controller) =
+          await pumpComposer(tester, holdSends: false, failing: {'abc'});
+      platformUpdate(tester, 'abc');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      await tester.pumpAndSettle();
+      expect(methods.sentText, ['abc']);
+      expect(controller.text, 'abc');
+    });
+
+    testWidgets('a failed send the user edited after the echo ended is not '
+        'inserted again', (tester) async {
+      final (methods, controller) =
+          await pumpComposer(tester, failing: {'hi'});
+      platformUpdate(tester, 'hi');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      // The platform caught up ("hi"), then the user kept typing in it.
+      platformUpdate(tester, 'high');
+      await tester.pump();
+      expect(controller.text, 'high');
+
+      await finishSends(tester, methods);
+      expect(controller.text, 'high');
+    });
+
+    testWidgets('first send fails while the second is queued: the second is '
+        'sent and cleared, the first comes back once', (tester) async {
+      final (methods, controller) = await pumpComposer(tester, failing: {'a'});
+      platformUpdate(tester, 'a');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      await _pressEnter(tester, controller, platformText: 'a\nb');
+      expect(methods.sentText, ['a']);
+
+      await finishSends(tester, methods);
+      expect(methods.sentText, ['a', 'b']);
+      expect(controller.text, 'a', reason: 'b went out; only a is put back');
+    });
+
+    testWidgets('failed first + sent second: a stale platform echo after the '
+        'restore keeps the first and does not bring the second back', (
+      tester,
+    ) async {
+      final (methods, controller) = await pumpComposer(tester, failing: {'a'});
+      platformUpdate(tester, 'a');
+      await tester.pump();
+      await _pressEnter(tester, controller);
+      // "b" and Enter arrive while the platform still echoes "a\n".
+      platformUpdate(tester, 'a\nb');
+      await tester.pump();
+      expect(controller.text, 'b');
+      final handled = await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+      expect(handled, isFalse);
+      platformUpdate(tester, 'a\nb\n');
+      await tester.pump();
+      expect(methods.sentText, ['a']);
+
+      await finishSends(tester, methods);
+      expect(methods.sentText, ['a', 'b']);
+      expect(controller.text, 'a');
+
+      // The platform had not processed the restore yet when "x" was typed.
+      platformUpdate(tester, 'a\nb\nx');
+      await tester.pump();
+      expect(controller.text, 'a\nx');
+    });
+
+    testWidgets('a mid-draft Enter after a quick caret move then a key does '
+        'not bring the sent message back', (tester) async {
+      final (methods, controller) = await pumpComposer(tester);
+      platformUpdate(tester, 'abcd', 2);
+      await tester.pump();
+      await _pressEnter(tester, controller); // platform: "ab\ncd", caret 3
+      platformUpdate(tester, 'ab\nchd', 5); // right arrow, then "h"
+      await tester.pump();
+      expect(controller.text, 'h');
+      await finishSends(tester, methods);
+      expect(controller.text, 'h');
+      expect(methods.sentText, ['abcd']);
+    });
+  });
 }

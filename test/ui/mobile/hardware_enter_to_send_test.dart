@@ -17,16 +17,21 @@ void main() {
 
   late DateTime now;
   late List<String> sent;
+  late List<HardwareEnterSend> handles;
   late HardwareEnterToSend enter;
   var accept = true;
 
   setUp(() {
     now = DateTime(2026, 9, 29, 12);
     sent = [];
+    handles = [];
     accept = true;
     enter = HardwareEnterToSend(
       canSend: (text) => accept && text.isNotEmpty,
-      send: sent.add,
+      send: (s) {
+        handles.add(s);
+        sent.add(s.text);
+      },
       platformInsertsAltNewline: false, // Android
       clock: () => now,
     );
@@ -248,7 +253,7 @@ void main() {
 
     enter = HardwareEnterToSend(
       canSend: (text) => text.isNotEmpty,
-      send: sent.add,
+      send: (s) => sent.add(s.text),
       platformInsertsAltNewline: true, // iOS
       clock: () => now,
     );
@@ -333,5 +338,164 @@ void main() {
     accept = false; // over the limit: nothing sent, draft kept
     press();
     expect(format(old, _v('\n')), old);
+  });
+
+  group('Enter in the middle of the draft (caret not at the end)', () {
+    test('a key typed right after it is rebased off the echo', () async {
+      press();
+      // "abcd", caret after "b": the platform inserts "\n" at its caret.
+      final out = format(_v('abcd', 2), _v('ab\ncd', 3));
+      expect(out.text, 'abcd');
+      expect(out.selection, const TextSelection.collapsed(offset: 2));
+      await pumpEventQueue();
+      expect(sent, ['abcd'], reason: 'the whole draft is the message');
+      // The platform still had "ab\ncd" (caret 3) when it inserted "h".
+      final next = format(_v('abcd', 2), _v('ab\nhcd', 4));
+      expect(next.text, 'h', reason: 'the sent text must not come back');
+      expect(next.selection, const TextSelection.collapsed(offset: 1));
+      expect(handles.single.removedFromField, isTrue);
+      // More keys while the echo lasts, then the platform catches up.
+      expect(format(_v('h', 1), _v('ab\nhicd', 5)).text, 'hi');
+      expect(format(_v('hi', 2), _v('hix', 3)).text, 'hix');
+    });
+
+    test('a second quick Enter in the same stale update sends the new text',
+        () async {
+      press();
+      format(_v('abcd', 2), _v('ab\ncd', 3));
+      press();
+      final out = format(_v('abcd', 2), _v('ab\nh\ncd', 5));
+      expect(out.text, 'h');
+      await pumpEventQueue();
+      expect(sent, ['abcd', 'h']);
+    });
+
+    test('a quick caret move into the rest of the draft, then a key',
+        () async {
+      press();
+      format(_v('abcd', 2), _v('ab\ncd', 3));
+      await pumpEventQueue();
+      // Right arrow, then "h": the platform inserts it after "c".
+      final out = format(_v('abcd', 2), _v('ab\nchd', 5));
+      expect(out.text, 'h');
+      expect(out.selection, const TextSelection.collapsed(offset: 1));
+    });
+
+    test('a key equal to the next character still lands after the caret',
+        () async {
+      press();
+      format(_v('abcd', 2), _v('ab\ncd', 3));
+      await pumpEventQueue();
+      final out = format(_v('abcd', 2), _v('ab\nccd', 4));
+      expect(out.text, 'c');
+      expect(out.selection, const TextSelection.collapsed(offset: 1));
+    });
+
+    test('Enter at the very start of the draft', () async {
+      press();
+      expect(format(_v('abcd', 0), _v('\nabcd', 1)).text, 'abcd');
+      await pumpEventQueue();
+      expect(sent, ['abcd']);
+      expect(format(_v('abcd', 0), _v('\nhabcd', 2)).text, 'h');
+    });
+
+    test('a backspace right after it ends the echo on the shown text',
+        () async {
+      press();
+      format(_v('abcd', 2), _v('ab\ncd', 3));
+      await pumpEventQueue();
+      // Deletes the platform's "\n": the result is the text the field shows.
+      final out = format(_v('abcd', 2), _v('abcd', 2));
+      expect(out.text, 'abcd');
+      expect(handles.single.removedFromField, isFalse);
+    });
+  });
+
+  group('failed sends', () {
+    test('the handle records whether the field was rebased past the text',
+        () async {
+      press();
+      format(_v('abc'), _v('abc\n'));
+      await pumpEventQueue();
+      expect(handles.single.removedFromField, isFalse,
+          reason: 'nothing typed: the text is still in the field');
+      format(_v('abc'), _v('abc\nh'));
+      expect(handles.single.removedFromField, isTrue);
+    });
+
+    test('stopEcho: the stale echo is kept, so the text can not be removed',
+        () async {
+      press();
+      format(_v('abc'), _v('abc\n'));
+      await pumpEventQueue();
+      enter.stopEcho(handles.single);
+      expect(format(_v('abc'), _v('abc\nh')).text, 'abc\nh');
+      expect(handles.single.removedFromField, isFalse);
+    });
+
+    test('stopEcho of an older send leaves the current echo alone', () async {
+      press();
+      format(_v('a'), _v('a\n'));
+      press();
+      format(_v('a'), _v('a\nb\n')); // sends "b"; the echo is now "a\nb\n"
+      await pumpEventQueue();
+      expect(sent, ['a', 'b']);
+      enter.stopEcho(handles.first);
+      expect(format(_v('b'), _v('a\nb\nx')).text, 'x');
+    });
+
+    test('restoredInFront: edits of the restored text are kept, stale '
+        'echoes map onto it', () async {
+      press();
+      format(_v('abc'), _v('abc\n'));
+      expect(format(_v('abc'), _v('abc\nh')).text, 'h');
+      await pumpEventQueue();
+      // The send failed; the composer put "abc" back: field "abc\nh".
+      enter.restoredInFront(['abc']);
+      // A genuine edit of the restored text (it starts with the echo).
+      final out = format(_v('abc\nh'), _v('abc\nhi'));
+      expect(out.text, 'abc\nhi');
+      expect(out.selection, const TextSelection.collapsed(offset: 6));
+      // The platform catches up with something else: normal again.
+      expect(format(_v('abc\nhi'), _v('xabc\nhi')).text, 'xabc\nhi');
+    });
+
+    test('restoredInFront: a queued send that went out stays out', () async {
+      press();
+      format(_v('a'), _v('a\n'));
+      press();
+      expect(format(_v('a'), _v('a\nb\n')).text, 'b'); // sends "b"
+      await pumpEventQueue();
+      expect(sent, ['a', 'b']);
+      // "a" failed, "b" was sent and cleared; "a" is put back: field "a".
+      enter.restoredInFront(['a']);
+      // The platform still held "a\nb\n" when the next key came.
+      final out = format(_v('a'), _v('a\nb\nx'));
+      expect(out.text, 'a\nx');
+      expect(out.selection, const TextSelection.collapsed(offset: 3));
+      expect(format(_v('a\nx'), _v('a\nb\n')).text, 'a',
+          reason: 'nothing typed: just the restored text');
+    });
+
+    test('a new send clears what was restored in front (it went with it)',
+        () async {
+      press();
+      format(_v('a'), _v('a\n'));
+      format(_v('a'), _v('a\nh'));
+      await pumpEventQueue();
+      enter.restoredInFront(['a']); // field "a\nh"
+      press();
+      expect(format(_v('a\nh'), _v('a\nh\n')).text, 'a\nh');
+      await pumpEventQueue();
+      expect(sent, ['a', 'a\nh']);
+      expect(format(_v('a\nh'), _v('a\nh\nz')).text, 'z');
+    });
+
+    test('mergeRestored puts the texts in front, one per line', () {
+      expect(HardwareEnterToSend.mergeRestored(['abc'], 'h'), 'abc\nh');
+      expect(HardwareEnterToSend.mergeRestored(['a', 'b'], ''), 'a\nb');
+      expect(HardwareEnterToSend.mergeRestored(['a', ''], 'x'), 'a\nx');
+      expect(HardwareEnterToSend.mergeRestored([], 'x'), 'x');
+    });
   });
 }
