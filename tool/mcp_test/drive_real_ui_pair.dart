@@ -177,6 +177,7 @@ part 'drive_real_ui_pair_login.dart';
 part 'drive_real_ui_pair_contacts.dart';
 part 'drive_real_ui_pair_group_profile.dart';
 part 'drive_real_ui_pair_group_menu.dart';
+part 'drive_real_ui_pair_group_receipt.dart';
 part 'drive_real_ui_pair_conv.dart';
 part 'drive_real_ui_pair_conv_mobile.dart';
 part 'drive_real_ui_pair_chat.dart';
@@ -1112,6 +1113,11 @@ Future<int> _main(List<String> args) async {
     if (scenario == 'group_menu_mark_read_unread') {
       // Two-process: B seeds real unread on A, A marks read via the row menu.
       return await runGroupMarkReadUnread(a, b, nickA, nickB);
+    }
+    if (scenario == 'group_read_receipt_tick') {
+      // Two-process: A authors, B marks the group read, A's own row must flip
+      // isRead. The only assertion that proves a group receipt crossed the wire.
+      return await runGroupReadReceiptTick(a, b, nickA, nickB);
     }
     if (scenario == 'group_clear_history') {
       // Two-process: B seeds history, A clears it; row survives.

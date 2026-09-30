@@ -27,6 +27,7 @@ const realUiScenarioNames = <String>{
   'group_menu_pin_unpin',
   'group_menu_mark_read',
   'group_menu_mark_read_unread',
+  'group_read_receipt_tick',
   'group_menu_delete_confirm',
   'group_clear_history',
   'group_clear_preserves_pin',

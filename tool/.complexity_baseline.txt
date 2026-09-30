@@ -99,7 +99,19 @@ lib/util/prefs.dart:2335
 #   l3_presentation_tools.dart precedent; only the import + registration line
 #   land here. A re-pin, not an amnesty — the feature itself did not grow this
 #   file.
-lib/ui/testing/l3_debug_tools.dart:6828
+#   [2026-09-29] +19 (6828 -> 6847): `l3_mark_read` stopped refusing group
+#   targets. The BRANCH itself went into l3_group_receipt_tools.dart again, so
+#   what lands here is the dispatch, one schema property, and two fields on the
+#   existing group block of l3_dump_state (`unreadCount`, `isRead`) that a group
+#   receipt assertion cannot be written without. The stale "C2C only" prose was
+#   rewritten rather than padded, which paid back part of it. Deliberately NOT
+#   squeezed under the old pin by cutting the `setActivePeer` archaeology
+#   comment in the same handler: that comment is what stops the reverted bug
+#   coming back, and trimming it to satisfy a line count would be gaming the
+#   gate. +5 of the 19 (2026-09-30): the active-peer fallback moved AHEAD of
+#   the group check, so a bare call on a quit group cannot slip through the
+#   C2C branch. A re-pin, not an amnesty.
+lib/ui/testing/l3_debug_tools.dart:6847
 lib/util/placeholder_account_migration.dart:608
 # Appended 2026-06-15 (these crossed 500 LOC after the 05-20 baseline via the
 # real-UI automation campaigns; each is just over the cap and is test/login
@@ -181,7 +193,13 @@ tool/mcp_test/drive_fixture_c_network_drop.dart:522
 # so its expected/unexpected-SKIP contract could grow without pushing
 # mobile_shell past its own pin — the split IS the reason mobile_shell shrank
 # 903 -> 894 below.
-tool/mcp_test/drive_real_ui_pair.dart:1290
+#   [2026-09-29] +6 (1290 -> 1296): the `group_read_receipt_tick` two-process
+#   case. Its 146 lines went into a NEW part file
+#   (drive_real_ui_pair_group_receipt.dart), which is why
+#   drive_real_ui_pair_group_menu.dart is back at exactly its 567 pin instead of
+#   704. What lands here is the `part` directive and the five-line dispatch,
+#   which a new scenario cannot avoid. A re-pin, not an amnesty.
+tool/mcp_test/drive_real_ui_pair.dart:1296
 tool/mcp_test/drive_real_ui_pair_app_entry_extra.dart:790
 tool/mcp_test/drive_real_ui_pair_c2c_extra.dart:546
 tool/mcp_test/drive_real_ui_pair_calls_misc.dart:996
@@ -224,7 +242,12 @@ tool/mcp_test/drive_real_ui_pair_profile.dart:637
 tool/mcp_test/drive_real_ui_pair_settings.dart:652
 tool/mcp_test/drive_real_ui_pair_settings2.dart:882
 tool/mcp_test/drive_real_ui_pair_shell.dart:1265
-tool/mcp_test/fixture_c_unified_runner.dart:2748
+#   [2026-09-29] +6 (2748 -> 2754): registering the `group_read_receipt_tick`
+#   two-process case -- one chain entry with its comment, and the scenario name
+#   in the two friendship-dependent case lists. A scenario has to be registered
+#   somewhere; the case BODY lives in its own part file. A re-pin, not an
+#   amnesty.
+tool/mcp_test/fixture_c_unified_runner.dart:2754
 tool/mcp_test/gen_scenario_index.dart:1080
 tool/mcp_test/run_l3_scenarios.dart:1733
 tool/screenshots/capture_product_screenshots.dart:549
