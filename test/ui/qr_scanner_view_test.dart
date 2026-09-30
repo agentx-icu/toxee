@@ -35,8 +35,19 @@ class _FakeCamera {
   int stops = 0;
   int requests = 0;
   Completer<void>? startGate; // holds a platform start in flight
+  Completer<void>? permissionGate; // holds the app-level permission answer
+  final List<Object?> stopArgs = [];
 
   final List<String> log = [];
+
+  /// Stream listeners per event channel ('listen' minus 'cancel'): a
+  /// controller subscription that is never cancelled keeps its channel
+  /// listened.
+  final Map<String, int> activeStreams = {};
+  void onListen(String channel) =>
+      activeStreams[channel] = (activeStreams[channel] ?? 0) + 1;
+  void onCancel(String channel) =>
+      activeStreams[channel] = (activeStreams[channel] ?? 0) - 1;
 
   Future<Object?> handle(MethodCall call) async {
     log.add(call.method);
@@ -48,6 +59,7 @@ class _FakeCamera {
         return granted;
       case 'stop':
         stops++;
+        stopArgs.add(call.arguments);
         return null;
       case 'start':
         starts++;
@@ -80,14 +92,15 @@ void main() {
   setUp(() {
     camera = _FakeCamera();
     messenger.setMockMethodCallHandler(_method, camera.handle);
-    messenger.setMockStreamHandler(
-      _events,
-      MockStreamHandler.inline(onListen: (_, _) {}),
-    );
-    messenger.setMockStreamHandler(
-      _orientation,
-      MockStreamHandler.inline(onListen: (_, _) {}),
-    );
+    for (final channel in [_events, _orientation]) {
+      messenger.setMockStreamHandler(
+        channel,
+        MockStreamHandler.inline(
+          onListen: (_, _) => camera.onListen(channel.name),
+          onCancel: (_) => camera.onCancel(channel.name),
+        ),
+      );
+    }
   });
 
   tearDown(() async {
@@ -123,6 +136,7 @@ void main() {
             openSettings: openSettings,
             requestCameraPermission: () async {
               camera.permissionRequests++;
+              await camera.permissionGate?.future;
               return camera.granted;
             },
             cameraPermissionGranted: () async => camera.granted,
@@ -359,6 +373,233 @@ void main() {
     expect(identical(controllerOf(tester), failed), isFalse);
     expect(controllerOf(tester).value.isRunning, isTrue);
     expect(find.byKey(viewfinder), findsOneWidget);
+  });
+
+  testWidgets(
+    'hidden while the FIRST start is in flight: stopped as soon as it lands, '
+    'restarted on resume',
+    (tester) async {
+      camera
+        ..granted = true
+        ..startGate = Completer<void>();
+      await pumpView(tester);
+      expect(camera.starts, 1);
+      final stopsBefore = camera.stops;
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pumpAndSettle();
+      camera.startGate!.complete(); // the start lands in the background
+      await tester.pumpAndSettle();
+      expect(controllerOf(tester).value.isRunning, isFalse);
+      expect(camera.stops, stopsBefore + 1);
+      expect(camera.log.last, 'stop');
+
+      camera.startGate = null;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(camera.starts, 2);
+      expect(controllerOf(tester).value.isRunning, isTrue);
+    },
+  );
+
+  testWidgets(
+    'hidden and back before the first start lands: it just keeps running',
+    (tester) async {
+      camera
+        ..granted = true
+        ..startGate = Completer<void>();
+      await pumpView(tester);
+      final stopsBefore = camera.stops;
+      await resume(tester);
+      camera.startGate!.complete();
+      await tester.pumpAndSettle();
+      expect(camera.starts, 1, reason: 'no second start while one is in flight');
+      expect(camera.stops, stopsBefore);
+      expect(controllerOf(tester).value.isRunning, isTrue);
+    },
+  );
+
+  testWidgets(
+    'stopCamera() behind a slow first start (> 5 s) returns only once the '
+    'camera is off',
+    (tester) async {
+      camera
+        ..granted = true
+        ..startGate = Completer<void>();
+      await pumpView(tester);
+      final stopsBefore = camera.stops;
+
+      // Both plugins can have the camera live before start() replies: the
+      // pairing handshake must not begin before the camera is stopped.
+      int? stopsAtReturn;
+      unawaited(
+        stateOf(tester).stopCamera().then((_) => stopsAtReturn = camera.stops),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      expect(stopsAtReturn, isNull, reason: 'still waiting for the start');
+
+      camera.startGate!.complete();
+      await tester.pumpAndSettle();
+      expect(stopsAtReturn, stopsBefore + 1, reason: 'stopped, then returned');
+      expect(controllerOf(tester).value.isRunning, isFalse);
+      expect(camera.log.last, 'stop');
+    },
+  );
+
+  testWidgets(
+    'access granted while hidden: nothing starts until the app is back',
+    (tester) async {
+      camera
+        ..granted = true
+        ..permissionGate = Completer<void>();
+      await pumpView(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pumpAndSettle();
+      camera.permissionGate!.complete();
+      await tester.pumpAndSettle();
+      expect(camera.starts, 0, reason: 'no camera while in the background');
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(camera.starts, 1);
+      expect(controllerOf(tester).value.isRunning, isTrue);
+    },
+  );
+
+  testWidgets(
+    'stopCamera() behind a slow resume restart returns only once the camera '
+    'is off',
+    (tester) async {
+      camera.granted = true;
+      await pumpView(tester);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pumpAndSettle();
+      camera.startGate = Completer<void>();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(camera.starts, 2, reason: 'restart issued, still in flight');
+      final stopsBefore = camera.stops;
+
+      int? stopsAtReturn;
+      unawaited(
+        stateOf(tester).stopCamera().then((_) => stopsAtReturn = camera.stops),
+      );
+      await tester.pump(const Duration(seconds: 6));
+      expect(stopsAtReturn, isNull, reason: 'still waiting for the restart');
+
+      camera.startGate!.complete();
+      await tester.pumpAndSettle();
+      expect(stopsAtReturn, stopsBefore + 1, reason: 'stopped, then returned');
+      expect(controllerOf(tester).value.isRunning, isFalse);
+      expect(camera.log.last, 'stop');
+    },
+  );
+
+  testWidgets(
+    "a new scanner waits for the previous one's release before it starts",
+    (tester) async {
+      camera
+        ..granted = true
+        ..startGate = Completer<void>();
+      await pumpView(tester);
+      expect(camera.starts, 1);
+      await tester.pumpWidget(const SizedBox.shrink()); // start in flight
+      await tester.pumpAndSettle();
+
+      await pumpView(tester); // e.g. the Scan QR page opened again
+      expect(camera.starts, 1, reason: "held until the old start is released");
+
+      camera.startGate!.complete();
+      await tester.pumpAndSettle();
+      expect(camera.starts, 2);
+      expect(camera.log.last, 'start', reason: 'the old stop came first');
+      expect(controllerOf(tester).value.isRunning, isTrue);
+    },
+  );
+
+  group('no platform-stream subscription outlives its controller', () {
+    Future<void> unmount(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    }
+
+    void expectNoListeners() {
+      expect(camera.activeStreams[_events.name] ?? 0, 0);
+      expect(camera.activeStreams[_orientation.name] ?? 0, 0);
+    }
+
+    testWidgets('running, then unmounted', (tester) async {
+      camera.granted = true;
+      await pumpView(tester);
+      expect(camera.activeStreams[_events.name], 1);
+      await unmount(tester);
+      expectNoListeners();
+    });
+
+    testWidgets('start failed, then unmounted', (tester) async {
+      camera
+        ..granted = true
+        ..startErrorCode = 'MOBILE_SCANNER_GENERIC_ERROR';
+      await pumpView(tester);
+      expect(find.byKey(retryButton), findsOneWidget);
+      final stopsBefore = camera.stopArgs.length;
+      await unmount(tester);
+      expectNoListeners();
+      // The native session a failed start may leave behind (iOS keeps its
+      // capture session; the Dart side never got a texture id) is stopped.
+      expect(camera.stopArgs.skip(stopsBefore), [
+        {'force': true},
+      ]);
+    });
+
+    testWidgets(
+      'start failed: its subscriptions go at once, so a later platform event '
+      "can't wipe the Retry view",
+      (tester) async {
+        camera
+          ..granted = true
+          ..startErrorCode = 'MOBILE_SCANNER_GENERIC_ERROR';
+        await pumpView(tester);
+        expect(find.byKey(retryButton), findsOneWidget);
+
+        // Had they survived: a torch / zoom / orientation event rewrites the
+        // state through copyWith, which drops the error.
+        await messenger.handlePlatformMessage(
+          _events.name,
+          const StandardMethodCodec().encodeSuccessEnvelope(<String, Object?>{
+            'name': 'torchState',
+            'data': 0,
+          }),
+          (_) {},
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(retryButton), findsOneWidget);
+        expect(controllerOf(tester).value.error, isNotNull);
+        expectNoListeners();
+      },
+    );
+
+    testWidgets('start failed, Retry: only the new start is listening', (
+      tester,
+    ) async {
+      camera
+        ..granted = true
+        ..startErrorCode = 'MOBILE_SCANNER_GENERIC_ERROR';
+      await pumpView(tester);
+      camera.startErrorCode = null;
+      await tester.tap(find.byKey(retryButton));
+      await tester.pumpAndSettle();
+      expect(controllerOf(tester).value.isRunning, isTrue);
+      expect(camera.activeStreams[_events.name], 1);
+      await unmount(tester);
+      expectNoListeners();
+    });
   });
 
   group('viewfinder stays square', () {
