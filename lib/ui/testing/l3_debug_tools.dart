@@ -37,7 +37,7 @@
 //   - l3_send_text   {userId?|conversationId?, text}   deterministic C2C send
 //   - l3_dump_state  {}                                JSON snapshot for asserts
 //   - l3_set_export_save_path {path?}                  override export saveFile
-//   - l3_set_account_import_pick_path {path?}          override restore/import pickFiles
+//   - l3_set_account_import_pick_path {path?}          override restore/import pickFiles (also allowed with NO account active)
 //   - l3_set_attachment_pick_path {path?}              override message attachment pickFiles
 //   - l3_accept_friend_request {userId}                deterministic accept
 //   - l3_irc_set_state {reset?, installed?, server?, port?, useSasl?, channels?, localAddOverride?} local IRC prefs
@@ -83,6 +83,7 @@ import '../../sdk_fake/c2c_recv_opt_cache.dart';
 import '../../sdk_fake/fake_uikit_core.dart';
 import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/account_service.dart';
+import '../../util/active_session.dart';
 import '../../util/app_bootstrap_coordinator.dart';
 import '../../util/appearance_sync.dart';
 import '../../util/harness_environment.dart';
@@ -91,6 +92,7 @@ import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
 
+part 'l3_account_import_override_tools.dart';
 part 'l3_invoker_registry.dart';
 part 'l3_irc_tools.dart';
 part 'l3_native_cover_tools.dart';
@@ -3446,84 +3448,6 @@ MCPCallEntry _l3SetExportSavePathEntry() => MCPCallEntry.tool(
         'path': StringSchema(
           description:
               'Absolute path to return from export saveFile. Empty clears.',
-        ),
-      },
-    ),
-  ),
-);
-
-MCPCallEntry _l3SetAccountImportPickPathEntry() => MCPCallEntry.tool(
-  handler: (request) async {
-    if (!await _activeAccountIsTest()) {
-      return MCPCallResult(
-        message: 'l3_set_account_import_pick_path: refused — non-test account',
-        parameters: {'ok': false, 'error': 'non_test_account'},
-      );
-    }
-    // PREFER contentB64 (attachment-seam contract): a host /tmp path is
-    // unreadable in-sandbox — the APP materializes the bytes instead.
-    final contentB64 = request['contentB64']?.toString();
-    if (contentB64 != null && contentB64.isNotEmpty) {
-      final name = (request['fileName']?.toString().trim().isNotEmpty ?? false)
-          ? request['fileName']!.toString().trim()
-          : 'l3_import.tox';
-      final List<int> bytes;
-      try {
-        bytes = base64Decode(contentB64);
-      } on FormatException catch (e) {
-        return MCPCallResult(
-          message:
-              'l3_set_account_import_pick_path: contentB64 not valid base64: '
-              '$e',
-          parameters: {'ok': false, 'error': 'bad_base64'},
-        );
-      }
-      final dir = await Directory.systemTemp.createTemp('l3import');
-      final f = File('${dir.path}/$name');
-      await f.writeAsBytes(bytes);
-      _accountImportPickFilePathOverride = f.path;
-      AppLogger.info(
-        '[L3] l3_set_account_import_pick_path: materialized $name -> ${f.path}',
-      );
-      return MCPCallResult(
-        message: 'account import pick override materialized',
-        parameters: {'ok': true, 'path': f.path},
-      );
-    }
-    final path = _normalizeExportSaveOverridePath(request['path']?.toString());
-    _accountImportPickFilePathOverride = path;
-    AppLogger.info(
-      '[L3] l3_set_account_import_pick_path: '
-      '${path == null ? "CLEARED" : "SET -> $path"}',
-    );
-    return MCPCallResult(
-      message: path == null
-          ? 'account import pick override cleared'
-          : 'account import pick override set',
-      parameters: {'ok': true, 'path': path, 'cleared': path == null},
-    );
-  },
-  definition: MCPToolDefinition(
-    name: 'l3_set_account_import_pick_path',
-    description:
-        'L3 TEST ONLY (test/seed account): set or clear the debug-only '
-        'open-file override used by login restore/import flows (bypasses the '
-        'native picker). PREFER "contentB64" + "fileName" — a host /tmp '
-        '"path" is unreadable in-sandbox. Empty path clears.',
-    inputSchema: ObjectSchema(
-      properties: {
-        'path': StringSchema(
-          description:
-              'Absolute .tox/.zip path to return from account import pickFiles. '
-              'Empty clears. Use only for already-app-accessible files.',
-        ),
-        'contentB64': StringSchema(
-          description:
-              'Base64 file bytes; the app writes them to a sandbox-readable '
-              'temp file and returns THAT path. Preferred over "path".',
-        ),
-        'fileName': StringSchema(
-          description: 'File name for the materialized contentB64 file.',
         ),
       },
     ),
