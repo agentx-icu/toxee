@@ -25,15 +25,21 @@
   "searchResultsCount": "「{keyword}」の検索結果が {count} 件あります",
   "@searchResultsCount": {
     "placeholders": {
-      "count": {"type": "int"},
-      "keyword": {"type": "String"}
+      "count": {
+        "type": "int"
+      },
+      "keyword": {
+        "type": "String"
+      }
     }
   },
   "openChat": "チャットを開く",
   "relatedChats": "{count} 件の関連メッセージ",
   "@relatedChats": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "newItem": "新規",
@@ -760,7 +766,9 @@
   "callReceivedFrames": "受信フレーム {count}",
   "@callReceivedFrames": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "callMinimize": "最小化",
@@ -778,7 +786,9 @@
   "runtimeForegroundCallBodyWithCaller": "{name} と通話中",
   "@runtimeForegroundCallBodyWithCaller": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "appTagline": "プライベートなP2Pメッセンジャー",
@@ -1023,5 +1033,11 @@
   "appearancePending": "プレビューのみです。適用して変更を保存してください。",
   "appearanceSaveFailed": "外観を保存できませんでした。選択は保持されています。もう一度お試しください。",
   "restoreFromToxFileHint": ".tox ファイルから Tox プロフィールを復元します。",
-  "importAccountHint": "アカウントのバックアップ（.tox または .zip）をインポートします。"
+  "importAccountHint": "アカウントのバックアップ（.tox または .zip）をインポートします。",
+  "passwordChangePending": "前回のパスワード変更がまだ完了していません。ログアウトして再度ログインしてください",
+  "passwordRekeyFailed": "アカウントファイルを再暗号化できませんでした。変更は行われていません",
+  "exportRequiresLogin": "エクスポートする前にこのアカウントにログインしてください",
+  "profileUnopenableWithPassword": "このパスワードではアカウントファイルを開けませんでした。ファイルが破損しているか、パスワード変更が中断された可能性があります。",
+  "passwordChangeInterrupted": "パスワード変更が中断されました。変更前または変更後のパスワードを試してください。",
+  "importUnsupportedFileType": ".tox プロファイルまたは .zip の完全バックアップを選択してください"
 }

@@ -18,10 +18,14 @@ import 'safe_diagnostics.dart';
 
 /// Creates an [FfiChatService] with account-scoped paths (history, queue,
 /// fileRecv, avatars). Caller must call [FfiChatService.startPolling] if needed.
+/// [password], when set, is staged natively before the init so the profile is
+/// opened (and kept) encrypted; a native library without that export is
+/// refused rather than silently opening the profile in plaintext.
 Future<FfiChatService> createAccountScopedService({
   required SharedPreferences prefs,
   required String toxId,
   required String profileDirectory,
+  String? password,
 }) async {
   final paths = await _prepareAccountStoragePaths(toxId);
   final historyDirectory = paths.historyDirectory;
@@ -45,6 +49,12 @@ Future<FfiChatService> createAccountScopedService({
     scratchFileService: scratchStorage,
   );
   try {
+    if (password != null && password.isNotEmpty && !svc.setProfilePassphrase(password)) {
+      throw StateError(
+        'native library lacks savedata encryption; refusing to open a '
+        'protected profile in plaintext',
+      );
+    }
     await svc.init(profileDirectory: profileDirectory);
     await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
     return svc;

@@ -37,6 +37,8 @@ extension _LoginImportFlow on _LoginPageState {
               localized.accountAlreadyExists,
             ImportFailureKind.mayRemainImported =>
               localized.importMayHaveCompleted,
+            ImportFailureKind.unsupportedFile =>
+              localized.importUnsupportedFileType,
             ImportFailureKind.generalError => localized.failedToImport(
               detail ?? '',
             ),

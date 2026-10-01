@@ -44,6 +44,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/ui/settings/settings_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/util/account_service_test_hooks.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'settings_account_test_support.dart';
@@ -73,10 +74,7 @@ Future<void> _pumpRealUntil(
   await tester.pump(const Duration(milliseconds: 50));
 }
 
-Future<void> _pumpSettings(
-  WidgetTester tester,
-  FfiChatService service,
-) async {
+Future<void> _pumpSettings(WidgetTester tester, FfiChatService service) async {
   final page = SettingsPage(
     service: service,
     connectionStatusStream: service.connectionStatusStream,
@@ -96,6 +94,7 @@ void main() {
 
   late Directory tempRoot;
   late SettingsChannelMocks mocks;
+  final rekeyedWith = <String?>[];
 
   setUp(() async {
     tempRoot = await Directory.systemTemp.createTemp(
@@ -110,9 +109,18 @@ void main() {
     await Prefs.setNickname('Pwd Nick');
     await Prefs.setStatusMessage('Pwd Status');
     await Prefs.addAccount(toxId: kSettingsToxId, nickname: 'Pwd Nick');
+    // The harness service is not a live native session, so the atomic file
+    // re-key that a password change now performs FIRST is stood in for here;
+    // the tests assert it was asked for with the password they typed.
+    rekeyedWith.clear();
+    AccountPasswordChangeTestHooks.rekeyLive = (_, password) {
+      rekeyedWith.add(password);
+      return true;
+    };
   });
 
   tearDown(() async {
+    AccountPasswordChangeTestHooks.reset();
     // Clean any password the test set so the in-memory secure store + Prefs
     // don't leak across tests.
     await Prefs.removeAccountPassword(kSettingsToxId);
@@ -172,8 +180,7 @@ void main() {
         );
         await _pumpRealUntil(
           tester,
-          () =>
-              find.text('Password set successfully').evaluate().isNotEmpty,
+          () => find.text('Password set successfully').evaluate().isNotEmpty,
         );
       });
 
@@ -196,6 +203,9 @@ void main() {
           isTrue,
           reason: 'the persisted PBKDF2 verifier accepts the chosen password',
         );
+        expect(rekeyedWith, [
+          'hunter2-secret',
+        ], reason: 'the file was re-keyed to the new password first');
         expect(
           await Prefs.verifyAccountPassword(kSettingsToxId, 'wrong-password'),
           isFalse,
@@ -252,14 +262,16 @@ void main() {
         await tester.tap(find.byKey(_saveButton));
         await _pumpRealUntil(
           tester,
-          () =>
-              find.text('Password set successfully').evaluate().isNotEmpty,
+          () => find.text('Password set successfully').evaluate().isNotEmpty,
         );
         expect(
           await Prefs.verifyAccountPassword(kSettingsToxId, 'brand-new-pass'),
           isTrue,
           reason: 'change-password persisted the NEW password',
         );
+        expect(rekeyedWith, [
+          'brand-new-pass',
+        ], reason: 'the file was re-keyed to the new password first');
         expect(
           await Prefs.verifyAccountPassword(kSettingsToxId, 'old-pass-1'),
           isFalse,

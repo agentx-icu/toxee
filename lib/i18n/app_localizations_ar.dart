@@ -2213,4 +2213,27 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get importAccountHint =>
       'استيراد نسخة احتياطية للحساب (.tox أو .zip).';
+
+  @override
+  String get passwordChangePending =>
+      'لم يكتمل تغيير كلمة المرور السابق بعد؛ سجّل الخروج ثم سجّل الدخول مجددًا';
+
+  @override
+  String get passwordRekeyFailed =>
+      'تعذّر إعادة تشفير ملف الحساب؛ لم يتغير شيء';
+
+  @override
+  String get exportRequiresLogin => 'سجّل الدخول إلى هذا الحساب قبل تصديره';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      'تعذّر فتح ملف الحساب بكلمة المرور هذه. قد يكون الملف تالفًا، أو ربما انقطع تغيير كلمة المرور.';
+
+  @override
+  String get passwordChangeInterrupted =>
+      'انقطع تغيير كلمة المرور. جرّب كلمة المرور من قبل التغيير أو بعده.';
+
+  @override
+  String get importUnsupportedFileType =>
+      'اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip';
 }

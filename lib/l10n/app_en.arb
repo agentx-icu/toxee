@@ -28,15 +28,21 @@
   "searchResultsCount": "There are {count} results for \"{keyword}\"",
   "@searchResultsCount": {
     "placeholders": {
-      "count": {"type": "int"},
-      "keyword": {"type": "String"}
+      "count": {
+        "type": "int"
+      },
+      "keyword": {
+        "type": "String"
+      }
     }
   },
   "openChat": "Open chat",
   "relatedChats": "{count} related chats",
   "@relatedChats": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "newItem": "New",
@@ -104,7 +110,6 @@
   "joinAction": "Send Join Request",
   "joinSuccess": "Join request sent",
   "joinFailed": "Failed to join group",
-  "createGroup": "Create Group",
   "groupName": "Group Name",
   "enterGroupName": "Please enter Group Name",
   "createAction": "Create Group",
@@ -296,7 +301,9 @@
     }
   },
   "changeAvatar": "Change profile photo",
-  "@changeAvatar": {"description": "Screen-reader name of the tappable own avatar that opens the photo picker"},
+  "@changeAvatar": {
+    "description": "Screen-reader name of the tappable own avatar that opens the photo picker"
+  },
   "failedToLoadQr": "Failed to load QR",
   "helloFromToxee": "Hello from toxee",
   "attachFailed": "Attach failed: {error}",
@@ -1039,7 +1046,9 @@
   "showMore": "Show {count} more",
   "@showMore": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "showLess": "Show less",
@@ -1271,8 +1280,12 @@
   "@upgradeRequiredMessage": {
     "description": "Message on upgrade required screen",
     "placeholders": {
-      "storedVersion": {"type": "int"},
-      "currentVersion": {"type": "int"}
+      "storedVersion": {
+        "type": "int"
+      },
+      "currentVersion": {
+        "type": "int"
+      }
     }
   },
   "upgradeAppTitle": "toxee",
@@ -1319,11 +1332,19 @@
   "unknown": "Unknown",
   "sendingToGroupsNotSupported": "Sending {label} to groups is not supported yet",
   "@sendingToGroupsNotSupported": {
-    "placeholders": {"label": {"type": "String"}}
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
   },
   "noLabelSelected": "No {label} selected",
   "@noLabelSelected": {
-    "placeholders": {"label": {"type": "String"}}
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
   },
   "searchSummary": "Found {contacts} contacts, {groups} groups, {messages} message threads",
   "@searchSummary": {
@@ -1375,7 +1396,9 @@
   "callReceivedFrames": "Received {count} frames",
   "@callReceivedFrames": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "callMinimize": "Minimize",
@@ -1388,13 +1411,17 @@
   "unreadMessagesSemantics": "{count} unread messages",
   "@unreadMessagesSemantics": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "matchingMessagesSemantics": "{count} matching messages",
   "@matchingMessagesSemantics": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "statusOnline": "Online",
@@ -1416,7 +1443,9 @@
   "ircUsersCount": "Users ({count})",
   "@ircUsersCount": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "ircNoUsers": "No users",
@@ -1456,31 +1485,41 @@
   "@errorBannerLabel": {
     "description": "Screen reader label for the error banner live region",
     "placeholders": {
-      "message": {"type": "String"}
+      "message": {
+        "type": "String"
+      }
     }
   },
   "searchResultContactSemantics": "{name}, contact",
   "@searchResultContactSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultGroupSemantics": "{name}, group",
   "@searchResultGroupSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultMessageSemantics": "{name}, message",
   "@searchResultMessageSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultConversationSemantics": "{name}, conversation",
   "@searchResultConversationSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "importNoFileSelected": "No file selected",
@@ -1510,7 +1549,9 @@
   "failedToImport": "Failed to import: {error}",
   "@failedToImport": {
     "placeholders": {
-      "error": {"type": "String"}
+      "error": {
+        "type": "String"
+      }
     }
   },
   "selectConversationEmptyState": "Select a conversation to start chatting",
@@ -1541,7 +1582,9 @@
   "@deleteConversationBody": {
     "description": "Body of the confirmation dialog when deleting a conversation",
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "firstRunBackupWizardTitle": "Save your account file",
@@ -1576,7 +1619,9 @@
   "@firstRunBackupWizardExportFailed": {
     "description": "Error message shown inline in the first-run backup wizard when the export call fails",
     "placeholders": {
-      "error": {"type": "String"}
+      "error": {
+        "type": "String"
+      }
     }
   },
   "restoreFromToxFile": "Restore from .tox file",
@@ -1587,7 +1632,9 @@
   "@restoreFromToxFileSuccess": {
     "description": "Toast message after a successful .tox restore",
     "placeholders": {
-      "nickname": {"type": "String"}
+      "nickname": {
+        "type": "String"
+      }
     }
   },
   "restoreFromToxFileInvalidFile": "This file doesn't look like a valid Tox profile.",
@@ -1631,19 +1678,25 @@
   "pairingNetworkError": "Network error during pairing: {detail}",
   "@pairingNetworkError": {
     "placeholders": {
-      "detail": {"type": "String"}
+      "detail": {
+        "type": "String"
+      }
     }
   },
   "pairingProtocolError": "Pairing handshake failed: {detail}",
   "@pairingProtocolError": {
     "placeholders": {
-      "detail": {"type": "String"}
+      "detail": {
+        "type": "String"
+      }
     }
   },
   "pairingInvalidUrl": "That QR code isn't a valid pairing invitation: {detail}",
   "@pairingInvalidUrl": {
     "placeholders": {
-      "detail": {"type": "String"}
+      "detail": {
+        "type": "String"
+      }
     }
   },
   "pairingDecryptFailed": "Couldn't decrypt the received profile. The pairing may have been tampered with — try again on a network you trust.",
@@ -1688,7 +1741,9 @@
   "@runtimeForegroundCallBodyWithCaller": {
     "description": "Title variant of the in-call foreground notification including the remote caller's name.",
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "appTagline": "A private, peer-to-peer messenger",
@@ -2156,39 +2211,96 @@
     "description": "Button: request the battery-optimization exemption"
   },
   "recoveredPhotoTitle": "Send the photo you took?",
-  "@recoveredPhotoTitle": {"description": "Dialog title: a photo taken before the app was reclaimed by the system is waiting"},
+  "@recoveredPhotoTitle": {
+    "description": "Dialog title: a photo taken before the app was reclaimed by the system is waiting"
+  },
   "recoveredVideoTitle": "Send the video you recorded?",
-  "@recoveredVideoTitle": {"description": "Dialog title: a video recorded before the app was reclaimed by the system is waiting"},
+  "@recoveredVideoTitle": {
+    "description": "Dialog title: a video recorded before the app was reclaimed by the system is waiting"
+  },
   "recoveredFileTitle": "Send the file you picked?",
-  "@recoveredFileTitle": {"description": "Dialog title: a file picked before the app was reclaimed by the system is waiting"},
+  "@recoveredFileTitle": {
+    "description": "Dialog title: a file picked before the app was reclaimed by the system is waiting"
+  },
   "recoveredCaptureBody": "Toxee was closed while the camera was open. Send it to {name}?",
-  "@recoveredCaptureBody": {"description": "Dialog body: why the capture is offered again, and its recipient", "placeholders": {"name": {"type": "String"}}},
+  "@recoveredCaptureBody": {
+    "description": "Dialog body: why the capture is offered again, and its recipient",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "recoveredFileBody": "Toxee was closed while the file picker was open. Send {file} to {name}?",
-  "@recoveredFileBody": {"description": "Dialog body: why the picked file is offered again, its name and its recipient", "placeholders": {"file": {"type": "String"}, "name": {"type": "String"}}},
+  "@recoveredFileBody": {
+    "description": "Dialog body: why the picked file is offered again, its name and its recipient",
+    "placeholders": {
+      "file": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "recoveredCaptureSend": "Send",
-  "@recoveredCaptureSend": {"description": "Button: send the recovered photo/video"},
+  "@recoveredCaptureSend": {
+    "description": "Button: send the recovered photo/video"
+  },
   "recoveredCaptureDiscard": "Discard",
-  "@recoveredCaptureDiscard": {"description": "Button: delete the recovered photo/video"},
+  "@recoveredCaptureDiscard": {
+    "description": "Button: delete the recovered photo/video"
+  },
   "mediaConversionFailed": "Couldn't convert this photo for sending. Nothing was sent.",
-  "@mediaConversionFailed": {"description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"},
+  "@mediaConversionFailed": {
+    "description": "Error: a HEIC photo could not be converted to JPEG before sending, so the send was stopped"
+  },
   "videoConverting": "Preparing video…",
-  "@videoConverting": {"description": "Dialog title while an HEVC video is converted to H.264 before sending"},
+  "@videoConverting": {
+    "description": "Dialog title while an HEVC video is converted to H.264 before sending"
+  },
   "videoConvertingDesc": "Converting it to a format every device can play.",
-  "@videoConvertingDesc": {"description": "Dialog text: why the video is being converted"},
+  "@videoConvertingDesc": {
+    "description": "Dialog text: why the video is being converted"
+  },
   "videoConversionFailed": "Couldn't convert this video for sending. Nothing was sent.",
-  "@videoConversionFailed": {"description": "Error: a video could not be converted before sending, so the send was stopped"},
+  "@videoConversionFailed": {
+    "description": "Error: a video could not be converted before sending, so the send was stopped"
+  },
   "cameraPausedMultitasking": "Camera paused while other apps share the screen",
-  "@cameraPausedMultitasking": {"description": "Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen"},
+  "@cameraPausedMultitasking": {
+    "description": "Call: the local camera stopped because iPadOS multitasking (Split View / Slide Over / Stage Manager) shares the screen"
+  },
   "cameraUnavailable": "Camera unavailable",
-  "@cameraUnavailable": {"description": "Call: the local camera stopped (another app holds it, or system pressure)"},
+  "@cameraUnavailable": {
+    "description": "Call: the local camera stopped (another app holds it, or system pressure)"
+  },
   "fileReceiveNoSpace": "Not enough storage to receive \"{fileName}\". Free up space and try again.",
-  "@fileReceiveNoSpace": {"description": "Toast: an incoming file was refused / stopped because the device storage is full (checklist M5)", "placeholders": {"fileName": {"type": "String"}}},
+  "@fileReceiveNoSpace": {
+    "description": "Toast: an incoming file was refused / stopped because the device storage is full (checklist M5)",
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
   "fileReceiveNoSpaceUnnamed": "Not enough storage to receive a file. Free up space and try again.",
-  "@fileReceiveNoSpaceUnnamed": {"description": "Toast: like fileReceiveNoSpace when the file name is unknown"},
+  "@fileReceiveNoSpaceUnnamed": {
+    "description": "Toast: like fileReceiveNoSpace when the file name is unknown"
+  },
   "fileReceiveFailed": "Couldn't save \"{fileName}\".",
-  "@fileReceiveFailed": {"description": "Toast: an incoming file could not be written or saved (I/O error other than a full disk)", "placeholders": {"fileName": {"type": "String"}}},
+  "@fileReceiveFailed": {
+    "description": "Toast: an incoming file could not be written or saved (I/O error other than a full disk)",
+    "placeholders": {
+      "fileName": {
+        "type": "String"
+      }
+    }
+  },
   "fileReceiveFailedUnnamed": "Couldn't save a received file.",
-  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"},
+  "@fileReceiveFailedUnnamed": {
+    "description": "Toast: like fileReceiveFailed when the file name is unknown"
+  },
   "interfaceStyle": "Interface style",
   "interfaceStyleClassic": "Classic Blue",
   "interfaceStyleModern": "Quiet Modern",
@@ -2256,5 +2368,29 @@
   },
   "@importAccountHint": {
     "description": "Appearance settings and account import help text"
+  },
+  "passwordChangePending": "a previous password change is still being finalised; log out and back in",
+  "@passwordChangePending": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "passwordRekeyFailed": "the account file could not be re-encrypted; nothing was changed",
+  "@passwordRekeyFailed": {
+    "description": "Reason inserted into failedToSetPassword; lower-case, it follows a colon"
+  },
+  "exportRequiresLogin": "Log in to this account before exporting it",
+  "@exportRequiresLogin": {
+    "description": "Export refused because the protected account is not the live session, so its encrypted profile cannot be opened"
+  },
+  "profileUnopenableWithPassword": "The account file did not open with this password. It may be damaged, or a password change may have been interrupted.",
+  "@profileUnopenableWithPassword": {
+    "description": "Login failed: the verifier accepted the password but the encrypted profile did not open with it"
+  },
+  "passwordChangeInterrupted": "A password change was interrupted. Try the password from before or after the change.",
+  "@passwordChangeInterrupted": {
+    "description": "Login failed while a journaled password change is unfinished; the file is under the other password"
+  },
+  "importUnsupportedFileType": "Choose a .tox profile or a .zip full backup",
+  "@importUnsupportedFileType": {
+    "description": "Account import refused because the picked file is neither a .tox profile nor a .zip full backup (the Android picker cannot filter by extension)"
   }
 }

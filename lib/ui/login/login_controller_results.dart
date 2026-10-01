@@ -19,8 +19,12 @@ final class LoginControllerSuccess extends LoginControllerResult {
 }
 
 final class LoginControllerFailure extends LoginControllerResult {
-  const LoginControllerFailure(this.message);
+  const LoginControllerFailure(this.message, {this.cause});
   final String message;
+
+  /// The thrown error, so the page can word a typed cause (see
+  /// `loginFailureText`) instead of showing the generic [message].
+  final Object? cause;
 }
 
 /// Result of [LoginPageController.importAccount].
@@ -48,6 +52,10 @@ enum ImportFailureKind {
   /// look at their account list rather than simply retry, and because the list
   /// they are being sent to must be refreshed first.
   mayRemainImported,
+
+  /// The picked file is neither a .tox profile nor a .zip full backup. Only
+  /// reachable on Android, whose picker cannot filter by extension.
+  unsupportedFile,
   generalError,
 }
 

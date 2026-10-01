@@ -1,10 +1,10 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../auth/login_use_case.dart';
 import '../../i18n/app_localizations.dart';
+import '../../util/account_export/exceptions.dart';
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/default_avatar_installer.dart';
@@ -16,6 +16,7 @@ import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
 import '../testing/l3_debug_tools.dart';
+import '../account_import_file_picker.dart';
 import 'login_controller_results.dart';
 
 export 'login_controller_results.dart';
@@ -34,10 +35,15 @@ typedef ImportFullBackupFn =
     Future<Map<String, dynamic>> Function({
       required String filePath,
       String? password,
+      String? profilePassword,
     });
 
 typedef ReadFullBackupMetadataFn =
-    Future<Map<String, dynamic>> Function(String filePath, {String? password});
+    Future<Map<String, dynamic>> Function(
+      String filePath, {
+      String? password,
+      String? profilePassword,
+    });
 
 typedef AddAccountFn =
     Future<void> Function({
@@ -168,7 +174,7 @@ class LoginPageController {
       return LoginControllerSuccess(success.service);
     } catch (e) {
       SafeDiagnostics.logFailure('[LoginPageController] Login failed', e);
-      return LoginControllerFailure(SafeDiagnostics.describeError(e));
+      return LoginControllerFailure(SafeDiagnostics.describeError(e), cause: e);
     }
   }
 
@@ -196,38 +202,62 @@ class LoginPageController {
       final filePath =
           filePathOverride ??
           await runL3AwareAccountImportPicker(
-            pickFile: () async => (await FilePicker.platform.pickFiles(
-              type: FileType.custom,
-              allowedExtensions: ['tox', 'zip'],
-            ))?.files.single.path,
+            pickFile: () => pickAccountImportFile(const ['tox', 'zip']),
           );
       if (filePath == null) {
         return const ImportFailure(ImportFailureKind.noFileSelected);
+      }
+      if (!hasAccountImportExtension(filePath, const ['tox', 'zip'])) {
+        // The Android picker is unfiltered (no MIME type for .tox).
+        return const ImportFailure(ImportFailureKind.unsupportedFile);
       }
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
       String? password;
       Map<String, dynamic> accountData;
 
+      String? profilePassword;
       if (isZip) {
+        // Two independent layers can each ask for a password: the archive,
+        // and — in an older backup of a protected account — the profile
+        // inside it. Each is prompted at most once; the retry is not nested
+        // in the other's handler, so either exception can follow either.
         Map<String, dynamic> metadata;
-        try {
-          metadata = await _readFullBackupMetadataFn(
-            filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          password = await requestPassword();
-          if (password == null) {
-            return const ImportFailure(ImportFailureKind.cancelled);
+        var archivePrompted = false;
+        var profilePrompted = false;
+        while (true) {
+          try {
+            metadata = await _readFullBackupMetadataFn(
+              filePath,
+              password: password,
+              profilePassword: profilePassword,
+            );
+            break;
+          } on PasswordRequiredException {
+            if (archivePrompted) {
+              return const ImportFailure(ImportFailureKind.invalidPassword);
+            }
+            archivePrompted = true;
+            password = await requestPassword();
+            if (password == null) {
+              return const ImportFailure(ImportFailureKind.cancelled);
+            }
+            if (password.isEmpty) {
+              return const ImportFailure(ImportFailureKind.invalidPassword);
+            }
+          } on BackupProfilePasswordRequiredException {
+            if (profilePrompted) {
+              return const ImportFailure(ImportFailureKind.invalidPassword);
+            }
+            profilePrompted = true;
+            profilePassword = await requestPassword();
+            if (profilePassword == null) {
+              return const ImportFailure(ImportFailureKind.cancelled);
+            }
+            if (profilePassword.isEmpty) {
+              return const ImportFailure(ImportFailureKind.invalidPassword);
+            }
           }
-          if (password.isEmpty) {
-            return const ImportFailure(ImportFailureKind.invalidPassword);
-          }
-          metadata = await _readFullBackupMetadataFn(
-            filePath,
-            password: password,
-          );
         }
         final toxId = metadata['toxId']!;
         final existingAccount = await Prefs.getAccountByToxId(toxId);
@@ -245,6 +275,7 @@ class LoginPageController {
         accountData = await _importFullBackupFn(
           filePath: filePath,
           password: password,
+          profilePassword: profilePassword,
         );
         rollbackToxId = toxId;
         rollbackFullBackup = true;

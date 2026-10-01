@@ -33,11 +33,12 @@ Material 与聊天 UIKit 共用语义颜色、圆角和描边。卡通采用暖�
 - 基础偏好、旧值兼容、保存拒绝／异常、排队、重启、迁移与账号生命周期回归已通过。
 - 外观预览／应用／重置／失败重试、窄屏 2 倍文字、中英文／阿拉伯语、Material/UIKit 映射、实际消息与草稿保留回归已通过。
 - 响应式、主从状态、输入增长与 Enter 发送、设置组织、复制、好友申请成功／失败／异常／账号隔离回归已通过。
-- 最终集成回归：`flutter test --no-pub` 覆盖上述偏好、主题、设置、好友、会话、消息、移动布局、迁移与账号生命周期，共 **439 项全部通过**。
+- 界面实施集成回归：`flutter test --no-pub` 覆盖上述偏好、主题、设置、好友、会话、消息、移动布局、迁移与账号生命周期，共 **439 项全部通过**。
 - 根项目 CI 范围分析：`flutter analyze --no-pub lib test tool integration_test --no-fatal-warnings --no-fatal-infos` 退出码 0，无 error，保留 245 项 warning/info；主题与主入口等 13 个文件的定向分析无问题。
 - 复杂度检查通过，没有增大 baseline；两个仓库的 diff 空白检查通过。
 - 最终 `flutter build macos --debug --no-pub` 通过，产物为 `build/macos/Build/Products/Debug/Toxee.app`；Pods 的旧部署版本与 `app_badge_plus` 资源规则告警仍存在。
+- 合并远端账号静态加密与 Android `.tox` 文件选择更新后，扩展回归 **764 项通过、1 项跳过**；根项目 CI 范围分析无 error，保留 264 项 warning/info；复杂度检查通过。重新构建 Tim2Tox FFI 并确认无测试钩子，macOS debug 构建再次通过。
 
 未进行真实账号好友操作或原生双进程通信验收；Windows、Linux、iOS、Android 未各自执行原生构建。共享 Dart/widget 行为已测。全仓库直接递归分析会读到嵌套 UIKit 包旧 `.dart_tool` 依赖缓存；验收采用根项目 CI 范围分析，不修改依赖缓存。
 
-代码、测试与设计素材随本地 Git 提交交付。按当前会话要求未执行 Claude 审核。
+代码、测试与设计素材随 Git 提交交付。按当前会话要求未执行 Claude 审核。

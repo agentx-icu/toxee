@@ -29,6 +29,7 @@ import '../i18n/app_localizations.dart';
 import '../util/responsive_layout.dart';
 import '../util/app_theme_config.dart';
 import '../util/account_export_service.dart';
+import 'account_password_texts.dart';
 import '../util/mobile_export_policy.dart';
 import 'testing/ui_keys.dart';
 
@@ -179,6 +180,7 @@ class _LoginPageState extends State<LoginPage> {
             AccountExportService.exportAccountData(
               toxId: toxId,
               password: password,
+              accountPassword: password,
             );
     _isDesktopExportPlatform = isDesktopExportPlatform(
       override: widget.isDesktopExportPlatformOverride,
@@ -536,15 +538,18 @@ class _LoginPageState extends State<LoginPage> {
           AppSnackBar.showError(context, message);
         }
         break;
-      case LoginControllerFailure(:final message):
+      case LoginControllerFailure(:final message, :final cause):
         await activation.rollback();
         if (!mounted) return;
+        final text =
+            loginFailureText(AppLocalizations.of(context)!, cause ?? '') ??
+            message;
         unawaited(HapticFeedback.lightImpact());
         setState(() {
-          _error = message;
+          _error = text;
           _busy = false;
         });
-        AppSnackBar.showError(context, message);
+        AppSnackBar.showError(context, text);
         FocusScope.of(context).requestFocus(_nicknameFocusNode);
         break;
     }
@@ -756,10 +761,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       SafeDiagnostics.logFailure('[LoginPage] Account export failed', e);
       if (mounted) {
-        AppSnackBar.showError(
-          context,
-          l10n.failedToExportAccount(SafeDiagnostics.describeError(e)),
-        );
+        AppSnackBar.showError(context, exportFailureText(l10n, e));
       }
     } finally {
       _exportAccountInProgress = false;

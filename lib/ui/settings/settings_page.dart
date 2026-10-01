@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
-import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../../util/app_paths.dart';
 import '../../util/camera_capture_recovery.dart';
@@ -32,6 +31,10 @@ import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
+import '../account_import_file_picker.dart';
+import '../account_password_texts.dart';
+import '../../util/account_export/exceptions.dart';
+import '../../util/account_password_change.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/account_switcher.dart';
 import '../../util/feature_flags.dart';
@@ -103,12 +106,8 @@ typedef SettingsAddImportedAccountFn =
 typedef SettingsSetImportedAccountPasswordFn =
     Future<bool> Function(String toxId, String password);
 
-Future<String?> _pickSettingsImportFile() async {
-  return (await FilePicker.platform.pickFiles(
-    type: FileType.custom,
-    allowedExtensions: ['tox', 'zip'],
-  ))?.files.single.path;
-}
+Future<String?> _pickSettingsImportFile() =>
+    pickAccountImportFile(const ['tox', 'zip']);
 
 Future<void> _addSettingsImportedAccount({
   required String toxId,
@@ -677,11 +676,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppLocalizations.of(
-                context,
-              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
-            ),
+            content: Text(exportFailureText(AppLocalizations.of(context)!, e)),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
           ),
@@ -754,11 +749,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppLocalizations.of(
-                context,
-              )!.failedToExportAccount(SafeDiagnostics.describeError(e)),
-            ),
+            content: Text(exportFailureText(AppLocalizations.of(context)!, e)),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
           ),
@@ -814,10 +805,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       if (password.isEmpty) {
-        // Remove password — routes through AccountService so the in-memory
-        // session password is cleared too (else logout re-encrypts the
-        // now-unprotected profile → silent next-launch failure).
-        final ok = await AccountService.removeAccountPassword(widget.service);
+        // AccountService coordinates live-profile re-keying with verifier removal.
+        final outcome = await AccountService.removeAccountPassword(
+          widget.service,
+        );
+        final ok = outcome == PasswordChangeOutcome.ok;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -825,7 +817,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 ok
                     ? AppLocalizations.of(context)!.passwordRemoved
                     : AppLocalizations.of(context)!.failedToSetPassword(
-                        AppLocalizations.of(context)!.couldNotRemovePassword,
+                        passwordChangeFailureText(
+                          AppLocalizations.of(context)!,
+                          outcome,
+                          removing: true,
+                        ),
                       ),
               ),
               backgroundColor: ok
@@ -835,14 +831,12 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         }
       } else {
-        // Set/change password — routes through AccountService so the in-memory
-        // session password is updated too (else logout encrypts with the stale
-        // login password, corrupting the profile vs the new verifier). A false
-        // return means nothing was persisted — must NOT report success.
-        final ok = await AccountService.setAccountPassword(
+        // AccountService coordinates live-profile re-keying with verifier updates.
+        final outcome = await AccountService.setAccountPassword(
           widget.service,
           password,
         );
+        final ok = outcome == PasswordChangeOutcome.ok;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -850,7 +844,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 ok
                     ? AppLocalizations.of(context)!.passwordSetSuccessfully
                     : AppLocalizations.of(context)!.failedToSetPassword(
-                        AppLocalizations.of(context)!.couldNotSavePassword,
+                        passwordChangeFailureText(
+                          AppLocalizations.of(context)!,
+                          outcome,
+                          removing: false,
+                        ),
                       ),
               ),
               backgroundColor: ok

@@ -25,15 +25,21 @@
   "searchResultsCount": "共有 {count} 條與「{keyword}」相關的結果",
   "@searchResultsCount": {
     "placeholders": {
-      "count": {"type": "int"},
-      "keyword": {"type": "String"}
+      "count": {
+        "type": "int"
+      },
+      "keyword": {
+        "type": "String"
+      }
     }
   },
   "openChat": "打開聊天",
   "relatedChats": "{count} 條相關訊息",
   "@relatedChats": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "newItem": "新建",
@@ -777,7 +783,9 @@
   "callReceivedFrames": "已接收 {count} 幀",
   "@callReceivedFrames": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "callMinimize": "最小化",
@@ -821,7 +829,9 @@
   "runtimeForegroundCallBodyWithCaller": "與 {name} 通話中",
   "@runtimeForegroundCallBodyWithCaller": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "appTagline": "私密的點對點通訊工具",
@@ -1034,5 +1044,11 @@
   "appearancePending": "僅預覽，點擊套用後儲存。",
   "appearanceSaveFailed": "外觀儲存失敗，已保留目前選擇，請重試。",
   "restoreFromToxFileHint": "從 .tox 檔案還原 Tox 設定。",
-  "importAccountHint": "匯入帳號備份（.tox 或 .zip）。"
+  "importAccountHint": "匯入帳號備份（.tox 或 .zip）。",
+  "passwordChangePending": "上一次密碼修改尚未完成；請登出後重新登入",
+  "passwordRekeyFailed": "帳號檔案無法重新加密；未做任何變更",
+  "exportRequiresLogin": "請先登入該帳號再匯出",
+  "profileUnopenableWithPassword": "無法用此密碼開啟帳號檔案。檔案可能已損壞，或上次修改密碼被中斷。",
+  "passwordChangeInterrupted": "密碼修改被中斷。請嘗試修改前或修改後的密碼。",
+  "importUnsupportedFileType": "請選擇 .tox 資料檔或 .zip 完整備份"
 }

@@ -90,6 +90,7 @@ class LoginUseCase {
       // misleading "Invalid password" message. Branch on the tri-state so the
       // user is told the real cause (Keychain/Keystore unavailable) instead of
       // being told their own password is wrong.
+      await Prefs.passwordChanges.reconcileForGate(toxIdForLogin);
       final protection = await Prefs.accountProtectionState(toxIdForLogin);
       if (protection == AccountProtectionState.unknown) {
         throw const AccountProtectionUnavailableException();

@@ -13,6 +13,7 @@ final class FullBackupRestoreInput {
     required this.archive,
     required this.metadata,
     required this.toxProfile,
+    this.accountPassword,
   });
 
   final String toxId;
@@ -20,4 +21,10 @@ final class FullBackupRestoreInput {
   final Archive archive;
   final Map<String, dynamic> metadata;
   final Uint8List? toxProfile;
+
+  /// Installed as the account's password verifier by the restore transaction
+  /// (before anything is published) when the archive's profile is ciphertext
+  /// that this password opened — so the restored, still-encrypted file has a
+  /// gate the moment it exists.
+  final String? accountPassword;
 }

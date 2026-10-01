@@ -32,6 +32,11 @@ extension _SettingsImportFlow on _SettingsPageState {
       // Show file picker for .tox and .zip files
       final filePath = await _pickImportFileFn();
       if (filePath == null) return;
+      if (!hasAccountImportExtension(filePath, const ['tox', 'zip'])) {
+        // The Android picker is unfiltered (no MIME type for .tox).
+        if (mounted) _showImportError(l10n.importUnsupportedFileType);
+        return;
+      }
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
       // No pre-read here on purpose. This used to slurp the ENTIRE picked file
@@ -41,35 +46,47 @@ extension _SettingsImportFlow on _SettingsPageState {
       // encryption themselves and raise PasswordRequiredException, which is
       // what actually drives the password prompt.
       String? password;
+      String? profilePassword;
 
       // Import account data (will check encryption and prompt for password if needed)
       Map<String, dynamic> accountData;
 
       if (isZip) {
         // ZIP: check account collision before any disk writes (importFullBackup writes profile/history/avatars/prefs).
+        // Two independent layers can each ask for a password: the archive,
+        // and — in an older backup of a protected account — the profile
+        // inside it. Each is prompted at most once, in either order.
         Map<String, String> metadata;
-        try {
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
-        } on PasswordRequiredException {
-          if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
-          if (password == null || !mounted) return;
-          if (password.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(l10n.invalidPassword),
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
+        var archivePrompted = false;
+        var profilePrompted = false;
+        while (true) {
+          try {
+            metadata = await AccountExportService.readFullBackupMetadata(
+              filePath,
+              password: password,
+              profilePassword: profilePassword,
             );
-            return;
+            break;
+          } on PasswordRequiredException {
+            if (archivePrompted || !mounted) return;
+            archivePrompted = true;
+            password = await _showPasswordDialog(l10n.enterPasswordToImport);
+            if (password == null || !mounted) return;
+            if (password.isEmpty) {
+              _showImportError(l10n.invalidPassword);
+              return;
+            }
+          } on BackupProfilePasswordRequiredException {
+            if (profilePrompted || !mounted) return;
+            profilePrompted = true;
+            profilePassword =
+                await _showPasswordDialog(l10n.enterPasswordToImport);
+            if (profilePassword == null || !mounted) return;
+            if (profilePassword.isEmpty) {
+              _showImportError(l10n.invalidPassword);
+              return;
+            }
           }
-          metadata = await AccountExportService.readFullBackupMetadata(
-            filePath,
-            password: password,
-          );
         }
         final metaToxId = metadata['toxId']!;
         final existingAccount = await Prefs.getAccountByToxId(metaToxId);
@@ -99,6 +116,7 @@ extension _SettingsImportFlow on _SettingsPageState {
         accountData = await AccountExportService.importFullBackup(
           filePath: filePath,
           password: password,
+          profilePassword: profilePassword,
         );
         rollbackToxId = metaToxId;
         rollbackFullBackup = true;
@@ -347,5 +365,14 @@ extension _SettingsImportFlow on _SettingsPageState {
         _importInProgress = false;
       }
     }
+  }
+
+  void _showImportError(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 }

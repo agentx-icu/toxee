@@ -25,15 +25,21 @@
   "searchResultsCount": "هناك {count} نتائج لـ \"{keyword}\"",
   "@searchResultsCount": {
     "placeholders": {
-      "count": {"type": "int"},
-      "keyword": {"type": "String"}
+      "count": {
+        "type": "int"
+      },
+      "keyword": {
+        "type": "String"
+      }
     }
   },
   "openChat": "فتح الدردشة",
   "relatedChats": "{count} رسائل ذات صلة",
   "@relatedChats": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "newItem": "جديد",
@@ -760,7 +766,9 @@
   "callReceivedFrames": "تم استلام {count} إطارًا",
   "@callReceivedFrames": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "callMinimize": "تصغير",
@@ -779,7 +787,9 @@
   "deleteConversationBody": "ستتم إزالة \"{name}\" من قائمة الدردشة. سيبقى سجل الرسائل على القرص.",
   "@deleteConversationBody": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "selectConversationEmptyState": "اختر محادثة لبدء الدردشة",
@@ -792,7 +802,9 @@
   "errorBannerLabel": "خطأ: {message}",
   "@errorBannerLabel": {
     "placeholders": {
-      "message": {"type": "String"}
+      "message": {
+        "type": "String"
+      }
     }
   },
   "importNoFileSelected": "لم يتم تحديد ملف",
@@ -801,7 +813,9 @@
   "failedToImport": "فشل الاستيراد: {error}",
   "@failedToImport": {
     "placeholders": {
-      "error": {"type": "String"}
+      "error": {
+        "type": "String"
+      }
     }
   },
   "nicknameHintExample": "مثلاً: Alice",
@@ -810,25 +824,33 @@
   "searchResultContactSemantics": "{name}، جهة اتصال",
   "@searchResultContactSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultGroupSemantics": "{name}، مجموعة",
   "@searchResultGroupSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultMessageSemantics": "{name}، رسالة",
   "@searchResultMessageSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "searchResultConversationSemantics": "{name}، محادثة",
   "@searchResultConversationSemantics": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "runtimeForegroundTitle": "Toxee قيد التشغيل",
@@ -839,7 +861,9 @@
   "runtimeForegroundCallBodyWithCaller": "مكالمة مع {name}",
   "@runtimeForegroundCallBodyWithCaller": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "appTagline": "مراسلة خاصة عبر الند للند",
@@ -1058,5 +1082,11 @@
   "appearancePending": "هذه معاينة فقط. طبّق لحفظ التغييرات.",
   "appearanceSaveFailed": "تعذّر حفظ المظهر. تم الاحتفاظ باختياراتك؛ حاول مجددًا.",
   "restoreFromToxFileHint": "استعادة ملف تعريف Tox من ملف .tox.",
-  "importAccountHint": "استيراد نسخة احتياطية للحساب (.tox أو .zip)."
+  "importAccountHint": "استيراد نسخة احتياطية للحساب (.tox أو .zip).",
+  "passwordChangePending": "لم يكتمل تغيير كلمة المرور السابق بعد؛ سجّل الخروج ثم سجّل الدخول مجددًا",
+  "passwordRekeyFailed": "تعذّر إعادة تشفير ملف الحساب؛ لم يتغير شيء",
+  "exportRequiresLogin": "سجّل الدخول إلى هذا الحساب قبل تصديره",
+  "profileUnopenableWithPassword": "تعذّر فتح ملف الحساب بكلمة المرور هذه. قد يكون الملف تالفًا، أو ربما انقطع تغيير كلمة المرور.",
+  "passwordChangeInterrupted": "انقطع تغيير كلمة المرور. جرّب كلمة المرور من قبل التغيير أو بعده.",
+  "importUnsupportedFileType": "اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip"
 }

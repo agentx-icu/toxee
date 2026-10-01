@@ -19,58 +19,15 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../logger.dart';
+import 'legacy_password_store.dart';
 import 'secure_storage_facade.dart';
 
-// The storage facade and the protection tri-state live next door; re-exported so
-// existing importers of this file keep resolving them.
+// The storage facade, the protection tri-state and the legacy store live next
+// door; re-exported so existing importers of this file keep resolving them.
+export 'legacy_password_store.dart';
 export 'secure_storage_facade.dart';
-
-/// Adapter for the legacy plain-text SharedPreferences password entries
-/// (`account_password_<toxId>` hash and `account_password_salt_<toxId>` salt).
-/// These were the pre-S1 storage location; new writes never touch them, but
-/// existing installs may still have them on disk and we migrate on first
-/// read.
-abstract class LegacyPasswordStore {
-  Future<String?> readLegacyHash(String toxId);
-  Future<String?> readLegacySalt(String toxId);
-  Future<void> removeLegacyHash(String toxId);
-  Future<void> removeLegacySalt(String toxId);
-}
-
-/// Default [LegacyPasswordStore] backed by the app's [SharedPreferences]
-/// instance. Production callers use this; tests inject an in-memory fake.
-class SharedPreferencesLegacyPasswordStore implements LegacyPasswordStore {
-  SharedPreferencesLegacyPasswordStore(this._prefsProvider);
-
-  final Future<SharedPreferences> Function() _prefsProvider;
-
-  @override
-  Future<String?> readLegacyHash(String toxId) async {
-    final p = await _prefsProvider();
-    return p.getString(PasswordVerifier.legacyHashKey(toxId));
-  }
-
-  @override
-  Future<String?> readLegacySalt(String toxId) async {
-    final p = await _prefsProvider();
-    return p.getString(PasswordVerifier.legacySaltKey(toxId));
-  }
-
-  @override
-  Future<void> removeLegacyHash(String toxId) async {
-    final p = await _prefsProvider();
-    await p.remove(PasswordVerifier.legacyHashKey(toxId));
-  }
-
-  @override
-  Future<void> removeLegacySalt(String toxId) async {
-    final p = await _prefsProvider();
-    await p.remove(PasswordVerifier.legacySaltKey(toxId));
-  }
-}
 
 /// PBKDF2/SHA-256 password hashing + verification.
 ///
@@ -189,6 +146,13 @@ class PasswordVerifier {
     if (password.isEmpty) {
       return removePassword(toxId);
     }
+    final derived = await deriveVerifier(password);
+    return writePrimaryVerifier(toxId, derived.hash, derived.salt);
+  }
+
+  /// A fresh salt and the PBKDF2 hash of [password] over it, in the stored
+  /// wire format. Pure: nothing is written.
+  Future<({String hash, String salt})> deriveVerifier(String password) async {
     final salt = List<int>.generate(_saltBytes, (_) => Random.secure().nextInt(256));
     final pbkdf2 = Pbkdf2(
       macAlgorithm: Hmac.sha256(),
@@ -200,8 +164,14 @@ class PasswordVerifier {
       nonce: salt,
     );
     final hashBytes = await secretKey.extractBytes();
-    final storedHash = '$pbkdf2Prefix${base64Encode(hashBytes)}';
-    final storedSalt = base64Encode(salt);
+    return (hash: '$pbkdf2Prefix${base64Encode(hashBytes)}', salt: base64Encode(salt));
+  }
+
+  /// Installs an already-derived verifier as the primary one (both keys, the
+  /// prior pair restored when either write fails) and retires the legacy
+  /// entries. This is the promote step of a journaled password change, which
+  /// must reuse the EXACT hash/salt it recorded rather than derive again.
+  Future<bool> writePrimaryVerifier(String toxId, String storedHash, String storedSalt) async {
 
     // Snapshot any prior secure-storage state so we can restore it if one
     // of the two writes below fails. Without this, a partial success
@@ -245,37 +215,63 @@ class PasswordVerifier {
   /// Remove the stored password for [toxId] from secure storage and any
   /// remaining legacy plain-prefs entries.
   ///
-  /// Returns true when both secure deletes succeeded (and the legacy
-  /// entries were also cleared); false when either secure delete was
-  /// swallowed, in which case the legacy entries are left in place so we
-  /// don't destroy the last remaining copy of the credential.
+  /// Returns true only when every source (secure pair, alias pair, legacy
+  /// entries) is gone; false when any delete was swallowed.
   Future<bool> removePassword(String toxId) async {
     if (toxId.isEmpty) return true;
-    final hashDeleted = await _secureStorage.delete(secureHashKey(toxId));
-    final saltDeleted = await _secureStorage.delete(secureSaltKey(toxId));
-    if (!hashDeleted || !saltDeleted) {
-      return false;
-    }
-    // The 64-char public-key alias too. `ShortToxIdBackfill` re-keys an
-    // account's verifier from its 64-char public key to its 76-char address,
-    // and an interrupted migration (or a source delete that was swallowed)
-    // leaves the alias copy behind. `_lookup` resolves that copy exactly like a
-    // canonical one, so a removal that reported success would be undone by the
-    // next lookup - which migrates the alias back, reinstating a password the
-    // user has already revoked. Best-effort: the canonical delete above is what
-    // decides the return value.
+    // Every source, and ALL of them decide the result: the secure pair, the
+    // 64-char public-key alias pair (`ShortToxIdBackfill` re-keys a verifier
+    // from the public key to the full address, and an interrupted migration
+    // leaves the alias copy behind, which `_lookup` would migrate back and
+    // reinstate a revoked password) and both legacy plain-prefs entries. A
+    // partial removal returns false so nobody concludes "unprotected" while
+    // some source could still gate — or half-gate — the account.
+    var ok = await _secureStorage.delete(secureHashKey(toxId));
+    ok = await _secureStorage.delete(secureSaltKey(toxId)) && ok;
     final alias = _publicKeyAlias(toxId);
     if (alias != null) {
-      await _secureStorage.delete(secureHashKey(alias));
-      await _secureStorage.delete(secureSaltKey(alias));
-      await _legacyStore.removeLegacyHash(alias);
-      await _legacyStore.removeLegacySalt(alias);
+      ok = await _secureStorage.delete(secureHashKey(alias)) && ok;
+      ok = await _secureStorage.delete(secureSaltKey(alias)) && ok;
+      ok = await _removeLegacyQuietly(alias) && ok;
     }
-    await Future.wait([
-      _legacyStore.removeLegacyHash(toxId),
-      _legacyStore.removeLegacySalt(toxId),
-    ]);
-    return true;
+    return await _removeLegacyQuietly(toxId) && ok;
+  }
+
+  Future<bool> _removeLegacyQuietly(String toxId) async {
+    try {
+      await _legacyStore.removeLegacyHash(toxId);
+      await _legacyStore.removeLegacySalt(toxId);
+      return true;
+    } catch (e) {
+      AppLogger.warn('[PasswordVerifier] legacy entry removal failed: $e');
+      return false;
+    }
+  }
+
+  /// Constant-time check of [password] against a stored PBKDF2 verifier
+  /// (modern wire format only; the legacy formats are [verifyPassword]'s job).
+  Future<bool> matchesPbkdf2(String password, String storedHash, String? saltBase64) async {
+    if (!storedHash.startsWith(pbkdf2Prefix) || saltBase64 == null) return false;
+    List<int> salt;
+    try {
+      salt = base64Decode(saltBase64);
+    } catch (_) {
+      return false;
+    }
+    final pbkdf2 = Pbkdf2(
+      macAlgorithm: Hmac.sha256(),
+      iterations: pbkdf2Iterations,
+      bits: pbkdf2Bits,
+    );
+    final secretKey = await pbkdf2.deriveKeyFromPassword(
+      password: password,
+      nonce: salt,
+    );
+    final hashBytes = await secretKey.extractBytes();
+    return constantTimeEquals(
+      storedHash.substring(pbkdf2Prefix.length),
+      base64Encode(hashBytes),
+    );
   }
 
   /// Verify [password] against the stored hash for [toxId].
@@ -291,26 +287,7 @@ class PasswordVerifier {
     final saltBase64 = await _readSaltWithMigration(toxId);
 
     if (storedHash.startsWith(pbkdf2Prefix)) {
-      if (saltBase64 == null) return false;
-      List<int> salt;
-      try {
-        salt = base64Decode(saltBase64);
-      } catch (_) {
-        return false;
-      }
-      final pbkdf2 = Pbkdf2(
-        macAlgorithm: Hmac.sha256(),
-        iterations: pbkdf2Iterations,
-        bits: pbkdf2Bits,
-      );
-      final secretKey = await pbkdf2.deriveKeyFromPassword(
-        password: password,
-        nonce: salt,
-      );
-      final hashBytes = await secretKey.extractBytes();
-      final expected = base64Encode(hashBytes);
-      final actual = storedHash.substring(pbkdf2Prefix.length);
-      return constantTimeEquals(actual, expected);
+      return matchesPbkdf2(password, storedHash, saltBase64);
     }
 
     // Legacy SHA-256 (salted or unsalted) — migrate on success.

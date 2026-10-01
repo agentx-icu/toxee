@@ -2110,6 +2110,25 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get importAccountHint => '导入账号备份（.tox 或 .zip）。';
+
+  @override
+  String get passwordChangePending => '上一次密码修改尚未完成；请退出登录后重新登录';
+
+  @override
+  String get passwordRekeyFailed => '账号文件无法重新加密；未做任何更改';
+
+  @override
+  String get exportRequiresLogin => '请先登录该账号再导出';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      '无法用此密码打开账号文件。文件可能已损坏，或上次修改密码被中断。';
+
+  @override
+  String get passwordChangeInterrupted => '密码修改被中断。请尝试修改前或修改后的密码。';
+
+  @override
+  String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3710,6 +3729,25 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get importAccountHint => '导入账号备份（.tox 或 .zip）。';
+
+  @override
+  String get passwordChangePending => '上一次密码修改尚未完成；请退出登录后重新登录';
+
+  @override
+  String get passwordRekeyFailed => '账号文件无法重新加密；未做任何更改';
+
+  @override
+  String get exportRequiresLogin => '请先登录该账号再导出';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      '无法用此密码打开账号文件。文件可能已损坏，或上次修改密码被中断。';
+
+  @override
+  String get passwordChangeInterrupted => '密码修改被中断。请尝试修改前或修改后的密码。';
+
+  @override
+  String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5818,4 +5856,23 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get importAccountHint => '匯入帳號備份（.tox 或 .zip）。';
+
+  @override
+  String get passwordChangePending => '上一次密碼修改尚未完成；請登出後重新登入';
+
+  @override
+  String get passwordRekeyFailed => '帳號檔案無法重新加密；未做任何變更';
+
+  @override
+  String get exportRequiresLogin => '請先登入該帳號再匯出';
+
+  @override
+  String get profileUnopenableWithPassword =>
+      '無法用此密碼開啟帳號檔案。檔案可能已損壞，或上次修改密碼被中斷。';
+
+  @override
+  String get passwordChangeInterrupted => '密碼修改被中斷。請嘗試修改前或修改後的密碼。';
+
+  @override
+  String get importUnsupportedFileType => '請選擇 .tox 資料檔或 .zip 完整備份';
 }

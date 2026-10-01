@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'account_export/encryption.dart';
+import 'account_export/ffi_constants.dart';
 import 'account_export/tox_file_io.dart';
 import 'app_paths.dart';
 import 'default_avatar_installer.dart';
@@ -66,9 +68,16 @@ abstract final class AccountReconciliation {
 
         try {
           final bytes = await profileFile.readAsBytes();
-          // Encrypted profiles cannot be reconciled without the user's
-          // passphrase. We deliberately skip them rather than failing the
-          // entire pass; the user can still recover via the import UI.
+          // Encrypted profiles (every protected account at rest) cannot be
+          // reconciled without the user's passphrase: skipped quietly, not
+          // logged as a failure; the user can still recover via import.
+          if (bytes.length >= toxPassEncryptionExtraLength &&
+              isDataEncrypted(bytes)) {
+            AppLogger.log(
+              '[AccountReconciliation] encrypted orphan profile skipped: $prefix',
+            );
+            continue;
+          }
           final toxId = extractToxIdFromProfile(bytes);
           if (toxId.isEmpty) {
             AppLogger.warn(
