@@ -331,8 +331,7 @@ footer a:hover{color:var(--cyan)}
     </div>
     <div class="hero-shot rise d3">
       <div class="windowframe">
-        <div class="bar"><i></i><i></i><i></i><b>Toxee.app</b></div>
-        <img src="assets/en/desktop/c2c.png" alt="Toxee main window on macOS: conversation list with unread badges next to a 1:1 chat" width="1400" height="909">
+        <img src="assets/en/quiet-modern.png" alt="Toxee Quiet Modern design concept: desktop and mobile chat in English" data-i18n-alt="hero_design_alt" width="1586" height="992">
       </div>
     </div>
   </div>
@@ -542,6 +541,7 @@ footer a:hover{color:var(--cyan)}
     hero_lead:"Toxee 是 Tox P2P 网络的现代聊天客户端。消息在设备之间直接传输并端到端加密——没有任何服务器可被入侵、传唤或关停。",
     cta_get:"在 GitHub 获取 Toxee", cta_tour:"看看实际效果 ↓",
     hero_hexnote:" — 你的身份是一对密钥，而不是一个账号",
+    hero_design_alt:"toxee 清爽现代设计概念：中文桌面与手机聊天界面",
     stat_servers:"服务器数量，永远为零", stat_phone:"无需手机号或邮箱",
     stat_e2e:"Tox 协议端到端加密", stat_oss:"自由开源软件",
     why_eyebrow:"01 — 为什么选 toxee",
@@ -589,6 +589,9 @@ footer a:hover{color:var(--cyan)}
     document.querySelectorAll("[data-i18n-html]").forEach(function(el){
       en[el.getAttribute("data-i18n-html")] = el.innerHTML;
     });
+    document.querySelectorAll("[data-i18n-alt]").forEach(function(el){
+      en[el.getAttribute("data-i18n-alt")] = el.getAttribute("alt");
+    });
   }
   function apply(lang){
     var dict = lang === "zh" ? zh : en;
@@ -600,8 +603,11 @@ footer a:hover{color:var(--cyan)}
       var k = el.getAttribute("data-i18n-html");
       if (dict[k] !== undefined) el.innerHTML = dict[k];
     });
-    // Screenshots follow the page language: assets/<en|zh>/<platform>/ are
-    // the same scenes captured in that UI locale (tool/screenshots/capture.sh).
+    document.querySelectorAll("[data-i18n-alt]").forEach(function(el){
+      var k = el.getAttribute("data-i18n-alt");
+      if (dict[k] !== undefined) el.setAttribute("alt", dict[k]);
+    });
+    // Both the localized design concept and captured app screens follow the page language.
     document.querySelectorAll('img[src^="assets/en/"], img[src^="assets/zh/"]').forEach(function(img){
       img.setAttribute("src", img.getAttribute("src").replace(/^assets\/(en|zh)\//, "assets/" + lang + "/"));
     });

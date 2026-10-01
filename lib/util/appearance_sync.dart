@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 
 import 'locale_controller.dart';
+import 'app_theme_config.dart';
+import 'package:tencent_cloud_chat_common/data/theme/tencent_cloud_chat_theme.dart';
 import 'theme_controller.dart';
 
 /// Shared "apply appearance everywhere" helpers.
@@ -44,4 +46,19 @@ Future<void> applyThemeModeEverywhere(
 Future<void> applyLocaleEverywhere(Locale locale) async {
   await AppLocale.set(locale);
   TencentCloudChatIntl().setLocale(locale);
+}
+
+/// Refresh both UIKit palette and brightness without recreating chat state.
+void syncUIKitAppearance({Brightness? platformBrightness}) {
+  final resolved = switch (AppTheme.mode.value) {
+    ThemeMode.dark => Brightness.dark,
+    ThemeMode.light => Brightness.light,
+    ThemeMode.system =>
+      platformBrightness ??
+          WidgetsBinding.instance.platformDispatcher.platformBrightness,
+  };
+  TencentCloudChatTheme.init(
+    brightness: resolved,
+    themeModel: AppThemeConfig.createYouthfulThemeModel(),
+  );
 }

@@ -2160,4 +2160,57 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => 'تعذّر حفظ ملف مستلَم.';
+
+  @override
+  String get interfaceStyle => 'نمط الواجهة';
+
+  @override
+  String get interfaceStyleClassic => 'الأزرق الكلاسيكي';
+
+  @override
+  String get interfaceStyleModern => 'حديث هادئ';
+
+  @override
+  String get interfaceStyleNight => 'راديو ليلي';
+
+  @override
+  String get interfaceStylePaper => 'رسالة ورقية';
+
+  @override
+  String get interfaceStyleCartoon => 'كرتون منعش';
+
+  @override
+  String get appearanceBrightness => 'السطوع';
+
+  @override
+  String get appearancePreview => 'معاينة المحادثة';
+
+  @override
+  String get appearancePreviewSender => 'أليكس';
+
+  @override
+  String get appearancePreviewReceived => 'هل نذهب للمشي هذا الأسبوع؟';
+
+  @override
+  String get appearancePreviewSent => 'فكرة جميلة. أراك يوم السبت!';
+
+  @override
+  String get appearancePreviewOnline => 'متصل';
+
+  @override
+  String get appearanceApply => 'تطبيق';
+
+  @override
+  String get appearancePending => 'هذه معاينة فقط. طبّق لحفظ التغييرات.';
+
+  @override
+  String get appearanceSaveFailed =>
+      'تعذّر حفظ المظهر. تم الاحتفاظ باختياراتك؛ حاول مجددًا.';
+
+  @override
+  String get restoreFromToxFileHint => 'استعادة ملف تعريف Tox من ملف .tox.';
+
+  @override
+  String get importAccountHint =>
+      'استيراد نسخة احتياطية للحساب (.tox أو .zip).';
 }

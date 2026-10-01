@@ -18,6 +18,7 @@ import 'package:extended_text_field/extended_text_field.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_common_defines.dart';
+import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_config.dart';
 import 'package:tencent_cloud_chat_common/components/components_definition/tencent_cloud_chat_component_builder_definitions.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
@@ -211,6 +212,65 @@ void main() {
     TencentCloudChatDesktopPopup.entry = null;
     TencentCloudChatDesktopPopup.isShow = false;
   });
+
+  for (final lineCap in [5, 6]) {
+    testWidgets('desktop composer grows with text and caps at $lineCap lines', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final sent = <String>[];
+      final provider = TencentCloudChatMessageSeparateDataProvider()
+        ..config = TencentCloudChatMessageConfig(
+          desktopMessageInputLines: createDefaultValue(lineCap),
+        );
+      await tester.pumpWidget(
+        _localized(
+          child: TencentCloudChatMessageDataProviderInherited(
+            dataProvider: provider,
+            child: TencentCloudChatMessageInputDesktop(
+              inputData: _data(),
+              inputMethods: _stubMethods(sent),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final field = find.byType(ExtendedTextField).first;
+      final initialHeight = tester.getSize(field).height;
+      expect(
+        initialHeight,
+        lessThan(60),
+        reason: 'an empty composer leaves space for the message history',
+      );
+      await tester.tap(field);
+      await tester.pump();
+      tester.testTextInput.enterText('first\nsecond\nthird');
+      await tester.pump();
+      final multilineHeight = tester.getSize(field).height;
+      expect(multilineHeight, greaterThan(initialHeight));
+      tester.testTextInput.enterText(List.filled(lineCap, 'line').join('\n'));
+      await tester.pump();
+      final cappedHeight = tester.getSize(field).height;
+      tester.testTextInput.enterText(List.filled(12, 'line').join('\n'));
+      await tester.pump();
+      expect(
+        tester.getSize(field).height,
+        cappedHeight,
+        reason: 'long drafts scroll inside the maximum-height field',
+      );
+      expect(
+        sent,
+        isEmpty,
+        reason: 'multiline editing must not submit a message',
+      );
+      tester.testTextInput.enterText('');
+      await tester.pump();
+      expect(tester.getSize(field).height, initialHeight);
+    });
+  }
 
   testWidgets(
     'desktop composer: typing + Enter invokes the real send path',

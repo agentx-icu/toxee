@@ -1041,5 +1041,22 @@
   "fileReceiveNoSpace": "لا توجد مساحة تخزين كافية لاستلام \"{fileName}\". حرّر بعض المساحة وحاول مرة أخرى.",
   "fileReceiveNoSpaceUnnamed": "لا توجد مساحة تخزين كافية لاستلام ملف. حرّر بعض المساحة وحاول مرة أخرى.",
   "fileReceiveFailed": "تعذّر حفظ \"{fileName}\".",
-  "fileReceiveFailedUnnamed": "تعذّر حفظ ملف مستلَم."
+  "fileReceiveFailedUnnamed": "تعذّر حفظ ملف مستلَم.",
+  "interfaceStyle": "نمط الواجهة",
+  "interfaceStyleClassic": "الأزرق الكلاسيكي",
+  "interfaceStyleModern": "حديث هادئ",
+  "interfaceStyleNight": "راديو ليلي",
+  "interfaceStylePaper": "رسالة ورقية",
+  "interfaceStyleCartoon": "كرتون منعش",
+  "appearanceBrightness": "السطوع",
+  "appearancePreview": "معاينة المحادثة",
+  "appearancePreviewSender": "أليكس",
+  "appearancePreviewReceived": "هل نذهب للمشي هذا الأسبوع؟",
+  "appearancePreviewSent": "فكرة جميلة. أراك يوم السبت!",
+  "appearancePreviewOnline": "متصل",
+  "appearanceApply": "تطبيق",
+  "appearancePending": "هذه معاينة فقط. طبّق لحفظ التغييرات.",
+  "appearanceSaveFailed": "تعذّر حفظ المظهر. تم الاحتفاظ باختياراتك؛ حاول مجددًا.",
+  "restoreFromToxFileHint": "استعادة ملف تعريف Tox من ملف .tox.",
+  "importAccountHint": "استيراد نسخة احتياطية للحساب (.tox أو .zip)."
 }

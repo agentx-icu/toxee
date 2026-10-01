@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:toxee/util/design_tokens.dart';
 import '../i18n/app_localizations.dart';
 import '../util/app_spacing.dart';
 import '../util/app_theme_config.dart';
@@ -20,10 +21,10 @@ import 'call_ui_components.dart';
 // for the same rationale). Tokens live here so the look stays consistent and
 // future changes have a single dial.
 
-/// Card background — slate-800. Matches `AppThemeConfig.darkGradientEnd`, which
+/// Card background — slate-800. Matches `DesignTokens.listPanelDark`, which
 /// is the in-call surface elevation-1 color, so the PiP visually belongs to the
 /// call subsystem and not to the app's general dark theme.
-const Color _kFloatingCallBg = AppThemeConfig.darkGradientEnd;
+const Color _kFloatingCallBg = DesignTokens.listPanelDark;
 
 /// Drag-handle pip color — slate-400. Affordance hint; intentionally low
 /// contrast so it doesn't compete with the avatar + name + duration.

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart'
     show MissingPluginException, PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'appearance_preferences.dart';
 
 import 'logger.dart';
 import 'tox_utils.dart';
@@ -44,7 +45,6 @@ class Prefs {
   static const _kQuitGroups = 'quit_groups_list'; // Groups that user has quit
   static const _kNickname = 'self_nickname';
   static const _kStatusMsg = 'self_status_msg';
-  static const _kThemeMode = 'theme_mode'; // 'system' | 'light' | 'dark'
   static const _kAvatarPath = 'self_avatar_path';
   static String _groupNameKey(String gid) => 'group_name_$gid';
   // Local alias for a group the user has joined (not the canonical group
@@ -506,25 +506,19 @@ class Prefs {
     }
   }
 
-  /// Returns one of: 'system' | 'light' | 'dark'.
-  /// Default for unknown / unset values is 'system' so first-launch follows
-  /// the OS preference.
-  static Future<String> getThemeMode() async {
-    final p = await _getPrefs();
-    final raw = p.getString(_kThemeMode);
-    if (raw == 'dark' || raw == 'light' || raw == 'system') return raw!;
-    return 'system';
-  }
-
-  /// Persists theme mode. Accepts 'system', 'light', 'dark'; any other value
-  /// is coerced to 'system'.
-  static Future<void> setThemeMode(String mode) async {
-    final p = await _getPrefs();
-    final normalized = (mode == 'dark' || mode == 'light' || mode == 'system')
-        ? mode
-        : 'system';
-    await p.setString(_kThemeMode, normalized);
-  }
+  static Future<Map<String, String>> getAppearance() async =>
+      AppearancePreferences.read(await _getPrefs());
+  static Future<String> getThemeMode() async =>
+      (await getAppearance())['mode']!;
+  static Future<String> getInterfaceStyle() async =>
+      (await getAppearance())['style']!;
+  static Future<void> setAppearance({
+    required String style,
+    required String mode,
+  }) async =>
+      AppearancePreferences.write(await _getPrefs(), style: style, mode: mode);
+  static Future<void> setThemeMode(String mode) async =>
+      AppearancePreferences.writeMode(await _getPrefs(), mode);
 
   static Future<String?> getAvatarPath() async {
     final current = await getCurrentAccountToxId();
@@ -1465,7 +1459,10 @@ class Prefs {
     final key = _scopedKey(_groupAvatarKey(groupId), current);
     await (faceUrl == null || faceUrl.isEmpty
         ? p.remove(key)
-        : p.setString(key, await encodeGroupAvatarForStorage(faceUrl, current)));
+        : p.setString(
+            key,
+            await encodeGroupAvatarForStorage(faceUrl, current),
+          ));
   }
 
   /// Clear per-account data from SharedPreferences for the given account.
@@ -2237,10 +2234,7 @@ class Prefs {
   static Future<PasswordMigrationOutcome> migrateAccountPasswordKeys({
     required String fromToxId,
     required String toToxId,
-  }) => migrateAccountPasswordKeysImpl(
-    fromToxId: fromToxId,
-    toToxId: toToxId,
-  );
+  }) => migrateAccountPasswordKeysImpl(fromToxId: fromToxId, toToxId: toToxId);
 
   // --- Window/layout state (desktop) ---
 

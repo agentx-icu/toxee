@@ -225,6 +225,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final SettingsSwitchAccountFn _switchAccountFn;
   late final SettingsPickImportFileFn _pickImportFileFn;
   late final SettingsImportAccountDataFn _importAccountDataFn;
+
   /// Whether unclaimed pre-multi-account data is on disk. Drives the
   /// recovery affordance; see [_recoverLegacyData].
   bool _hasUnclaimedLegacyData = false;
@@ -433,9 +434,7 @@ class _SettingsPageState extends State<SettingsPage> {
       } else if (difference.inHours > 0) {
         return AppLocalizations.of(context)!.hoursAgo(difference.inHours);
       } else if (difference.inMinutes > 0) {
-        return AppLocalizations.of(
-          context,
-        )!.minutesAgo(difference.inMinutes);
+        return AppLocalizations.of(context)!.minutesAgo(difference.inMinutes);
       } else {
         return AppLocalizations.of(context)!.justNow;
       }
@@ -572,7 +571,7 @@ class _SettingsPageState extends State<SettingsPage> {
         isScrollControlled: true,
         useSafeArea: true,
         backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(AppThemeConfig.formCardBorderRadius),
           ),
@@ -619,7 +618,9 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: cancelled ? null : Theme.of(context).colorScheme.primary,
+        backgroundColor: cancelled
+            ? null
+            : Theme.of(context).colorScheme.primary,
       ),
     );
   }
@@ -785,7 +786,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
-
 
   Future<void> _setAccountPassword() async {
     final toxId = widget.service.accountKey;

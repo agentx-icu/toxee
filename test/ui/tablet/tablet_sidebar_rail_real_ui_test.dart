@@ -1,49 +1,11 @@
 // Real-UI gates for the navigation rail on the TABLET form factor.
 //
-// What is under test
-// ------------------
-// `ResponsiveLayout.responsiveSidebarWidth` (`responsive_layout.dart:237-240`)
-// and its derived `isCompactRail` (`:246-249`) decide whether the rail is the
-// 200pt labelled sidebar or the 72pt icon-only rail, and `buildSidebar`
-// (`lib/ui/settings/sidebar.dart:203`) branches every item on `isCompactRail`
-// (`:406`, `:584`, `:812`).
-//
-//     responsiveSidebarWidth(ctx):
-//       if (shouldShowBottomNav(ctx))  -> 0     // width < 720
-//       return isDesktop(ctx) ? 200 : 72
-//
-// Because a tablet reports `isDesktop == true` (the product rule in
-// `responsive_layout.dart:113-126`), **a tablet can never reach the 72pt
-// compact rail**: below 720pt of width it gets the bottom nav (0), and at or
-// above 720pt it gets 200. The 72pt tier is reachable only by a *phone*-class
-// device that is wide enough for a sidebar — i.e. `shortestSide < 600`
-// (so `isDesktop` is false) AND `720 <= width < 1024`, which is exactly a
-// landscape large phone. The last group in this file pins that down so the
-// "tablet, 72px" wording in the sidebar comments is not mistaken for a
-// reachable tablet state.
-//
-// Real controls driven here
-// -------------------------
-// `UiKeys.sidebarChats` / `sidebarContacts` / `sidebarApplications` /
-// `sidebarSettings` — the production `InkWell`s inside `buildSidebar`. Each
-// tap must deliver the right tab index to the real `onTap` callback that
-// `HomePage` passes in, at every tablet size and orientation.
-//
-// Harness follows `test/ui/profile_anchor_keys_test.dart`, which already
-// mounts the real `buildSidebar` with a stub `FfiChatService`, mocked
-// `flutter/platform` + `path_provider` channels and seeded `Prefs`. The rail
-// is hosted inside a `Row` (as `HomePage.build` does at `home_page.dart:1293`)
-// because a bare `SizedBox(width: …)` under a `Scaffold` body would be forced
-// to the tight body constraints and the width assertion would be meaningless.
-//
-// Mobile parity: `sidebar.dart` and `responsive_layout.dart` are shared Dart —
-// the tiers asserted here are the same on iPadOS and Android tablets. The only
-// platform fork inside `buildSidebar` is the macOS traffic-light spacer
-// (`Platform.isMacOS`), which changes vertical offset only, never the width or
-// the labelled/compact decision.
-//
-// NOT executed in this environment (no dart/flutter available) — reviewed by
-// reading only.
+// Intermediate tablet windows (<1100 logical pixels) use a 72px compact rail
+// with tooltips. Wider windows keep the 200px labelled rail. These tests drive
+// the real sidebar tab controls in both forms, preserving their destinations.
+// The host Row mirrors HomePage so width measurements reflect actual layout.
+// FFI availability is checked because the sidebar's profile UI uses the native
+// service; unavailable native libraries are reported as skipped tests.
 library;
 
 import 'dart:async';
@@ -261,7 +223,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('iPad portrait 834x1194', () {
     testWidgets(
-      'rail is the 200pt LABELLED sidebar and its items route the right tab index',
+      'rail is compact with tooltips and its items route the right tab index',
       (WidgetTester tester) async {
         if (!await boot(tester, const Size(834, 1194))) {
           markTestSkipped('libtim2tox_ffi is not loadable in this environment');
@@ -270,44 +232,23 @@ void main() {
 
         expect(ResponsiveLayout.isTablet(_railContext), isTrue);
         expect(ResponsiveLayout.isTabletPortrait(_railContext), isTrue);
-        expect(
-          ResponsiveLayout.isCompactRail(_railContext),
-          isFalse,
-          reason:
-              'a tablet is classified as desktop, so it takes the 200pt rail; '
-              'the 72pt compact rail is unreachable for tablets',
-        );
-        expect(
-          railWidth(tester),
-          200.0,
-          reason:
-              'the rendered rail must be the wide labelled sidebar, not 72 '
-              'and not 0 (bottom nav)',
-        );
-
-        // Labelled tier: every item shows its text label and no tooltip.
-        expect(
-          _itemLabel(UiKeys.sidebarChats),
-          findsOneWidget,
-          reason: 'the wide rail renders the Chats label inline',
-        );
-        expect(
-          _itemTooltip(UiKeys.sidebarChats),
-          findsNothing,
-          reason: 'the wide rail must not add the compact-only tooltip',
-        );
-        expect(_itemLabel(UiKeys.sidebarContacts), findsOneWidget);
-        expect(_itemLabel(UiKeys.sidebarApplications), findsOneWidget);
-        expect(_itemLabel(UiKeys.sidebarSettings), findsOneWidget);
-
-        // The avatar block also expands to nickname + presence at 200pt.
+        expect(ResponsiveLayout.isCompactRail(_railContext), isTrue);
+        expect(railWidth(tester), 72.0);
+        for (final key in [
+          UiKeys.sidebarChats,
+          UiKeys.sidebarContacts,
+          UiKeys.sidebarApplications,
+          UiKeys.sidebarSettings,
+        ]) {
+          expect(_itemLabel(key), findsNothing);
+          expect(_itemTooltip(key), findsOneWidget);
+        }
         expect(
           find.descendant(
             of: find.byKey(UiKeys.sidebarUserAvatar),
             matching: find.text(_nickname),
           ),
-          findsOneWidget,
-          reason: 'the wide rail shows the nickname next to the avatar',
+          findsNothing,
         );
 
         // REAL CONTROLS: tap two rail items and check the delivered indices.
@@ -343,9 +284,7 @@ void main() {
       expect(
         railWidth(tester),
         200.0,
-        reason:
-            'product direction: tablets use the desktop rail in EVERY '
-            'orientation',
+        reason: 'wide tablet landscape has room for navigation labels',
       );
       expect(_itemLabel(UiKeys.sidebarApplications), findsOneWidget);
 
@@ -361,13 +300,11 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // 7-9" tablet portrait — 768 x 1024. This is the size that looks like it
-  // should get the 72pt "tablet" rail the sidebar comments describe; it does
-  // not, because isDesktop is true for every tablet.
+  // Smaller tablet windows also use compact navigation.
   // -------------------------------------------------------------------------
   group('small tablet portrait 768x1024', () {
     testWidgets(
-      'still the 200pt rail — the 72pt compact rail is NOT reachable on a tablet',
+      'small tablet uses compact tooltips and working chat navigation',
       (WidgetTester tester) async {
         if (!await boot(tester, const Size(768, 1024))) {
           markTestSkipped('libtim2tox_ffi is not loadable in this environment');
@@ -380,14 +317,9 @@ void main() {
           isFalse,
           reason: 'width 768 >= largePhoneBreakpoint (720) => sidebar tier',
         );
-        expect(
-          railWidth(tester),
-          200.0,
-          reason:
-              'documents current behaviour: no tablet width produces the 72pt '
-              'rail, because isDesktop short-circuits it',
-        );
-        expect(_itemLabel(UiKeys.sidebarChats), findsOneWidget);
+        expect(railWidth(tester), 72.0);
+        expect(_itemLabel(UiKeys.sidebarChats), findsNothing);
+        expect(_itemTooltip(UiKeys.sidebarChats), findsOneWidget);
 
         await tester.tap(find.byKey(UiKeys.sidebarChats));
         await tester.pump();
@@ -397,12 +329,7 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // The ONLY tier that reaches the 72pt rail: a landscape large phone.
-  // 892 x 412 (Pixel-6-class rotated): shortestSide 412 < 600 so isTablet is
-  // false and isDesktop is false (width 892 < 1024), while width 892 >= 720
-  // so the bottom nav is replaced by a sidebar. Included here — not in the
-  // phone suite — because it is the control case that gives the tablet
-  // assertions above their meaning.
+  // Landscape phones retain the same compact navigation.
   // -------------------------------------------------------------------------
   group('landscape large phone 892x412 (compact-rail control case)', () {
     testWidgets(
@@ -427,7 +354,7 @@ void main() {
         expect(
           railWidth(tester),
           72.0,
-          reason: 'this is the one tier that renders the icon-only rail',
+          reason: 'landscape phones keep the icon-only rail',
         );
 
         // Compact tier: labels are gone, tooltips take their place.

@@ -56,6 +56,8 @@ Future<void> _pumpSettings(
   );
   await tester.pumpWidget(settingsApp(page, navigatorObservers: observers));
   await settleSettings(tester);
+  await tester.ensureVisible(find.byKey(UiKeys.settingsExportAccountButton));
+  await settleSettings(tester);
 }
 
 void main() {

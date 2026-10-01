@@ -108,14 +108,31 @@ extension _MobileSettingsWidgets on _SettingsPageState {
               // on the desktop `IconButton` that carries the same key.
               Directionality(
                 textDirection: TextDirection.ltr,
-                child: SelectableText(
-                  toxId,
-                  key: UiKeys.settingsCopyToxIdButton,
-                  onTap: copyToxId,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontFamily: 'monospace',
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        toxId,
+                        key: UiKeys.settingsCopyToxIdButton,
+                        onTap: copyToxId,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontFamily: 'monospace',
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      key: const ValueKey('settings_mobile_copy_tox_id_action'),
+                      tooltip: AppLocalizations.of(context)!.copyFullToxId,
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                      onPressed: copyToxId,
+                      icon: const Icon(Icons.copy_outlined, size: 20),
+                    ),
+                  ],
                 ),
               ),
               AppSpacing.verticalMd,
@@ -357,5 +374,4 @@ extension _MobileSettingsWidgets on _SettingsPageState {
       setState(() => _hasUnclaimedLegacyData = has);
     }
   }
-
 }

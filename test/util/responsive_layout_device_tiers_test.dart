@@ -35,8 +35,9 @@ void main() {
   });
 
   group('phone tier', () {
-    testWidgets('portrait 390x844 is mobile, not tablet, not desktop',
-        (tester) async {
+    testWidgets('portrait 390x844 is mobile, not tablet, not desktop', (
+      tester,
+    ) async {
       final p = await _probeAt(tester, const Size(390, 844));
       expect(p.isMobile, isTrue);
       expect(p.isLargePhone, isFalse);
@@ -61,43 +62,49 @@ void main() {
     });
   });
 
-  group('large-phone tier overlaps the tablet tier (documented consequence)',
-      () {
-    testWidgets('shortestSide 660 is BOTH isLargePhone and isTablet',
-        (tester) async {
-      // isLargePhone = 600 <= s < 720; isTablet = 600 <= s < 1024. The ranges
-      // overlap by construction, so a 7" device answers true to both. Callers
-      // must therefore check isLargePhone BEFORE isTablet, or they get the
-      // tablet branch on a large phone. Pinned because nothing else states it.
-      final p = await _probeAt(tester, const Size(660, 900));
-      expect(p.isLargePhone, isTrue);
-      expect(p.isTablet, isTrue);
-      // isDesktop is true here purely because isTablet is true.
-      expect(p.isDesktop, isTrue);
-      // ...yet the nav is still the touch-first bottom bar (width 660 < 720),
-      // which is the whole point of the large-phone tier.
-      expect(p.shouldShowBottomNav, isTrue);
-      expect(p.sidebarWidth, 0.0);
-    });
-  });
+  group(
+    'large-phone tier overlaps the tablet tier (documented consequence)',
+    () {
+      testWidgets('shortestSide 660 is BOTH isLargePhone and isTablet', (
+        tester,
+      ) async {
+        // isLargePhone = 600 <= s < 720; isTablet = 600 <= s < 1024. The ranges
+        // overlap by construction, so a 7" device answers true to both. Callers
+        // must therefore check isLargePhone BEFORE isTablet, or they get the
+        // tablet branch on a large phone. Pinned because nothing else states it.
+        final p = await _probeAt(tester, const Size(660, 900));
+        expect(p.isLargePhone, isTrue);
+        expect(p.isTablet, isTrue);
+        // isDesktop is true here purely because isTablet is true.
+        expect(p.isDesktop, isTrue);
+        // ...yet the nav is still the touch-first bottom bar (width 660 < 720),
+        // which is the whole point of the large-phone tier.
+        expect(p.shouldShowBottomNav, isTrue);
+        expect(p.sidebarWidth, 0.0);
+      });
+    },
+  );
 
   group('tablet tier', () {
-    testWidgets('iPad portrait 834x1194 -> tablet + portrait + desktop layout',
-        (tester) async {
-      final p = await _probeAt(tester, const Size(834, 1194));
-      expect(p.isTablet, isTrue);
-      expect(p.isLargePhone, isFalse, reason: 'shortestSide 834 >= 720');
-      expect(p.isTabletPortrait, isTrue);
-      expect(p.isTabletLandscape, isFalse);
-      // Product direction (documented on isDesktop): tablets take the DESKTOP
-      // layout in every orientation.
-      expect(p.isDesktop, isTrue);
-      expect(p.shouldShowBottomNav, isFalse);
-      expect(p.shouldShowMasterDetail, isTrue, reason: 'width 834 >= 800');
-    });
+    testWidgets(
+      'iPad portrait 834x1194 -> tablet + portrait + desktop layout',
+      (tester) async {
+        final p = await _probeAt(tester, const Size(834, 1194));
+        expect(p.isTablet, isTrue);
+        expect(p.isLargePhone, isFalse, reason: 'shortestSide 834 >= 720');
+        expect(p.isTabletPortrait, isTrue);
+        expect(p.isTabletLandscape, isFalse);
+        // Product direction (documented on isDesktop): tablets take the DESKTOP
+        // layout in every orientation.
+        expect(p.isDesktop, isTrue);
+        expect(p.shouldShowBottomNav, isFalse);
+        expect(p.shouldShowMasterDetail, isTrue, reason: 'width 834 >= 800');
+      },
+    );
 
-    testWidgets('iPad landscape 1194x834 -> tablet + landscape',
-        (tester) async {
+    testWidgets('iPad landscape 1194x834 -> tablet + landscape', (
+      tester,
+    ) async {
       final p = await _probeAt(tester, const Size(1194, 834));
       expect(p.isTablet, isTrue);
       expect(p.isTabletLandscape, isTrue);
@@ -124,8 +131,9 @@ void main() {
       expect(p.isTablet, isTrue);
     });
 
-    testWidgets('shortestSide 1023 is still tablet; 1024 is not',
-        (tester) async {
+    testWidgets('shortestSide 1023 is still tablet; 1024 is not', (
+      tester,
+    ) async {
       final below = await _probeAt(tester, const Size(1023, 1400));
       expect(below.isTablet, isTrue);
 
@@ -137,32 +145,36 @@ void main() {
     });
   });
 
-  group('compact rail (72pt) — reachable, but never on a tablet', () {
-    // `responsiveSidebarWidth` is `shouldShowBottomNav ? 0 : (isDesktop ? 200 : 72)`.
-    // The doc comment on it says "Tablet: 72 (compact icon-only rail)", and the
-    // same wording appears in `sidebar.dart`. That wording is WRONG for tablets:
-    // every tablet is `isDesktop` by design, so a tablet gets 0 (below 720pt
-    // width) or 200 (at/above), never 72.
-    //
-    // The tier that DOES reach 72 is a landscape phone: shortestSide < 600 keeps
-    // `isDesktop` false, while width >= 720 suppresses the bottom nav. Both
-    // halves are pinned below so the tablet assertion cannot pass vacuously.
+  group('compact rail preserves chat capacity', () {
+    for (final desktopPlatform in [false, true]) {
+      testWidgets('intermediate windows use compact navigation '
+          '(desktop platform: $desktopPlatform)', (tester) async {
+        ResponsiveLayout.debugIsDesktopPlatformOverride = () => desktopPlatform;
+        for (final width in [720.0, 768.0, 800.0, 834.0, 1024.0, 1099.0]) {
+          final p = await _probeAt(tester, Size(width, 1200));
+          expect(p.sidebarWidth, 72.0, reason: 'width=$width');
+          expect(p.isCompactRail, isTrue);
+          expect(p.shouldShowBottomNav, isFalse);
+          expect(p.shouldShowMasterDetail, width >= 800);
+        }
+        final wide = await _probeAt(tester, const Size(1100, 1200));
+        expect(wide.sidebarWidth, 200.0);
+        expect(wide.isCompactRail, isFalse);
+      });
+    }
 
-    testWidgets('every tablet size yields 200, never the compact rail',
-        (tester) async {
-      for (final size in const [
-        Size(834, 1194), // iPad Pro 11 portrait
-        Size(1194, 834), // iPad Pro 11 landscape
-        Size(768, 1024), // small tablet portrait
-      ]) {
-        final p = await _probeAt(tester, size);
-        expect(p.sidebarWidth, 200.0, reason: 'size=$size');
-        expect(p.isCompactRail, isFalse, reason: 'size=$size');
-      }
+    testWidgets('narrow tablet window retains bottom navigation', (
+      tester,
+    ) async {
+      final p = await _probeAt(tester, const Size(719, 1200));
+      expect(p.sidebarWidth, 0);
+      expect(p.shouldShowBottomNav, isTrue);
+      expect(p.shouldShowMasterDetail, isFalse);
     });
 
-    testWidgets('landscape phone 892x412 DOES get the 72pt compact rail',
-        (tester) async {
+    testWidgets('landscape phone 892x412 DOES get the 72pt compact rail', (
+      tester,
+    ) async {
       final p = await _probeAt(tester, const Size(892, 412));
       expect(p.isMobile, isTrue, reason: 'shortestSide 412 < 600');
       expect(p.isTablet, isFalse);
@@ -174,8 +186,9 @@ void main() {
   });
 
   group('seam hygiene', () {
-    testWidgets('override(true) reproduces desktop-host behaviour',
-        (tester) async {
+    testWidgets('override(true) reproduces desktop-host behaviour', (
+      tester,
+    ) async {
       // Guards the seam itself: with the override forced true, a phone-sized
       // viewport must classify exactly the way an un-overridden desktop host
       // did before the seam existed.

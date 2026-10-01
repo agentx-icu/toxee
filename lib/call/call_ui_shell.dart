@@ -1,14 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:toxee/util/design_tokens.dart';
 import '../util/app_spacing.dart';
-import '../util/app_theme_config.dart';
 import '../util/responsive_layout.dart';
 
 /// Slate-900 base background for call surfaces — aliased to the shared
-/// `AppThemeConfig.darkScaffoldBackground` token so the call screen reads as a
+/// `DesignTokens.scaffoldDark` token so the call screen reads as a
 /// continuation of the app, not a separate aesthetic.
-const Color kCallBackgroundBase = AppThemeConfig.darkScaffoldBackground;
+const Color kCallBackgroundBase = DesignTokens.scaffoldDark;
 
 /// Shared page shell for all call screens: dark surface, safe area, top bar, content, bottom dock.
 class CallSceneShell extends StatelessWidget {

@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-01",
+  "tool": "Built-in image_gen",
+  "purpose": "Remove external titles, subtitles, and top-margin slogans from all concept boards, including the English product artwork.",
+  "prompt": "Use case: precise-object-edit.\nAsset type: existing toxee desktop-and-phone UI concept board.\nInput image: the supplied board is the exact edit target.\nPrimary request: Remove ALL text in the top outer margin ABOVE the desktop application window and phone device. Remove the large A/B/C/D style heading, all \"toxee / 界面风格提案\" or \"Interface style concept\" subtitles, the appearance-board heading/subtitle, and any small Chinese or English marketing slogans in that outside top margin. Also erase title-related rules/underlines so no orphan title decorations remain. Fill these erased lettering areas seamlessly with the surrounding original pale background.\nInvariants: keep the original image dimensions and framing. Keep the desktop and phone at their original positions. Preserve EVERY pixel of interface content INSIDE the desktop window and phone: brand wordmark, navigation labels, settings headings, names, text messages, timestamps, numbers, avatars, icons, buttons, outlines, shadows, colors, and safe areas. Do not translate, retype, add, remove or redesign ANY UI content. Retain any standalone non-text illustration outside the UI. This is solely removal of external top-of-board lettering. Do not crop, scale, move, or redraw the interfaces. No replacement title, caption, logo or watermark. The entire former top heading area must have no letters or words.",
+  "files": [
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/a-modern.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-2f3e18c9-1d1d-424e-acbb-ba4991fdec79.png",
+      "before_sha256": "f751549033b21b69abec74d82060e53e49978c610782665852af4e74672634e6",
+      "after_sha256": "03a676f0e0137f037051162e658640c331f63f6a0a11d992840008f244c03063",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/b-night.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-29cd37e7-14d6-43d3-a15b-9d69442ed37f.png",
+      "before_sha256": "c8107f818db49538da3d02554fa9fe36d85127cb56bd5ac1b5a9aa6d39a69b84",
+      "after_sha256": "ef0ed1e4b65c38d0437f312a70067ee9272043375fa4c13b57cca007eb6eb9e8",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/c-paper.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-c3461d67-ab7e-40d6-b7a9-7e13c3847222.png",
+      "before_sha256": "1921418f34dde310ea8b83a22e4fff64dcbd711a5ca34100aacbd0043a48a3ac",
+      "after_sha256": "ada35fac14ab3907aebc502c3d0970ca13014f3c4173321666beed5a056603b0",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/d-cartoon.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-d7072b5f-2a56-4b0e-80da-53c83be9b1c4.png",
+      "before_sha256": "dbca0b1bb10028c279231b46c31a3035c2f4d88601833cb7496d7b29dcbeec27",
+      "after_sha256": "dcf786c3323c8a1f03f18aeeb25007971205296195a76dba1ad5c7f1f2d80813",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/d-cartoon-v2.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-065d153e-49ca-4807-9f42-aba285331b1a.png",
+      "before_sha256": "10e47024e070f4c235379670e25a7f49abf9a85b56f93721d202375ca7d97f8f",
+      "after_sha256": "6a05f50061d919040c0e3203de586f06e5fd79ee6d5c37cbbc9f237ea94036a7",
+      "resolution": {
+        "width": 1585,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/appearance-switcher.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-72335340-b3d6-4fd3-accd-8a88e2329ef7.png",
+      "before_sha256": "cf812afdc6ec8e983a80f2816cd822b1755fd9f4bb74ca0ad9848d0285edfe5e",
+      "after_sha256": "be9a9859d250e4fdb1f6fa072adb56197fbcb50f051042cd4404b0b1a1b95f4a",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/designs/ui-styles-2026-10-01/appearance-switcher-v2.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-7602b7c1-6c14-4998-845f-4b4b9c7d3a8d.png",
+      "before_sha256": "7418345f0eaf6ea7499521b48d8457d5c12545096c718cd58c6d4b28423e3688",
+      "after_sha256": "69add136b0bb07c44348dec3c0485b4c0e0648945655acc3fb1e65b4451830a3",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    },
+    {
+      "file": "doc/product/assets/en/quiet-modern.png",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-c4611444-a3a1-4b91-ad4e-ba24b00d8875.png",
+      "before_sha256": "70c697ed431ffcac42075876198ea646efb7e1a1b16476eb6f07a67413987e8f",
+      "after_sha256": "f580e9bb00033f7c23436065cfa741e29c9da67a44f40977551a7f49f6be74b0",
+      "resolution": {
+        "width": 1586,
+        "height": 992
+      }
+    }
+  ],
+  "mirrored_file": {
+    "file": "doc/product/assets/zh/quiet-modern.png",
+    "source": "doc/designs/ui-styles-2026-10-01/a-modern.png"
+  },
+  "note": "Root README and product-page references retain their paths and language variants. Historical generation prompts remain separately recorded in prompts.json.",
+  "verification": "All eight unique boards inspected visually; OCR found no external top headings or subtitles. Dimensions retained. Chinese product image matches the modified Chinese Modern board.",
+  "limitation": "Generative edits are not pixel-identical. The Night Link phone sample timestamp below 好嘞，今晚把路线发你 changed from 09:36 to 08:36. Three corrective image_gen attempts were ineffective; the first title-free output remains selected. This concerns concept art only, not application code or real messages.",
+  "unsuccessful_night_correction_attempts": [
+    {
+      "prompt": "Use case: precise-object-edit. Edit the supplied already-title-free Night Link toxee concept board. Make exactly one tiny text correction: on the PHONE at right, the timestamp under the received message beginning 好嘞，今晚把路线发你 (the second-to-last received bubble) reads 08:36; change it to 09:36, matching the corresponding desktop message. Keep the top margin free of all lettering. Preserve all other content, typography, dimensions, colors, layout, messages and icons exactly. Do not redraw or alter anything else. No heading or subtitle.",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-05549bcd-704e-45f8-9629-803a5e54007d.png",
+      "status": "Not selected; timestamp correction was ineffective."
+    },
+    {
+      "prompt": "Use case: precise-object-edit.\nAsset type: existing toxee desktop-and-phone UI concept board.\nInput image: the supplied board is the exact edit target.\nPrimary request: Remove ALL text in the top outer margin ABOVE the desktop application window and phone device. Remove the large A/B/C/D style heading, all \"toxee / 界面风格提案\" or \"Interface style concept\" subtitles, the appearance-board heading/subtitle, and any small Chinese or English marketing slogans in that outside top margin. Also erase title-related rules/underlines so no orphan title decorations remain. Fill these erased lettering areas seamlessly with the surrounding original pale background.\nInvariants: keep the original image dimensions and framing. Keep the desktop and phone at their original positions. Preserve EVERY pixel of interface content INSIDE the desktop window and phone: brand wordmark, navigation labels, settings headings, names, text messages, timestamps, numbers, avatars, icons, buttons, outlines, shadows, colors, and safe areas. Do not translate, retype, add, remove or redesign ANY UI content. Retain any standalone non-text illustration outside the UI. This is solely removal of external top-of-board lettering. Do not crop, scale, move, or redraw the interfaces. No replacement title, caption, logo or watermark. The entire former top heading area must have no letters or words.\nSpecial care for this Night Link input: the whole interface starts below y=157. Limit edits to the external background at y=0 through y=150. Everything at y>=157 must be copied faithfully from the input, not re-imagined. Preserve all phone timestamps exactly: 09:32, 09:33, 09:34, 09:35, 09:36, 09:37. The timestamp below the second-to-last received phone bubble MUST be 09:36 (zero nine colon three six), never 08:36. Do not change any clock digit or Chinese character inside the interfaces.",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-2ba426f8-610a-4f2e-ada3-695da154e03d.png",
+      "status": "Not selected; timestamp correction was ineffective."
+    },
+    {
+      "prompt": "Use case: text-localization (single numerical text replacement). Edit the supplied image. In the PHONE at right, ERASE the small timestamp at pixel rectangle x=1424..1480, y=700..728, and typeset exactly \"09:36\" in its place, matching the original gray-blue small timestamp font. It currently says \"08:36\". The second digit must be 9 (nine), NOT 8 (eight). This is the timestamp beneath the message 好嘞，今晚把路线发你 near the lower-right of the phone. This replacement is the only required change. Do not leave the original 08:36 in the image. Do not change anything else. All board heading regions must stay blank, and all other text, figures, colors, layout and dimensions must remain unchanged.",
+      "selected_generated_output": "/Users/bin.gao/.codex/generated_images/01a0f611-7c3c-78f2-8abd-97213dcfcb23/exec-b38d4c46-a05d-426d-b817-2ead654770af.png",
+      "status": "Not selected; timestamp correction was ineffective."
+    }
+  ]
+}

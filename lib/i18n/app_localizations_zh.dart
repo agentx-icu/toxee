@@ -2059,6 +2059,57 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
+
+  @override
+  String get interfaceStyle => '界面风格';
+
+  @override
+  String get interfaceStyleClassic => '经典蓝';
+
+  @override
+  String get interfaceStyleModern => '清爽现代';
+
+  @override
+  String get interfaceStyleNight => '夜航通讯';
+
+  @override
+  String get interfaceStylePaper => '纸感书信';
+
+  @override
+  String get interfaceStyleCartoon => '清新卡通';
+
+  @override
+  String get appearanceBrightness => '明暗模式';
+
+  @override
+  String get appearancePreview => '聊天预览';
+
+  @override
+  String get appearancePreviewSender => '陈亮';
+
+  @override
+  String get appearancePreviewReceived => '周末一起去爬山吗？';
+
+  @override
+  String get appearancePreviewSent => '好呀，周六见！';
+
+  @override
+  String get appearancePreviewOnline => '在线';
+
+  @override
+  String get appearanceApply => '应用';
+
+  @override
+  String get appearancePending => '仅预览，点击应用后保存。';
+
+  @override
+  String get appearanceSaveFailed => '外观保存失败，已保留当前选择，请重试。';
+
+  @override
+  String get restoreFromToxFileHint => '从 .tox 文件恢复 Tox 配置。';
+
+  @override
+  String get importAccountHint => '导入账号备份（.tox 或 .zip）。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3608,6 +3659,57 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get fileReceiveFailedUnnamed => '无法保存收到的文件。';
+
+  @override
+  String get interfaceStyle => '界面风格';
+
+  @override
+  String get interfaceStyleClassic => '经典蓝';
+
+  @override
+  String get interfaceStyleModern => '清爽现代';
+
+  @override
+  String get interfaceStyleNight => '夜航通讯';
+
+  @override
+  String get interfaceStylePaper => '纸感书信';
+
+  @override
+  String get interfaceStyleCartoon => '清新卡通';
+
+  @override
+  String get appearanceBrightness => '明暗模式';
+
+  @override
+  String get appearancePreview => '聊天预览';
+
+  @override
+  String get appearancePreviewSender => '陈亮';
+
+  @override
+  String get appearancePreviewReceived => '周末一起去爬山吗？';
+
+  @override
+  String get appearancePreviewSent => '好呀，周六见！';
+
+  @override
+  String get appearancePreviewOnline => '在线';
+
+  @override
+  String get appearanceApply => '应用';
+
+  @override
+  String get appearancePending => '仅预览，点击应用后保存。';
+
+  @override
+  String get appearanceSaveFailed => '外观保存失败，已保留当前选择，请重试。';
+
+  @override
+  String get restoreFromToxFileHint => '从 .tox 文件恢复 Tox 配置。';
+
+  @override
+  String get importAccountHint => '导入账号备份（.tox 或 .zip）。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5665,4 +5767,55 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get fileReceiveFailedUnnamed => '無法儲存收到的檔案。';
+
+  @override
+  String get interfaceStyle => '介面風格';
+
+  @override
+  String get interfaceStyleClassic => '經典藍';
+
+  @override
+  String get interfaceStyleModern => '清爽現代';
+
+  @override
+  String get interfaceStyleNight => '夜航通訊';
+
+  @override
+  String get interfaceStylePaper => '紙感書信';
+
+  @override
+  String get interfaceStyleCartoon => '清新卡通';
+
+  @override
+  String get appearanceBrightness => '明暗模式';
+
+  @override
+  String get appearancePreview => '聊天預覽';
+
+  @override
+  String get appearancePreviewSender => '陳亮';
+
+  @override
+  String get appearancePreviewReceived => '週末一起去爬山嗎？';
+
+  @override
+  String get appearancePreviewSent => '好呀，週六見！';
+
+  @override
+  String get appearancePreviewOnline => '線上';
+
+  @override
+  String get appearanceApply => '套用';
+
+  @override
+  String get appearancePending => '僅預覽，點擊套用後儲存。';
+
+  @override
+  String get appearanceSaveFailed => '外觀儲存失敗，已保留目前選擇，請重試。';
+
+  @override
+  String get restoreFromToxFileHint => '從 .tox 檔案還原 Tox 設定。';
+
+  @override
+  String get importAccountHint => '匯入帳號備份（.tox 或 .zip）。';
 }

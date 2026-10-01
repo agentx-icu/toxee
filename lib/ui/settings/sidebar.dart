@@ -16,12 +16,14 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../../util/ffi_chat_service_account_key.dart';
 import '../../sdk_fake/uikit_data_facade.dart';
 import '../../util/app_theme_config.dart';
-import '../../util/design_tokens.dart';
+import '../../util/theme_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/responsive_layout.dart';
 import '../../i18n/app_localizations.dart';
 import '../profile_page.dart';
 import '../testing/ui_keys.dart';
+
+part 'sidebar_contact_item.dart';
 
 /// Controls whether the sidebar exposes the Applications entry.
 const bool _showApplicationsEntry = true;
@@ -208,13 +210,11 @@ Widget buildSidebar({
   required FfiChatService service,
   required Stream<bool> connectionStatusStream,
 }) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   // Reference-design rail: flat single-tone surface (no gradient), with a
   // hairline divider on the trailing edge. Person avatar stays circular.
-  final railColor = isDark ? DesignTokens.railDark : DesignTokens.railLight;
-  final dividerColor = isDark
-      ? DesignTokens.dividerDark
-      : DesignTokens.dividerLight;
+  final palette = AppTheme.style.value.palette(Theme.of(context).brightness);
+  final railColor = palette.rail;
+  final dividerColor = palette.divider;
   return TencentCloudChatThemeWidget(
     build: (context, colorTheme, textStyle) => SizedBox(
       width: double.infinity,
@@ -233,65 +233,66 @@ Widget buildSidebar({
             SliverFillRemaining(
               hasScrollBody: false,
               child: Column(
-          children: [
-            // macOS frameless window: the native traffic lights overlay the
-            // top-left of the rail. Reserve the space INSIDE this coloured
-            // container so the rail background fills behind the lights (no
-            // seam / mismatched top strip) and the avatar sits clear of them.
-            if (Platform.isMacOS)
-              const SizedBox(
-                height: ResponsiveLayout.macTitleBarReservedHeight,
-              ),
-            // User avatar at the top
-            _UserAvatar(
-              service: service,
-              connectionStatusStream: connectionStatusStream,
-            ),
-            AppSpacing.verticalMd,
-            _SidebarItem(
-              key: UiKeys.sidebarChats,
-              context: context,
-              selected: selectedIndex == 0,
-              icon: Icons.chat_bubble_outline,
-              label:
-                  TencentCloudChatLocalizations.of(context)?.chats ?? 'Chats',
-              onTap: () => onTap(0),
-              showUnreadCount: true,
-            ),
-            _ContactSidebarItem(
-              key: UiKeys.sidebarContacts,
-              context: context,
-              selected: selectedIndex == 1,
-              icon: Icons.contacts,
-              label:
-                  TencentCloudChatLocalizations.of(context)?.contacts ??
-                  'Contacts',
-              onTap: () => onTap(1),
-            ),
-            if (_showApplicationsEntry)
-              _SidebarItem(
-                key: UiKeys.sidebarApplications,
-                context: context,
-                selected: selectedIndex == 2,
-                icon: Icons.apps,
-                label:
-                    AppLocalizations.of(context)?.applications ??
-                    'Applications',
-                onTap: () => onTap(2),
-              ),
-            const Spacer(),
-            _SidebarItem(
-              key: UiKeys.sidebarSettings,
-              context: context,
-              selected: selectedIndex == 3,
-              icon: Icons.settings,
-              label:
-                  TencentCloudChatLocalizations.of(context)?.settings ??
-                  'Settings',
-              onTap: () => onTap(3),
-            ),
-            AppSpacing.verticalLg,
-          ],
+                children: [
+                  // macOS frameless window: the native traffic lights overlay the
+                  // top-left of the rail. Reserve the space INSIDE this coloured
+                  // container so the rail background fills behind the lights (no
+                  // seam / mismatched top strip) and the avatar sits clear of them.
+                  if (Platform.isMacOS)
+                    const SizedBox(
+                      height: ResponsiveLayout.macTitleBarReservedHeight,
+                    ),
+                  // User avatar at the top
+                  _UserAvatar(
+                    service: service,
+                    connectionStatusStream: connectionStatusStream,
+                  ),
+                  AppSpacing.verticalMd,
+                  _SidebarItem(
+                    key: UiKeys.sidebarChats,
+                    context: context,
+                    selected: selectedIndex == 0,
+                    icon: Icons.chat_bubble_outline,
+                    label:
+                        TencentCloudChatLocalizations.of(context)?.chats ??
+                        'Chats',
+                    onTap: () => onTap(0),
+                    showUnreadCount: true,
+                  ),
+                  _ContactSidebarItem(
+                    key: UiKeys.sidebarContacts,
+                    context: context,
+                    selected: selectedIndex == 1,
+                    icon: Icons.contacts,
+                    label:
+                        TencentCloudChatLocalizations.of(context)?.contacts ??
+                        'Contacts',
+                    onTap: () => onTap(1),
+                  ),
+                  if (_showApplicationsEntry)
+                    _SidebarItem(
+                      key: UiKeys.sidebarApplications,
+                      context: context,
+                      selected: selectedIndex == 2,
+                      icon: Icons.apps,
+                      label:
+                          AppLocalizations.of(context)?.applications ??
+                          'Applications',
+                      onTap: () => onTap(2),
+                    ),
+                  const Spacer(),
+                  _SidebarItem(
+                    key: UiKeys.sidebarSettings,
+                    context: context,
+                    selected: selectedIndex == 3,
+                    icon: Icons.settings,
+                    label:
+                        TencentCloudChatLocalizations.of(context)?.settings ??
+                        'Settings',
+                    onTap: () => onTap(3),
+                  ),
+                  AppSpacing.verticalLg,
+                ],
               ),
             ),
           ],
@@ -572,7 +573,6 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final disableAnims = MediaQuery.disableAnimationsOf(context);
     // Compact 72px rail (landscape phone — NOT tablet; tablets are `isDesktop`
     // and get the 200pt labelled rail): icon-only, label hidden + surfaced as
@@ -583,17 +583,15 @@ class _SidebarItemState extends State<_SidebarItem> {
         // Reference-design rail item: idle icon/label use the secondary text
         // tone; the active tab switches to the brand blue. Both come from
         // DesignTokens (toxee owns this widget) for an exact palette match.
-        final baseColor = isDark
-            ? DesignTokens.textSecondaryDark
-            : DesignTokens.textSecondaryLight;
-        const selColor = DesignTokens.primary;
+        final palette = AppTheme.style.value.palette(theme.brightness);
+        final geometry = AppTheme.style.value.geometry;
+        final baseColor = palette.muted;
+        final selColor = palette.primary;
         // Modern-messenger selection: subtle primary-tinted fill plus a
         // 3px left-edge accent bar. Hover stays restrained — onSurface tone,
         // no primary tint, so it doesn't read as a half-selection.
         final bg = widget.selected
-            ? (isDark
-                  ? DesignTokens.primaryTintDark
-                  : DesignTokens.primaryTintLight)
+            ? palette.selected
             : (_isHovered
                   ? theme.colorScheme.onSurface.withValues(alpha: 0.04)
                   : Colors.transparent);
@@ -604,7 +602,7 @@ class _SidebarItemState extends State<_SidebarItem> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
             child: InkWell(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(geometry.controlRadius),
               onTap: widget.onTap,
               child: AnimatedContainer(
                 duration: disableAnims ? Duration.zero : AppDurations.fast,
@@ -616,7 +614,24 @@ class _SidebarItemState extends State<_SidebarItem> {
                 ),
                 decoration: BoxDecoration(
                   color: bg,
-                  borderRadius: BorderRadius.circular(10),
+                  border: widget.selected && geometry.outlineWidth > 0
+                      ? Border.all(
+                          color: palette.controlBorder,
+                          width: geometry.outlineWidth,
+                        )
+                      : null,
+                  boxShadow: widget.selected && geometry.shadowOffset > 0
+                      ? [
+                          BoxShadow(
+                            color: palette.controlBorder,
+                            offset: Offset(
+                              geometry.shadowOffset,
+                              geometry.shadowOffset,
+                            ),
+                          ),
+                        ]
+                      : null,
+                  borderRadius: BorderRadius.circular(geometry.controlRadius),
                 ),
                 child: Row(
                   mainAxisAlignment: compact
@@ -672,7 +687,8 @@ class _SidebarItemState extends State<_SidebarItem> {
                                             horizontal: AppSpacing.xs,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: DesignTokens.unreadBadge,
+                                            color: colorTheme
+                                                .conversationItemUnreadCountBgColor,
                                             borderRadius: BorderRadius.circular(
                                               AppThemeConfig.badgeBorderRadius,
                                             ),
@@ -689,224 +705,16 @@ class _SidebarItemState extends State<_SidebarItem> {
                                               overflow: TextOverflow.ellipsis,
                                               style: theme.textTheme.labelSmall
                                                   ?.copyWith(
-                                                    color: DesignTokens
-                                                        .onUnreadBadge,
+                                                    color: palette.onUnread,
                                                     fontWeight: FontWeight.w600,
                                                     height: 1.0,
-                                                    fontSize: 10,
+                                                    fontSize: 12,
                                                     fontFeatures: const [
                                                       FontFeature.tabularFigures(),
                                                     ],
                                                   ),
                                               textAlign: TextAlign.center,
                                             ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (!compact) ...[
-                      const SizedBox(width: 14),
-                      // Flexible + ellipsis so a long label ("Applications")
-                      // or a longer localized string can never overflow the
-                      // rail (was the "RIGHT OVERFLOWED BY 17 PIXELS" bug).
-                      Flexible(
-                        child: Text(
-                          widget.label,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: widget.selected ? selColor : baseColor,
-                            fontWeight: widget.selected
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ContactSidebarItem extends StatefulWidget {
-  const _ContactSidebarItem({
-    super.key,
-    required this.context,
-    required this.selected,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final BuildContext context;
-  final bool selected;
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  State<_ContactSidebarItem> createState() => _ContactSidebarItemState();
-}
-
-class _ContactSidebarItemState extends State<_ContactSidebarItem> {
-  StreamSubscription<TencentCloudChatContactData<dynamic>>? _contactDataSub;
-  int _applicationUnreadCount = 0;
-  bool _isHovered = false;
-  bool get _disableAnims => MediaQuery.disableAnimationsOf(context);
-
-  @override
-  void initState() {
-    super.initState();
-    // Listen to contact data changes to get application unread count
-    final contactDataStream = TencentCloudChat.instance.eventBusInstance
-        .on<TencentCloudChatContactData<dynamic>>(
-          "TencentCloudChatContactData",
-        );
-    _contactDataSub = contactDataStream?.listen((data) {
-      if (data.currentUpdatedFields ==
-              TencentCloudChatContactDataKeys.applicationCount ||
-          data.currentUpdatedFields ==
-              TencentCloudChatContactDataKeys.applicationList) {
-        if (mounted) {
-          setState(() {
-            _applicationUnreadCount = data.applicationUnreadCount;
-          });
-        }
-      }
-    });
-    // Get initial count
-    _applicationUnreadCount = UikitDataFacade.applicationUnreadCount;
-  }
-
-  @override
-  void dispose() {
-    _contactDataSub?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    // Compact 72px rail (landscape phone — NOT tablet; tablets are `isDesktop`
-    // and get the 200pt labelled rail): icon-only, label hidden + surfaced as
-    // a tooltip. Wide rail: icon + ellipsised label.
-    final compact = ResponsiveLayout.isCompactRail(context);
-    return TencentCloudChatThemeWidget(
-      build: (context, colorTheme, textStyle) {
-        final baseColor = isDark
-            ? DesignTokens.textSecondaryDark
-            : DesignTokens.textSecondaryLight;
-        const selColor = DesignTokens.primary;
-        final bg = widget.selected
-            ? (isDark
-                  ? DesignTokens.primaryTintDark
-                  : DesignTokens.primaryTintLight)
-            : (_isHovered
-                  ? theme.colorScheme.onSurface.withValues(alpha: 0.04)
-                  : Colors.transparent);
-        return MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _isHovered = true),
-          onExit: (_) => setState(() => _isHovered = false),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: widget.onTap,
-              child: AnimatedContainer(
-                duration: _disableAnims ? Duration.zero : AppDurations.fast,
-                width: double.infinity,
-                constraints: const BoxConstraints(minHeight: 52),
-                padding: EdgeInsets.symmetric(
-                  vertical: 10,
-                  horizontal: compact ? 8 : 18,
-                ),
-                decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisAlignment: compact
-                      ? MainAxisAlignment.center
-                      : MainAxisAlignment.start,
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        _compactTooltip(
-                          enabled: compact,
-                          message: widget.label,
-                          child: Icon(
-                            widget.icon,
-                            size: 23,
-                            color: widget.selected ? selColor : baseColor,
-                          ),
-                        ),
-                        if (_applicationUnreadCount > 0)
-                          Positioned(
-                            top: -5,
-                            right: -6,
-                            child: UnconstrainedBox(
-                              child: Builder(
-                                builder: (context) {
-                                  final displayText =
-                                      _applicationUnreadCount > 99
-                                      ? "99+"
-                                      : "$_applicationUnreadCount";
-                                  return Semantics(
-                                    label:
-                                        AppLocalizations.of(
-                                          context,
-                                        )?.unreadMessagesSemantics(
-                                          _applicationUnreadCount,
-                                        ) ??
-                                        'Unread messages: $_applicationUnreadCount',
-                                    container: true,
-                                    child: ExcludeSemantics(
-                                      child: Container(
-                                        constraints: const BoxConstraints(
-                                          minWidth: 16,
-                                        ),
-                                        height: 16,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: AppSpacing.xs,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: DesignTokens.unreadBadge,
-                                          borderRadius: BorderRadius.circular(
-                                            AppThemeConfig.badgeBorderRadius,
-                                          ),
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            displayText,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.labelSmall
-                                                ?.copyWith(
-                                                  color: DesignTokens
-                                                      .onUnreadBadge,
-                                                  fontWeight: FontWeight.w600,
-                                                  height: 1.0,
-                                                  fontSize: 10,
-                                                ),
-                                            textAlign: TextAlign.center,
                                           ),
                                         ),
                                       ),

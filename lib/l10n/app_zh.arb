@@ -845,5 +845,22 @@
   "fileReceiveNoSpace": "存储空间不足，无法接收“{fileName}”。请释放空间后重试。",
   "fileReceiveNoSpaceUnnamed": "存储空间不足，无法接收文件。请释放空间后重试。",
   "fileReceiveFailed": "无法保存“{fileName}”。",
-  "fileReceiveFailedUnnamed": "无法保存收到的文件。"
+  "fileReceiveFailedUnnamed": "无法保存收到的文件。",
+  "interfaceStyle": "界面风格",
+  "interfaceStyleClassic": "经典蓝",
+  "interfaceStyleModern": "清爽现代",
+  "interfaceStyleNight": "夜航通讯",
+  "interfaceStylePaper": "纸感书信",
+  "interfaceStyleCartoon": "清新卡通",
+  "appearanceBrightness": "明暗模式",
+  "appearancePreview": "聊天预览",
+  "appearancePreviewSender": "陈亮",
+  "appearancePreviewReceived": "周末一起去爬山吗？",
+  "appearancePreviewSent": "好呀，周六见！",
+  "appearancePreviewOnline": "在线",
+  "appearanceApply": "应用",
+  "appearancePending": "仅预览，点击应用后保存。",
+  "appearanceSaveFailed": "外观保存失败，已保留当前选择，请重试。",
+  "restoreFromToxFileHint": "从 .tox 文件恢复 Tox 配置。",
+  "importAccountHint": "导入账号备份（.tox 或 .zip）。"
 }

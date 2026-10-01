@@ -7,18 +7,15 @@
 //   - the notification-sound Switch flips AND persists to Prefs (scoped key);
 //   - the download-limit field + Save button persist to Prefs only for valid
 //     values, and reject the invalid / boundary inputs (0, 10001, abc);
-//   - each theme segment (System/Light/Dark) drives AppTheme.mode AND persists
+//   - Apply commits the selected theme segment to AppTheme.mode AND persists
 //     via Prefs.getThemeMode();
 //   - each language option drives AppLocale.locale AND persists via
 //     Prefs.getLocale().
 //
-// The section is hermetic: it never touches FfiChatService. The theme/locale
-// appliers (applyThemeModeEverywhere / applyLocaleEverywhere) reach into the
-// UIKit controller (TencentCloudChat.controller.setBrightnessMode,
-// TencentCloudChatIntl().setLocale) but those are pure in-memory setters that
-// work without UIKit init (proven by the sibling test passing). We still mock
-// the platform message channel for HapticFeedback so a stray haptic from any
-// Material control can't throw under the test binding.
+// The section is hermetic: it never touches FfiChatService. Appearance commits
+// through AppTheme.setAppearance; EchoUIKitApp listens to AppTheme.changes to
+// update UIKit. Language still uses applyLocaleEverywhere. Platform haptic
+// calls are mocked here so Material controls can run without native plugins.
 //
 // Mobile parity: every behavior here lives in shared Dart
 // (lib/ui/settings/global_settings_section.dart + lib/util/prefs.dart +
@@ -85,16 +82,14 @@ void main() {
   // SystemChannels.platform; swallow it so it never throws under the binding.
   final List<MethodCall> platformCalls = <MethodCall>[];
   setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized()
-        .defaultBinaryMessenger
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
           platformCalls.add(call);
           return null;
         });
   });
   tearDownAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized()
-        .defaultBinaryMessenger
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
@@ -318,13 +313,15 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.light_mode));
       await tester.pump();
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(AppTheme.mode.value, ThemeMode.light);
       expect(
         await Prefs.getThemeMode(),
         'light',
-        reason: 'applyThemeModeEverywhere → AppTheme.set persists "light"',
+        reason: 'Apply → AppTheme.setAppearance persists "light"',
       );
     });
 
@@ -335,6 +332,8 @@ void main() {
       await _pumpSettled(tester, _harness(toxId: null));
 
       await tester.tap(find.byIcon(Icons.dark_mode));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -354,6 +353,8 @@ void main() {
       expect(AppTheme.mode.value, ThemeMode.dark, reason: 'seeded dark');
 
       await tester.tap(find.byIcon(Icons.brightness_auto));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 

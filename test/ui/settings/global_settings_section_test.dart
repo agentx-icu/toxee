@@ -8,8 +8,7 @@
 // Covered behaviors:
 //   1. Section renders an Appearance card with three theme segments
 //      (System / Light / Dark) gated by the `AppTheme.mode` ValueNotifier.
-//   2. Tapping the Light segment updates `AppTheme.mode` to ThemeMode.light
-//      and persists via Prefs.
+//   2. Selecting brightness stays local until Apply updates and persists it.
 //   3. Tapping the language row expands the language list with one entry per
 //      supported locale.
 //   4. Selecting a non-default language updates `AppLocale.locale`.
@@ -86,7 +85,9 @@ void main() {
       expect(find.byIcon(Icons.dark_mode), findsOneWidget);
     });
 
-    testWidgets('tapping Light segment updates AppTheme.mode', (tester) async {
+    testWidgets('applying Light selection updates AppTheme.mode', (
+      tester,
+    ) async {
       await _initPrefs();
       await _pumpSettled(tester, _harness(toxId: null));
 
@@ -100,20 +101,26 @@ void main() {
       // whole; targeting the icon is the most stable affordance.
       await tester.tap(find.byIcon(Icons.light_mode));
       await tester.pump();
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(
         AppTheme.mode.value,
         ThemeMode.light,
-        reason: 'Segment selection flows back through AppTheme.set',
+        reason: 'Apply commits through AppTheme.setAppearance',
       );
     });
 
-    testWidgets('tapping Dark segment updates AppTheme.mode', (tester) async {
+    testWidgets('applying Dark selection updates AppTheme.mode', (
+      tester,
+    ) async {
       await _initPrefs();
       await _pumpSettled(tester, _harness(toxId: null));
 
       await tester.tap(find.byIcon(Icons.dark_mode));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 

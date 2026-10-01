@@ -159,6 +159,29 @@ void main() {
 
   group('phone Account info card — copy Tox ID', () {
     testWidgets(
+      'explicit copy action has a 44px target and copies at its edge',
+      (tester) async {
+        final service = SettingsHarnessService();
+        addTearDown(service.disposeStub);
+        _usePhoneSurface(tester);
+        await _pumpSettings(tester, service);
+        await _openAccountInfoSection(tester);
+        final action = find.byKey(
+          const ValueKey('settings_mobile_copy_tox_id_action'),
+        );
+        expect(action, findsOneWidget);
+        await tester.ensureVisible(action);
+        await tester.pump();
+        final rect = tester.getRect(action);
+        expect(rect.width, greaterThanOrEqualTo(44));
+        expect(rect.height, greaterThanOrEqualTo(44));
+        await tester.tapAt(rect.topLeft + const Offset(3, 3));
+        await settleSettings(tester);
+        expect(mocks.clipboardLog, contains(kSettingsToxId));
+      },
+    );
+
+    testWidgets(
       'tapping the real keyed Tox ID control copies the FULL id and shows the '
       '"copied" SnackBar',
       (WidgetTester tester) async {
@@ -202,7 +225,8 @@ void main() {
         expect(
           find.text('ID copied to clipboard'),
           findsOneWidget,
-          reason: 'the copy handler must surface its idCopiedToClipboard '
+          reason:
+              'the copy handler must surface its idCopiedToClipboard '
               'SnackBar',
         );
       },

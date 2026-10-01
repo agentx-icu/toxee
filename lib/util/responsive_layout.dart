@@ -230,29 +230,24 @@ class ResponsiveLayout {
   /// - **0** whenever [shouldShowBottomNav] is true, i.e. viewport width <
   ///   [largePhoneBreakpoint] (720). Covers portrait phones and tablets in a
   ///   narrow window.
-  /// - **200** for [isDesktop] — which is desktop OS *and tablets* (see the
-  ///   [isDesktop] doc: tablets deliberately take the desktop layout in every
-  ///   orientation). 200 is enough for the icon plus the longest label
-  ///   ("Applications") in the default `titleMedium` size without ellipsis.
-  ///   Was 180, which clipped "Applications" by ~17px (RenderFlex overflow).
-  /// - **72** (compact icon-only rail — labels are hidden at this width) for
-  ///   the remainder: NOT tablets. The only tier that actually lands here is a
-  ///   **landscape phone** — `shortestSide < 600` makes [isDesktop] false while
-  ///   `width >= 720` suppresses the bottom nav. Examples: 844×390, 892×412.
-  ///   A tablet can never reach 72 because [isDesktop] is true for it.
+  /// - **72** for intermediate windows below 1100, including tablets. The
+  ///   compact rail retains icon tooltips and leaves room for both a
+  ///   conversation list and a usable message pane.
+  /// - **200** for wider desktop/tablet layouts. This fits the icon plus the
+  ///   longest navigation label without clipping.
+  /// - Landscape phones keep the compact rail even in a wider viewport.
   // Sidebar visibility and bottom-nav visibility are controlled by the same
   // check (`shouldShowBottomNav`) so the two never disagree (e.g. landscape
   // large-phones used to get a sidebar AND a bottom nav).
   static double responsiveSidebarWidth(BuildContext context) {
     if (shouldShowBottomNav(context)) return 0.0;
+    if (MediaQuery.sizeOf(context).width < 1100) return 72.0;
     return isDesktop(context) ? 200.0 : 72.0;
   }
 
   /// True when the rail is the compact icon-only tier, i.e.
-  /// [responsiveSidebarWidth] resolved to 72. In practice that means a
-  /// **landscape phone** (`shortestSide < 600` so not [isDesktop], `width >=
-  /// 720` so no bottom nav) — tablets and desktop get the 200pt labelled rail,
-  /// portrait phones get a bottom nav and no rail at all.
+  /// [responsiveSidebarWidth] resolved to 72. Intermediate desktop/tablet
+  /// windows and landscape phones use this rail; narrow phones use bottom nav.
   ///
   /// At this width the sidebar shows icons only (with tooltips) rather than
   /// icon+label, because the 72px rail cannot fit a text label. Single source

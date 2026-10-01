@@ -1017,5 +1017,22 @@
   "fileReceiveNoSpace": "儲存空間不足，無法接收「{fileName}」。請釋放空間後再試一次。",
   "fileReceiveNoSpaceUnnamed": "儲存空間不足，無法接收檔案。請釋放空間後再試一次。",
   "fileReceiveFailed": "無法儲存「{fileName}」。",
-  "fileReceiveFailedUnnamed": "無法儲存收到的檔案。"
+  "fileReceiveFailedUnnamed": "無法儲存收到的檔案。",
+  "interfaceStyle": "介面風格",
+  "interfaceStyleClassic": "經典藍",
+  "interfaceStyleModern": "清爽現代",
+  "interfaceStyleNight": "夜航通訊",
+  "interfaceStylePaper": "紙感書信",
+  "interfaceStyleCartoon": "清新卡通",
+  "appearanceBrightness": "明暗模式",
+  "appearancePreview": "聊天預覽",
+  "appearancePreviewSender": "陳亮",
+  "appearancePreviewReceived": "週末一起去爬山嗎？",
+  "appearancePreviewSent": "好呀，週六見！",
+  "appearancePreviewOnline": "線上",
+  "appearanceApply": "套用",
+  "appearancePending": "僅預覽，點擊套用後儲存。",
+  "appearanceSaveFailed": "外觀儲存失敗，已保留目前選擇，請重試。",
+  "restoreFromToxFileHint": "從 .tox 檔案還原 Tox 設定。",
+  "importAccountHint": "匯入帳號備份（.tox 或 .zip）。"
 }

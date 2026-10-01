@@ -24,6 +24,10 @@
 
 **toxee** 是**基于 tox 的 Flutter 聊天客户端 / 示例应用**。它展示如何将 tox 与 Tencent Cloud Chat UIKit 集成，实现去中心化 P2P 聊天：账号、会话、消息、好友、群组、Bootstrap、可选通话与扩展能力均在当前仓库内实现或对接。
 
+[![toxee 清爽现代设计概念：桌面与手机聊天界面](doc/product/assets/zh/quiet-modern.png)](doc/product/assets/zh/quiet-modern.png)
+
+*清爽现代设计概念：桌面与手机聊天界面。*
+
 **明确定义**：
 
 - **它是**：一个可运行的 Flutter 应用，面向“想跑起来”的开发者和“想理解客户端与 Tim2Tox 关系”的维护者；同时作为集成 Tim2Tox 的参考实现。
@@ -34,21 +38,11 @@
 
 ## 功能截图
 
-真实应用，一套 Flutter 代码，运行于**桌面（macOS）、Android、iPad 与 iOS**（点击图片查看原图）。中文界面截图位于 [`doc/product/assets/zh/`](doc/product/assets/zh)（英文界面版本在 [`doc/product/assets/en/`](doc/product/assets/en)，见 [README.md](README.md)）；完整功能展示见自包含产品页 **[`doc/product/index.html`](doc/product/index.html)**（在浏览器中打开）。
+下方使用与项目简介、产品页首图一致的**清爽现代**设计图，桌面与手机的界面标签及示例对话均为中文。点击图片查看原图。
 
-**同一个单聊，在每个平台上：**
+[![toxee 清爽现代中文设计概念：桌面与手机聊天界面](doc/product/assets/zh/quiet-modern.png)](doc/product/assets/zh/quiet-modern.png)
 
-| 桌面 | iPad | Android | iOS |
-| :---: | :---: | :---: | :---: |
-| [![macOS 上的聊天](doc/product/assets/zh/desktop/c2c.png)](doc/product/assets/zh/desktop/c2c.png) | [![iPad 上的聊天](doc/product/assets/zh/ipad/c2c.png)](doc/product/assets/zh/ipad/c2c.png) | [![Android 上的聊天](doc/product/assets/zh/android/c2c.png)](doc/product/assets/zh/android/c2c.png) | [![iOS 上的聊天](doc/product/assets/zh/ios/c2c.png)](doc/product/assets/zh/ios/c2c.png) |
-
-**更多（桌面）：**
-
-| 群聊 | 新的朋友 | 个人资料 & Tox ID 二维码 | 设置 |
-| :---: | :---: | :---: | :---: |
-| [![群聊](doc/product/assets/zh/desktop/group_chat.png)](doc/product/assets/zh/desktop/group_chat.png) | [![好友申请](doc/product/assets/zh/desktop/new_application.png)](doc/product/assets/zh/desktop/new_application.png) | [![个人资料与 Tox ID 二维码名片](doc/product/assets/zh/desktop/self_profile.png)](doc/product/assets/zh/desktop/self_profile.png) | [![设置](doc/product/assets/zh/desktop/settings.png)](doc/product/assets/zh/desktop/settings.png) |
-
-> 这些截图由 `./tool/screenshots/capture.sh` 从运行中的应用自动生成（中文界面、中文示例数据） —— 详见 [`tool/screenshots/README.md`](tool/screenshots/README.md)。
+*此图为设计概念稿。完整功能展示与应用实拍截图见 [`doc/product/index.html`](doc/product/index.html)（在浏览器中打开）；英文设计图见 [README.md](README.md)。*
 
 ---
 

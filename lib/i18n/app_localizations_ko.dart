@@ -2098,4 +2098,56 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => '받은 파일을 저장할 수 없습니다.';
+
+  @override
+  String get interfaceStyle => '인터페이스 스타일';
+
+  @override
+  String get interfaceStyleClassic => '클래식 블루';
+
+  @override
+  String get interfaceStyleModern => '차분한 모던';
+
+  @override
+  String get interfaceStyleNight => '나이트 라디오';
+
+  @override
+  String get interfaceStylePaper => '종이 편지';
+
+  @override
+  String get interfaceStyleCartoon => '산뜻한 카툰';
+
+  @override
+  String get appearanceBrightness => '밝기';
+
+  @override
+  String get appearancePreview => '채팅 미리 보기';
+
+  @override
+  String get appearancePreviewSender => '알렉스';
+
+  @override
+  String get appearancePreviewReceived => '이번 주말에 등산 갈까요?';
+
+  @override
+  String get appearancePreviewSent => '좋아요. 토요일에 만나요!';
+
+  @override
+  String get appearancePreviewOnline => '온라인';
+
+  @override
+  String get appearanceApply => '적용';
+
+  @override
+  String get appearancePending => '미리 보기입니다. 적용하면 변경 사항이 저장됩니다.';
+
+  @override
+  String get appearanceSaveFailed =>
+      '화면 설정을 저장하지 못했습니다. 선택은 유지됩니다. 다시 시도해 주세요.';
+
+  @override
+  String get restoreFromToxFileHint => '.tox 파일에서 Tox 프로필을 복원합니다.';
+
+  @override
+  String get importAccountHint => '계정 백업(.tox 또는 .zip)을 가져옵니다.';
 }

@@ -10,7 +10,8 @@ library;
 import 'package:flutter/material.dart';
 
 import '../util/app_component_themes.dart';
-import '../util/design_tokens.dart';
+import '../util/interface_style.dart';
+import '../util/theme_controller.dart';
 
 // ──────────────────────────────────────────────
 //  Theme builders
@@ -22,76 +23,53 @@ import '../util/design_tokens.dart';
 // so each surface (AppBar, Button, Card, Dialog, Sheet, Input, etc.) gets
 // the same radius/padding/elevation rhythm in both modes.
 
-ThemeData buildLightTheme() {
-  // Explicit color scheme (not seed-generated) so toxee's Material pages get
-  // the exact sampled surfaces/text/dividers instead of tonal approximations.
-  final colorScheme =
-      ColorScheme.fromSeed(
-        seedColor: DesignTokens.primary,
-        brightness: Brightness.light,
-      ).copyWith(
-        primary: DesignTokens.primary,
-        onPrimary: DesignTokens.onPrimary,
-        secondary: DesignTokens.primary,
-        onSecondary: Colors.white,
-        surface: DesignTokens.scaffoldLight,
-        onSurface: DesignTokens.textPrimaryLight,
-        onSurfaceVariant: DesignTokens.textSecondaryLight,
-        surfaceContainerLowest: const Color(0xFFFFFFFF),
-        surfaceContainerLow: const Color(0xFFFAFBFC),
-        surfaceContainer: const Color(0xFFF7F8FA),
-        surfaceContainerHigh: DesignTokens.hoverLight,
-        surfaceContainerHighest: DesignTokens.inputFieldLight,
-        outline: DesignTokens.inputBorderLight,
-        outlineVariant: DesignTokens.dividerLight,
-        error: DesignTokens.errorLight,
-        onError: Colors.white,
-        inverseSurface: const Color(0xFF2E3033),
-        onInverseSurface: Colors.white,
-        inversePrimary: DesignTokens.primaryHover,
-      );
-  final base = ThemeData(
-    useMaterial3: true,
-    brightness: Brightness.light,
-    colorScheme: colorScheme,
-    scaffoldBackgroundColor: DesignTokens.scaffoldLight,
-  );
-  return _applyAppTheming(base);
-}
+ThemeData buildLightTheme({InterfaceStyle? style}) =>
+    _buildTheme(style ?? AppTheme.style.value, Brightness.light);
 
-ThemeData buildDarkTheme() {
-  final colorScheme =
-      ColorScheme.fromSeed(
-        seedColor: DesignTokens.primary,
-        brightness: Brightness.dark,
-      ).copyWith(
-        primary: DesignTokens.primary,
-        onPrimary: DesignTokens.onPrimary,
-        secondary: DesignTokens.primary,
-        onSecondary: Colors.white,
-        surface: DesignTokens.scaffoldDark,
-        onSurface: DesignTokens.textPrimaryDark,
-        onSurfaceVariant: DesignTokens.textSecondaryDark,
-        surfaceContainerLowest: const Color(0xFF151515),
-        surfaceContainerLow: DesignTokens.listPanelDark,
-        surfaceContainer: const Color(0xFF202022),
-        surfaceContainerHigh: DesignTokens.cardDark,
-        surfaceContainerHighest: DesignTokens.inputFieldDark,
-        outline: DesignTokens.inputBorderDark,
-        outlineVariant: DesignTokens.dividerDark,
-        error: DesignTokens.errorDark,
-        onError: Colors.white,
-        inverseSurface: const Color(0xFFE6E8EB),
-        onInverseSurface: DesignTokens.textPrimaryLight,
-        inversePrimary: DesignTokens.primary,
-      );
-  final base = ThemeData(
-    useMaterial3: true,
-    brightness: Brightness.dark,
-    colorScheme: colorScheme,
-    scaffoldBackgroundColor: DesignTokens.scaffoldDark,
+ThemeData buildDarkTheme({InterfaceStyle? style}) =>
+    _buildTheme(style ?? AppTheme.style.value, Brightness.dark);
+
+ThemeData _buildTheme(InterfaceStyle style, Brightness brightness) {
+  final p = style.palette(brightness);
+  final opposite = style.palette(
+    brightness == Brightness.light ? Brightness.dark : Brightness.light,
   );
-  return _applyAppTheming(base);
+  final cs = ColorScheme.fromSeed(seedColor: p.primary, brightness: brightness)
+      .copyWith(
+        primary: p.primary,
+        onPrimary: p.onPrimary,
+        primaryContainer: p.selected,
+        onPrimaryContainer: p.text,
+        secondary: p.primary,
+        onSecondary: p.onPrimary,
+        secondaryContainer: p.selected,
+        onSecondaryContainer: p.text,
+        surface: p.panel,
+        onSurface: p.text,
+        onSurfaceVariant: p.muted,
+        surfaceContainerLowest: p.canvas,
+        surfaceContainerLow: p.panel,
+        surfaceContainer: p.panel,
+        surfaceContainerHigh: p.received,
+        surfaceContainerHighest: p.received,
+        outline: p.controlBorder,
+        outlineVariant: p.divider,
+        error: p.error,
+        onError: p.onUnread,
+        inverseSurface: opposite.panel,
+        onInverseSurface: opposite.text,
+        inversePrimary: opposite.link,
+        surfaceTint: Colors.transparent,
+      );
+  return _applyAppTheming(
+    ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      colorScheme: cs,
+      scaffoldBackgroundColor: p.canvas,
+    ),
+    style.geometry,
+  );
 }
 
 /// Apply the toxee text hierarchy + component themes on top of a brightness-
@@ -101,7 +79,7 @@ ThemeData buildDarkTheme() {
 /// the AppBar component theme is preserved because the prior config didn't
 /// set it; `elevation: 1` from the prior Card config is preserved because the
 /// `.copyWith(elevation: 1)` chain applies after the new base.)
-ThemeData _applyAppTheming(ThemeData base) {
+ThemeData _applyAppTheming(ThemeData base, StyleGeometry geometry) {
   final cs = base.colorScheme;
   final brightness = base.brightness;
   return base.copyWith(
@@ -167,21 +145,34 @@ ThemeData _applyAppTheming(ThemeData base) {
       cs,
       brightness,
     ).copyWith(centerTitle: false),
-    elevatedButtonTheme: AppComponentThemes.elevatedButtonTheme(cs),
-    filledButtonTheme: AppComponentThemes.filledButtonTheme(cs),
-    outlinedButtonTheme: AppComponentThemes.outlinedButtonTheme(cs),
-    textButtonTheme: AppComponentThemes.textButtonTheme(cs),
-    dialogTheme: AppComponentThemes.dialogTheme(cs),
-    bottomSheetTheme: AppComponentThemes.bottomSheetTheme(cs),
+    elevatedButtonTheme: AppComponentThemes.elevatedButtonTheme(
+      cs,
+      geometry: geometry,
+    ),
+    filledButtonTheme: AppComponentThemes.filledButtonTheme(
+      cs,
+      geometry: geometry,
+    ),
+    outlinedButtonTheme: AppComponentThemes.outlinedButtonTheme(
+      cs,
+      geometry: geometry,
+    ),
+    textButtonTheme: AppComponentThemes.textButtonTheme(cs, geometry: geometry),
+    dialogTheme: AppComponentThemes.dialogTheme(cs, geometry: geometry),
+    bottomSheetTheme: AppComponentThemes.bottomSheetTheme(
+      cs,
+      geometry: geometry,
+    ),
     inputDecorationTheme: AppComponentThemes.inputDecorationTheme(
       cs,
       brightness,
+      geometry: geometry,
     ),
     // Flat cards (elevation 0) — the reference design separates surfaces with
     // background tone + hairline, not shadow.
-    cardTheme: AppComponentThemes.cardTheme(cs),
+    cardTheme: AppComponentThemes.cardTheme(cs, geometry: geometry),
     chipTheme: AppComponentThemes.chipTheme(cs, brightness),
-    snackBarTheme: AppComponentThemes.snackBarTheme(cs),
+    snackBarTheme: AppComponentThemes.snackBarTheme(cs, geometry: geometry),
     dividerTheme: AppComponentThemes.dividerTheme(cs),
     tabBarTheme: AppComponentThemes.tabBarTheme(cs),
     switchTheme: AppComponentThemes.switchTheme(cs),

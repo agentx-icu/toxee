@@ -4,106 +4,115 @@ import 'package:tencent_cloud_chat_common/data/theme/color/light.dart';
 import 'package:tencent_cloud_chat_common/data/theme/tencent_cloud_chat_theme_model.dart';
 import 'package:tencent_cloud_chat_common/data/theme/text_style/text_style.dart';
 
-import 'design_tokens.dart';
+import 'interface_style.dart';
+import 'theme_controller.dart';
 
-/// Centralized theme tokens for toxee.
-///
-/// Direction: clean enterprise-chat aesthetic matched from the reference
-/// screenshots — blue (#3370FF) primary, white / near-black surfaces, pale-blue
-/// self bubble, gray other bubble, periwinkle selection, hairline dividers,
-/// 12px cards / 8px buttons. All color values delegate to [DesignTokens] (the
-/// single sampled palette source) so existing page code that imports
-/// `AppThemeConfig.*` inherits the new look without per-page edits.
+/// Shared application tokens, resolved from the current device appearance.
+/// Explicit light/dark getters remain available to screens rendering both modes.
 class AppThemeConfig {
   AppThemeConfig._();
+
+  static Brightness get _brightness => switch (AppTheme.mode.value) {
+    ThemeMode.light => Brightness.light,
+    ThemeMode.dark => Brightness.dark,
+    ThemeMode.system =>
+      WidgetsBinding.instance.platformDispatcher.platformBrightness,
+  };
+  static StyleGeometry get geometry => AppTheme.style.value.geometry;
+  static StylePalette palette(Brightness brightness) =>
+      AppTheme.style.value.palette(brightness);
 
   // ──────────────────────────────────────────────
   //  Light mode
   // ──────────────────────────────────────────────
 
   /// Primary brand color. Used for CTAs, links, focus rings.
-  static const Color primaryColor = DesignTokens.primary;
+  static Color get primaryColor => palette(_brightness).primary;
 
   /// Pressed/hover state for primary surfaces.
-  static const Color secondaryColor = DesignTokens.primaryPressed;
+  static Color get secondaryColor => palette(_brightness).primary;
 
   /// Self message bubble — pale blue (sampled #E8F0FE), dark text.
-  static const Color selfMessageBubbleColorLight = DesignTokens.selfBubbleLight;
+  static Color get selfMessageBubbleColorLight =>
+      palette(Brightness.light).sent;
 
   /// Self message text on the pale-blue bubble.
-  static const Color selfMessageTextColorLight = DesignTokens.selfBubbleTextLight;
+  static Color get selfMessageTextColorLight =>
+      palette(Brightness.light).sentText;
 
   /// Scaffold — white.
-  static const Color lightScaffoldBackground = DesignTokens.scaffoldLight;
+  static Color get lightScaffoldBackground => palette(Brightness.light).canvas;
 
   /// Gradient anchors for startup / login splash and desktop sidebar.
-  static const Color lightGradientStart = Color(0xFFFFFFFF);
-  static const Color lightGradientEnd = DesignTokens.railLight;
+  static Color get lightGradientStart => palette(Brightness.light).panel;
+  static Color get lightGradientEnd => palette(Brightness.light).rail;
 
   /// Primary text — #1F2329.
-  static const Color primaryTextColorLight = DesignTokens.textPrimaryLight;
+  static Color get primaryTextColorLight => palette(Brightness.light).text;
 
   /// Secondary text — #646A73 (timestamps, snippets, metadata).
-  static const Color secondaryTextColorLight = DesignTokens.textSecondaryLight;
+  static Color get secondaryTextColorLight => palette(Brightness.light).muted;
 
   /// Divider — hairline #E5E6EB.
-  static const Color dividerColorLight = DesignTokens.dividerLight;
+  static Color get dividerColorLight => palette(Brightness.light).divider;
 
   // ──────────────────────────────────────────────
   //  Dark mode
   // ──────────────────────────────────────────────
 
   /// Brand blue holds up on the near-black dark surface.
-  static const Color primaryColorDark = DesignTokens.primary;
+  static Color get primaryColorDark => palette(Brightness.dark).primary;
 
-  static const Color secondaryColorDark = DesignTokens.primaryHover;
+  static Color get secondaryColorDark => palette(Brightness.dark).primary;
 
   /// Self bubble in dark — deep blue (sampled #15315F).
-  static const Color selfMessageBubbleColorDark = DesignTokens.selfBubbleDark;
+  static Color get selfMessageBubbleColorDark => palette(Brightness.dark).sent;
 
   /// Self bubble text — near-white.
-  static const Color selfMessageTextColorDark = DesignTokens.selfBubbleTextDark;
+  static Color get selfMessageTextColorDark =>
+      palette(Brightness.dark).sentText;
 
   /// Message status / read tick in dark — recedes behind the bubble color.
-  static const Color messageStatusIconColorDark = DesignTokens.textTertiaryDark;
+  static Color get messageStatusIconColorDark => palette(Brightness.dark).muted;
 
   /// Others bubble in dark — lifted off the scaffold.
-  static const Color othersMessageBubbleColorDark = DesignTokens.otherBubbleDark;
+  static Color get othersMessageBubbleColorDark =>
+      palette(Brightness.dark).received;
 
   /// Scaffold — near-black.
-  static const Color darkScaffoldBackground = DesignTokens.scaffoldDark;
+  static Color get darkScaffoldBackground => palette(Brightness.dark).canvas;
 
   /// Gradient anchors in dark.
-  static const Color darkGradientStart = DesignTokens.scaffoldDark;
-  static const Color darkGradientEnd = DesignTokens.listPanelDark;
+  static Color get darkGradientStart => palette(Brightness.dark).canvas;
+  static Color get darkGradientEnd => palette(Brightness.dark).panel;
 
   /// Primary text — near-white.
-  static const Color primaryTextColorDark = DesignTokens.textPrimaryDark;
+  static Color get primaryTextColorDark => palette(Brightness.dark).text;
 
   /// Secondary text.
-  static const Color secondaryTextColorDark = DesignTokens.textSecondaryDark;
+  static Color get secondaryTextColorDark => palette(Brightness.dark).muted;
 
   /// Divider — hairline on dark.
-  static const Color dividerColorDark = DesignTokens.dividerDark;
+  static Color get dividerColorDark => palette(Brightness.dark).divider;
 
   // ──────────────────────────────────────────────
   //  Semantic colors (shared across modes)
   // ──────────────────────────────────────────────
 
   /// Online / connected / success — green. Reserved for status, NOT brand.
-  static const Color successColor = DesignTokens.online;
+  static Color get successColor => palette(_brightness).online;
 
   /// Error — red.
-  static const Color errorColor = DesignTokens.errorLight;
+  static Color get errorColor => palette(_brightness).error;
 
   /// Away / idle — amber.
-  static const Color statusAwayColor = DesignTokens.warningLight;
+  static Color get statusAwayColor => palette(_brightness).warning;
 
   /// Busy / do-not-disturb.
-  static const Color statusBusyColor = DesignTokens.errorLight;
+  static Color get statusBusyColor => palette(_brightness).error;
 
   /// Connecting / syncing — neutral brand blue.
-  static const Color statusConnectingColor = DesignTokens.primary;
+  static Color get statusConnectingColor => palette(_brightness).primary;
 
   /// Search keyword highlight background — light mode.
   static const Color searchHighlightColorLight = Color(0xFFFEF0A8);
@@ -156,10 +165,10 @@ class AppThemeConfig {
   //  Border radii
   // ──────────────────────────────────────────────
 
-  static const double cardBorderRadius = 12.0;
-  static const double buttonBorderRadius = 8.0;
-  static const double inputBorderRadius = 8.0;
-  static const double formCardBorderRadius = 12.0;
+  static double get cardBorderRadius => geometry.panelRadius;
+  static double get buttonBorderRadius => geometry.controlRadius;
+  static double get inputBorderRadius => geometry.controlRadius;
+  static double get formCardBorderRadius => geometry.panelRadius;
   static const double badgeBorderRadius = 10.0;
 
   // ──────────────────────────────────────────────
@@ -168,20 +177,12 @@ class AppThemeConfig {
 
   /// Card / sheet shadow for light mode. Single soft layer.
   static const List<BoxShadow> elevationLight = [
-    BoxShadow(
-      color: Color(0x141F2329),
-      blurRadius: 14,
-      offset: Offset(0, 2),
-    ),
+    BoxShadow(color: Color(0x141F2329), blurRadius: 14, offset: Offset(0, 2)),
   ];
 
   /// Card / sheet shadow for dark mode — barely-there, mostly for shape edge.
   static const List<BoxShadow> elevationDark = [
-    BoxShadow(
-      color: Color(0x66000000),
-      blurRadius: 18,
-      offset: Offset(0, 4),
-    ),
+    BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 4)),
   ];
 
   // ──────────────────────────────────────────────
@@ -207,163 +208,185 @@ class AppThemeConfig {
   ///
   /// Name kept as `createYouthfulThemeModel` for source compatibility with the
   /// existing call site.
-  static TencentCloudChatThemeModel createYouthfulThemeModel() {
+  static TencentCloudChatThemeModel createYouthfulThemeModel({
+    InterfaceStyle? style,
+  }) {
+    final selected = style ?? AppTheme.style.value;
+    final light = selected.palette(Brightness.light);
+    final dark = selected.palette(Brightness.dark);
+    final geometry = selected.geometry;
     return TencentCloudChatThemeModel(
       lightTheme: LightTencentCloudChatColors(
-        primaryColor: DesignTokens.primary,
-        secondaryColor: DesignTokens.primaryPressed,
-        onPrimary: Colors.white,
-        onSecondary: Colors.white,
+        primaryColor: light.primary,
+        secondaryColor: light.primary,
+        onPrimary: light.onPrimary,
+        onSecondary: light.onPrimary,
         onError: Colors.white,
-        error: DesignTokens.errorLight,
-        info: DesignTokens.primary,
-        backgroundColor: DesignTokens.scaffoldLight,
-        surface: DesignTokens.cardLight,
-        onSurface: DesignTokens.textPrimaryLight,
-        onBackground: DesignTokens.textPrimaryLight,
-        primaryTextColor: DesignTokens.textPrimaryLight,
-        secondaryTextColor: DesignTokens.textSecondaryLight,
-        dividerColor: DesignTokens.dividerLight,
-        tipsColor: DesignTokens.errorLight,
+        error: light.error,
+        info: light.primary,
+        backgroundColor: light.canvas,
+        surface: light.panel,
+        onSurface: light.text,
+        onBackground: light.text,
+        primaryTextColor: light.text,
+        secondaryTextColor: light.muted,
+        dividerColor: light.divider,
+        tipsColor: light.error,
         // App bar — flat white, dark icons
-        appBarBackgroundColor: DesignTokens.scaffoldLight,
-        appBarIconColor: DesignTokens.textPrimaryLight,
+        appBarBackgroundColor: light.canvas,
+        appBarIconColor: light.text,
         // Buttons / switches
-        firstButtonColor: DesignTokens.primary,
-        secondButtonColor: DesignTokens.primary,
-        switchActivatedColor: DesignTokens.primary,
+        firstButtonColor: light.primary,
+        secondButtonColor: light.primary,
+        switchActivatedColor: light.primary,
         // Input area
-        inputAreaBackground: DesignTokens.scaffoldLight,
-        inputAreaIconColor: DesignTokens.textSecondaryLight,
-        inputFieldBorderColor: DesignTokens.inputBorderLight,
+        inputAreaBackground: light.canvas,
+        inputAreaIconColor: light.muted,
+        inputFieldBorderColor: light.controlBorder,
         // Message bubbles — pale-blue self, gray others (no visible border)
-        selfMessageBubbleColor: DesignTokens.selfBubbleLight,
-        selfMessageBubbleBorderColor: DesignTokens.selfBubbleLight,
-        selfMessageTextColor: DesignTokens.selfBubbleTextLight,
-        othersMessageBubbleColor: DesignTokens.otherBubbleLight,
-        othersMessageBubbleBorderColor: DesignTokens.otherBubbleLight,
-        othersMessageTextColor: DesignTokens.textPrimaryLight,
-        messageStatusIconColor: DesignTokens.primary,
-        messageBeenChosenBackgroundColor: DesignTokens.selectedLight,
-        messageTipsBackgroundColor: DesignTokens.hoverLight,
+        selfMessageBubbleColor: light.sent,
+        selfMessageBubbleBorderColor: geometry.outlineWidth > 0
+            ? light.controlBorder
+            : light.sent,
+        selfMessageTextColor: light.sentText,
+        othersMessageBubbleColor: light.received,
+        othersMessageBubbleBorderColor: geometry.outlineWidth > 0
+            ? light.controlBorder
+            : light.received,
+        othersMessageTextColor: light.receivedText,
+        messageStatusIconColor: light.primary,
+        messageBeenChosenBackgroundColor: light.selected,
+        messageTipsBackgroundColor: light.received,
         // Conversation list
-        conversationItemNormalBgColor: DesignTokens.listPanelLight,
-        conversationItemIsPinedBgColor: DesignTokens.pinnedLight,
-        conversationItemShowNameTextColor: DesignTokens.textPrimaryLight,
-        conversationItemLastMessageTextColor: DesignTokens.textTertiaryLight,
-        conversationItemTimeTextColor: DesignTokens.textTertiaryLight,
-        conversationItemUnreadCountBgColor: DesignTokens.unreadBadge,
-        conversationItemUnreadCountTextColor: DesignTokens.onUnreadBadge,
-        conversationItemSendingIconColor: DesignTokens.primary,
-        conversationItemDraftTextColor: DesignTokens.errorLight,
-        conversationItemGroupAtInfoTextColor: DesignTokens.errorLight,
-        conversationNoConversationTextColor: DesignTokens.textTertiaryLight,
-        conversationItemMoreActionItemNormalTextColor: DesignTokens.primary,
-        conversationItemMoreActionItemDeleteTextColor: DesignTokens.errorLight,
-        conversationItemSwipeActionOneBgColor: DesignTokens.primary,
-        conversationItemSwipeActionTwoBgColor: DesignTokens.errorLight,
+        conversationItemNormalBgColor: light.panel,
+        conversationItemIsPinedBgColor: light.selected,
+        conversationItemShowNameTextColor: light.text,
+        conversationItemLastMessageTextColor: light.muted,
+        conversationItemTimeTextColor: light.muted,
+        conversationItemUnreadCountBgColor: light.unread,
+        conversationItemUnreadCountTextColor: light.onUnread,
+        conversationItemSendingIconColor: light.primary,
+        conversationItemDraftTextColor: light.error,
+        conversationItemGroupAtInfoTextColor: light.error,
+        conversationNoConversationTextColor: light.muted,
+        conversationItemMoreActionItemNormalTextColor: light.primary,
+        conversationItemMoreActionItemDeleteTextColor: light.error,
+        conversationItemSwipeActionOneBgColor: light.primary,
+        conversationItemSwipeActionTwoBgColor: light.error,
         // Desktop empty-page background
-        desktopBackgroundColorLinearGradientOne: DesignTokens.chatBgLight,
-        desktopBackgroundColorLinearGradientTwo: DesignTokens.chatBgLight,
+        desktopBackgroundColorLinearGradientOne: light.canvas,
+        desktopBackgroundColorLinearGradientTwo: light.canvas,
         // Settings
-        settingBackgroundColor: const Color(0xFFF5F6F8),
-        settingTitleColor: DesignTokens.textPrimaryLight,
-        settingTabBackgroundColor: DesignTokens.cardLight,
-        settingInfoEditColor: DesignTokens.primary,
-        settingLogoutColor: DesignTokens.errorLight,
+        settingBackgroundColor: light.canvas,
+        settingTitleColor: light.text,
+        settingTabBackgroundColor: light.panel,
+        settingInfoEditColor: light.primary,
+        settingLogoutColor: light.error,
         // Contacts
-        contactBackgroundColor: DesignTokens.scaffoldLight,
-        contactTabItemBackgroundColor: DesignTokens.scaffoldLight,
-        contactItemFriendNameColor: DesignTokens.textPrimaryLight,
-        contactItemTabItemNameColor: DesignTokens.textSecondaryLight,
-        contactSearchBackgroundColor: DesignTokens.inputFieldLight,
-        contactBackButtonColor: DesignTokens.textPrimaryLight,
-        contactAppBarIconColor: DesignTokens.textPrimaryLight,
-        contactAgreeButtonColor: DesignTokens.primary,
-        contactRefuseButtonColor: DesignTokens.textSecondaryLight,
-        contactNoListColor: DesignTokens.textTertiaryLight,
+        contactBackgroundColor: light.canvas,
+        contactTabItemBackgroundColor: light.canvas,
+        contactItemFriendNameColor: light.text,
+        contactItemTabItemNameColor: light.muted,
+        contactSearchBackgroundColor: light.received,
+        contactBackButtonColor: light.text,
+        contactAppBarIconColor: light.text,
+        contactAgreeButtonColor: light.primary,
+        contactRefuseButtonColor: light.muted,
+        contactNoListColor: light.muted,
         // Group profile
-        groupProfileTabBackground: DesignTokens.cardLight,
-        groupProfileTabTextColor: DesignTokens.textPrimaryLight,
-        groupProfileTextColor: DesignTokens.textPrimaryLight,
-        groupProfileAddMemberTextColor: DesignTokens.primary,
+        groupProfileTabBackground: light.panel,
+        groupProfileTabTextColor: light.text,
+        groupProfileTextColor: light.text,
+        groupProfileAddMemberTextColor: light.primary,
         // Login
-        loginBackgroundColor: DesignTokens.scaffoldLight,
-        loginCardBackground: DesignTokens.cardLight,
-        loginButtonDisableColor: DesignTokens.textDisabledLight,
+        loginBackgroundColor: light.canvas,
+        loginCardBackground: light.panel,
+        loginButtonDisableColor: light.muted,
       ),
       darkTheme: DarkTencentCloudChatColors(
-        primaryColor: DesignTokens.primary,
-        secondaryColor: DesignTokens.primaryHover,
-        onPrimary: Colors.white,
-        onSecondary: Colors.white,
+        primaryColor: dark.primary,
+        secondaryColor: dark.link,
+        onPrimary: dark.onPrimary,
+        onSecondary: dark.onPrimary,
         onError: Colors.white,
-        error: DesignTokens.errorDark,
-        info: DesignTokens.linkDark,
-        backgroundColor: DesignTokens.scaffoldDark,
-        surface: DesignTokens.cardDark,
-        onSurface: DesignTokens.textPrimaryDark,
-        onBackground: DesignTokens.textPrimaryDark,
-        primaryTextColor: DesignTokens.textPrimaryDark,
-        secondaryTextColor: DesignTokens.textSecondaryDark,
-        dividerColor: DesignTokens.dividerDark,
-        tipsColor: DesignTokens.errorDark,
-        appBarBackgroundColor: DesignTokens.scaffoldDark,
-        appBarIconColor: DesignTokens.textPrimaryDark,
-        firstButtonColor: DesignTokens.primary,
-        secondButtonColor: DesignTokens.primary,
-        switchActivatedColor: DesignTokens.primary,
-        inputAreaBackground: DesignTokens.inputAreaDark,
-        inputAreaIconColor: DesignTokens.textSecondaryDark,
-        inputFieldBorderColor: DesignTokens.inputBorderDark,
-        selfMessageBubbleColor: DesignTokens.selfBubbleDark,
-        selfMessageBubbleBorderColor: DesignTokens.selfBubbleDark,
-        selfMessageTextColor: DesignTokens.selfBubbleTextDark,
-        othersMessageBubbleColor: DesignTokens.otherBubbleDark,
-        othersMessageBubbleBorderColor: DesignTokens.otherBubbleDark,
-        othersMessageTextColor: DesignTokens.textPrimaryDark,
-        messageStatusIconColor: DesignTokens.textTertiaryDark,
-        messageBeenChosenBackgroundColor: DesignTokens.selectedDark,
-        messageTipsBackgroundColor: DesignTokens.cardDark,
-        conversationItemNormalBgColor: DesignTokens.scaffoldDark,
-        conversationItemIsPinedBgColor: DesignTokens.selectedDark,
-        conversationItemShowNameTextColor: DesignTokens.textPrimaryDark,
-        conversationItemLastMessageTextColor: DesignTokens.textTertiaryDark,
-        conversationItemTimeTextColor: DesignTokens.textTertiaryDark,
-        conversationItemUnreadCountBgColor: DesignTokens.unreadBadge,
-        conversationItemUnreadCountTextColor: DesignTokens.onUnreadBadge,
-        conversationItemSendingIconColor: DesignTokens.textTertiaryDark,
-        conversationItemDraftTextColor: DesignTokens.errorDark,
-        conversationItemGroupAtInfoTextColor: DesignTokens.errorDark,
-        conversationNoConversationTextColor: DesignTokens.textTertiaryDark,
-        conversationItemMoreActionItemNormalTextColor: DesignTokens.linkDark,
-        conversationItemMoreActionItemDeleteTextColor: DesignTokens.errorDark,
-        conversationItemSwipeActionOneBgColor: DesignTokens.primary,
-        conversationItemSwipeActionTwoBgColor: DesignTokens.errorDark,
-        desktopBackgroundColorLinearGradientOne: DesignTokens.desktopChatDark,
-        desktopBackgroundColorLinearGradientTwo: DesignTokens.desktopChatDark,
-        settingBackgroundColor: DesignTokens.scaffoldDark,
-        settingTitleColor: DesignTokens.textPrimaryDark,
-        settingTabBackgroundColor: DesignTokens.cardDark,
-        settingInfoEditColor: DesignTokens.linkDark,
-        settingLogoutColor: DesignTokens.errorDark,
-        contactBackgroundColor: DesignTokens.scaffoldDark,
-        contactTabItemBackgroundColor: DesignTokens.scaffoldDark,
-        contactItemFriendNameColor: DesignTokens.textPrimaryDark,
-        contactItemTabItemNameColor: DesignTokens.textSecondaryDark,
-        contactSearchBackgroundColor: DesignTokens.inputFieldDark,
-        contactBackButtonColor: DesignTokens.textPrimaryDark,
-        contactAppBarIconColor: DesignTokens.textPrimaryDark,
-        contactAgreeButtonColor: DesignTokens.primary,
-        contactRefuseButtonColor: DesignTokens.textSecondaryDark,
-        contactNoListColor: DesignTokens.textTertiaryDark,
-        groupProfileTabBackground: DesignTokens.cardDark,
-        groupProfileTabTextColor: DesignTokens.textPrimaryDark,
-        groupProfileTextColor: DesignTokens.textPrimaryDark,
-        groupProfileAddMemberTextColor: DesignTokens.linkDark,
-        loginBackgroundColor: DesignTokens.scaffoldDark,
-        loginCardBackground: DesignTokens.cardDark,
-        loginButtonDisableColor: DesignTokens.textDisabledDark,
+        error: dark.error,
+        info: dark.link,
+        backgroundColor: dark.canvas,
+        surface: dark.panel,
+        onSurface: dark.text,
+        onBackground: dark.text,
+        primaryTextColor: dark.text,
+        secondaryTextColor: dark.muted,
+        dividerColor: dark.divider,
+        tipsColor: dark.error,
+        appBarBackgroundColor: dark.canvas,
+        appBarIconColor: dark.text,
+        firstButtonColor: dark.primary,
+        secondButtonColor: dark.primary,
+        switchActivatedColor: dark.primary,
+        inputAreaBackground: dark.panel,
+        inputAreaIconColor: dark.muted,
+        inputFieldBorderColor: dark.controlBorder,
+        selfMessageBubbleColor: dark.sent,
+        selfMessageBubbleBorderColor: geometry.outlineWidth > 0
+            ? dark.controlBorder
+            : dark.sent,
+        selfMessageTextColor: dark.sentText,
+        othersMessageBubbleColor: dark.received,
+        othersMessageBubbleBorderColor: geometry.outlineWidth > 0
+            ? dark.controlBorder
+            : dark.received,
+        othersMessageTextColor: dark.receivedText,
+        messageStatusIconColor: dark.muted,
+        messageBeenChosenBackgroundColor: dark.selected,
+        messageTipsBackgroundColor: dark.panel,
+        conversationItemNormalBgColor: dark.canvas,
+        conversationItemIsPinedBgColor: dark.selected,
+        conversationItemShowNameTextColor: dark.text,
+        conversationItemLastMessageTextColor: dark.muted,
+        conversationItemTimeTextColor: dark.muted,
+        conversationItemUnreadCountBgColor: dark.unread,
+        conversationItemUnreadCountTextColor: dark.onUnread,
+        conversationItemSendingIconColor: dark.muted,
+        conversationItemDraftTextColor: dark.error,
+        conversationItemGroupAtInfoTextColor: dark.error,
+        conversationNoConversationTextColor: dark.muted,
+        conversationItemMoreActionItemNormalTextColor: dark.link,
+        conversationItemMoreActionItemDeleteTextColor: dark.error,
+        conversationItemSwipeActionOneBgColor: dark.primary,
+        conversationItemSwipeActionTwoBgColor: dark.error,
+        desktopBackgroundColorLinearGradientOne: dark.canvas,
+        desktopBackgroundColorLinearGradientTwo: dark.canvas,
+        settingBackgroundColor: dark.canvas,
+        settingTitleColor: dark.text,
+        settingTabBackgroundColor: dark.panel,
+        settingInfoEditColor: dark.link,
+        settingLogoutColor: dark.error,
+        contactBackgroundColor: dark.canvas,
+        contactTabItemBackgroundColor: dark.canvas,
+        contactItemFriendNameColor: dark.text,
+        contactItemTabItemNameColor: dark.muted,
+        contactSearchBackgroundColor: dark.received,
+        contactBackButtonColor: dark.text,
+        contactAppBarIconColor: dark.text,
+        contactAgreeButtonColor: dark.primary,
+        contactRefuseButtonColor: dark.muted,
+        contactNoListColor: dark.muted,
+        groupProfileTabBackground: dark.panel,
+        groupProfileTabTextColor: dark.text,
+        groupProfileTextColor: dark.text,
+        groupProfileAddMemberTextColor: dark.link,
+        loginBackgroundColor: dark.canvas,
+        loginCardBackground: dark.panel,
+        loginButtonDisableColor: dark.muted,
+      ),
+      visualStyle: TencentCloudChatVisualStyle(
+        panelRadius: geometry.panelRadius,
+        controlRadius: geometry.controlRadius,
+        bubbleRadius: geometry.bubbleRadius,
+        bubbleTailRadius: geometry.bubbleTailRadius,
+        outlineWidth: geometry.outlineWidth,
+        shadowOffset: geometry.shadowOffset,
       ),
       textStyle: TencentCloudChatTextStyle(
         navigationTitle: 18,

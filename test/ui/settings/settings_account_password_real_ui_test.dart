@@ -87,6 +87,8 @@ Future<void> _pumpSettings(
   );
   await tester.pumpWidget(settingsApp(page));
   await settleSettings(tester);
+  await tester.ensureVisible(find.byKey(UiKeys.settingsSetPasswordButton));
+  await settleSettings(tester);
 }
 
 void main() {

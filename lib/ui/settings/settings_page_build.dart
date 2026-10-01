@@ -7,7 +7,7 @@ extension _SettingsPageBuild on _SettingsPageState {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final outlineVariant = scheme.outlineVariant;
-    // Stagger top-level settings sections (Account / Global / Bootstrap) for
+    // Stagger top-level settings sections for
     // a subtle entrance. Respects reduced-motion via MediaQuery.
     final disableAnims = MediaQuery.disableAnimationsOf(context);
     Widget wrap(int index, Widget child) {
@@ -22,6 +22,16 @@ extension _SettingsPageBuild on _SettingsPageState {
     return [
       wrap(
         0,
+        GlobalSettingsSection(
+          key: const ValueKey('settings_desktop_appearance'),
+          colorTheme: colorTheme,
+          toxId: widget.service.accountKey,
+          view: GlobalSettingsView.appearance,
+        ),
+      ),
+      AppSpacing.verticalMd,
+      wrap(
+        1,
         Card(
           elevation: 0,
           clipBehavior: Clip.antiAlias,
@@ -116,7 +126,7 @@ extension _SettingsPageBuild on _SettingsPageState {
                               tooltip: AppLocalizations.of(
                                 context,
                               )!.copyFullToxId,
-                              visualDensity: VisualDensity.compact,
+                              visualDensity: VisualDensity.standard,
                               onPressed: () async {
                                 await Clipboard.setData(
                                   ClipboardData(text: toxId),
@@ -295,11 +305,11 @@ extension _SettingsPageBuild on _SettingsPageState {
                                     tooltip: AppLocalizations.of(
                                       context,
                                     )!.copyFullToxId,
-                                    visualDensity: VisualDensity.compact,
+                                    visualDensity: VisualDensity.standard,
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(
-                                      minWidth: 32,
-                                      minHeight: 32,
+                                      minWidth: 44,
+                                      minHeight: 44,
                                     ),
                                     onPressed: () async {
                                       await Clipboard.setData(
@@ -451,10 +461,12 @@ extension _SettingsPageBuild on _SettingsPageState {
       ),
       AppSpacing.verticalMd,
       wrap(
-        1,
+        2,
         GlobalSettingsSection(
+          key: const ValueKey('settings_desktop_general'),
           colorTheme: colorTheme,
           toxId: widget.service.accountKey,
+          view: GlobalSettingsView.general,
           onDownloadsConfigChanged: () {
             // FfiChatService re-reads Prefs.getDownloadsDirectory() on every
             // file save (see _getDownloadsDirectory in ffi_chat_service.dart),
@@ -465,10 +477,10 @@ extension _SettingsPageBuild on _SettingsPageState {
         ),
       ),
       AppSpacing.verticalMd,
-      wrap(2, const BackgroundSettingsSection()),
+      wrap(3, const BackgroundSettingsSection()),
       AppSpacing.verticalMd,
       wrap(
-        3,
+        4,
         BootstrapSettingsSection(
           service: widget.service,
           colorTheme: colorTheme,

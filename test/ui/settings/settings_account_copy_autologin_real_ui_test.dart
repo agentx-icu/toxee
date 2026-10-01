@@ -32,10 +32,7 @@ import 'package:toxee/util/prefs.dart';
 
 import 'settings_account_test_support.dart';
 
-Future<void> _pumpSettings(
-  WidgetTester tester,
-  FfiChatService service,
-) async {
+Future<void> _pumpSettings(WidgetTester tester, FfiChatService service) async {
   final page = SettingsPage(
     service: service,
     connectionStatusStream: service.connectionStatusStream,
@@ -45,6 +42,14 @@ Future<void> _pumpSettings(
     onAutoAcceptGroupInvitesChanged: (_) {},
   );
   await tester.pumpWidget(settingsApp(page));
+  await settleSettings(tester);
+  // Appearance precedes the account card. Drive the same scroll a user needs
+  // before interacting with the account controls below the first viewport.
+  await tester.scrollUntilVisible(
+    find.byKey(UiKeys.settingsCopyToxIdButton),
+    300,
+    scrollable: find.byType(Scrollable).first,
+  );
   await settleSettings(tester);
 }
 

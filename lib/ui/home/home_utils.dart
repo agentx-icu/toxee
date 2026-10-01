@@ -12,8 +12,8 @@ Future<String> generateContactCardImage({
   required String displayName,
   required Locale locale,
   required String bottomText,
-  Color primaryColor = AppThemeConfig.primaryColor,
-  Color textColor = AppThemeConfig.primaryTextColorLight,
+  Color? primaryColor,
+  Color? textColor,
   String? avatarPath,
 }) {
   return ContactQrCardGenerator.generateTempCard(
@@ -21,8 +21,8 @@ Future<String> generateContactCardImage({
     displayName: displayName,
     locale: locale,
     bottomText: bottomText,
-    primaryColor: primaryColor,
-    textColor: textColor,
+    primaryColor: primaryColor ?? AppThemeConfig.primaryColor,
+    textColor: textColor ?? AppThemeConfig.primaryTextColorLight,
     avatarPath: avatarPath,
   );
 }
@@ -61,16 +61,25 @@ Future<String?> promptText(
               color: theme.colorScheme.onSurfaceVariant,
             ),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+              borderRadius: BorderRadius.circular(
+                AppThemeConfig.inputBorderRadius,
+              ),
               borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
+              borderRadius: BorderRadius.circular(
+                AppThemeConfig.inputBorderRadius,
+              ),
               borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppThemeConfig.inputBorderRadius),
-              borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+              borderRadius: BorderRadius.circular(
+                AppThemeConfig.inputBorderRadius,
+              ),
+              borderSide: BorderSide(
+                color: theme.colorScheme.primary,
+                width: 1.5,
+              ),
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
@@ -95,11 +104,15 @@ Future<String?> promptText(
             },
             style: ElevatedButton.styleFrom(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppThemeConfig.buttonBorderRadius),
+                borderRadius: BorderRadius.circular(
+                  AppThemeConfig.buttonBorderRadius,
+                ),
               ),
             ),
             child: Text(
-              actionLabel ?? (TencentCloudChatLocalizations.of(context)?.tuiEmojiOk ?? 'OK'),
+              actionLabel ??
+                  (TencentCloudChatLocalizations.of(context)?.tuiEmojiOk ??
+                      'OK'),
             ),
           ),
         ],
@@ -114,4 +127,3 @@ Future<String?> promptText(
   );
   return result;
 }
-

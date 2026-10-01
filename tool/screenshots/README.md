@@ -28,8 +28,13 @@ the app language with `l3_set_setting languageCode=<locale>`.
 
 | locale | doc that shows it | committed assets |
 |---|---|---|
-| `en` | `README.md`, `doc/product/index.html` (default) | `doc/product/assets/en/<platform>/` |
-| `zh` | `README.zh-CN.md`, `doc/product/index.html` (中文 toggle swaps the images) | `doc/product/assets/zh/<platform>/` |
+| `en` | `doc/product/index.html` feature tour (default) | `doc/product/assets/en/<platform>/` |
+| `zh` | `doc/product/index.html` feature tour (中文 toggle swaps the images) | `doc/product/assets/zh/<platform>/` |
+
+The root READMEs and product-page hero use the localized **Quiet Modern design
+concept** at `doc/product/assets/<locale>/quiet-modern.png`. These concept images
+are maintained separately from this running-app capture pipeline; provenance and
+localization prompts are in `doc/product/assets/quiet-modern-prompts.json`.
 
 Adding a locale: write a `SeedScript` for it, register it in `seedScripts`
 (seed_data.dart), allow it in capture.sh's locale check, and reference

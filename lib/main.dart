@@ -23,6 +23,7 @@ import 'ui/testing/l3_debug_tools.dart';
 import 'ui/testing/ui_drive_tools.dart';
 import 'sdk_fake/fake_uikit_core.dart';
 import 'util/theme_controller.dart';
+import 'util/appearance_sync.dart';
 import 'util/locale_controller.dart';
 import 'i18n/app_localizations.dart';
 import 'util/logger.dart';
@@ -252,13 +253,11 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   @override
   void initState() {
     super.initState();
-    AppTheme.mode.addListener(_syncUIKitThemeBrightness);
+    AppTheme.changes.addListener(_syncUIKitThemeBrightness);
     _syncUIKitThemeBrightness();
     // The UIKit conversation app-bar has its own brightness toggle. Route it
     // through AppTheme (our single source of truth) so the Material ThemeData
-    // — scaffold background, bottom nav — switches together with the UIKit
-    // colors instead of leaving half the screen in the old theme. AppTheme's
-    // listener above then syncs the UIKit brightness back.
+    // switches Material and UIKit together after the preference is saved.
     TencentCloudChatTheme.onBrightnessToggleRequest = _toggleThemeBrightness;
     // Observe app lifecycle so we can re-emit the unread total on resume,
     // keeping the OS dock/launcher badge accurate when the user reads or
@@ -268,20 +267,7 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
     WidgetsBinding.instance.addObserver(this);
   }
 
-  void _syncUIKitThemeBrightness() {
-    final mode = AppTheme.mode.value;
-    // For ThemeMode.system, resolve against the actual OS brightness — the old
-    // code always fell back to light, so a system-dark device showed the Material
-    // dark theme but a light UIKit colorTheme (mismatched app-bar / list rows).
-    final isDark =
-        mode == ThemeMode.dark ||
-        (mode == ThemeMode.system &&
-            WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-                Brightness.dark);
-    TencentCloudChatTheme.init(
-      brightness: isDark ? Brightness.dark : Brightness.light,
-    );
-  }
+  void _syncUIKitThemeBrightness() => syncUIKitAppearance();
 
   @override
   void didChangePlatformBrightness() {
@@ -306,7 +292,21 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
         (mode == ThemeMode.system &&
             WidgetsBinding.instance.platformDispatcher.platformBrightness ==
                 Brightness.dark);
-    unawaited(AppTheme.set(isDark ? ThemeMode.light : ThemeMode.dark));
+    unawaited(
+      AppTheme.set(isDark ? ThemeMode.light : ThemeMode.dark).catchError((
+        Object error,
+      ) {
+        AppLogger.warn('[Appearance] Unable to save brightness: $error');
+        final context = appNavigatorKey.currentContext;
+        if (context != null && context.mounted && mounted) {
+          SendFailureNotifier.scaffoldMessengerKey.currentState?.showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.appearanceSaveFailed),
+            ),
+          );
+        }
+      }),
+    );
   }
 
   @override
@@ -357,7 +357,7 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    AppTheme.mode.removeListener(_syncUIKitThemeBrightness);
+    AppTheme.changes.removeListener(_syncUIKitThemeBrightness);
     if (TencentCloudChatTheme.onBrightnessToggleRequest ==
         _toggleThemeBrightness) {
       TencentCloudChatTheme.onBrightnessToggleRequest = null;
@@ -368,9 +368,10 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
   @override
   Widget build(BuildContext context) {
     // Theme and locale are already initialized in main() before runApp()
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: AppTheme.mode,
-      builder: (context, themeMode, _) {
+    return AnimatedBuilder(
+      animation: AppTheme.changes,
+      builder: (context, _) {
+        final themeMode = AppTheme.mode.value;
         return ValueListenableBuilder<Locale>(
           valueListenable: AppLocale.locale,
           builder: (context, locale, __) {
@@ -392,7 +393,14 @@ class _EchoUIKitAppState extends State<EchoUIKitApp>
               scaffoldMessengerKey: SendFailureNotifier.scaffoldMessengerKey,
               debugShowCheckedModeBanner: false,
               scrollBehavior: const _AppScrollBehavior(),
-              themeAnimationDuration: const Duration(milliseconds: 400),
+              themeAnimationDuration:
+                  WidgetsBinding
+                      .instance
+                      .platformDispatcher
+                      .accessibilityFeatures
+                      .disableAnimations
+                  ? Duration.zero
+                  : const Duration(milliseconds: 250),
               // Unbind the ACTIVE conversation when the pushed chat route
               // leaves the stack. Compact/phone shells push that route instead
               // of binding a master-detail pane, and nothing used to clear the

@@ -1,37 +1,56 @@
 import 'package:flutter/material.dart';
+import 'interface_style.dart';
 import 'prefs.dart';
 
 class AppTheme {
-  /// Current app theme mode. Defaults to [ThemeMode.system] on first launch
-  /// (follow OS); resolves from prefs in [initFromPrefs].
-  static final ValueNotifier<ThemeMode> mode =
-      ValueNotifier<ThemeMode>(ThemeMode.system);
+  static final ValueNotifier<ThemeMode> mode = ValueNotifier(ThemeMode.system);
+  static final ValueNotifier<InterfaceStyle> style = ValueNotifier(
+    InterfaceStyle.classic,
+  );
+  static final Listenable changes = Listenable.merge([mode, style]);
+  static Future<void>? _writes;
 
   static Future<void> initFromPrefs() async {
-    final m = await Prefs.getThemeMode();
-    switch (m) {
-      case 'dark':
-        mode.value = ThemeMode.dark;
-        break;
-      case 'light':
-        mode.value = ThemeMode.light;
-        break;
-      case 'system':
-      default:
-        mode.value = ThemeMode.system;
-        break;
-    }
-  }
-
-  static Future<void> set(ThemeMode m) async {
-    mode.value = m;
-    final serialized = switch (m) {
-      ThemeMode.dark => 'dark',
-      ThemeMode.light => 'light',
-      ThemeMode.system => 'system',
+    final saved = await Prefs.getAppearance();
+    style.value = InterfaceStyle.parse(saved['style']);
+    mode.value = switch (saved['mode']) {
+      'dark' => ThemeMode.dark,
+      'light' => ThemeMode.light,
+      _ => ThemeMode.system,
     };
-    await Prefs.setThemeMode(serialized);
   }
+
+  static Future<void> _queue(Future<void> Function() write) {
+    final previous = _writes;
+    final result = previous == null ? write() : previous.then((_) => write());
+    late final Future<void> tail;
+    void clear() {
+      if (identical(_writes, tail)) _writes = null;
+    }
+
+    tail = result.then(
+      (_) => clear(),
+      onError: (Object _, StackTrace __) => clear(),
+    );
+    _writes = tail;
+    return result;
+  }
+
+  /// Publish only after the combined durable preference has been accepted.
+  static Future<void> setAppearance({
+    required InterfaceStyle style,
+    required ThemeMode mode,
+  }) => _queue(() => _save(style, mode));
+
+  static Future<void> _save(
+    InterfaceStyle nextStyle,
+    ThemeMode nextMode,
+  ) async {
+    await Prefs.setAppearance(style: nextStyle.name, mode: nextMode.name);
+    style.value = nextStyle;
+    mode.value = nextMode;
+  }
+
+  static Future<void> set(ThemeMode nextMode) =>
+      _queue(() => _save(style.value, nextMode));
 }
-
-

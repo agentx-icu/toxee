@@ -103,6 +103,8 @@ void main() {
     await tester.pumpWidget(settingsApp(page));
     await settleSettings(tester);
 
+    await tester.ensureVisible(find.byKey(UiKeys.settingsLogoutButton));
+    await tester.pump();
     await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
     await settleSettings(tester);
     // The confirm dialog is open (its confirm button is present).
@@ -160,6 +162,8 @@ void main() {
 
       expect(await Prefs.getCurrentAccountToxId(), kSettingsToxId);
 
+      await tester.ensureVisible(find.byKey(UiKeys.settingsLogoutButton));
+      await tester.pump();
       await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
       await settleSettings(tester);
       expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsOneWidget);
@@ -229,6 +233,8 @@ void main() {
       await tester.pumpWidget(settingsApp(page));
       await settleSettings(tester);
 
+      await tester.ensureVisible(find.byKey(UiKeys.settingsLogoutButton));
+      await tester.pump();
       await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
       await settleSettings(tester);
       expect(find.byKey(UiKeys.settingsLogoutConfirmButton), findsOneWidget);
@@ -307,6 +313,8 @@ void main() {
         findsOneWidget,
         reason: 'the non-current account card shows the switch button',
       );
+      await tester.ensureVisible(swapButton);
+      await tester.pump();
       await tester.tap(swapButton);
       await settleSettings(tester);
 
@@ -368,6 +376,8 @@ void main() {
       await tester.pumpWidget(settingsApp(page));
       await settleSettings(tester);
 
+      await tester.ensureVisible(find.widgetWithIcon(IconButton, Icons.swap_horiz));
+      await tester.pump();
       await tester.tap(find.widgetWithIcon(IconButton, Icons.swap_horiz));
       await settleSettings(tester);
       expect(
@@ -428,6 +438,8 @@ void main() {
       await settleSettings(tester);
 
       final swapButton = find.widgetWithIcon(IconButton, Icons.swap_horiz);
+      await tester.ensureVisible(swapButton);
+      await tester.pump();
       await tester.tap(swapButton);
       await settleSettings(tester);
       await tester.tap(find.byKey(UiKeys.settingsAccountSwitchConfirmButton));
@@ -438,6 +450,8 @@ void main() {
         findsNothing,
       );
 
+      await tester.ensureVisible(swapButton);
+      await tester.pump();
       await tester.tap(swapButton);
       await tester.pumpAndSettle();
       expect(switchCalls, 1);

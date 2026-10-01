@@ -2188,5 +2188,73 @@
   "fileReceiveFailed": "Couldn't save \"{fileName}\".",
   "@fileReceiveFailed": {"description": "Toast: an incoming file could not be written or saved (I/O error other than a full disk)", "placeholders": {"fileName": {"type": "String"}}},
   "fileReceiveFailedUnnamed": "Couldn't save a received file.",
-  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"}
+  "@fileReceiveFailedUnnamed": {"description": "Toast: like fileReceiveFailed when the file name is unknown"},
+  "interfaceStyle": "Interface style",
+  "interfaceStyleClassic": "Classic Blue",
+  "interfaceStyleModern": "Quiet Modern",
+  "interfaceStyleNight": "Night Radio",
+  "interfaceStylePaper": "Paper Letter",
+  "interfaceStyleCartoon": "Fresh Cartoon",
+  "appearanceBrightness": "Brightness",
+  "appearancePreview": "Chat preview",
+  "appearancePreviewSender": "Alex",
+  "appearancePreviewReceived": "Shall we go hiking this weekend?",
+  "appearancePreviewSent": "Sounds good. See you Saturday!",
+  "appearancePreviewOnline": "Online",
+  "appearanceApply": "Apply",
+  "appearancePending": "Preview only. Apply to save your changes.",
+  "appearanceSaveFailed": "Could not save appearance. Your choices are kept; please try again.",
+  "restoreFromToxFileHint": "Restore a Tox profile from a .tox file.",
+  "importAccountHint": "Import an account backup (.tox or .zip).",
+  "@interfaceStyle": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@interfaceStyleClassic": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@interfaceStyleModern": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@interfaceStyleNight": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@interfaceStylePaper": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@interfaceStyleCartoon": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearanceBrightness": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePreview": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePreviewSender": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePreviewReceived": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePreviewSent": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePreviewOnline": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearanceApply": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearancePending": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@appearanceSaveFailed": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@restoreFromToxFileHint": {
+    "description": "Appearance settings and account import help text"
+  },
+  "@importAccountHint": {
+    "description": "Appearance settings and account import help text"
+  }
 }

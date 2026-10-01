@@ -3867,6 +3867,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t save a received file.'**
   String get fileReceiveFailedUnnamed;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Interface style'**
+  String get interfaceStyle;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Classic Blue'**
+  String get interfaceStyleClassic;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Quiet Modern'**
+  String get interfaceStyleModern;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Night Radio'**
+  String get interfaceStyleNight;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Paper Letter'**
+  String get interfaceStylePaper;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Fresh Cartoon'**
+  String get interfaceStyleCartoon;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness'**
+  String get appearanceBrightness;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Chat preview'**
+  String get appearancePreview;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Alex'**
+  String get appearancePreviewSender;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Shall we go hiking this weekend?'**
+  String get appearancePreviewReceived;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Sounds good. See you Saturday!'**
+  String get appearancePreviewSent;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Online'**
+  String get appearancePreviewOnline;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get appearanceApply;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Preview only. Apply to save your changes.'**
+  String get appearancePending;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save appearance. Your choices are kept; please try again.'**
+  String get appearanceSaveFailed;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Restore a Tox profile from a .tox file.'**
+  String get restoreFromToxFileHint;
+
+  /// Appearance settings and account import help text
+  ///
+  /// In en, this message translates to:
+  /// **'Import an account backup (.tox or .zip).'**
+  String get importAccountHint;
 }
 
 class _AppLocalizationsDelegate

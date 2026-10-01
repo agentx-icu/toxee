@@ -240,6 +240,8 @@ void main() {
 
       // Drive the REAL interaction: tap the production button → its real
       // `onPressed: _showExportOptions` opens the real chooser.
+      await tester.ensureVisible(find.byKey(UiKeys.settingsExportAccountButton));
+      await tester.pump();
       await tester.tap(find.byKey(UiKeys.settingsExportAccountButton));
       await _settle(tester);
 
@@ -301,6 +303,8 @@ void main() {
       await _pumpSettingsPage(tester, service);
 
       // Open the real chooser.
+      await tester.ensureVisible(find.byKey(UiKeys.settingsExportAccountButton));
+      await tester.pump();
       await tester.tap(find.byKey(UiKeys.settingsExportAccountButton));
       await _settle(tester);
       expect(find.byKey(UiKeys.settingsExportProfileToxOption), findsOneWidget);
@@ -397,6 +401,8 @@ void main() {
       );
       await _settle(tester);
 
+      await tester.ensureVisible(find.byKey(UiKeys.settingsExportAccountButton));
+      await tester.pump();
       await tester.tap(find.byKey(UiKeys.settingsExportAccountButton));
       await _settle(tester);
       expect(find.byKey(UiKeys.settingsExportProfileToxOption), findsOneWidget);

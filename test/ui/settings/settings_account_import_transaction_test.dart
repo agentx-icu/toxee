@@ -48,6 +48,9 @@ Future<void> _pumpSettings(
     ),
   );
   await settleSettings(tester);
+  // Appearance is above the account card; scroll to the real import action.
+  await tester.ensureVisible(_importButton());
+  await settleSettings(tester);
 }
 
 Finder _importButton() => find.widgetWithText(OutlinedButton, 'Import Account');

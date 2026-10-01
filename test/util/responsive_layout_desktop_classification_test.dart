@@ -84,13 +84,12 @@ void main() {
       final p = _probe(tester);
       expect(p.shouldShowBottomNav, isFalse);
       expect(p.shouldShowSidebar, isTrue);
-      // host is desktop, so sidebar width = 200 (desktop path); on a real
-      // phone this would be 72 (tablet path). Either way it's > 0.
+      // Intermediate windows use compact navigation on every platform.
       expect(p.sidebarWidth, greaterThan(0));
       expect(p.shouldShowMasterDetail, isTrue);
     });
 
-    testWidgets('tablet portrait 768×1024 → sidebar + master-detail',
+    testWidgets('tablet portrait 768×1024 → sidebar without master-detail',
         (tester) async {
       await _pumpAt(tester, const Size(768, 1024));
       final p = _probe(tester);

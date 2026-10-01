@@ -2184,4 +2184,57 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => 'Couldn\'t save a received file.';
+
+  @override
+  String get interfaceStyle => 'Interface style';
+
+  @override
+  String get interfaceStyleClassic => 'Classic Blue';
+
+  @override
+  String get interfaceStyleModern => 'Quiet Modern';
+
+  @override
+  String get interfaceStyleNight => 'Night Radio';
+
+  @override
+  String get interfaceStylePaper => 'Paper Letter';
+
+  @override
+  String get interfaceStyleCartoon => 'Fresh Cartoon';
+
+  @override
+  String get appearanceBrightness => 'Brightness';
+
+  @override
+  String get appearancePreview => 'Chat preview';
+
+  @override
+  String get appearancePreviewSender => 'Alex';
+
+  @override
+  String get appearancePreviewReceived => 'Shall we go hiking this weekend?';
+
+  @override
+  String get appearancePreviewSent => 'Sounds good. See you Saturday!';
+
+  @override
+  String get appearancePreviewOnline => 'Online';
+
+  @override
+  String get appearanceApply => 'Apply';
+
+  @override
+  String get appearancePending => 'Preview only. Apply to save your changes.';
+
+  @override
+  String get appearanceSaveFailed =>
+      'Could not save appearance. Your choices are kept; please try again.';
+
+  @override
+  String get restoreFromToxFileHint =>
+      'Restore a Tox profile from a .tox file.';
+
+  @override
+  String get importAccountHint => 'Import an account backup (.tox or .zip).';
 }

@@ -43,6 +43,7 @@ import 'login/login_page_controller.dart';
 import 'login/password_prompt_dialog.dart';
 import 'pairing/pairing_client_page.dart';
 
+part 'login/login_action_card.dart';
 part 'login/login_import_flow.dart';
 
 typedef LoginBootSessionFn = Future<void> Function(FfiChatService service);
@@ -124,6 +125,7 @@ class _LoginPageState extends State<LoginPage> {
   String? _error;
   FfiChatService? _service;
   List<Map<String, String>> _accountList = [];
+
   /// True when `account_list` could not be parsed. Distinguishes "no saved
   /// accounts" from "the registry is damaged", which must not look the same.
   bool _accountRegistryUnreadable = false;
@@ -230,10 +232,7 @@ class _LoginPageState extends State<LoginPage> {
       // would overwrite the only copy of the registry (setAccountList now
       // refuses, but the user still deserves to know why nothing is listed
       // instead of concluding their accounts are gone).
-      SafeDiagnostics.logFailure(
-        '[LoginPage] account registry unreadable',
-        e,
-      );
+      SafeDiagnostics.logFailure('[LoginPage] account registry unreadable', e);
       if (mounted) {
         setState(() {
           _accountRegistryUnreadable = true;
@@ -968,7 +967,9 @@ class _LoginPageState extends State<LoginPage> {
                                     AppLocalizations.of(
                                       context,
                                     )!.accountRegistryUnreadable,
-                                    style: Theme.of(context).textTheme.bodyMedium
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
                                         ?.copyWith(
                                           color: Theme.of(
                                             context,
@@ -1180,11 +1181,20 @@ class _LoginPageState extends State<LoginPage> {
                                                                   Flexible(
                                                                     child: Text(
                                                                       '${AppLocalizations.of(context)!.userId}: $toxIdPrefix…',
-                                                                      maxLines: 1,
-                                                                      overflow: TextOverflow.ellipsis,
+                                                                      maxLines:
+                                                                          1,
+                                                                      overflow:
+                                                                          TextOverflow
+                                                                              .ellipsis,
                                                                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                                        fontFamily: 'monospace',
-                                                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                                                        fontFamily:
+                                                                            'monospace',
+                                                                        color:
+                                                                            Theme.of(
+                                                                              context,
+                                                                            ).colorScheme.onSurface.withValues(
+                                                                              alpha: 0.5,
+                                                                            ),
                                                                       ),
                                                                     ),
                                                                   ),
@@ -1193,10 +1203,18 @@ class _LoginPageState extends State<LoginPage> {
                                                                   Flexible(
                                                                     child: Text(
                                                                       '• ${formatLastLogin(lastLogin)}',
-                                                                      maxLines: 1,
-                                                                      overflow: TextOverflow.ellipsis,
+                                                                      maxLines:
+                                                                          1,
+                                                                      overflow:
+                                                                          TextOverflow
+                                                                              .ellipsis,
                                                                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                                                        color:
+                                                                            Theme.of(
+                                                                              context,
+                                                                            ).colorScheme.onSurface.withValues(
+                                                                              alpha: 0.5,
+                                                                            ),
                                                                       ),
                                                                     ),
                                                                   ),
@@ -1296,6 +1314,9 @@ class _LoginPageState extends State<LoginPage> {
                                 label: AppLocalizations.of(
                                   context,
                                 )!.restoreFromToxFile,
+                                subtitle: AppLocalizations.of(
+                                  context,
+                                )!.restoreFromToxFileHint,
                                 color: colorTheme.primaryColor,
                                 isPrimary: true,
                                 onTap: _busy ? null : _restoreFromToxFile,
@@ -1310,6 +1331,9 @@ class _LoginPageState extends State<LoginPage> {
                                 label: AppLocalizations.of(
                                   context,
                                 )!.importAccount,
+                                subtitle: AppLocalizations.of(
+                                  context,
+                                )!.importAccountHint,
                                 color: colorTheme.primaryColor,
                                 onTap: _busy ? null : _importToxProfile,
                               ),
@@ -1386,75 +1410,6 @@ class _LoginPageState extends State<LoginPage> {
 /// "Register new account". Elevation-0 + hairline border for a modern
 /// messenger look; primary variant uses a tinted background to emphasize the
 /// canonical create-account path.
-class _LoginActionCard extends StatelessWidget {
-  const _LoginActionCard({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-    this.isPrimary = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback? onTap;
-  final bool isPrimary;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return _PressableScale(
-      child: Card(
-        margin: EdgeInsets.zero,
-        elevation: 0,
-        color: isPrimary ? AppThemeConfig.tintedPrimaryCardColor(color) : null,
-        shape: RoundedRectangleBorder(
-          side: BorderSide(
-            color: isPrimary
-                ? AppThemeConfig.tintedPrimaryCardBorderColor(color)
-                : scheme.outlineVariant,
-          ),
-          borderRadius: BorderRadius.circular(AppThemeConfig.cardBorderRadius),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                AppSpacing.horizontalMd,
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: color,
-                      fontWeight: isPrimary ? FontWeight.w600 : null,
-                    ),
-                  ),
-                ),
-                AppSpacing.horizontalSm,
-                Icon(
-                  _trailingChevron(context),
-                  size: 20,
-                  color: Theme.of(
-                    context,
-                  ).iconTheme.color?.withValues(alpha: 0.4),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Subtle scale-down on press for tappable Cards/InkWell rows.
 /// Scales to [pressedScale] (default 0.97) when pressed and back to 1.0 over
 /// 120ms. Respects `MediaQuery.disableAnimations` (no-op when reduced motion

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme_config.dart';
+import 'interface_style.dart';
 
 /// Component-level Material theme builders.
 ///
@@ -35,14 +36,8 @@ class AppComponentThemes {
         color: cs.onSurface,
         letterSpacing: -0.2,
       ),
-      iconTheme: IconThemeData(
-        size: 22,
-        color: cs.onSurface,
-      ),
-      actionsIconTheme: IconThemeData(
-        size: 22,
-        color: cs.onSurface,
-      ),
+      iconTheme: IconThemeData(size: 22, color: cs.onSurface),
+      actionsIconTheme: IconThemeData(size: 22, color: cs.onSurface),
     );
   }
 
@@ -50,22 +45,34 @@ class AppComponentThemes {
   //  Buttons — 10px radius, 44pt min hit, 15pt semibold
   // ──────────────────────────────────────────────
 
-  static const _buttonPadding =
-      EdgeInsets.symmetric(horizontal: 20, vertical: 12);
+  static const _buttonPadding = EdgeInsets.symmetric(
+    horizontal: 20,
+    vertical: 12,
+  );
   static const _buttonMinSize = Size(0, 44);
   static const _buttonTextStyle = TextStyle(
     fontSize: 15,
     fontWeight: FontWeight.w600,
   );
 
-  static RoundedRectangleBorder _buttonShape() => RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.button),
-      );
+  static RoundedRectangleBorder _buttonShape(
+    StyleGeometry geometry,
+    Color outline,
+  ) => RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(geometry.controlRadius),
+    side: geometry.outlineWidth > 0
+        ? BorderSide(color: outline, width: geometry.outlineWidth)
+        : BorderSide.none,
+  );
 
-  static ElevatedButtonThemeData elevatedButtonTheme(ColorScheme cs) {
+  static ElevatedButtonThemeData elevatedButtonTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        shape: _buttonShape(),
+        shape: _buttonShape(geometry, cs.outline),
         padding: _buttonPadding,
         minimumSize: _buttonMinSize,
         textStyle: _buttonTextStyle,
@@ -75,10 +82,14 @@ class AppComponentThemes {
     );
   }
 
-  static FilledButtonThemeData filledButtonTheme(ColorScheme cs) {
+  static FilledButtonThemeData filledButtonTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        shape: _buttonShape(),
+        shape: _buttonShape(geometry, cs.outline),
         padding: _buttonPadding,
         minimumSize: _buttonMinSize,
         textStyle: _buttonTextStyle,
@@ -88,10 +99,14 @@ class AppComponentThemes {
     );
   }
 
-  static OutlinedButtonThemeData outlinedButtonTheme(ColorScheme cs) {
+  static OutlinedButtonThemeData outlinedButtonTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        shape: _buttonShape(),
+        shape: _buttonShape(geometry, cs.outline),
         padding: _buttonPadding,
         minimumSize: _buttonMinSize,
         textStyle: _buttonTextStyle,
@@ -100,14 +115,18 @@ class AppComponentThemes {
     );
   }
 
-  static TextButtonThemeData textButtonTheme(ColorScheme cs) {
+  static TextButtonThemeData textButtonTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return TextButtonThemeData(
       style: TextButton.styleFrom(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(geometry.controlRadius),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        minimumSize: const Size(0, 40),
+        minimumSize: _buttonMinSize,
         textStyle: _buttonTextStyle,
         foregroundColor: cs.primary,
       ),
@@ -118,10 +137,14 @@ class AppComponentThemes {
   //  Surfaces — dialogs, sheets, cards, snackbars
   // ──────────────────────────────────────────────
 
-  static DialogThemeData dialogTheme(ColorScheme cs) {
+  static DialogThemeData dialogTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return DialogThemeData(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.dialog),
+        borderRadius: BorderRadius.circular(geometry.panelRadius),
       ),
       backgroundColor: cs.surface,
       surfaceTintColor: cs.surfaceTint,
@@ -135,11 +158,15 @@ class AppComponentThemes {
     );
   }
 
-  static BottomSheetThemeData bottomSheetTheme(ColorScheme cs) {
+  static BottomSheetThemeData bottomSheetTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return BottomSheetThemeData(
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
+          top: Radius.circular(geometry.panelRadius),
         ),
       ),
       backgroundColor: cs.surface,
@@ -151,10 +178,14 @@ class AppComponentThemes {
     );
   }
 
-  static CardThemeData cardTheme(ColorScheme cs) {
+  static CardThemeData cardTheme(ColorScheme cs, {StyleGeometry? geometry}) {
+    geometry ??= AppThemeConfig.geometry;
     return CardThemeData(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.card),
+        borderRadius: BorderRadius.circular(geometry.panelRadius),
+        side: geometry.outlineWidth > 0
+            ? BorderSide(color: cs.outline, width: geometry.outlineWidth)
+            : BorderSide.none,
       ),
       elevation: 0,
       surfaceTintColor: Colors.transparent,
@@ -162,10 +193,14 @@ class AppComponentThemes {
     );
   }
 
-  static SnackBarThemeData snackBarTheme(ColorScheme cs) {
+  static SnackBarThemeData snackBarTheme(
+    ColorScheme cs, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
     return SnackBarThemeData(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.button),
+        borderRadius: BorderRadius.circular(geometry.controlRadius),
       ),
       behavior: SnackBarBehavior.floating,
       backgroundColor: cs.inverseSurface,
@@ -183,25 +218,34 @@ class AppComponentThemes {
   // ──────────────────────────────────────────────
 
   static InputDecorationTheme inputDecorationTheme(
-      ColorScheme cs, Brightness brightness) {
-    final radius = BorderRadius.circular(AppRadii.input);
+    ColorScheme cs,
+    Brightness brightness, {
+    StyleGeometry? geometry,
+  }) {
+    geometry ??= AppThemeConfig.geometry;
+    final radius = BorderRadius.circular(geometry.controlRadius);
     OutlineInputBorder unset() =>
         OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none);
     OutlineInputBorder ring(Color color) => OutlineInputBorder(
-          borderRadius: radius,
-          borderSide: BorderSide(width: 2, color: color),
-        );
+      borderRadius: radius,
+      borderSide: BorderSide(width: 2, color: color),
+    );
     return InputDecorationTheme(
       filled: true,
       fillColor: cs.surfaceContainerHighest,
       border: unset(),
-      enabledBorder: unset(),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide(
+          color: cs.outline,
+          width: geometry.outlineWidth > 0 ? geometry.outlineWidth : 1,
+        ),
+      ),
       disabledBorder: unset(),
       focusedBorder: ring(cs.primary),
       errorBorder: ring(cs.error),
       focusedErrorBorder: ring(cs.error),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
   }
 
@@ -235,11 +279,7 @@ class AppComponentThemes {
   // ──────────────────────────────────────────────
 
   static DividerThemeData dividerTheme(ColorScheme cs) {
-    return DividerThemeData(
-      space: 0,
-      thickness: 1,
-      color: cs.outlineVariant,
-    );
+    return DividerThemeData(space: 0, thickness: 1, color: cs.outlineVariant);
   }
 
   static TabBarThemeData tabBarTheme(ColorScheme cs) {

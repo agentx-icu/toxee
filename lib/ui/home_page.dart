@@ -101,7 +101,6 @@ import 'home/tim2tox_plugin_policy.dart';
 import 'home/toxee_message_header_info.dart';
 import 'home/auto_accept_apply.dart';
 import '../util/app_theme_config.dart';
-import '../util/design_tokens.dart';
 import '../util/app_tray.dart';
 import '../util/bootstrap_node_ensurer.dart';
 import '../util/bootstrap_nodes.dart';
@@ -138,7 +137,6 @@ part 'home_page_master_detail.dart';
 part 'home_page_capture.dart';
 
 enum _MediaPickType { file, image, video }
-
 
 @visibleForTesting
 List<PopupMenuEntry<String>> buildConversationContextMenuItems({
@@ -810,11 +808,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // Repeat open of the newest pushed chat: no second push (it stacked
         // duplicate routes, live on Android) — but reveal it if a UIKit page
         // (group profile / member list) was pushed over it since (UI-7).
-        unawaited(popShellOverlayRoutes(
-          Navigator.maybeOf(context, rootNavigator: true),
-          stopAt: (r) => routeIsMessageFor(r,
-              userID: hasGroup ? null : peerId, groupID: groupId),
-        ));
+        unawaited(
+          popShellOverlayRoutes(
+            Navigator.maybeOf(context, rootNavigator: true),
+            stopAt: (r) => routeIsMessageFor(
+              r,
+              userID: hasGroup ? null : peerId,
+              groupID: groupId,
+            ),
+          ),
+        );
         unawaited(_updateTray());
         return;
       }
@@ -888,13 +891,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final path =
           selectedPath ??
           await runL3AwareAttachmentPicker(
-            pickFile: () => _pickForChat(userId, () async => (await FilePicker.platform.pickFiles(
-              type: switch (type) {
-                _MediaPickType.file => FileType.any,
-                _MediaPickType.image => FileType.image,
-                _MediaPickType.video => FileType.video,
-              },
-            ))?.files.single.path),
+            pickFile: () => _pickForChat(
+              userId,
+              () async => (await FilePicker.platform.pickFiles(
+                type: switch (type) {
+                  _MediaPickType.file => FileType.any,
+                  _MediaPickType.image => FileType.image,
+                  _MediaPickType.video => FileType.video,
+                },
+              ))?.files.single.path,
+            ),
           );
       if (path == null || path.isEmpty) {
         _showSnackBar(appL10n.noLabelSelected(label));
@@ -1357,9 +1363,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               : 0,
                           left: useSidebar
                               ? ResponsiveLayout.responsiveSidebarWidth(
-                                    context,
-                                  ) +
-                                  1
+                                      context,
+                                    ) +
+                                    1
                               : 0,
                           right: 0,
                           // Asymmetric enter/exit: snappy 250ms in (easeOut) so the
@@ -1429,7 +1435,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(
+                                          Icon(
                                             Icons.cloud_done_outlined,
                                             color: AppThemeConfig.successColor,
                                             size: 18,
@@ -1588,15 +1594,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget? _buildBottomNavigationBar() {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    // Reference-design bottom nav: flat surface, 1px top hairline, active
-    // tab in brand blue, inactive in the tertiary text tone.
-    final inactiveColor = isDark
-        ? DesignTokens.textTertiaryDark
-        : DesignTokens.textTertiaryLight;
-    final hairlineColor = isDark
-        ? DesignTokens.dividerDark
-        : DesignTokens.dividerLight;
+    final inactiveColor = theme.colorScheme.onSurfaceVariant;
+    final hairlineColor = theme.colorScheme.outlineVariant;
     return DecoratedBox(
       // Automation anchor: this bottom nav renders ONLY in the bottom-nav
       // (mobile) layout tier (`useBottomNav`/`shouldShowBottomNav`, a pure
@@ -1620,8 +1619,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               // 3 are first-party pages, so HomePage owns their controllers
               // and passes them down. No GlobalKey reach-in anywhere.
               unawaited(switch (i) {
-                0 => TencentCloudChatConversationController.instance
-                    .scrollToTop(),
+                0 =>
+                  TencentCloudChatConversationController.instance.scrollToTop(),
                 1 => TencentCloudChatContactManager.controller.scrollToTop(),
                 2 => _scrollToTop(_applicationsScrollController),
                 3 => _scrollToTop(_settingsScrollController),
@@ -1639,7 +1638,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           },
           type: BottomNavigationBarType.fixed,
           elevation: 0,
-          selectedItemColor: DesignTokens.primary,
+          selectedItemColor: theme.colorScheme.primary,
           unselectedItemColor: inactiveColor,
           backgroundColor: theme.scaffoldBackgroundColor,
           iconSize: 24,
@@ -2367,8 +2366,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               final nickname = friendMap[userId] ?? userId;
               final scheme = Theme.of(context).colorScheme;
               final text = Theme.of(context).textTheme;
-              final sub = text.bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant);
+              final sub = text.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              );
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: scheme.primary.withValues(alpha: 0.12),

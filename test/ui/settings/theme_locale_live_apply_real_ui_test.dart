@@ -42,6 +42,7 @@ import 'package:toxee/ui/settings/global_settings_section.dart';
 import 'package:toxee/util/locale_controller.dart';
 import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/theme_controller.dart';
+import 'package:toxee/util/appearance_sync.dart';
 
 // Probe descendant keys: a tree node that reads Theme.of + AppLocalizations so
 // we can assert the live values AFTER a flip (kept far below the section so the
@@ -95,7 +96,10 @@ Widget _shell({bool includeForkSubtree = false}) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // The REAL settings section drives the real appliers.
-                        const GlobalSettingsSection(colorTheme: null, toxId: null),
+                        const GlobalSettingsSection(
+                          colorTheme: null,
+                          toxId: null,
+                        ),
                         // Descendant probe: reads the LIVE theme brightness +
                         // a LIVE AppLocalizations string.
                         Builder(
@@ -128,7 +132,9 @@ Widget _shell({bool includeForkSubtree = false}) {
                                 color: colorTheme.backgroundColor,
                                 child: Text(
                                   'fork',
-                                  style: TextStyle(color: colorTheme.primaryTextColor),
+                                  style: TextStyle(
+                                    color: colorTheme.primaryTextColor,
+                                  ),
                                 ),
                               );
                             },
@@ -146,7 +152,12 @@ Widget _shell({bool includeForkSubtree = false}) {
   );
 }
 
-Future<void> _pumpShell(WidgetTester tester, {bool includeForkSubtree = false}) async {
+Future<void> _pumpShell(
+  WidgetTester tester, {
+  bool includeForkSubtree = false,
+}) async {
+  AppTheme.changes.addListener(syncUIKitAppearance);
+  addTearDown(() => AppTheme.changes.removeListener(syncUIKitAppearance));
   await tester.binding.setSurfaceSize(const Size(1200, 1600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(_shell(includeForkSubtree: includeForkSubtree));
@@ -157,7 +168,9 @@ Future<void> _pumpShell(WidgetTester tester, {bool includeForkSubtree = false}) 
 
 String _probeText(WidgetTester tester, String prefix) {
   final texts = tester
-      .widgetList<Text>(find.descendant(of: find.byKey(_kProbe), matching: find.byType(Text)))
+      .widgetList<Text>(
+        find.descendant(of: find.byKey(_kProbe), matching: find.byType(Text)),
+      )
       .map((t) => t.data ?? '')
       .where((s) => s.startsWith(prefix));
   return texts.isEmpty ? '' : texts.first;
@@ -171,7 +184,10 @@ void main() {
   final messenger =
       TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger;
   setUpAll(() {
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async => null);
+    messenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async => null,
+    );
   });
   tearDownAll(() {
     messenger.setMockMethodCallHandler(SystemChannels.platform, null);
@@ -200,18 +216,28 @@ void main() {
 
       // Baseline: light everywhere (non-vacuous).
       expect(_probeText(tester, 'probe-brightness:'), 'probe-brightness:light');
-      expect(find.byKey(_kForkColor), findsOneWidget,
-          reason: 'the fork chat subtree should mount in light mode');
+      expect(
+        find.byKey(_kForkColor),
+        findsOneWidget,
+        reason: 'the fork chat subtree should mount in light mode',
+      );
       final lightForkBackground = _lastForkBackground;
       expect(lightForkBackground, isNotNull);
 
       // Tap the REAL "Dark" segment of the production SegmentedButton.
-      final darkSegment = find.widgetWithText(SegmentedButton<ThemeMode>, 'Dark');
+      final darkSegment = find.widgetWithText(
+        SegmentedButton<ThemeMode>,
+        'Dark',
+      );
       expect(darkSegment, findsOneWidget);
       await tester.tap(find.text('Dark'));
-      // applyThemeModeEverywhere fires AppTheme.set (notifier) + the UIKit
-      // brightness eventBus; pump past the 400ms theme animation + the async
-      // eventBus delivery.
+      await tester.pumpAndSettle();
+      expect(AppTheme.mode.value, ThemeMode.light);
+      await tester.ensureVisible(
+        find.byKey(const Key('settings_appearance_apply')),
+      );
+      await tester.tap(find.byKey(const Key('settings_appearance_apply')));
+      // Apply saves the preference, then the production listener updates UIKit.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
@@ -219,18 +245,28 @@ void main() {
       // S57 core: a descendant of the SAME app shell now renders dark — the
       // AppTheme.mode notifier drove the MaterialApp.themeMode rebuild.
       expect(AppTheme.mode.value, ThemeMode.dark);
-      expect(_probeText(tester, 'probe-brightness:'), 'probe-brightness:dark',
-          reason: 'the descendant Theme.of(context).brightness must flip to dark');
+      expect(
+        _probeText(tester, 'probe-brightness:'),
+        'probe-brightness:dark',
+        reason: 'the descendant Theme.of(context).brightness must flip to dark',
+      );
 
       // S57 cross-fork: the fork chat subtree survived the rebuild (still
       // present, no exception) AND its UIKit colorTheme flipped too.
-      expect(tester.takeException(), isNull,
-          reason: 'the theme rebuild must cross the fork subtree without throwing');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'the theme rebuild must cross the fork subtree without throwing',
+      );
       expect(find.byKey(_kForkColor), findsOneWidget);
       expect(_lastForkBackground, isNotNull);
-      expect(_lastForkBackground, isNot(lightForkBackground),
-          reason:
-              'the fork UIKit colorTheme background should flip when brightness changes');
+      expect(
+        _lastForkBackground,
+        isNot(lightForkBackground),
+        reason:
+            'the fork UIKit colorTheme background should flip when brightness changes',
+      );
     },
   );
 
@@ -244,15 +280,21 @@ void main() {
       await _pumpShell(tester);
 
       // Baseline: English string rendered in the probe (non-vacuous).
-      expect(_probeText(tester, 'probe-appearance:'), 'probe-appearance:Appearance');
+      expect(
+        _probeText(tester, 'probe-appearance:'),
+        'probe-appearance:Appearance',
+      );
 
       // Expand the real collapsed language row (shows the current selection
       // "English"), then tap the 简体中文 option.
       await tester.tap(find.text('English'));
       await tester.pumpAndSettle();
       final zhOption = find.text('简体中文');
-      expect(zhOption, findsOneWidget,
-          reason: 'the expanded language list must show the 简体中文 option');
+      expect(
+        zhOption,
+        findsOneWidget,
+        reason: 'the expanded language list must show the 简体中文 option',
+      );
       await tester.tap(zhOption);
       await tester.pumpAndSettle();
 
@@ -260,38 +302,44 @@ void main() {
       // re-resolved to Simplified Chinese.
       expect(AppLocale.locale.value.languageCode, 'zh');
       expect(AppLocale.locale.value.scriptCode, 'Hans');
-      expect(_probeText(tester, 'probe-appearance:'), 'probe-appearance:外观',
-          reason:
-              'the descendant AppLocalizations.appearance must flip from "Appearance" to "外观"');
+      expect(
+        _probeText(tester, 'probe-appearance:'),
+        'probe-appearance:外观',
+        reason:
+            'the descendant AppLocalizations.appearance must flip from "Appearance" to "外观"',
+      );
     },
   );
 
   // -------------------------------------------------------------------------
   // S38 (RTL) — Arabic flips the ambient Directionality to RTL.
   // -------------------------------------------------------------------------
-  testWidgets(
-    'S38 selecting العربية flips the ambient Directionality to RTL',
-    (tester) async {
-      await _pumpShell(tester);
+  testWidgets('S38 selecting العربية flips the ambient Directionality to RTL', (
+    tester,
+  ) async {
+    await _pumpShell(tester);
 
-      // Baseline LTR.
-      final ltrDir = Directionality.of(tester.element(find.byKey(_kProbe)));
-      expect(ltrDir, TextDirection.ltr);
+    // Baseline LTR.
+    final ltrDir = Directionality.of(tester.element(find.byKey(_kProbe)));
+    expect(ltrDir, TextDirection.ltr);
 
-      await tester.tap(find.text('English'));
-      await tester.pumpAndSettle();
-      final arOption = find.text('العربية');
-      expect(arOption, findsOneWidget);
-      await tester.tap(arOption);
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('English'));
+    await tester.pumpAndSettle();
+    final arOption = find.text('العربية');
+    expect(arOption, findsOneWidget);
+    await tester.tap(arOption);
+    await tester.pumpAndSettle();
 
-      expect(AppLocale.locale.value.languageCode, 'ar');
-      // The Arabic locale resolves the GlobalWidgetsLocalizations RTL
-      // direction; the nearest Directionality ancestor of the descendant now
-      // reports RTL (the load-bearing S38 Arabic case).
-      final rtlDir = Directionality.of(tester.element(find.byKey(_kProbe)));
-      expect(rtlDir, TextDirection.rtl,
-          reason: 'an Arabic locale must propagate RTL Directionality to descendants');
-    },
-  );
+    expect(AppLocale.locale.value.languageCode, 'ar');
+    // The Arabic locale resolves the GlobalWidgetsLocalizations RTL
+    // direction; the nearest Directionality ancestor of the descendant now
+    // reports RTL (the load-bearing S38 Arabic case).
+    final rtlDir = Directionality.of(tester.element(find.byKey(_kProbe)));
+    expect(
+      rtlDir,
+      TextDirection.rtl,
+      reason:
+          'an Arabic locale must propagate RTL Directionality to descendants',
+    );
+  });
 }

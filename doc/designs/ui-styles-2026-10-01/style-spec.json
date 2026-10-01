@@ -1,0 +1,317 @@
+{
+  "date": "2026-10-01",
+  "status": "implemented-local-validation",
+  "default": {
+    "style": "classic",
+    "brightness": "system",
+    "name_zh": "经典蓝",
+    "source": "lib/util/design_tokens.dart"
+  },
+  "units": "Flutter logical pixels",
+  "contrast_standard": "WCAG relative luminance sRGB; text >=4.5, required control outline >=3",
+  "constraints": {
+    "touch_target_min": 44,
+    "body_font_size": [
+      14,
+      16
+    ],
+    "metadata_font_size": [
+      12,
+      13
+    ],
+    "heading_font_size": [
+      20,
+      24
+    ],
+    "respect_text_scaling": true,
+    "style_and_brightness_independent": true,
+    "preview_is_local": true,
+    "apply_after_successful_persistence": true,
+    "preserve_navigation_drafts_scroll_calls": true,
+    "device_preferences_independent_of_account": true,
+    "cartoon_character_placement": [
+      "empty-state",
+      "appearance-thumbnail"
+    ]
+  },
+  "styles": {
+    "modern": {
+      "name_zh": "清爽现代",
+      "name_en": "Quiet Modern",
+      "panel_radius": 16,
+      "control_radius": 10,
+      "bubble_radius": 14,
+      "chip_radius": 6,
+      "typography": "System sans; Chinese body 14–16 logical px; headings 20–24; metadata 12–13.",
+      "colors": {
+        "light": {
+          "canvas": "#F5F8F7",
+          "panel": "#FFFFFF",
+          "rail": "#EDF3F0",
+          "selected": "#E0EFE8",
+          "primary": "#147D68",
+          "onPrimary": "#FFFFFF",
+          "text": "#18352D",
+          "muted": "#566B63",
+          "divider": "#DCE6E1",
+          "controlBorder": "#758C81",
+          "sent": "#DDF0E7",
+          "received": "#EFF3F1",
+          "link": "#147D68",
+          "online": "#1F754C",
+          "error": "#B42331",
+          "warning": "#875800",
+          "unread": "#B42331",
+          "onUnread": "#FFFFFF",
+          "sentText": "#18352D",
+          "receivedText": "#18352D"
+        },
+        "dark": {
+          "canvas": "#12221C",
+          "panel": "#192D24",
+          "rail": "#101E18",
+          "selected": "#28463A",
+          "primary": "#64DAB2",
+          "onPrimary": "#10251C",
+          "text": "#ECF4EF",
+          "muted": "#AEC5B9",
+          "divider": "#365045",
+          "controlBorder": "#718F7E",
+          "sent": "#244C3B",
+          "received": "#22382D",
+          "link": "#8BE2BC",
+          "online": "#7BD8A9",
+          "error": "#FF929F",
+          "warning": "#EDC879",
+          "unread": "#FF929F",
+          "onUnread": "#291218",
+          "sentText": "#ECF4EF",
+          "receivedText": "#ECF4EF"
+        }
+      }
+    },
+    "night": {
+      "name_zh": "夜航通讯",
+      "name_en": "Night Link",
+      "panel_radius": 8,
+      "control_radius": 6,
+      "bubble_radius": 8,
+      "chip_radius": 4,
+      "typography": "System sans for all messages; optional monospace for timestamps/technical IDs only.",
+      "colors": {
+        "light": {
+          "canvas": "#F1F5F8",
+          "panel": "#FFFFFF",
+          "rail": "#E3EBF0",
+          "selected": "#DDE9EF",
+          "primary": "#165F6A",
+          "onPrimary": "#FFFFFF",
+          "text": "#172B34",
+          "muted": "#526772",
+          "divider": "#D1DEE5",
+          "controlBorder": "#6F8793",
+          "sent": "#DBEBEF",
+          "received": "#E8EFF3",
+          "link": "#165F6A",
+          "online": "#226C53",
+          "error": "#B42331",
+          "warning": "#815600",
+          "unread": "#815600",
+          "onUnread": "#FFFFFF",
+          "sentText": "#172B34",
+          "receivedText": "#172B34"
+        },
+        "dark": {
+          "canvas": "#111923",
+          "panel": "#1B2733",
+          "rail": "#0E1620",
+          "selected": "#294453",
+          "primary": "#64D8C2",
+          "onPrimary": "#102620",
+          "text": "#EDF3F6",
+          "muted": "#ADC0CC",
+          "divider": "#354754",
+          "controlBorder": "#8099A7",
+          "sent": "#244943",
+          "received": "#25333F",
+          "link": "#80DECC",
+          "online": "#84D7B2",
+          "error": "#FF929F",
+          "warning": "#EABF76",
+          "unread": "#EABF76",
+          "onUnread": "#2E220E",
+          "sentText": "#EDF3F6",
+          "receivedText": "#EDF3F6"
+        }
+      }
+    },
+    "paper": {
+      "name_zh": "纸感书信",
+      "name_en": "Paper Correspondence",
+      "panel_radius": 4,
+      "control_radius": 4,
+      "bubble_radius": 6,
+      "chip_radius": 2,
+      "typography": "System sans Chinese body; restrained editorial headings; optional serif Latin wordmark only.",
+      "colors": {
+        "light": {
+          "canvas": "#F4F0E7",
+          "panel": "#FFFCF5",
+          "rail": "#ECE6D9",
+          "selected": "#F0DECF",
+          "primary": "#A34432",
+          "onPrimary": "#FFFFFF",
+          "text": "#302D26",
+          "muted": "#665F51",
+          "divider": "#D8CEBC",
+          "controlBorder": "#8B7E68",
+          "sent": "#F5E1D5",
+          "received": "#EEE9DE",
+          "link": "#A34432",
+          "online": "#426A48",
+          "error": "#AE2F35",
+          "warning": "#855B09",
+          "unread": "#AE2F35",
+          "onUnread": "#FFFFFF",
+          "sentText": "#302D26",
+          "receivedText": "#302D26"
+        },
+        "dark": {
+          "canvas": "#231F1A",
+          "panel": "#2D2821",
+          "rail": "#1D1A16",
+          "selected": "#48382D",
+          "primary": "#F0A087",
+          "onPrimary": "#322017",
+          "text": "#F5F0E5",
+          "muted": "#C4B9A6",
+          "divider": "#514739",
+          "controlBorder": "#A69984",
+          "sent": "#49332A",
+          "received": "#373027",
+          "link": "#F0A087",
+          "online": "#ACCEA0",
+          "error": "#F6A0A0",
+          "warning": "#E2C486",
+          "unread": "#F6A0A0",
+          "onUnread": "#301616",
+          "sentText": "#F5F0E5",
+          "receivedText": "#F5F0E5"
+        }
+      }
+    },
+    "cartoon": {
+      "name_zh": "清新卡通",
+      "name_en": "Fresh Cartoon",
+      "panel_radius": 20,
+      "control_radius": 12,
+      "bubble_radius": 18,
+      "chip_radius": 10,
+      "typography": "Legible system sans body; gently rounded bold headings; preserve Chinese text scaling; no decorative body font.",
+      "colors": {
+        "light": {
+          "canvas": "#FFF8EE",
+          "panel": "#FFFEF8",
+          "rail": "#FFF0D8",
+          "selected": "#FFE6A5",
+          "primary": "#B53B50",
+          "onPrimary": "#FFFFFF",
+          "text": "#342F40",
+          "muted": "#6C5E73",
+          "divider": "#DDCFCB",
+          "controlBorder": "#342F40",
+          "sent": "#FFE0DB",
+          "received": "#ECE9FF",
+          "link": "#A93048",
+          "online": "#35613F",
+          "error": "#A52A40",
+          "warning": "#77520D",
+          "unread": "#A52A40",
+          "onUnread": "#FFFFFF",
+          "sentText": "#342F40",
+          "receivedText": "#342F40"
+        },
+        "dark": {
+          "canvas": "#211D2C",
+          "panel": "#2D263B",
+          "rail": "#1C1826",
+          "selected": "#473825",
+          "primary": "#FFB2AE",
+          "onPrimary": "#342431",
+          "text": "#F9F1EB",
+          "muted": "#CCBDD7",
+          "divider": "#53465F",
+          "controlBorder": "#C6B6CA",
+          "sent": "#5C343E",
+          "received": "#3A3357",
+          "link": "#FFB2AE",
+          "online": "#AFD4A9",
+          "error": "#FFAFBD",
+          "warning": "#EED39B",
+          "unread": "#FFAFBD",
+          "onUnread": "#34202B",
+          "sentText": "#F9F1EB",
+          "receivedText": "#F9F1EB"
+        }
+      },
+      "revision": 2,
+      "visual_language": "Light comic: apricot/cream, coral and lavender, ink contours and restrained crisp offset shadows.",
+      "bubble_tail_corner_radius": 6,
+      "outline_width": 2,
+      "icon_stroke_width": 2.2,
+      "shadow": {
+        "offset_x": 2,
+        "offset_y": 2,
+        "blur": 0,
+        "light_color": "#342F40",
+        "dark_color": "#0F0C15",
+        "applies_to": [
+          "selected-navigation",
+          "primary-action"
+        ]
+      }
+    }
+  },
+  "color_usage": {
+    "text": "Body text on canvas/panel/rail/selection and both bubbles",
+    "muted": "Required secondary text on the same six surfaces",
+    "primary": "Main actions",
+    "onPrimary": "Main-action label",
+    "link": "Links on canvas/panel",
+    "online": "Presence dot with readable status text; not the brand identity",
+    "error": "Failure status plus icon/text on canvas/panel",
+    "warning": "Warning status plus icon/text on canvas/panel",
+    "unread": "Unread count background with onUnread text",
+    "controlBorder": "Required control outline on canvas/panel",
+    "divider": "Decorative structural separators; not a substitute for controlBorder"
+  },
+  "implementation_notes": [
+    "Map every style into both Material and TencentCloudChat UIKit.",
+    "Classic Blue retains current defaults; no new contrast compliance claim is made for existing tokens.",
+    "Colors in generated images are approximate. Verify actual Flutter pixels, all message states and nested surfaces during implementation.",
+    "Style and brightness apply must not rebuild routing, composer controllers, calling or transport instances.",
+    "Cartoon revision 2 differentiates geometry as well as palette; original cartoon and appearance images are retained as history."
+  ],
+  "active_design_assets": {
+    "modern": "a-modern.png",
+    "night": "b-night.png",
+    "paper": "c-paper.png",
+    "cartoon": "d-cartoon-v2.png",
+    "appearance": "appearance-switcher-v2.png"
+  },
+  "implementation": {
+    "date": "2026-10-01",
+    "preference_key": "appearance_settings",
+    "preference_version": 1,
+    "runtime_style_names": [
+      "classic",
+      "modern",
+      "night",
+      "paper",
+      "cartoon"
+    ],
+    "render_fixture": "test/ui/chat/interface_style_render_test.dart",
+    "render_directory": "renders",
+    "note": "Widget fixture renders with native UIKit bubbles and composer; no real account/session data."
+  }
+}

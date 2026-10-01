@@ -111,7 +111,7 @@ class CallCompactCard extends StatelessWidget {
                   child: Container(
                     width: 36,
                     height: 36,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       color: AppThemeConfig.errorColor,
                       shape: BoxShape.circle,
                     ),

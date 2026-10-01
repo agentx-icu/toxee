@@ -24,6 +24,10 @@ For deeper implementation details and role-based reading paths, see [doc/README.
 
 **toxee** is a **Flutter chat client / example app built on tox**. It shows how to integrate tox with Tencent Cloud Chat UIKit to build a decentralized P2P chat experience: account flows, conversations, messages, contacts, groups, Bootstrap, optional calling, and extension points are all implemented or wired up in this repository.
 
+[![toxee Quiet Modern design concept: desktop and mobile chat](doc/product/assets/en/quiet-modern.png)](doc/product/assets/en/quiet-modern.png)
+
+*Quiet Modern design concept — desktop and mobile chat.*
+
 **Clearly defined**:
 
 - **It is**: a runnable Flutter application for developers who want to get something working quickly, and for maintainers who want to understand the relationship between a client app and Tim2Tox. It also serves as a reference implementation for integrating Tim2Tox.
@@ -34,21 +38,11 @@ For deeper implementation details and role-based reading paths, see [doc/README.
 
 ## Screenshots
 
-The real app, one Flutter codebase, on **desktop (macOS), Android, iPad, and iOS** (click any image for full resolution). These English-UI images live in [`doc/product/assets/en/`](doc/product/assets/en) (the Chinese UI set is in [`doc/product/assets/zh/`](doc/product/assets/zh), shown in [README.zh-CN.md](README.zh-CN.md)); the self-contained product page **[`doc/product/index.html`](doc/product/index.html)** has the full tour.
+The **Quiet Modern** design concept below is the same image used in the project overview and product-page introduction. Its desktop and mobile interfaces, labels, and sample conversation are in English. Click the image for full resolution.
 
-**The same 1:1 chat, on every platform:**
+[![toxee Quiet Modern design concept in English: desktop and mobile chat](doc/product/assets/en/quiet-modern.png)](doc/product/assets/en/quiet-modern.png)
 
-| Desktop | iPad | Android | iOS |
-| :---: | :---: | :---: | :---: |
-| [![Toxee chat on macOS](doc/product/assets/en/desktop/c2c.png)](doc/product/assets/en/desktop/c2c.png) | [![Toxee chat on iPad](doc/product/assets/en/ipad/c2c.png)](doc/product/assets/en/ipad/c2c.png) | [![Toxee chat on Android](doc/product/assets/en/android/c2c.png)](doc/product/assets/en/android/c2c.png) | [![Toxee chat on iOS](doc/product/assets/en/ios/c2c.png)](doc/product/assets/en/ios/c2c.png) |
-
-**More (desktop):**
-
-| Group chat | New contacts | Profile & Tox ID QR | Settings |
-| :---: | :---: | :---: | :---: |
-| [![Group chat](doc/product/assets/en/desktop/group_chat.png)](doc/product/assets/en/desktop/group_chat.png) | [![New friend request](doc/product/assets/en/desktop/new_application.png)](doc/product/assets/en/desktop/new_application.png) | [![Profile and Tox ID QR card](doc/product/assets/en/desktop/self_profile.png)](doc/product/assets/en/desktop/self_profile.png) | [![Settings](doc/product/assets/en/desktop/settings.png)](doc/product/assets/en/desktop/settings.png) |
-
-> These screenshots are generated from the running app by `./tool/screenshots/capture.sh` — see [`tool/screenshots/README.md`](tool/screenshots/README.md).
+*Design concept. For the full feature tour and captured app screens, open [`doc/product/index.html`](doc/product/index.html); the Chinese design is shown in [README.zh-CN.md](README.zh-CN.md).*
 
 ---
 

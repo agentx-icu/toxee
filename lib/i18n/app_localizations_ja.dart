@@ -2098,4 +2098,55 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get fileReceiveFailedUnnamed => '受信したファイルを保存できませんでした。';
+
+  @override
+  String get interfaceStyle => 'インターフェースのスタイル';
+
+  @override
+  String get interfaceStyleClassic => 'クラシックブルー';
+
+  @override
+  String get interfaceStyleModern => 'クワイエットモダン';
+
+  @override
+  String get interfaceStyleNight => 'ナイトラジオ';
+
+  @override
+  String get interfaceStylePaper => '紙の手紙';
+
+  @override
+  String get interfaceStyleCartoon => 'フレッシュカートゥーン';
+
+  @override
+  String get appearanceBrightness => '明るさ';
+
+  @override
+  String get appearancePreview => 'チャットのプレビュー';
+
+  @override
+  String get appearancePreviewSender => 'アレックス';
+
+  @override
+  String get appearancePreviewReceived => '週末にハイキングに行かない？';
+
+  @override
+  String get appearancePreviewSent => 'いいね。土曜日に会おう！';
+
+  @override
+  String get appearancePreviewOnline => 'オンライン';
+
+  @override
+  String get appearanceApply => '適用';
+
+  @override
+  String get appearancePending => 'プレビューのみです。適用して変更を保存してください。';
+
+  @override
+  String get appearanceSaveFailed => '外観を保存できませんでした。選択は保持されています。もう一度お試しください。';
+
+  @override
+  String get restoreFromToxFileHint => '.tox ファイルから Tox プロフィールを復元します。';
+
+  @override
+  String get importAccountHint => 'アカウントのバックアップ（.tox または .zip）をインポートします。';
 }

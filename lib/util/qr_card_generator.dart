@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:toxee/util/design_tokens.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -41,8 +42,8 @@ class ContactQrCardGenerator {
   /// than [AppRadii.card] to read as a "card" in shared previews/galleries).
   static const double _kCardRadius = 36;
 
-  static const Color _defaultPrimary = AppThemeConfig.primaryColor;
-  static const Color _defaultText = AppThemeConfig.primaryTextColorLight;
+  static const Color _defaultPrimary = DesignTokens.primary;
+  static const Color _defaultText = DesignTokens.textPrimaryLight;
 
   static Future<Uint8List> _renderBytes({
     required String userId,
@@ -112,7 +113,7 @@ class ContactQrCardGenerator {
     }
 
     final nameColor = textColor.computeLuminance() > 0.6
-        ? AppThemeConfig.primaryTextColorLight
+        ? DesignTokens.textPrimaryLight
         : textColor;
 
     _drawText(

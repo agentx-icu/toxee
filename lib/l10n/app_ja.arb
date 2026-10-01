@@ -1006,5 +1006,22 @@
   "fileReceiveNoSpace": "ストレージの空き容量が不足しているため「{fileName}」を受信できません。空き容量を増やしてから再試行してください。",
   "fileReceiveNoSpaceUnnamed": "ストレージの空き容量が不足しているためファイルを受信できません。空き容量を増やしてから再試行してください。",
   "fileReceiveFailed": "「{fileName}」を保存できませんでした。",
-  "fileReceiveFailedUnnamed": "受信したファイルを保存できませんでした。"
+  "fileReceiveFailedUnnamed": "受信したファイルを保存できませんでした。",
+  "interfaceStyle": "インターフェースのスタイル",
+  "interfaceStyleClassic": "クラシックブルー",
+  "interfaceStyleModern": "クワイエットモダン",
+  "interfaceStyleNight": "ナイトラジオ",
+  "interfaceStylePaper": "紙の手紙",
+  "interfaceStyleCartoon": "フレッシュカートゥーン",
+  "appearanceBrightness": "明るさ",
+  "appearancePreview": "チャットのプレビュー",
+  "appearancePreviewSender": "アレックス",
+  "appearancePreviewReceived": "週末にハイキングに行かない？",
+  "appearancePreviewSent": "いいね。土曜日に会おう！",
+  "appearancePreviewOnline": "オンライン",
+  "appearanceApply": "適用",
+  "appearancePending": "プレビューのみです。適用して変更を保存してください。",
+  "appearanceSaveFailed": "外観を保存できませんでした。選択は保持されています。もう一度お試しください。",
+  "restoreFromToxFileHint": ".tox ファイルから Tox プロフィールを復元します。",
+  "importAccountHint": "アカウントのバックアップ（.tox または .zip）をインポートします。"
 }
