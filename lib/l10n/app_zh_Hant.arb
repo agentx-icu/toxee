@@ -1022,5 +1022,6 @@
   "passwordRekeyFailed": "帳號檔案無法重新加密；未做任何變更",
   "exportRequiresLogin": "請先登入該帳號再匯出",
   "profileUnopenableWithPassword": "無法用此密碼開啟帳號檔案。檔案可能已損壞，或上次修改密碼被中斷。",
-  "passwordChangeInterrupted": "密碼修改被中斷。請嘗試修改前或修改後的密碼。"
+  "passwordChangeInterrupted": "密碼修改被中斷。請嘗試修改前或修改後的密碼。",
+  "importUnsupportedFileType": "請選擇 .tox 資料檔或 .zip 完整備份"
 }

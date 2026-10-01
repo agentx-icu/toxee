@@ -2204,4 +2204,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get passwordChangeInterrupted =>
       'A password change was interrupted. Try the password from before or after the change.';
+
+  @override
+  String get importUnsupportedFileType =>
+      'Choose a .tox profile or a .zip full backup';
 }

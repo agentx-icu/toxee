@@ -850,5 +850,6 @@
   "passwordRekeyFailed": "账号文件无法重新加密；未做任何更改",
   "exportRequiresLogin": "请先登录该账号再导出",
   "profileUnopenableWithPassword": "无法用此密码打开账号文件。文件可能已损坏，或上次修改密码被中断。",
-  "passwordChangeInterrupted": "密码修改被中断。请尝试修改前或修改后的密码。"
+  "passwordChangeInterrupted": "密码修改被中断。请尝试修改前或修改后的密码。",
+  "importUnsupportedFileType": "请选择 .tox 资料文件或 .zip 完整备份"
 }

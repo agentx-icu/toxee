@@ -52,6 +52,10 @@ enum ImportFailureKind {
   /// look at their account list rather than simply retry, and because the list
   /// they are being sent to must be refreshed first.
   mayRemainImported,
+
+  /// The picked file is neither a .tox profile nor a .zip full backup. Only
+  /// reachable on Android, whose picker cannot filter by extension.
+  unsupportedFile,
   generalError,
 }
 

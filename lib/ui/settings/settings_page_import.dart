@@ -32,6 +32,11 @@ extension _SettingsImportFlow on _SettingsPageState {
       // Show file picker for .tox and .zip files
       final filePath = await _pickImportFileFn();
       if (filePath == null) return;
+      if (!hasAccountImportExtension(filePath, const ['tox', 'zip'])) {
+        // The Android picker is unfiltered (no MIME type for .tox).
+        if (mounted) _showImportError(l10n.importUnsupportedFileType);
+        return;
+      }
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
       // No pre-read here on purpose. This used to slurp the ENTIRE picked file

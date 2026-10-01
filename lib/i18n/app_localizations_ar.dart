@@ -2179,4 +2179,8 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get passwordChangeInterrupted =>
       'انقطع تغيير كلمة المرور. جرّب كلمة المرور من قبل التغيير أو بعده.';
+
+  @override
+  String get importUnsupportedFileType =>
+      'اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip';
 }

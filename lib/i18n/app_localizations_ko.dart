@@ -2116,4 +2116,7 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get passwordChangeInterrupted =>
       '비밀번호 변경이 중단되었습니다. 변경 전 또는 변경 후의 비밀번호를 시도하세요.';
+
+  @override
+  String get importUnsupportedFileType => '.tox 프로필 또는 .zip 전체 백업을 선택하세요';
 }

@@ -3897,6 +3897,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A password change was interrupted. Try the password from before or after the change.'**
   String get passwordChangeInterrupted;
+
+  /// Account import refused because the picked file is neither a .tox profile nor a .zip full backup (the Android picker cannot filter by extension)
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a .tox profile or a .zip full backup'**
+  String get importUnsupportedFileType;
 }
 
 class _AppLocalizationsDelegate

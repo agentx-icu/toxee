@@ -1011,5 +1011,6 @@
   "passwordRekeyFailed": "アカウントファイルを再暗号化できませんでした。変更は行われていません",
   "exportRequiresLogin": "エクスポートする前にこのアカウントにログインしてください",
   "profileUnopenableWithPassword": "このパスワードではアカウントファイルを開けませんでした。ファイルが破損しているか、パスワード変更が中断された可能性があります。",
-  "passwordChangeInterrupted": "パスワード変更が中断されました。変更前または変更後のパスワードを試してください。"
+  "passwordChangeInterrupted": "パスワード変更が中断されました。変更前または変更後のパスワードを試してください。",
+  "importUnsupportedFileType": ".tox プロファイルまたは .zip の完全バックアップを選択してください"
 }

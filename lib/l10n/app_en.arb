@@ -2208,5 +2208,9 @@
   "passwordChangeInterrupted": "A password change was interrupted. Try the password from before or after the change.",
   "@passwordChangeInterrupted": {
     "description": "Login failed while a journaled password change is unfinished; the file is under the other password"
+  },
+  "importUnsupportedFileType": "Choose a .tox profile or a .zip full backup",
+  "@importUnsupportedFileType": {
+    "description": "Account import refused because the picked file is neither a .tox profile nor a .zip full backup (the Android picker cannot filter by extension)"
   }
 }
