@@ -1087,6 +1087,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get enterPasswordToImport => '계정을 가져오려면 비밀번호를 입력하세요';
 
   @override
+  String get enterBackupAccountPassword => '이 백업의 계정 비밀번호를 입력하세요';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return '계정 \"$nickname\"의 비밀번호를 입력하세요';
   }

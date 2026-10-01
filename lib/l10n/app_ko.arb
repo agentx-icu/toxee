@@ -297,6 +297,7 @@
   "changePassword": "비밀번호 변경",
   "enterPasswordToExport": "계정을 내보내려면 비밀번호를 입력하세요",
   "enterPasswordToImport": "계정을 가져오려면 비밀번호를 입력하세요",
+  "enterBackupAccountPassword": "이 백업의 계정 비밀번호를 입력하세요",
   "enterPasswordForAccount": "계정 \"{nickname}\"의 비밀번호를 입력하세요",
   "invalidPassword": "비밀번호가 올바르지 않습니다",
   "accountExportedSuccessfully": "계정이 성공적으로 내보내졌습니다: {filePath}",

@@ -85,6 +85,7 @@ class _RecordingImportController extends LoginPageController {
   Future<ImportResult> importAccount({
     required Future<String?> Function() requestPassword,
     required String importedAccountDefaultName,
+    Future<String?> Function()? requestProfilePassword,
     String? filePathOverride,
   }) async {
     importCalls++;

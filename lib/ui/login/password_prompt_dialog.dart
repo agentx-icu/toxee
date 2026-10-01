@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../i18n/app_localizations.dart';
+import '../testing/ui_keys_login.dart';
 import '../widgets/safe_dialog_pop.dart';
 
 /// Password prompt used by the login page's quick-login, restore and import
-/// flows. Pops the entered text, or null when cancelled.
+/// flows, and by the Settings import flow. Pops the entered text, or null when
+/// cancelled.
 ///
 /// A [StatefulWidget] rather than an inline `StatefulBuilder`, for the same
 /// reason as [DeleteAccountConfirmDialog]: the previous version created its
@@ -37,11 +39,10 @@ class _PasswordPromptDialogState extends State<PasswordPromptDialog> {
       scrollable: true,
       title: Text(widget.title),
       content: TextField(
-        // Stable automation anchor for the saved-account quick-login / re-login
-        // password prompt (the dialog has no other distinguishing key). Lets
+        // Stable automation anchor (see LoginUiKeys.passwordPromptField). Lets
         // real-UI automation type the password deterministically.
         // Automation-only, shared Dart.
-        key: const Key('login_quick_password_field'),
+        key: LoginUiKeys.passwordPromptField,
         controller: _controller,
         autofocus: true,
         obscureText: _obscure,
@@ -62,10 +63,12 @@ class _PasswordPromptDialogState extends State<PasswordPromptDialog> {
       ),
       actions: [
         TextButton(
+          key: LoginUiKeys.passwordPromptCancelButton,
           onPressed: () => popDialogIfCurrent<String>(context),
           child: Text(l10n.cancel),
         ),
         TextButton(
+          key: LoginUiKeys.passwordPromptOkButton,
           onPressed: () => popDialogIfCurrent(context, _controller.text),
           child: Text(l10n.ok),
         ),

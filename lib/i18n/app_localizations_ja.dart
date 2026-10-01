@@ -1087,6 +1087,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get enterPasswordToImport => 'アカウントをインポートするためのパスワードを入力';
 
   @override
+  String get enterBackupAccountPassword => 'このバックアップのアカウントパスワードを入力';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return 'アカウント \"$nickname\" のパスワードを入力';
   }

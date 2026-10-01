@@ -297,6 +297,7 @@
   "changePassword": "تغيير كلمة المرور",
   "enterPasswordToExport": "أدخل كلمة المرور لتصدير الحساب",
   "enterPasswordToImport": "أدخل كلمة المرور لاستيراد الحساب",
+  "enterBackupAccountPassword": "أدخل كلمة مرور الحساب الخاصة بهذه النسخة الاحتياطية",
   "enterPasswordForAccount": "أدخل كلمة مرور الحساب \"{nickname}\"",
   "invalidPassword": "كلمة المرور غير صحيحة",
   "accountExportedSuccessfully": "تم تصدير الحساب بنجاح إلى: {filePath}",

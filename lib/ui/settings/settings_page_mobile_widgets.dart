@@ -260,6 +260,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
             }),
             AppSpacing.verticalMd,
             OutlinedButton.icon(
+              key: SettingsUiKeys.importAccountButton,
               icon: const Icon(Icons.download, size: 18),
               label: Text(AppLocalizations.of(context)!.importAccount),
               onPressed: _importInProgress ? null : _importAccount,

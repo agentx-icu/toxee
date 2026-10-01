@@ -79,8 +79,10 @@ extension _SettingsImportFlow on _SettingsPageState {
           } on BackupProfilePasswordRequiredException {
             if (profilePrompted || !mounted) return;
             profilePrompted = true;
+            // A different credential from the archive password (the account
+            // password of the install that wrote the backup) — titled so.
             profilePassword =
-                await _showPasswordDialog(l10n.enterPasswordToImport);
+                await _showPasswordDialog(l10n.enterBackupAccountPassword);
             if (profilePassword == null || !mounted) return;
             if (profilePassword.isEmpty) {
               _showImportError(l10n.invalidPassword);

@@ -29,6 +29,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/auth/login_use_case.dart';
 import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/util/imported_account_rollback.dart';
+import 'package:toxee/util/account_export/exceptions.dart'
+    show BackupProfilePasswordRequiredException;
 import 'package:toxee/util/account_export_service.dart'
     show InvalidBackupPasswordException, PasswordRequiredException;
 import 'package:toxee/util/app_paths.dart';
@@ -1269,6 +1271,181 @@ void main() {
     expect(result.message, isNot(contains('FULL_TOX_ID')));
     expect(result.message, isNot(contains('PAYLOAD_SECRET')));
     expect(result.message, isNot(contains('STACK_SECRET')));
+  });
+
+  // An OLDER full backup whose tox_profile.tox is ciphertext under the ACCOUNT
+  // password of the install that wrote it: two independent credentials, two
+  // prompts. The second one has its own callback so the UI can title it
+  // differently (same title => the user retypes the archive password and the
+  // import dies with a bare "Invalid password").
+  group('LoginPageController.importAccount profile password prompt', () {
+    const toxId =
+        'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+
+    /// Metadata reader of such an archive: needs the archive password first,
+    /// then the profile password; a wrong profile password is rejected.
+    Future<Map<String, dynamic>> metadata(
+      String filePath, {
+      String? password,
+      String? profilePassword,
+    }) async {
+      if (password == null) {
+        throw const PasswordRequiredException('archive is encrypted');
+      }
+      if (profilePassword == null) {
+        throw const BackupProfilePasswordRequiredException();
+      }
+      if (profilePassword != 'acct-pw') {
+        throw const InvalidBackupPasswordException('not the account password');
+      }
+      return {'toxId': toxId, 'nickname': 'Old install'};
+    }
+
+    test('routes the two layers to their own callbacks, in order', () async {
+      final env = await setUpAccountExportTestEnv();
+      addTearDown(env.dispose);
+      final prompts = <String>[];
+      String? importPassword;
+      String? importProfilePassword;
+      final controller = LoginPageController(
+        readFullBackupMetadataFn: metadata,
+        importFullBackupFn:
+            ({
+              required String filePath,
+              String? password,
+              String? profilePassword,
+            }) async {
+              importPassword = password;
+              importProfilePassword = profilePassword;
+              return {'toxId': toxId, 'nickname': 'Old install'};
+            },
+        addAccountFn:
+            ({
+              required String toxId,
+              required String nickname,
+              required String statusMessage,
+              required bool autoLogin,
+              required bool autoAcceptFriends,
+              required bool notificationSoundEnabled,
+            }) async {},
+        finalizeFullBackupImportFn: ({required String toxId}) async {},
+      );
+
+      final result = await controller.importAccount(
+        requestPassword: () async {
+          prompts.add('archive');
+          return 'zip-pw';
+        },
+        requestProfilePassword: () async {
+          prompts.add('profile');
+          return 'acct-pw';
+        },
+        importedAccountDefaultName: 'Imported',
+        filePathOverride: '/tmp/old_backup.zip',
+      );
+
+      expect(result, isA<ImportSuccess>());
+      expect(prompts, ['archive', 'profile']);
+      expect(importPassword, 'zip-pw');
+      expect(importProfilePassword, 'acct-pw');
+    });
+
+    test('falls back to requestPassword when no profile callback is given',
+        () async {
+      final env = await setUpAccountExportTestEnv();
+      addTearDown(env.dispose);
+      var prompts = 0;
+      var importCalls = 0;
+      final controller = LoginPageController(
+        readFullBackupMetadataFn: metadata,
+        importFullBackupFn:
+            ({
+              required String filePath,
+              String? password,
+              String? profilePassword,
+            }) async {
+              importCalls++;
+              expect(profilePassword, 'acct-pw');
+              return {'toxId': toxId, 'nickname': 'Old install'};
+            },
+        addAccountFn:
+            ({
+              required String toxId,
+              required String nickname,
+              required String statusMessage,
+              required bool autoLogin,
+              required bool autoAcceptFriends,
+              required bool notificationSoundEnabled,
+            }) async {},
+        finalizeFullBackupImportFn: ({required String toxId}) async {},
+      );
+
+      final result = await controller.importAccount(
+        requestPassword: () async => ++prompts == 1 ? 'zip-pw' : 'acct-pw',
+        importedAccountDefaultName: 'Imported',
+        filePathOverride: '/tmp/old_backup.zip',
+      );
+
+      expect(result, isA<ImportSuccess>());
+      expect(prompts, 2);
+      expect(importCalls, 1);
+    });
+
+    for (final (label, answer, kind) in <(String, String?, ImportFailureKind)>[
+      ('cancelled', null, ImportFailureKind.cancelled),
+      ('empty', '', ImportFailureKind.invalidPassword),
+      ('wrong', 'not it', ImportFailureKind.invalidPassword),
+    ]) {
+      test('a $label profile password ends the import before any write',
+          () async {
+        final env = await setUpAccountExportTestEnv();
+        addTearDown(env.dispose);
+        var archivePrompts = 0;
+        var addAccountCalls = 0;
+        final controller = LoginPageController(
+          readFullBackupMetadataFn: metadata,
+          importFullBackupFn:
+              ({
+                required String filePath,
+                String? password,
+                String? profilePassword,
+              }) async {
+                fail('restore must not run without the profile password');
+              },
+          addAccountFn:
+              ({
+                required String toxId,
+                required String nickname,
+                required String statusMessage,
+                required bool autoLogin,
+                required bool autoAcceptFriends,
+                required bool notificationSoundEnabled,
+              }) async {
+                addAccountCalls++;
+              },
+        );
+
+        final result = await controller.importAccount(
+          requestPassword: () async {
+            archivePrompts++;
+            return 'zip-pw';
+          },
+          requestProfilePassword: () async => answer,
+          importedAccountDefaultName: 'Imported',
+          filePathOverride: '/tmp/old_backup.zip',
+        );
+
+        expect(result, isA<ImportFailure>());
+        expect((result as ImportFailure).kind, kind);
+        expect(archivePrompts, 1, reason: 'archive layer is asked only once');
+        expect(addAccountCalls, 0);
+        expect(await Prefs.getAccountByToxId(toxId), isNull);
+        expect(
+          await Directory(await AppPaths.getAccountDataRoot(toxId)).exists(),
+          isFalse,
+        );
+      });
+    }
   });
 
   group('LoginPageController construction', () {
