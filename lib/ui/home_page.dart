@@ -23,6 +23,7 @@ import '../util/theme_controller.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/fake_models.dart';
 import '../sdk_fake/fake_im.dart';
+import '../sdk_fake/self_conversation.dart';
 import '../sdk_fake/fake_provider.dart';
 import '../sdk_fake/uikit_data_facade.dart';
 import '../runtime/session_runtime_coordinator.dart';
@@ -114,8 +115,6 @@ import 'home/conversation_context_menu_handlers.dart';
 import 'home/home_group_controller.dart';
 import 'home/home_session_controller.dart';
 import 'home/home_widgets.dart';
-import '../call/av_conference_session_controller.dart';
-import '../call/av_conference_session_page.dart';
 import '../util/ffi_chat_service_account_key.dart';
 import '../util/irc_app_manager.dart';
 import 'applications/irc_channel_dialog.dart';
@@ -128,6 +127,9 @@ import '../notifications/notification_message_listener.dart';
 import '../notifications/notification_payload.dart';
 import '../notifications/notification_service.dart';
 import 'testing/ui_keys.dart';
+import 'home/conversation_context_menu.dart';
+import 'home/message_header_actions.dart';
+export 'home/conversation_context_menu.dart';
 import 'testing/l3_debug_tools.dart';
 
 part 'home_page_plugins.dart';
@@ -137,104 +139,6 @@ part 'home_page_master_detail.dart';
 part 'home_page_capture.dart';
 
 enum _MediaPickType { file, image, video }
-
-@visibleForTesting
-List<PopupMenuEntry<String>> buildConversationContextMenuItems({
-  required AppLocalizations l10n,
-  required ColorScheme scheme,
-  required bool isPinned,
-  required bool hasUnread,
-}) {
-  return <PopupMenuEntry<String>>[
-    PopupMenuItem<String>(
-      key: isPinned
-          ? UiKeys.conversationContextMenuUnpinItem
-          : UiKeys.conversationContextMenuPinItem,
-      value: 'pin',
-      child: Row(
-        children: [
-          Icon(
-            isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-            size: 18,
-            color: scheme.onSurface,
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(isPinned ? l10n.unpinConversation : l10n.pinConversation),
-        ],
-      ),
-    ),
-    PopupMenuItem<String>(
-      key: UiKeys.conversationContextMenuMarkReadItem,
-      value: 'mark_read',
-      enabled: hasUnread,
-      child: Row(
-        children: [
-          Icon(
-            Icons.mark_email_read_outlined,
-            size: 18,
-            color: hasUnread ? scheme.onSurface : scheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(l10n.markConversationAsRead),
-        ],
-      ),
-    ),
-    const PopupMenuDivider(),
-    PopupMenuItem<String>(
-      key: UiKeys.conversationContextMenuDeleteItem,
-      value: 'delete',
-      child: Row(
-        children: [
-          Icon(Icons.delete_outline, size: 18, color: scheme.error),
-          const SizedBox(width: AppSpacing.sm),
-          Text(l10n.delete, style: TextStyle(color: scheme.error)),
-        ],
-      ),
-    ),
-  ];
-}
-
-@visibleForTesting
-AlertDialog buildDeleteConversationDialog({
-  required BuildContext dialogCtx,
-  required AppLocalizations l10n,
-  required ColorScheme scheme,
-  required String conversationLabel,
-}) {
-  // Pop ONLY while this dialog is still the topmost route. Without this guard a
-  // double-invocation of the button — a fast real double-click, or a test
-  // harness that both dispatches a synthetic pointer AND directly calls
-  // `onPressed` — fires `pop` twice: the first closes the dialog, the second
-  // unwinds the root HomePage route, emptying the Navigator and blanking the
-  // whole window. `ModalRoute.isCurrent` flips to false synchronously inside
-  // the first `pop`, so the second call is a no-op. This dialog is shown
-  // directly over HomePage (the only route), which is exactly the case where
-  // the extra pop has nothing left to land on.
-  void dismiss(bool result) {
-    final route = ModalRoute.of(dialogCtx);
-    if (route != null && route.isCurrent) {
-      Navigator.of(dialogCtx).pop(result);
-    }
-  }
-
-  return AlertDialog(
-    title: Text(l10n.deleteConversationTitle),
-    content: Text(l10n.deleteConversationBody(conversationLabel)),
-    actions: [
-      TextButton(
-        key: UiKeys.deleteConversationCancelButton,
-        onPressed: () => dismiss(false),
-        child: Text(l10n.cancel),
-      ),
-      TextButton(
-        key: UiKeys.deleteConversationConfirmButton,
-        onPressed: () => dismiss(true),
-        style: TextButton.styleFrom(foregroundColor: scheme.error),
-        child: Text(l10n.delete),
-      ),
-    ],
-  );
-}
 
 class HomePage extends StatefulWidget {
   // NOTE: an `initAfterSessionReadyOverride` constructor seam used to live
@@ -1872,6 +1776,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         scheme: scheme,
         isPinned: isPinned,
         hasUnread: hasUnread,
+        isSelf: isSelfConversationId(widget.service, conv.conversationID),
       ),
     );
     if (!mounted || selected == null) return;
@@ -1927,7 +1832,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         break;
       case 'delete':
-        if (!mounted) return;
+        // The self conversation (the notebook) is never deleted.
+        if (!mounted || isSelfConversationId(widget.service, convId)) return;
         final l10n = AppLocalizations.of(context)!;
         final scheme = Theme.of(context).colorScheme;
         final confirmed =

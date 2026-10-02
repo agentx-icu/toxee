@@ -1088,5 +1088,6 @@
   "exportRequiresLogin": "سجّل الدخول إلى هذا الحساب قبل تصديره",
   "profileUnopenableWithPassword": "تعذّر فتح ملف الحساب بكلمة المرور هذه. قد يكون الملف تالفًا، أو ربما انقطع تغيير كلمة المرور.",
   "passwordChangeInterrupted": "انقطع تغيير كلمة المرور. جرّب كلمة المرور من قبل التغيير أو بعده.",
-  "importUnsupportedFileType": "اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip"
+  "importUnsupportedFileType": "اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip",
+  "selfConversationLocalOnly": "محفوظ على هذا الجهاز فقط"
 }

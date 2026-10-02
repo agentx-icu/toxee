@@ -2392,5 +2392,9 @@
   "importUnsupportedFileType": "Choose a .tox profile or a .zip full backup",
   "@importUnsupportedFileType": {
     "description": "Account import refused because the picked file is neither a .tox profile nor a .zip full backup (the Android picker cannot filter by extension)"
+  },
+  "selfConversationLocalOnly": "Saved on this device only",
+  "@selfConversationLocalOnly": {
+    "description": "Chat header subtitle of the self conversation (note to self): its messages stay on this device and are never sent"
   }
 }

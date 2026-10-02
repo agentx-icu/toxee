@@ -2236,4 +2236,7 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       'اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip';
+
+  @override
+  String get selfConversationLocalOnly => 'محفوظ على هذا الجهاز فقط';
 }

@@ -2171,4 +2171,7 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       '.tox プロファイルまたは .zip の完全バックアップを選択してください';
+
+  @override
+  String get selfConversationLocalOnly => 'この端末にのみ保存';
 }

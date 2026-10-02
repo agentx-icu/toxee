@@ -3,10 +3,6 @@ part of 'home_page.dart';
 Object? _activeConversationBuilderOwner;
 
 extension _HomePageBootstrap on _HomePageState {
-  bool _isAvConferenceConversation(V2TimConversation? conversation) {
-    return conversation?.groupType == 'av_conference';
-  }
-
   String _resolveKnownGroupType(String groupId, {String? fallback}) {
     final existingType = UikitDataFacade.getGroupInfo(groupId).groupType;
     if (existingType.isNotEmpty) {
@@ -19,44 +15,6 @@ extension _HomePageBootstrap on _HomePageState {
       return GroupType.AVChatRoom;
     }
     return GroupType.Work;
-  }
-
-  Widget _buildMessageHeaderActions(
-    BuildContext context, {
-    required MessageHeaderBuilderWidgets widgets,
-    required MessageHeaderBuilderData data,
-  }) {
-    final conversation = data.conversation;
-    final groupId = conversation?.groupID;
-    if (!_isAvConferenceConversation(conversation) ||
-        groupId == null ||
-        groupId.isEmpty) {
-      return widgets.messageHeaderActions;
-    }
-    final l10n = AppLocalizations.of(context)!;
-    final manager = FakeUIKit.instance.callServiceManager;
-    final canJoinConference = manager?.isCallingAvailable ?? false;
-    return AvConferenceHeaderAction(
-      enabled: canJoinConference,
-      tooltip: '${l10n.join} ${l10n.audio}',
-      onPressed: !canJoinConference || manager == null
-          ? null
-          : () {
-              if (!mounted) return; // defunct-State guard (codex High)
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => AvConferenceSessionPage(
-                    controller: AvConferenceSessionController(
-                      groupId: groupId,
-                      displayName: conversation?.showName ?? groupId,
-                      bridge: manager.conferenceBridge,
-                    ),
-                  ),
-                ),
-              );
-            },
-    );
   }
 
   void _installContactProfileBuilders() {
@@ -737,10 +695,12 @@ extension _HomePageBootstrap on _HomePageState {
                 messageHeaderProfileImage: widgets.messageHeaderProfileImage,
                 // Same defunct-State hazard as above: stock actions fallback.
                 messageHeaderActions: mounted
-                    ? _buildMessageHeaderActions(
+                    ? buildToxeeMessageHeaderActions(
                         context,
                         widgets: widgets,
                         data: data,
+                        service: widget.service,
+                        isMounted: () => mounted,
                       )
                     : widgets.messageHeaderActions,
                 messageHeaderMessagesSelectMode:

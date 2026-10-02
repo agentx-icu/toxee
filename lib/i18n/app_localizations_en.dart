@@ -2261,4 +2261,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       'Choose a .tox profile or a .zip full backup';
+
+  @override
+  String get selfConversationLocalOnly => 'Saved on this device only';
 }

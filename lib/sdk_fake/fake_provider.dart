@@ -19,6 +19,7 @@ import 'c2c_recv_opt_cache.dart';
 import 'package:toxee/util/tox_utils.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'fake_conversation_merge.dart';
+import 'self_conversation.dart';
 
 // Kept exported here: callers (and tests) historically imported it from this file.
 export 'fake_conversation_merge.dart' show mergeExternalConversationUpdate;
@@ -47,8 +48,7 @@ class FakeChatDataProvider implements ChatDataProvider {
   StreamSubscription? _friendAddedSub;
   StreamSubscription? _groupDeletedSub;
   V2TimConversationListener? _sdkConvListener;
-  final FfiChatService?
-  _ffiService; // Reference to FfiChatService for getting last message timestamps
+  final FfiChatService? _ffiService; // Reference to FfiChatService for getting last message timestamps
   Timer? _convFlushTimer;
   static const _convFlushDelay = Duration(milliseconds: 50);
 
@@ -277,7 +277,7 @@ class FakeChatDataProvider implements ChatDataProvider {
             _scheduleConvListEmit();
           },
           onConversationDeleted: (List<String> conversationIDList) {
-            for (final convId in conversationIDList) {
+            for (final convId in conversationIDList.where((id) => !isSelfConversationId(_ffiService, id))) { // the notebook is never suppressed
               _convMap.remove(convId);
               _sdkDeletedConvIds.add(convId);
               AppLogger.debug(
@@ -637,7 +637,7 @@ class FakeChatDataProvider implements ChatDataProvider {
     // Use timestamp as base, add large offset for pinned conversations
     // UIKit sorts by orderkey descending (higher value = first)
     // Get last message timestamp from FfiChatService
-    int baseTimestamp = DateTime.now().millisecondsSinceEpoch;
+    int baseTimestamp = isSelfConversationId(_ffiService, c.conversationID) ? 0 : DateTime.now().millisecondsSinceEpoch; // an empty notebook has no activity
     V2TimMessage? lastMessage;
 
     // CRITICAL: If overrideLastMessage is provided, use it (this preserves failed messages)

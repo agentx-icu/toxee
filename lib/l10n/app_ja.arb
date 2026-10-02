@@ -1039,5 +1039,6 @@
   "exportRequiresLogin": "エクスポートする前にこのアカウントにログインしてください",
   "profileUnopenableWithPassword": "このパスワードではアカウントファイルを開けませんでした。ファイルが破損しているか、パスワード変更が中断された可能性があります。",
   "passwordChangeInterrupted": "パスワード変更が中断されました。変更前または変更後のパスワードを試してください。",
-  "importUnsupportedFileType": ".tox プロファイルまたは .zip の完全バックアップを選択してください"
+  "importUnsupportedFileType": ".tox プロファイルまたは .zip の完全バックアップを選択してください",
+  "selfConversationLocalOnly": "この端末にのみ保存"
 }

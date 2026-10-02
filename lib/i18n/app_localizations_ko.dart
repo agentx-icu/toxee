@@ -2171,4 +2171,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get importUnsupportedFileType => '.tox 프로필 또는 .zip 전체 백업을 선택하세요';
+
+  @override
+  String get selfConversationLocalOnly => '이 기기에만 저장됨';
 }
