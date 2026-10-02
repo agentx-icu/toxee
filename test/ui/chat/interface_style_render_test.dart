@@ -34,7 +34,10 @@ MessageItemBuilderData bubbleData(bool sent) => MessageItemBuilderData(
     elemType: MessageElemType.V2TIM_ELEM_TYPE_TEXT,
     isSelf: sent,
     sender: sent ? 'self' : 'friend',
-    timestamp: 1790838000,
+    // A LOCAL wall-clock 3 PM: the metadata lookup below keys on the "PM"
+    // marker, and a fixed epoch renders as AM on a UTC runner (CI) but PM
+    // at UTC+8 (the dev Mac).
+    timestamp: DateTime(2026, 10, 1, 15).millisecondsSinceEpoch ~/ 1000,
     textElem: V2TimTextElem(
       text: sent
           ? 'Sounds good. See you tomorrow!'
