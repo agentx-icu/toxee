@@ -22,6 +22,7 @@ import 'package:toxee/util/prefs.dart';
 
 import 'test_support.dart';
 import 'tox_profile_factory.dart';
+import 'package:toxee/util/secret_password.dart';
 
 bool _ffiAvailable() {
   try {
@@ -53,7 +54,7 @@ void main() {
       ..addFile(ArchiveFile.noCompress(
         'tox_profile.tox',
         0,
-        passEncrypt(fixture.savedata, _profilePassword),
+        passEncrypt(fixture.savedata, SecretPassword.fromString(_profilePassword)),
       ))
       ..addFile(ArchiveFile.noCompress(
         'metadata.json',
@@ -62,7 +63,7 @@ void main() {
       ));
     final encrypted = await encryptFullBackupArchive(
       plaintextArchive: plain,
-      password: _archivePassword,
+      password: SecretPassword.fromString(_archivePassword),
     );
     final path = p.join(env.extras, name);
     await File(path).writeAsBytes(ZipEncoder().encode(encrypted));
@@ -122,22 +123,22 @@ void main() {
     await expectLater(
       () => AccountExportService.readFullBackupMetadata(
         zipPath,
-        password: _archivePassword,
+        password: SecretPassword.fromString(_archivePassword),
       ),
       throwsA(isA<BackupProfilePasswordRequiredException>()),
     );
     await expectLater(
       () => AccountExportService.readFullBackupMetadata(
         zipPath,
-        password: _archivePassword,
-        profilePassword: 'not it',
+        password: SecretPassword.fromString(_archivePassword),
+        profilePassword: SecretPassword.fromString('not it'),
       ),
       throwsA(isA<InvalidBackupPasswordException>()),
     );
     final metadata = await AccountExportService.readFullBackupMetadata(
       zipPath,
-      password: _archivePassword,
-      profilePassword: _profilePassword,
+      password: SecretPassword.fromString(_archivePassword),
+      profilePassword: SecretPassword.fromString(_profilePassword),
     );
     expect(metadata['toxId'], fixture.toxId);
     final dir = await AppPaths.getProfileDirectoryForToxId(fixture.toxId);
@@ -149,22 +150,22 @@ void main() {
     await expectLater(
       () => AccountExportService.readFullBackupMetadata(
         zipNoIdPath,
-        password: _archivePassword,
+        password: SecretPassword.fromString(_archivePassword),
       ),
       throwsA(isA<BackupProfilePasswordRequiredException>()),
     );
     await expectLater(
       () => AccountExportService.readFullBackupMetadata(
         zipNoIdPath,
-        password: _archivePassword,
-        profilePassword: 'not it',
+        password: SecretPassword.fromString(_archivePassword),
+        profilePassword: SecretPassword.fromString('not it'),
       ),
       throwsA(isA<InvalidBackupPasswordException>()),
     );
     final metadata = await AccountExportService.readFullBackupMetadata(
       zipNoIdPath,
-      password: _archivePassword,
-      profilePassword: _profilePassword,
+      password: SecretPassword.fromString(_archivePassword),
+      profilePassword: SecretPassword.fromString(_profilePassword),
     );
     // Without metadata the identity comes from the profile itself, which
     // yields the 64-char public key (the existing extractor contract).
@@ -175,15 +176,15 @@ void main() {
       'verifier before the account is published', () async {
     await AccountExportService.importFullBackup(
       filePath: zipPath,
-      password: _archivePassword,
-      profilePassword: _profilePassword,
+      password: SecretPassword.fromString(_archivePassword),
+      profilePassword: SecretPassword.fromString(_profilePassword),
     );
     final dir = await AppPaths.getProfileDirectoryForToxId(fixture.toxId);
     final onDisk =
         await File(AppPaths.profileFileInDirectory(dir)).readAsBytes();
     expect(isDataEncrypted(onDisk), isTrue);
-    expect(passDecrypt(onDisk, _profilePassword), fixture.savedata);
-    expect(await Prefs.verifyAccountPassword(fixture.toxId, _profilePassword),
+    expect(passDecrypt(onDisk, SecretPassword.fromString(_profilePassword)), fixture.savedata);
+    expect(await Prefs.verifyAccountPassword(fixture.toxId, SecretPassword.fromString(_profilePassword)),
         isTrue);
     final journal = await RestoreTransactionJournalStore.read();
     expect(journal?.verifierInstalled, isTrue);
@@ -191,15 +192,15 @@ void main() {
     await Prefs.addAccount(toxId: fixture.toxId, nickname: 'Old install');
     await AccountExportService.finalizeFullBackupImport(toxId: fixture.toxId);
     expect(await RestoreTransactionJournalStore.read(), isNull);
-    expect(await Prefs.verifyAccountPassword(fixture.toxId, _profilePassword),
+    expect(await Prefs.verifyAccountPassword(fixture.toxId, SecretPassword.fromString(_profilePassword)),
         isTrue, reason: 'finalize keeps the verifier with the account');
   }, skip: skipReason);
 
   test('a rolled-back restore takes its verifier with it', () async {
     await AccountExportService.importFullBackup(
       filePath: zipPath,
-      password: _archivePassword,
-      profilePassword: _profilePassword,
+      password: SecretPassword.fromString(_archivePassword),
+      profilePassword: SecretPassword.fromString(_profilePassword),
     );
     expect(await Prefs.hasAccountPassword(fixture.toxId), isTrue);
     await AccountExportService.rollbackPendingFullBackupRestore(

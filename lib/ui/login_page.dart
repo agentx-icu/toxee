@@ -38,6 +38,7 @@ import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/feature_flags.dart';
 import '../util/safe_diagnostics.dart';
+import '../util/secret_password.dart';
 import '../auth/login_use_case.dart';
 import 'login/delete_account_confirm_dialog.dart';
 import 'login/login_password_gate.dart';
@@ -63,12 +64,13 @@ typedef LoginNavigateHomeFn =
 /// inject a recording stub so the export handler can be driven without the
 /// Tox FFI / on-disk profile.
 /// [password] seals the file (null = unencrypted); [accountPassword] opens a
-/// protected account's at-rest profile. They are independent by design.
+/// protected account's at-rest profile. They are independent by design. Both
+/// are borrowed for the call (the caller zeroes them when it returns).
 typedef LoginExportAccountFn =
     Future<String> Function({
       required String toxId,
-      String? password,
-      String? accountPassword,
+      SecretPassword? password,
+      SecretPassword? accountPassword,
     });
 
 /// Returns the appropriate trailing chevron for the current text direction.
@@ -138,8 +140,10 @@ class _LoginPageState extends State<LoginPage> {
   /// True when `account_list` could not be parsed. Distinguishes "no saved
   /// accounts" from "the registry is damaged", which must not look the same.
   bool _accountRegistryUnreadable = false;
-  String?
-  _verifiedPassword; // Password already verified by _quickLogin, avoids re-prompting in _login
+  // Password already verified by _quickLogin / a restore, so _login does not
+  // prompt again. OWNED by this State: zeroed when replaced, consumed, or on
+  // dispose (see _cacheVerifiedPassword).
+  SecretPassword? _verifiedPassword;
   String? _verifiedPasswordToxId;
   late final LoginPageController _loginController;
   late final LoginBootSessionFn _bootSession;
@@ -164,7 +168,17 @@ class _LoginPageState extends State<LoginPage> {
     _manualPubkeyController.dispose();
     _nicknameFocusNode.dispose();
     _savedAccountsScrollController.dispose();
+    _cacheVerifiedPassword(null, null);
     super.dispose();
+  }
+
+  /// Replaces the single-use verified-password cache, zeroing the old value.
+  /// Takes ownership of [password].
+  void _cacheVerifiedPassword(String? toxId, SecretPassword? password) {
+    final previous = _verifiedPassword;
+    _verifiedPassword = password;
+    _verifiedPasswordToxId = password == null ? null : toxId;
+    if (!identical(previous, password)) previous?.dispose();
   }
 
   @override
@@ -184,7 +198,11 @@ class _LoginPageState extends State<LoginPage> {
     _navigateHome = widget.navigateHome ?? _defaultNavigateHome;
     _exportAccount =
         widget.exportAccount ??
-        ({required String toxId, String? password, String? accountPassword}) =>
+        ({
+          required String toxId,
+          SecretPassword? password,
+          SecretPassword? accountPassword,
+        }) =>
             AccountExportService.exportAccountData(
               toxId: toxId,
               password: password,
@@ -346,14 +364,16 @@ class _LoginPageState extends State<LoginPage> {
         _showLoginError(AppLocalizations.of(context)!.secureStorageUnavailable);
         return;
       case PasswordGateResult.invalid:
-        _verifiedPassword = null;
-        _verifiedPasswordToxId = null;
+        _cacheVerifiedPassword(null, null);
         _showLoginError(AppLocalizations.of(context)!.invalidPassword);
         return;
       case PasswordGateResult.verified:
+        if (!mounted) {
+          outcome.password?.dispose();
+          return;
+        }
         // Cached so `_login()` does not prompt a second time.
-        _verifiedPassword = outcome.password;
-        _verifiedPasswordToxId = toxId;
+        _cacheVerifiedPassword(toxId, outcome.password);
       case PasswordGateResult.notRequired:
         break;
     }
@@ -373,8 +393,7 @@ class _LoginPageState extends State<LoginPage> {
     required String toxId,
     required String password,
   }) {
-    _verifiedPasswordToxId = toxId;
-    _verifiedPassword = password;
+    _cacheVerifiedPassword(toxId, SecretPassword.fromString(password));
   }
 
   Future<void> _loadSettings() async {
@@ -418,7 +437,9 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    String? password;
+    // Owned by this call (a copy when it came from the cache); zeroed once the
+    // login attempt returns — the session store keeps its own copy.
+    SecretPassword? password;
     // Guarded because this runs with `_busy = true`: an unreadable registry
     // escaping here left the page permanently busy, which also disables the
     // import and register actions the user would need to recover.
@@ -444,8 +465,7 @@ class _LoginPageState extends State<LoginPage> {
       );
       // The cache is single-use: consumed here (or invalidated on any failure)
       // so a stale verified password cannot be replayed on a later attempt.
-      _verifiedPassword = null;
-      _verifiedPasswordToxId = null;
+      _cacheVerifiedPassword(null, null);
       switch (outcome.result) {
         case PasswordGateResult.cancelled:
           if (mounted) setState(() => _busy = false);
@@ -463,12 +483,18 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
 
-    final activation = await AccountActivationTransaction.begin();
-    final result = await _loginController.login(
-      nickname: nickname,
-      statusMessage: statusMessage,
-      password: password,
-    );
+    final AccountActivationTransaction activation;
+    final LoginControllerResult result;
+    try {
+      activation = await AccountActivationTransaction.begin();
+      result = await _loginController.login(
+        nickname: nickname,
+        statusMessage: statusMessage,
+        password: password,
+      );
+    } finally {
+      password?.dispose();
+    }
 
     if (!mounted) {
       if (result is LoginControllerSuccess) {
@@ -581,16 +607,26 @@ class _LoginPageState extends State<LoginPage> {
               _showPasswordDialog(l10n.enterPasswordToImport),
           importedAccountDefaultName: l10n.importedAccountDefaultName,
         );
-        if (!mounted) return;
+        if (!mounted) {
+          if (result case RestoreSuccess(:final password)) password?.dispose();
+          return;
+        }
         switch (result) {
           case RestoreSuccess(:final nickname, :final password, :final toxId):
-            await _loadAccountList();
-            if (!mounted) return;
+            try {
+              await _loadAccountList();
+            } catch (_) {
+              password?.dispose();
+              rethrow;
+            }
+            if (!mounted) {
+              password?.dispose();
+              return;
+            }
             setState(() {
               _error = null;
               _nicknameController.text = nickname;
-              _verifiedPassword = password;
-              _verifiedPasswordToxId = toxId;
+              _cacheVerifiedPassword(toxId, password);
             });
             AppSnackBar.showSuccess(
               context,
@@ -713,11 +749,17 @@ class _LoginPageState extends State<LoginPage> {
         nickname: nickname,
       );
       if (passwords == null) return;
-      final internalFilePath = await _exportAccount(
-        toxId: toxId,
-        password: passwords.exportPassword,
-        accountPassword: passwords.accountPassword,
-      );
+      final String internalFilePath;
+      try {
+        internalFilePath = await _exportAccount(
+          toxId: toxId,
+          password: passwords.exportPassword,
+          accountPassword: passwords.accountPassword,
+        );
+      } finally {
+        // Both are needed only for the write; the save sheet below can wait.
+        passwords.dispose();
+      }
       var filePath = internalFilePath;
       MobileExportSaveResult? mobileSaveResult;
       if (!_isDesktopExportPlatform) {

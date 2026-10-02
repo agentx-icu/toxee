@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/prefs/password_verifier.dart';
+import 'package:toxee/util/secret_password.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -99,7 +100,7 @@ void main() {
 
   /// Real PBKDF2 verifier for [toxId], written through the production path.
   Future<void> setVerifier(String toxId) async {
-    expect(await Prefs.setAccountPassword(toxId, password), isTrue,
+    expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString(password)), isTrue,
         reason: 'test setup must actually persist a verifier');
   }
 
@@ -151,7 +152,7 @@ void main() {
         AccountProtectionState.none,
         reason: 'the account must read as unprotected after the lookup, not '
             'just before it');
-    expect(await Prefs.verifyAccountPassword(address, password), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isFalse,
         reason: 'the revoked password must no longer open the account');
   });
 
@@ -276,7 +277,7 @@ void main() {
     expect(await Prefs.getAccountPasswordHash(address), isNull);
     expect(await Prefs.accountProtectionState(address),
         AccountProtectionState.none);
-    expect(await Prefs.verifyAccountPassword(address, password), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isFalse,
         reason: 'the revoked password must not open the account through the '
             'alias either');
   });

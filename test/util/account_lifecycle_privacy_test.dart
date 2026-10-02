@@ -157,7 +157,7 @@ void main() {
     await File(
       AppPaths.profileFileInDirectory(profileDirectory),
     ).writeAsString('profile');
-    SessionPasswordStore.set(_accountIdSecret, 'recovery-password');
+    SessionPasswordStore.set(_accountIdSecret, SecretPassword.fromString('recovery-password'));
     SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {};
     AccountTeardownTestHooks.shutdownIrcSession = (_) async {};
     AccountTeardownTestHooks.disposeService = (_) async {

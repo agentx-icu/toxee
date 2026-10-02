@@ -35,6 +35,8 @@ import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 const _importCardKey = Key('login_page_import_account_card');
 
@@ -54,10 +56,10 @@ class _RestoringController extends LoginPageController {
     String? filePathOverride,
   }) async {
     restoreCalls++;
-    return const RestoreSuccess(
+    return RestoreSuccess(
       toxId: toxId,
       nickname: 'Recovered',
-      password: password,
+      password: SecretPassword.fromString(password),
     );
   }
 
@@ -65,12 +67,12 @@ class _RestoringController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     lastLoginParams = LoginParams(
       nickname: nickname,
       statusMessage: statusMessage,
-      password: password,
+      password: password?.copy(),
     );
     return const LoginControllerFailure('stop after recording');
   }
@@ -103,7 +105,7 @@ class _FailingLoginController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     loginCalls++;
     return const LoginControllerFailure('login boom');
@@ -258,7 +260,7 @@ void main() {
         );
         expect(controller.lastLoginParams!.nickname, 'Recovered');
         expect(
-          controller.lastLoginParams!.password,
+          secretText(controller.lastLoginParams!.password),
           _RestoringController.password,
           reason: 'The cached restore password must flow into login()',
         );

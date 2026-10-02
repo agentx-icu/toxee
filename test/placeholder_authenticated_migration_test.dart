@@ -142,7 +142,7 @@ void main() {
       // unconditionally — so the protection the user asked for was bypassed on
       // every cold start of an un-migrated legacy account.
       await stagePlaceholderProfile();
-      expect(await Prefs.setAccountPassword(_placeholder, 'correct horse'),
+      expect(await Prefs.setAccountPassword(_placeholder, SecretPassword.fromString('correct horse')),
           isTrue);
       expect(
         await Prefs.accountProtectionState(_placeholder),
@@ -169,7 +169,7 @@ void main() {
       // profile stays plaintext for a whole authenticated session), so this
       // needs its own guard and its own test.
       final profilePath = await stagePlaceholderProfile();
-      await AccountExportService.encryptProfileFile(profilePath, 'pass phrase');
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString('pass phrase'));
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
           isTrue,
           reason: 'test setup: the profile must really be encrypted');
@@ -208,10 +208,10 @@ void main() {
       // under a freshly generated salt/nonce, which cannot reproduce the
       // original ciphertext.
       final profilePath = await stagePlaceholderProfile();
-      await AccountExportService.encryptProfileFile(profilePath, 'the real one');
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString('the real one'));
       final before = await File(profilePath).readAsBytes();
 
-      final result = await discoverPlaceholderRealToxId('not the real one');
+      final result = await discoverPlaceholderRealToxId(SecretPassword.fromString('not the real one'));
 
       expect(result, isNull);
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
@@ -260,7 +260,7 @@ void main() {
       // login path can retry. Renaming directories or re-keying prefs against a
       // null/partial Tox ID is unrecoverable.
       await stagePlaceholderProfile();
-      await Prefs.setAccountPassword(_placeholder, 'correct horse');
+      await Prefs.setAccountPassword(_placeholder, SecretPassword.fromString('correct horse'));
       await Prefs.addAccount(
         toxId: _placeholder,
         nickname: 'legacy',

@@ -51,6 +51,7 @@ import 'package:toxee/util/mobile_export_policy.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/logger.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/secret_password.dart';
 
 const _exportOptionKey = Key('login_account_management_export_option');
 const _deleteOptionKey = Key('login_account_management_delete_option');
@@ -312,8 +313,8 @@ void main() {
             exportAccount:
                 ({
                   required String toxId,
-                  String? password,
-                  String? accountPassword,
+                  SecretPassword? password,
+                  SecretPassword? accountPassword,
                 }) async {
                   exportedToxId = toxId;
                   return '/tmp/Carol_${toxId.substring(0, 8)}.tox';
@@ -365,8 +366,8 @@ void main() {
             exportAccount:
                 ({
                   required String toxId,
-                  String? password,
-                  String? accountPassword,
+                  SecretPassword? password,
+                  SecretPassword? accountPassword,
                 }) async {
                   invoked = true;
                   throw Exception('disk full');
@@ -416,8 +417,8 @@ void main() {
             exportAccount:
                 ({
                   required String toxId,
-                  String? password,
-                  String? accountPassword,
+                  SecretPassword? password,
+                  SecretPassword? accountPassword,
                 }) async {
                   internalFile.writeAsBytesSync(const <int>[6, 7, 8]);
                   return internalFile.path;
@@ -614,7 +615,7 @@ void main() {
       ]);
       // Seed a real password (PBKDF2) on the real event loop.
       await tester.runAsync(() async {
-        final ok = await Prefs.setAccountPassword(toxId, 'correct-pw');
+        final ok = await Prefs.setAccountPassword(toxId, SecretPassword.fromString('correct-pw'));
         expect(ok, isTrue);
       });
       await _pumpAndLoad(tester, _pumpableLoginPage());
@@ -672,7 +673,7 @@ void main() {
           {'toxId': toxId, 'nickname': 'Ivan', 'statusMessage': ''},
         ]);
         await tester.runAsync(() async {
-          final ok = await Prefs.setAccountPassword(toxId, 'correct-pw');
+          final ok = await Prefs.setAccountPassword(toxId, SecretPassword.fromString('correct-pw'));
           expect(ok, isTrue);
         });
         await _pumpAndLoad(tester, _pumpableLoginPage());

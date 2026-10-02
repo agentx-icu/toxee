@@ -12,6 +12,8 @@ import 'package:toxee/util/prefs.dart';
 
 import '../../account_export/test_support.dart';
 import 'settings_account_test_support.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 const _importedToxId =
     '1111111111111111111111111111111111111111111111111111111111111111';
@@ -143,7 +145,7 @@ Future<String> _createEncryptedFullBackup(
   );
   final backupPath = await AccountExportService.exportFullBackup(
     toxId: _importedToxId,
-    password: password,
+    password: SecretPassword.fromString(password),
     filePath: '${env.extras}/$fileName',
   );
   await Prefs.clearAccountData(_importedToxId);
@@ -222,7 +224,7 @@ void main() {
             : Future<String?>.value(null);
       },
       importAccountDataFn:
-          ({required String filePath, String? password}) async {
+          ({required String filePath, SecretPassword? password}) async {
             fail('cancelled file selection must not import');
           },
     );
@@ -263,7 +265,7 @@ void main() {
           return '/tmp/settings_pending_import.tox';
         },
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importCalls++;
               if (importCalls == 1) return firstImport.future;
               throw StateError('retry reached import');
@@ -304,7 +306,7 @@ void main() {
       tester,
       pickImportFileFn: () async => '/tmp/settings_wrong_password.tox',
       importAccountDataFn:
-          ({required String filePath, String? password}) async {
+          ({required String filePath, SecretPassword? password}) async {
             importCalls++;
             if (password == null) {
               throw const PasswordRequiredException('password required');
@@ -341,13 +343,13 @@ void main() {
       tester,
       pickImportFileFn: () async => '/tmp/settings_add_failure.tox',
       importAccountDataFn:
-          ({required String filePath, String? password}) async =>
+          ({required String filePath, SecretPassword? password}) async =>
               <String, dynamic>{
                 'toxId': _importedToxId,
                 'toxProfile': Uint8List.fromList(<int>[1, 2, 3, 4]),
                 'nickname': 'Partial Account',
               },
-      encryptProfileFileFn: (String profilePath, String password) async {
+      encryptProfileFileFn: (String profilePath, SecretPassword password) async {
         fail('plain .tox imports must not encrypt the staged profile');
       },
       addImportedAccountFn:
@@ -392,7 +394,7 @@ void main() {
       tester,
       pickImportFileFn: () async => '/tmp/settings_password_failure.tox',
       importAccountDataFn:
-          ({required String filePath, String? password}) async {
+          ({required String filePath, SecretPassword? password}) async {
             importCalls++;
             if (password == null) {
               throw const PasswordRequiredException('password required');
@@ -403,8 +405,8 @@ void main() {
               'nickname': 'Encrypted Account',
             };
           },
-      encryptProfileFileFn: (String profilePath, String password) async => true,
-      setImportedAccountPasswordFn: (String toxId, String password) async {
+      encryptProfileFileFn: (String profilePath, SecretPassword password) async => true,
+      setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
         final persisted = await Prefs.setAccountPassword(toxId, password);
         expect(persisted, isTrue);
         await _seedRollbackResidue(toxId);
@@ -461,7 +463,7 @@ void main() {
         tester,
         pickImportFileFn: () async => '/tmp/settings_encrypted_import.tox',
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importCalls++;
               if (password == null) {
                 throw const PasswordRequiredException('password required');
@@ -472,10 +474,10 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, String supplied) async {
+        encryptProfileFileFn: (String profilePath, SecretPassword supplied) async {
           events.add('encrypt');
           encryptedPath = profilePath;
-          encryptionPassword = supplied;
+          encryptionPassword = secretText(supplied);
           bytesAtEncryption = await File(profilePath).readAsBytes();
           await File(profilePath).writeAsBytes(<int>[9, 9, 9]);
           return true;
@@ -492,9 +494,9 @@ void main() {
               events.add('addAccount');
               bytesAtAddAccount = await File(expectedProfilePath).readAsBytes();
             },
-        setImportedAccountPasswordFn: (String toxId, String supplied) async {
+        setImportedAccountPasswordFn: (String toxId, SecretPassword supplied) async {
           events.add('savePassword');
-          persistedPassword = supplied;
+          persistedPassword = secretText(supplied);
           return true;
         },
       );
@@ -537,7 +539,7 @@ void main() {
         tester,
         pickImportFileFn: () async => '/tmp/settings_encryption_refusal.tox',
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importCalls++;
               if (password == null) {
                 throw const PasswordRequiredException('password required');
@@ -548,7 +550,7 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, String password) async {
+        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
           expect(await File(profilePath).readAsBytes(), <int>[5, 6, 7, 8]);
           return false;
         },
@@ -563,7 +565,7 @@ void main() {
             }) async {
               addAccountCalls++;
             },
-        setImportedAccountPasswordFn: (String toxId, String password) async {
+        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
           passwordWriteCalls++;
           return true;
         },
@@ -607,7 +609,7 @@ void main() {
         tester,
         pickImportFileFn: () async => '/tmp/settings_encryption_error.tox',
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importCalls++;
               if (password == null) {
                 throw const PasswordRequiredException('password required');
@@ -618,7 +620,7 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, String password) async {
+        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
           expect(await File(profilePath).readAsBytes(), <int>[8, 7, 6, 5]);
           throw StateError('private encryption implementation detail');
         },
@@ -633,7 +635,7 @@ void main() {
             }) async {
               addAccountCalls++;
             },
-        setImportedAccountPasswordFn: (String toxId, String password) async {
+        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
           passwordWriteCalls++;
           return true;
         },
@@ -712,14 +714,14 @@ void main() {
         tester,
         pickImportFileFn: () async => zipPath,
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               fail('the .zip branch must not invoke .tox decoding');
             },
-        encryptProfileFileFn: (String profilePath, String password) async {
+        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
           encryptionCalls++;
           return true;
         },
-        setImportedAccountPasswordFn: (String toxId, String password) async {
+        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
           passwordWriteCalls++;
           return true;
         },
@@ -772,14 +774,14 @@ void main() {
       tester,
       pickImportFileFn: () async => zipPath,
       importAccountDataFn:
-          ({required String filePath, String? password}) async {
+          ({required String filePath, SecretPassword? password}) async {
             fail('the .zip branch must not invoke .tox decoding');
           },
-      encryptProfileFileFn: (String profilePath, String password) async {
+      encryptProfileFileFn: (String profilePath, SecretPassword password) async {
         encryptionCalls++;
         return true;
       },
-      setImportedAccountPasswordFn: (String toxId, String password) async {
+      setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
         passwordWriteCalls++;
         return true;
       },

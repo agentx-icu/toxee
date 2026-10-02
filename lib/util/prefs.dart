@@ -20,6 +20,7 @@ import 'prefs/draft_prefs.dart';
 import 'prefs/password_change_transactions.dart';
 import 'prefs/password_verifier.dart';
 import 'prefs/scoped_key.dart';
+import 'secret_password.dart';
 
 // Re-exported so callers gating on account protection (startup, login,
 // switch, delete, export) get the tri-state without importing the verifier's
@@ -2203,7 +2204,7 @@ class Prefs {
   /// Set the verifier only (PBKDF2 hash + salt in secure storage). For a LIVE
   /// session use `AccountPasswordChange`, which also re-keys the profile.
   /// Returns true when both writes persisted.
-  static Future<bool> setAccountPassword(String toxId, String password) =>
+  static Future<bool> setAccountPassword(String toxId, SecretPassword password) =>
       _verifier().setPassword(toxId, password);
 
   /// Remove the verifier only (every source). For a LIVE session use
@@ -2215,7 +2216,7 @@ class Prefs {
   /// Supports PBKDF2 (new) and SHA256 salted/unsalted (legacy); migrates legacy
   /// on success. Reads from secure storage with backward-compat plain-prefs
   /// migration.
-  static Future<bool> verifyAccountPassword(String toxId, String password) =>
+  static Future<bool> verifyAccountPassword(String toxId, SecretPassword password) =>
       passwordChanges.verifyPassword(toxId, password);
 
   /// Move every password-related key (secure-storage hash + salt, plus legacy

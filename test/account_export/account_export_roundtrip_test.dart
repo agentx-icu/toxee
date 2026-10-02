@@ -41,6 +41,7 @@ import 'package:toxee/util/prefs.dart';
 
 import 'test_support.dart';
 import 'tox_profile_factory.dart';
+import 'package:toxee/util/secret_password.dart';
 
 bool _ffiAvailable() {
   try {
@@ -217,7 +218,7 @@ void main() {
       const password = 'correct horse battery staple';
       final exportPath = await AccountExportService.exportAccountData(
         toxId: fixture.toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         filePath: p.join(env.extras, 'encrypted.tox'),
       );
       expect(File(exportPath).existsSync(), isTrue);
@@ -236,7 +237,7 @@ void main() {
 
       final imported = await AccountExportService.importAccountData(
         filePath: exportPath,
-        password: password,
+        password: SecretPassword.fromString(password),
       );
       expect(imported['toxId'], fixture.publicKeyHex);
       final importedProfile = imported['toxProfile'] as Uint8List;
@@ -255,7 +256,7 @@ void main() {
         final scratch = File(p.join(env.extras, 'scratch_profile.bin'));
         await scratch.writeAsBytes(fixture.savedata);
 
-        await AccountExportService.encryptProfileFile(scratch.path, password);
+        await AccountExportService.encryptProfileFile(scratch.path, SecretPassword.fromString(password));
         final encryptedOnDisk = await scratch.readAsBytes();
         expect(
           encryptedOnDisk,
@@ -267,7 +268,7 @@ void main() {
           isTrue,
         );
 
-        await AccountExportService.decryptProfileFile(scratch.path, password);
+        await AccountExportService.decryptProfileFile(scratch.path, SecretPassword.fromString(password));
         final decryptedOnDisk = await scratch.readAsBytes();
         expect(
           decryptedOnDisk,
@@ -302,7 +303,7 @@ void main() {
         const password = 's2-atomic-encrypt-test';
         final scratch = File(p.join(env.extras, 's2_encrypt.bin'));
         await scratch.writeAsBytes(fixture.savedata);
-        await AccountExportService.encryptProfileFile(scratch.path, password);
+        await AccountExportService.encryptProfileFile(scratch.path, SecretPassword.fromString(password));
         expect(
           File('${scratch.path}.new').existsSync(),
           isFalse,
@@ -321,8 +322,8 @@ void main() {
         const password = 's2-atomic-decrypt-test';
         final scratch = File(p.join(env.extras, 's2_decrypt.bin'));
         await scratch.writeAsBytes(fixture.savedata);
-        await AccountExportService.encryptProfileFile(scratch.path, password);
-        await AccountExportService.decryptProfileFile(scratch.path, password);
+        await AccountExportService.encryptProfileFile(scratch.path, SecretPassword.fromString(password));
+        await AccountExportService.decryptProfileFile(scratch.path, SecretPassword.fromString(password));
         expect(
           File('${scratch.path}.new').existsSync(),
           isFalse,
@@ -342,16 +343,16 @@ void main() {
         const password = 'a3-double-encrypt-guard';
         final scratch = File(p.join(env.extras, 'a3_double_encrypt.bin'));
         await scratch.writeAsBytes(fixture.savedata);
-        await AccountExportService.encryptProfileFile(scratch.path, password);
+        await AccountExportService.encryptProfileFile(scratch.path, SecretPassword.fromString(password));
         final once = await scratch.readAsBytes();
-        await AccountExportService.encryptProfileFile(scratch.path, password);
+        await AccountExportService.encryptProfileFile(scratch.path, SecretPassword.fromString(password));
         final twice = await scratch.readAsBytes();
         expect(
           twice,
           equals(once),
           reason: 'second encrypt on already-encrypted data must be a no-op',
         );
-        await AccountExportService.decryptProfileFile(scratch.path, password);
+        await AccountExportService.decryptProfileFile(scratch.path, SecretPassword.fromString(password));
         expect(
           await scratch.readAsBytes(),
           equals(fixture.savedata),
@@ -388,13 +389,13 @@ void main() {
     test('exportFullBackup → readFullBackupMetadata roundtrip', () async {
       final zipPath = await AccountExportService.exportFullBackup(
         toxId: fixture.toxId,
-        password: 'full-backup-export-password',
+        password: SecretPassword.fromString('full-backup-export-password'),
         filePath: p.join(env.extras, 'backup.zip'),
       );
       expect(File(zipPath).existsSync(), isTrue);
       final meta = await AccountExportService.readFullBackupMetadata(
         zipPath,
-        password: 'full-backup-export-password',
+        password: SecretPassword.fromString('full-backup-export-password'),
       );
       expect(meta['toxId'], fixture.toxId);
       expect(meta['nickname'], 'TestNick');
@@ -503,7 +504,7 @@ void main() {
 
         final zipPath = await AccountExportService.exportFullBackup(
           toxId: toxId,
-          password: 'avatar-backup-export-password',
+          password: SecretPassword.fromString('avatar-backup-export-password'),
           filePath: p.join(env.extras, 'avatar_backup.zip'),
         );
         await Directory(
@@ -517,7 +518,7 @@ void main() {
 
         await AccountExportService.importFullBackup(
           filePath: zipPath,
-          password: 'avatar-backup-export-password',
+          password: SecretPassword.fromString('avatar-backup-export-password'),
         );
 
         final restoredAvatar = File(
@@ -554,7 +555,7 @@ void main() {
       await expectLater(
         AccountExportService.exportFullBackup(
           toxId: toxId,
-          password: 'some-export-password',
+          password: SecretPassword.fromString('some-export-password'),
           filePath: p.join(env.extras, 'identity_less.zip'),
         ),
         throwsA(isA<MissingBackupProfileException>()),
@@ -577,7 +578,7 @@ void main() {
       await expectLater(
         AccountExportService.exportFullBackup(
           toxId: toxId,
-          password: 'some-export-password',
+          password: SecretPassword.fromString('some-export-password'),
           filePath: p.join(env.extras, 'empty_identity.zip'),
         ),
         throwsA(isA<MissingBackupProfileException>()),

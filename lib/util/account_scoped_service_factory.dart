@@ -11,6 +11,8 @@ import 'account_scratch_storage.dart';
 import 'account_service.dart';
 import 'app_paths.dart';
 import 'safe_diagnostics.dart';
+import 'secret_passphrase_staging.dart';
+import 'secret_password.dart';
 
 // Constructs an `FfiChatService` wired to an account's scoped paths. Split out of
 // `account_service.dart` (complexity-gate pin); it is plumbing, not lifecycle
@@ -25,7 +27,7 @@ Future<FfiChatService> createAccountScopedService({
   required SharedPreferences prefs,
   required String toxId,
   required String profileDirectory,
-  String? password,
+  SecretPassword? password,
 }) async {
   final paths = await _prepareAccountStoragePaths(toxId);
   final historyDirectory = paths.historyDirectory;
@@ -49,7 +51,7 @@ Future<FfiChatService> createAccountScopedService({
     scratchFileService: scratchStorage,
   );
   try {
-    if (password != null && password.isNotEmpty && !svc.setProfilePassphrase(password)) {
+    if (password.hasValue && !svc.setProfilePassphraseSecret(password)) {
       throw StateError(
         'native library lacks savedata encryption; refusing to open a '
         'protected profile in plaintext',

@@ -18,6 +18,7 @@ import 'package:toxee/util/prefs/draft_prefs.dart';
 import 'package:toxee/util/session_password_store.dart';
 
 import 'account_export/test_support.dart';
+import 'support/secret_password_text.dart';
 
 const _toxId =
     'ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD12345678ABCD';
@@ -604,7 +605,7 @@ void main() {
           current: true,
         );
         const sessionPassword = 'recovery-material';
-        SessionPasswordStore.set(_toxId, sessionPassword);
+        SessionPasswordStore.set(_toxId, SecretPassword.fromString(sessionPassword));
         final runtimeFailure = StateError('runtime teardown failed');
         final steps = <String>[];
         SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {
@@ -620,7 +621,7 @@ void main() {
         };
         AccountTeardownTestHooks.encryptProfileFile = (_, password) async {
           steps.add('encrypt');
-          expect(password, sessionPassword);
+          expect(secretText(password), sessionPassword);
         };
 
         await expectLater(
@@ -639,7 +640,7 @@ void main() {
         );
 
         expect(steps, ['runtime', 'irc', 'service', 'encrypt']);
-        expect(SessionPasswordStore.get(_toxId), isNull);
+        expect(secretText(SessionPasswordStore.get(_toxId)), isNull);
       },
     );
 
@@ -659,7 +660,7 @@ void main() {
         current: true,
       );
       const sessionPassword = 'recovery-material';
-      SessionPasswordStore.set(_toxId, sessionPassword);
+      SessionPasswordStore.set(_toxId, SecretPassword.fromString(sessionPassword));
       final disposeFailure = StateError('service dispose failed');
       var profileEncrypted = false;
       SessionRuntimeCoordinator.debugTeardownBodyOverride = () async {};
@@ -693,8 +694,7 @@ void main() {
             'encrypting behind a live (undisposed) Tox instance can be '
             'overwritten with plaintext by its next autosave',
       );
-      expect(
-        SessionPasswordStore.get(_toxId),
+      expect(secretText(SessionPasswordStore.get(_toxId)),
         sessionPassword,
         reason: 'retained so a retry can still re-encrypt the profile',
       );
@@ -709,7 +709,7 @@ void main() {
           current: true,
         );
         const sessionPassword = 'recovery-material';
-        SessionPasswordStore.set(_toxId, sessionPassword);
+        SessionPasswordStore.set(_toxId, SecretPassword.fromString(sessionPassword));
         final encryptionFailure = StateError(
           'disk full during profile encrypt',
         );
@@ -735,7 +735,7 @@ void main() {
           ),
         );
 
-        expect(SessionPasswordStore.get(_toxId), sessionPassword);
+        expect(secretText(SessionPasswordStore.get(_toxId)), sessionPassword);
       },
     );
   });

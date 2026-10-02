@@ -11,6 +11,7 @@ import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/session_password_store.dart';
 
 import 'ui/settings/settings_account_test_support.dart';
+import 'support/secret_password_text.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -49,7 +50,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
     AccountPasswordChangeTestHooks.rekeyLive = (_, password) {
-      rekeys.add(password);
+      rekeys.add(secretText(password));
       return true;
     };
   });
@@ -65,18 +66,18 @@ void main() {
     final service = SettingsHarnessService();
     addTearDown(service.disposeStub);
     final results = await Future.wait([
-      AccountPasswordChange.set(service, 'first'),
-      AccountPasswordChange.set(service, 'second'),
+      AccountPasswordChange.set(service, SecretPassword.fromString('first')),
+      AccountPasswordChange.set(service, SecretPassword.fromString('second')),
       AccountPasswordChange.remove(service),
-      AccountPasswordChange.set(service, 'third'),
+      AccountPasswordChange.set(service, SecretPassword.fromString('third')),
     ]);
     expect(results, everyElement(PasswordChangeOutcome.ok));
     expect(rekeys, ['first', 'second', null, 'third'],
         reason: 'each change re-keyed the file in program order');
-    expect(await Prefs.verifyAccountPassword(kSettingsToxId, 'third'), isTrue);
-    expect(await Prefs.verifyAccountPassword(kSettingsToxId, 'second'), isFalse);
+    expect(await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('third')), isTrue);
+    expect(await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('second')), isFalse);
     expect((await Prefs.passwordChanges.pending(kSettingsToxId)).record, isNull,
         reason: 'no recovery record survives a completed sequence');
-    expect(SessionPasswordStore.get(kSettingsToxId), 'third');
+    expect(secretText(SessionPasswordStore.get(kSettingsToxId)), 'third');
   });
 }

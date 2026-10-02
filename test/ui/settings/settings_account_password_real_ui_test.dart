@@ -48,6 +48,8 @@ import 'package:toxee/util/account_service_test_hooks.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'settings_account_test_support.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 const _newField = Key('settings_set_password_new_field');
 const _confirmField = Key('settings_set_password_confirm_field');
@@ -114,7 +116,7 @@ void main() {
     // the tests assert it was asked for with the password they typed.
     rekeyedWith.clear();
     AccountPasswordChangeTestHooks.rekeyLive = (_, password) {
-      rekeyedWith.add(password);
+      rekeyedWith.add(secretText(password));
       return true;
     };
   });
@@ -199,7 +201,7 @@ void main() {
           reason: 'PBKDF2 hash+salt persisted to (mocked) secure storage',
         );
         expect(
-          await Prefs.verifyAccountPassword(kSettingsToxId, 'hunter2-secret'),
+          await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('hunter2-secret')),
           isTrue,
           reason: 'the persisted PBKDF2 verifier accepts the chosen password',
         );
@@ -207,7 +209,7 @@ void main() {
           'hunter2-secret',
         ], reason: 'the file was re-keyed to the new password first');
         expect(
-          await Prefs.verifyAccountPassword(kSettingsToxId, 'wrong-password'),
+          await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('wrong-password')),
           isFalse,
           reason: 'a different password must NOT verify',
         );
@@ -221,7 +223,7 @@ void main() {
       // Seed an existing password so the dialog opens in CHANGE mode. This
       // write itself runs PBKDF2 → do it in runAsync.
       await tester.runAsync(() async {
-        final ok = await Prefs.setAccountPassword(kSettingsToxId, 'old-pass-1');
+        final ok = await Prefs.setAccountPassword(kSettingsToxId, SecretPassword.fromString('old-pass-1'));
         expect(ok, isTrue, reason: 'seed password persisted to secure store');
       });
 
@@ -265,7 +267,7 @@ void main() {
           () => find.text('Password set successfully').evaluate().isNotEmpty,
         );
         expect(
-          await Prefs.verifyAccountPassword(kSettingsToxId, 'brand-new-pass'),
+          await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('brand-new-pass')),
           isTrue,
           reason: 'change-password persisted the NEW password',
         );
@@ -273,7 +275,7 @@ void main() {
           'brand-new-pass',
         ], reason: 'the file was re-keyed to the new password first');
         expect(
-          await Prefs.verifyAccountPassword(kSettingsToxId, 'old-pass-1'),
+          await Prefs.verifyAccountPassword(kSettingsToxId, SecretPassword.fromString('old-pass-1')),
           isFalse,
           reason: 'the old password no longer verifies after change',
         );

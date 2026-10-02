@@ -31,6 +31,7 @@ import 'irc_app_manager.dart';
 import 'legacy_profile_adoption.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
+import 'secret_passphrase_staging.dart';
 import 'short_tox_id_backfill.dart';
 import 'tox_utils.dart';
 
@@ -119,7 +120,7 @@ class AccountService {
     // a placeholder.
     final toxId = service?.getSelfToxId() ?? '';
     final sessionPassword = toxId.isNotEmpty
-        ? SessionPasswordStore.get(toxId)
+        ? SessionPasswordStore.get(toxId)?.copy()
         : null;
 
     AccountTeardownFailure? firstFailure;
@@ -229,8 +230,7 @@ class AccountService {
     var profileReadyForPasswordClear = true;
     if (reEncryptProfile &&
         nativeStopped &&
-        sessionPassword != null &&
-        sessionPassword.isNotEmpty &&
+        sessionPassword.hasValue &&
         toxId.isNotEmpty) {
       profileReadyForPasswordClear = await runStep(
         AccountTeardownStage.profileReEncryption,
@@ -241,11 +241,12 @@ class AccountService {
             final encryptProfileFile =
                 AccountTeardownTestHooks.encryptProfileFile ??
                 AccountExportService.encryptProfileFile;
-            await encryptProfileFile(profilePath, sessionPassword);
+            await encryptProfileFile(profilePath, sessionPassword!);
           }
         },
       );
     }
+    sessionPassword?.dispose();
 
     // 6. Clear session password only after the profile is safely encrypted.
     //
@@ -289,7 +290,7 @@ class AccountService {
   /// [SessionPasswordStore], journaled). See [AccountPasswordChange.set].
   static Future<PasswordChangeOutcome> setAccountPassword(
     FfiChatService service,
-    String password,
+    SecretPassword password,
   ) => AccountPasswordChange.set(service, password);
 
   /// Remove the account password mid-session. See [AccountPasswordChange.remove].
@@ -315,7 +316,7 @@ class AccountService {
     required String toxId,
     String? nickname,
     String? statusMessage,
-    String? password,
+    SecretPassword? password,
     bool startPolling = true,
   }) async {
     await throwIfAccountDeleting(toxId);
@@ -442,7 +443,7 @@ class AccountService {
         final settled = await Prefs.passwordChanges.reconcileAfterLogin(
           activeToxId,
           password,
-          rekeyLive: (pw) async => service!.rekeyLiveProfilePassphrase(pw),
+          rekeyLive: (pw) async => service!.rekeyLiveProfilePassphraseSecret(pw),
         );
         if (settled == PasswordChangeReconcile.removalCompleted) {
           SessionPasswordStore.clear(activeToxId);
@@ -476,14 +477,8 @@ class AccountService {
       await DefaultAvatarInstaller.ensureSelfAvatar(toxId: activeToxId);
       return service;
     } catch (e) {
-      await service?.dispose();
-      await restoreCurrentAccountPointer(previousAccount, '[AccountService]');
-      // Mirror the success path: if we set nickname/status/avatar above, undo
-      // them. Always — we may have failed AFTER the pointer write above.
-      await Prefs.setNickname(previousNickname ?? '');
-      await Prefs.setStatusMessage(previousStatusMessage ?? '');
-      await Prefs.setAvatarPath(previousAvatarPath);
       if (password != null && password.isNotEmpty) {
+        // FIRST, before any cleanup await that could throw and skip it.
         // We don't know whether ShortToxIdBackfill ran successfully (the
         // throw could be from before or after it), so clear both keys
         // defensively. SessionPasswordStore.clear is a no-op when the key
@@ -497,6 +492,13 @@ class AccountService {
           SessionPasswordStore.clear(canonicalToxId);
         }
       }
+      await service?.dispose();
+      await restoreCurrentAccountPointer(previousAccount, '[AccountService]');
+      // Mirror the success path: if we set nickname/status/avatar above, undo
+      // them. Always — we may have failed AFTER the pointer write above.
+      await Prefs.setNickname(previousNickname ?? '');
+      await Prefs.setStatusMessage(previousStatusMessage ?? '');
+      await Prefs.setAvatarPath(previousAvatarPath);
       rethrow;
     }
   }
@@ -507,10 +509,10 @@ class AccountService {
   /// to close.
   static Future<void> _stageProfilePassphrase(
     FfiChatService service,
-    String? password,
+    SecretPassword? password,
   ) async {
     if (password == null || password.isEmpty) return;
-    if (!service.setProfilePassphrase(password)) {
+    if (!service.setProfilePassphraseSecret(password)) {
       throw StateError(
         'native library lacks savedata encryption '
         '(tim2tox_ffi_set_profile_passphrase); refusing to open a protected '
@@ -526,7 +528,7 @@ class AccountService {
     Object error,
     String toxId,
     String? profileFile,
-    String? password,
+    SecretPassword? password,
   ) async {
     if (password == null || password.isEmpty || profileFile == null) {
       return error;
@@ -558,7 +560,7 @@ class AccountService {
   static Future<RegisterResult> registerNewAccount({
     required String nickname,
     String statusMessage = '',
-    String password = '',
+    SecretPassword? password,
   }) async {
     // 1. Validate uniqueness
     final existingAccount = await Prefs.getAccountByNickname(nickname);
@@ -683,7 +685,7 @@ class AccountService {
       // and not a line earlier: if the rename throws (e.g. the destination
       // exists and is non-empty), the directory is someone else's.
       final profileDir = finalDir!;
-      if (password.isNotEmpty) {
+      if (password.hasValue) {
         // Verifier BEFORE the account is published: a kill after the rename
         // must never leave an encrypted profile with no password gate.
         // Flagged before the attempt, not after success: a refused write can
@@ -691,7 +693,7 @@ class AccountService {
         // compensating delete refused too), and the rollback must take that
         // residue with it as well.
         verifierWritten = true;
-        if (!await Prefs.setAccountPassword(toxId!, password)) {
+        if (!await Prefs.setAccountPassword(toxId!, password!)) {
           throw StateError('Failed to persist account password verifier');
         }
       }
@@ -736,8 +738,8 @@ class AccountService {
       await Prefs.setAvatarPath(defaultAvatarPath);
 
       // 7. Protected account: reopen with account-scoped paths, passphrase staged
-      if (password.isNotEmpty) {
-        SessionPasswordStore.set(tid, password);
+      if (password.hasValue) {
+        SessionPasswordStore.set(tid, password!);
         await svc.dispose();
         await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
         service = null;

@@ -45,13 +45,13 @@ class PlaceholderAccountMigration {
       ? placeholderToxId.substring(0, 16)
       : placeholderToxId;
 
-  /// Runs the migration if any placeholder-keyed state is detected.
-  /// Returns the real Tox ID when migration succeeded (or wasn't needed but
-  /// a real ID is now in Prefs); null when no real ID could be discovered,
-  /// nothing needed migrating, or the migration aborted with a rollback.
-  /// [authenticatedPassword] turns the "deferred to an authenticated login"
-  /// refusal in `placeholder_identity_discovery.dart` into a real continuation.
-  static Future<String?> migrateIfNeeded({String? authenticatedPassword}) async {
+  /// Runs the migration if any placeholder-keyed state is detected. Returns the
+  /// real Tox ID when it succeeded (or a real ID is already in Prefs); null when
+  /// none could be discovered, nothing needed migrating, or it rolled back.
+  /// [authenticatedPassword] (borrowed) turns the "deferred to an authenticated
+  /// login" refusal in `placeholder_identity_discovery.dart` into a continuation.
+  static Future<String?> migrateIfNeeded(
+      {SecretPassword? authenticatedPassword}) async {
     final pointer = await Prefs.getCurrentAccountToxId();
     final accounts = await Prefs.getAccountList();
     final placeholderIdx =

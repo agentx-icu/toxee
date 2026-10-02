@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
+import 'secret_password.dart';
+
 // Injection points that let the account teardown / registration flows be driven
 // in unit tests without a real Tox instance, a keychain, or profile encryption.
 //
@@ -19,7 +21,7 @@ abstract final class AccountTeardownTestHooks {
   static Future<void> Function(FfiChatService service)? disposeService;
 
   @visibleForTesting
-  static Future<void> Function(String profilePath, String password)?
+  static Future<void> Function(String profilePath, SecretPassword password)?
   encryptProfileFile;
 
   @visibleForTesting
@@ -37,7 +39,8 @@ abstract final class AccountPasswordChangeTestHooks {
   /// re-key that needs a live session — so a widget test can drive the real
   /// password-change transaction without one. Null => the real call.
   @visibleForTesting
-  static bool Function(FfiChatService service, String? password)? rekeyLive;
+  static bool Function(FfiChatService service, SecretPassword? password)?
+  rekeyLive;
 
   @visibleForTesting
   static void reset() {
