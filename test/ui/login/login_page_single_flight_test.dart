@@ -36,6 +36,7 @@ class _PendingAccountOperationController extends LoginPageController {
   Future<ImportResult> importAccount({
     required Future<String?> Function() requestPassword,
     required String importedAccountDefaultName,
+    Future<String?> Function()? requestProfilePassword,
     String? filePathOverride,
   }) {
     final attempt = Completer<ImportResult>();

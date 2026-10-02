@@ -30,4 +30,13 @@ class SettingsUiKeys {
   static const Key backgroundRunningAllowButton = Key(
     'settings_background_running_allow_button',
   );
+
+  // ---------------------------------------------------------------------
+  // Account Management — "Import Account" (settings_page_build.dart on the
+  // desktop root, settings_page_mobile_widgets.dart inside the pushed mobile
+  // section). The two layouts are mutually exclusive, so they share the key.
+  // The password prompts the button leads to are PasswordPromptDialog's
+  // (see LoginUiKeys.passwordPrompt*).
+  // ---------------------------------------------------------------------
+  static const Key importAccountButton = Key('settings_import_account_button');
 }

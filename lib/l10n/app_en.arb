@@ -1098,6 +1098,10 @@
   "@enterPasswordToImport": {
     "description": "Prompt for password when importing account"
   },
+  "enterBackupAccountPassword": "Enter the account password of this backup",
+  "@enterBackupAccountPassword": {
+    "description": "Second prompt of a full-backup import: the backup's own tox_profile.tox is encrypted under the ACCOUNT password of the install that wrote it, which is independent of the archive password asked for first"
+  },
   "enterPasswordForAccount": "Enter password for account \"{nickname}\"",
   "@enterPasswordForAccount": {
     "description": "Prompt for password for specific account",

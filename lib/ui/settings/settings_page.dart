@@ -26,6 +26,8 @@ import '../widgets/bottom_sheet_handle.dart';
 import '../widgets/safe_dialog_pop.dart';
 import '../widgets/section_header.dart';
 import '../widgets/stagger_list_item.dart';
+import '../login/password_prompt_dialog.dart';
+import '../testing/l3_debug_tools.dart';
 import '../testing/ui_keys.dart';
 import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
@@ -106,8 +108,11 @@ typedef SettingsAddImportedAccountFn =
 typedef SettingsSetImportedAccountPasswordFn =
     Future<bool> Function(String toxId, String password);
 
-Future<String?> _pickSettingsImportFile() =>
-    pickAccountImportFile(const ['tox', 'zip']);
+// Same L3 seam as the login page's import: the real button is driven, only the
+// native picker is bypassed (no-op outside the debug L3 surface).
+Future<String?> _pickSettingsImportFile() => runL3AwareAccountImportPicker(
+  pickFile: () => pickAccountImportFile(const ['tox', 'zip']),
+);
 
 Future<void> _addSettingsImportedAccount({
   required String toxId,
@@ -875,43 +880,13 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<String?> _showPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
+  /// Import password prompts (archive, embedded profile, `.tox`). The shared
+  /// [PasswordPromptDialog] owns its TextEditingController (the inline version
+  /// here leaked one per prompt) and carries the automation keys.
+  Future<String?> _showPasswordDialog(String title) {
     return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        scrollable: true,
-        title: Text(title),
-        content: TextField(
-          controller: passwordController,
-          autofocus: true,
-          obscureText: true,
-          textAlignVertical: TextAlignVertical.center,
-          keyboardType: TextInputType.visiblePassword,
-          textInputAction: TextInputAction.done,
-          autofillHints: const [AutofillHints.password],
-          decoration: InputDecoration(
-            labelText: AppLocalizations.of(context)!.password,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(
-                AppThemeConfig.inputBorderRadius,
-              ),
-            ),
-          ),
-          onSubmitted: (value) => popDialogIfCurrent(context, value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () =>
-                popDialogIfCurrent(context, passwordController.text),
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
-      ),
+      builder: (context) => PasswordPromptDialog(title: title),
     );
   }
 

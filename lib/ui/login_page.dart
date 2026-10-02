@@ -32,6 +32,7 @@ import '../util/account_export_service.dart';
 import 'account_password_texts.dart';
 import '../util/mobile_export_policy.dart';
 import 'testing/ui_keys.dart';
+import 'testing/ui_keys_login.dart';
 
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
@@ -1325,10 +1326,7 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                               const SizedBox(height: AppSpacing.sm),
                               _LoginActionCard(
-                                // Automation anchor for the "Import account" action.
-                                key: const Key(
-                                  'login_page_import_account_card',
-                                ),
+                                key: LoginUiKeys.loginPageImportAccountCard,
                                 icon: Icons.download_outlined,
                                 label: AppLocalizations.of(
                                   context,

@@ -1117,6 +1117,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enterPasswordToImport => 'Enter password to import account';
 
   @override
+  String get enterBackupAccountPassword =>
+      'Enter the account password of this backup';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return 'Enter password for account \"$nickname\"';
   }

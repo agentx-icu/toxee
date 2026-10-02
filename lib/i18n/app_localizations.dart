@@ -2122,6 +2122,12 @@ abstract class AppLocalizations {
   /// **'Enter password to import account'**
   String get enterPasswordToImport;
 
+  /// Second prompt of a full-backup import: the backup's own tox_profile.tox is encrypted under the ACCOUNT password of the install that wrote it, which is independent of the archive password asked for first
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the account password of this backup'**
+  String get enterBackupAccountPassword;
+
   /// Prompt for password for specific account
   ///
   /// In en, this message translates to:

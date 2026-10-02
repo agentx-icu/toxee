@@ -297,6 +297,7 @@
   "changePassword": "修改密碼",
   "enterPasswordToExport": "輸入密碼以匯出帳號",
   "enterPasswordToImport": "輸入密碼以匯入帳號",
+  "enterBackupAccountPassword": "輸入此備份的帳號密碼",
   "enterPasswordForAccount": "輸入帳號 \"{nickname}\" 的密碼",
   "invalidPassword": "密碼錯誤",
   "accountExportedSuccessfully": "帳號已成功匯出到: {filePath}",

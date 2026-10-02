@@ -1114,6 +1114,10 @@ class AppLocalizationsAr extends AppLocalizations {
   String get enterPasswordToImport => 'أدخل كلمة المرور لاستيراد الحساب';
 
   @override
+  String get enterBackupAccountPassword =>
+      'أدخل كلمة مرور الحساب الخاصة بهذه النسخة الاحتياطية';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return 'أدخل كلمة مرور الحساب \"$nickname\"';
   }

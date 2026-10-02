@@ -297,6 +297,7 @@
   "changePassword": "パスワード変更",
   "enterPasswordToExport": "アカウントをエクスポートするためのパスワードを入力",
   "enterPasswordToImport": "アカウントをインポートするためのパスワードを入力",
+  "enterBackupAccountPassword": "このバックアップのアカウントパスワードを入力",
   "enterPasswordForAccount": "アカウント \"{nickname}\" のパスワードを入力",
   "invalidPassword": "パスワードが正しくありません",
   "accountExportedSuccessfully": "アカウントが正常にエクスポートされました: {filePath}",

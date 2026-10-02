@@ -1074,6 +1074,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get enterPasswordToImport => '输入密码以导入账号';
 
   @override
+  String get enterBackupAccountPassword => '输入此备份的账号密码';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return '输入账号 \"$nickname\" 的密码';
   }
@@ -3157,6 +3160,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get enterPasswordToImport => '输入密码以导入账号';
 
   @override
+  String get enterBackupAccountPassword => '输入此备份的账号密码';
+
+  @override
   String enterPasswordForAccount(String nickname) {
     return '输入账号 \"$nickname\" 的密码';
   }
@@ -4818,6 +4824,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get enterPasswordToImport => '輸入密碼以匯入帳號';
+
+  @override
+  String get enterBackupAccountPassword => '輸入此備份的帳號密碼';
 
   @override
   String enterPasswordForAccount(String nickname) {
