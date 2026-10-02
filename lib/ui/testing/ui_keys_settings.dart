@@ -43,10 +43,10 @@ class SettingsUiKeys {
   // ---------------------------------------------------------------------
   // ExportPasswordDialog (lib/ui/settings/export_password_dialog.dart)
   //
-  // The password + confirmation prompt in front of BOTH settings exports
-  // (`.tox` and full backup). On iOS the system save sheet after it cannot be
-  // driven over the VM service, so the dialog itself must be — it carried no
-  // anchors at all until the 2026-10-01 at-rest verification needed them.
+  // The EXPORT password + confirmation prompt in front of every user-facing
+  // export (Settings `.tox` and full backup, the login page's saved-account
+  // export, the first-run backup wizard). On iOS the system save sheet after
+  // it cannot be driven over the VM service, so the dialog itself must be.
   // ---------------------------------------------------------------------
 
   static const Key exportPasswordField = Key('settings_export_password_field');
@@ -58,5 +58,11 @@ class SettingsUiKeys {
   );
   static const Key exportPasswordCancelButton = Key(
     'settings_export_password_cancel_button',
+  );
+
+  /// Shown while the export password is empty in the optional (`.tox`) mode:
+  /// the file will be written UNENCRYPTED.
+  static const Key exportPasswordEmptyWarning = Key(
+    'settings_export_password_empty_warning',
   );
 }

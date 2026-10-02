@@ -42,6 +42,7 @@ import '../auth/login_use_case.dart';
 import 'login/delete_account_confirm_dialog.dart';
 import 'login/login_password_gate.dart';
 import 'login/login_page_controller.dart';
+import 'login/login_export_passwords.dart';
 import 'login/password_prompt_dialog.dart';
 import 'pairing/pairing_client_page.dart';
 
@@ -61,8 +62,14 @@ typedef LoginNavigateHomeFn =
 /// Production binds this to [AccountExportService.exportAccountData]; tests
 /// inject a recording stub so the export handler can be driven without the
 /// Tox FFI / on-disk profile.
+/// [password] seals the file (null = unencrypted); [accountPassword] opens a
+/// protected account's at-rest profile. They are independent by design.
 typedef LoginExportAccountFn =
-    Future<String> Function({required String toxId, String? password});
+    Future<String> Function({
+      required String toxId,
+      String? password,
+      String? accountPassword,
+    });
 
 /// Returns the appropriate trailing chevron for the current text direction.
 /// In LTR locales this is `chevron_right`; in RTL locales it flips to
@@ -177,11 +184,11 @@ class _LoginPageState extends State<LoginPage> {
     _navigateHome = widget.navigateHome ?? _defaultNavigateHome;
     _exportAccount =
         widget.exportAccount ??
-        ({required String toxId, String? password}) =>
+        ({required String toxId, String? password, String? accountPassword}) =>
             AccountExportService.exportAccountData(
               toxId: toxId,
               password: password,
-              accountPassword: password,
+              accountPassword: accountPassword,
             );
     _isDesktopExportPlatform = isDesktopExportPlatform(
       override: widget.isDesktopExportPlatformOverride,
@@ -696,35 +703,20 @@ class _LoginPageState extends State<LoginPage> {
     _exportAccountInProgress = true;
     final l10n = AppLocalizations.of(context)!;
     try {
-      // AUTHENTICATE FIRST, before any export copy exists.
-      //
-      // This action used to export with no password prompt and no verification,
-      // while the in-session equivalent (`SettingsPage._exportAccount`) required
-      // both. The exported `.tox` is the raw on-disk profile, so whenever that
-      // profile happened to be plaintext — which it is for the whole of a
-      // session, and stays until a teardown re-encrypts it — anyone holding the
-      // unlocked device could lift an unprotected copy of a password-protected
-      // account's private key straight off the login screen.
-      //
-      // `hasAccountPassword` fails closed, so an unreadable secure store also
-      // demands the password (and verification will then fail, which is the
-      // correct outcome for "we cannot check").
-      final hasPassword = await Prefs.hasAccountPassword(toxId);
-      String? exportPassword;
-      if (hasPassword) {
-        if (!mounted) return;
-        exportPassword = await _showPasswordDialog(l10n.enterPasswordToExport);
-        if (exportPassword == null) return;
-        if (!await Prefs.verifyAccountPassword(toxId, exportPassword)) {
-          if (mounted) {
-            AppSnackBar.showError(context, l10n.invalidPassword);
-          }
-          return;
-        }
-      }
+      // AUTHENTICATE FIRST, before any export copy exists: a protected
+      // account's ACCOUNT password is verified (no live session vouches for
+      // the user here), THEN the user picks a separate EXPORT password. The
+      // two are never conflated — see promptLoginExportPasswords.
+      final passwords = await promptLoginExportPasswords(
+        context,
+        toxId: toxId,
+        nickname: nickname,
+      );
+      if (passwords == null) return;
       final internalFilePath = await _exportAccount(
         toxId: toxId,
-        password: exportPassword,
+        password: passwords.exportPassword,
+        accountPassword: passwords.accountPassword,
       );
       var filePath = internalFilePath;
       MobileExportSaveResult? mobileSaveResult;

@@ -1081,9 +1081,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get changePassword => 'パスワード変更';
 
   @override
-  String get enterPasswordToExport => 'アカウントをエクスポートするためのパスワードを入力';
-
-  @override
   String get enterPasswordToImport => 'アカウントをインポートするためのパスワードを入力';
 
   @override
@@ -2174,4 +2171,35 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       '.tox プロファイルまたは .zip の完全バックアップを選択してください';
+
+  @override
+  String get exportPasswordDialogTitle => 'エクスポート用パスワードを設定';
+
+  @override
+  String get exportPasswordLabel => 'エクスポート用パスワード';
+
+  @override
+  String get confirmExportPasswordLabel => 'エクスポート用パスワード（確認）';
+
+  @override
+  String get exportPasswordExplanation =>
+      'このパスワードはエクスポートしたファイルだけを保護し、アカウントのパスワードとは別です。ファイルをインポートするときに必要です。';
+
+  @override
+  String get exportPasswordOptionalHint => '空欄にすると暗号化せずにエクスポートします';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      'エクスポート用パスワードがありません：ファイルは暗号化されずに保存されます。このアカウントの秘密鍵が含まれるため、入手した人は誰でもパスワードなしでこのアカウントを使えます。';
+
+  @override
+  String get exportPasswordRequired => '完全バックアップにはエクスポート用パスワードが必要です';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return 'エクスポートするにはアカウント \"$nickname\" のパスワードを入力してください';
+  }
+
+  @override
+  String get exportUnencryptedButton => '暗号化せずにエクスポート';
 }

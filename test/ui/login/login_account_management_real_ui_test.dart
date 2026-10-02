@@ -46,6 +46,7 @@ import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localiz
 import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/util/mobile_export_policy.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/logger.dart';
@@ -57,8 +58,7 @@ const _deleteConfirmInputKey = Key('login_delete_account_confirm_input');
 const _deleteConfirmButtonKey = Key('login_delete_account_confirm_button');
 
 Widget _pumpableLoginPage({
-  Future<String> Function({required String toxId, String? password})?
-  exportAccount,
+  LoginExportAccountFn? exportAccount,
   bool? isDesktopExportPlatformOverride,
   MobileExportSaveFile? mobileExportSaveFile,
   SaveMobileExportCopyFn? saveMobileExportCopyOverride,
@@ -89,6 +89,25 @@ Future<void> _pumpAndLoad(WidgetTester tester, Widget root) async {
   await tester.pump(const Duration(milliseconds: 50));
   await tester.pump(const Duration(milliseconds: 250));
   await tester.pump(const Duration(milliseconds: 400)); // settle row stagger
+}
+
+/// An unprotected account skips the account-password step and goes straight
+/// to the EXPORT-password dialog; confirm it with an empty password (=
+/// unencrypted .tox, the pre-A6 behaviour these export tests assert on).
+Future<void> _acceptUnencryptedExport(WidgetTester tester) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (find
+        .byKey(SettingsUiKeys.exportPasswordOkButton)
+        .evaluate()
+        .isNotEmpty) {
+      break;
+    }
+  }
+  expect(find.byKey(SettingsUiKeys.exportPasswordEmptyWarning), findsOneWidget);
+  await tester.tap(find.byKey(SettingsUiKeys.exportPasswordOkButton));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 250));
 }
 
 /// Tap a fire-and-forget handler that runs PBKDF2 work, then pump the REAL
@@ -290,10 +309,15 @@ void main() {
         await _pumpAndLoad(
           tester,
           _pumpableLoginPage(
-            exportAccount: ({required String toxId, String? password}) async {
-              exportedToxId = toxId;
-              return '/tmp/Carol_${toxId.substring(0, 8)}.tox';
-            },
+            exportAccount:
+                ({
+                  required String toxId,
+                  String? password,
+                  String? accountPassword,
+                }) async {
+                  exportedToxId = toxId;
+                  return '/tmp/Carol_${toxId.substring(0, 8)}.tox';
+                },
           ),
         );
 
@@ -302,8 +326,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
 
         await tester.tap(find.byKey(_exportOptionKey));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
+        await _acceptUnencryptedExport(tester);
 
         // The production handler invoked the export seam with the row's toxId.
         expect(
@@ -339,10 +362,15 @@ void main() {
         await _pumpAndLoad(
           tester,
           _pumpableLoginPage(
-            exportAccount: ({required String toxId, String? password}) async {
-              invoked = true;
-              throw Exception('disk full');
-            },
+            exportAccount:
+                ({
+                  required String toxId,
+                  String? password,
+                  String? accountPassword,
+                }) async {
+                  invoked = true;
+                  throw Exception('disk full');
+                },
           ),
         );
 
@@ -350,8 +378,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
         await tester.tap(find.byKey(_exportOptionKey));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
+        await _acceptUnencryptedExport(tester);
 
         expect(
           invoked,
@@ -386,10 +413,15 @@ void main() {
           tester,
           _pumpableLoginPage(
             isDesktopExportPlatformOverride: false,
-            exportAccount: ({required String toxId, String? password}) async {
-              internalFile.writeAsBytesSync(const <int>[6, 7, 8]);
-              return internalFile.path;
-            },
+            exportAccount:
+                ({
+                  required String toxId,
+                  String? password,
+                  String? accountPassword,
+                }) async {
+                  internalFile.writeAsBytesSync(const <int>[6, 7, 8]);
+                  return internalFile.path;
+                },
             mobileExportSaveFile:
                 ({
                   required String dialogTitle,
@@ -428,6 +460,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
         await tester.tap(find.byKey(_exportOptionKey));
+        await _acceptUnencryptedExport(tester);
         for (var i = 0; i < 20 && seenFileName == null; i++) {
           await tester.pump(const Duration(milliseconds: 50));
         }

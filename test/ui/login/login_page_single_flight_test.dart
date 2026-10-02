@@ -11,6 +11,7 @@ import 'package:toxee/i18n/app_localizations.dart';
 import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/util/prefs.dart';
 
 const _importCardKey = Key('login_page_import_account_card');
@@ -47,8 +48,7 @@ class _PendingAccountOperationController extends LoginPageController {
 
 Widget _loginPage({
   LoginPageController? controller,
-  Future<String> Function({required String toxId, String? password})?
-  exportAccount,
+  LoginExportAccountFn? exportAccount,
 }) {
   return MaterialApp(
     localizationsDelegates: const [
@@ -65,6 +65,22 @@ Widget _loginPage({
       isDesktopExportPlatformOverride: true,
     ),
   );
+}
+
+/// The (unprotected) saved account goes straight to the EXPORT-password
+/// dialog; confirm it with an empty password.
+Future<void> _confirmExportPassword(WidgetTester tester) async {
+  for (var i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (find
+        .byKey(SettingsUiKeys.exportPasswordOkButton)
+        .evaluate()
+        .isNotEmpty) {
+      break;
+    }
+  }
+  await tester.tap(find.byKey(SettingsUiKeys.exportPasswordOkButton));
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 Future<void> _pumpLoginPage(WidgetTester tester, Widget page) async {
@@ -110,15 +126,15 @@ void main() {
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
-      switch (call.method) {
-        case 'readAll':
-          return <String, String>{};
-        case 'containsKey':
-          return false;
-        default:
-          return null;
-      }
-    });
+          switch (call.method) {
+            case 'readAll':
+              return <String, String>{};
+            case 'containsKey':
+              return false;
+            default:
+              return null;
+          }
+        });
   });
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -193,21 +209,29 @@ void main() {
       await _pumpLoginPage(
         tester,
         _loginPage(
-          exportAccount: ({required String toxId, String? password}) {
-            final attempt = Completer<String>();
-            exportAttempts.add(attempt);
-            return attempt.future;
-          },
+          exportAccount:
+              ({
+                required String toxId,
+                String? password,
+                String? accountPassword,
+              }) {
+                final attempt = Completer<String>();
+                exportAttempts.add(attempt);
+                return attempt.future;
+              },
         ),
       );
 
       await _openExportMenu(tester);
       await tester.tap(find.byKey(_exportOptionKey));
-      await tester.pump(const Duration(milliseconds: 300));
+      await _confirmExportPassword(tester);
 
+      // Second Export while the first is still running: dropped before any
+      // password dialog opens.
       await _openExportMenu(tester);
       await tester.tap(find.byKey(_exportOptionKey));
       await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(SettingsUiKeys.exportPasswordOkButton), findsNothing);
       expect(exportAttempts, hasLength(1));
 
       exportAttempts.single.completeError(Exception('export failed'));
@@ -216,7 +240,7 @@ void main() {
 
       await _openExportMenu(tester);
       await tester.tap(find.byKey(_exportOptionKey));
-      await tester.pump();
+      await _confirmExportPassword(tester);
       expect(exportAttempts, hasLength(2));
 
       exportAttempts.last.complete('/tmp/alice.tox');

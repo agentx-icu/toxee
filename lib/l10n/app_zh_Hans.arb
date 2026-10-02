@@ -295,7 +295,6 @@
   "importAccount": "导入账号",
   "setPassword": "设置密码",
   "changePassword": "修改密码",
-  "enterPasswordToExport": "输入密码以导出账号",
   "enterPasswordToImport": "输入密码以导入账号",
   "enterBackupAccountPassword": "输入此备份的账号密码",
   "enterPasswordForAccount": "输入账号 \"{nickname}\" 的密码",
@@ -879,5 +878,14 @@
   "exportRequiresLogin": "请先登录该账号再导出",
   "profileUnopenableWithPassword": "无法用此密码打开账号文件。文件可能已损坏，或上次修改密码被中断。",
   "passwordChangeInterrupted": "密码修改被中断。请尝试修改前或修改后的密码。",
-  "importUnsupportedFileType": "请选择 .tox 资料文件或 .zip 完整备份"
+  "importUnsupportedFileType": "请选择 .tox 资料文件或 .zip 完整备份",
+  "exportPasswordDialogTitle": "设置导出密码",
+  "exportPasswordLabel": "导出密码",
+  "confirmExportPasswordLabel": "确认导出密码",
+  "exportPasswordExplanation": "此密码只保护导出的文件，与账号密码相互独立。导入该文件时需要它。",
+  "exportPasswordOptionalHint": "留空则不加密导出",
+  "exportPasswordEmptyWarning": "未设置导出密码：文件将以未加密形式保存。它包含此账号的私钥，任何拿到文件的人无需任何密码即可使用此账号。",
+  "exportPasswordRequired": "完整备份必须设置导出密码",
+  "enterAccountPasswordToExport": "输入账号 \"{nickname}\" 的账号密码以导出",
+  "exportUnencryptedButton": "不加密导出"
 }

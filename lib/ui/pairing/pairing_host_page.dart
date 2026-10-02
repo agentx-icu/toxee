@@ -99,8 +99,10 @@ class _PairingHostPageState extends State<PairingHostPage> {
           }
           // Export to a temp file, read back, delete. Reuses the audited
           // export path so the byte layout matches what the receiving
-          // device's importAccountData() expects. The temp file holds a
-          // plaintext profile for no-password accounts — guarantee deletion
+          // device's importAccountData() expects. No export password: the
+          // temp file holds the PLAINTEXT profile for every account (a
+          // protected one is opened with the session password), and the
+          // pairing channel encrypts the blob itself — guarantee deletion
           // via try/finally, and on delete failure overwrite the bytes with
           // zeros before retrying so a stranded file is not a usable
           // identity blob.
