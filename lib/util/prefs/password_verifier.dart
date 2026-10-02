@@ -16,11 +16,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../logger.dart';
+import '../secret_password.dart';
 import 'legacy_password_store.dart';
 import 'secure_storage_facade.dart';
 
@@ -139,7 +142,7 @@ class PasswordVerifier {
   /// the legacy plain-prefs entries are intentionally left intact so a
   /// subsequent attempt can recover). The empty-password short-circuit
   /// (which removes any existing password) returns true on full cleanup.
-  Future<bool> setPassword(String toxId, String password) async {
+  Future<bool> setPassword(String toxId, SecretPassword password) async {
     if (toxId.isEmpty) {
       throw ArgumentError('toxId cannot be empty');
     }
@@ -150,21 +153,45 @@ class PasswordVerifier {
     return writePrimaryVerifier(toxId, derived.hash, derived.salt);
   }
 
+  /// [setPassword] for a String; tests only (production converts at the edge).
+  @visibleForTesting
+  Future<bool> setPasswordText(String toxId, String password) =>
+      SecretPassword.use(password, (secret) => setPassword(toxId, secret));
+
   /// A fresh salt and the PBKDF2 hash of [password] over it, in the stored
   /// wire format. Pure: nothing is written.
-  Future<({String hash, String salt})> deriveVerifier(String password) async {
+  Future<({String hash, String salt})> deriveVerifier(
+    SecretPassword password,
+  ) async {
     final salt = List<int>.generate(_saltBytes, (_) => Random.secure().nextInt(256));
-    final pbkdf2 = Pbkdf2(
-      macAlgorithm: Hmac.sha256(),
-      iterations: pbkdf2Iterations,
-      bits: pbkdf2Bits,
-    );
-    final secretKey = await pbkdf2.deriveKeyFromPassword(
-      password: password,
-      nonce: salt,
-    );
-    final hashBytes = await secretKey.extractBytes();
+    final hashBytes = await _pbkdf2(password, salt);
     return (hash: '$pbkdf2Prefix${base64Encode(hashBytes)}', salt: base64Encode(salt));
+  }
+
+  /// PBKDF2-HMAC-SHA256 of [password]'s UTF-8 bytes over [salt]. Byte-identical
+  /// to `deriveKeyFromPassword`, which is `utf8.encode` + `deriveKey`.
+  ///
+  /// The KDF runs on a PRIVATE copy taken synchronously, zeroed when the
+  /// derivation ends: the caller's buffer is borrowed, and a concurrent
+  /// dispose() of it must neither corrupt a running derivation nor be undone
+  /// by a copy that outlives the call. (HMAC's own padded key blocks inside
+  /// package:cryptography are beyond reach.)
+  static Future<List<int>> _pbkdf2(SecretPassword password, List<int> salt) async {
+    final key = SecretKeyData(
+      password.withBytes(Uint8List.fromList),
+      overwriteWhenDestroyed: true,
+    );
+    try {
+      final pbkdf2 = Pbkdf2(
+        macAlgorithm: Hmac.sha256(),
+        iterations: pbkdf2Iterations,
+        bits: pbkdf2Bits,
+      );
+      final derived = await pbkdf2.deriveKey(secretKey: key, nonce: salt);
+      return await derived.extractBytes();
+    } finally {
+      key.destroy();
+    }
   }
 
   /// Installs an already-derived verifier as the primary one (both keys, the
@@ -250,7 +277,11 @@ class PasswordVerifier {
 
   /// Constant-time check of [password] against a stored PBKDF2 verifier
   /// (modern wire format only; the legacy formats are [verifyPassword]'s job).
-  Future<bool> matchesPbkdf2(String password, String storedHash, String? saltBase64) async {
+  Future<bool> matchesPbkdf2(
+    SecretPassword password,
+    String storedHash,
+    String? saltBase64,
+  ) async {
     if (!storedHash.startsWith(pbkdf2Prefix) || saltBase64 == null) return false;
     List<int> salt;
     try {
@@ -258,16 +289,7 @@ class PasswordVerifier {
     } catch (_) {
       return false;
     }
-    final pbkdf2 = Pbkdf2(
-      macAlgorithm: Hmac.sha256(),
-      iterations: pbkdf2Iterations,
-      bits: pbkdf2Bits,
-    );
-    final secretKey = await pbkdf2.deriveKeyFromPassword(
-      password: password,
-      nonce: salt,
-    );
-    final hashBytes = await secretKey.extractBytes();
+    final hashBytes = await _pbkdf2(password, salt);
     return constantTimeEquals(
       storedHash.substring(pbkdf2Prefix.length),
       base64Encode(hashBytes),
@@ -279,7 +301,7 @@ class PasswordVerifier {
   /// Supports PBKDF2 (new) and legacy SHA-256 (salted and unsalted); on a
   /// successful legacy verify, the password is re-hashed with PBKDF2 and
   /// the new format is persisted before returning true.
-  Future<bool> verifyPassword(String toxId, String password) async {
+  Future<bool> verifyPassword(String toxId, SecretPassword password) async {
     if (toxId.isEmpty || password.isEmpty) return false;
 
     final storedHash = await _readHashWithMigration(toxId);
@@ -291,38 +313,44 @@ class PasswordVerifier {
     }
 
     // Legacy SHA-256 (salted or unsalted) — migrate on success.
-    if (saltBase64 != null && saltBase64.isNotEmpty) {
-      final bytes = utf8.encode('$saltBase64$password');
-      final hash = crypto.sha256.convert(bytes);
-      if (storedHash == hash.toString()) {
-        final migrated = await setPassword(toxId, password);
-        if (!migrated) {
-          // Verify still succeeded; the legacy hash remains valid for the
-          // next attempt. Surface the failure for diagnosability.
-          AppLogger.warn(
-            '[PasswordVerifier] PBKDF2 migration after legacy salted-SHA256 '
-            'verify failed for toxId=$toxId (secure storage unavailable); '
-            'legacy entry retained.',
-          );
-        }
-        return true;
-      }
+    final salted = saltBase64 != null && saltBase64.isNotEmpty;
+    if (storedHash != _legacySha256(salted ? saltBase64 : '', password)) {
       return false;
     }
-    final bytes = utf8.encode(password);
-    final hash = crypto.sha256.convert(bytes);
-    if (storedHash == hash.toString()) {
-      final migrated = await setPassword(toxId, password);
-      if (!migrated) {
-        AppLogger.warn(
-          '[PasswordVerifier] PBKDF2 migration after legacy unsalted-SHA256 '
-          'verify failed for toxId=$toxId (secure storage unavailable); '
-          'legacy entry retained.',
-        );
-      }
-      return true;
+    final migrated = await setPassword(toxId, password);
+    if (!migrated) {
+      // Verify still succeeded; the legacy hash remains valid for the next
+      // attempt. Surface the failure for diagnosability.
+      AppLogger.warn(
+        '[PasswordVerifier] PBKDF2 migration after legacy '
+        '${salted ? 'salted' : 'unsalted'}-SHA256 verify failed for '
+        'toxId=$toxId (secure storage unavailable); legacy entry retained.',
+      );
     }
-    return false;
+    return true;
+  }
+
+  /// [verifyPassword] for a String; tests only.
+  @visibleForTesting
+  Future<bool> verifyPasswordText(String toxId, String password) =>
+      SecretPassword.use(password, (secret) => verifyPassword(toxId, secret));
+
+  /// Hex SHA-256 of `utf8(saltPrefix) + passwordBytes` — byte-identical to
+  /// the legacy `sha256(utf8.encode('$salt$password'))` — over a buffer that
+  /// is zeroed before returning.
+  static String _legacySha256(String saltPrefix, SecretPassword password) {
+    final saltBytes = utf8.encode(saltPrefix);
+    final input = password.withBytes((bytes) {
+      final joined = Uint8List(saltBytes.length + bytes.length);
+      joined.setAll(0, saltBytes);
+      joined.setAll(saltBytes.length, bytes);
+      return joined;
+    });
+    try {
+      return crypto.sha256.convert(input).toString();
+    } finally {
+      input.fillRange(0, input.length, 0);
+    }
   }
 
   /// Read PBKDF2 hash from secure storage, migrating any legacy plain-prefs

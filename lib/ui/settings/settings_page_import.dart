@@ -28,6 +28,9 @@ extension _SettingsImportFlow on _SettingsPageState {
     // Whether a `.tox` journal entry was written, so the failure path clears it.
     var journalledToxImport = false;
     final l10n = AppLocalizations.of(context)!;
+    // Prompted Strings become bytes at once; zeroed when the import ends.
+    SecretPassword? password;
+    SecretPassword? profilePassword;
     try {
       // Show file picker for .tox and .zip files
       final filePath = await _pickImportFileFn();
@@ -45,8 +48,6 @@ extension _SettingsImportFlow on _SettingsPageState {
       // isolate, discarded immediately. The importers below already detect
       // encryption themselves and raise PasswordRequiredException, which is
       // what actually drives the password prompt.
-      String? password;
-      String? profilePassword;
 
       // Import account data (will check encryption and prompt for password if needed)
       Map<String, dynamic> accountData;
@@ -70,7 +71,9 @@ extension _SettingsImportFlow on _SettingsPageState {
           } on PasswordRequiredException {
             if (archivePrompted || !mounted) return;
             archivePrompted = true;
-            password = await _showPasswordDialog(l10n.enterPasswordToImport);
+            password = SecretPassword.fromStringOrNull(
+              await _showPasswordDialog(l10n.enterPasswordToImport),
+            );
             if (password == null || !mounted) return;
             if (password.isEmpty) {
               _showImportError(l10n.invalidPassword);
@@ -81,8 +84,9 @@ extension _SettingsImportFlow on _SettingsPageState {
             profilePrompted = true;
             // A different credential from the archive password (the account
             // password of the install that wrote the backup) — titled so.
-            profilePassword =
-                await _showPasswordDialog(l10n.enterBackupAccountPassword);
+            profilePassword = SecretPassword.fromStringOrNull(
+              await _showPasswordDialog(l10n.enterBackupAccountPassword),
+            );
             if (profilePassword == null || !mounted) return;
             if (profilePassword.isEmpty) {
               _showImportError(l10n.invalidPassword);
@@ -130,7 +134,9 @@ extension _SettingsImportFlow on _SettingsPageState {
           );
         } on PasswordRequiredException {
           if (!mounted) return;
-          password = await _showPasswordDialog(l10n.enterPasswordToImport);
+          password = SecretPassword.fromStringOrNull(
+            await _showPasswordDialog(l10n.enterPasswordToImport),
+          );
           if (password == null || !mounted) return;
           try {
             accountData = await _importAccountDataFn(
@@ -361,6 +367,8 @@ extension _SettingsImportFlow on _SettingsPageState {
         );
       }
     } finally {
+      password?.dispose();
+      profilePassword?.dispose();
       if (mounted) {
         setState(() => _importInProgress = false);
       } else {

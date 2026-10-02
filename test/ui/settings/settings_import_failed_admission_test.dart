@@ -52,6 +52,7 @@ import 'package:toxee/util/prefs.dart';
 
 import '../../account_export/test_support.dart';
 import 'settings_account_test_support.dart';
+import 'package:toxee/util/secret_password.dart';
 
 /// The account that is already on disk under the id the import targets. Shares
 /// no 16-char prefix with [kSettingsToxId] (the signed-in account), so the
@@ -216,7 +217,7 @@ void main() {
         // defaults to TRUE when its key is absent, so storing `false` here makes
         // a silent deletion observable rather than indistinguishable.
         expect(
-          await Prefs.setAccountPassword(_existingToxId, _existingPassword),
+          await Prefs.setAccountPassword(_existingToxId, SecretPassword.fromString(_existingPassword)),
           isTrue,
         );
         await Prefs.setAutoLogin(false, _existingToxId);
@@ -245,7 +246,7 @@ void main() {
         tester,
         pickImportFileFn: () async => '/tmp/settings_failed_admission.tox',
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importCalls++;
               return <String, dynamic>{
                 'toxId': _existingToxId,
@@ -267,7 +268,7 @@ void main() {
                 'publish an account row',
               );
             },
-        setImportedAccountPasswordFn: (String toxId, String password) async {
+        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
           fail(
             'an import that never got past the journal write must not rewrite '
             'the account password',
@@ -294,7 +295,7 @@ void main() {
 
       await tester.runAsync(() async {
         expect(
-          await Prefs.verifyAccountPassword(_existingToxId, _existingPassword),
+          await Prefs.verifyAccountPassword(_existingToxId, SecretPassword.fromString(_existingPassword)),
           isTrue,
           reason:
               'the import wrote nothing, so it must not clear the password '

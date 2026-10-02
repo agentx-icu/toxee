@@ -14,6 +14,9 @@ import 'async_gate.dart';
 import 'logger.dart';
 import 'placeholder_account_migration.dart';
 import 'prefs.dart';
+import 'secret_password.dart';
+
+export 'secret_password.dart' show SecretPassword;
 
 // Resolving the real Tox ID behind a `FlutterUIKitClient`-keyed account. Split
 // out of `placeholder_account_migration.dart` (complexity-gate pin).
@@ -43,12 +46,12 @@ final AsyncGate _discoveryGate = AsyncGate();
 final Set<String> _activeScratch = <String>{};
 
 Future<String?> discoverPlaceholderRealToxId([
-  String? authenticatedPassword,
+  SecretPassword? authenticatedPassword,
 ]) =>
     _discoveryGate.run(() => _discoverUnguarded(authenticatedPassword));
 
 Future<String?> _discoverUnguarded([
-  String? authenticatedPassword,
+  SecretPassword? authenticatedPassword,
 ]) async {
   // FIRST, before any guard can return: a copy stranded by a previous kill is a
   // plaintext private key, and every early return below would otherwise walk

@@ -15,6 +15,7 @@ import '../../util/imported_account_rollback.dart';
 import '../../util/locale_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
+import '../../util/secret_password.dart';
 import '../testing/l3_debug_tools.dart';
 import '../account_import_file_picker.dart';
 import 'login_controller_results.dart';
@@ -28,21 +29,21 @@ part 'login_restore_from_tox.dart';
 typedef ImportAccountDataFn =
     Future<Map<String, dynamic>> Function({
       required String filePath,
-      String? password,
+      SecretPassword? password,
     });
 
 typedef ImportFullBackupFn =
     Future<Map<String, dynamic>> Function({
       required String filePath,
-      String? password,
-      String? profilePassword,
+      SecretPassword? password,
+      SecretPassword? profilePassword,
     });
 
 typedef ReadFullBackupMetadataFn =
     Future<Map<String, dynamic>> Function(
       String filePath, {
-      String? password,
-      String? profilePassword,
+      SecretPassword? password,
+      SecretPassword? profilePassword,
     });
 
 typedef AddAccountFn =
@@ -56,10 +57,10 @@ typedef AddAccountFn =
     });
 
 typedef SetAccountPasswordFn =
-    Future<bool> Function(String toxId, String password);
+    Future<bool> Function(String toxId, SecretPassword password);
 
 typedef EncryptProfileFileFn =
-    Future<bool> Function(String profileFilePath, String password);
+    Future<bool> Function(String profileFilePath, SecretPassword password);
 
 typedef FinalizeFullBackupImportFn =
     Future<void> Function({required String toxId});
@@ -74,7 +75,7 @@ typedef RollbackImportedAccountFn =
 
 Future<bool> _defaultEncryptProfileFile(
   String profileFilePath,
-  String password,
+  SecretPassword password,
 ) async {
   await AccountExportService.encryptProfileFile(profileFilePath, password);
   return true;
@@ -161,7 +162,7 @@ class LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     try {
       final success = await _loginUseCase.execute(
@@ -206,6 +207,9 @@ class LoginPageController {
     // Whether this import wrote a `.tox` journal entry, so the failure path
     // clears it (the in-process rollback has already undone what it describes).
     var journalledToxImport = false;
+    // Prompted Strings become bytes at once; zeroed when the import ends.
+    SecretPassword? password;
+    SecretPassword? profilePassword;
     try {
       final filePath =
           filePathOverride ??
@@ -221,10 +225,7 @@ class LoginPageController {
       }
       final isZip = filePath.toLowerCase().endsWith('.zip');
 
-      String? password;
       Map<String, dynamic> accountData;
-
-      String? profilePassword;
       if (isZip) {
         // Two independent layers can each ask for a password: the archive,
         // and — in an older backup of a protected account — the profile
@@ -246,7 +247,7 @@ class LoginPageController {
               return const ImportFailure(ImportFailureKind.invalidPassword);
             }
             archivePrompted = true;
-            password = await requestPassword();
+            password = SecretPassword.fromStringOrNull(await requestPassword());
             if (password == null) {
               return const ImportFailure(ImportFailureKind.cancelled);
             }
@@ -258,7 +259,9 @@ class LoginPageController {
               return const ImportFailure(ImportFailureKind.invalidPassword);
             }
             profilePrompted = true;
-            profilePassword = await (requestProfilePassword ?? requestPassword)();
+            profilePassword = SecretPassword.fromStringOrNull(
+              await (requestProfilePassword ?? requestPassword)(),
+            );
             if (profilePassword == null) {
               return const ImportFailure(ImportFailureKind.cancelled);
             }
@@ -295,7 +298,7 @@ class LoginPageController {
           );
         } catch (e) {
           if (e is PasswordRequiredException) {
-            password = await requestPassword();
+            password = SecretPassword.fromStringOrNull(await requestPassword());
             if (password == null) {
               return const ImportFailure(ImportFailureKind.cancelled);
             }
@@ -487,8 +490,9 @@ class LoginPageController {
         ImportFailureKind.generalError,
         detail: SafeDiagnostics.describeError(e),
       );
+    } finally {
+      password?.dispose();
+      profilePassword?.dispose();
     }
   }
-
-
 }

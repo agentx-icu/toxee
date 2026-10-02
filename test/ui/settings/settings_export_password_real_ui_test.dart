@@ -36,6 +36,8 @@ import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'settings_account_test_support.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 const _accountPassword = 'the account password';
 const _accountPromptFieldKey = Key('login_quick_password_field');
@@ -122,7 +124,7 @@ void main() {
   Future<FfiChatService> pumpProtectedAccount(WidgetTester tester) async {
     await tester.runAsync(() async {
       expect(
-        await Prefs.setAccountPassword(kSettingsToxId, _accountPassword),
+        await Prefs.setAccountPassword(kSettingsToxId, SecretPassword.fromString(_accountPassword)),
         isTrue,
       );
     });
@@ -134,16 +136,16 @@ void main() {
       tester,
       service,
       exportTox:
-          ({required String toxId, String? password, String? filePath}) async {
-            toxCalls.add(_ExportCall(toxId, password, filePath));
+          ({required String toxId, SecretPassword? password, String? filePath}) async {
+            toxCalls.add(_ExportCall(toxId, secretText(password), filePath));
             // Stand-in for the real exporter: "plaintext" when no password.
             final out = File(filePath!);
             out.writeAsStringSync(password == null ? 'PLAIN' : 'SEALED');
             return out.path;
           },
       exportFullBackup:
-          ({required String toxId, String? password, String? filePath}) async {
-            backupCalls.add(_ExportCall(toxId, password, filePath));
+          ({required String toxId, SecretPassword? password, String? filePath}) async {
+            backupCalls.add(_ExportCall(toxId, secretText(password), filePath));
             return filePath!;
           },
     );

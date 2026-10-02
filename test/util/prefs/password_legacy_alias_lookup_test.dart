@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/prefs/password_verifier.dart';
+import 'package:toxee/util/secret_password.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -161,12 +162,12 @@ void main() {
     await seedLegacyAliasCredential(publicKey,
         hash: legacyHash, salt: legacySalt);
 
-    expect(await Prefs.verifyAccountPassword(address, wrongPassword), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(wrongPassword)), isFalse,
         reason: 'a wrong password must not open it through the alias either');
-    expect(await Prefs.verifyAccountPassword(address, password), isTrue,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isTrue,
         reason: 'the owner\'s real password must resolve hash AND salt under '
             'the alias');
-    expect(await Prefs.verifyAccountPassword(address, wrongPassword), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(wrongPassword)), isFalse,
         reason: 'and must still be rejected after the verify migrated the '
             'credential forward');
   });
@@ -188,7 +189,7 @@ void main() {
           List<int>.filled(32, 0),
         )}');
 
-    expect(await Prefs.verifyAccountPassword(address, password), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isFalse,
         reason: 'a PBKDF2 hash with no salt must refuse, not throw');
     expect(await Prefs.accountProtectionState(address),
         AccountProtectionState.protected,
@@ -204,7 +205,7 @@ void main() {
     secureStore.clear();
     await seedLegacyAliasCredential(publicKey, hash: legacyHash);
 
-    expect(await Prefs.verifyAccountPassword(address, password), isFalse,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isFalse,
         reason: 'a salted legacy digest with no salt must refuse, not match '
             'through the unsalted branch');
     expect(await Prefs.accountProtectionState(address),
@@ -249,7 +250,7 @@ void main() {
 
     // The salt is migrated by its own reader, so the credential must still be
     // usable end-to-end after the hash moved on its own.
-    expect(await Prefs.verifyAccountPassword(address, password), isTrue,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isTrue,
         reason: 'migrating the hash alone must not orphan the salt');
     expect(prefs.getString(PasswordVerifier.legacySaltKey(publicKey)), isNull,
         reason: 'the plain-text alias salt must be cleaned up too');
@@ -281,7 +282,7 @@ void main() {
     expect(prefs.getString(PasswordVerifier.legacyHashKey(publicKey)),
         legacyHash,
         reason: 'so the only remaining copy must survive, byte-identical');
-    expect(await Prefs.verifyAccountPassword(address, password), isTrue,
+    expect(await Prefs.verifyAccountPassword(address, SecretPassword.fromString(password)), isTrue,
         reason: 'and the account must remain openable by its owner across the '
             'failed migration');
   });

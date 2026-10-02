@@ -41,6 +41,8 @@ import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/responsive_layout.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 /// Stub LoginUseCase that throws a controlled error from `execute()`. The base
 /// class only declares the one method; extending and overriding lets us avoid
@@ -80,7 +82,7 @@ class _SuccessfulLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     loginCalls++;
     return LoginControllerSuccess(service);
@@ -111,10 +113,10 @@ class _RestoringLoginPageController extends LoginPageController {
     required String importedAccountDefaultName,
     String? filePathOverride,
   }) async {
-    return const RestoreSuccess(
+    return RestoreSuccess(
       toxId: toxId,
       nickname: 'Recovered',
-      password: password,
+      password: SecretPassword.fromString(password),
     );
   }
 
@@ -122,12 +124,12 @@ class _RestoringLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     lastLoginParams = LoginParams(
       nickname: nickname,
       statusMessage: statusMessage,
-      password: password,
+      password: password?.copy(),
     );
     return const LoginControllerFailure('stop after recording');
   }
@@ -140,12 +142,12 @@ class _RecordingLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     lastLoginParams = LoginParams(
       nickname: nickname,
       statusMessage: statusMessage,
-      password: password,
+      password: password?.copy(),
     );
     return const LoginControllerFailure('stop after recording');
   }
@@ -434,7 +436,7 @@ void main() {
           reason: 'Tapping the restored account should proceed into login.',
         );
         expect(
-          controller.lastLoginParams?.password,
+          secretText(controller.lastLoginParams?.password),
           _RestoringLoginPageController.password,
         );
         expect(controller.lastLoginParams?.nickname, 'Recovered');

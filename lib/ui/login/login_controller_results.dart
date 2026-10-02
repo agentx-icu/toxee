@@ -8,6 +8,8 @@
 
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
+import '../../util/secret_password.dart';
+
 /// Result of [LoginPageController.login].
 sealed class LoginControllerResult {
   const LoginControllerResult();
@@ -95,7 +97,10 @@ final class RestoreSuccess extends RestoreResult {
   });
   final String toxId;
   final String nickname;
-  final String? password;
+
+  /// The password that opened an encrypted .tox, now the account's password.
+  /// OWNED by the receiver: it disposes it, or hands it on.
+  final SecretPassword? password;
 }
 
 final class RestoreFailure extends RestoreResult {

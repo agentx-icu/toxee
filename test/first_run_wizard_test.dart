@@ -25,6 +25,8 @@ import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/ui/widgets/first_run_backup_wizard.dart';
 import 'package:toxee/util/feature_flags.dart';
 import 'package:toxee/util/mobile_export_policy.dart';
+import 'support/secret_password_text.dart';
+import 'package:toxee/util/secret_password.dart';
 
 /// Per-test holder that captures the pushed wizard's result Future. Stored
 /// as a list so the harness widget can write into it from inside an
@@ -34,7 +36,7 @@ class _ResultHolder {
 }
 
 Widget _harness({
-  required Future<String?> Function(String, String, String?)? exportOverride,
+  required Future<String?> Function(String, String, SecretPassword?)? exportOverride,
   required _ResultHolder holder,
   bool? isDesktopExportPlatformOverride,
   MobileExportSaveFile? mobileExportSaveFile,
@@ -464,7 +466,7 @@ void main() {
         _harness(
           isDesktopExportPlatformOverride: true,
           exportOverride: (_, __, pw) async {
-            seen.add(pw);
+            seen.add(secretText(pw));
             return '/tmp/x.tox';
           },
           holder: holder,
@@ -486,7 +488,7 @@ void main() {
         _harness(
           isDesktopExportPlatformOverride: false,
           exportOverride: (_, __, pw) async {
-            seen.add(pw);
+            seen.add(secretText(pw));
             return '/tmp/x.tox';
           },
           createAndSaveMobileExportCopyOverride:
@@ -522,7 +524,7 @@ void main() {
         _harness(
           isDesktopExportPlatformOverride: true,
           exportOverride: (_, __, pw) async {
-            seen.add(pw);
+            seen.add(secretText(pw));
             return '/tmp/x.tox';
           },
           holder: holder,
@@ -548,7 +550,7 @@ void main() {
         _harness(
           isDesktopExportPlatformOverride: true,
           exportOverride: (_, __, pw) async {
-            seen.add(pw);
+            seen.add(secretText(pw));
             return '/tmp/x.tox';
           },
           holder: holder,
@@ -581,7 +583,7 @@ void main() {
         _harness(
           isDesktopExportPlatformOverride: true,
           exportOverride: (_, __, pw) async {
-            seen.add(pw);
+            seen.add(secretText(pw));
             return '/tmp/x.tox';
           },
           holder: holder,

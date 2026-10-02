@@ -13,6 +13,7 @@ import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/secret_password.dart';
 
 const _importCardKey = Key('login_page_import_account_card');
 const _exportOptionKey = Key('login_account_management_export_option');
@@ -212,8 +213,8 @@ void main() {
           exportAccount:
               ({
                 required String toxId,
-                String? password,
-                String? accountPassword,
+                SecretPassword? password,
+                SecretPassword? accountPassword,
               }) {
                 final attempt = Completer<String>();
                 exportAttempts.add(attempt);

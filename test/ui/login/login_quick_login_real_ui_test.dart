@@ -36,6 +36,7 @@ import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/secret_password.dart';
 
 /// Stub FfiChatService that absorbs the service surface a "successful" login
 /// would hand back. We never log in for real; the controller stub returns
@@ -56,13 +57,13 @@ class _RecordingLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     loginCalls++;
     lastLoginParams = LoginParams(
       nickname: nickname,
       statusMessage: statusMessage,
-      password: password,
+      password: password?.copy(),
     );
     return const LoginControllerFailure('stop after recording');
   }
@@ -79,7 +80,7 @@ class _PendingLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     loginCalls++;
     return completer.future; // never completes unless the test completes it
@@ -417,7 +418,7 @@ class _SuccessThenCountController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     onLogin();
     return LoginControllerSuccess(service);

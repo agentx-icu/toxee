@@ -29,6 +29,7 @@ import 'package:toxee/util/imported_account_rollback.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'test_support.dart';
+import 'package:toxee/util/secret_password.dart';
 
 void main() {
   late AccountExportTestEnv env;
@@ -126,7 +127,7 @@ void main() {
   test('a published row and its verifier are both undone', () async {
     await stageInterruptedImport(ToxImportStage.accountPublished);
     await Prefs.addAccount(toxId: toxId, nickname: 'Half imported');
-    expect(await Prefs.setAccountPassword(toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString('pw')), isTrue);
 
     await ToxImportJournal.recoverPendingImport();
 
@@ -327,7 +328,7 @@ void main() {
       // true that every production handler omitted, so a secure-store cleanup
       // that quietly failed still cleared the journal - and the next import of
       // the same file inherited a verifier nobody could satisfy.
-      expect(await Prefs.setAccountPassword(toxId, 'pw'), isTrue);
+      expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString('pw')), isTrue);
 
       expect(
         await ToxImportJournal.clearIfRolledBack(toxId: toxId),

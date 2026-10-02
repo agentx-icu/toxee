@@ -40,6 +40,8 @@ import 'package:toxee/util/responsive_layout.dart';
 import '../../account_export/test_support.dart';
 import '../../account_export/tox_profile_factory.dart';
 import 'settings_account_test_support.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 const _archivePassword = 'zip-pw';
 const _profilePassword = 'acct-pw';
@@ -152,7 +154,7 @@ Future<String> _writeLegacyArchive(
       ArchiveFile.noCompress(
         'tox_profile.tox',
         0,
-        passEncrypt(fixture.savedata, _profilePassword),
+        passEncrypt(fixture.savedata, SecretPassword.fromString(_profilePassword)),
       ),
     )
     ..addFile(
@@ -170,7 +172,7 @@ Future<String> _writeLegacyArchive(
     );
   final encrypted = await encryptFullBackupArchive(
     plaintextArchive: plain,
-    password: _archivePassword,
+    password: SecretPassword.fromString(_archivePassword),
   );
   final path = p.join(env.extras, 'old_backup.zip');
   await File(path).writeAsBytes(ZipEncoder().encode(encrypted));
@@ -256,9 +258,9 @@ void main() {
       await _pumpSettings(
         tester,
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importedPaths.add(filePath);
-              importedPasswords.add(password);
+              importedPasswords.add(secretText(password));
               if (password == null) {
                 throw const PasswordRequiredException('encrypted');
               }
@@ -310,7 +312,7 @@ void main() {
         surface: const Size(390, 844),
         ensureImportVisible: false,
         importAccountDataFn:
-            ({required String filePath, String? password}) async {
+            ({required String filePath, SecretPassword? password}) async {
               importedPaths.add(filePath);
               throw const PasswordRequiredException('encrypted');
             },
@@ -410,9 +412,9 @@ void main() {
 
         final onDisk = await profileFile.readAsBytes();
         expect(isDataEncrypted(onDisk), isTrue, reason: 'stays ciphertext');
-        expect(passDecrypt(onDisk, _profilePassword), fixture.savedata);
+        expect(passDecrypt(onDisk, SecretPassword.fromString(_profilePassword)), fixture.savedata);
         expect(
-          await Prefs.verifyAccountPassword(fixture.toxId, _profilePassword),
+          await Prefs.verifyAccountPassword(fixture.toxId, SecretPassword.fromString(_profilePassword)),
           isTrue,
           reason: 'the password that opened the backup gates the account',
         );

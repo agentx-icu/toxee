@@ -6,7 +6,6 @@
 // single .tox file. It does NOT own the .zip full-backup flow — that lives
 // in full_backup.dart.
 
-import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
@@ -43,11 +42,12 @@ String sanitizeFileName(String fileName) {
 /// [accountPassword]: the password that opens the profile at rest when the
 /// account is protected — the login page passes the one it just verified; a
 /// live session's is taken from [SessionPasswordStore] when omitted.
+/// Both passwords are borrowed: the caller keeps and disposes them.
 Future<String> exportAccountData({
   required String toxId,
-  String? password,
+  SecretPassword? password,
   String? filePath,
-  String? accountPassword,
+  SecretPassword? accountPassword,
 }) async {
   if (toxId.isEmpty) {
     throw ArgumentError('toxId cannot be empty');
@@ -300,7 +300,7 @@ Future<String> exportAccountData({
 /// password was provided.
 Future<Map<String, dynamic>> importAccountData({
   required String filePath,
-  String? password,
+  SecretPassword? password,
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
@@ -392,7 +392,7 @@ Future<Map<String, dynamic>> importAccountData({
 Future<Uint8List> plaintextProfileForExport(
   Uint8List data, {
   required String toxId,
-  String? accountPassword,
+  SecretPassword? accountPassword,
 }) async {
   final bool encrypted;
   try {
@@ -405,7 +405,9 @@ Future<Uint8List> plaintextProfileForExport(
     throw const UndeterminedProfileEncryptionException();
   }
   if (!encrypted) return data;
-  final opener = (accountPassword != null && accountPassword.isNotEmpty)
+  // The session's value is borrowed and used synchronously (no await between
+  // get and decrypt), so a concurrent clear cannot zero it mid-use.
+  final opener = accountPassword.hasValue
       ? accountPassword
       : SessionPasswordStore.get(toxId);
   if (opener == null || opener.isEmpty) {
@@ -414,10 +416,15 @@ Future<Uint8List> plaintextProfileForExport(
   return passDecrypt(data, opener);
 }
 
-String extractToxIdFromProfile(Uint8List profileData, [String? passphrase]) =>
-    _extractToxIdFromProfile(profileData, passphrase);
+String extractToxIdFromProfile(
+  Uint8List profileData, [
+  SecretPassword? passphrase,
+]) => _extractToxIdFromProfile(profileData, passphrase);
 
-String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
+String _extractToxIdFromProfile(
+  Uint8List profileData,
+  SecretPassword? passphrase,
+) {
   try {
     final ffiLib = Tim2ToxFfi.open();
     final profilePtr = pkgffi.malloc<ffi.Uint8>(profileData.length);
@@ -429,17 +436,16 @@ String _extractToxIdFromProfile(Uint8List profileData, String? passphrase) {
     // It used to be freed only on the success path, so any throw — including
     // the `toxIdLen < 0` one a few lines below — leaked a native buffer holding
     // the user's passphrase in cleartext, for the process's lifetime.
-    final passwordBytes = passphrase == null
-        ? const <int>[]
-        : utf8.encode(passphrase);
-    final passphraseLen = passwordBytes.length;
+    final passphraseLen = passphrase?.length ?? 0;
     final passphrasePtr = passphraseLen == 0
         ? ffi.Pointer<ffi.Uint8>.fromAddress(0)
         : pkgffi.malloc<ffi.Uint8>(passphraseLen);
     try {
       profilePtr.asTypedList(profileData.length).setAll(0, profileData);
       if (passphraseLen > 0) {
-        passphrasePtr.asTypedList(passphraseLen).setAll(0, passwordBytes);
+        passphrase!.withBytes(
+          (bytes) => passphrasePtr.asTypedList(passphraseLen).setAll(0, bytes),
+        );
       }
 
       final toxIdLen = ffiLib.extractToxIdFromProfileNative(

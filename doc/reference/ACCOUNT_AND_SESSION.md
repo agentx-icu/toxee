@@ -112,6 +112,7 @@ Full account backup uses a `.zip` archive containing `tox_profile.tox`, `chat_hi
 
 - The password hash is saved in the persistent configuration and used to verify the account password.
 - The session plaintext password is only stored in the `SessionPasswordStore` memory and will not be lost to disk.
+- Below the UI edge an account password is never a Dart `String`: it is a `SecretPassword` (`lib/util/secret_password.dart`) — UTF-8 bytes zeroed on `dispose()`, handed out only as a scoped `withBytes` view, never compared or printed by content. The text field's String is converted once where it is read; `SessionPasswordStore` keeps its own copy and zeroes it on `clear`; parameters are borrowed until the call's Future completes, results/fields are owned. tim2tox takes the bytes (`setProfilePassphraseBytes` / `rekeyLiveProfilePassphraseBytes`), copies them into native memory and zeroes that copy.
 - If the profile is found to be encrypted when logging in, it will be decrypted first.
 - If there is a password for this session when logging out, `tox_profile.tox` will be re-encrypted.
 - There will be no re-encryption when deleting the account, because the profile will be deleted directly.

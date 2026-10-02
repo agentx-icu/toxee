@@ -21,6 +21,7 @@ import 'package:toxee/util/prefs.dart';
 
 import 'account_export/test_support.dart';
 import 'account_export/tox_profile_factory.dart';
+import 'package:toxee/util/secret_password.dart';
 
 const _previousToxId =
     'ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD12345678ABCD';
@@ -504,7 +505,7 @@ final class _ActivatingLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     await _writeActiveAccountMirror(
       toxId: targetToxId,

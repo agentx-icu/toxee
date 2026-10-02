@@ -70,6 +70,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/util/account_export/exceptions.dart';
 import 'package:toxee/util/account_export/full_backup_crypto.dart';
+import 'package:toxee/util/secret_password.dart';
 
 const String _password = 'correct horse battery staple';
 const String _plaintextSecret = 'PLAINTEXT_SECRET_4f21ab';
@@ -98,7 +99,7 @@ Archive _zipRoundTrip(Archive archive) {
 Future<Archive> _encryptFixture() async {
   final outer = await encryptFullBackupArchive(
     plaintextArchive: _plaintextArchive(),
-    password: _password,
+    password: SecretPassword.fromString(_password),
   );
   return _zipRoundTrip(outer);
 }
@@ -213,7 +214,7 @@ void main() {
 
     test('rejects an empty password', () {
       expect(
-        () => requireFullBackupExportPassword(''),
+        () => requireFullBackupExportPassword(SecretPassword.fromString('')),
         throwsA(isA<PasswordRequiredException>()),
       );
     });
@@ -221,8 +222,8 @@ void main() {
     test('accepts any non-empty password, including whitespace only', () {
       // Pins the actual contract: this guard checks *presence*, not strength
       // and not trimming. A caller that wants " " rejected must do it itself.
-      expect(() => requireFullBackupExportPassword(' '), returnsNormally);
-      expect(() => requireFullBackupExportPassword('p'), returnsNormally);
+      expect(() => requireFullBackupExportPassword(SecretPassword.fromString(' ')), returnsNormally);
+      expect(() => requireFullBackupExportPassword(SecretPassword.fromString('p')), returnsNormally);
     });
   });
 
@@ -388,7 +389,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -405,7 +406,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -429,7 +430,7 @@ void main() {
         });
 
         await expectLater(
-          () => openFullBackupArchive(outerArchive: outer, password: _password),
+          () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
           _throwsInvalidFormat,
           reason: 'formatVersion=$malformed',
         );
@@ -444,7 +445,7 @@ void main() {
 
       final inner = await openFullBackupArchive(
         outerArchive: outer,
-        password: _password,
+        password: SecretPassword.fromString(_password),
       );
 
       final restored = inner.findFile(_plaintextEntryName);
@@ -524,7 +525,7 @@ void main() {
       await expectLater(
         () => openFullBackupArchive(
           outerArchive: outer,
-          password: 'not the export password',
+          password: SecretPassword.fromString('not the export password'),
         ),
         throwsA(isA<InvalidBackupPasswordException>()),
       );
@@ -541,7 +542,7 @@ void main() {
         throwsA(isA<PasswordRequiredException>()),
       );
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: ''),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString('')),
         throwsA(isA<PasswordRequiredException>()),
       );
     }, timeout: _kdfTimeout);
@@ -555,7 +556,7 @@ void main() {
 
       await expectLater(
         () =>
-            openFullBackupArchive(outerArchive: tampered, password: _password),
+            openFullBackupArchive(outerArchive: tampered, password: SecretPassword.fromString(_password)),
         throwsA(isA<InvalidBackupPasswordException>()),
       );
     }, timeout: _kdfTimeout);
@@ -579,7 +580,7 @@ void main() {
 
       await expectLater(
         () =>
-            openFullBackupArchive(outerArchive: tampered, password: _password),
+            openFullBackupArchive(outerArchive: tampered, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupPasswordException>().having(
             (InvalidBackupPasswordException e) => e.message,
@@ -603,7 +604,7 @@ void main() {
       );
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: damaged, password: _password),
+        () => openFullBackupArchive(outerArchive: damaged, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -631,7 +632,7 @@ void main() {
 
       await expectLater(
         () =>
-            openFullBackupArchive(outerArchive: tampered, password: _password),
+            openFullBackupArchive(outerArchive: tampered, password: SecretPassword.fromString(_password)),
         throwsA(isA<InvalidBackupPasswordException>()),
       );
     }, timeout: _kdfTimeout);
@@ -653,7 +654,7 @@ void main() {
 
       await expectLater(
         () =>
-            openFullBackupArchive(outerArchive: tampered, password: _password),
+            openFullBackupArchive(outerArchive: tampered, password: SecretPassword.fromString(_password)),
         throwsA(isA<InvalidBackupPasswordException>()),
       );
     }, timeout: _kdfTimeout);
@@ -679,7 +680,7 @@ void main() {
       );
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -694,7 +695,7 @@ void main() {
       final outer = _buildOuter(metadata: _syntheticMetadata());
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -714,7 +715,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -725,7 +726,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -736,7 +737,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -747,7 +748,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -758,7 +759,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -769,7 +770,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -780,7 +781,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });
@@ -791,7 +792,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         throwsA(
           isA<InvalidBackupFormatException>().having(
             (InvalidBackupFormatException e) => e.message,
@@ -808,7 +809,7 @@ void main() {
       });
 
       await expectLater(
-        () => openFullBackupArchive(outerArchive: outer, password: _password),
+        () => openFullBackupArchive(outerArchive: outer, password: SecretPassword.fromString(_password)),
         _throwsInvalidFormat,
       );
     });

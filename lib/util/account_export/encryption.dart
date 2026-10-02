@@ -12,7 +12,6 @@
 // garbage ciphertext on disk for encrypted profiles. See the
 // encrypted-roundtrip regression test in test/account_export/.
 
-import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
@@ -20,6 +19,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart' as pkgffi;
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
+import '../secret_password.dart';
 import 'exceptions.dart';
 import 'ffi_constants.dart';
 
@@ -29,23 +29,28 @@ import 'ffi_constants.dart';
 ///
 /// Throws an [Exception] if the underlying FFI call returns a negative
 /// length (encryption failed for any reason).
-Uint8List passEncrypt(Uint8List plaintext, String password) {
+Uint8List passEncrypt(Uint8List plaintext, SecretPassword password) =>
+    password.withBytes((bytes) => passEncryptBytes(plaintext, bytes));
+
+/// [passEncrypt] over raw UTF-8 password bytes, which are borrowed: copied
+/// into native memory, that copy zeroed, the caller's buffer untouched.
+Uint8List passEncryptBytes(Uint8List plaintext, Uint8List passwordBytes) {
   final ffiLib = Tim2ToxFfi.open();
-  final passwordBytes = utf8.encode(password);
   final plaintextPtr = pkgffi.malloc<ffi.Uint8>(plaintext.length);
   final ciphertextPtr =
       pkgffi.malloc<ffi.Uint8>(plaintext.length + toxPassEncryptionExtraLength);
-  final passwordPtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
   try {
     plaintextPtr.asTypedList(plaintext.length).setAll(0, plaintext);
-    passwordPtr.asTypedList(passwordBytes.length).setAll(0, passwordBytes);
-    final encryptedLen = ffiLib.passEncryptNative(
-      plaintextPtr,
-      plaintext.length,
-      passwordPtr,
-      passwordBytes.length,
-      ciphertextPtr,
-      plaintext.length + toxPassEncryptionExtraLength,
+    final encryptedLen = _withNativePassword(
+      passwordBytes,
+      (passwordPtr, passwordLen) => ffiLib.passEncryptNative(
+        plaintextPtr,
+        plaintext.length,
+        passwordPtr,
+        passwordLen,
+        ciphertextPtr,
+        plaintext.length + toxPassEncryptionExtraLength,
+      ),
     );
     if (encryptedLen < 0) {
       throw Exception('Encryption failed');
@@ -54,7 +59,6 @@ Uint8List passEncrypt(Uint8List plaintext, String password) {
   } finally {
     pkgffi.malloc.free(plaintextPtr);
     pkgffi.malloc.free(ciphertextPtr);
-    pkgffi.malloc.free(passwordPtr);
   }
 }
 
@@ -64,23 +68,28 @@ Uint8List passEncrypt(Uint8List plaintext, String password) {
 ///
 /// Throws an [Exception] if the FFI call returns a negative length
 /// (wrong password, corrupted blob, or any other tox decryption error).
-Uint8List passDecrypt(Uint8List ciphertext, String password) {
+Uint8List passDecrypt(Uint8List ciphertext, SecretPassword password) =>
+    password.withBytes((bytes) => passDecryptBytes(ciphertext, bytes));
+
+/// [passDecrypt] over raw UTF-8 password bytes (borrowed; see
+/// [passEncryptBytes]).
+Uint8List passDecryptBytes(Uint8List ciphertext, Uint8List passwordBytes) {
   final ffiLib = Tim2ToxFfi.open();
-  final passwordBytes = utf8.encode(password);
   final ciphertextPtr = pkgffi.malloc<ffi.Uint8>(ciphertext.length);
   final plaintextPtr = pkgffi
       .malloc<ffi.Uint8>(ciphertext.length - toxPassEncryptionExtraLength);
-  final passwordPtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
   try {
     ciphertextPtr.asTypedList(ciphertext.length).setAll(0, ciphertext);
-    passwordPtr.asTypedList(passwordBytes.length).setAll(0, passwordBytes);
-    final decryptedLen = ffiLib.passDecryptNative(
-      ciphertextPtr,
-      ciphertext.length,
-      passwordPtr,
-      passwordBytes.length,
-      plaintextPtr,
-      ciphertext.length - toxPassEncryptionExtraLength,
+    final decryptedLen = _withNativePassword(
+      passwordBytes,
+      (passwordPtr, passwordLen) => ffiLib.passDecryptNative(
+        ciphertextPtr,
+        ciphertext.length,
+        passwordPtr,
+        passwordLen,
+        plaintextPtr,
+        ciphertext.length - toxPassEncryptionExtraLength,
+      ),
     );
     if (decryptedLen < 0) {
       throw Exception(
@@ -90,7 +99,24 @@ Uint8List passDecrypt(Uint8List ciphertext, String password) {
   } finally {
     pkgffi.malloc.free(ciphertextPtr);
     pkgffi.malloc.free(plaintextPtr);
-    pkgffi.malloc.free(passwordPtr);
+  }
+}
+
+/// Copies [passwordBytes] into native memory for [body] and zero-fills that
+/// copy before freeing it: `malloc.free` only returns the block to the
+/// allocator, so the password would otherwise sit in reusable heap.
+T _withNativePassword<T>(
+  Uint8List passwordBytes,
+  T Function(ffi.Pointer<ffi.Uint8> ptr, int len) body,
+) {
+  final len = passwordBytes.length;
+  final ptr = pkgffi.malloc<ffi.Uint8>(len == 0 ? 1 : len);
+  try {
+    ptr.asTypedList(len).setAll(0, passwordBytes);
+    return body(ptr, len);
+  } finally {
+    ptr.asTypedList(len).fillRange(0, len, 0);
+    pkgffi.malloc.free(ptr);
   }
 }
 
@@ -157,7 +183,10 @@ Future<void> _writeBytesAtomic(File target, Uint8List bytes) async {
 /// or on logout. No-op when [password] is empty. Refuses to re-encrypt an
 /// already-encrypted file (silent double-encrypt would produce an unrecoverable
 /// blob).
-Future<void> encryptProfileFile(String profileFilePath, String password) async {
+Future<void> encryptProfileFile(
+  String profileFilePath,
+  SecretPassword password,
+) async {
   if (password.isEmpty) return;
   final file = File(profileFilePath);
   if (!await file.exists()) {
@@ -171,38 +200,16 @@ Future<void> encryptProfileFile(String profileFilePath, String password) async {
   // would otherwise produce a double-encrypted blob that the user's password
   // cannot decrypt in one pass.
   if (isDataEncrypted(plainData)) return;
-  final ffiLib = Tim2ToxFfi.open();
-  final plaintextPtr = pkgffi.malloc<ffi.Uint8>(plainData.length);
-  final ciphertextPtr =
-      pkgffi.malloc<ffi.Uint8>(plainData.length + toxPassEncryptionExtraLength);
-  final passwordBytes = utf8.encode(password);
-  final passwordPtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
-  try {
-    plaintextPtr.asTypedList(plainData.length).setAll(0, plainData);
-    passwordPtr.asTypedList(passwordBytes.length).setAll(0, passwordBytes);
-    final encryptedLen = ffiLib.passEncryptNative(
-      plaintextPtr,
-      plainData.length,
-      passwordPtr,
-      passwordBytes.length,
-      ciphertextPtr,
-      plainData.length + toxPassEncryptionExtraLength,
-    );
-    if (encryptedLen < 0) throw Exception('Encryption failed');
-    final encrypted =
-        Uint8List.fromList(ciphertextPtr.asTypedList(encryptedLen));
-    await _writeBytesAtomic(file, encrypted);
-  } finally {
-    pkgffi.malloc.free(plaintextPtr);
-    pkgffi.malloc.free(ciphertextPtr);
-    pkgffi.malloc.free(passwordPtr);
-  }
+  await _writeBytesAtomic(file, passEncrypt(plainData, password));
 }
 
 /// Decrypt a profile file in place (encrypted -> plain). Used before init
 /// when account has a password. Returns silently if the file is already
 /// plain. Throws [ArgumentError] when [password] is empty.
-Future<void> decryptProfileFile(String profileFilePath, String password) async {
+Future<void> decryptProfileFile(
+  String profileFilePath,
+  SecretPassword password,
+) async {
   if (password.isEmpty) throw ArgumentError('Password required to decrypt');
   final file = File(profileFilePath);
   if (!await file.exists()) {
@@ -213,34 +220,5 @@ Future<void> decryptProfileFile(String profileFilePath, String password) async {
   if (fileData.isEmpty) throw Exception('Profile file is empty');
   final isEncrypted = await isProfileFileEncrypted(profileFilePath);
   if (!isEncrypted) return; // already plain
-  final ffiLib = Tim2ToxFfi.open();
-  final ciphertextPtr = pkgffi.malloc<ffi.Uint8>(fileData.length);
-  final plaintextPtr = pkgffi
-      .malloc<ffi.Uint8>(fileData.length - toxPassEncryptionExtraLength);
-  final passwordBytes = utf8.encode(password);
-  final passwordPtr = pkgffi.malloc<ffi.Uint8>(passwordBytes.length);
-  try {
-    ciphertextPtr.asTypedList(fileData.length).setAll(0, fileData);
-    passwordPtr.asTypedList(passwordBytes.length).setAll(0, passwordBytes);
-    final decryptedLen = ffiLib.passDecryptNative(
-      ciphertextPtr,
-      fileData.length,
-      passwordPtr,
-      passwordBytes.length,
-      plaintextPtr,
-      fileData.length - toxPassEncryptionExtraLength,
-    );
-    if (decryptedLen < 0) {
-      throw Exception(
-          'Decryption failed - incorrect password or corrupted file');
-    }
-    final decrypted =
-        Uint8List.fromList(plaintextPtr.asTypedList(decryptedLen));
-    await _writeBytesAtomic(file, decrypted);
-  } finally {
-    pkgffi.malloc.free(ciphertextPtr);
-    pkgffi.malloc.free(plaintextPtr);
-    pkgffi.malloc.free(passwordPtr);
-  }
+  await _writeBytesAtomic(file, passDecrypt(fileData, password));
 }
-

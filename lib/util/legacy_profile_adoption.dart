@@ -7,6 +7,7 @@ import 'account_export/tox_file_io.dart' show extractToxIdFromProfile;
 import 'app_paths.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
+import 'secret_password.dart';
 import 'tox_utils.dart';
 
 /// Adopt the pre-multi-account `tox_profile.tox` as [toxId]'s per-account
@@ -37,7 +38,7 @@ Future<void> adoptLegacyProfileForAccount({
   required String toxId,
   required String profileDir,
   required String profileFile,
-  String? password,
+  SecretPassword? password,
 }) async {
   final legacyDir = await AppPaths.toxProfileDir;
   final legacyPath = p.join(legacyDir.path, 'tox_profile.tox');

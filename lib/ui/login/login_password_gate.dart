@@ -1,4 +1,5 @@
 import '../../util/prefs.dart';
+import '../../util/secret_password.dart';
 
 /// Result of resolving a saved account's password before login.
 ///
@@ -32,7 +33,7 @@ final class PasswordGateOutcome {
 
   const PasswordGateOutcome.notRequired()
     : this._(PasswordGateResult.notRequired, null);
-  const PasswordGateOutcome.verified(String password)
+  const PasswordGateOutcome.verified(SecretPassword password)
     : this._(PasswordGateResult.verified, password);
   const PasswordGateOutcome.cancelled()
     : this._(PasswordGateResult.cancelled, null);
@@ -43,8 +44,9 @@ final class PasswordGateOutcome {
 
   final PasswordGateResult result;
 
-  /// Non-null only for [PasswordGateResult.verified].
-  final String? password;
+  /// Non-null only for [PasswordGateResult.verified]. OWNED by the receiver,
+  /// which disposes it (never an alias of the caller's cache).
+  final SecretPassword? password;
 }
 
 /// Resolve the password for a saved account before login.
@@ -60,10 +62,13 @@ final class PasswordGateOutcome {
 ///
 /// [cachedVerifiedPassword] is a password this session already verified for this
 /// account, so the user is not asked twice in one flow. Treat it as single-use:
-/// the caller clears it after this returns.
+/// the caller clears it after this returns. It is borrowed; a verified outcome
+/// carries a COPY, so the caller may dispose its cache straight away.
+///
+/// The prompt's String is converted once, here, and not kept.
 Future<PasswordGateOutcome> resolveAccountPassword({
   required String toxId,
-  required String? cachedVerifiedPassword,
+  required SecretPassword? cachedVerifiedPassword,
   required Future<String?> Function() promptForPassword,
 }) async {
   final cached = cachedVerifiedPassword;
@@ -86,13 +91,20 @@ Future<PasswordGateOutcome> resolveAccountPassword({
   if (protection == AccountProtectionState.none) {
     return const PasswordGateOutcome.notRequired();
   }
-  if (hasCached) return PasswordGateOutcome.verified(cached);
-  final entered = await promptForPassword();
+  if (hasCached) return PasswordGateOutcome.verified(cached.copy());
+  final entered = SecretPassword.fromStringOrNull(await promptForPassword());
   if (entered == null || entered.isEmpty) {
+    entered?.dispose();
     return const PasswordGateOutcome.cancelled();
   }
-  if (!await Prefs.verifyAccountPassword(toxId, entered)) {
-    return const PasswordGateOutcome.invalid();
+  try {
+    if (await Prefs.verifyAccountPassword(toxId, entered)) {
+      return PasswordGateOutcome.verified(entered);
+    }
+  } catch (_) {
+    entered.dispose();
+    rethrow;
   }
-  return PasswordGateOutcome.verified(entered);
+  entered.dispose();
+  return const PasswordGateOutcome.invalid();
 }

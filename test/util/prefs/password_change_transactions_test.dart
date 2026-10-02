@@ -4,6 +4,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/util/prefs/password_change_transactions.dart';
 import 'package:toxee/util/prefs/password_verifier.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 class _MemorySecureStorage extends SecureStorageFacade {
   final Map<String, String> entries = {};
@@ -62,68 +64,68 @@ void main() {
   group('set / change', () {
     test('a staged set keeps the gate closed and accepts the new password',
         () async {
-      await verifier.setPassword(toxId, 'old');
-      expect(await tx.beginSet(toxId, 'new'), isTrue);
+      await verifier.setPassword(toxId, SecretPassword.fromString('old'));
+      expect(await tx.beginSet(toxId, SecretPassword.fromString('new')), isTrue);
       expect(await tx.protectionState(toxId), AccountProtectionState.protected);
-      expect(await tx.verifyPassword(toxId, 'old'), isTrue);
-      expect(await tx.verifyPassword(toxId, 'new'), isTrue,
+      expect(await tx.verifyPassword(toxId, SecretPassword.fromString('old')), isTrue);
+      expect(await tx.verifyPassword(toxId, SecretPassword.fromString('new')), isTrue,
           reason: 'the file may already carry the recorded password');
-      expect(await tx.verifyPassword(toxId, 'other'), isFalse);
+      expect(await tx.verifyPassword(toxId, SecretPassword.fromString('other')), isFalse);
     });
 
     test('promote needs proof: refused while staged, accepted once rekeyed',
         () async {
-      await verifier.setPassword(toxId, 'old');
-      await tx.beginSet(toxId, 'new');
+      await verifier.setPassword(toxId, SecretPassword.fromString('old'));
+      await tx.beginSet(toxId, SecretPassword.fromString('new'));
       expect(await tx.promoteSet(toxId), isFalse);
-      expect(await verifier.verifyPassword(toxId, 'old'), isTrue);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('old')), isTrue);
       expect(await tx.markRekeyed(toxId), isTrue);
       expect(await tx.promoteSet(toxId), isTrue);
       expect((await tx.pending(toxId)).record, isNull);
-      expect(await verifier.verifyPassword(toxId, 'new'), isTrue);
-      expect(await verifier.verifyPassword(toxId, 'old'), isFalse);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('new')), isTrue);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('old')), isFalse);
     });
 
     test('login with the OLD password after a staged set abandons the record',
         () async {
-      await verifier.setPassword(toxId, 'old');
-      await tx.beginSet(toxId, 'new');
+      await verifier.setPassword(toxId, SecretPassword.fromString('old'));
+      await tx.beginSet(toxId, SecretPassword.fromString('new'));
       final result = await tx.reconcileAfterLogin(
         toxId,
-        'old',
+        SecretPassword.fromString('old'),
         rekeyLive: (_) async => fail('no re-key for an abandoned set'),
       );
       expect(result, PasswordChangeReconcile.abandoned);
       expect((await tx.pending(toxId)).record, isNull);
-      expect(await verifier.verifyPassword(toxId, 'old'), isTrue);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('old')), isTrue);
     });
 
     test('login with the NEW password promotes it whatever the phase says',
         () async {
-      await verifier.setPassword(toxId, 'old');
-      await tx.beginSet(toxId, 'new'); // killed before the phase write
+      await verifier.setPassword(toxId, SecretPassword.fromString('old'));
+      await tx.beginSet(toxId, SecretPassword.fromString('new')); // killed before the phase write
       final result = await tx.reconcileAfterLogin(
         toxId,
-        'new',
+        SecretPassword.fromString('new'),
         rekeyLive: (_) async => fail('no re-key needed'),
       );
       expect(result, PasswordChangeReconcile.promoted);
-      expect(await verifier.verifyPassword(toxId, 'new'), isTrue);
-      expect(await verifier.verifyPassword(toxId, 'old'), isFalse);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('new')), isTrue);
+      expect(await verifier.verifyPassword(toxId, SecretPassword.fromString('old')), isFalse);
       expect((await tx.pending(toxId)).record, isNull);
     });
 
     test('a first-time set with no primary verifier still gates', () async {
-      await tx.beginSet(toxId, 'first');
+      await tx.beginSet(toxId, SecretPassword.fromString('first'));
       expect(await tx.protectionState(toxId), AccountProtectionState.protected);
-      expect(await tx.verifyPassword(toxId, 'first'), isTrue);
+      expect(await tx.verifyPassword(toxId, SecretPassword.fromString('first')), isTrue);
     });
   });
 
   group('remove', () {
     test('staged removal stays protected; rekeyed is closed until reconciled',
         () async {
-      await verifier.setPassword(toxId, 'pw');
+      await verifier.setPassword(toxId, SecretPassword.fromString('pw'));
       await tx.beginRemove(toxId);
       expect(await tx.protectionState(toxId), AccountProtectionState.protected);
       await tx.markRekeyed(toxId);
@@ -135,7 +137,7 @@ void main() {
 
     test('a verifier source that cannot be deleted keeps the gate closed',
         () async {
-      await verifier.setPassword(toxId, 'pw');
+      await verifier.setPassword(toxId, SecretPassword.fromString('pw'));
       await tx.beginRemove(toxId);
       await tx.markRekeyed(toxId);
       storage.undeletable.add(PasswordVerifier.secureSaltKey(toxId));
@@ -149,14 +151,14 @@ void main() {
 
     test('login after a staged removal completes it through the live re-key',
         () async {
-      await verifier.setPassword(toxId, 'pw');
+      await verifier.setPassword(toxId, SecretPassword.fromString('pw'));
       await tx.beginRemove(toxId);
       final rekeys = <String?>[];
       final result = await tx.reconcileAfterLogin(
         toxId,
-        'pw',
+        SecretPassword.fromString('pw'),
         rekeyLive: (p) async {
-          rekeys.add(p);
+          rekeys.add(secretText(p));
           return true;
         },
       );
@@ -168,7 +170,7 @@ void main() {
 
   group('fail closed', () {
     test('an unreadable journal reports unknown', () async {
-      await verifier.setPassword(toxId, 'pw');
+      await verifier.setPassword(toxId, SecretPassword.fromString('pw'));
       storage.unavailable = true;
       expect(await tx.protectionState(toxId), AccountProtectionState.unknown);
     });
@@ -182,7 +184,7 @@ void main() {
     test('removePassword is strict: a swallowed alias delete is a failure',
         () async {
       final alias = 'A' * 64;
-      await verifier.setPassword(toxId, 'pw');
+      await verifier.setPassword(toxId, SecretPassword.fromString('pw'));
       storage.entries[PasswordVerifier.secureHashKey(alias)] = 'stale';
       storage.undeletable.add(PasswordVerifier.secureHashKey(alias));
       expect(await verifier.removePassword(toxId), isFalse);
