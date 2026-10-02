@@ -23,12 +23,12 @@ import 'account_scratch_storage.dart';
 import 'current_account_pointer_restore.dart';
 import 'account_service_test_hooks.dart';
 import 'app_paths.dart';
-import 'account_export/tox_file_io.dart' show extractToxIdFromProfile;
 import 'account_export_service.dart';
 import 'default_avatar_installer.dart';
 import 'session_password_store.dart';
 import 'group_member_list_debouncer.dart';
 import 'irc_app_manager.dart';
+import 'legacy_profile_adoption.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
 import 'short_tox_id_backfill.dart';
@@ -354,46 +354,16 @@ class AccountService {
       final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
       profileFile = AppPaths.profileFileInDirectory(profileDir);
       if (!await File(profileFile).exists()) {
-        // Adopt the pre-multi-account profile ONLY after proving it is this
-        // account's. It used to be copied in unconditionally, so requesting any
-        // account whose own profile was missing installed the legacy identity
-        // under that account's directory and prefs scope — the session then ran
-        // as one identity while every durable path, scoped pref and account-list
-        // row said it was another. `AccountSwitcher` even noticed the mismatch
-        // (it compares `getSelfToxId()` against the target) but only logged it.
-        //
-        // An encrypted legacy blob cannot be attributed here (the extractor
-        // needs the passphrase this layer does not have), so it is refused
-        // rather than adopted on faith. The file stays on disk, and
-        // `AccountReconciliation` / the import UI can still recover it.
-        final legacyDir = await AppPaths.toxProfileDir;
-        final legacyPath = p.join(legacyDir.path, 'tox_profile.tox');
-        if (!await File(legacyPath).exists()) {
-          throw Exception('Profile not found for account');
-        }
-        final legacyBytes = await File(legacyPath).readAsBytes();
-        String legacyToxId;
-        try {
-          legacyToxId = extractToxIdFromProfile(legacyBytes);
-        } catch (e) {
-          SafeDiagnostics.logFailure(
-            '[AccountService] profile_migration status=refused '
-            'reason=identity_unreadable',
-            e,
-          );
-          throw Exception('Profile not found for account');
-        }
-        if (legacyToxId.isEmpty || !compareToxIds(legacyToxId, toxId)) {
-          AppLogger.warn(
-            '[AccountService] profile_migration status=refused '
-            'reason=identity_mismatch — the legacy profile belongs to a '
-            'different account',
-          );
-          throw Exception('Profile not found for account');
-        }
-        await Directory(profileDir).create(recursive: true);
-        await File(legacyPath).copy(profileFile);
-        AppLogger.log('[AccountService] profile_migration status=completed');
+        // The pre-multi-account profile is adopted only after proving it is
+        // this account's; an encrypted one is attributed with the caller's
+        // password and stays ciphertext on disk for the native init to open
+        // (see `adoptLegacyProfileForAccount`). Refusals throw.
+        await adoptLegacyProfileForAccount(
+          toxId: toxId,
+          profileDir: profileDir,
+          profileFile: profileFile,
+          password: password,
+        );
       }
 
 
@@ -716,10 +686,14 @@ class AccountService {
       if (password.isNotEmpty) {
         // Verifier BEFORE the account is published: a kill after the rename
         // must never leave an encrypted profile with no password gate.
+        // Flagged before the attempt, not after success: a refused write can
+        // leave a partial pair behind (hash persisted, salt refused, the
+        // compensating delete refused too), and the rollback must take that
+        // residue with it as well.
+        verifierWritten = true;
         if (!await Prefs.setAccountPassword(toxId!, password)) {
           throw StateError('Failed to persist account password verifier');
         }
-        verifierWritten = true;
       }
       await Directory(tempDir!).rename(profileDir);
       ownsFinalDir = true;

@@ -1941,6 +1941,9 @@ class Prefs {
     return _getAccountListImpl(p);
   }
 
+  /// Registry presence of [toxId] that never trusts a lossy decode; see [AccountRegistryPresence].
+  static Future<AccountRegistryPresence> accountRegistryPresence(String toxId) async =>
+      _accountRegistryPresenceImpl(await _getPrefs(), toxId);
   /// Typed account summaries; preferred over [getAccountList] where type safety helps.
   static Future<List<AccountSummary>> getAccountSummaries() async {
     final raw = await getAccountList();

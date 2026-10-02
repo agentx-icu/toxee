@@ -7,6 +7,7 @@ import 'current_account_pointer_restore.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
 import 'session_password_store.dart';
+import 'stranded_verifier_cleanup.dart';
 
 /// Everything a failed `AccountService.registerNewAccount` needs to undo,
 /// captured as the registration progresses.
@@ -60,9 +61,11 @@ final class AccountRegistrationRollbackPlan {
   /// removing again).
   final bool accountVisible;
 
-  /// The password verifier was persisted (it precedes publication); a failed
-  /// registration must take it with it or a later import of the same identity
-  /// would be gated by a password the file does not carry.
+  /// A password verifier write was ATTEMPTED (it precedes publication); a
+  /// failed registration must take it — or the partial pair a refused write
+  /// can leave behind — with it, or a later import of the same identity would
+  /// be gated by a password the file does not carry. A refused delete is
+  /// recorded for `StrandedVerifierCleanup` to retry at startup.
   final bool verifierWritten;
 
   final String? previousAccount;
@@ -110,10 +113,11 @@ Future<void> rollbackFailedRegistration(
     final removed = await Prefs.removeAccountPassword(toxId);
     final journalCleared = await Prefs.passwordChanges.abort(toxId);
     if (!removed || !journalCleared) {
-      // Not retried durably on purpose: this identity's only private key is
-      // in the temp/profile directory this same rollback deletes, so nothing
-      // can ever be imported under it and the stray verifier gates nothing.
-      // Logged because a secure store that refuses deletes is worth knowing.
+      // The stray verifier gates nothing (this identity's only private key is
+      // in the temp/profile directory this same rollback deletes), but it
+      // must not sit in the Keychain / Keystore forever: record it so
+      // `StrandedVerifierCleanup.retryPending` removes it on a later start.
+      await StrandedVerifierCleanup.record(toxId);
       SafeDiagnostics.logFailure(
         '[AccountService] registration_rollback_incomplete '
         'stage=verifier_removal removed=$removed journalCleared=$journalCleared',
