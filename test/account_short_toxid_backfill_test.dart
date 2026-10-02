@@ -24,6 +24,7 @@ import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/short_tox_id_backfill.dart';
 
 import 'account_export/test_support.dart';
+import 'package:toxee/util/secret_password.dart';
 
 bool _ffiAvailable() {
   try {
@@ -212,7 +213,7 @@ void main() {
 
     await Prefs.addAccount(toxId: shortToxId, nickname: 'Imported');
     await Prefs.setCurrentAccountToxId(shortToxId);
-    expect(await Prefs.setAccountPassword(shortToxId, 'pw'), isTrue,
+    expect(await Prefs.setAccountPassword(shortToxId, SecretPassword.fromString('pw')), isTrue,
         reason: 'precondition: a verifier exists under the short id');
 
     // The keychain goes away mid-rewrite (a locked store, a lost entitlement).
@@ -237,9 +238,9 @@ void main() {
         AccountProtectionState.protected,
         reason: 'the verifier is found under the 64-char public-key alias, so '
             'the auto-login gate still demands a password');
-    expect(await Prefs.verifyAccountPassword(canonical, 'pw'), isTrue,
+    expect(await Prefs.verifyAccountPassword(canonical, SecretPassword.fromString('pw')), isTrue,
         reason: 'and the password the user knows still verifies end to end');
-    expect(await Prefs.verifyAccountPassword(canonical, 'wrong'), isFalse,
+    expect(await Prefs.verifyAccountPassword(canonical, SecretPassword.fromString('wrong')), isFalse,
         reason: 'the alias path must not weaken verification');
   }, skip: skipReason);
 }

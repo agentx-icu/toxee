@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/util/prefs/password_verifier.dart';
+import 'package:toxee/util/secret_password.dart';
 
 /// In-memory [SecureStorageFacade] for tests. Backed by a `Map<String,
 /// String>` so successful reads/writes/deletes behave like a working
@@ -132,29 +133,29 @@ void main() {
   group('PasswordVerifier — PBKDF2 round trip', () {
     test('verifyPassword accepts the same password that was set', () async {
       final v = _buildVerifier();
-      expect(await v.setPassword(toxId, 'correct horse battery staple'), isTrue);
+      expect(await v.setPassword(toxId, SecretPassword.fromString('correct horse battery staple')), isTrue);
       expect(
-        await v.verifyPassword(toxId, 'correct horse battery staple'),
+        await v.verifyPassword(toxId, SecretPassword.fromString('correct horse battery staple')),
         isTrue,
       );
     });
 
     test('verifyPassword rejects a wrong password', () async {
       final v = _buildVerifier();
-      await v.setPassword(toxId, 'right');
-      expect(await v.verifyPassword(toxId, 'wrong'), isFalse);
+      await v.setPassword(toxId, SecretPassword.fromString('right'));
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('wrong')), isFalse);
     });
 
     test('verifyPassword returns false when no password has ever been set',
         () async {
       final v = _buildVerifier();
-      expect(await v.verifyPassword(toxId, 'anything'), isFalse);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('anything')), isFalse);
     });
 
     test('hasPassword reflects setPassword / removePassword', () async {
       final v = _buildVerifier();
       expect(await v.hasPassword(toxId), isFalse);
-      await v.setPassword(toxId, 'hunter2');
+      await v.setPassword(toxId, SecretPassword.fromString('hunter2'));
       expect(await v.hasPassword(toxId), isTrue);
       expect(await v.removePassword(toxId), isTrue);
       expect(await v.hasPassword(toxId), isFalse);
@@ -163,16 +164,16 @@ void main() {
     test('setPassword with empty string clears any existing password',
         () async {
       final v = _buildVerifier();
-      await v.setPassword(toxId, 'will-be-cleared');
+      await v.setPassword(toxId, SecretPassword.fromString('will-be-cleared'));
       expect(await v.hasPassword(toxId), isTrue);
-      expect(await v.setPassword(toxId, ''), isTrue);
+      expect(await v.setPassword(toxId, SecretPassword.fromString('')), isTrue);
       expect(await v.hasPassword(toxId), isFalse);
     });
 
     test('setPassword throws ArgumentError on empty toxId', () async {
       final v = _buildVerifier();
       expect(
-        () => v.setPassword('', 'whatever'),
+        () => v.setPassword('', SecretPassword.fromString('whatever')),
         throwsA(isA<ArgumentError>()),
       );
     });
@@ -180,9 +181,9 @@ void main() {
     test('verifyPassword returns false on empty toxId or empty password',
         () async {
       final v = _buildVerifier();
-      await v.setPassword(toxId, 'p');
-      expect(await v.verifyPassword('', 'p'), isFalse);
-      expect(await v.verifyPassword(toxId, ''), isFalse);
+      await v.setPassword(toxId, SecretPassword.fromString('p'));
+      expect(await v.verifyPassword('', SecretPassword.fromString('p')), isFalse);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('')), isFalse);
     });
   });
 
@@ -190,7 +191,7 @@ void main() {
     test('stored hash carries the "pbkdf2:" prefix (versioning marker)',
         () async {
       final v = _buildVerifier();
-      await v.setPassword(toxId, 'sentinel');
+      await v.setPassword(toxId, SecretPassword.fromString('sentinel'));
       final stored = await v.getPasswordHash(toxId);
       expect(stored, isNotNull);
       expect(stored!.startsWith(PasswordVerifier.pbkdf2Prefix), isTrue,
@@ -202,9 +203,9 @@ void main() {
     test('salt is fresh per call — same password produces different stored '
         'hashes across two setPassword invocations', () async {
       final v = _buildVerifier();
-      await v.setPassword(toxId, 'same-password');
+      await v.setPassword(toxId, SecretPassword.fromString('same-password'));
       final first = await v.getPasswordHash(toxId);
-      await v.setPassword(toxId, 'same-password');
+      await v.setPassword(toxId, SecretPassword.fromString('same-password'));
       final second = await v.getPasswordHash(toxId);
       expect(first, isNotNull);
       expect(second, isNotNull);
@@ -242,7 +243,7 @@ void main() {
       // No salt in legacy store — this is the unsalted branch.
       final v = _buildVerifier(legacy: legacy);
 
-      expect(await v.verifyPassword(toxId, password), isTrue);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString(password)), isTrue);
       // After successful verify, the password must be re-hashed with PBKDF2
       // and stored in secure storage. The legacy entry is dropped.
       final upgraded = await v.getPasswordHash(toxId);
@@ -264,7 +265,7 @@ void main() {
       legacy.salts[toxId] = saltB64;
       final v = _buildVerifier(legacy: legacy);
 
-      expect(await v.verifyPassword(toxId, password), isTrue);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString(password)), isTrue);
       final upgraded = await v.getPasswordHash(toxId);
       expect(upgraded, isNotNull);
       expect(upgraded!.startsWith(PasswordVerifier.pbkdf2Prefix), isTrue);
@@ -281,7 +282,7 @@ void main() {
 
       // Establish a current secure-storage entry too, so removePassword's
       // secure-delete branch succeeds and proceeds to the legacy cleanup.
-      await v.setPassword(toxId, 'p');
+      await v.setPassword(toxId, SecretPassword.fromString('p'));
       // setPassword already cleared the legacy entries on success.
       expect(legacy.hashes.containsKey(toxId), isFalse);
       expect(legacy.salts.containsKey(toxId), isFalse);
@@ -314,7 +315,7 @@ void main() {
       final throwing = ThrowingSecureStorageFacade();
       final v = _buildVerifier(legacy: legacy, secureStorage: throwing);
 
-      expect(await v.verifyPassword(toxId, password), isTrue,
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString(password)), isTrue,
           reason: 'Legacy verify must still succeed even when the keychain '
               'refuses the PBKDF2 migration write — otherwise a sandboxed '
               'install would lock the user out of their own account.');
@@ -339,7 +340,7 @@ void main() {
       final throwing = ThrowingSecureStorageFacade();
       final v = _buildVerifier(legacy: legacy, secureStorage: throwing);
 
-      expect(await v.verifyPassword(toxId, password), isTrue,
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString(password)), isTrue,
           reason: 'Unsalted legacy verify must still succeed even when the '
               'PBKDF2 migration write is swallowed by secure storage.');
       expect(throwing.writeAttempts, greaterThan(0));
@@ -365,7 +366,7 @@ void main() {
           failKey: PasswordVerifier.secureSaltKey(toxId));
       final v = _buildVerifier(secureStorage: partialFail);
 
-      expect(await v.setPassword(toxId, 'beta'), isFalse,
+      expect(await v.setPassword(toxId, SecretPassword.fromString('beta')), isFalse,
           reason: 'partial-fail must surface as setPassword=false');
       // Both writes were attempted; the hash write succeeded but the
       // rollback (snapshot was empty → delete) must have cleared the hash.
@@ -381,7 +382,7 @@ void main() {
 
       // verifyPassword now finds nothing in secure storage and no legacy —
       // returns false consistently (NOT a permanent-brick mix state).
-      expect(await v.verifyPassword(toxId, 'beta'), isFalse);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('beta')), isFalse);
     });
 
     test(
@@ -392,7 +393,7 @@ void main() {
           failKey: PasswordVerifier.secureHashKey(toxId));
       final v = _buildVerifier(secureStorage: partialFail);
 
-      expect(await v.setPassword(toxId, 'beta'), isFalse);
+      expect(await v.setPassword(toxId, SecretPassword.fromString('beta')), isFalse);
       // Both writes attempted; the salt slot was written but must be rolled
       // back because the hash write failed.
       expect(partialFail.writeAttempts, contains(PasswordVerifier.secureHashKey(toxId)));
@@ -401,7 +402,7 @@ void main() {
           isFalse,
           reason: 'salt that was just written must be rolled back so a '
               'subsequent verifyPassword does not see new-salt + legacy-hash');
-      expect(await v.verifyPassword(toxId, 'beta'), isFalse);
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('beta')), isFalse);
     });
 
     test(
@@ -418,7 +419,7 @@ void main() {
       // facade is wired in. Use a happy-path facade for the initial set.
       final happy = FakeSecureStorageFacade();
       final happyVerifier = _buildVerifier(secureStorage: happy);
-      expect(await happyVerifier.setPassword(toxId, 'alpha'), isTrue);
+      expect(await happyVerifier.setPassword(toxId, SecretPassword.fromString('alpha')), isTrue);
       // Copy alpha's persisted (hash, salt) into the failing facade's
       // backing map to simulate "facade was healthy, then turned partial-
       // fail on the next setPassword".
@@ -426,18 +427,18 @@ void main() {
 
       final v = _buildVerifier(secureStorage: partialFail);
       // Now try to switch to "beta" — salt write will fail.
-      expect(await v.setPassword(toxId, 'beta'), isFalse);
+      expect(await v.setPassword(toxId, SecretPassword.fromString('beta')), isFalse);
 
       // Rollback must restore the original (alpha) hash + salt so the
       // user can still log in with the prior password.
       expect(
-        await v.verifyPassword(toxId, 'alpha'),
+        await v.verifyPassword(toxId, SecretPassword.fromString('alpha')),
         isTrue,
         reason:
             'After a partial-fail rollback, the previous password must '
             'still verify — the rollback restored the pre-call snapshot.',
       );
-      expect(await v.verifyPassword(toxId, 'beta'), isFalse,
+      expect(await v.verifyPassword(toxId, SecretPassword.fromString('beta')), isFalse,
           reason: 'beta was never fully persisted, so it must not verify');
     });
   });

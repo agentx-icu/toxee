@@ -91,11 +91,11 @@ typedef SettingsPickImportFileFn = Future<String?> Function();
 typedef SettingsImportAccountDataFn =
     Future<Map<String, dynamic>> Function({
       required String filePath,
-      String? password,
+      SecretPassword? password,
     });
 
 typedef EncryptProfileFileFn =
-    Future<bool> Function(String profileFilePath, String password);
+    Future<bool> Function(String profileFilePath, SecretPassword password);
 
 typedef SettingsAddImportedAccountFn =
     Future<void> Function({
@@ -108,7 +108,7 @@ typedef SettingsAddImportedAccountFn =
     });
 
 typedef SettingsSetImportedAccountPasswordFn =
-    Future<bool> Function(String toxId, String password);
+    Future<bool> Function(String toxId, SecretPassword password);
 
 // Same L3 seam as the login page's import: the real button is driven, only the
 // native picker is bypassed (no-op outside the debug L3 surface).
@@ -136,7 +136,7 @@ Future<void> _addSettingsImportedAccount({
 
 Future<bool> _encryptSettingsProfileFile(
   String profileFilePath,
-  String password,
+  SecretPassword password,
 ) async {
   await AccountExportService.encryptProfileFile(profileFilePath, password);
   return true;
@@ -654,13 +654,15 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
+    // Bytes from the moment the dialog returns, for the whole export flow
+    // (which can wait on a save picker); zeroed in the finally.
+    SecretPassword? exportPassword;
     try {
       // Live session: only the EXPORT password is asked (the at-rest
       // profile opens with the session password). Full backups are always
       // encrypted, so the dialog refuses an empty one.
-      final exportPassword = await showExportPasswordDialog(
-        context,
-        allowEmpty: false,
+      exportPassword = SecretPassword.fromStringOrNull(
+        await showExportPasswordDialog(context, allowEmpty: false),
       );
       if (exportPassword == null || exportPassword.isEmpty) return;
 
@@ -690,6 +692,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       }
+    } finally {
+      exportPassword?.dispose();
     }
   }
 
@@ -713,7 +717,10 @@ class _SettingsPageState extends State<SettingsPage> {
     // = an unencrypted .tox, which the dialog warns about while it is empty.
     final chosen = await showExportPasswordDialog(context, allowEmpty: true);
     if (chosen == null) return;
-    final password = exportPasswordOrNull(chosen);
+    // The dialog's String becomes bytes here, once; zeroed in the finally.
+    final password = SecretPassword.fromStringOrNull(
+      exportPasswordOrNull(chosen),
+    );
 
     try {
       final account = await Prefs.getAccountByToxId(toxId);
@@ -749,6 +756,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       }
+     } finally {
+      password?.dispose();
     }
   }
 
@@ -826,9 +835,9 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       } else {
         // AccountService coordinates live-profile re-keying with verifier updates.
-        final outcome = await AccountService.setAccountPassword(
-          widget.service,
+        final outcome = await SecretPassword.use(
           password,
+          (pw) => AccountService.setAccountPassword(widget.service, pw),
         );
         final ok = outcome == PasswordChangeOutcome.ok;
         if (mounted) {
@@ -1195,9 +1204,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
 
   Future<void> _onConfirm() async {
     if (widget.hasPassword) {
-      final isValid = await Prefs.verifyAccountPassword(
-        widget.toxId,
+      final isValid = await SecretPassword.use(
         _inputController.text,
+        (pw) => Prefs.verifyAccountPassword(widget.toxId, pw),
       );
       if (!isValid) {
         if (mounted) {

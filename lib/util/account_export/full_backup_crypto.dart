@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:cryptography/cryptography.dart';
 
+import '../secret_password.dart';
 import 'exceptions.dart';
 
 const int fullBackupLegacyFormatVersion = 1;
@@ -44,7 +45,7 @@ const List<int> _aad = <int>[
 
 final AesGcm _cipher = AesGcm.with256bits();
 
-void requireFullBackupExportPassword(String? password) {
+void requireFullBackupExportPassword(SecretPassword? password) {
   if (password == null || password.isEmpty) {
     throw const PasswordRequiredException(
       'Password required for encrypted full backup',
@@ -54,7 +55,7 @@ void requireFullBackupExportPassword(String? password) {
 
 Future<Archive> encryptFullBackupArchive({
   required Archive plaintextArchive,
-  required String password,
+  required SecretPassword password,
 }) async {
   requireFullBackupExportPassword(password);
 
@@ -120,7 +121,7 @@ Future<Archive> encryptFullBackupArchive({
 
 Future<Archive> openFullBackupArchive({
   required Archive outerArchive,
-  String? password,
+  SecretPassword? password,
 }) async {
   final outerMetadata = readArchiveMetadata(outerArchive);
   final version = backupFormatVersion(outerMetadata);
@@ -209,7 +210,7 @@ int backupFormatVersion(Map<String, dynamic> metadata) {
 Future<Archive> _decryptEncryptedArchive({
   required Archive outerArchive,
   required Map<String, dynamic> outerMetadata,
-  required String? password,
+  required SecretPassword? password,
 }) async {
   final payloadName = _requiredString(outerMetadata, 'payload');
   if (payloadName != fullBackupPayloadEntryName) {
@@ -313,18 +314,30 @@ Future<Archive> _decryptEncryptedArchive({
   }
 }
 
+/// PBKDF2 over [password]'s UTF-8 bytes — byte-identical to the former
+/// `deriveKeyFromPassword(password: String)` — on a private copy taken
+/// synchronously and zeroed when the derivation ends, so the borrowed
+/// caller's buffer is neither retained nor raced by its owner's dispose().
 Future<SecretKey> _deriveKey({
-  required String password,
+  required SecretPassword password,
   required List<int> salt,
   required int iterations,
   required int bits,
-}) {
+}) async {
   final pbkdf2 = Pbkdf2(
     macAlgorithm: Hmac.sha256(),
     iterations: iterations,
     bits: bits,
   );
-  return pbkdf2.deriveKeyFromPassword(password: password, nonce: salt);
+  final key = SecretKeyData(
+    password.withBytes(Uint8List.fromList),
+    overwriteWhenDestroyed: true,
+  );
+  try {
+    return await pbkdf2.deriveKey(secretKey: key, nonce: salt);
+  } finally {
+    key.destroy();
+  }
 }
 
 Map<String, dynamic> _requiredMap(Map<String, dynamic> metadata, String key) {

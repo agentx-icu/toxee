@@ -4,6 +4,7 @@
 // and the phases it proves.
 
 import '../logger.dart';
+import '../secret_password.dart';
 import 'password_change_journal.dart';
 import 'password_verifier.dart';
 
@@ -50,7 +51,7 @@ class PasswordChangeTransactions {
 
   /// The primary verifier, or — while a `set` is in flight — the recorded
   /// new one, so the password that may already key the file is accepted.
-  Future<bool> verifyPassword(String toxId, String password) async {
+  Future<bool> verifyPassword(String toxId, SecretPassword password) async {
     if (await _verifier.verifyPassword(toxId, password)) return true;
     final record = (await _journal.read(toxId)).record;
     if (record == null || record.kind != PasswordChangeKind.set) return false;
@@ -59,7 +60,7 @@ class PasswordChangeTransactions {
 
   // ---- transaction steps (the caller sequences them; see AccountPasswordChange)
 
-  Future<bool> beginSet(String toxId, String newPassword) async {
+  Future<bool> beginSet(String toxId, SecretPassword newPassword) async {
     final derived = await _verifier.deriveVerifier(newPassword);
     return _journal.write(
       toxId,
@@ -149,8 +150,8 @@ class PasswordChangeTransactions {
   /// plaintext); it is needed only to finish an interrupted removal.
   Future<PasswordChangeReconcile> reconcileAfterLogin(
     String toxId,
-    String typedPassword, {
-    required Future<bool> Function(String? password) rekeyLive,
+    SecretPassword typedPassword, {
+    required Future<bool> Function(SecretPassword? password) rekeyLive,
   }) async {
     final record = (await _journal.read(toxId)).record;
     if (record == null) return PasswordChangeReconcile.none;

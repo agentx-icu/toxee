@@ -23,6 +23,7 @@ import '../logger.dart';
 import '../mobile_export_policy.dart';
 import '../prefs.dart';
 import '../safe_diagnostics.dart';
+import '../secret_password.dart';
 import '../tox_utils.dart';
 import 'atomic_file_write.dart';
 import 'backup_profile_identity.dart';
@@ -68,9 +69,9 @@ String _archiveRelative(String absPath, {required String from}) =>
 /// Returns the path to the exported .zip file.
 Future<String> exportFullBackup({
   required String toxId,
-  String? password,
+  SecretPassword? password,
   String? filePath,
-  String? accountPassword,
+  SecretPassword? accountPassword,
 }) async {
   if (toxId.isEmpty) {
     throw ArgumentError('toxId cannot be empty');
@@ -312,8 +313,8 @@ Future<String> exportFullBackup({
 /// Throws if file is not a valid zip or toxId cannot be determined.
 Future<Map<String, String>> readFullBackupMetadata(
   String filePath, {
-  String? password,
-  String? profilePassword,
+  SecretPassword? password,
+  SecretPassword? profilePassword,
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {
@@ -384,8 +385,8 @@ Future<Map<String, String>> readFullBackupMetadata(
 /// before calling this.
 Future<Map<String, dynamic>> importFullBackup({
   required String filePath,
-  String? password,
-  String? profilePassword,
+  SecretPassword? password,
+  SecretPassword? profilePassword,
 }) async {
   final file = File(filePath);
   if (!await file.exists()) {

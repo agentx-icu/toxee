@@ -11,6 +11,7 @@ import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'test_support.dart';
+import 'package:toxee/util/secret_password.dart';
 
 const _toxId =
     'FACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACEFACE';
@@ -54,7 +55,7 @@ void main() {
         await expectLater(
           () => AccountExportService.exportFullBackup(
             toxId: _toxId,
-            password: '',
+            password: SecretPassword.fromString(''),
             filePath: emptyPasswordPath,
           ),
           throwsA(isA<PasswordRequiredException>()),
@@ -71,7 +72,7 @@ void main() {
         await _seedAccountPayload();
         final zipPath = await AccountExportService.exportFullBackup(
           toxId: _toxId,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
           filePath: p.join(env.extras, 'encrypted_backup.zip'),
         );
 
@@ -116,7 +117,7 @@ void main() {
 
         final metadata = await AccountExportService.readFullBackupMetadata(
           zipPath,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
         );
         expect(metadata['toxId'], _toxId);
         expect(metadata['nickname'], _nickname);
@@ -128,7 +129,7 @@ void main() {
 
       final zipPath = await AccountExportService.exportFullBackup(
         toxId: _toxId,
-        password: _exportPassword,
+        password: SecretPassword.fromString(_exportPassword),
       );
       final fileName = p.basename(zipPath);
 
@@ -145,7 +146,7 @@ void main() {
         await _seedAccountPayload();
         final zipPath = await AccountExportService.exportFullBackup(
           toxId: _toxId,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
           filePath: p.join(env.extras, 'wrong_password_backup.zip'),
         );
         await _removeAccountPayloadFromDisk();
@@ -157,7 +158,7 @@ void main() {
         await expectLater(
           () => AccountExportService.importFullBackup(
             filePath: zipPath,
-            password: 'wrong password',
+            password: SecretPassword.fromString('wrong password'),
           ),
           throwsA(isA<InvalidBackupPasswordException>()),
         );
@@ -183,7 +184,7 @@ void main() {
         await _seedAccountPayload();
         final sourcePath = await AccountExportService.exportFullBackup(
           toxId: _toxId,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
           filePath: p.join(env.extras, 'iteration_source.zip'),
         );
         await _removeAccountPayloadFromDisk();
@@ -199,7 +200,7 @@ void main() {
         await expectLater(
           () => AccountExportService.importFullBackup(
             filePath: tamperedPath,
-            password: _exportPassword,
+            password: SecretPassword.fromString(_exportPassword),
           ),
           throwsA(isA<InvalidBackupFormatException>()),
         );
@@ -213,7 +214,7 @@ void main() {
         await _seedAccountPayload();
         final sourcePath = await AccountExportService.exportFullBackup(
           toxId: _toxId,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
           filePath: p.join(env.extras, 'algorithm_source.zip'),
         );
         await _removeAccountPayloadFromDisk();
@@ -237,7 +238,7 @@ void main() {
         await expectLater(
           () => AccountExportService.importFullBackup(
             filePath: tamperedPath,
-            password: _exportPassword,
+            password: SecretPassword.fromString(_exportPassword),
           ),
           throwsA(isA<InvalidBackupFormatException>()),
         );
@@ -250,7 +251,7 @@ void main() {
         await _seedAccountPayload();
         final sourcePath = await AccountExportService.exportFullBackup(
           toxId: _toxId,
-          password: _exportPassword,
+          password: SecretPassword.fromString(_exportPassword),
           filePath: p.join(env.extras, 'length_source.zip'),
         );
         await _removeAccountPayloadFromDisk();
@@ -280,7 +281,7 @@ void main() {
         await expectLater(
           () => AccountExportService.importFullBackup(
             filePath: tamperedPath,
-            password: _exportPassword,
+            password: SecretPassword.fromString(_exportPassword),
           ),
           throwsA(isA<InvalidBackupFormatException>()),
         );
@@ -323,7 +324,7 @@ void main() {
         await expectLater(
           () => AccountExportService.exportFullBackup(
             toxId: _toxId,
-            password: _exportPassword,
+            password: SecretPassword.fromString(_exportPassword),
             filePath: occupiedTarget.path,
           ),
           throwsA(isA<FileSystemException>()),

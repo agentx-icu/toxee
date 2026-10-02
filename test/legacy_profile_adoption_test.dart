@@ -25,6 +25,7 @@ import 'package:toxee/util/session_password_store.dart';
 
 import 'account_export/test_support.dart';
 import 'account_export/tox_profile_factory.dart';
+import 'support/secret_password_text.dart';
 
 bool _ffiAvailable() {
   try {
@@ -84,7 +85,7 @@ void main() {
       }
       const password = 'legacy-pw';
       final legacyPath = await _stageLegacyProfile(fixture);
-      await AccountExportService.encryptProfileFile(legacyPath, password);
+      await AccountExportService.encryptProfileFile(legacyPath, SecretPassword.fromString(password));
       final profilePath = await _perAccountProfilePath(fixture.toxId);
       expect(File(profilePath).existsSync(), isFalse,
           reason: 'precondition: no per-account profile yet');
@@ -93,7 +94,7 @@ void main() {
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: fixture.toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {
@@ -110,7 +111,7 @@ void main() {
       expect(await AccountExportService.isProfileFileEncrypted(legacyPath),
           isTrue,
           reason: 'the legacy file is left where it was, untouched');
-      expect(SessionPasswordStore.get(fixture.toxId), password,
+      expect(secretText(SessionPasswordStore.get(fixture.toxId)), password,
           reason: 'the session ran as this account under its password');
     }, skip: skipReason);
 
@@ -121,13 +122,13 @@ void main() {
         return;
       }
       final legacyPath = await _stageLegacyProfile(fixture);
-      await AccountExportService.encryptProfileFile(legacyPath, 'right-pw');
+      await AccountExportService.encryptProfileFile(legacyPath, SecretPassword.fromString('right-pw'));
       await Prefs.addAccount(toxId: fixture.toxId, nickname: 'Legacy');
 
       await expectLater(
         AccountService.initializeServiceForAccount(
           toxId: fixture.toxId,
-          password: 'wrong-pw',
+          password: SecretPassword.fromString('wrong-pw'),
           startPolling: false,
         ),
         _refusesAdoption,
@@ -147,7 +148,7 @@ void main() {
         return;
       }
       final legacyPath = await _stageLegacyProfile(fixture);
-      await AccountExportService.encryptProfileFile(legacyPath, 'pw');
+      await AccountExportService.encryptProfileFile(legacyPath, SecretPassword.fromString('pw'));
       await Prefs.addAccount(toxId: fixture.toxId, nickname: 'Legacy');
 
       await expectLater(
@@ -172,13 +173,13 @@ void main() {
       }
       const password = 'shared-pw';
       final legacyPath = await _stageLegacyProfile(legacy);
-      await AccountExportService.encryptProfileFile(legacyPath, password);
+      await AccountExportService.encryptProfileFile(legacyPath, SecretPassword.fromString(password));
       await Prefs.addAccount(toxId: requested.toxId, nickname: 'Other');
 
       await expectLater(
         AccountService.initializeServiceForAccount(
           toxId: requested.toxId,
-          password: password,
+          password: SecretPassword.fromString(password),
           startPolling: false,
         ),
         _refusesAdoption,
@@ -208,7 +209,7 @@ void main() {
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: fixture.toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {

@@ -15,9 +15,11 @@ import 'async_gate.dart';
 import 'logger.dart';
 import 'prefs.dart';
 import 'prefs/password_change_transactions.dart';
+import 'secret_passphrase_staging.dart';
 import 'session_password_store.dart';
 
 export 'prefs/password_change_transactions.dart' show PasswordChangeReconcile;
+export 'secret_password.dart';
 
 enum PasswordChangeOutcome {
   ok,
@@ -48,14 +50,22 @@ abstract final class AccountPasswordChange {
   /// A failure at 2 clears the record (nothing changed); a failure at 4
   /// keeps a rekeyed record — the file IS under the new password and login
   /// accepts it through the record — and still reports [ok].
+  ///
+  /// [password] is borrowed; the store keeps its own copy. A caller that
+  /// disposes it while the change is still running is a caller bug, so the
+  /// transaction works on a private copy (the gate may queue it behind another
+  /// change for an unbounded time).
   static Future<PasswordChangeOutcome> set(
     FfiChatService service,
-    String password,
-  ) => _gate.run(() => _set(service, password));
+    SecretPassword password,
+  ) {
+    final owned = password.copy();
+    return _gate.run(() => _set(service, owned)).whenComplete(owned.dispose);
+  }
 
   static Future<PasswordChangeOutcome> _set(
     FfiChatService service,
-    String password,
+    SecretPassword password,
   ) async {
     final toxId = service.getSelfToxId();
     if (toxId == null || toxId.isEmpty || password.isEmpty) {
@@ -129,10 +139,10 @@ abstract final class AccountPasswordChange {
     return PasswordChangeOutcome.ok;
   }
 
-  static bool _rekeyLive(FfiChatService service, String? password) {
+  static bool _rekeyLive(FfiChatService service, SecretPassword? password) {
     final hook = AccountPasswordChangeTestHooks.rekeyLive;
     if (hook != null) return hook(service, password);
-    return service.rekeyLiveProfilePassphrase(password);
+    return service.rekeyLiveProfilePassphraseSecret(password);
   }
 
   /// A leftover record blocks a new change unless it can be finished right

@@ -8,6 +8,7 @@
 // New code should depend on these static methods exactly as before — the
 // split only changes WHERE the bodies live, not WHAT they do.
 
+import '../secret_password.dart';
 import 'encryption.dart' as enc;
 import 'restore_transaction_journal.dart';
 import 'exceptions.dart';
@@ -27,9 +28,9 @@ class AccountExportService {
   /// Export account data to a .tox file. See [tox.exportAccountData].
   static Future<String> exportAccountData({
     required String toxId,
-    String? password,
+    SecretPassword? password,
     String? filePath,
-    String? accountPassword,
+    SecretPassword? accountPassword,
   }) => tox.exportAccountData(
     toxId: toxId,
     password: password,
@@ -42,7 +43,7 @@ class AccountExportService {
   /// was supplied. See [tox.importAccountData].
   static Future<Map<String, dynamic>> importAccountData({
     required String filePath,
-    String? password,
+    SecretPassword? password,
   }) => tox.importAccountData(filePath: filePath, password: password);
 
   /// Check if a profile file (tox_profile.tox) is encrypted.
@@ -53,22 +54,22 @@ class AccountExportService {
   /// register or on logout.
   static Future<void> encryptProfileFile(
     String profileFilePath,
-    String password,
+    SecretPassword password,
   ) => enc.encryptProfileFile(profileFilePath, password);
 
   /// Decrypt a profile file in place (encrypted -> plain). Used before
   /// init when an account has a password.
   static Future<void> decryptProfileFile(
     String profileFilePath,
-    String password,
+    SecretPassword password,
   ) => enc.decryptProfileFile(profileFilePath, password);
 
   /// Export a comprehensive .zip backup. See [backup.exportFullBackup].
   static Future<String> exportFullBackup({
     required String toxId,
-    String? password,
+    SecretPassword? password,
     String? filePath,
-    String? accountPassword,
+    SecretPassword? accountPassword,
   }) => backup.exportFullBackup(
     toxId: toxId,
     password: password,
@@ -80,8 +81,8 @@ class AccountExportService {
   /// See [backup.readFullBackupMetadata].
   static Future<Map<String, String>> readFullBackupMetadata(
     String filePath, {
-    String? password,
-    String? profilePassword,
+    SecretPassword? password,
+    SecretPassword? profilePassword,
   }) => backup.readFullBackupMetadata(
     filePath,
     password: password,
@@ -91,8 +92,8 @@ class AccountExportService {
   /// Import a full backup from a .zip (or .tox). See [backup.importFullBackup].
   static Future<Map<String, dynamic>> importFullBackup({
     required String filePath,
-    String? password,
-    String? profilePassword,
+    SecretPassword? password,
+    SecretPassword? profilePassword,
   }) => backup.importFullBackup(
     filePath: filePath,
     password: password,

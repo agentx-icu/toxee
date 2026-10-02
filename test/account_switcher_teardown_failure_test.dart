@@ -69,7 +69,7 @@ void main() {
     await File(
       AppPaths.profileFileInDirectory(profileDirectory),
     ).writeAsString('current-profile');
-    SessionPasswordStore.set(_currentToxId, 'recovery-password');
+    SessionPasswordStore.set(_currentToxId, SecretPassword.fromString('recovery-password'));
   });
 
   tearDown(() async {

@@ -41,6 +41,9 @@ extension LoginRestoreFromTox on LoginPageController {
     // See importAccount: the rollback may only delete directories THIS restore
     // created.
     var ownership = const ImportedAccountOwnership.none();
+    // The prompt's String is converted once; this flow owns the bytes until
+    // they are handed to [RestoreSuccess] (or zeroed in the finally).
+    SecretPassword? password;
     try {
       if (filePathOverride != null) {
         filePath = filePathOverride;
@@ -56,12 +59,11 @@ extension LoginRestoreFromTox on LoginPageController {
         return const RestoreFailure(RestoreFailureKind.notAToxProfile);
       }
 
-      String? password;
       Map<String, dynamic> accountData;
       try {
         accountData = await _importAccountDataFn(filePath: filePath);
       } on PasswordRequiredException {
-        password = await requestPassword();
+        password = SecretPassword.fromStringOrNull(await requestPassword());
         if (password == null) {
           return const RestoreFailure(RestoreFailureKind.cancelled);
         }
@@ -181,10 +183,12 @@ extension LoginRestoreFromTox on LoginPageController {
       // Complete: the profile is on disk, protected if it needed to be, the row
       // is published and the verifier is stored. Nothing left to recover.
       await ToxImportJournal.clear(toxId: toxId);
+      final handedOver = password;
+      password = null;
       return RestoreSuccess(
         toxId: toxId,
         nickname: displayNickname,
-        password: password,
+        password: handedOver,
       );
     } on ToxImportInFlightException catch (e) {
       // Nothing written yet (see the twin handler in importAccount), so no
@@ -223,6 +227,8 @@ extension LoginRestoreFromTox on LoginPageController {
         RestoreFailureKind.generalError,
         detail: SafeDiagnostics.describeError(e),
       );
+    } finally {
+      password?.dispose();
     }
   }
 }

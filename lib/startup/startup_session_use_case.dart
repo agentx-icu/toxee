@@ -14,6 +14,7 @@ import '../util/logger.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
 import '../util/safe_diagnostics.dart';
+import '../util/secret_password.dart';
 
 import 'startup_outcome.dart';
 import 'startup_step.dart';
@@ -23,7 +24,7 @@ typedef StartupInitializeServiceFn =
       required String toxId,
       String? nickname,
       String? statusMessage,
-      String? password,
+      SecretPassword? password,
       bool startPolling,
     });
 typedef StartupTeardownSessionFn =

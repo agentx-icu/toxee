@@ -98,7 +98,7 @@ void main() {
 
   test('a refused verifier delete is recorded by the rollback and removed by '
       'the startup retry once the store cooperates', () async {
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
     expect(await Prefs.hasAccountPassword(_toxId), isTrue);
 
     failSecureDeletes = true;
@@ -119,7 +119,7 @@ void main() {
   });
 
   test('a successful rollback delete records nothing', () async {
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
     await rollbackFailedRegistration(_planWithVerifier(_toxId));
     expect(await Prefs.hasAccountPassword(_toxId), isFalse);
     expect(await StrandedVerifierCleanup.pending(), isEmpty);
@@ -127,7 +127,7 @@ void main() {
 
   test('the retry keeps the record while secure storage still refuses',
       () async {
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
     failSecureDeletes = true;
     await rollbackFailedRegistration(_planWithVerifier(_toxId));
     expect(await StrandedVerifierCleanup.pending(), {_toxId});
@@ -150,11 +150,11 @@ void main() {
       () async {
     // Defensive: a recorded id that is in account_list is a live identity,
     // whatever the record says. Its verifier stays; the record is dropped.
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
     await Prefs.addAccount(toxId: _toxId, nickname: 'Live');
     await StrandedVerifierCleanup.record(_toxId);
     // A genuinely stranded one in the same pass is still cleaned up.
-    expect(await Prefs.setAccountPassword(_otherToxId, 'pw2'), isTrue);
+    expect(await Prefs.setAccountPassword(_otherToxId, SecretPassword.fromString('pw2')), isTrue);
     await StrandedVerifierCleanup.record(_otherToxId);
 
     expect(await StrandedVerifierCleanup.retryPending(), 1);
@@ -165,7 +165,7 @@ void main() {
   });
 
   test('a journal-only refused delete is recorded and retried too', () async {
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
     // A registration-time journal record under this identity, as an
     // interrupted password transaction would leave.
     secureStore['pwd_txn_$_toxId'] = '{"kind":"set"}';
@@ -193,7 +193,7 @@ void main() {
     // rollback's removal.
     failWriteFor = (key) => key.startsWith('pwd_salt_');
     failSecureDeletes = true;
-    expect(await Prefs.setAccountPassword(_toxId, 'pw'), isFalse);
+    expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isFalse);
     expect(secureStore.containsKey('pwd_$_toxId'), isTrue,
         reason: 'precondition: the hash half is stranded');
 
@@ -217,7 +217,7 @@ void main() {
 
   group('registry presence is never decided from a lossy decode', () {
     test('a row the decoder drops still counts as published', () async {
-      expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+      expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
       await StrandedVerifierCleanup.record(_toxId);
       // Valid toxId, non-string metadata: `_readAccountList` drops this row,
       // so a typed lookup would wrongly report the account absent.
@@ -284,7 +284,7 @@ void main() {
     });
 
     test('a row whose identity cannot be read defers the removal', () async {
-      expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+      expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
       await StrandedVerifierCleanup.record(_toxId);
       final prefs = await SharedPreferences.getInstance();
       for (final payload in [
@@ -306,7 +306,7 @@ void main() {
     });
 
     test('an undecodable registry defers the removal', () async {
-      expect(await Prefs.setAccountPassword(_toxId, 'pw'), isTrue);
+      expect(await Prefs.setAccountPassword(_toxId, SecretPassword.fromString('pw')), isTrue);
       await StrandedVerifierCleanup.record(_toxId);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('account_list', '{not json');

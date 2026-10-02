@@ -220,7 +220,7 @@ void main() {
         List<int>.generate(512, (i) => i % 251),
       );
       expect(
-        await Prefs.setAccountPassword(_placeholder, 'correct horse'),
+        await Prefs.setAccountPassword(_placeholder, SecretPassword.fromString('correct horse')),
         isTrue,
       );
       expect(

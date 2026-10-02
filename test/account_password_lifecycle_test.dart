@@ -47,6 +47,7 @@ import 'package:toxee/util/session_password_store.dart';
 
 import 'account_export/test_support.dart';
 import 'account_export/tox_profile_factory.dart';
+import 'support/secret_password_text.dart';
 
 bool _ffiAvailable() {
   try {
@@ -137,13 +138,13 @@ void main() {
       }
       const password = 'at-rest-pw';
       final profilePath = await _stageProfile(fixture);
-      await AccountExportService.encryptProfileFile(profilePath, password);
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString(password));
       await Prefs.addAccount(toxId: fixture.toxId, nickname: 'AtRest');
       await Prefs.setCurrentAccountToxId(fixture.toxId);
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: fixture.toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {
@@ -179,7 +180,7 @@ void main() {
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: fixture.toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {
@@ -213,7 +214,7 @@ void main() {
       // Stage the profile (same p_<first16> dir for 64/76) then encrypt it on
       // disk, so init's decrypt-with-password path runs.
       final profilePath = await _stageProfile(fixture);
-      await AccountExportService.encryptProfileFile(profilePath, password);
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString(password));
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
           isTrue,
           reason: 'precondition: the staged profile is encrypted on disk');
@@ -226,7 +227,7 @@ void main() {
       // canonical id, not the short input.
       final service = await AccountService.initializeServiceForAccount(
         toxId: shortToxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       // Safety-net cleanup for an early assertion failure before the explicit
@@ -242,9 +243,9 @@ void main() {
       // Primary lock: the session password is retrievable under the canonical
       // id and NOT under the short input (proves the fix's keying). Pre-fix the
       // store was keyed under shortToxId → get(canonical) == null.
-      expect(SessionPasswordStore.get(canonicalToxId), password,
+      expect(secretText(SessionPasswordStore.get(canonicalToxId)), password,
           reason: 'session password must be keyed under the canonical toxId');
-      expect(SessionPasswordStore.get(shortToxId), isNull,
+      expect(secretText(SessionPasswordStore.get(shortToxId)), isNull,
           reason: 'session password must NOT be keyed under the short input');
 
       // Deeper lock: logout re-encrypts the profile using that session
@@ -274,13 +275,13 @@ void main() {
       // Encrypted-on-disk account; logging in with the password decrypts it on
       // disk and arms SessionPasswordStore for re-encrypt-on-logout.
       final profilePath = await _stageProfile(fixture);
-      await AccountExportService.encryptProfileFile(profilePath, password);
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString(password));
       await Prefs.addAccount(toxId: toxId, nickname: 'RemoveAcct');
       await Prefs.setCurrentAccountToxId(toxId);
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {
@@ -288,14 +289,14 @@ void main() {
           await service.dispose();
         } catch (_) {}
       });
-      expect(SessionPasswordStore.get(toxId), password,
+      expect(secretText(SessionPasswordStore.get(toxId)), password,
           reason: 'precondition: login armed the session password');
 
       // The fix under test.
       final outcome = await AccountService.removeAccountPassword(service);
       expect(outcome, PasswordChangeOutcome.ok,
           reason: 'the re-key and the secure-storage delete completed durably');
-      expect(SessionPasswordStore.get(toxId), isNull,
+      expect(secretText(SessionPasswordStore.get(toxId)), isNull,
           reason: 'remove must clear the in-memory session password');
 
       // Logout must NOT re-encrypt — the profile stays plaintext (the user
@@ -319,13 +320,13 @@ void main() {
       final toxId = fixture.toxId;
 
       final profilePath = await _stageProfile(fixture);
-      await AccountExportService.encryptProfileFile(profilePath, password);
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString(password));
       await Prefs.addAccount(toxId: toxId, nickname: 'DeleteFailAcct');
       await Prefs.setCurrentAccountToxId(toxId);
 
       final service = await AccountService.initializeServiceForAccount(
         toxId: toxId,
-        password: password,
+        password: SecretPassword.fromString(password),
         startPolling: false,
       );
       addTearDown(() async {
@@ -333,7 +334,7 @@ void main() {
           await service.dispose();
         } catch (_) {}
       });
-      expect(SessionPasswordStore.get(toxId), password,
+      expect(secretText(SessionPasswordStore.get(toxId)), password,
           reason: 'precondition: login armed the session password');
 
       failSecureDeletes = true;
@@ -344,7 +345,7 @@ void main() {
       // journal keeps a rekeyed `remove` record and the gate finishes it.
       expect(outcome, PasswordChangeOutcome.ok,
           reason: 'a removal whose re-key reached disk is committed');
-      expect(SessionPasswordStore.get(toxId), isNull,
+      expect(secretText(SessionPasswordStore.get(toxId)), isNull,
           reason: 'the profile is plaintext: nothing to re-encrypt on logout');
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
           isFalse);
@@ -394,13 +395,13 @@ void main() {
       // The fix under test (set/change branch).
       const newPassword = 'fresh-pw';
       final outcome =
-          await AccountService.setAccountPassword(service, newPassword);
+          await AccountService.setAccountPassword(service, SecretPassword.fromString(newPassword));
       expect(outcome, PasswordChangeOutcome.ok,
           reason: 'verifier write must succeed (secure-storage mock)');
       expect(await AccountExportService.isProfileFileEncrypted(profilePath),
           isTrue,
           reason: 'the live re-key encrypts the profile at once, before logout');
-      expect(SessionPasswordStore.get(toxId), newPassword,
+      expect(secretText(SessionPasswordStore.get(toxId)), newPassword,
           reason: 'set must arm the session password for logout encryption');
 
       // Logout must now encrypt with the new password. Pre-fix the session
@@ -430,7 +431,7 @@ void main() {
       // global nickname set, autoLogin on, a unique account_list row, current
       // pointer set. On cold start there is no session password to decrypt it.
       final profilePath = await _stageProfile(fixture);
-      await AccountExportService.encryptProfileFile(profilePath, 'cold-pw');
+      await AccountExportService.encryptProfileFile(profilePath, SecretPassword.fromString('cold-pw'));
       await Prefs.addAccount(toxId: toxId, nickname: 'EncAcct');
       await Prefs.setCurrentAccountToxId(toxId);
       await Prefs.setNickname('EncAcct');

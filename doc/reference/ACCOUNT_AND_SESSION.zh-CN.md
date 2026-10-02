@@ -112,6 +112,7 @@
 
 - 密码哈希保存在持久化配置中，用于校验账号密码。
 - 会话明文密码只放在 `SessionPasswordStore` 内存里，不落盘。
+- UI 边缘以下，账号密码从不以 Dart `String` 形式存在：统一是 `SecretPassword`（`lib/util/secret_password.dart`）——UTF-8 字节，`dispose()` 时清零，只通过作用域内的 `withBytes` 视图访问，不按内容比较、不打印内容。输入框的 String 在读取处只转换一次；`SessionPasswordStore` 持有自己的副本，`clear` 时清零；参数在调用（及其返回的 Future）完成前是借用的，返回值/字段归持有者所有。tim2tox 接收字节（`setProfilePassphraseBytes` / `rekeyLiveProfilePassphraseBytes`），复制到 native 内存后将该副本清零。
 - 登录时如果发现 profile 已加密，会先解密。
 - 退出登录时如果本次会话有密码，会重新加密 `tox_profile.tox`。
 - 删除账号时不会重新加密，因为 profile 会被直接删除。

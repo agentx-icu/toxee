@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../i18n/app_localizations.dart';
+import '../../util/secret_password.dart';
 import '../settings/export_password_dialog.dart';
 import '../widgets/app_snackbar.dart';
 import 'login_password_gate.dart';
 import 'password_prompt_dialog.dart';
 
-/// The two independent passwords a logged-out (login page) export needs.
+/// The two independent passwords a logged-out (login page) export needs, as
+/// bytes. OWNED by the receiver, which calls [dispose] once the export ran.
 final class LoginExportPasswords {
   const LoginExportPasswords({
     required this.accountPassword,
@@ -15,11 +17,17 @@ final class LoginExportPasswords {
 
   /// Opens the at-rest profile of a protected account; null when the account
   /// has no password (its profile is plaintext at rest).
-  final String? accountPassword;
+  final SecretPassword? accountPassword;
 
   /// Seals the exported file; null means "write it unencrypted" — chosen
   /// explicitly by the user in the export dialog, under its warning line.
-  final String? exportPassword;
+  final SecretPassword? exportPassword;
+
+  /// Zeroes both passwords.
+  void dispose() {
+    accountPassword?.dispose();
+    exportPassword?.dispose();
+  }
 }
 
 /// Collects both passwords for exporting a saved account from the login page,
@@ -58,7 +66,13 @@ Future<LoginExportPasswords?> promptLoginExportPasswords(
       );
     },
   );
-  if (!context.mounted) return null;
+  // The gate's verified password is OWNED here until it is handed over in the
+  // result; every abort path below zeroes it.
+  final accountPassword = gate.password;
+  if (!context.mounted) {
+    accountPassword?.dispose();
+    return null;
+  }
   switch (gate.result) {
     case PasswordGateResult.cancelled:
       return null;
@@ -72,14 +86,26 @@ Future<LoginExportPasswords?> promptLoginExportPasswords(
     case PasswordGateResult.verified:
       break;
   }
-  final exportPassword = await showExportPasswordDialog(
-    context,
-    allowEmpty: true,
-  );
+  final String? exportPassword;
+  try {
+    exportPassword = await showExportPasswordDialog(
+      context,
+      allowEmpty: true,
+    );
+  } catch (_) {
+    accountPassword?.dispose();
+    rethrow;
+  }
   // Cancel is checked BEFORE '' is mapped to "unencrypted".
-  if (exportPassword == null) return null;
+  if (exportPassword == null) {
+    accountPassword?.dispose();
+    return null;
+  }
   return LoginExportPasswords(
-    accountPassword: gate.password,
-    exportPassword: exportPasswordOrNull(exportPassword),
+    accountPassword: accountPassword,
+    // The dialog's String is converted here, once.
+    exportPassword: SecretPassword.fromStringOrNull(
+      exportPasswordOrNull(exportPassword),
+    ),
   );
 }

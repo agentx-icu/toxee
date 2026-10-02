@@ -14,6 +14,7 @@ import 'account_service.dart';
 import 'app_bootstrap_coordinator.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
+import 'secret_password.dart';
 import 'tox_utils.dart';
 
 final class InvalidAccountSwitchPasswordException implements Exception {
@@ -33,7 +34,7 @@ typedef AccountSwitchInitializeServiceFn =
       required String toxId,
       String? nickname,
       String? statusMessage,
-      String? password,
+      SecretPassword? password,
       required bool startPolling,
     });
 typedef AccountSwitchTeardownSessionFn =
@@ -66,7 +67,8 @@ class AccountSwitcher {
     AccountSwitchBootSessionFn? bootSession,
     Future<void> Function(String toxId)? ensureNotDeleting,
     Future<bool> Function(String toxId)? hasPasswordFn,
-    Future<bool> Function(String toxId, String password)? verifyPasswordFn,
+    Future<bool> Function(String toxId, SecretPassword password)?
+    verifyPasswordFn,
     Future<String?> Function(BuildContext context, String nickname)?
     requestPasswordFn,
     AccountSwitchNavigateHomeFn? navigateHome,
@@ -106,7 +108,8 @@ class AccountSwitcher {
     AccountSwitchBootSessionFn? bootSession,
     Future<void> Function(String toxId)? ensureNotDeleting,
     Future<bool> Function(String toxId)? hasPasswordFn,
-    Future<bool> Function(String toxId, String password)? verifyPasswordFn,
+    Future<bool> Function(String toxId, SecretPassword password)?
+    verifyPasswordFn,
     Future<String?> Function(BuildContext context, String nickname)?
     requestPasswordFn,
     AccountSwitchNavigateHomeFn? navigateHome,
@@ -124,6 +127,9 @@ class AccountSwitcher {
     final verifyPassword = verifyPasswordFn ?? Prefs.verifyAccountPassword;
     final requestPassword = requestPasswordFn ?? _showPasswordDialog;
     final navigate = navigateHome ?? _navigateHome;
+    // The typed password, converted once at the dialog edge; owned here and
+    // zeroed when the switch ends (the session store keeps its own copy).
+    SecretPassword? password;
     try {
       final targetAccountMap = await Prefs.getAccountByToxId(targetToxId);
       if (targetAccountMap == null) {
@@ -133,13 +139,14 @@ class AccountSwitcher {
       final targetAccount = AccountSummary.fromMap(targetAccountMap);
 
       // 1. Check if target account has a password
-      String? password;
       final passwordRequired = await hasPassword(targetToxId);
       if (passwordRequired) {
         if (!context.mounted) {
           throw const AccountSwitchContextUnavailable();
         }
-        password = await requestPassword(context, targetAccount.nickname);
+        password = SecretPassword.fromStringOrNull(
+          await requestPassword(context, targetAccount.nickname),
+        );
         if (password == null) {
           return;
         }
@@ -259,6 +266,8 @@ class AccountSwitcher {
         _ => const AccountSwitchFailure(),
       };
       Error.throwWithStackTrace(outwardError, stackTrace);
+    } finally {
+      password?.dispose();
     }
   }
 

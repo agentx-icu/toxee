@@ -16,6 +16,7 @@ import '../util/logger.dart';
 import '../util/account_service.dart';
 import '../util/app_bootstrap_coordinator.dart';
 import '../util/app_spacing.dart';
+import '../util/secret_password.dart';
 import 'home_page.dart';
 import 'widgets/app_page_route.dart';
 import 'widgets/error_banner.dart';
@@ -142,10 +143,16 @@ class _RegisterPageState extends State<RegisterPage> {
           required String nickname,
           required String statusMessage,
           required String password,
-        }) => AccountService.registerNewAccount(
-          nickname: nickname,
-          statusMessage: statusMessage,
-          password: password,
+        }) => SecretPassword.use(
+          // The text field's String becomes bytes here, once; registration
+          // and the session store only ever see (and copy) the bytes, which
+          // are zeroed as soon as registration returns.
+          password,
+          (secret) => AccountService.registerNewAccount(
+            nickname: nickname,
+            statusMessage: statusMessage,
+            password: secret,
+          ),
         );
     _bootSession = widget.bootSession ?? AppBootstrapCoordinator.boot;
     _teardownSession =

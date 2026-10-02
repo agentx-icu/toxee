@@ -41,6 +41,7 @@ import 'package:toxee/util/session_password_store.dart';
 
 import '../../account_export/test_support.dart';
 import '../../account_export/tox_profile_factory.dart';
+import '../../support/secret_password_text.dart';
 
 const _exportOptionKey = Key('login_account_management_export_option');
 const _accountFieldKey = Key('login_quick_password_field');
@@ -196,17 +197,19 @@ void main() {
 
     Future<String> recorder({
       required String toxId,
-      String? password,
-      String? accountPassword,
+      SecretPassword? password,
+      SecretPassword? accountPassword,
     }) async {
-      calls.add(_ExportCall(toxId, password, accountPassword));
+      calls.add(
+        _ExportCall(toxId, secretText(password), secretText(accountPassword)),
+      );
       File(outPath()).writeAsStringSync('export');
       return outPath();
     }
 
     Future<void> protect(WidgetTester tester) async {
       await tester.runAsync(() async {
-        expect(await Prefs.setAccountPassword(toxId, _accountPassword), isTrue);
+        expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString(_accountPassword)), isTrue);
       });
     }
 
@@ -435,14 +438,14 @@ void main() {
           fixture = ToxProfileFixture.create()!;
           await Prefs.addAccount(toxId: fixture.toxId, nickname: 'Frank');
           expect(
-            await Prefs.setAccountPassword(fixture.toxId, _accountPassword),
+            await Prefs.setAccountPassword(fixture.toxId, SecretPassword.fromString(_accountPassword)),
             isTrue,
           );
           final dir = await AppPaths.getProfileDirectoryForToxId(fixture.toxId);
           await Directory(dir).create(recursive: true);
           await File(
             AppPaths.profileFileInDirectory(dir),
-          ).writeAsBytes(passEncrypt(fixture.savedata, _accountPassword));
+          ).writeAsBytes(passEncrypt(fixture.savedata, SecretPassword.fromString(_accountPassword)));
         });
         Iterable<File> exported() => Directory(
           env.downloads,
@@ -471,8 +474,8 @@ void main() {
 
         final bytes = exported().single.readAsBytesSync();
         expect(isDataEncrypted(bytes), isTrue);
-        expect(passDecrypt(bytes, _exportPassword), fixture.savedata);
-        expect(() => passDecrypt(bytes, _accountPassword), throwsA(anything));
+        expect(passDecrypt(bytes, SecretPassword.fromString(_exportPassword)), fixture.savedata);
+        expect(() => passDecrypt(bytes, SecretPassword.fromString(_accountPassword)), throwsA(anything));
       },
       skip: skip != null,
     );

@@ -9,6 +9,7 @@ import 'package:toxee/util/prefs.dart';
 import 'package:toxee/util/session_password_store.dart';
 
 import 'account_export/test_support.dart';
+import 'support/secret_password_text.dart';
 
 bool _ffiAvailable() {
   try {
@@ -105,7 +106,7 @@ void main() {
         unexpectedResult = await AccountService.registerNewAccount(
           nickname: 'Verifier Failure',
           statusMessage: 'Must roll back',
-          password: 'registration-password',
+          password: SecretPassword.fromString('registration-password'),
         );
       } catch (error) {
         registrationError = error;
@@ -133,8 +134,7 @@ void main() {
         isNotNull,
         reason: 'registration must reach the injected verifier write seam',
       );
-      expect(
-        SessionPasswordStore.get(failedToxId!),
+      expect(secretText(SessionPasswordStore.get(failedToxId!)),
         isNull,
         reason: 'a non-durable password must never arm session encryption',
       );

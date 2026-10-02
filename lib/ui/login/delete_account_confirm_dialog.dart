@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/app_spacing.dart';
 import '../../util/prefs.dart';
+import '../../util/secret_password.dart';
 import '../widgets/app_snackbar.dart';
 import '../widgets/safe_dialog_pop.dart';
 
@@ -54,9 +55,9 @@ class _DeleteAccountConfirmDialogState
 
   Future<void> _onConfirm() async {
     if (widget.hasPassword) {
-      final ok = await Prefs.verifyAccountPassword(
-        widget.toxId,
+      final ok = await SecretPassword.use(
         _inputController.text,
+        (pw) => Prefs.verifyAccountPassword(widget.toxId, pw),
       );
       if (!ok) {
         if (mounted) {

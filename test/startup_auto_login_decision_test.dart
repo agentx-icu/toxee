@@ -55,6 +55,7 @@ import 'package:toxee/startup/startup_session_use_case.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'account_export/test_support.dart';
+import 'package:toxee/util/secret_password.dart';
 
 void main() {
   late AccountExportTestEnv env;
@@ -245,7 +246,7 @@ void main() {
         'protected account with NO profile ciphertext → StartupShowLogin '
         '(the durable verifier decides, not the file)', () async {
       final toxId = await seedAutoLoginAccount('C', 'Protected');
-      expect(await Prefs.setAccountPassword(toxId, 'correct horse'), isTrue,
+      expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString('correct horse')), isTrue,
           reason: 'precondition: the durable verifier must persist');
       expect(await Prefs.accountProtectionState(toxId),
           AccountProtectionState.protected,

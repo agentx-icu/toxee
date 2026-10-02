@@ -6,6 +6,7 @@
 
 import 'dart:typed_data';
 
+import '../secret_password.dart';
 import '../tox_utils.dart';
 import 'encryption.dart';
 import 'exceptions.dart';
@@ -17,7 +18,10 @@ import 'tox_file_io.dart';
 /// without it [BackupProfilePasswordRequiredException] is thrown BEFORE any
 /// restore write, so the caller can prompt; a password that does not open the
 /// profile surfaces as [InvalidBackupPasswordException].
-String extractBackupProfileToxId(Uint8List toxProfile, String? profilePassword) {
+String extractBackupProfileToxId(
+  Uint8List toxProfile,
+  SecretPassword? profilePassword,
+) {
   final testExtractor = FullBackupRestoreTestHooks.profileIdentityExtractor;
   if (testExtractor != null) return testExtractor(toxProfile);
   if (!isBackupProfileEncrypted(toxProfile)) {
@@ -47,7 +51,7 @@ bool isBackupProfileEncrypted(Uint8List toxProfile) {
 void requireBackupProfileMatchesMetadata({
   required String metadataToxId,
   required Uint8List toxProfile,
-  required String? profilePassword,
+  required SecretPassword? profilePassword,
 }) {
   final profileToxId = extractBackupProfileToxId(toxProfile, profilePassword);
   if (!compareToxIds(metadataToxId, profileToxId)) {

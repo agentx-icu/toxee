@@ -16,6 +16,7 @@ import '../../util/logger.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
 import '../../util/safe_diagnostics.dart';
+import '../../util/secret_password.dart';
 import '../settings/export_password_dialog.dart';
 
 part 'first_run_backup_wizard_parts.dart';
@@ -74,13 +75,14 @@ class FirstRunBackupWizard extends StatefulWidget {
   /// Test hook: overrides the real [AccountExportService.exportAccountData]
   /// call so widget tests can run without a real FFI library loaded. Receives
   /// the EXPORT password the user chose (null = unencrypted) so tests can
-  /// prove what reaches the exporter. Production code must NOT pass this —
-  /// leaving it null routes to the real service.
+  /// prove what reaches the exporter (bytes, borrowed for the call).
+  /// Production code must NOT pass this — leaving it null routes to the real
+  /// service.
   @visibleForTesting
   final Future<String?> Function(
     String toxId,
     String nickname,
-    String? exportPassword,
+    SecretPassword? exportPassword,
   )?
   exportOverride;
 
@@ -161,7 +163,10 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       _promptingExportPassword = false;
     }
     if (chosen == null || !mounted) return;
-    final exportPassword = exportPasswordOrNull(chosen);
+    // The dialog's String becomes bytes here, once; zeroed in the finally.
+    final exportPassword = SecretPassword.fromStringOrNull(
+      exportPasswordOrNull(chosen),
+    );
     setState(() {
       _busy = true;
       _statusMessage = null;
@@ -270,6 +275,8 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
           _statusIsError = true;
         });
       }
+    } finally {
+      exportPassword?.dispose();
     }
   }
 

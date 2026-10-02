@@ -43,6 +43,8 @@ import 'package:toxee/ui/login/login_page_controller.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/secret_password.dart';
+import '../../support/secret_password_text.dart';
 
 class _RecordingLoginPageController extends LoginPageController {
   LoginParams? lastLoginParams;
@@ -52,13 +54,13 @@ class _RecordingLoginPageController extends LoginPageController {
   Future<LoginControllerResult> login({
     required String nickname,
     required String statusMessage,
-    String? password,
+    SecretPassword? password,
   }) async {
     loginCalls++;
     lastLoginParams = LoginParams(
       nickname: nickname,
       statusMessage: statusMessage,
-      password: password,
+      password: password?.copy(),
     );
     return const LoginControllerFailure('stop after recording');
   }
@@ -185,7 +187,7 @@ void main() {
     await tester.runAsync(() async {
       final prefs = await SharedPreferences.getInstance();
       await Prefs.initialize(prefs);
-      final ok = await Prefs.setAccountPassword(toxId, password);
+      final ok = await Prefs.setAccountPassword(toxId, SecretPassword.fromString(password));
       expect(
         ok,
         isTrue,
@@ -403,7 +405,7 @@ void main() {
         );
         expect(controller.lastLoginParams!.nickname, 'Secured');
         expect(
-          controller.lastLoginParams!.password,
+          secretText(controller.lastLoginParams!.password),
           'correct-pw',
           reason:
               'The verified password must be forwarded to login() so it is '

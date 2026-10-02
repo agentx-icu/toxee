@@ -91,6 +91,7 @@ import '../../util/irc_app_manager.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
 import '../../util/tox_utils.dart';
+import 'l3_password_arg.dart';
 
 part 'l3_account_import_override_tools.dart';
 part 'l3_invoker_registry.dart';
@@ -1587,10 +1588,9 @@ MCPCallEntry _l3ComposerSetTextEntry() => MCPCallEntry.tool(
 );
 
 MCPCallEntry _l3RegisterAccountEntry() => MCPCallEntry.tool(
-  handler: (request) async {
+  handler: (request) => withL3PasswordArg(request, (password) async {
     final nickname = request['nickname']?.toString().trim() ?? '';
     final statusMessage = request['statusMessage']?.toString().trim() ?? '';
-    final password = request['password']?.toString() ?? '';
     if (nickname.isEmpty) {
       return MCPCallResult(
         message: 'l3_register_account: need "nickname"',
@@ -1634,7 +1634,7 @@ MCPCallEntry _l3RegisterAccountEntry() => MCPCallEntry.tool(
           toxId: existingToxId,
           nickname: nickname,
           statusMessage: statusMessage,
-          password: password.isEmpty ? null : password,
+          password: password,
           startPolling: false,
         );
         await AppBootstrapCoordinator.boot(service);
@@ -1683,7 +1683,7 @@ MCPCallEntry _l3RegisterAccountEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'register_failed', 'detail': '$e'},
       );
     }
-  },
+  }),
   definition: MCPToolDefinition(
     name: 'l3_register_account',
     description:
@@ -1703,11 +1703,10 @@ MCPCallEntry _l3RegisterAccountEntry() => MCPCallEntry.tool(
 );
 
 MCPCallEntry _l3BootExistingAccountEntry() => MCPCallEntry.tool(
-  handler: (request) async {
+  handler: (request) => withL3PasswordArg(request, (password) async {
     final toxId = request['toxId']?.toString().trim() ?? '';
     final nickname = request['nickname']?.toString().trim() ?? '';
     final statusMessage = request['statusMessage']?.toString().trim() ?? '';
-    final password = request['password']?.toString();
     if (toxId.isEmpty || nickname.isEmpty) {
       return MCPCallResult(
         message: 'l3_boot_existing_account: need "toxId" and "nickname"',
@@ -1779,7 +1778,7 @@ MCPCallEntry _l3BootExistingAccountEntry() => MCPCallEntry.tool(
         parameters: {'ok': false, 'error': 'boot_failed', 'detail': '$e'},
       );
     }
-  },
+  }),
   definition: MCPToolDefinition(
     name: 'l3_boot_existing_account',
     description:

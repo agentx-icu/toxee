@@ -10,6 +10,7 @@ import '../util/default_avatar_installer.dart';
 import '../util/logger.dart';
 import '../util/placeholder_account_migration.dart';
 import '../util/prefs.dart';
+import '../util/secret_password.dart';
 
 /// Input parameters for [LoginUseCase.execute].
 class LoginParams {
@@ -21,7 +22,10 @@ class LoginParams {
 
   final String nickname;
   final String statusMessage;
-  final String? password;
+
+  /// Borrowed: the caller keeps it alive until [LoginUseCase.execute] returns
+  /// and disposes it afterwards (the session store keeps its own copy).
+  final SecretPassword? password;
 }
 
 /// Result of a successful login.
@@ -96,8 +100,8 @@ class LoginUseCase {
         throw const AccountProtectionUnavailableException();
       }
       if (protection == AccountProtectionState.protected) {
-        final password = params.password ?? '';
-        if (password.isEmpty) {
+        final password = params.password;
+        if (password == null || password.isEmpty) {
           throw Exception('Password required');
         }
         final ok = await Prefs.verifyAccountPassword(toxIdForLogin, password);
