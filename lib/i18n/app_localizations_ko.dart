@@ -1081,9 +1081,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get changePassword => '비밀번호 변경';
 
   @override
-  String get enterPasswordToExport => '계정을 내보내려면 비밀번호를 입력하세요';
-
-  @override
   String get enterPasswordToImport => '계정을 가져오려면 비밀번호를 입력하세요';
 
   @override
@@ -2174,4 +2171,35 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get importUnsupportedFileType => '.tox 프로필 또는 .zip 전체 백업을 선택하세요';
+
+  @override
+  String get exportPasswordDialogTitle => '내보내기 비밀번호 설정';
+
+  @override
+  String get exportPasswordLabel => '내보내기 비밀번호';
+
+  @override
+  String get confirmExportPasswordLabel => '내보내기 비밀번호 확인';
+
+  @override
+  String get exportPasswordExplanation =>
+      '이 비밀번호는 내보낸 파일만 보호하며 계정 비밀번호와 별개입니다. 파일을 가져올 때 필요합니다.';
+
+  @override
+  String get exportPasswordOptionalHint => '비워 두면 암호화하지 않고 내보냅니다';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      '내보내기 비밀번호 없음: 파일이 암호화되지 않은 채 저장됩니다. 이 계정의 개인 키가 들어 있어, 파일을 가진 누구나 비밀번호 없이 이 계정을 사용할 수 있습니다.';
+
+  @override
+  String get exportPasswordRequired => '전체 백업에는 내보내기 비밀번호가 필요합니다';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return '내보내려면 계정 \"$nickname\"의 계정 비밀번호를 입력하세요';
+  }
+
+  @override
+  String get exportUnencryptedButton => '암호화하지 않고 내보내기';
 }

@@ -15,6 +15,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import 'account_export_flow.dart';
 import 'export_password_dialog.dart';
+import 'settings_export_actions.dart';
 import '../../util/imported_account_name.dart';
 import '../../util/account_export/tox_import_journal.dart';
 import '../../util/legacy_account_data_claim.dart';
@@ -181,6 +182,8 @@ class SettingsPage extends StatefulWidget {
     this.encryptProfileFileFn,
     this.addImportedAccountFn,
     this.setImportedAccountPasswordFn,
+    this.exportToxFn,
+    this.exportFullBackupFn,
   });
   final FfiChatService service;
   final Stream<bool>
@@ -202,6 +205,11 @@ class SettingsPage extends StatefulWidget {
   final SettingsPickImportFileFn? pickImportFileFn;
   final SettingsImportAccountDataFn? importAccountDataFn;
   final EncryptProfileFileFn? encryptProfileFileFn;
+
+  /// Test seams for the in-session exports; default to
+  /// [exportToxFromSettings] / [exportFullBackupFromSettings].
+  final SettingsExportFn? exportToxFn;
+  final SettingsExportFn? exportFullBackupFn;
   final SettingsAddImportedAccountFn? addImportedAccountFn;
   final SettingsSetImportedAccountPasswordFn? setImportedAccountPasswordFn;
 
@@ -647,30 +655,24 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
-      final exportPassword = await _showConfirmPasswordDialog(
-        l10n.enterPasswordToExport,
+      // Live session: only the EXPORT password is asked (the at-rest
+      // profile opens with the session password). Full backups are always
+      // encrypted, so the dialog refuses an empty one.
+      final exportPassword = await showExportPasswordDialog(
+        context,
+        allowEmpty: false,
       );
-      if (exportPassword == null) return;
-      if (exportPassword.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l10n.invalidPassword),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-        return;
-      }
+      if (exportPassword == null || exportPassword.isEmpty) return;
 
       final outcome = await runAccountExportFlow(
         dialogTitle: l10n.exportAccount,
         defaultFileName: buildFullBackupExportFileName(),
-        export: ({String? filePath}) => AccountExportService.exportFullBackup(
-          toxId: toxId,
-          password: exportPassword,
-          filePath: filePath,
-        ),
+        export: ({String? filePath}) =>
+            (widget.exportFullBackupFn ?? exportFullBackupFromSettings)(
+              toxId: toxId,
+              password: exportPassword,
+              filePath: filePath,
+            ),
       );
       if (outcome == null) return;
       _showAccountExportOutcome(
@@ -706,27 +708,12 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    // Check if account has password
-    final hasPassword = await Prefs.hasAccountPassword(toxId);
-    String? password;
-
-    if (hasPassword) {
-      password = await _showConfirmPasswordDialog(l10n.enterPasswordToExport);
-      if (password == null) return;
-
-      final isValid = await Prefs.verifyAccountPassword(toxId, password);
-      if (!isValid) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.invalidPassword),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-        return;
-      }
-    }
+    // Live session: ask only for the EXPORT password, never the account
+    // password (the at-rest profile opens with the session password). Empty
+    // = an unencrypted .tox, which the dialog warns about while it is empty.
+    final chosen = await showExportPasswordDialog(context, allowEmpty: true);
+    if (chosen == null) return;
+    final password = exportPasswordOrNull(chosen);
 
     try {
       final account = await Prefs.getAccountByToxId(toxId);
@@ -738,11 +725,12 @@ class _SettingsPageState extends State<SettingsPage> {
           nickname: nickname,
           suffix: '.tox',
         ),
-        export: ({String? filePath}) => AccountExportService.exportAccountData(
-          toxId: toxId,
-          password: password,
-          filePath: filePath,
-        ),
+        export: ({String? filePath}) =>
+            (widget.exportToxFn ?? exportToxFromSettings)(
+              toxId: toxId,
+              password: password,
+              filePath: filePath,
+            ),
       );
       if (outcome == null) return;
       _showAccountExportOutcome(
@@ -890,10 +878,6 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (context) => PasswordPromptDialog(title: title),
     );
   }
-
-  /// Password + confirmation dialog for exports; returns the password on match.
-  Future<String?> _showConfirmPasswordDialog(String title) =>
-      showExportPasswordDialog(context, title);
 
   Future<String?> _showSetPasswordDialog(bool hasPassword) async {
     final passwordController = TextEditingController();

@@ -15,8 +15,8 @@ import '../../util/feature_flags.dart';
 import '../../util/logger.dart';
 import '../../util/mobile_export_policy.dart';
 import '../../util/prefs.dart';
-import '../../util/session_password_store.dart';
 import '../../util/safe_diagnostics.dart';
+import '../settings/export_password_dialog.dart';
 
 part 'first_run_backup_wizard_parts.dart';
 
@@ -40,8 +40,10 @@ enum FirstRunBackupWizardResult {
 /// the user reaches HomePage. The wizard is non-dismissable (no tap-outside-
 /// to-close) and offers exactly two paths:
 ///
-/// 1. **Export now** — opens a file save dialog and writes the `.tox` file
-///    via [AccountExportService.exportAccountData]. On success, the wizard
+/// 1. **Export now** — asks for an EXPORT password (independent of the
+///    account password; empty = unencrypted under a visible warning), opens a
+///    file save dialog and writes the `.tox` file via
+///    [AccountExportService.exportAccountData]. On success, the wizard
 ///    returns [FirstRunBackupWizardResult.exported].
 /// 2. **I'll do it later** — opens a SECOND confirmation dialog quoting the
 ///    explicit data-loss consequence. Only if the user confirms there does
@@ -70,11 +72,17 @@ class FirstRunBackupWizard extends StatefulWidget {
   final String nickname;
 
   /// Test hook: overrides the real [AccountExportService.exportAccountData]
-  /// call so widget tests can run without a real FFI library loaded.
-  /// Production code must NOT pass this — leaving it null routes to the
-  /// real service.
+  /// call so widget tests can run without a real FFI library loaded. Receives
+  /// the EXPORT password the user chose (null = unencrypted) so tests can
+  /// prove what reaches the exporter. Production code must NOT pass this —
+  /// leaving it null routes to the real service.
   @visibleForTesting
-  final Future<String?> Function(String toxId, String nickname)? exportOverride;
+  final Future<String?> Function(
+    String toxId,
+    String nickname,
+    String? exportPassword,
+  )?
+  exportOverride;
 
   @visibleForTesting
   final bool? isDesktopExportPlatformOverride;
@@ -118,6 +126,12 @@ class FirstRunBackupWizard extends StatefulWidget {
 
 class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
   bool _busy = false;
+
+  /// Single-flight for the export-password prompt, which runs BEFORE [_busy]
+  /// is set (a cancel must leave the wizard exactly as it was). Without it a
+  /// double-fired Export opened two password dialogs, and the success pop
+  /// then hit the leftover dialog instead of the wizard route.
+  bool _promptingExportPassword = false;
   String? _statusMessage;
   bool _statusIsError = false;
   // Single-step "wizard" today (one explainer + one CTA). The progress bar is
@@ -129,36 +143,25 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
   static const int _totalSteps = 1;
   static const int _currentStep = 1;
 
-  /// The password this export must be encrypted with, or null for an
-  /// unprotected account.
-  ///
-  /// The wizard runs immediately after registration, and at that moment a
-  /// password-protected account's `tox_profile.tox` is PLAINTEXT on disk —
-  /// `registerNewAccount` encrypts it, verifies, then reopens the scoped service
-  /// against the decrypted file. So exporting the raw bytes produced an
-  /// UNENCRYPTED backup of an account the user had just chosen to protect, and
-  /// on mobile that copy also stayed in app storage. Reuse the live session
-  /// password so the backup carries the same protection the account does.
-  ///
-  /// Returns null when the account has no password. Throws when it HAS one but
-  /// the session password is unavailable (which should not happen this soon
-  /// after registration) — refusing beats silently writing a plaintext backup;
-  /// Settings' export prompts for the password and is the recovery path.
-  Future<String?> _exportPassword() async {
-    if (!await Prefs.hasAccountPassword(widget.toxId)) return null;
-    final sessionPassword = SessionPasswordStore.get(widget.toxId);
-    if (sessionPassword == null || sessionPassword.isEmpty) {
-      throw StateError(
-        'refusing to write an unencrypted backup of a password-protected '
-        'account: the session password is unavailable',
-      );
-    }
-    return sessionPassword;
-  }
-
   Future<void> _exportNow() async {
-    if (_busy) return;
+    if (_busy || _promptingExportPassword) return;
     final l10n = AppLocalizations.of(context)!;
+    // The EXPORT password, chosen by the user — never the account password
+    // silently reused. (The wizard used to seal a protected account's backup
+    // with the session password: a backup whose password silently changes
+    // meaning the day the account password changes.) The at-rest profile is
+    // still opened with the live session password inside the exporter. Asked
+    // BEFORE the picker / exporter on every platform branch; cancel = stay
+    // on the wizard with nothing written.
+    _promptingExportPassword = true;
+    final String? chosen;
+    try {
+      chosen = await showExportPasswordDialog(context, allowEmpty: true);
+    } finally {
+      _promptingExportPassword = false;
+    }
+    if (chosen == null || !mounted) return;
+    final exportPassword = exportPasswordOrNull(chosen);
     setState(() {
       _busy = true;
       _statusMessage = null;
@@ -197,7 +200,11 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
 
       MobileExportSaveResult? mobileSaveResult;
       if (widget.exportOverride != null && isDesktopPlatform) {
-        await widget.exportOverride!(widget.toxId, widget.nickname);
+        await widget.exportOverride!(
+          widget.toxId,
+          widget.nickname,
+          exportPassword,
+        );
       } else if (!isDesktopPlatform) {
         final createAndSaveCopy =
             widget.createAndSaveMobileExportCopyOverride ??
@@ -208,6 +215,7 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
               final path = await widget.exportOverride!(
                 widget.toxId,
                 widget.nickname,
+                exportPassword,
               );
               if (path == null || path.isEmpty) {
                 throw StateError('Export override did not create a file');
@@ -216,7 +224,7 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
             }
             return AccountExportService.exportAccountData(
               toxId: widget.toxId,
-              password: await _exportPassword(),
+              password: exportPassword,
             );
           },
           dialogTitle: l10n.firstRunBackupWizardTitle,
@@ -239,7 +247,7 @@ class _FirstRunBackupWizardState extends State<FirstRunBackupWizard> {
       } else {
         await AccountExportService.exportAccountData(
           toxId: widget.toxId,
-          password: await _exportPassword(),
+          password: exportPassword,
           filePath: outputPath,
         );
       }

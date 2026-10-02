@@ -1108,9 +1108,6 @@ class AppLocalizationsAr extends AppLocalizations {
   String get changePassword => 'تغيير كلمة المرور';
 
   @override
-  String get enterPasswordToExport => 'أدخل كلمة المرور لتصدير الحساب';
-
-  @override
   String get enterPasswordToImport => 'أدخل كلمة المرور لاستيراد الحساب';
 
   @override
@@ -2240,4 +2237,36 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       'اختر ملف تعريف ‎.tox أو نسخة احتياطية كاملة ‎.zip';
+
+  @override
+  String get exportPasswordDialogTitle => 'اختر كلمة مرور للتصدير';
+
+  @override
+  String get exportPasswordLabel => 'كلمة مرور التصدير';
+
+  @override
+  String get confirmExportPasswordLabel => 'تأكيد كلمة مرور التصدير';
+
+  @override
+  String get exportPasswordExplanation =>
+      'تحمي كلمة المرور هذه الملف المُصدَّر فقط، وهي منفصلة عن كلمة مرور حسابك. ستحتاج إليها لاستيراد الملف.';
+
+  @override
+  String get exportPasswordOptionalHint => 'اتركها فارغة للتصدير دون تشفير';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      'لا توجد كلمة مرور للتصدير: سيُحفظ الملف دون تشفير. يحتوي على المفتاح الخاص لهذا الحساب، لذا يمكن لأي شخص يحصل عليه استخدام الحساب دون أي كلمة مرور.';
+
+  @override
+  String get exportPasswordRequired =>
+      'تتطلب النسخة الاحتياطية الكاملة كلمة مرور للتصدير';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return 'أدخل كلمة مرور الحساب \"$nickname\" لتصديره';
+  }
+
+  @override
+  String get exportUnencryptedButton => 'تصدير دون تشفير';
 }

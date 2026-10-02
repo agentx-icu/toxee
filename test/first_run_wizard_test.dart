@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/i18n/app_localizations.dart';
+import 'package:toxee/ui/testing/ui_keys_settings.dart';
 import 'package:toxee/ui/widgets/first_run_backup_wizard.dart';
 import 'package:toxee/util/feature_flags.dart';
 import 'package:toxee/util/mobile_export_policy.dart';
@@ -33,7 +34,7 @@ class _ResultHolder {
 }
 
 Widget _harness({
-  required Future<String?> Function(String, String)? exportOverride,
+  required Future<String?> Function(String, String, String?)? exportOverride,
   required _ResultHolder holder,
   bool? isDesktopExportPlatformOverride,
   MobileExportSaveFile? mobileExportSaveFile,
@@ -84,6 +85,28 @@ Widget _harness({
   );
 }
 
+/// "Export now" first asks for the EXPORT password (never the account
+/// password silently reused). Type [password] (empty = unencrypted) and OK.
+Future<void> _confirmExportPassword(
+  WidgetTester tester, {
+  String password = '',
+}) async {
+  await tester.pumpAndSettle();
+  expect(find.byKey(SettingsUiKeys.exportPasswordField), findsOneWidget);
+  if (password.isNotEmpty) {
+    await tester.enterText(
+      find.byKey(SettingsUiKeys.exportPasswordField),
+      password,
+    );
+    await tester.enterText(
+      find.byKey(SettingsUiKeys.exportPasswordConfirmField),
+      password,
+    );
+  }
+  await tester.tap(find.byKey(SettingsUiKeys.exportPasswordOkButton));
+  await tester.pump();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -103,7 +126,7 @@ void main() {
     ) async {
       final holder = _ResultHolder();
       await tester.pumpWidget(
-        _harness(exportOverride: (_, __) async => null, holder: holder),
+        _harness(exportOverride: (_, __, ___) async => null, holder: holder),
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -141,7 +164,7 @@ void main() {
       final holder = _ResultHolder();
       await tester.pumpWidget(
         _harness(
-          exportOverride: (toxId, nickname) async =>
+          exportOverride: (toxId, nickname, _) async =>
               '/tmp/test_${toxId.substring(0, 8)}.tox',
           holder: holder,
         ),
@@ -152,6 +175,7 @@ void main() {
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );
+      await _confirmExportPassword(tester);
       await tester.pumpAndSettle();
 
       // After the wizard pops, the captured Future resolves.
@@ -167,7 +191,7 @@ void main() {
       final holder = _ResultHolder();
       await tester.pumpWidget(
         _harness(
-          exportOverride: (_, __) async {
+          exportOverride: (_, __, ___) async {
             throw Exception(privateDetail);
           },
           holder: holder,
@@ -178,6 +202,7 @@ void main() {
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );
+      await _confirmExportPassword(tester);
       await tester.pumpAndSettle();
 
       // Inline error surface, wizard still mounted.
@@ -214,7 +239,7 @@ void main() {
       await tester.pumpWidget(
         _harness(
           isDesktopExportPlatformOverride: false,
-          exportOverride: (_, __) async {
+          exportOverride: (_, __, ___) async {
             internalFile.writeAsBytesSync(const <int>[4, 5, 6]);
             return internalFile.path;
           },
@@ -263,6 +288,7 @@ void main() {
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );
+      await _confirmExportPassword(tester);
       for (var i = 0; i < 20 && routeResult == null; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
@@ -286,7 +312,7 @@ void main() {
       await tester.pumpWidget(
         _harness(
           isDesktopExportPlatformOverride: false,
-          exportOverride: (_, __) async {
+          exportOverride: (_, __, ___) async {
             internalFile.writeAsBytesSync(const <int>[7, 8, 9]);
             return internalFile.path;
           },
@@ -331,6 +357,7 @@ void main() {
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );
+      await _confirmExportPassword(tester);
       for (
         var i = 0;
         i < 20 && find.text('Cancelled').evaluate().isEmpty;
@@ -357,7 +384,7 @@ void main() {
       (tester) async {
         final holder = _ResultHolder();
         await tester.pumpWidget(
-          _harness(exportOverride: (_, __) async => null, holder: holder),
+          _harness(exportOverride: (_, __, ___) async => null, holder: holder),
         );
         await tester.tap(find.text('open'));
         await tester.pumpAndSettle();
@@ -383,7 +410,7 @@ void main() {
     ) async {
       final holder = _ResultHolder();
       await tester.pumpWidget(
-        _harness(exportOverride: (_, __) async => null, holder: holder),
+        _harness(exportOverride: (_, __, ___) async => null, holder: holder),
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -416,6 +443,167 @@ void main() {
       );
       navState.pop();
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('FirstRunBackupWizard export password', () {
+    Future<void> openAndTapExport(WidgetTester tester) async {
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('firstRunBackupWizard.exportButton')),
+      );
+    }
+
+    testWidgets('desktop: the chosen export password reaches the exporter', (
+      tester,
+    ) async {
+      final holder = _ResultHolder();
+      final seen = <String?>[];
+      await tester.pumpWidget(
+        _harness(
+          isDesktopExportPlatformOverride: true,
+          exportOverride: (_, __, pw) async {
+            seen.add(pw);
+            return '/tmp/x.tox';
+          },
+          holder: holder,
+        ),
+      );
+      await openAndTapExport(tester);
+      await _confirmExportPassword(tester, password: 'wizard export pw');
+      await tester.pumpAndSettle();
+      expect(seen, ['wizard export pw']);
+      expect(await holder.future, FirstRunBackupWizardResult.exported);
+    });
+
+    testWidgets('mobile: the chosen export password reaches the exporter', (
+      tester,
+    ) async {
+      final holder = _ResultHolder();
+      final seen = <String?>[];
+      await tester.pumpWidget(
+        _harness(
+          isDesktopExportPlatformOverride: false,
+          exportOverride: (_, __, pw) async {
+            seen.add(pw);
+            return '/tmp/x.tox';
+          },
+          createAndSaveMobileExportCopyOverride:
+              ({
+                required createInternalExport,
+                required dialogTitle,
+                required fileName,
+                required saveFile,
+              }) async {
+                final internalFilePath = await createInternalExport();
+                return MobileExportSaveResult(
+                  disposition: MobileExportSaveDisposition.exported,
+                  internalFilePath: internalFilePath,
+                  userSelectedPath: '/user-visible/$fileName',
+                );
+              },
+          holder: holder,
+        ),
+      );
+      await openAndTapExport(tester);
+      await _confirmExportPassword(tester, password: 'mobile export pw');
+      await tester.pumpAndSettle();
+      expect(seen, ['mobile export pw']);
+      expect(await holder.future, FirstRunBackupWizardResult.exported);
+    });
+
+    testWidgets('empty export password: warning shown, exports unencrypted', (
+      tester,
+    ) async {
+      final holder = _ResultHolder();
+      final seen = <String?>[];
+      await tester.pumpWidget(
+        _harness(
+          isDesktopExportPlatformOverride: true,
+          exportOverride: (_, __, pw) async {
+            seen.add(pw);
+            return '/tmp/x.tox';
+          },
+          holder: holder,
+        ),
+      );
+      await openAndTapExport(tester);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(SettingsUiKeys.exportPasswordEmptyWarning),
+        findsOneWidget,
+      );
+      await _confirmExportPassword(tester);
+      await tester.pumpAndSettle();
+      expect(seen, [null]);
+    });
+
+    testWidgets('cancelling the export password writes nothing; retry works', (
+      tester,
+    ) async {
+      final holder = _ResultHolder();
+      final seen = <String?>[];
+      await tester.pumpWidget(
+        _harness(
+          isDesktopExportPlatformOverride: true,
+          exportOverride: (_, __, pw) async {
+            seen.add(pw);
+            return '/tmp/x.tox';
+          },
+          holder: holder,
+        ),
+      );
+      await openAndTapExport(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(SettingsUiKeys.exportPasswordCancelButton));
+      await tester.pumpAndSettle();
+      expect(seen, isEmpty);
+      // Still on the wizard, not busy: Export now works again.
+      expect(
+        find.byKey(const Key('firstRunBackupWizard.exportButton')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const Key('firstRunBackupWizard.exportButton')),
+      );
+      await _confirmExportPassword(tester, password: 'second try');
+      await tester.pumpAndSettle();
+      expect(seen, ['second try']);
+      expect(await holder.future, FirstRunBackupWizardResult.exported);
+    });
+    testWidgets('a double-fired Export opens ONE password dialog', (
+      tester,
+    ) async {
+      final holder = _ResultHolder();
+      final seen = <String?>[];
+      await tester.pumpWidget(
+        _harness(
+          isDesktopExportPlatformOverride: true,
+          exportOverride: (_, __, pw) async {
+            seen.add(pw);
+            return '/tmp/x.tox';
+          },
+          holder: holder,
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('firstRunBackupWizard.exportButton')),
+      );
+      button.onPressed!();
+      button.onPressed!();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(SettingsUiKeys.exportPasswordField, skipOffstage: false),
+        findsOneWidget,
+      );
+      await _confirmExportPassword(tester, password: 'once');
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(seen, ['once']);
+      expect(await holder.future, FirstRunBackupWizardResult.exported);
     });
   });
 }

@@ -2110,12 +2110,6 @@ abstract class AppLocalizations {
   /// **'Change Password'**
   String get changePassword;
 
-  /// Prompt for password when exporting account
-  ///
-  /// In en, this message translates to:
-  /// **'Enter password to export account'**
-  String get enterPasswordToExport;
-
   /// Prompt for password when importing account
   ///
   /// In en, this message translates to:
@@ -4011,6 +4005,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Choose a .tox profile or a .zip full backup'**
   String get importUnsupportedFileType;
+
+  /// Title of the export-password dialog shown before every account export (.tox / full backup)
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an export password'**
+  String get exportPasswordDialogTitle;
+
+  /// Label of the export-password field (protects only the exported file)
+  ///
+  /// In en, this message translates to:
+  /// **'Export password'**
+  String get exportPasswordLabel;
+
+  /// Label of the export-password confirmation field
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm export password'**
+  String get confirmExportPasswordLabel;
+
+  /// Export-password dialog: explains the export password is independent of the account password
+  ///
+  /// In en, this message translates to:
+  /// **'This password protects only the exported file and is separate from your account password. You will need it to import the file.'**
+  String get exportPasswordExplanation;
+
+  /// Hint in the .tox export-password field: empty means an unencrypted export
+  ///
+  /// In en, this message translates to:
+  /// **'Leave empty to export without encryption'**
+  String get exportPasswordOptionalHint;
+
+  /// Warning shown in the .tox export-password dialog while the export password is empty
+  ///
+  /// In en, this message translates to:
+  /// **'No export password: the file will be saved UNENCRYPTED. It contains this account\'s private key, so anyone who gets it can use the account without any password.'**
+  String get exportPasswordEmptyWarning;
+
+  /// Inline error when a full backup is confirmed with an empty export password
+  ///
+  /// In en, this message translates to:
+  /// **'A full backup needs an export password'**
+  String get exportPasswordRequired;
+
+  /// Login page export: prompt for the ACCOUNT password of a protected saved account before the export-password dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the account password of \"{nickname}\" to export it'**
+  String enterAccountPasswordToExport(String nickname);
+
+  /// Confirm button of the .tox export-password dialog while the export password is empty (replaces OK)
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted'**
+  String get exportUnencryptedButton;
 }
 
 class _AppLocalizationsDelegate
