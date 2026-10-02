@@ -121,6 +121,81 @@ Future<_AccountListRead> _readAccountList(SharedPreferences p) async {
   return _AccountListRead(rows, lossy: dropped > 0);
 }
 
+/// Whether [toxId] is in the registry, answered without trusting the parsed
+/// rows: [_readAccountList] DROPS malformed rows, so "not in the decoded list"
+/// does not prove absence. Callers that would destroy something on absence
+/// (e.g. `StrandedVerifierCleanup`) must act only on [absent].
+enum AccountRegistryPresence {
+  /// Some row names this identity (full address, 64-char public key or the
+  /// 16-char legacy form), whether or not the rest of the row decodes.
+  present,
+
+  /// The payload decodes as a JSON array, every row carries a readable
+  /// `toxId`, and none of them is this identity.
+  absent,
+
+  /// The payload cannot be decoded, or some row's identity cannot be read,
+  /// so absence cannot be proven.
+  unknown,
+}
+
+/// Identity equivalence as the registry stores it: a row may hold the 76-char
+/// address, the 64-char public key (imports) or the 16-char legacy prefix, so
+/// two ids are the same identity when they agree over the shorter of the two —
+/// capped at the 64-char public key, because the nospam + checksum suffix can
+/// change while the identity (and its verifier alias, keyed by public key)
+/// stays the same; never shorter than the 16-char prefix the on-disk layout
+/// is keyed by.
+bool _sameRegistryIdentity(String a, String b) {
+  var n = a.length < b.length ? a.length : b.length;
+  if (n > 64) n = 64;
+  if (n < 16) return a == b;
+  return a.substring(0, n) == b.substring(0, n);
+}
+
+Future<AccountRegistryPresence> _accountRegistryPresenceImpl(
+  SharedPreferences p,
+  String toxId,
+) async {
+  final wanted = toxId.trim().toUpperCase();
+  if (wanted.isEmpty) return AccountRegistryPresence.unknown;
+  final accountsJson = p.getString(Prefs._kAccountList);
+  if (accountsJson == null || accountsJson.isEmpty) {
+    return AccountRegistryPresence.absent;
+  }
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(accountsJson);
+  } catch (_) {
+    return AccountRegistryPresence.unknown;
+  }
+  if (decoded is! List) return AccountRegistryPresence.unknown;
+  // Inspect the identity field of each row directly, never through the
+  // `Map<String, String>` cast the decoder applies to whole rows: a row with a
+  // valid toxId and, say, a numeric nickname is still that account.
+  var ambiguous = false;
+  for (final row in decoded) {
+    if (row is! Map) {
+      ambiguous = true;
+      continue;
+    }
+    final id = row['toxId'];
+    if (id is! String) {
+      ambiguous = true;
+      continue;
+    }
+    final rowId = id.trim().toUpperCase();
+    // No usable key: noise, not an account (the decoder drops it too).
+    if (rowId.isEmpty) continue;
+    if (_sameRegistryIdentity(rowId, wanted)) {
+      return AccountRegistryPresence.present;
+    }
+  }
+  return ambiguous
+      ? AccountRegistryPresence.unknown
+      : AccountRegistryPresence.absent;
+}
+
 Future<List<Map<String, String>>> _getAccountListImpl(
   SharedPreferences p,
 ) async {

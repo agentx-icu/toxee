@@ -1111,10 +1111,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get changePassword => 'Change Password';
 
   @override
-  String get enterPasswordToExport => 'Enter password to export account';
+  String get enterPasswordToImport => 'Enter password to import account';
 
   @override
-  String get enterPasswordToImport => 'Enter password to import account';
+  String get enterBackupAccountPassword =>
+      'Enter the account password of this backup';
 
   @override
   String enterPasswordForAccount(String nickname) {
@@ -2261,6 +2262,38 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get importUnsupportedFileType =>
       'Choose a .tox profile or a .zip full backup';
+
+  @override
+  String get exportPasswordDialogTitle => 'Choose an export password';
+
+  @override
+  String get exportPasswordLabel => 'Export password';
+
+  @override
+  String get confirmExportPasswordLabel => 'Confirm export password';
+
+  @override
+  String get exportPasswordExplanation =>
+      'This password protects only the exported file and is separate from your account password. You will need it to import the file.';
+
+  @override
+  String get exportPasswordOptionalHint =>
+      'Leave empty to export without encryption';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      'No export password: the file will be saved UNENCRYPTED. It contains this account\'s private key, so anyone who gets it can use the account without any password.';
+
+  @override
+  String get exportPasswordRequired => 'A full backup needs an export password';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return 'Enter the account password of \"$nickname\" to export it';
+  }
+
+  @override
+  String get exportUnencryptedButton => 'Export unencrypted';
 
   @override
   String get selfConversationLocalOnly => 'Saved on this device only';

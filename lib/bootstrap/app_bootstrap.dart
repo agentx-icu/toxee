@@ -21,6 +21,7 @@ import '../util/account_service.dart';
 import '../util/app_paths.dart';
 import '../util/logger.dart';
 import '../util/safe_diagnostics.dart';
+import '../util/stranded_verifier_cleanup.dart';
 import 'app_bootstrap_result.dart';
 import 'app_runtime_bootstrap.dart';
 import 'desktop_shell_bootstrap.dart';
@@ -176,6 +177,7 @@ class AppBootstrap {
   static Future<void> recoverPendingRestoreBeforeAccountExposure({
     Future<void> Function()? recoverPendingRestore,
     Future<void> Function()? recoverPendingDeletions,
+    Future<void> Function()? retryStrandedVerifiers,
     Future<void> Function()? reconcileAccounts,
   }) async {
     final recover =
@@ -199,9 +201,19 @@ class AppBootstrap {
         () async {
           await AccountService.recoverPendingAccountDeletions();
         };
+    final retryVerifiers =
+        retryStrandedVerifiers ??
+        () async {
+          await StrandedVerifierCleanup.retryPending();
+        };
 
     await recover();
     await recoverDeletions();
+    // A verifier a failed registration could not delete gates nothing and
+    // blocks nothing, so its retry sits before the fail-closed checks below:
+    // it runs on every start, including one that ends on the recovery screen
+    // or skips orphan adoption.
+    await retryVerifiers();
     // A deletion record we could neither parse NOR attribute to an account means
     // some account may be half-deleted with nothing gating it. There is no safe
     // guess, so refuse to expose any account — the caller turns this into the

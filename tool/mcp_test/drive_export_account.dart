@@ -1,7 +1,12 @@
 // Minimal driver for S43 export-account (.tox) on a single logged-in instance.
 //
 // Usage:
-//   dart run tool/mcp_test/drive_export_account.dart <ws_uri> <output_path>
+//   dart run tool/mcp_test/drive_export_account.dart <ws_uri> <output_path> [export_password]
+//
+// The `.tox` export asks for an EXPORT password (independent of the account
+// password; never the account password silently reused). Without
+// [export_password] the driver confirms the dialog empty = an UNENCRYPTED
+// `.tox` (prefix != toxEsave); with it, the file is sealed with that password.
 //
 // Assumes the instance is already on HomePage with a signed-in test account.
 
@@ -14,12 +19,14 @@ import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
 Future<int> main(List<String> args) async {
-  if (args.length != 2) {
-    stderr.writeln('usage: drive_export_account.dart <ws_uri> <output_path>');
+  if (args.length != 2 && args.length != 3) {
+    stderr.writeln(
+        'usage: drive_export_account.dart <ws_uri> <output_path> [export_password]');
     return 64;
   }
   final wsUri = args[0];
   final outputPath = args[1];
+  final exportPassword = args.length == 3 ? args[2] : '';
   final outFile = File(outputPath);
   if (await outFile.exists()) {
     await outFile.delete();
@@ -39,6 +46,15 @@ Future<int> main(List<String> args) async {
         attempts: 20, intervalMs: 500, label: 'tap export account');
     await _retry(() => d.tapKey('settings_export_profile_tox_option'),
         attempts: 20, intervalMs: 500, label: 'tap profile tox option');
+    if (exportPassword.isNotEmpty) {
+      await _retry(
+          () => d.enterTextByKey('settings_export_password_field', exportPassword),
+          attempts: 20, intervalMs: 500, label: 'enter export password');
+      await d.enterTextByKey(
+          'settings_export_password_confirm_field', exportPassword);
+    }
+    await _retry(() => d.tapKey('settings_export_password_ok_button'),
+        attempts: 20, intervalMs: 500, label: 'confirm export password');
 
     await _retry(() async {
       if (!await outFile.exists()) {
@@ -85,6 +101,11 @@ class _Driver {
 
   Future<void> tapKey(String key) async {
     await _call('ext.flutter.marionette.tap', <String, Object?>{'key': key});
+  }
+
+  Future<void> enterTextByKey(String key, String input) async {
+    await _call('ext.flutter.marionette.enterText',
+        <String, Object?>{'key': key, 'input': input});
   }
 
   Future<void> setExportSavePath(String path) async {

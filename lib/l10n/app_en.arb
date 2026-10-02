@@ -1090,13 +1090,13 @@
   "@changePassword": {
     "description": "Title for change password dialog"
   },
-  "enterPasswordToExport": "Enter password to export account",
-  "@enterPasswordToExport": {
-    "description": "Prompt for password when exporting account"
-  },
   "enterPasswordToImport": "Enter password to import account",
   "@enterPasswordToImport": {
     "description": "Prompt for password when importing account"
+  },
+  "enterBackupAccountPassword": "Enter the account password of this backup",
+  "@enterBackupAccountPassword": {
+    "description": "Second prompt of a full-backup import: the backup's own tox_profile.tox is encrypted under the ACCOUNT password of the install that wrote it, which is independent of the archive password asked for first"
   },
   "enterPasswordForAccount": "Enter password for account \"{nickname}\"",
   "@enterPasswordForAccount": {
@@ -2392,6 +2392,47 @@
   "importUnsupportedFileType": "Choose a .tox profile or a .zip full backup",
   "@importUnsupportedFileType": {
     "description": "Account import refused because the picked file is neither a .tox profile nor a .zip full backup (the Android picker cannot filter by extension)"
+  },
+  "exportPasswordDialogTitle": "Choose an export password",
+  "@exportPasswordDialogTitle": {
+    "description": "Title of the export-password dialog shown before every account export (.tox / full backup)"
+  },
+  "exportPasswordLabel": "Export password",
+  "@exportPasswordLabel": {
+    "description": "Label of the export-password field (protects only the exported file)"
+  },
+  "confirmExportPasswordLabel": "Confirm export password",
+  "@confirmExportPasswordLabel": {
+    "description": "Label of the export-password confirmation field"
+  },
+  "exportPasswordExplanation": "This password protects only the exported file and is separate from your account password. You will need it to import the file.",
+  "@exportPasswordExplanation": {
+    "description": "Export-password dialog: explains the export password is independent of the account password"
+  },
+  "exportPasswordOptionalHint": "Leave empty to export without encryption",
+  "@exportPasswordOptionalHint": {
+    "description": "Hint in the .tox export-password field: empty means an unencrypted export"
+  },
+  "exportPasswordEmptyWarning": "No export password: the file will be saved UNENCRYPTED. It contains this account's private key, so anyone who gets it can use the account without any password.",
+  "@exportPasswordEmptyWarning": {
+    "description": "Warning shown in the .tox export-password dialog while the export password is empty"
+  },
+  "exportPasswordRequired": "A full backup needs an export password",
+  "@exportPasswordRequired": {
+    "description": "Inline error when a full backup is confirmed with an empty export password"
+  },
+  "enterAccountPasswordToExport": "Enter the account password of \"{nickname}\" to export it",
+  "@enterAccountPasswordToExport": {
+    "description": "Login page export: prompt for the ACCOUNT password of a protected saved account before the export-password dialog",
+    "placeholders": {
+      "nickname": {
+        "type": "String"
+      }
+    }
+  },
+  "exportUnencryptedButton": "Export unencrypted",
+  "@exportUnencryptedButton": {
+    "description": "Confirm button of the .tox export-password dialog while the export password is empty (replaces OK)"
   },
   "selfConversationLocalOnly": "Saved on this device only",
   "@selfConversationLocalOnly": {

@@ -131,6 +131,7 @@ void main() {
         AppBootstrap.recoverPendingRestoreBeforeAccountExposure(
           recoverPendingRestore: () async {},
           recoverPendingDeletions: () async {},
+          retryStrandedVerifiers: () async {},
           reconcileAccounts: () async =>
               fail('reconciliation must not run with an unattributable record'),
         ),

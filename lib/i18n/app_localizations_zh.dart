@@ -1068,10 +1068,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get changePassword => '修改密码';
 
   @override
-  String get enterPasswordToExport => '输入密码以导出账号';
+  String get enterPasswordToImport => '输入密码以导入账号';
 
   @override
-  String get enterPasswordToImport => '输入密码以导入账号';
+  String get enterBackupAccountPassword => '输入此备份的账号密码';
 
   @override
   String enterPasswordForAccount(String nickname) {
@@ -2131,6 +2131,36 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
 
   @override
+  String get exportPasswordDialogTitle => '设置导出密码';
+
+  @override
+  String get exportPasswordLabel => '导出密码';
+
+  @override
+  String get confirmExportPasswordLabel => '确认导出密码';
+
+  @override
+  String get exportPasswordExplanation => '此密码只保护导出的文件，与账号密码相互独立。导入该文件时需要它。';
+
+  @override
+  String get exportPasswordOptionalHint => '留空则不加密导出';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      '未设置导出密码：文件将以未加密形式保存。它包含此账号的私钥，任何拿到文件的人无需任何密码即可使用此账号。';
+
+  @override
+  String get exportPasswordRequired => '完整备份必须设置导出密码';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return '输入账号 \"$nickname\" 的账号密码以导出';
+  }
+
+  @override
+  String get exportUnencryptedButton => '不加密导出';
+
+  @override
   String get selfConversationLocalOnly => '仅保存在本机';
 }
 
@@ -3154,10 +3184,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get changePassword => '修改密码';
 
   @override
-  String get enterPasswordToExport => '输入密码以导出账号';
+  String get enterPasswordToImport => '输入密码以导入账号';
 
   @override
-  String get enterPasswordToImport => '输入密码以导入账号';
+  String get enterBackupAccountPassword => '输入此备份的账号密码';
 
   @override
   String enterPasswordForAccount(String nickname) {
@@ -3751,6 +3781,36 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get importUnsupportedFileType => '请选择 .tox 资料文件或 .zip 完整备份';
+
+  @override
+  String get exportPasswordDialogTitle => '设置导出密码';
+
+  @override
+  String get exportPasswordLabel => '导出密码';
+
+  @override
+  String get confirmExportPasswordLabel => '确认导出密码';
+
+  @override
+  String get exportPasswordExplanation => '此密码只保护导出的文件，与账号密码相互独立。导入该文件时需要它。';
+
+  @override
+  String get exportPasswordOptionalHint => '留空则不加密导出';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      '未设置导出密码：文件将以未加密形式保存。它包含此账号的私钥，任何拿到文件的人无需任何密码即可使用此账号。';
+
+  @override
+  String get exportPasswordRequired => '完整备份必须设置导出密码';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return '输入账号 \"$nickname\" 的账号密码以导出';
+  }
+
+  @override
+  String get exportUnencryptedButton => '不加密导出';
 
   @override
   String get selfConversationLocalOnly => '仅保存在本机';
@@ -4820,10 +4880,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get changePassword => '修改密碼';
 
   @override
-  String get enterPasswordToExport => '輸入密碼以匯出帳號';
+  String get enterPasswordToImport => '輸入密碼以匯入帳號';
 
   @override
-  String get enterPasswordToImport => '輸入密碼以匯入帳號';
+  String get enterBackupAccountPassword => '輸入此備份的帳號密碼';
 
   @override
   String enterPasswordForAccount(String nickname) {
@@ -5881,6 +5941,36 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get importUnsupportedFileType => '請選擇 .tox 資料檔或 .zip 完整備份';
+
+  @override
+  String get exportPasswordDialogTitle => '設定匯出密碼';
+
+  @override
+  String get exportPasswordLabel => '匯出密碼';
+
+  @override
+  String get confirmExportPasswordLabel => '確認匯出密碼';
+
+  @override
+  String get exportPasswordExplanation => '此密碼只保護匯出的檔案，與帳號密碼彼此獨立。匯入該檔案時需要它。';
+
+  @override
+  String get exportPasswordOptionalHint => '留空則不加密匯出';
+
+  @override
+  String get exportPasswordEmptyWarning =>
+      '未設定匯出密碼：檔案將以未加密形式儲存。它包含此帳號的私鑰，任何取得檔案的人無需任何密碼即可使用此帳號。';
+
+  @override
+  String get exportPasswordRequired => '完整備份必須設定匯出密碼';
+
+  @override
+  String enterAccountPasswordToExport(String nickname) {
+    return '輸入帳號 \"$nickname\" 的帳號密碼以匯出';
+  }
+
+  @override
+  String get exportUnencryptedButton => '不加密匯出';
 
   @override
   String get selfConversationLocalOnly => '僅保存在本機';

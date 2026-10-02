@@ -401,6 +401,7 @@ extension _SettingsPageBuild on _SettingsPageState {
                     runSpacing: AppSpacing.sm,
                     children: [
                       OutlinedButton.icon(
+                        key: SettingsUiKeys.importAccountButton,
                         icon: const Icon(Icons.download, size: 18),
                         label: Text(
                           AppLocalizations.of(context)!.importAccount,

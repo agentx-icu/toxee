@@ -181,9 +181,17 @@ class LoginPageController {
   /// Imports an account from a .tox or .zip file. Uses [requestPassword] when
   /// file is encrypted. The UI supplies an [importedAccountDefaultName] which
   /// is used when the imported backup carries no nickname.
+  ///
+  /// [requestProfilePassword] is the SECOND prompt of an older full backup
+  /// whose `tox_profile.tox` is ciphertext under the account password of the
+  /// install that wrote it — a different credential from the archive password.
+  /// It gets its own callback so the UI can title it differently; with the
+  /// same title the user naturally retyped the archive password and the import
+  /// ended in a bare "Invalid password". Falls back to [requestPassword].
   Future<ImportResult> importAccount({
     required Future<String?> Function() requestPassword,
     required String importedAccountDefaultName,
+    Future<String?> Function()? requestProfilePassword,
     @visibleForTesting String? filePathOverride,
   }) async {
     String? rollbackToxId;
@@ -250,7 +258,7 @@ class LoginPageController {
               return const ImportFailure(ImportFailureKind.invalidPassword);
             }
             profilePrompted = true;
-            profilePassword = await requestPassword();
+            profilePassword = await (requestProfilePassword ?? requestPassword)();
             if (profilePassword == null) {
               return const ImportFailure(ImportFailureKind.cancelled);
             }

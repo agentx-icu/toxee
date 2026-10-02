@@ -14,6 +14,8 @@ import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import 'account_export_flow.dart';
+import 'export_password_dialog.dart';
+import 'settings_export_actions.dart';
 import '../../util/imported_account_name.dart';
 import '../../util/account_export/tox_import_journal.dart';
 import '../../util/legacy_account_data_claim.dart';
@@ -26,6 +28,8 @@ import '../widgets/bottom_sheet_handle.dart';
 import '../widgets/safe_dialog_pop.dart';
 import '../widgets/section_header.dart';
 import '../widgets/stagger_list_item.dart';
+import '../login/password_prompt_dialog.dart';
+import '../testing/l3_debug_tools.dart';
 import '../testing/ui_keys.dart';
 import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
@@ -106,8 +110,11 @@ typedef SettingsAddImportedAccountFn =
 typedef SettingsSetImportedAccountPasswordFn =
     Future<bool> Function(String toxId, String password);
 
-Future<String?> _pickSettingsImportFile() =>
-    pickAccountImportFile(const ['tox', 'zip']);
+// Same L3 seam as the login page's import: the real button is driven, only the
+// native picker is bypassed (no-op outside the debug L3 surface).
+Future<String?> _pickSettingsImportFile() => runL3AwareAccountImportPicker(
+  pickFile: () => pickAccountImportFile(const ['tox', 'zip']),
+);
 
 Future<void> _addSettingsImportedAccount({
   required String toxId,
@@ -175,6 +182,8 @@ class SettingsPage extends StatefulWidget {
     this.encryptProfileFileFn,
     this.addImportedAccountFn,
     this.setImportedAccountPasswordFn,
+    this.exportToxFn,
+    this.exportFullBackupFn,
   });
   final FfiChatService service;
   final Stream<bool>
@@ -196,6 +205,11 @@ class SettingsPage extends StatefulWidget {
   final SettingsPickImportFileFn? pickImportFileFn;
   final SettingsImportAccountDataFn? importAccountDataFn;
   final EncryptProfileFileFn? encryptProfileFileFn;
+
+  /// Test seams for the in-session exports; default to
+  /// [exportToxFromSettings] / [exportFullBackupFromSettings].
+  final SettingsExportFn? exportToxFn;
+  final SettingsExportFn? exportFullBackupFn;
   final SettingsAddImportedAccountFn? addImportedAccountFn;
   final SettingsSetImportedAccountPasswordFn? setImportedAccountPasswordFn;
 
@@ -641,30 +655,24 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     try {
-      final exportPassword = await _showConfirmPasswordDialog(
-        l10n.enterPasswordToExport,
+      // Live session: only the EXPORT password is asked (the at-rest
+      // profile opens with the session password). Full backups are always
+      // encrypted, so the dialog refuses an empty one.
+      final exportPassword = await showExportPasswordDialog(
+        context,
+        allowEmpty: false,
       );
-      if (exportPassword == null) return;
-      if (exportPassword.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l10n.invalidPassword),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-        return;
-      }
+      if (exportPassword == null || exportPassword.isEmpty) return;
 
       final outcome = await runAccountExportFlow(
         dialogTitle: l10n.exportAccount,
         defaultFileName: buildFullBackupExportFileName(),
-        export: ({String? filePath}) => AccountExportService.exportFullBackup(
-          toxId: toxId,
-          password: exportPassword,
-          filePath: filePath,
-        ),
+        export: ({String? filePath}) =>
+            (widget.exportFullBackupFn ?? exportFullBackupFromSettings)(
+              toxId: toxId,
+              password: exportPassword,
+              filePath: filePath,
+            ),
       );
       if (outcome == null) return;
       _showAccountExportOutcome(
@@ -700,27 +708,12 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    // Check if account has password
-    final hasPassword = await Prefs.hasAccountPassword(toxId);
-    String? password;
-
-    if (hasPassword) {
-      password = await _showConfirmPasswordDialog(l10n.enterPasswordToExport);
-      if (password == null) return;
-
-      final isValid = await Prefs.verifyAccountPassword(toxId, password);
-      if (!isValid) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.invalidPassword),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-        return;
-      }
-    }
+    // Live session: ask only for the EXPORT password, never the account
+    // password (the at-rest profile opens with the session password). Empty
+    // = an unencrypted .tox, which the dialog warns about while it is empty.
+    final chosen = await showExportPasswordDialog(context, allowEmpty: true);
+    if (chosen == null) return;
+    final password = exportPasswordOrNull(chosen);
 
     try {
       final account = await Prefs.getAccountByToxId(toxId);
@@ -732,11 +725,12 @@ class _SettingsPageState extends State<SettingsPage> {
           nickname: nickname,
           suffix: '.tox',
         ),
-        export: ({String? filePath}) => AccountExportService.exportAccountData(
-          toxId: toxId,
-          password: password,
-          filePath: filePath,
-        ),
+        export: ({String? filePath}) =>
+            (widget.exportToxFn ?? exportToxFromSettings)(
+              toxId: toxId,
+              password: password,
+              filePath: filePath,
+            ),
       );
       if (outcome == null) return;
       _showAccountExportOutcome(
@@ -875,114 +869,13 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<String?> _showPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
+  /// Import password prompts (archive, embedded profile, `.tox`). The shared
+  /// [PasswordPromptDialog] owns its TextEditingController (the inline version
+  /// here leaked one per prompt) and carries the automation keys.
+  Future<String?> _showPasswordDialog(String title) {
     return showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        scrollable: true,
-        title: Text(title),
-        content: TextField(
-          controller: passwordController,
-          autofocus: true,
-          obscureText: true,
-          textAlignVertical: TextAlignVertical.center,
-          keyboardType: TextInputType.visiblePassword,
-          textInputAction: TextInputAction.done,
-          autofillHints: const [AutofillHints.password],
-          decoration: InputDecoration(
-            labelText: AppLocalizations.of(context)!.password,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(
-                AppThemeConfig.inputBorderRadius,
-              ),
-            ),
-          ),
-          onSubmitted: (value) => popDialogIfCurrent(context, value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () =>
-                popDialogIfCurrent(context, passwordController.text),
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Password + confirmation dialog for exports; returns the password on match.
-  Future<String?> _showConfirmPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        // Landscape + keyboard leaves ~140 px for two fields: must scroll.
-        scrollable: true,
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.password,
-                hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppThemeConfig.inputBorderRadius,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: confirmController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.confirmPassword,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppThemeConfig.inputBorderRadius,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () {
-              final pwd = passwordController.text;
-              if (pwd != confirmController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      AppLocalizations.of(context)!.passwordsDoNotMatch,
-                    ),
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                  ),
-                );
-                return;
-              }
-              popDialogIfCurrent(context, pwd);
-            },
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
-      ),
+      builder: (context) => PasswordPromptDialog(title: title),
     );
   }
 

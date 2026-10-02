@@ -14,6 +14,11 @@ extension _LoginImportFlow on _LoginPageState {
       final l10n = AppLocalizations.of(context)!;
       final result = await _loginController.importAccount(
         requestPassword: () => _showPasswordDialog(l10n.enterPasswordToImport),
+        // An older backup's profile is ciphertext under the ACCOUNT password of
+        // the install that wrote it: a different credential, so a different
+        // title (see LoginPageController.importAccount).
+        requestProfilePassword: () =>
+            _showPasswordDialog(l10n.enterBackupAccountPassword),
         importedAccountDefaultName: l10n.importedAccountDefaultName,
       );
       if (!mounted) return;

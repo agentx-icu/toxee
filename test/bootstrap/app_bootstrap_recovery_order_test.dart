@@ -18,6 +18,8 @@ void main() {
         events.add('restore:complete');
       },
       recoverPendingDeletions: () async => events.add('deletion:complete'),
+      retryStrandedVerifiers: () async =>
+          events.add('stranded-verifier-retry'),
       reconcileAccounts: () async => events.add('reconciliation'),
     );
 
@@ -30,6 +32,7 @@ void main() {
       'restore:start',
       'restore:complete',
       'deletion:complete',
+      'stranded-verifier-retry',
       'reconciliation',
     ]);
   });
@@ -44,6 +47,7 @@ void main() {
         AppBootstrap.recoverPendingRestoreBeforeAccountExposure(
           recoverPendingRestore: () async => throw failure,
           recoverPendingDeletions: () async {},
+          retryStrandedVerifiers: () async {},
           reconcileAccounts: () async => reconciled = true,
         ),
         throwsA(same(failure)),
