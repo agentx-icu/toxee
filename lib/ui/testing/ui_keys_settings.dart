@@ -39,4 +39,24 @@ class SettingsUiKeys {
   // (see LoginUiKeys.passwordPrompt*).
   // ---------------------------------------------------------------------
   static const Key importAccountButton = Key('settings_import_account_button');
+
+  // ---------------------------------------------------------------------
+  // ExportPasswordDialog (lib/ui/settings/export_password_dialog.dart)
+  //
+  // The password + confirmation prompt in front of BOTH settings exports
+  // (`.tox` and full backup). On iOS the system save sheet after it cannot be
+  // driven over the VM service, so the dialog itself must be — it carried no
+  // anchors at all until the 2026-10-01 at-rest verification needed them.
+  // ---------------------------------------------------------------------
+
+  static const Key exportPasswordField = Key('settings_export_password_field');
+  static const Key exportPasswordConfirmField = Key(
+    'settings_export_password_confirm_field',
+  );
+  static const Key exportPasswordOkButton = Key(
+    'settings_export_password_ok_button',
+  );
+  static const Key exportPasswordCancelButton = Key(
+    'settings_export_password_cancel_button',
+  );
 }

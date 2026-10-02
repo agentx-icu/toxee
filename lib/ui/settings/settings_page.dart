@@ -14,6 +14,7 @@ import 'dart:math';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import 'account_export_flow.dart';
+import 'export_password_dialog.dart';
 import '../../util/imported_account_name.dart';
 import '../../util/account_export/tox_import_journal.dart';
 import '../../util/legacy_account_data_claim.dart';
@@ -891,75 +892,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// Password + confirmation dialog for exports; returns the password on match.
-  Future<String?> _showConfirmPasswordDialog(String title) async {
-    final passwordController = TextEditingController();
-    final confirmController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        // Landscape + keyboard leaves ~140 px for two fields: must scroll.
-        scrollable: true,
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.password,
-                hintText: AppLocalizations.of(context)!.ircChannelPasswordHint,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppThemeConfig.inputBorderRadius,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: confirmController,
-              obscureText: true,
-              textAlignVertical: TextAlignVertical.center,
-              decoration: InputDecoration(
-                labelText: AppLocalizations.of(context)!.confirmPassword,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppThemeConfig.inputBorderRadius,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => popDialogIfCurrent<String>(context),
-            child: Text(AppLocalizations.of(context)!.cancel),
-          ),
-          TextButton(
-            onPressed: () {
-              final pwd = passwordController.text;
-              if (pwd != confirmController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      AppLocalizations.of(context)!.passwordsDoNotMatch,
-                    ),
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                  ),
-                );
-                return;
-              }
-              popDialogIfCurrent(context, pwd);
-            },
-            child: Text(AppLocalizations.of(context)!.ok),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<String?> _showConfirmPasswordDialog(String title) =>
+      showExportPasswordDialog(context, title);
 
   Future<String?> _showSetPasswordDialog(bool hasPassword) async {
     final passwordController = TextEditingController();

@@ -41,15 +41,19 @@ Future<AccountExportFlowResult?> runAccountExportFlow({
 }) async {
   final isDesktopPlatform = isDesktopExportPlatform();
 
-  String? outputPath;
-  if (isDesktopPlatform) {
-    outputPath = await runL3AwareExportSaveFilePicker(
-      dialogTitle: dialogTitle,
-      fileName: defaultFileName,
-      saveFile: (title, fileName) =>
-          FilePicker.platform.saveFile(dialogTitle: title, fileName: fileName),
-    );
-  }
+  // Desktop asks for the destination up front. Mobile normally has no path
+  // yet — the system save sheet below takes the bytes — but the L3 export-save
+  // override applies there too: the iOS export sheet / Android SAF sheet cannot
+  // be driven over the VM service, so when the harness has armed a path the
+  // export is written straight to it, exactly as on desktop.
+  final outputPath = await runL3AwareExportSaveFilePicker(
+    dialogTitle: dialogTitle,
+    fileName: defaultFileName,
+    saveFile: isDesktopPlatform
+        ? (title, fileName) =>
+              FilePicker.platform.saveFile(dialogTitle: title, fileName: fileName)
+        : (_, _) async => null,
+  );
   if (!shouldContinueAccountExport(
     isDesktopPlatform: isDesktopPlatform,
     outputPath: outputPath,
@@ -57,7 +61,7 @@ Future<AccountExportFlowResult?> runAccountExportFlow({
     return null;
   }
 
-  if (isDesktopPlatform) {
+  if (outputPath != null) {
     return AccountExportFlowResult(
       filePath: await export(filePath: outputPath),
       mobileSaveResult: null,

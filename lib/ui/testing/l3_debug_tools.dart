@@ -36,7 +36,7 @@
 //   - l3_call_action {action}                          accept/reject/hangup/mute/video
 //   - l3_send_text   {userId?|conversationId?, text}   deterministic C2C send
 //   - l3_dump_state  {}                                JSON snapshot for asserts
-//   - l3_set_export_save_path {path?}                  override export saveFile
+//   - l3_set_export_save_path {path?}                  override export saveFile / mobile save sheet
 //   - l3_set_account_import_pick_path {path?}          override restore/import pickFiles (also allowed with NO account active)
 //   - l3_set_attachment_pick_path {path?}              override message attachment pickFiles
 //   - l3_accept_friend_request {userId}                deterministic accept
@@ -3440,9 +3440,9 @@ MCPCallEntry _l3SetExportSavePathEntry() => MCPCallEntry.tool(
     name: 'l3_set_export_save_path',
     description:
         'L3 TEST ONLY (test/seed account): set or clear the debug-only '
-        'saveFile override used by Settings export flows. When set, '
-        'export save dialogs are bypassed and the fixed path is returned. '
-        'Pass an empty path to clear it.',
+        'saveFile override used by Settings export flows. When set, the '
+        'desktop save panel AND the mobile system save sheet are bypassed and '
+        'the export is written to the fixed path. Empty path clears it.',
     inputSchema: ObjectSchema(
       properties: {
         'path': StringSchema(
