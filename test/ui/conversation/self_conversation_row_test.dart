@@ -100,6 +100,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// The UIKit's signed-in user is global state; check the test still owns it
+  /// so a failure says whether the row logic or the precondition broke.
+  void expectSignedInAs(String userID) => expect(
+        TencentCloudChat.instance.dataInstance.basic.currentUser?.userID,
+        userID,
+        reason: 'precondition: the UIKit current user is the test identity',
+      );
+
   Future<void> pumpRow(WidgetTester tester, V2TimConversation conversation) =>
       tester.pumpWidget(
         _app(
@@ -148,6 +156,7 @@ void main() {
     signInAs(_selfToxId); // a Tox address: compared on its public key
 
     await pumpRow(tester, _c2c(_selfKey, 'Ann'));
+    expectSignedInAs(_selfToxId);
     final selfCell = tester.widget<SwipeActionCell>(find.byType(SwipeActionCell));
     expect(selfCell.trailingActions, hasLength(1), reason: 'pin only');
     await hold(tester, find.text('Ann'));
@@ -170,6 +179,7 @@ void main() {
     useScreen(DeviceScreenType.mobile);
     signInAs(_selfKey);
     await pumpRow(tester, _c2c(_selfKey, 'Ann', unread: 2));
+    expectSignedInAs(_selfKey);
     final cell = tester.widget<SwipeActionCell>(find.byType(SwipeActionCell));
     expect(cell.trailingActions, hasLength(2), reason: 'pin + More');
     await hold(tester, find.text('Ann'));
@@ -188,6 +198,7 @@ void main() {
     signInAs(_selfKey);
 
     await pumpRow(tester, _c2c(_selfKey, 'Ann'));
+    expectSignedInAs(_selfKey);
     await tester.tap(find.text('Ann'), buttons: kSecondaryButton);
     await tester.pumpAndSettle();
     expect(find.text('Delete'), findsNothing);
