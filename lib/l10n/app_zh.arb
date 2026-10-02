@@ -887,5 +887,6 @@
   "exportPasswordEmptyWarning": "未设置导出密码：文件将以未加密形式保存。它包含此账号的私钥，任何拿到文件的人无需任何密码即可使用此账号。",
   "exportPasswordRequired": "完整备份必须设置导出密码",
   "enterAccountPasswordToExport": "输入账号 \"{nickname}\" 的账号密码以导出",
-  "exportUnencryptedButton": "不加密导出"
+  "exportUnencryptedButton": "不加密导出",
+  "selfConversationLocalOnly": "仅保存在本机"
 }

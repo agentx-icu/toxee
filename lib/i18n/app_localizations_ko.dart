@@ -2202,4 +2202,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get exportUnencryptedButton => '암호화하지 않고 내보내기';
+
+  @override
+  String get selfConversationLocalOnly => '이 기기에만 저장됨';
 }

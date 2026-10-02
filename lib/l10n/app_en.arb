@@ -2433,5 +2433,9 @@
   "exportUnencryptedButton": "Export unencrypted",
   "@exportUnencryptedButton": {
     "description": "Confirm button of the .tox export-password dialog while the export password is empty (replaces OK)"
+  },
+  "selfConversationLocalOnly": "Saved on this device only",
+  "@selfConversationLocalOnly": {
+    "description": "Chat header subtitle of the self conversation (note to self): its messages stay on this device and are never sent"
   }
 }

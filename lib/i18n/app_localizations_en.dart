@@ -2294,4 +2294,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get exportUnencryptedButton => 'Export unencrypted';
+
+  @override
+  String get selfConversationLocalOnly => 'Saved on this device only';
 }

@@ -118,6 +118,13 @@ class _TombstoneFfi implements FfiChatService {
   @override
   String get selfId => 'SELF';
 
+  // No identity loaded in this fake: no self conversation.
+  @override
+  String? get selfPublicKey => null;
+
+  @override
+  bool isSelfPeer(String peerId) => false;
+
   @override
   Future<List<({String userId, String nickName, String status, bool online})>>
   getFriendList() async =>

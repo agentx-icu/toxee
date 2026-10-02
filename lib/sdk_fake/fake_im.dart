@@ -7,7 +7,8 @@ import '../util/tox_utils.dart';
 import '../util/logger.dart';
 import 'uikit_data_facade.dart';
 import 'fake_event_bus.dart';
-import 'fake_managers.dart' show buildConversationsFromFriends;
+import 'conversation_list_builder.dart';
+import 'self_conversation.dart';
 import 'fake_models.dart';
 import 'group_tombstone_lift.dart';
 
@@ -280,11 +281,9 @@ class FakeIM {
             }
           }
           // Fallbacks if not found in history: activePeerId, then most recent peer.
-          // We refuse to emit a self-conversation (`c2c_${selfId}`) because there
-          // is no such chat in the product — doing so creates a ghost entry in
-          // the conversation list. If we can't resolve a target, drop the
-          // immediate emit; the conversation refresh below will pick the message
-          // up from history on the next cycle.
+          // `selfId` is the login alias, never a chat (notes to self are keyed by
+          // the public key and resolve through the msgID lookup above). If still
+          // unresolved, drop the emit; the next refresh picks it up from history.
           if (convId == null) {
             if (ffi.activePeerId != null && ffi.activePeerId != ffi.selfId) {
               convId = 'c2c_${ffi.activePeerId}';
@@ -441,6 +440,7 @@ class FakeIM {
       getGroupActivityMs: (gid) =>
           ffi.lastMessages[gid]?.timestamp.millisecondsSinceEpoch,
       getGroupType: (gid) => UikitDataFacade.getGroupInfo(gid).groupType,
+      self: await resolveSelfConversation(ffi),
     );
     for (final conv in convs) {
       bus.emit(topicConversation, conv);

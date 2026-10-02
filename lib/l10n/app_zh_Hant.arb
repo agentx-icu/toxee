@@ -1059,5 +1059,6 @@
   "exportPasswordEmptyWarning": "未設定匯出密碼：檔案將以未加密形式儲存。它包含此帳號的私鑰，任何取得檔案的人無需任何密碼即可使用此帳號。",
   "exportPasswordRequired": "完整備份必須設定匯出密碼",
   "enterAccountPasswordToExport": "輸入帳號 \"{nickname}\" 的帳號密碼以匯出",
-  "exportUnencryptedButton": "不加密匯出"
+  "exportUnencryptedButton": "不加密匯出",
+  "selfConversationLocalOnly": "僅保存在本機"
 }

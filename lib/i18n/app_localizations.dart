@@ -4059,6 +4059,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Export unencrypted'**
   String get exportUnencryptedButton;
+
+  /// Chat header subtitle of the self conversation (note to self): its messages stay on this device and are never sent
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this device only'**
+  String get selfConversationLocalOnly;
 }
 
 class _AppLocalizationsDelegate

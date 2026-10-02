@@ -2269,4 +2269,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get exportUnencryptedButton => 'تصدير دون تشفير';
+
+  @override
+  String get selfConversationLocalOnly => 'محفوظ على هذا الجهاز فقط';
 }

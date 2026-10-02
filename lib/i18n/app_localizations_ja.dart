@@ -2202,4 +2202,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get exportUnencryptedButton => '暗号化せずにエクスポート';
+
+  @override
+  String get selfConversationLocalOnly => 'この端末にのみ保存';
 }

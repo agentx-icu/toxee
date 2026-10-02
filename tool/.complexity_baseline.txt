@@ -56,7 +56,7 @@ lib/call/call_ui_components.dart:678
 lib/call/video_handler.dart:769
 lib/notifications/notification_service.dart:1152
 lib/sdk_fake/fake_im.dart:871
-lib/sdk_fake/fake_managers.dart:802
+lib/sdk_fake/fake_managers.dart:622
 lib/sdk_fake/fake_msg_provider.dart:806
 lib/sdk_fake/fake_msg_provider_file_progress.dart:555
 lib/sdk_fake/fake_msg_provider_mapping.dart:1004
@@ -72,8 +72,8 @@ lib/ui/add_group_dialog.dart:711
 # per line. A re-pin, not an amnesty.
 lib/ui/applications/applications_page.dart:1460
 lib/ui/group/group_builder_override.dart:887
-lib/ui/home_page.dart:2402
-lib/ui/home_page_bootstrap.dart:1631
+lib/ui/home_page.dart:2308
+lib/ui/home_page_bootstrap.dart:1591
 lib/ui/login_page.dart:1508
 lib/ui/profile_page.dart:577
 lib/ui/search/custom_search.dart:1018

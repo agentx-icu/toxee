@@ -115,6 +115,13 @@ class _DraftRestartFfi implements FfiChatService {
   @override
   int getUnreadOf(String peerId) => 0;
 
+  // No identity loaded in this fake: no self conversation.
+  @override
+  String? get selfPublicKey => null;
+
+  @override
+  bool isSelfPeer(String peerId) => false;
+
   @override
   Set<String> get knownGroups => const <String>{};
 

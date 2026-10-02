@@ -100,12 +100,31 @@ class _ToxeeMessageHeaderInfoState extends State<ToxeeMessageHeaderInfo> {
   V2TimConversation? get _conversation =>
       _liveConversation ?? widget.conversation;
 
+  /// Whether [userID] is the signed-in user (UIKit's current user carries the
+  /// real Tox key), compared on the 64-char public key, case-insensitively.
+  static bool _isSelf(String userID) {
+    String key(String? id) {
+      final trimmed = (id ?? '').trim();
+      return (trimmed.length > 64 ? trimmed.substring(0, 64) : trimmed)
+          .toUpperCase();
+    }
+
+    final me =
+        key(TencentCloudChat.instance.dataInstance.basic.currentUser?.userID);
+    return me.isNotEmpty && key(userID) == me;
+  }
+
   String _getStatusText(BuildContext context) {
     final conv = _conversation;
     if (conv == null) return '';
     // C2C: show online/offline
     if (conv.type == 1) {
       final uid = conv.userID ?? widget.userID ?? '';
+      if (_isSelf(uid)) {
+        // The self conversation ("note to self"): never online or offline —
+        // its messages stay on this device.
+        return AppLocalizations.of(context)?.selfConversationLocalOnly ?? '';
+      }
       if (uid.isNotEmpty) {
         final isOnline = widget.getUserOnlineStatus(userID: uid);
         final tL10n = TencentCloudChatLocalizations.of(context);

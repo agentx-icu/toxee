@@ -2159,6 +2159,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get exportUnencryptedButton => '不加密导出';
+
+  @override
+  String get selfConversationLocalOnly => '仅保存在本机';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3808,6 +3811,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get exportUnencryptedButton => '不加密导出';
+
+  @override
+  String get selfConversationLocalOnly => '仅保存在本机';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5965,4 +5971,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get exportUnencryptedButton => '不加密匯出';
+
+  @override
+  String get selfConversationLocalOnly => '僅保存在本機';
 }

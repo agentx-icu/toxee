@@ -1097,5 +1097,6 @@
   "exportPasswordEmptyWarning": "لا توجد كلمة مرور للتصدير: سيُحفظ الملف دون تشفير. يحتوي على المفتاح الخاص لهذا الحساب، لذا يمكن لأي شخص يحصل عليه استخدام الحساب دون أي كلمة مرور.",
   "exportPasswordRequired": "تتطلب النسخة الاحتياطية الكاملة كلمة مرور للتصدير",
   "enterAccountPasswordToExport": "أدخل كلمة مرور الحساب \"{nickname}\" لتصديره",
-  "exportUnencryptedButton": "تصدير دون تشفير"
+  "exportUnencryptedButton": "تصدير دون تشفير",
+  "selfConversationLocalOnly": "محفوظ على هذا الجهاز فقط"
 }
