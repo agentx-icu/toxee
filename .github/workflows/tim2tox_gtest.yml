@@ -1,0 +1,83 @@
+name: Tim2Tox Native Unit Tests
+
+# The tim2tox C++ gtest suite (third_party/tim2tox/test/*.cpp, built with
+# TIM2TOX_BUILD_TESTS=ON). Before this job it ran in NO CI at all — tim2tox has
+# no workflows of its own and every other job here builds only the FFI library
+# — so red tests accumulated silently between manual runs on a Mac (two
+# source-regression tests sat red for weeks in 2026-09).
+#
+# Ubuntu only: the suite is mostly source-contract and pure-logic tests that
+# behave the same on every host, and it builds in a few minutes. The compiler
+# flags match the Linux FFI build in tool/ci/build_tim2tox.sh (GCC flags the
+# implicit V2TIMFriendInfo copy-assignment as deprecated-copy; the members are
+# all value types, so the implicit assignment is correct).
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run when a PR is pushed again. Scoped to
+  # pull_request so a push-to-master / tag / cron run is never aborted midway.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gtest:
+    name: tim2tox gtest (linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libsodium-dev \
+            libopus-dev \
+            libvpx-dev \
+            libsqlite3-dev \
+            libgtest-dev
+
+      - name: Configure
+        working-directory: third_party/tim2tox
+        run: |
+          cmake -S . -B build_tests -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTIM2TOX_BUILD_TESTS=ON \
+            -DBUILD_FFI=OFF \
+            -DBUILD_TOXAV=OFF \
+            -DMUST_BUILD_TOXAV=OFF \
+            -DBOOTSTRAP_DAEMON=OFF \
+            -DDHT_BOOTSTRAP=OFF \
+            -DUNITTEST=OFF \
+            -DAUTOTEST=OFF \
+            -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-copy -Wno-error=format"
+
+      - name: Build
+        working-directory: third_party/tim2tox
+        run: cmake --build build_tests -j"$(nproc)"
+
+      # ctest must run from build_tests/test: the top-level build dir does not
+      # see the tests registered by the test/ subdirectory.
+      - name: Run
+        working-directory: third_party/tim2tox/build_tests/test
+        run: ctest --output-on-failure -j"$(nproc)"

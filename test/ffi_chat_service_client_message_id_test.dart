@@ -170,6 +170,37 @@ void main() {
     );
 
     test(
+      'disconnected group send keeps the armed read-receipt intent on its row',
+      () async {
+        const groupId = 'client-message-id-receipt-group';
+        service.debugSetConnected(false);
+        service.armNextSendNeedReadReceipt(true);
+
+        final asked = await service.sendGroupTextWithResult(
+          groupId,
+          'receipt please',
+          clientMessageID: 'client-group-receipt-1',
+        );
+        final plain = await service.sendGroupTextWithResult(
+          groupId,
+          'no receipt',
+          clientMessageID: 'client-group-receipt-2',
+        );
+
+        // The intent is author-local (it never travels on the wire), so the
+        // pending ROW is its carrier: drain flips this row in place, and the
+        // row's JSON is what a reload rebuilds the receipt indicator from.
+        expect(asked.isPending, isTrue);
+        expect(asked.needReadReceipt, isTrue);
+        expect(plain.needReadReceipt, isFalse, reason: 'the arm is one-shot');
+        final history = service.getHistory(groupId);
+        expect(history.map((m) => m.needReadReceipt), [true, false]);
+        expect(history.first.toJson()['needReadReceipt'], isTrue);
+      },
+      skip: skipReason,
+    );
+
+    test(
       'legacy queue JSON without cloudCustomData remains readable',
       () async {
         final queueFile = File('${tempRoot.path}/legacy_queue.json');

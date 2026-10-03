@@ -78,6 +78,8 @@ class _FakeRecorderChannel {
   // production cancel branch (which deletes the recorded file) never trips a
   // PathNotFoundException.
   String? stopPath;
+  // When true, `stop` returns null (the recorder produced no file).
+  bool stopReturnsNull = false;
   final List<File> _createdFiles = [];
   final List<EventChannel> _eventChannels = [];
 
@@ -136,6 +138,7 @@ class _FakeRecorderChannel {
           case 'getAmplitude':
             return <String, dynamic>{'current': -30.0, 'max': -20.0};
           case 'stop':
+            if (stopReturnsNull) return null;
             return stopPath ?? _freshRealRecording();
           case 'start':
           case 'cancel':
@@ -468,6 +471,50 @@ void main() {
         );
       },
     );
+
+    // The discarded-recording delete used to be fire-and-forget: a cancel whose
+    // file is already gone (or that produced none) raised PathNotFoundException
+    // as an UNHANDLED async error, failing whichever test happened to be running
+    // when it landed - the load-dependent flake of this file in full runs.
+    for (final noFile in ['missing file', 'no file']) {
+      testWidgets('cancel with $noFile raises no unhandled error', (
+        tester,
+      ) async {
+        useMobileSurface(tester);
+        if (noFile == 'no file') {
+          recorder.stopReturnsNull = true;
+        } else {
+          recorder.stopPath =
+              '${Directory.systemTemp.path}/rec-gone-${DateTime.now().microsecondsSinceEpoch}.m4a';
+        }
+        final key = GlobalKey<TencentCloudChatMessageInputRecordingState>();
+        final errors = <Object>[];
+
+        await tester.pumpWidget(
+          _localized(
+            child: TencentCloudChatMessageInputRecording(
+              key: key,
+              isRecording: false,
+              onRecordFinish: (_) {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.runAsync(() async {
+          await runZonedGuarded(() async {
+            await key.currentState!.startRecording();
+            await key.currentState!.stopRecording(cancel: true);
+            // Let any stray delete future complete inside this zone.
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }, (e, _) => errors.add(e));
+        });
+        await tester.pumpAndSettle();
+
+        expect(recorder.methods, contains('stop'));
+        expect(errors, isEmpty);
+      });
+    }
 
     testWidgets('dispose while recording removes the global pointer route', (
       tester,

@@ -5,17 +5,27 @@
 //   * `l3_mark_group_read` (this file) drives
 //     `V2TIMMessageManager.sendMessageReadReceipts` directly — the call the
 //     fork's message list dispatches for group rows carrying
-//     `needReadReceipt`. That author intent has NO carrier on the Tox wire, so
-//     an inbound group row never has it set and this tool needs `force: true`
-//     to do anything; the flag exists so a scenario can never quietly claim the
-//     product gate was exercised when it was bypassed.
+//     `needReadReceipt`. That flag is author-local metadata (it gates the
+//     author's receipt menu / receipt query) and deliberately never travels on
+//     the Tox wire, so an inbound group row never has it set and this tool
+//     needs `force: true` to do anything; the flag exists so a scenario can
+//     never quietly claim the fork's per-row gate was exercised when it was
+//     bypassed.
 //   * `l3_mark_read` with a group target (helper below) drives
 //     `cleanConversationUnreadMessageCount` → `FfiChatService.markConversationRead`,
 //     the same entry point the conversation-row "mark as read" menu item
-//     dispatches. That path does NOT consult `needReadReceipt` — the group
-//     receipt work deliberately stopped depending on a flag that never travels
-//     — so it is the only l3 way to wire group receipts through a path the
-//     product really takes, with no force flag to void the claim.
+//     dispatches. That path does NOT consult `needReadReceipt` — product
+//     group read reporting runs through the conversation/read APIs (chat open,
+//     mark-as-read, markGroupMessageAsRead), subject to their own eligibility
+//     and bounds — so it is the only l3 way to wire group receipts through a
+//     path the product really takes, with no force flag to void the claim.
+//
+// DESIGN DECISION (2026-10-02, codex-reviewed): no wire carrier for the
+// author's intent. A carrier would need capability negotiation with older
+// builds, a new control kind and a per-(group, author, message) correlation
+// store, and a reader that gated on it would stop receipting authors that never
+// announce — regressing the round trip proven by group_read_receipt_tick.
+// Nothing in the current product behaviour needs it.
 //
 // The header here used to say `l3_mark_read` was C2C-only "because
 // markConversationRead only sends C2C receipts". That stopped being true when
@@ -81,13 +91,13 @@ MCPCallEntry _l3MarkGroupReadEntry(
     // by default would make a scenario green on traffic the product would
     // never receipt.
     //
-    // KNOWN GAP the `force` flag exists for: the author's needReadReceipt
-    // intent is a LOCAL flag on the sender's row and has no carrier on the Tox
-    // wire, so an inbound group row never has it set. Correlation (the alias
-    // round trip and the reader tally) is therefore only drivable with
-    // force:true until that intent gets a version-safe wire representation.
-    // force is test-only and must be spelled out by the caller, so a scenario
-    // can never quietly claim the product gate was exercised.
+    // What `force` is for: the author's needReadReceipt intent is a LOCAL
+    // flag on the sender's row that by design never travels on the wire (see
+    // the header), so an inbound group row never has it set and this entry is
+    // only drivable with force:true. The product reaches the same receipts
+    // through l3_mark_read's group branch without it. force is test-only and
+    // must be spelled out by the caller, so a scenario can never quietly claim
+    // the fork's per-row gate was exercised.
     final force = request['force'] == 'true' || request['force'] == true;
     final inbound = ffi
         .getHistory(groupId)
@@ -100,8 +110,9 @@ MCPCallEntry _l3MarkGroupReadEntry(
         message: force
             ? 'l3_mark_group_read: no inbound group message to receipt'
             : 'l3_mark_group_read: no inbound message asks for a receipt '
-                '(inbound=${inbound.length}); the author intent has no wire '
-                'carrier yet — pass force=true to drive correlation',
+                '(inbound=${inbound.length}); the author intent is local to the '
+                'author by design — pass force=true to drive this entry, or use '
+                'l3_mark_read with a groupId for the product path',
         parameters: {
           'ok': false,
           'error': force ? 'no_inbound' : 'no_receipt_requested',
@@ -179,8 +190,8 @@ MCPCallEntry _l3MarkGroupReadEntry(
         'force': StringSchema(
           description:
               'TEST-ONLY "true": receipt every inbound row, ignoring the '
-              'needReadReceipt gate. Needed because the author\'s intent has '
-              'no Tox wire carrier yet, so inbound rows never carry it.',
+              'needReadReceipt gate. Needed because the author\'s intent is '
+              'author-local by design, so inbound rows never carry it.',
         ),
       },
     ),

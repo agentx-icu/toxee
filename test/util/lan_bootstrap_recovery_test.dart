@@ -8,6 +8,7 @@
 // zero production-code change.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:toxee/util/lan_bootstrap_node_ownership.dart';
 import 'package:toxee/util/lan_bootstrap_service.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -79,6 +80,69 @@ void main() {
         reason: 'the dead LAN node must be cleared when no pre-LAN node exists',
       );
     });
+
+    // Recovery clears the running flag BEFORE it drops the snapshot, so a crash
+    // between the two leaves this state (never "running, no snapshot", which
+    // would delete the node just restored). The next cold start must sweep
+    // the stale snapshot and leave the restored current node alone.
+    test('no running-flag + stale snapshot → snapshot swept, current kept',
+        () async {
+      await Prefs.setPreLanBootstrapNode('1.2.3.4', 33445, 'PRELANPUBKEY');
+      await Prefs.setCurrentBootstrapNode('1.2.3.4', 33445, 'PRELANPUBKEY');
+
+      await mgr.recoverFromCrashedSession();
+
+      expect(await Prefs.getPreLanBootstrapNode(), isNull);
+      expect((await Prefs.getCurrentBootstrapNode())?.host, '1.2.3.4');
+      expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+    });
+
+    test('the restore runs while flag and snapshot are both still set, so a '
+        'failed restore loses nothing', () async {
+      await Prefs.setLanBootstrapServiceRunning(true);
+      await Prefs.setPreLanBootstrapNode('203.0.113.7', 33445, 'PRELANKEY');
+      await Prefs.setCurrentBootstrapNode('192.168.1.9', 40000, 'DEADLANKEY');
+      final seen = <String>[];
+      final recordingManager = LanBootstrapServiceManager.forTesting(
+        localAddressProvider: () async => null,
+        setCurrentBootstrapNode: (host, port, pubkey) async {
+          seen.add('running=${await Prefs.getLanBootstrapServiceRunning()} '
+              'snapshot=${(await Prefs.getPreLanBootstrapNode())?.host}');
+          await Prefs.setCurrentBootstrapNode(host, port, pubkey);
+        },
+      );
+
+      await recordingManager.recoverFromCrashedSession();
+
+      expect(seen, ['running=true snapshot=203.0.113.7']);
+      expect((await Prefs.getCurrentBootstrapNode())?.host, '203.0.113.7');
+      expect(await Prefs.getPreLanBootstrapNode(), isNull);
+      expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+    });
+
+    // Recovery runs on the cold-start path before runApp: a store that refuses
+    // the snapshot write must be logged, never thrown into startup.
+    for (final running in [false, true]) {
+      test('a failing snapshot drop does not escape recovery '
+          '(running flag ${running ? 'set' : 'clear'})', () async {
+        await Prefs.setLanBootstrapServiceRunning(running);
+        await Prefs.setPreLanBootstrapNode('203.0.113.7', 33445, 'PRELANKEY');
+        await Prefs.setCurrentBootstrapNode('203.0.113.7', 33445, 'PRELANKEY');
+
+        await recoverLanBootstrapCrash(
+          serviceAlive: false,
+          setCurrentNode: Prefs.setCurrentBootstrapNode,
+          clearSnapshot: () async => throw StateError('simulated store failure'),
+        );
+
+        expect((await Prefs.getCurrentBootstrapNode())?.host, '203.0.113.7');
+        expect(
+          await Prefs.getLanBootstrapServiceRunning(),
+          isFalse,
+          reason: 'the flag clears first, so the leftover snapshot is inert',
+        );
+      });
+    }
 
     test(
       'failed pre-LAN restore preserves snapshot and running flag for retry',
