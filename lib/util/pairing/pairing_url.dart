@@ -35,6 +35,27 @@ class PairingInvite {
   final int version;
 }
 
+/// Why [PairingUrl.decode] rejected an invite. The exception message is
+/// English diagnostic text for logs; the UI localizes by [problem] (with
+/// [detail]) and never shows the message itself.
+enum PairingUrlProblem {
+  /// Damaged or incomplete invite; [PairingUrlException.detail] is null.
+  malformed,
+
+  /// [PairingUrlException.detail] is the invite's protocol version.
+  unsupportedVersion,
+
+  /// [PairingUrlException.detail] is the advertised (non-LAN) IP address.
+  nonLanAddress,
+}
+
+class PairingUrlException extends FormatException {
+  const PairingUrlException(this.problem, super.message, {this.detail});
+
+  final PairingUrlProblem problem;
+  final String? detail;
+}
+
 class PairingUrl {
   PairingUrl._();
 
@@ -63,7 +84,7 @@ class PairingUrl {
   /// inputs (unknown version, wrong scheme/host, public IP, malformed base64).
   ///
   /// Splitting the contract this way means scanner UI can blindly call
-  /// [decode] in a try/catch and surface the FormatException message to the
+  /// [decode] in a try/catch and surface a localized [PairingUrlProblem] to the
   /// user, while silent failures (e.g. user scanned a non-toxee QR) return
   /// null and the scanner just keeps looking.
   static PairingInvite? decode(String url) {
@@ -78,26 +99,38 @@ class PairingUrl {
       return null;
     }
 
-    final versionRaw = uri.queryParameters['v'];
+    // queryParameters decodes lazily and throws a plain FormatException on a
+    // malformed escape (`?v=%FF`); keep every rejection structured.
+    final Map<String, String> query;
+    try {
+      query = uri.queryParameters;
+    } on FormatException catch (e) {
+      throw PairingUrlException(PairingUrlProblem.malformed,
+          'Pairing URL has a malformed query: ${e.message}');
+    }
+    final versionRaw = query['v'];
     if (versionRaw == null) {
-      throw const FormatException('Pairing URL missing version (v=)');
+      throw const PairingUrlException(PairingUrlProblem.malformed,
+          'Pairing URL missing version (v=)');
     }
     final version = int.tryParse(versionRaw);
     if (version == null) {
-      throw FormatException('Pairing URL has malformed version: $versionRaw');
+      throw PairingUrlException(PairingUrlProblem.malformed,
+          'Pairing URL has malformed version: $versionRaw');
     }
     if (version != PairingInvite.currentVersion) {
-      throw FormatException(
+      throw PairingUrlException(
+          PairingUrlProblem.unsupportedVersion,
           'Unsupported pairing protocol version: $version (this app speaks '
-          'v${PairingInvite.currentVersion}). Update both devices to the '
-          'same toxee build.');
+          'v${PairingInvite.currentVersion})',
+          detail: '$version');
     }
 
-    final keyB64 = uri.queryParameters['key'];
-    final nonceB64 = uri.queryParameters['n'];
-    final addr = uri.queryParameters['addr'];
+    final keyB64 = query['key'];
+    final nonceB64 = query['n'];
+    final addr = query['addr'];
     if (keyB64 == null || nonceB64 == null || addr == null) {
-      throw const FormatException(
+      throw const PairingUrlException(PairingUrlProblem.malformed,
           'Pairing URL is missing required parameter (key, n, addr)');
     }
 
@@ -107,36 +140,39 @@ class PairingUrl {
       key = Uint8List.fromList(base64Url.decode(_padBase64(keyB64)));
       nonce = Uint8List.fromList(base64Url.decode(_padBase64(nonceB64)));
     } on FormatException {
-      throw const FormatException('Pairing URL has malformed base64 payload');
+      throw const PairingUrlException(PairingUrlProblem.malformed,
+          'Pairing URL has malformed base64 payload');
     }
 
     if (key.length != 32) {
-      throw FormatException(
+      throw PairingUrlException(PairingUrlProblem.malformed,
           'Pairing URL public key has wrong length: ${key.length} (expected 32)');
     }
     if (nonce.length != 16) {
-      throw FormatException(
+      throw PairingUrlException(PairingUrlProblem.malformed,
           'Pairing URL nonce has wrong length: ${nonce.length} (expected 16)');
     }
 
     final addrParts = addr.split(':');
     if (addrParts.length != 2) {
-      throw FormatException(
+      throw PairingUrlException(PairingUrlProblem.malformed,
           'Pairing URL addr must be "ip:port", got: $addr');
     }
     final ip = addrParts[0];
     final port = int.tryParse(addrParts[1]);
     if (port == null || port <= 0 || port > 65535) {
-      throw FormatException('Pairing URL has invalid port: ${addrParts[1]}');
+      throw PairingUrlException(PairingUrlProblem.malformed,
+          'Pairing URL has invalid port: ${addrParts[1]}');
     }
 
     if (!isPrivateOrLinkLocalIPv4(ip)) {
       // Defense against social-engineering a user into scanning a QR that
       // points to an attacker's public-internet box. Pairing is LAN-only by
       // design (per CEO plan: "Stays P2P (LAN-only). No external relay.").
-      throw FormatException(
-          'Pairing URL points to a non-LAN address: $ip. Pairing is restricted '
-          'to private/link-local IPv4 addresses.');
+      throw PairingUrlException(
+          PairingUrlProblem.nonLanAddress,
+          'Pairing URL points to a non-LAN address: $ip',
+          detail: ip);
     }
 
     return PairingInvite(

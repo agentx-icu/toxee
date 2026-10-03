@@ -1725,8 +1725,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String pairingInvalidUrl(String detail) {
-    return 'That QR code isn\'t a valid pairing invitation: $detail';
+  String get pairingInvalidInvite =>
+      'That QR code isn\'t a valid toxee pairing invitation. Show a new code on the other device and scan it again.';
+
+  @override
+  String pairingVersionMismatch(String theirVersion, String ourVersion) {
+    return 'This invitation uses pairing protocol v$theirVersion, but this app uses v$ourVersion. Update both devices to the same toxee version and try again.';
+  }
+
+  @override
+  String pairingNonLanAddress(String address) {
+    return 'This invitation points to $address, which is not on your local network. Pairing only works between devices on the same LAN.';
   }
 
   @override

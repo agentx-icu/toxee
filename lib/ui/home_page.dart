@@ -1628,7 +1628,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // `initState` — no per-build scheduling needed here.
           return NotificationAccessBanner(
             child: TencentCloudChatConversation(
-              key: ValueKey('uikit-conversation-${locale.languageCode}'),
+              key: ValueKey('uikit-conversation-${locale.toLanguageTag()}'),
               builders: conv_pkg.TencentCloudChatConversationManager.builder,
             ),
           );
@@ -1660,7 +1660,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   // through the if branch, preserving the override.
                   return TencentCloudChatContact(
                     key: ValueKey(
-                      'uikit-contact-${locale.languageCode}-${themeMode.name}',
+                      'uikit-contact-${locale.toLanguageTag()}-${themeMode.name}',
                     ),
                     builders:
                         contact_pkg.TencentCloudChatContactManager.builder,
@@ -1674,7 +1674,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ValueListenableBuilder<Locale>(
         valueListenable: AppLocale.locale,
         builder: (context, locale, _) => ApplicationsPage(
-          key: ValueKey('applications-${locale.languageCode}'),
+          key: ValueKey('applications-${locale.toLanguageTag()}'),
           service: widget.service,
           scrollController: _applicationsScrollController,
         ),
