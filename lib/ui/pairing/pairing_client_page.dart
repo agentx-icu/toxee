@@ -13,6 +13,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_client.dart';
+import '../../util/pairing/pairing_url.dart';
 import '../widgets/qr_scanner_view.dart';
 import 'pairing_centered_message.dart';
 import 'pairing_status_indicator.dart';
@@ -154,8 +155,18 @@ class _PairingClientPageState extends State<PairingClientPage> {
   String _localizeFailure(ClientFailureReason reason, String message) {
     final l10n = AppLocalizations.of(context)!;
     switch (reason) {
+      // The URL reasons carry no English text into the UI: [message] is the
+      // invite's version / IP, or diagnostics for invalidUrl (logged by the
+      // client, not shown).
       case ClientFailureReason.invalidUrl:
-        return l10n.pairingInvalidUrl(message);
+        return l10n.pairingInvalidInvite;
+      case ClientFailureReason.unsupportedVersion:
+        return l10n.pairingVersionMismatch(
+          message,
+          '${PairingInvite.currentVersion}',
+        );
+      case ClientFailureReason.nonLanAddress:
+        return l10n.pairingNonLanAddress(message);
       case ClientFailureReason.cancelled:
         return l10n.pairingCancelled;
       case ClientFailureReason.timeout:

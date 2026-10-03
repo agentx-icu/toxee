@@ -41,7 +41,14 @@ void main() {
         nonce: nonce,
         version: 999,
       ));
-      expect(() => PairingUrl.decode(url), throwsA(isA<FormatException>()));
+      // Structured, so the UI can say it in the user's language.
+      expect(
+        () => PairingUrl.decode(url),
+        throwsA(isA<PairingUrlException>()
+            .having((e) => e.problem, 'problem',
+                PairingUrlProblem.unsupportedVersion)
+            .having((e) => e.detail, 'detail', isNot(isEmpty))),
+      );
     });
 
     test('decode rejects public IPv4 (anti-MITM trickery)', () {
@@ -50,7 +57,20 @@ void main() {
       // pre-computed addresses; the validator runs on the receiving side.
       const url =
           'tox://pair?key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&addr=8.8.8.8:4444&n=AAAAAAAAAAAAAAAAAAAAAA&v=1';
-      expect(() => PairingUrl.decode(url), throwsA(isA<FormatException>()));
+      expect(
+        () => PairingUrl.decode(url),
+        throwsA(isA<PairingUrlException>()
+            .having((e) => e.problem, 'problem', PairingUrlProblem.nonLanAddress)
+            .having((e) => e.detail, 'detail', isNot(isEmpty))),
+      );
+    });
+
+    test('decode keeps a malformed query escape structured', () {
+      expect(
+        () => PairingUrl.decode('tox://pair?v=%FF'),
+        throwsA(isA<PairingUrlException>()
+            .having((e) => e.problem, 'problem', PairingUrlProblem.malformed)),
+      );
     });
 
     test('decode rejects malformed base64', () {

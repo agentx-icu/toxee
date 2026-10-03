@@ -1320,7 +1320,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           style: TextButton.styleFrom(
             foregroundColor: Theme.of(context).colorScheme.error,
           ),
-          child: Text(AppLocalizations.of(context)!.delete),
+          child: Text(AppLocalizations.of(context)!.deleteAccount),
         ),
       ],
     );

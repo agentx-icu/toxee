@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/util/pairing/pairing_client.dart';
 import 'package:toxee/util/pairing/pairing_host.dart';
+import 'package:toxee/util/pairing/pairing_url.dart';
 
 void main() {
   group('Pairing handshake (loopback integration)', () {
@@ -160,6 +161,37 @@ void main() {
       expect(events.last, isA<ClientFailed>());
       expect((events.last as ClientFailed).reason,
           ClientFailureReason.invalidUrl);
+    });
+
+    test('a malformed query escape fails as invalidUrl, not a throw',
+        () async {
+      final client = PairingClient(
+        materializeProfile: (_) async => 'unreachable',
+      );
+      final failed = client.events.firstWhere((e) => e is ClientFailed);
+      await client.connect('tox://pair?v=%FF');
+      final event =
+          await failed.timeout(const Duration(seconds: 5)) as ClientFailed;
+      expect(event.reason, ClientFailureReason.invalidUrl);
+    });
+
+    test('an invite from another protocol version fails with its version, '
+        'not English text', () async {
+      final client = PairingClient(
+        materializeProfile: (_) async => 'unreachable',
+      );
+      final failed = client.events.firstWhere((e) => e is ClientFailed);
+      await client.connect(PairingUrl.encode(PairingInvite(
+        publicKey: Uint8List(32),
+        ipAddress: '10.0.0.1',
+        port: 4444,
+        nonce: Uint8List(16),
+        version: 999,
+      )));
+      final event =
+          await failed.timeout(const Duration(seconds: 5)) as ClientFailed;
+      expect(event.reason, ClientFailureReason.unsupportedVersion);
+      expect(event.message, '999');
     });
   });
 }

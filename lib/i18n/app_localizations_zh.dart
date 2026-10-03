@@ -514,7 +514,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deleteAccountConfirmMessage => '注销后账号与所有数据将永久删除且无法找回，请谨慎操作。';
 
   @override
-  String get delete => '注销';
+  String get delete => '删除';
 
   @override
   String get deleteAccountEnterPasswordToConfirm => '请输入当前账号密码以确认注销。';
@@ -1635,8 +1635,17 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String pairingInvalidUrl(String detail) {
-    return '此二维码不是有效的配对邀请：$detail';
+  String get pairingInvalidInvite =>
+      '此二维码不是有效的 toxee 配对邀请。请在另一台设备上重新显示二维码后再扫描。';
+
+  @override
+  String pairingVersionMismatch(String theirVersion, String ourVersion) {
+    return '此邀请使用配对协议 v$theirVersion，而本应用使用 v$ourVersion。请将两台设备更新到相同版本的 toxee 后重试。';
+  }
+
+  @override
+  String pairingNonLanAddress(String address) {
+    return '此邀请指向 $address，该地址不在你的局域网内。配对只能在同一局域网内的设备之间进行。';
   }
 
   @override
@@ -2674,7 +2683,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get deleteAccountConfirmMessage => '注销后账号与所有数据将永久删除且无法找回，请谨慎操作。';
 
   @override
-  String get delete => '注销';
+  String get delete => '删除';
 
   @override
   String get deleteAccountEnterPasswordToConfirm => '请输入当前账号密码以确认注销。';
@@ -4326,7 +4335,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get deleteAccountConfirmMessage => '註銷後帳號與所有數據將永久刪除且無法找回，請謹慎操作。';
 
   @override
-  String get delete => '註銷';
+  String get delete => '刪除';
 
   @override
   String get deleteAccountEnterPasswordToConfirm => '請輸入當前帳號密碼以確認註銷。';
@@ -5446,8 +5455,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String pairingInvalidUrl(String detail) {
-    return '此 QR 碼不是有效的配對邀請：$detail';
+  String get pairingInvalidInvite =>
+      '此 QR 碼不是有效的 toxee 配對邀請。請在另一台裝置上重新顯示 QR 碼後再掃描。';
+
+  @override
+  String pairingVersionMismatch(String theirVersion, String ourVersion) {
+    return '此邀請使用配對協定 v$theirVersion，而本應用程式使用 v$ourVersion。請將兩台裝置更新到相同版本的 toxee 後再試一次。';
+  }
+
+  @override
+  String pairingNonLanAddress(String address) {
+    return '此邀請指向 $address，該位址不在你的區域網路內。配對只能在同一區域網路內的裝置之間進行。';
   }
 
   @override

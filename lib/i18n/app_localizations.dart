@@ -3106,11 +3106,23 @@ abstract class AppLocalizations {
   /// **'Pairing handshake failed: {detail}'**
   String pairingProtocolError(String detail);
 
-  /// No description provided for @pairingInvalidUrl.
+  /// No description provided for @pairingInvalidInvite.
   ///
   /// In en, this message translates to:
-  /// **'That QR code isn\'t a valid pairing invitation: {detail}'**
-  String pairingInvalidUrl(String detail);
+  /// **'That QR code isn\'t a valid toxee pairing invitation. Show a new code on the other device and scan it again.'**
+  String get pairingInvalidInvite;
+
+  /// No description provided for @pairingVersionMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This invitation uses pairing protocol v{theirVersion}, but this app uses v{ourVersion}. Update both devices to the same toxee version and try again.'**
+  String pairingVersionMismatch(String theirVersion, String ourVersion);
+
+  /// No description provided for @pairingNonLanAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'This invitation points to {address}, which is not on your local network. Pairing only works between devices on the same LAN.'**
+  String pairingNonLanAddress(String address);
 
   /// No description provided for @pairingDecryptFailed.
   ///

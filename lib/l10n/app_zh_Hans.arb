@@ -218,7 +218,7 @@
   "testNode": "测试节点",
   "deleteAccount": "注销账号",
   "deleteAccountConfirmMessage": "注销后账号与所有数据将永久删除且无法找回，请谨慎操作。",
-  "delete": "注销",
+  "delete": "删除",
   "deleteAccountEnterPasswordToConfirm": "请输入当前账号密码以确认注销。",
   "deleteAccountTypeWordToConfirm": "请正确输入下方显示的英文单词以确认注销。",
   "deleteAccountConfirmWordPrompt": "请在下框输入以下单词以确认: {word}",
