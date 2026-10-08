@@ -311,6 +311,24 @@ void main() {
       await drainSnackBars(tester);
     });
 
+    testWidgets('a not-a-friend desc reads as the friend-list error', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      SendFailureNotifier.handleSdkFailure(
+        'sendMessage',
+        -1,
+        'Cannot send: ${'2' * 64} is not in your friend list',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('User is not in your friend list.'), findsOneWidget);
+
+      await drainSnackBars(tester);
+    });
+
     testWidgets('a group file desc states the unsupported feature',
         (tester) async {
       await tester.pumpWidget(host());

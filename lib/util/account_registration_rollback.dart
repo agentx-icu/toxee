@@ -4,6 +4,8 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import 'account_service_test_hooks.dart';
 import 'current_account_pointer_restore.dart';
+import 'logger.dart';
+import 'native_quarantine.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
 import 'session_password_store.dart';
@@ -33,6 +35,7 @@ final class AccountRegistrationRollbackPlan {
     required this.ownedDataRoots,
     required this.accountVisible,
     this.verifierWritten = false,
+    this.bootstrapStopped = true,
     required this.previousAccount,
     required this.previousNickname,
     required this.previousStatusMessage,
@@ -68,6 +71,13 @@ final class AccountRegistrationRollbackPlan {
   /// recorded for `StrandedVerifierCleanup` to retry at startup.
   final bool verifierWritten;
 
+  /// False when a bootstrap instance of this registration was disposed but
+  /// not proven stopped (see [disposeRegistrationBootstrap]). The rollback
+  /// then deletes no directory (a late native save could still land there)
+  /// and, when the account was already published, keeps it registered with
+  /// its verifier rather than stranding a protected profile.
+  final bool bootstrapStopped;
+
   final String? previousAccount;
   final String? previousNickname;
   final String? previousStatusMessage;
@@ -84,32 +94,46 @@ Future<void> rollbackFailedRegistration(
   AccountRegistrationRollbackPlan plan,
 ) async {
   final service = plan.service;
-  try {
-    if (service != null) {
-      final disposeService = AccountRegistrationTestHooks.disposeService;
-      if (disposeService != null) {
-        await disposeService(service);
-      } else {
-        await service.dispose();
-      }
-    }
-  } catch (de) {
-    SafeDiagnostics.logFailure(
-      '[AccountService] registration_rollback_failed stage=service_disposal',
-      de,
-    );
+  // The service in the plan may be a replacement opened after an earlier
+  // bootstrap instance was quarantined, so it is always disposed; the
+  // historical outcome is combined afterwards (disposing again cannot stop
+  // an instance an earlier dispose quarantined — Tim2Tox is single-flight).
+  final disposed =
+      service == null ||
+      await disposeRegistrationBootstrap(service, 'rollback');
+  final stopped = plan.bootstrapStopped && disposed;
+  final toxId = plan.toxId;
+  // Whatever is kept below must not be deleted later in this process
+  // either (Login's service-less deletion resumes on the same registry).
+  if (!stopped && toxId != null && toxId.isNotEmpty) {
+    NativeQuarantine.mark(toxId);
   }
 
-  final toxId = plan.toxId;
   if (toxId != null && toxId.isNotEmpty) {
     SessionPasswordStore.clear(toxId);
   }
 
-  if (plan.accountVisible && toxId != null && toxId.isNotEmpty) {
+  // A published account whose instance may still write stays REGISTERED:
+  // its profile, prefs and password verifier are left together, so the user
+  // can open it later (startup reconciliation skips encrypted orphans, so a
+  // row-less protected profile would be unreachable). Only the active-account
+  // mirror is restored below.
+  final keepPublished = plan.accountVisible && !stopped;
+  if (keepPublished) {
+    SafeDiagnostics.logFailure(
+      '[AccountService] registration_rollback_incomplete '
+      'stage=account_removal reason=native_instance_not_stopped',
+      StateError('the account stays registered; open it after a restart'),
+    );
+  }
+  if (plan.accountVisible && toxId != null && toxId.isNotEmpty && !keepPublished) {
     await Prefs.clearAccountData(toxId);
     await Prefs.removeAccount(toxId);
   }
-  if (plan.verifierWritten && toxId != null && toxId.isNotEmpty) {
+  if (plan.verifierWritten &&
+      toxId != null &&
+      toxId.isNotEmpty &&
+      !keepPublished) {
     final removed = await Prefs.removeAccountPassword(toxId);
     final journalCleared = await Prefs.passwordChanges.abort(toxId);
     if (!removed || !journalCleared) {
@@ -137,6 +161,17 @@ Future<void> rollbackFailedRegistration(
   await Prefs.setStatusMessage(plan.previousStatusMessage ?? '');
   await Prefs.setAvatarPath(plan.previousAvatarPath);
 
+  if (!stopped) {
+    // An unpublished tree is junk the next start cannot adopt when it is
+    // encrypted (no verifier, never used); a published one is the account
+    // kept above. Either way nothing may be deleted under a late save.
+    SafeDiagnostics.logFailure(
+      '[AccountService] registration_rollback_incomplete '
+      'stage=directory_cleanup reason=native_instance_not_stopped',
+      StateError('the bootstrap Tox instance may still write; left in place'),
+    );
+    return;
+  }
   await _deleteIfPresent(plan.tempDir, stage: 'temp_directory_cleanup');
   if (plan.ownsFinalDir) {
     await _deleteIfPresent(plan.finalDir, stage: 'profile_directory_cleanup');
@@ -159,4 +194,42 @@ Future<void> _deleteIfPresent(String? path, {required String stage}) async {
       de,
     );
   }
+}
+
+/// Disposes a registration's bootstrap instance (`AccountService.registerNewAccount`) and reports whether native
+/// provably stopped (the test hook, like teardown's, is the test's own
+/// statement that it did). Never throws: registration decides what a
+/// quarantined instance means for the step it is on.
+Future<bool> disposeRegistrationBootstrap(
+  FfiChatService service,
+  String stage,
+) async {
+  final hook = AccountRegistrationTestHooks.disposeService;
+  // Captured before the instance goes away: a dispose that throws may no
+  // longer answer, and every false outcome below must be recorded.
+  final toxId = service.getSelfToxId() ?? '';
+  try {
+    if (hook != null) {
+      await hook(service);
+      return true;
+    }
+    await service.dispose();
+  } catch (e) {
+    SafeDiagnostics.logFailure(
+      '[AccountService] registration_bootstrap_dispose_failed stage=$stage',
+      e,
+    );
+    NativeQuarantine.mark(toxId);
+    return false;
+  }
+  if (service.nativeInstanceStopped == true) return true;
+  // A registration that still succeeds (reopen is the documented recovery)
+  // leaves an account whose directory no deletion in this process may touch.
+  NativeQuarantine.mark(toxId);
+  AppLogger.warn(
+    '[AccountService] registration stage=$stage: the bootstrap Tox instance '
+    'was quarantined rather than stopped; its directory is left for the '
+    'next start instead of being deleted under a possible late save',
+  );
+  return false;
 }

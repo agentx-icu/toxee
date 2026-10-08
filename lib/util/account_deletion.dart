@@ -5,9 +5,11 @@ import 'package:path/path.dart' as p;
 
 import 'account_deletion_journal.dart';
 import 'account_export/restore_transaction.dart';
+import 'account_teardown_failure.dart';
 export 'account_deletion_journal.dart';
 
 import 'app_paths.dart';
+import 'native_quarantine.dart';
 import 'prefs.dart';
 import 'privacy_cleanup.dart';
 import 'tox_utils.dart';
@@ -157,6 +159,10 @@ abstract final class AccountDeletionCoordinator {
       AccountDeletionStage.profileDirectory,
       AccountDeletionState.profileDirectoryDeleted,
       () async {
+        // Any entry point in this process (Settings, or Login resuming the
+        // tombstone) stops here while a quarantined instance may still
+        // write; the cold-start retry runs in a process without one.
+        _refuseWhileQuarantined(toxId, 'profile_directory_deletion');
         final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
         await _deleteDirectory(
           profileDir,
@@ -170,6 +176,7 @@ abstract final class AccountDeletionCoordinator {
       AccountDeletionStage.accountDataDirectory,
       AccountDeletionState.accountDataDirectoryDeleted,
       () async {
+        _refuseWhileQuarantined(toxId, 'account_data_deletion');
         final roots = await _accountDataRootsForDeletion(toxId);
         for (final dataDir in roots) {
           await _deleteDirectory(
@@ -256,6 +263,14 @@ abstract final class AccountDeletionCoordinator {
     if (await AccountDeletionJournalStore.hasPendingForToxId(toxId)) {
       throw AccountDeletionInProgressException(toxId);
     }
+  }
+
+  static void _refuseWhileQuarantined(String toxId, String operation) {
+    if (!NativeQuarantine.contains(toxId)) return;
+    throw NativeInstanceNotStoppedException(
+      toxId: toxId,
+      operation: operation,
+    );
   }
 
   static Future<void> _deleteDirectory(

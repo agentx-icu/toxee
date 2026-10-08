@@ -34,9 +34,15 @@ class _BridgeFfiChatService extends FfiChatService {
   @override
   Stream<ChatMessage> get messages => _sentMessages.stream;
 
+  /// Keys listed as (offline) friends: a C2C text needs one.
+  final Set<String> friendIDs = <String>{};
+
   @override
   Future<List<({String userId, String nickName, String status, bool online})>>
-  getFriendList() async => const [];
+  getFriendList() async => [
+    for (final id in friendIDs)
+      (userId: id, nickName: '', status: '', online: false),
+  ];
 
   @override
   Future<List<({String userId, String wording})>>
@@ -216,6 +222,7 @@ void main() {
     test('C2C forwards distinct caller IDs and emits once per send', () async {
       const peerID =
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+      ffi.friendIDs.add(peerID);
       const firstID = 'provider-c2c-1';
       const secondID = 'provider-c2c-2';
       const flushID = 'provider-c2c-flush';
@@ -330,6 +337,7 @@ void main() {
       () async {
         const peerID =
             'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+        ffi.friendIDs.add(peerID);
         const messageID = 'cross-layer-offline-c2c';
         const text = 'one optimistic row';
         final messageData = TencentCloudChat.instance.dataInstance.messageData;
