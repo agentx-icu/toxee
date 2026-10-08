@@ -61,6 +61,7 @@ import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../i18n/app_localizations.dart';
 import '../util/logger.dart';
+import '../sdk_fake/c2c_send_guard.dart';
 import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_contact_event_handlers.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_config.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_common_defines.dart';
@@ -828,13 +829,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _MediaPickType.image => appL10n.friendOfflineSendImageFailed,
             _MediaPickType.video => appL10n.friendOfflineSendVideoFailed,
           };
+          final text = pickedPath == null
+              ? failureMsg
+              : '$failureMsg\n$pickedPath';
           final mgr = FakeUIKit.instance.messageManager;
-          if (mgr != null) {
-            final text = pickedPath == null
-                ? failureMsg
-                : '$failureMsg\n$pickedPath';
-            await mgr.sendText('c2c_$userId', text);
-          }
+          await sendFailureNotice(mgr, 'c2c_$userId', text);
         }
         userMsg = appL10n.friendOfflineCannotSendFile;
       } else {
@@ -936,6 +935,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 orElse: () =>
                     (userId: userID, nickName: '', online: false, status: ''),
               );
+              if (!friends.any((f) => f.userId == normalizeToxId(userID))) {
+                _showSnackBar(AppLocalizations.of(context)!.userNotInFriendList);
+                return;
+              }
               if (!friend.online) {
                 final appL10n = AppLocalizations.of(context)!;
                 // Send a text message to chat window indicating failure (two lines: error + file path)
@@ -943,9 +946,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 final twoLineMsg =
                     '${appL10n.friendOfflineSendCardFailed}\n$qrPath';
                 final mgr = FakeUIKit.instance.messageManager;
-                if (mgr != null) {
-                  await mgr.sendText('c2c_$userID', twoLineMsg);
-                }
+                await sendFailureNotice(mgr, 'c2c_$userID', twoLineMsg);
                 return;
               }
               final qrPath = await _createSelfQrCardImage();
@@ -965,22 +966,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   final twoLineMsg =
                       '${appL10n.friendOfflineSendCardFailed}\n$qrPath';
                   final mgr = FakeUIKit.instance.messageManager;
-                  if (mgr != null) {
-                    await mgr.sendText('c2c_$userID', twoLineMsg);
-                  }
+                  await sendFailureNotice(mgr, 'c2c_$userID', twoLineMsg);
                 } catch (e, st) {
                   AppLogger.logError(
                     '[HomePage] Failed to create self QR card image for offline fallback',
                     e,
                     st,
                   );
-                  final mgr = FakeUIKit.instance.messageManager;
-                  if (mgr != null) {
-                    await mgr.sendText(
-                      'c2c_$userID',
-                      appL10n.friendOfflineSendCardFailed,
-                    );
-                  }
+                  await sendFailureNotice(
+                    FakeUIKit.instance.messageManager,
+                    'c2c_$userID',
+                    appL10n.friendOfflineSendCardFailed,
+                  );
                 }
                 userMsg = appL10n.friendOfflineCannotSendFile;
               } else if (errorMsg.contains('not in your friend list')) {

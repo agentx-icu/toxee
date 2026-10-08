@@ -10,6 +10,7 @@ import 'conversation_list_builder.dart';
 export 'conversation_list_builder.dart'
     show ConvBuilderFriend, SelfConversationInput, buildConversationsFromFriends;
 import 'fake_im.dart';
+import 'c2c_send_guard.dart';
 import 'self_conversation.dart';
 import 'fake_uikit_core.dart';
 import 'uikit_data_facade.dart';
@@ -454,8 +455,7 @@ class FakeMessageManager {
   }) async {
     if (conversationID.startsWith('c2c_')) {
       final uid = conversationID.substring(4);
-      // Always call _ffi.sendText - it will handle offline messages by creating pending messages
-      // This ensures messages are displayed in the chat window even when friend is offline
+      await requireC2cFriend(_ffi, uid); // offline friends still queue
       final sent = await _ffi.sendTextWithResult(
         uid,
         text,

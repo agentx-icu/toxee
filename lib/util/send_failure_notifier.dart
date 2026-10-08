@@ -200,6 +200,9 @@ class SendFailureNotifier {
         lower.contains('msg_body_size')) {
       return l10n.messageTooLongMaxBytes(toxMaxTextBytes);
     }
+    if (lower.contains('not in your friend list')) {
+      return l10n.userNotInFriendList;
+    }
     if (lower.contains('friend is offline') ||
         lower.contains('friend offline') ||
         lower.contains('not connected') ||

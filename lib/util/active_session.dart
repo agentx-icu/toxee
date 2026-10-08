@@ -52,7 +52,7 @@ abstract final class ActiveSession {
   /// Returns [run] so callers can `return ActiveSession.trackTeardown(...)`.
   /// The slot is cleared on completion whether [run] succeeded or threw — a
   /// failed teardown must not leave every later shutdown joining a dead future.
-  static Future<void> trackTeardown(Future<void> run) {
+  static Future<T> trackTeardown<T>(Future<T> run) {
     _teardown = run;
     return run.whenComplete(() {
       if (identical(_teardown, run)) _teardown = null;

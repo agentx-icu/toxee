@@ -12,10 +12,11 @@ import '../adapters/bootstrap_adapter.dart';
 import 'active_session.dart';
 import 'prefs.dart';
 import 'prefs_upgrader.dart';
-import 'profile_open_failure.dart';
+import 'profile_open_helpers.dart';
 import 'account_deletion.dart';
 import 'account_password_change.dart';
 import 'account_registration_rollback.dart';
+import 'native_quarantine.dart';
 import 'account_scoped_service_factory.dart';
 import 'account_session_cleanup.dart';
 import 'account_teardown_failure.dart';
@@ -87,7 +88,10 @@ class AccountService {
   /// 5. Re-encrypt profile if the session had a password (skipped when
   ///    [reEncryptProfile] is `false`, e.g. during account deletion).
   /// 6. Clear [SessionPasswordStore].
-  static Future<void> teardownCurrentSession({
+  ///
+  /// Returns whether native was PROVEN stopped ([NativeInstanceNotStoppedException]):
+  /// `false` ⇒ a quarantined instance may still write; do not touch the directory.
+  static Future<bool> teardownCurrentSession({
     FfiChatService? service,
     bool reEncryptProfile = true,
   }) {
@@ -104,7 +108,7 @@ class AccountService {
     );
   }
 
-  static Future<void> _teardownCurrentSessionImpl({
+  static Future<bool> _teardownCurrentSessionImpl({
     FfiChatService? service,
     bool reEncryptProfile = true,
   }) async {
@@ -227,6 +231,9 @@ class AccountService {
         'autosave overwriting the ciphertext with plaintext',
       );
     }
+    // Every deletion entry point in this process (not just the caller that
+    // sees the return value) must leave the directory alone from now on.
+    if (!nativeStopped) NativeQuarantine.mark(toxId);
     var profileReadyForPasswordClear = true;
     if (reEncryptProfile &&
         nativeStopped &&
@@ -272,7 +279,9 @@ class AccountService {
     if (failure != null) {
       Error.throwWithStackTrace(failure, failure.stackTrace);
     }
+    return nativeStopped;
   }
+
 
   // ---------------------------------------------------------------------------
   // Live-session password updates
@@ -387,11 +396,11 @@ class AccountService {
       // ciphertext, a plaintext one is re-written encrypted by the init itself
       // (or the init fails and leaves it untouched). The file is never
       // decrypted on disk, so an OS kill mid-session finds ciphertext.
-      await _stageProfilePassphrase(service, password);
+      await stageProfilePassphrase(service, password);
       try {
         await service.init(profileDirectory: profileDir);
       } catch (e) {
-        throw await _classifyInitFailure(e, toxId, profileFile, password);
+        throw await classifyInitFailure(e, toxId, profileFile, password);
       }
       await service.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
 
@@ -492,7 +501,14 @@ class AccountService {
           SessionPasswordStore.clear(canonicalToxId);
         }
       }
-      await service?.dispose();
+      try {
+        await service?.dispose();
+      } catch (disposeError) {
+        SafeDiagnostics.logFailure(
+          '[AccountService] initialize_rollback_failed stage=service_disposal',
+          disposeError,
+        );
+      }
       await restoreCurrentAccountPointer(previousAccount, '[AccountService]');
       // Mirror the success path: if we set nickname/status/avatar above, undo
       // them. Always — we may have failed AFTER the pointer write above.
@@ -500,49 +516,6 @@ class AccountService {
       await Prefs.setStatusMessage(previousStatusMessage ?? '');
       await Prefs.setAvatarPath(previousAvatarPath);
       rethrow;
-    }
-  }
-
-  /// Hands [password] to the native layer for the NEXT init. Refuses to run
-  /// on a native library without savedata encryption: silently falling back
-  /// to decrypt-in-place would reopen the plaintext-at-rest gap this exists
-  /// to close.
-  static Future<void> _stageProfilePassphrase(
-    FfiChatService service,
-    SecretPassword? password,
-  ) async {
-    if (password == null || password.isEmpty) return;
-    if (!service.setProfilePassphraseSecret(password)) {
-      throw StateError(
-        'native library lacks savedata encryption '
-        '(tim2tox_ffi_set_profile_passphrase); refusing to open a protected '
-        'profile in plaintext',
-      );
-    }
-  }
-
-  /// A failed init under a verified password is reported as such, with the
-  /// hint that matters: whether a journaled password change was interrupted
-  /// (then the file is most likely under the other password).
-  static Future<Object> _classifyInitFailure(
-    Object error,
-    String toxId,
-    String? profileFile,
-    SecretPassword? password,
-  ) async {
-    if (password == null || password.isEmpty || profileFile == null) {
-      return error;
-    }
-    try {
-      if (!await AccountExportService.isProfileFileEncrypted(profileFile)) {
-        return error;
-      }
-      final pending = await Prefs.passwordChanges.pending(toxId);
-      return ProfileUnopenableWithPasswordException(
-        passwordChangeInFlight: pending.record != null,
-      );
-    } catch (_) {
-      return error;
     }
   }
 
@@ -592,6 +565,9 @@ class AccountService {
     // temp -> final rename actually succeeds.
     bool ownsFinalDir = false;
     List<String> ownedDataRoots = const <String>[];
+    // False once a bootstrap instance of this registration could not be
+    // proven stopped: the rollback then leaves the directories alone.
+    bool bootstrapStopped = true;
 
     try {
       // 2. Clear current account so init() loads empty state
@@ -619,7 +595,7 @@ class AccountService {
 
         service = svc;
         // The very first save of the new identity is already ciphertext.
-        await _stageProfilePassphrase(svc, password);
+        await stageProfilePassphrase(svc, password);
         await service.init(profileDirectory: tempDir);
         await service.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
 
@@ -635,7 +611,10 @@ class AccountService {
         // for UI/display reads but not for first-time writes.
         final realToxId = service.getSelfToxId();
         if (realToxId == null || realToxId.isEmpty) {
-          await service.dispose();
+          bootstrapStopped &= await disposeRegistrationBootstrap(
+            service,
+            'tox_id_missing',
+          );
           throw Exception('Failed to generate Tox ID');
         }
         toxId = realToxId;
@@ -653,15 +632,24 @@ class AccountService {
           candidateFinalDir,
         );
         if (await File(existingProfile).exists()) {
-          await service.dispose();
-          try {
-            await Directory(tempDir).delete(recursive: true);
-          } catch (e) {
-            SafeDiagnostics.logFailure(
-              '[AccountService] registration_rollback_failed '
-              'stage=collision_temp_directory_cleanup',
-              e,
-            );
+          // A quarantined bootstrap instance may still save into tempDir;
+          // deleting it then would race that write. The stray staging
+          // directory is harmless and is swept by a later rollback.
+          final stopped = await disposeRegistrationBootstrap(
+            service,
+            'collision',
+          );
+          bootstrapStopped &= stopped;
+          if (stopped) {
+            try {
+              await Directory(tempDir).delete(recursive: true);
+            } catch (e) {
+              SafeDiagnostics.logFailure(
+                '[AccountService] registration_rollback_failed '
+                'stage=collision_temp_directory_cleanup',
+                e,
+              );
+            }
           }
           if (attempt + 1 >= maxAttempts) {
             throw Exception('Could not create unique profile');
@@ -740,8 +728,19 @@ class AccountService {
       // 7. Protected account: reopen with account-scoped paths, passphrase staged
       if (password.hasValue) {
         SessionPasswordStore.set(tid, password!);
-        await svc.dispose();
-        await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
+        // Reopening is Tim2Tox's documented recovery for a quarantined
+        // instance (the fresh init detaches it); only the bootstrap storage
+        // delete must not race a late save from it.
+        final stopped = await disposeRegistrationBootstrap(
+          svc,
+          'protected_reopen',
+        );
+        bootstrapStopped &= stopped;
+        if (stopped) {
+          await deleteBootstrapStorageQuietly(
+            bootstrapStorageRootIn(profileDir),
+          );
+        }
         service = null;
         final beforeReopen = AccountRegistrationTestHooks.beforeScopedReopen;
         if (beforeReopen != null) await beforeReopen(tid);
@@ -772,8 +771,11 @@ class AccountService {
       }
 
       // 8. No password: re-open with account-scoped paths, then start polling
-      await svc.dispose();
-      await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
+      final stopped = await disposeRegistrationBootstrap(svc, 'reopen');
+      bootstrapStopped &= stopped;
+      if (stopped) {
+        await deleteBootstrapStorageQuietly(bootstrapStorageRootIn(profileDir));
+      }
       service = null;
       final prefsForScoped = await SharedPreferences.getInstance();
       final scopedService = await createAccountScopedService(
@@ -812,6 +814,7 @@ class AccountService {
           ownedDataRoots: ownedDataRoots,
           accountVisible: accountVisible,
           verifierWritten: verifierWritten,
+          bootstrapStopped: bootstrapStopped,
           previousAccount: previousAccount,
           previousNickname: previousNickname,
           previousStatusMessage: previousStatusMessage,
