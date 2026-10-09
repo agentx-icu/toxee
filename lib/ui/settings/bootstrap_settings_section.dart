@@ -8,6 +8,7 @@ import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/bootstrap_node_probe.dart';
 import '../../util/bootstrap_nodes.dart';
+import '../../util/lan_bootstrap_node_ownership.dart';
 import '../../util/lan_bootstrap_service.dart';
 import '../../util/logger.dart';
 import '../../util/platform_utils.dart';
@@ -604,6 +605,8 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
       );
     }
 
+    // Read before stop() forgets it: the ownership proof for the clear below.
+    final lanNode = await _lanManager.getBootstrapServiceInfo();
     try {
       final stopped = await _lanManager.stopLocalBootstrapService();
       if (!stopped) {
@@ -620,12 +623,9 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     if (priorNode != null) {
       await Prefs.clearPreLanBootstrapNode();
     } else {
-      // No pre-LAN snapshot means there was no bootstrap node before LAN mode
-      // engaged, so `current_bootstrap_*` can only be the LAN node we set on
-      // start. With the service now stopped that address is dead; clear it so
-      // the next session does not apply a dead node and return early without a
-      // reachable DHT entry point (LAN review 2026-09-15, F4).
-      await Prefs.clearCurrentBootstrapNode();
+      // Nothing to restore: drop current_bootstrap_* only if it is the now
+      // dead LAN node itself (F4), never a node the user chose.
+      await clearCurrentNodeIfLanOwned(lanNode);
     }
     return true;
   }

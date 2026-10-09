@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'app_paths.dart';
 import 'prefs.dart';
+import 'lan_bootstrap_node_ownership.dart';
 import 'logger.dart';
 import 'platform_utils.dart';
 
@@ -455,46 +456,10 @@ class LanBootstrapServiceManager {
   /// Crash-recovery hook. If a previous run set the LAN-bootstrap-running
   /// flag but this process has no live instance (because the previous process
   /// crashed between `start` and `stop`), restore the saved pre-LAN bootstrap
-  /// node and clear the stale flags. Safe to call on every cold start.
-  Future<void> recoverFromCrashedSession() async {
-    if (_bootstrapInstanceHandle != null) return; // service is alive now
-    final wasRunning = await Prefs.getLanBootstrapServiceRunning();
-    if (!wasRunning) return;
-    AppLogger.warn(
-      '[LanBootstrapService] Detected stale LAN-running flag with no live instance — recovering',
-    );
-    final priorNode = await Prefs.getPreLanBootstrapNode();
-    if (priorNode != null) {
-      try {
-        await _setCurrentBootstrapNode(
-          priorNode.host,
-          priorNode.port,
-          priorNode.pubkey,
-        );
-        await Prefs.clearPreLanBootstrapNode();
-      } catch (e, st) {
-        AppLogger.logError(
-          '[LanBootstrapService] recovery: failed to restore pre-LAN node',
-          e,
-          st,
-        );
-        return;
-      }
-    } else {
-      // No pre-LAN snapshot ⇒ current_bootstrap_* can only be the dead LAN node
-      // the crashed run set on start; clear it so this session doesn't apply a
-      // dead node. Symmetric with the interactive stop path (F4, 2026-09-15).
-      try {
-        await Prefs.clearCurrentBootstrapNode();
-      } catch (e, st) {
-        AppLogger.logError(
-          '[LanBootstrapService] recovery: failed to clear dead LAN node',
-          e,
-          st,
-        );
-        return;
-      }
-    }
-    await Prefs.setLanBootstrapServiceRunning(false);
-  }
+  /// node and clear the stale flags. Safe to call on every cold start; see
+  /// [recoverLanBootstrapCrash] for the write ordering.
+  Future<void> recoverFromCrashedSession() => recoverLanBootstrapCrash(
+    serviceAlive: _bootstrapInstanceHandle != null,
+    setCurrentNode: _setCurrentBootstrapNode,
+  );
 }

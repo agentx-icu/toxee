@@ -96,11 +96,17 @@ class _RecordingFfiChatService extends FfiChatService {
 }
 
 class _RecordingLanManager extends LanBootstrapServiceManager {
-  _RecordingLanManager({this.events, this.stopResult = true})
-    : super.forTesting(localAddressProvider: () async => '192.168.56.10');
+  _RecordingLanManager({
+    this.events,
+    this.stopResult = true,
+    this.serviceStarted = true,
+  }) : super.forTesting(localAddressProvider: () async => '192.168.56.10');
 
   final List<String>? events;
   final bool stopResult;
+  // false = no service ever ran in this process: the real manager then has no
+  // node to report (getBootstrapServiceInfo is null).
+  final bool serviceStarted;
   final ({String ip, int port, String pubkey})? info = const (
     ip: '192.168.56.10',
     port: 33445,
@@ -127,7 +133,7 @@ class _RecordingLanManager extends LanBootstrapServiceManager {
 
   @override
   Future<({String ip, int port, String pubkey})?>
-  getBootstrapServiceInfo() async => info;
+  getBootstrapServiceInfo() async => serviceStarted ? info : null;
 }
 
 Future<void> _initPrefs([Map<String, Object> seed = const {}]) async {
@@ -843,6 +849,47 @@ void main() {
         _expectNode(await Prefs.getCurrentBootstrapNode(), _originalNode);
       },
     );
+
+    // LAN review retro (2026-10-02): "no snapshot" was taken as proof that the
+    // current node was LAN's own, but the snapshot only exists while a started
+    // service runs. Selecting LAN without pressing Start (or starting and
+    // stopping first) and then going back to manual deleted the user's node.
+    for (final started in [false, true]) {
+      testWidgets(
+        'leaving LAN with no snapshot keeps a node LAN did not install '
+        '(service ${started ? 'started+stopped' : 'never started'})',
+        (tester) async {
+          await _initPrefs();
+          await Prefs.setBootstrapNodeMode('lan');
+          await Prefs.setCurrentBootstrapNode(
+            _originalNode.host,
+            _originalNode.port,
+            _originalNode.pubkey,
+          );
+          final events = <String>[];
+          final manager = _RecordingLanManager(
+            events: events,
+            serviceStarted: started,
+          );
+          await _pumpSettled(
+            tester,
+            _harness(
+              child: BootstrapSettingsSection(
+                service: _RecordingFfiChatService(events: events),
+                lanBootstrapServiceManager: manager,
+              ),
+            ),
+          );
+
+          await tester.tap(find.byKey(UiKeys.settingsBootstrapModeManual));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+
+          expect(await Prefs.getBootstrapNodeMode(), 'manual');
+          _expectNode(await Prefs.getCurrentBootstrapNode(), _originalNode);
+        },
+      );
+    }
 
     testWidgets(
       'a refused restore does not block leaving LAN mode',
