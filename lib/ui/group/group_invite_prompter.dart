@@ -274,6 +274,12 @@ class GroupInvitePrompter {
                   await _showAcceptFailed(againContext, canRetry: false);
                 }
               }
+              // Re-armed once the dialogs are closed: a failed accept itself
+              // changes the invite list, and that change event (which lifts
+              // suppression so a REAL change gets another chance) lands
+              // while a dialog is up — the same invite then re-opened
+              // Join/Decline/Later the moment the error was dismissed.
+              _suppressedUntilChange.add(next.id);
             }
           case _Answer.decline:
             service.rejectGroupInvite(next.id);

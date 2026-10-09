@@ -23,6 +23,7 @@ import '../../util/prefs.dart';
 import '../home/profile_send_message_navigation.dart';
 import '../testing/ui_keys.dart';
 import 'group_avatar_announce.dart';
+import 'group_avatar_files.dart';
 import 'group_display_name.dart';
 import 'group_name_edit_dialog.dart';
 
@@ -166,28 +167,22 @@ class _ToxeeGroupProfileAvatarState extends State<_ToxeeGroupProfileAvatar> {
       final fileName = 'group_${widget.groupInfo.groupID}_$ts$ext';
       final destPath = p.join(avatarsDirPath, fileName);
 
-      // Best-effort cleanup of older group_<id>_* files so they don't pile
-      // up on disk every time the user re-picks. Tolerates locked files.
-      try {
-        final prefix = 'group_${widget.groupInfo.groupID}_';
-        await for (final entity in avatarsDir.list()) {
-          if (entity is File && p.basename(entity.path).startsWith(prefix)) {
-            try {
-              await entity.delete();
-            } catch (e) {
-              AppLogger.warn(
-                '[GroupAvatar] delete stale ${entity.path} failed: $e',
-              );
-            }
-          }
-        }
-      } catch (e) {
-        AppLogger.warn('[GroupAvatar] stale cleanup scan failed: $e');
-      }
+      await deleteStaleGroupAvatars(avatarsDir, widget.groupInfo.groupID);
 
       await File(pickedPath).copy(destPath);
+      // The copy can outlive this page and even the session: publishing
+      // resolves the CURRENT account's prefs and SDK, so after an account
+      // switch it would set the other account's group avatar to a file in
+      // this account's storage. Publish only if neither changed.
+      if (!mounted || await Prefs.getCurrentAccountToxId() != currentToxId) {
+        try {
+          await File(destPath).delete();
+        } catch (_) {}
+        return;
+      }
       await announceGroupAvatarChange(groupID: widget.groupInfo.groupID,
-          groupType: widget.groupInfo.groupType, path: destPath);
+          groupType: widget.groupInfo.groupType, path: destPath,
+          accountToxId: currentToxId);
 
       if (!mounted) return;
       setState(() {

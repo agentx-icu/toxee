@@ -191,6 +191,45 @@ void main() {
     expect(bridge.hasActiveSession, isTrue);
   });
 
+  // The permission query used to sit outside every try: a throw escaped the
+  // start after native audio was enabled and the pipeline claimed, so the
+  // session was never cleaned up and every later call/conference was busy.
+  test('a throwing mic permission query joins listen-only and leaves no '
+      'busy state behind', () async {
+    mic.throwOnPermission = true;
+    final bridge = makeBridge();
+    final owner = AvConferenceSessionOwner();
+
+    expect(
+      await join(bridge, owner),
+      AvConferenceEnableResult.enabledReceiveOnly,
+    );
+    expect(mic.started, isFalse);
+
+    await bridge.disable(groupId: 'tox_conf_1', owner: owner);
+    expect(bridge.hasActiveSession, isFalse);
+    mic.throwOnPermission = false;
+    expect(
+      await join(bridge, AvConferenceSessionOwner()),
+      AvConferenceEnableResult.enabled,
+    );
+  });
+
+  test('a throw while starting conference audio rolls everything back',
+      () async {
+    mic.throwOnListen = true;
+    final bridge = makeBridge();
+
+    expect(await join(bridge, AvConferenceSessionOwner()),
+        AvConferenceEnableResult.failed);
+    expect(bridge.hasActiveSession, isFalse,
+        reason: 'a failed start must not leave the conference "busy"');
+
+    mic.throwOnListen = false;
+    expect(await join(bridge, AvConferenceSessionOwner()),
+        AvConferenceEnableResult.enabled);
+  });
+
   test('disable releases the mic, the hooks and the busy flag', () async {
     final bridge = makeBridge();
     final owner = AvConferenceSessionOwner();
@@ -643,6 +682,15 @@ class _EmptySource implements PcmPullSource {
   Int16List pull(int maxSamples) => Int16List(0);
 }
 
+class _ThrowingStream extends Stream<Uint8List> {
+  const _ThrowingStream();
+
+  @override
+  StreamSubscription<Uint8List> listen(void Function(Uint8List)? onData,
+          {Function? onError, void Function()? onDone, bool? cancelOnError}) =>
+      throw StateError('recorder stream refused a listener');
+}
+
 class _FakeMic implements PcmCaptureDevice {
   // Closed in [close] (stop / tearDown).
   // ignore: close_sinks
@@ -651,8 +699,15 @@ class _FakeMic implements PcmCaptureDevice {
   bool started = false;
   int stopCount = 0;
 
+  bool throwOnPermission = false;
+  // startStream succeeds but subscribing to the stream throws.
+  bool throwOnListen = false;
+
   @override
-  Future<bool> hasPermission() async => true;
+  Future<bool> hasPermission() async {
+    if (throwOnPermission) throw StateError('permission channel failed');
+    return true;
+  }
 
   Completer<void>? startGate;
   Completer<void>? stopGate;
@@ -671,6 +726,7 @@ class _FakeMic implements PcmCaptureDevice {
     this.config = config;
     started = true;
     startCount++;
+    if (throwOnListen) return const _ThrowingStream();
     _controller = StreamController<Uint8List>();
     return _controller!.stream;
   }

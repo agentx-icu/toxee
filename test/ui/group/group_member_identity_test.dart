@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_platform_adapter.dart';
+import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_contact/widgets/group_member_identity.dart';
@@ -96,6 +98,39 @@ void main() {
     test('short ids never prefix-match', () {
       expect(resolveGroupMemberUserID('A1A1'), isNull);
     });
+  });
+
+  // A wide iPad / tablet is a mobile OS with a desktop-class screen: the page
+  // is pushed there (dialogs are desktop-platform only) but used to render
+  // the app-bar-less desktop layout, leaving no way back.
+  testWidgets('member info pushed on a wide tablet has a back button',
+      (tester) async {
+    final oldScreen = TencentCloudChatScreenAdapter.deviceScreenType;
+    TencentCloudChatPlatformAdapter.debugOverrideIsMobile(true);
+    addTearDown(() {
+      TencentCloudChatPlatformAdapter.debugOverrideIsMobile(null);
+      TencentCloudChatScreenAdapter.deviceScreenType = oldScreen;
+    });
+    await tester.pumpWidget(_localized(Builder(
+      builder: (context) => TextButton(
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) {
+            TencentCloudChatScreenAdapter.deviceScreenType =
+                DeviceScreenType.desktop;
+            return TencentCloudChatGroupMemberInfo(
+                memberFullInfo: _member(_groupKey));
+          },
+        )),
+        child: const Text('open'),
+      ),
+    )));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('open'), findsOneWidget);
   });
 
   group('member info body', () {

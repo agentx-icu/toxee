@@ -21,6 +21,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/components/tencent_cloud_chat_components_utils.dart';
+import 'package:tencent_cloud_chat_common/data/group_profile/tencent_cloud_chat_group_profile_data.dart';
+import 'package:tencent_cloud_chat_common/eventbus/tencent_cloud_chat_eventbus.dart';
 import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_callbacks.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_common/utils/group_announcement_permission.dart';
@@ -186,6 +188,71 @@ void main() {
         expect(notices, hasLength(1));
         expect(notices.single.code, 10007);
         expect(notices.single.text, tL10n.groupActionNoPermission);
+      });
+
+      // The page used to keep its initState snapshot until reopened.
+      testWidgets('${shell.key}: a topic change by someone else reaches the '
+          'open page', (tester) async {
+        await pumpPage(tester, shell.value,
+            _group(role: GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_MEMBER));
+
+        final event = TencentCloudChatGroupProfileData(
+            TencentCloudChatGroupProfileDataKeys.updateGroupInfo)
+          ..updateGroupID = 'tox_group_7'
+          ..updateGroupInfo = (_group(
+              role: GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_MEMBER)
+            ..notification = 'Changed elsewhere');
+        TencentCloudChat.instance.eventBusInstance
+            .fire(event, TencentCloudChatEventBus.eventNameGroup);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Changed elsewhere'), findsOneWidget);
+        expect(find.text('Old announcement'), findsNothing);
+
+        // Another group's update is not this page's business.
+        final other = TencentCloudChatGroupProfileData(
+            TencentCloudChatGroupProfileDataKeys.updateGroupInfo)
+          ..updateGroupID = 'tox_group_8'
+          ..updateGroupInfo = (_group(id: 'tox_group_8')..notification = 'x');
+        TencentCloudChat.instance.eventBusInstance
+            .fire(other, TencentCloudChatEventBus.eventNameGroup);
+        await tester.pumpAndSettle();
+        expect(find.text('Changed elsewhere'), findsOneWidget);
+      });
+
+      testWidgets('${shell.key}: a grant / revoke of our own role updates '
+          'Edit on the open page', (tester) async {
+        final basic = TencentCloudChat.instance.dataInstance.basic;
+        final oldUser = basic.currentUser;
+        basic.updateCurrentUserInfo(
+            userFullInfo: V2TimUserFullInfo(userID: 'self_key'));
+        addTearDown(() {
+          if (oldUser != null) basic.updateCurrentUserInfo(userFullInfo: oldUser);
+        });
+        await pumpPage(tester, shell.value,
+            _group(role: GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_MEMBER));
+        expect(find.text(tL10n.edit), findsNothing);
+
+        Future<void> roleEvent(String userID, int role) async {
+          final event = TencentCloudChatGroupProfileData(
+              TencentCloudChatGroupProfileDataKeys.updateMemberRole)
+            ..updateGroupID = 'tox_group_7'
+            ..updateMemberList = [V2TimGroupMemberInfo(userID: userID)]
+            ..updateMemberRole = role;
+          TencentCloudChat.instance.eventBusInstance
+              .fire(event, TencentCloudChatEventBus.eventNameGroup);
+          await tester.pumpAndSettle();
+        }
+
+        await roleEvent('someone_else',
+            GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_ADMIN);
+        expect(find.text(tL10n.edit), findsNothing);
+        await roleEvent(
+            'self_key', GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_ADMIN);
+        expect(find.text(tL10n.edit), findsOneWidget, reason: 'granted');
+        await roleEvent(
+            'self_key', GroupMemberRoleType.V2TIM_GROUP_MEMBER_ROLE_MEMBER);
+        expect(find.text(tL10n.edit), findsNothing, reason: 'revoked');
       });
 
       testWidgets('${shell.key}: a successful edit shows and reports nothing',

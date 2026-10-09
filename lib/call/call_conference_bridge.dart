@@ -222,7 +222,18 @@ class CallConferenceBridge implements AvConferenceSessionBridge {
     // Checked right before starting audio: nothing may reopen the mic after
     // logout (dispose stopped `media` and disabled the group natively).
     if (_disposed || media.stopped) return AvConferenceEnableResult.failed;
-    final start = await _startAudio(backend, media);
+    final ConferenceAudioStart start;
+    try {
+      start = await _startAudio(backend, media);
+    } catch (e, st) {
+      // Native audio is enabled, `_media` is set and the pipeline may be
+      // claimed by now: a throw that escaped here left all three behind and
+      // every later call / conference read as busy until logout.
+      AppLogger.logError('[CallConferenceBridge] audio start failed', e, st);
+      await _stopMedia(media);
+      await _releaseNative(backend, groupId, owner);
+      return AvConferenceEnableResult.failed;
+    }
     if (_disposed || media.stopped) {
       // Torn down (logout) while the pipeline was starting: release exactly
       // this ownership; a newer one is untouched.
@@ -410,7 +421,14 @@ class CallConferenceBridge implements AvConferenceSessionBridge {
     await _runHook(() => _hooks.onMediaStarted?.call(media.displayName));
     if (!_isLive(media)) return;
     // Stays `suspended` (nothing sent/played) until the pipeline is back.
-    final start = await _startAudio(backend, media);
+    final ConferenceAudioStart start;
+    try {
+      start = await _startAudio(backend, media);
+    } catch (e, st) {
+      AppLogger.logError('[CallConferenceBridge] audio resume failed', e, st);
+      await _stopAudioOf(media);
+      return; // still suspended; the next resume / re-join retries
+    }
     if (!_isLive(media)) {
       await _stopAudioOf(media);
       return;

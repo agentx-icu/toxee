@@ -37,6 +37,8 @@ class _FakeService extends FfiChatService {
   final List<String?> acceptPasswords = <String?>[];
   final List<String> rejected = <String>[];
   bool acceptFails = false;
+  // Native announces an invite-list change when an accept attempt fails.
+  bool changeOnFailedAccept = false;
   final _changed = StreamController<void>.broadcast();
   final _failures = StreamController<GroupJoinFailure>.broadcast();
 
@@ -78,7 +80,10 @@ class _FakeService extends FfiChatService {
 
   @override
   Future<void> acceptGroupInvite(String inviteId, {String? password}) async {
-    if (acceptFails) throw StateError('inviter offline');
+    if (acceptFails) {
+      if (changeOnFailedAccept) _changed.add(null);
+      throw StateError('inviter offline');
+    }
     accepted.add(inviteId);
     acceptPasswords.add(password);
     pending.removeWhere((i) => i.id == inviteId);
@@ -352,6 +357,38 @@ void main() {
     expect(service.accepted, ['tox_inv_5_1']);
     expect(find.byKey(inviteDialog), findsNothing);
   });
+
+  // The failed accept's own list change lands while the error dialog is up;
+  // it used to lift the suppression, so dismissing the error re-opened
+  // Join / Decline / Later for the same invite at once.
+  for (final retry in [false, true]) {
+    testWidgets('closing the accept-failed dialog does not re-ask at once '
+        '(${retry ? 'after a failed Retry' : 'no Retry'})', (tester) async {
+      await _pumpApp(tester);
+      final service = _FakeService()
+        ..acceptFails = true
+        ..changeOnFailedAccept = true
+        ..pending.add(_invite('tox_inv_5_9'));
+      GroupInvitePrompter.instance.attach(service, autoAccept: false);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('group_invite_join_button')));
+      await tester.pumpAndSettle();
+      if (retry) {
+        await tester.tap(
+            find.byKey(const ValueKey('group_invite_accept_retry_button')));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(inviteDialog), findsNothing);
+      expect(
+          find.byKey(const ValueKey('group_invite_accept_failed_dialog')),
+          findsNothing);
+      expect(service.accepted, isEmpty);
+    });
+  }
 
   testWidgets('a failed accept is asked again on the next invite change, '
       'and not before', (tester) async {
