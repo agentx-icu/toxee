@@ -65,7 +65,24 @@ class PairingClient {
         return;
       }
       invite = parsed;
+    } on PairingUrlException catch (e) {
+      // The UI localizes by reason; the English message is diagnostics only.
+      AppLogger.info('[PairingClient] rejected invite: ${e.message}');
+      _fail(
+        switch (e.problem) {
+          PairingUrlProblem.unsupportedVersion =>
+            ClientFailureReason.unsupportedVersion,
+          PairingUrlProblem.nonLanAddress => ClientFailureReason.nonLanAddress,
+          PairingUrlProblem.malformed => ClientFailureReason.invalidUrl,
+        },
+        e.detail ?? e.message,
+      );
+      return;
     } on FormatException catch (e) {
+      // Belt and braces: decode keeps its rejections structured, but any
+      // other FormatException must still end as a localized failure, never
+      // escape connect() with English text.
+      AppLogger.info('[PairingClient] rejected invite: ${e.message}');
       _fail(ClientFailureReason.invalidUrl, e.message);
       return;
     }
@@ -230,7 +247,14 @@ class ClientFailed extends ClientEvent {
 }
 
 enum ClientFailureReason {
+  /// Not a pairing code, or a damaged one (message = diagnostic text only).
   invalidUrl,
+
+  /// The invite speaks another protocol version (message = that version).
+  unsupportedVersion,
+
+  /// The invite points outside the LAN (message = the advertised IP).
+  nonLanAddress,
   cancelled,
   timeout,
   lanUnreachable,

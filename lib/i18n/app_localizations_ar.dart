@@ -1696,8 +1696,17 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
-  String pairingInvalidUrl(String detail) {
-    return 'رمز QR هذا ليس دعوة إقران صالحة: $detail';
+  String get pairingInvalidInvite =>
+      'رمز QR هذا ليس دعوة إقران صالحة من toxee. اعرض رمزًا جديدًا على الجهاز الآخر وامسحه مرة أخرى.';
+
+  @override
+  String pairingVersionMismatch(String theirVersion, String ourVersion) {
+    return 'تستخدم هذه الدعوة بروتوكول الإقران v$theirVersion، بينما يستخدم هذا التطبيق v$ourVersion. حدّث الجهازين إلى إصدار toxee نفسه ثم حاول مرة أخرى.';
+  }
+
+  @override
+  String pairingNonLanAddress(String address) {
+    return 'تشير هذه الدعوة إلى $address، وهو ليس على شبكتك المحلية. لا يعمل الإقران إلا بين أجهزة على الشبكة المحلية نفسها.';
   }
 
   @override
