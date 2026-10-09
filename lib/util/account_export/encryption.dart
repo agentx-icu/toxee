@@ -16,12 +16,11 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart' as pkgffi;
-import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
-
 import '../secret_password.dart';
 import 'exceptions.dart';
 import 'ffi_constants.dart';
+import 'native_buffers.dart';
+import 'posix_directory_sync.dart';
 
 /// Encrypts [plaintext] with [password] using Tox's `tox_pass_encrypt`
 /// implementation. Returns the freshly-allocated ciphertext as a Uint8List
@@ -35,10 +34,10 @@ Uint8List passEncrypt(Uint8List plaintext, SecretPassword password) =>
 /// [passEncrypt] over raw UTF-8 password bytes, which are borrowed: copied
 /// into native memory, that copy zeroed, the caller's buffer untouched.
 Uint8List passEncryptBytes(Uint8List plaintext, Uint8List passwordBytes) {
-  final ffiLib = Tim2ToxFfi.open();
-  final plaintextPtr = pkgffi.malloc<ffi.Uint8>(plaintext.length);
-  final ciphertextPtr =
-      pkgffi.malloc<ffi.Uint8>(plaintext.length + toxPassEncryptionExtraLength);
+  final ffiLib = profileCryptoFfi();
+  final cipherLen = plaintext.length + toxPassEncryptionExtraLength;
+  final plaintextPtr = allocNativeBytes(plaintext.length);
+  final ciphertextPtr = allocNativeBytes(cipherLen);
   try {
     plaintextPtr.asTypedList(plaintext.length).setAll(0, plaintext);
     final encryptedLen = _withNativePassword(
@@ -57,8 +56,9 @@ Uint8List passEncryptBytes(Uint8List plaintext, Uint8List passwordBytes) {
     }
     return Uint8List.fromList(ciphertextPtr.asTypedList(encryptedLen));
   } finally {
-    pkgffi.malloc.free(plaintextPtr);
-    pkgffi.malloc.free(ciphertextPtr);
+    // The plaintext is savedata (the Tox secret key): wiped, like the rest.
+    wipeAndFreeNative(plaintextPtr, plaintext.length);
+    wipeAndFreeNative(ciphertextPtr, cipherLen);
   }
 }
 
@@ -74,10 +74,10 @@ Uint8List passDecrypt(Uint8List ciphertext, SecretPassword password) =>
 /// [passDecrypt] over raw UTF-8 password bytes (borrowed; see
 /// [passEncryptBytes]).
 Uint8List passDecryptBytes(Uint8List ciphertext, Uint8List passwordBytes) {
-  final ffiLib = Tim2ToxFfi.open();
-  final ciphertextPtr = pkgffi.malloc<ffi.Uint8>(ciphertext.length);
-  final plaintextPtr = pkgffi
-      .malloc<ffi.Uint8>(ciphertext.length - toxPassEncryptionExtraLength);
+  final ffiLib = profileCryptoFfi();
+  final plainLen = ciphertext.length - toxPassEncryptionExtraLength;
+  final ciphertextPtr = allocNativeBytes(ciphertext.length);
+  final plaintextPtr = allocNativeBytes(plainLen);
   try {
     ciphertextPtr.asTypedList(ciphertext.length).setAll(0, ciphertext);
     final decryptedLen = _withNativePassword(
@@ -97,8 +97,8 @@ Uint8List passDecryptBytes(Uint8List ciphertext, Uint8List passwordBytes) {
     }
     return Uint8List.fromList(plaintextPtr.asTypedList(decryptedLen));
   } finally {
-    pkgffi.malloc.free(ciphertextPtr);
-    pkgffi.malloc.free(plaintextPtr);
+    wipeAndFreeNative(ciphertextPtr, ciphertext.length);
+    wipeAndFreeNative(plaintextPtr, plainLen < 0 ? 0 : plainLen);
   }
 }
 
@@ -110,13 +110,12 @@ T _withNativePassword<T>(
   T Function(ffi.Pointer<ffi.Uint8> ptr, int len) body,
 ) {
   final len = passwordBytes.length;
-  final ptr = pkgffi.malloc<ffi.Uint8>(len == 0 ? 1 : len);
+  final ptr = allocNativeBytes(len);
   try {
     ptr.asTypedList(len).setAll(0, passwordBytes);
     return body(ptr, len);
   } finally {
-    ptr.asTypedList(len).fillRange(0, len, 0);
-    pkgffi.malloc.free(ptr);
+    wipeAndFreeNative(ptr, len);
   }
 }
 
@@ -125,8 +124,9 @@ T _withNativePassword<T>(
 /// than the magic-header window.
 bool isDataEncrypted(Uint8List data) {
   if (data.length < toxPassEncryptionExtraLength) return false;
-  final ffiLib = Tim2ToxFfi.open();
-  final dataPtr = pkgffi.malloc<ffi.Uint8>(toxPassEncryptionExtraLength);
+  final ffiLib = profileCryptoFfi();
+  // The head of a plaintext savedata is copied too: wiped like the rest.
+  final dataPtr = allocNativeBytes(toxPassEncryptionExtraLength);
   try {
     dataPtr
         .asTypedList(toxPassEncryptionExtraLength)
@@ -134,7 +134,7 @@ bool isDataEncrypted(Uint8List data) {
     return ffiLib.isDataEncryptedNative(dataPtr, toxPassEncryptionExtraLength) ==
         1;
   } finally {
-    pkgffi.malloc.free(dataPtr);
+    wipeAndFreeNative(dataPtr, toxPassEncryptionExtraLength);
   }
 }
 
@@ -158,12 +158,15 @@ Future<bool> isProfileFileEncrypted(String profileFilePath) async {
 /// POSIX (renameat2/AT_REPLACE behavior) and Windows (MoveFileEx with replace).
 /// This protects the account profile from corruption if the process is killed
 /// mid-write — the previous file is preserved up to the moment of rename, and
-/// the .new file is best-effort cleaned up on failure.
+/// the .new file is best-effort cleaned up on failure. After the rename the
+/// directory is flushed (best effort, [PosixDirectorySync]), which improves
+/// the odds that the new entry survives a power loss.
 Future<void> _writeBytesAtomic(File target, Uint8List bytes) async {
   final stage = File('${target.path}.new');
   try {
     await stage.writeAsBytes(bytes, flush: true);
     await stage.rename(target.path);
+    syncParentDirectory(target);
   } catch (_) {
     if (await stage.exists()) {
       try {

@@ -564,6 +564,11 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
     final priorNode = await Prefs.getPreLanBootstrapNode();
     if (priorNode != null) {
       if (widget.service != null) {
+        // Re-applied before the LAN node goes, so the session keeps a path.
+        // A refusal (its host does not resolve while offline, the node is
+        // gone) must not trap the user in LAN mode: it is reported, and the
+        // node is still saved as current below, so the next bootstrap
+        // applies it again.
         try {
           final restored = await widget.service!.addBootstrapNode(
             priorNode.host,
@@ -573,14 +578,10 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
           if (!restored) {
             throw StateError('Failed to restore prior bootstrap node');
           }
-          await Prefs.setCurrentBootstrapNode(
-            priorNode.host,
-            priorNode.port,
-            priorNode.pubkey,
-          );
         } catch (e, st) {
           AppLogger.logError(
-            '[BootstrapSettingsSection] failed to restore prior node after LAN stop',
+            '[BootstrapSettingsSection] prior node not re-applied after LAN '
+            'stop; stopping LAN anyway',
             e,
             st,
           );
@@ -594,15 +595,13 @@ class _BootstrapSettingsSectionState extends State<BootstrapSettingsSection> {
               ),
             );
           }
-          return false;
         }
-      } else {
-        await Prefs.setCurrentBootstrapNode(
-          priorNode.host,
-          priorNode.port,
-          priorNode.pubkey,
-        );
       }
+      await Prefs.setCurrentBootstrapNode(
+        priorNode.host,
+        priorNode.port,
+        priorNode.pubkey,
+      );
     }
 
     try {

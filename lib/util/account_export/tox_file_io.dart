@@ -12,7 +12,6 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkgffi;
 import 'package:path/path.dart' as p;
-import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
 import '../app_paths.dart';
 import '../logger.dart';
@@ -20,6 +19,7 @@ import '../prefs.dart';
 import '../session_password_store.dart';
 import 'atomic_file_write.dart';
 import 'encryption.dart';
+import 'native_buffers.dart';
 import 'exceptions.dart';
 import 'ffi_constants.dart';
 
@@ -426,11 +426,11 @@ String _extractToxIdFromProfile(
   SecretPassword? passphrase,
 ) {
   try {
-    final ffiLib = Tim2ToxFfi.open();
-    final profilePtr = pkgffi.malloc<ffi.Uint8>(profileData.length);
-    final toxIdBuffer = pkgffi.malloc<ffi.Int8>(
-      128,
-    ); // 64 hex chars + null terminator
+    final ffiLib = profileCryptoFfi();
+    final profilePtr = allocNativeBytes(profileData.length);
+    // 64 hex chars + null terminator.
+    final toxIdRaw = allocNativeBytes(128);
+    final toxIdBuffer = toxIdRaw.cast<ffi.Int8>();
 
     // Allocated up front so the `finally` can always wipe and release it.
     // It used to be freed only on the success path, so any throw — including
@@ -439,7 +439,7 @@ String _extractToxIdFromProfile(
     final passphraseLen = passphrase?.length ?? 0;
     final passphrasePtr = passphraseLen == 0
         ? ffi.Pointer<ffi.Uint8>.fromAddress(0)
-        : pkgffi.malloc<ffi.Uint8>(passphraseLen);
+        : allocNativeBytes(passphraseLen);
     try {
       profilePtr.asTypedList(profileData.length).setAll(0, profileData);
       if (passphraseLen > 0) {
@@ -466,12 +466,10 @@ String _extractToxIdFromProfile(
       // Zero before releasing: `malloc.free` only returns the block to the
       // allocator, so the passphrase would otherwise sit in reusable heap (and
       // in any core dump) until something happened to overwrite it.
-      if (passphraseLen > 0) {
-        passphrasePtr.asTypedList(passphraseLen).fillRange(0, passphraseLen, 0);
-        pkgffi.malloc.free(passphrasePtr);
-      }
-      pkgffi.malloc.free(profilePtr);
-      pkgffi.malloc.free(toxIdBuffer);
+      // The profile copy (possibly plaintext savedata) too.
+      if (passphraseLen > 0) wipeAndFreeNative(passphrasePtr, passphraseLen);
+      wipeAndFreeNative(profilePtr, profileData.length);
+      wipeAndFreeNative(toxIdRaw, 128);
     }
   } catch (error) {
     AppLogger.error(

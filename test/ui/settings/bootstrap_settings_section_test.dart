@@ -738,8 +738,12 @@ void main() {
       },
     );
 
+    // A prior node that cannot be re-applied (its host does not resolve
+    // offline) must not trap the user in LAN mode (DitMesh review L8): the
+    // failure is reported, LAN stops, and the prior node stays saved as
+    // current for the next bootstrap.
     testWidgets(
-      'failed prior-node restore keeps LAN running and snapshot intact',
+      'refused prior-node restore is reported and LAN still stops',
       (tester) async {
         await _initPrefs();
         await Prefs.setBootstrapNodeMode('lan');
@@ -782,11 +786,14 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
 
-        expect(events, ['add:${_originalNode.host}']);
-        expect(manager.stopCalls, 0);
-        _expectNode(await Prefs.getCurrentBootstrapNode(), lanNode);
-        _expectNode(await Prefs.getPreLanBootstrapNode(), _originalNode);
-        expect(await Prefs.getLanBootstrapServiceRunning(), isTrue);
+        expect(events, ['add:${_originalNode.host}', 'stop']);
+        expect(manager.stopCalls, 1);
+        expect(find.textContaining('Failed to restore prior bootstrap node'),
+            findsOneWidget);
+        _expectNode(await Prefs.getCurrentBootstrapNode(), _originalNode);
+        expect(await Prefs.getPreLanBootstrapNode(), isNull);
+        expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+        expect(lanNode.host, isNot(_originalNode.host));
       },
     );
 
@@ -838,7 +845,7 @@ void main() {
     );
 
     testWidgets(
-      'failed restore blocks leaving LAN mode and keeps recovery state',
+      'a refused restore does not block leaving LAN mode',
       (tester) async {
         await _initPrefs();
         await Prefs.setBootstrapNodeMode('lan');
@@ -879,12 +886,13 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
 
-        expect(events, ['add:${_originalNode.host}']);
-        expect(manager.stopCalls, 0);
-        expect(await Prefs.getBootstrapNodeMode(), 'lan');
-        expect(await Prefs.getLanBootstrapServiceRunning(), isTrue);
-        _expectNode(await Prefs.getPreLanBootstrapNode(), _originalNode);
-        _expectNode(await Prefs.getCurrentBootstrapNode(), lanNode);
+        expect(events, ['add:${_originalNode.host}', 'stop']);
+        expect(manager.stopCalls, 1);
+        expect(await Prefs.getBootstrapNodeMode(), 'manual');
+        expect(await Prefs.getLanBootstrapServiceRunning(), isFalse);
+        expect(await Prefs.getPreLanBootstrapNode(), isNull);
+        _expectNode(await Prefs.getCurrentBootstrapNode(), _originalNode);
+        expect(lanNode.host, isNot(_originalNode.host));
       },
     );
 
