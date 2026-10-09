@@ -1454,8 +1454,9 @@ class Prefs {
     return decodeStoredGroupAvatarFromPrefs(p, key, current);
   }
 
-  static Future<void> setGroupAvatar(String groupId, String? faceUrl) async {
-    final current = await getCurrentAccountToxId();
+  static Future<void> setGroupAvatar(String groupId, String? faceUrl,
+      {String? account}) async { // [account]: write for it, not the current
+    final current = account ?? await getCurrentAccountToxId();
     if (current == null || current.isEmpty) return;
     final p = await _getPrefs();
     final key = _scopedKey(_groupAvatarKey(groupId), current);

@@ -34,7 +34,18 @@ Future<Stream<Uint8List>?> openCaptureStream(
     );
     return null;
   }
-  final hasPermission = await device.hasPermission();
+  // A permission query that throws (a platform-channel failure) used to
+  // escape the whole start: a conference that had already enabled native
+  // audio and claimed the pipeline then never cleaned up, and every later
+  // call or conference stayed busy. Treat it as "not granted": mobile goes
+  // receive-only, desktop still tries the stream below.
+  bool hasPermission;
+  try {
+    hasPermission = await device.hasPermission();
+  } catch (e) {
+    AppLogger.warn('[AudioHandler] microphone permission query failed: $e');
+    hasPermission = false;
+  }
   if (!isCurrent()) return null;
   final isDesktop =
       defaultTargetPlatform == TargetPlatform.macOS ||

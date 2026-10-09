@@ -187,5 +187,36 @@ void main() {
           reason: 'the conversation row and an open chat header follow the '
               'refreshed conversation list');
     });
+
+    // The picker's copy and the pref write can outlive the account that
+    // started them: after a switch the publish would hit the OTHER account's
+    // group (same id) with a file in this account's storage.
+    test('an avatar picked by another account is written for that account '
+        'and never published into the current session', () async {
+      final other = 'C' * 76;
+      final abs = p.join(avatarsDir, 'group_g5_7.png');
+      await File(abs).writeAsBytes(<int>[1]);
+      var published = 0;
+      var refreshed = 0;
+      await announceGroupAvatarChange(
+        groupID: 'g5',
+        groupType: 'Work',
+        path: abs,
+        accountToxId: other,
+        setGroupInfo: ({
+          required String groupID,
+          required String groupType,
+          String? faceUrl,
+        }) async {
+          published++;
+          return V2TimCallback(code: 0, desc: 'ok');
+        },
+        refreshConversations: () async => refreshed++,
+      );
+      expect(published, 0);
+      expect(refreshed, 0);
+      expect(await Prefs.getGroupAvatar('g5'), isNull,
+          reason: 'the current account\'s group avatar is untouched');
+    });
   });
 }

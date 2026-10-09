@@ -30,14 +30,25 @@ typedef GroupFaceUrlSetter = Future<V2TimCallback> Function({
 /// * `refreshConversations()` rebuilds the conversation list from Prefs, which
 ///   updates the row and — through the live-conversation subscription in the
 ///   message header avatar — an open chat's header.
+///
+/// [accountToxId] pins the change to the account that picked the avatar: the
+/// pref is written under that account, and the SDK publish + refresh (which act
+/// on whatever session is CURRENT) are skipped if another account took over
+/// while the pref was being written — they would set that account's group
+/// avatar to a file in this account's storage.
 Future<void> announceGroupAvatarChange({
   required String groupID,
   required String groupType,
   required String path,
+  String? accountToxId,
   GroupFaceUrlSetter? setGroupInfo,
   Future<void> Function()? refreshConversations,
 }) async {
-  await Prefs.setGroupAvatar(groupID, path);
+  await Prefs.setGroupAvatar(groupID, path, account: accountToxId);
+  if (accountToxId != null &&
+      await Prefs.getCurrentAccountToxId() != accountToxId) {
+    return;
+  }
   final setter = setGroupInfo ??
       TencentCloudChat.instance.chatSDKInstance.groupSDK.setGroupInfo;
   unawaited(
