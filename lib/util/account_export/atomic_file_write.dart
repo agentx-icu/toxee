@@ -3,11 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import 'posix_directory_sync.dart';
+
 const int _maxReservationAttempts = 1024;
 int _nextInvocationId = 0;
 
 /// Writes [bytes] through a same-directory temporary file and atomically renames
-/// it into [target].
+/// it into [target], then flushes the directory (best effort, improving the
+/// odds that the new entry survives a power loss).
 Future<void> writeBytesAtomically(
   File target,
   List<int> bytes, {
@@ -34,6 +37,7 @@ Future<void> writeBytesAtomically(
     }
 
     await (publishForTesting ?? _publishByRename)(temp, target);
+    syncParentDirectory(target);
   } finally {
     await _deleteStageBestEffort(temp);
   }
