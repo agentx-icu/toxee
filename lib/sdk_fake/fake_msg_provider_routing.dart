@@ -789,13 +789,9 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
     // paths are now O(1).
     try {
       // Extract userID/groupID from conversationID
-      String? userID;
-      String? groupID;
-      if (m.conversationID.startsWith('c2c_')) {
-        userID = m.conversationID.substring(4);
-      } else if (m.conversationID.startsWith('group_')) {
-        groupID = m.conversationID.substring(6);
-      }
+      final conv = m.conversationID;
+      final userID = conv.startsWith('c2c_') ? conv.substring(4) : null;
+      final groupID = conv.startsWith('group_') ? conv.substring(6) : null;
 
       // Refresh the cache when dirty. We pre-load *all* keys so the
       // single Set covers every conversation in this account; the
@@ -811,6 +807,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
         );
         final fresh = <String>{};
         for (final data in failedMessagesData) {
+          if (isQueuedFailureEntry(data)) continue; // its row decides
           final mid = data['msgID'] as String?;
           final id = data['id'] as String?;
           if (mid != null && mid.isNotEmpty) fresh.add(mid);
@@ -821,7 +818,10 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
         _failedCacheDirty = false;
       }
 
-      if (_failedMsgIDsCache != null && _failedMsgIDsCache!.contains(m.msgID)) {
+      // A failure cannot describe a cancelled or peer-read row.
+      if ((_failedMsgIDsCache?.contains(m.msgID) ?? false) &&
+          !m.isCancelled &&
+          !m.isRead) {
         msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
       }
     } catch (e) {

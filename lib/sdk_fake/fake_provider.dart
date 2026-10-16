@@ -14,6 +14,7 @@ import '../../util/prefs.dart';
 import 'fake_uikit_core.dart';
 import 'fake_im.dart';
 import 'fake_models.dart';
+import 'send_state.dart';
 import 'uikit_data_facade.dart';
 import 'c2c_recv_opt_cache.dart';
 import 'package:toxee/util/tox_utils.dart';
@@ -366,6 +367,7 @@ class FakeChatDataProvider implements ChatDataProvider {
 
         // Check if this message is in the failed list
         for (final failedMsgData in failedMessagesData) {
+          if (isQueuedFailureEntry(failedMsgData)) continue; // row decides
           final failedMsgID = failedMsgData['msgID'] as String?;
           final failedID = failedMsgData['id'] as String?;
 
@@ -391,17 +393,9 @@ class FakeChatDataProvider implements ChatDataProvider {
       if (isFailedMessage || lastMsg == null) {
         // Build from FakeMessage directly (for failed messages or when lastMsg is null)
         // Check if fromUser matches selfId to determine isSelf
-        final isSelf = _ffiService?.selfId == msg.fromUser;
-        // Create a temporary ChatMessage-like object from FakeMessage
-        final tempChatMsg = ChatMessage(
-          text: msg.text,
-          fromUserId: msg.fromUser,
-          isSelf: isSelf,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(msg.timestampMs),
+        final tempChatMsg = msg.toChat(
+          isSelf: _ffiService?.selfId == msg.fromUser,
           groupId: msg.conversationID.startsWith('group_') ? peerId : null,
-          msgID: msg.msgID,
-          filePath: msg.filePath,
-          mediaKind: msg.mediaKind,
         );
         lastMessage = _chatMessageToV2TimMessage(
           tempChatMsg,
@@ -419,10 +413,6 @@ class FakeChatDataProvider implements ChatDataProvider {
           peerId,
           msg.conversationID.startsWith('group_'),
         );
-        // Still check if it's in failed list (in case lastMessages has it but it's actually failed)
-        if (isFailedMessage) {
-          lastMessage.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
-        }
       }
 
       // If conversation doesn't exist, create it (especially important for failed messages)
@@ -669,6 +659,7 @@ class FakeChatDataProvider implements ChatDataProvider {
 
         // Find the latest failed message (by timestamp)
         for (final failedMsgData in failedMessagesData) {
+          if (isQueuedFailureEntry(failedMsgData)) continue; // row previews
           // CRITICAL: timestamp in persistence is in SECONDS (from V2TimMessage.timestamp)
           // We need to convert to milliseconds for comparison with lastMsgTimestamp
           final failedMsgTimestampSeconds =
@@ -813,6 +804,14 @@ class FakeChatDataProvider implements ChatDataProvider {
     msg.groupID = isGroup ? peerId : null;
     msg.timestamp = chatMsg.timestamp.millisecondsSinceEpoch ~/ 1000;
     msg.isSelf = chatMsg.isSelf;
+    if (chatMsg.isSelf) {
+      applyOwnSendState(
+        msg,
+        isCancelled: chatMsg.isCancelled,
+        isPending: chatMsg.isPending,
+        isFailed: chatMsg.isFailed,
+      );
+    }
 
     // Call record: custom elem with JSON data; session list summary via getMessageSummary/handleCustomMessage
     if (chatMsg.mediaKind == 'call_record') {

@@ -117,14 +117,15 @@ void main() {
     expect(ffiStub.groupSends, 0);
     await before.dispose();
 
-    // Session 2: the queue item survived; history loading cleared isPending.
+    // Session 2: the queue item survived, so the reloaded row is pending
+    // again (loading clears isPending; the still-queued send restores it).
     final after = open();
     addTearDown(after.dispose);
     await after.offlineMessageQueuePersistence.loadQueue();
     await after.loadHistory(_groupId);
     final reloaded = after.getHistory(_groupId).single;
     expect(reloaded.msgID, 'client-drain-1');
-    expect(reloaded.isPending, isFalse);
+    expect(reloaded.isPending, isTrue, reason: 'still queued, not sent');
     expect(reloaded.needReadReceipt, isTrue,
         reason: 'the author-local intent rides on the persisted row');
     expect(reloaded.altMsgIds, isEmpty);
@@ -140,6 +141,7 @@ void main() {
       reason: 'without the alias no read receipt can correlate to this row',
     );
     expect(drained.needReadReceipt, isTrue);
+    expect(drained.isPending, isFalse, reason: 'sent by the drain');
     expect(
       after.offlineMessageQueuePersistence.getMessages('group:$_groupId'),
       isEmpty,

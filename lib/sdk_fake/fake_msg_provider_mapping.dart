@@ -698,24 +698,15 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
 
     // Set message status and read receipt status
     // UIKit uses status field: 1=SENDING, 2=SEND_SUCC, 3=SEND_FAIL
-    // For self-sent messages, set status based on receipt
+    // For self-sent messages the row's send state first, then receipts.
     if (msg.isSelf ?? false) {
-      if (m.isPending) {
-        // Check if this is an old message (likely from before client restart)
-        // If message is older than 10 seconds, it's likely a pending message from before restart
-        // and should be marked as failed. This handles the case where client restarted
-        // and old pending messages are loaded from history.
-        final messageAge =
-            DateTime.now().millisecondsSinceEpoch - m.timestampMs;
-        if (messageAge > 10000) {
-          // Old pending message (likely from before restart) - mark as failed
-          msg.status = 3; // V2TIM_MSG_STATUS_SEND_FAIL
-        } else {
-          // New pending message (just sent, less than 10 seconds old) - mark as sending
-          // Note: If message fails to send (e.g., friend is offline), sendMessageFinalPhase
-          // will update the status to SEND_FAIL via messageNeedUpdate
-          msg.status = 1; // V2TIM_MSG_STATUS_SENDING
-        }
+      if (applyOwnSendState(
+        msg,
+        isCancelled: m.isCancelled,
+        isPending: m.isPending,
+        isFailed: m.isFailed,
+      )) {
+        msg.isPeerRead = false;
       } else if (m.isRead) {
         msg.status = 2; // V2TIM_MSG_STATUS_SEND_SUCC
         msg.isPeerRead = true; // Message has been read
@@ -884,6 +875,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         final failedMsgIDs = <String>{};
         final failedMsgDataMap = <String, Map<String, dynamic>>{};
         for (final failedMsgData in cachedFailedMessages) {
+          if (isQueuedFailureEntry(failedMsgData)) continue; // its row decides
           final msgID = failedMsgData['msgID'] as String?;
           final id = failedMsgData['id'] as String?;
           if (msgID != null) {
@@ -897,19 +889,17 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         }
 
         for (final h in hist) {
+          // SENDING stays SENDING: Tim2Tox keeps only still-queued rows pending.
           final msg = _mapMsg(h);
-          // If message status is SENDING (1), set it to FAIL (3) since client restarted
-          // Messages that were sending when client restarted should be marked as failed
-          if (msg.status == 1) {
-            msg.status = 3; // V2TIM_MSG_STATUS_SEND_FAIL
-          }
           // CRITICAL: Check if message is in failed messages list and restore failed status
           // This ensures that failed messages remain failed even after switching pages and reloading
           // History messages might have success status, but we trust the persistence
           final msgID = msg.msgID;
           final id = msg.id;
-          if ((msgID != null && failedMsgIDs.contains(msgID)) ||
-              (id != null && failedMsgIDs.contains(id))) {
+          if (((msgID != null && failedMsgIDs.contains(msgID)) ||
+                  (id != null && failedMsgIDs.contains(id))) &&
+              !h.isCancelled &&
+              !h.isRead) {
             // Message is in failed list - mark as failed regardless of current status
             msg.status = MessageStatus.V2TIM_MSG_STATUS_SEND_FAIL;
             // Also restore textElem if it's missing

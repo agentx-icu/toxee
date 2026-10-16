@@ -317,23 +317,7 @@ class FakeIM {
             '[FakeIM] dropping unroutable message emit: isSelf=${m.isSelf}, hasGroup=${m.groupId != null} (history refresh will recover)',
           );
         } else {
-          final msg = FakeMessage(
-            msgID:
-                m.msgID ??
-                '${m.timestamp.millisecondsSinceEpoch}_${m.fromUserId}',
-            conversationID: convId,
-            fromUser: m.fromUserId,
-            text: m.text,
-            timestampMs: m.timestamp.millisecondsSinceEpoch,
-            filePath: m.filePath,
-            fileName: m.fileName,
-            fileSize: m.fileSize,
-            mediaKind: m.mediaKind,
-            cloudCustomData: m.cloudCustomData,
-            isPending: m.isPending,
-            isReceived: m.isReceived,
-            isRead: m.isRead,
-          );
+          final msg = FakeMessage.fromChat(m, conversationID: convId);
           bus.emit(topicMessage, msg);
         }
         _emitUnreadTotal();
@@ -788,20 +772,10 @@ class FakeIM {
     for (final f in friends) {
       final hist = ffi.getHistory(f.userId);
       for (final h in hist) {
-        final msg = FakeMessage(
-          msgID:
-              h.msgID ??
-              '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
+        final msg = FakeMessage.fromChat(
+          h,
           conversationID: 'c2c_${f.userId}',
-          fromUser: h.fromUserId,
-          text: h.text,
-          timestampMs: h.timestamp.millisecondsSinceEpoch,
-          filePath: h.filePath,
-          fileName: h.fileName, // Pass original file name
-          fileSize: h.fileSize,
-          mediaKind: h.mediaKind,
-          cloudCustomData: h.cloudCustomData,
-          isPending: h.isPending,
+          withReceipts: false,
         );
         bus.emit(topicMessage, msg);
       }
@@ -810,20 +784,10 @@ class FakeIM {
     for (final gid in groups) {
       final hist = ffi.getHistory(gid);
       for (final h in hist) {
-        final msg = FakeMessage(
-          msgID:
-              h.msgID ??
-              '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
+        final msg = FakeMessage.fromChat(
+          h,
           conversationID: 'group_$gid',
-          fromUser: h.fromUserId,
-          text: h.text,
-          timestampMs: h.timestamp.millisecondsSinceEpoch,
-          filePath: h.filePath,
-          fileName: h.fileName, // Pass original file name
-          fileSize: h.fileSize,
-          mediaKind: h.mediaKind,
-          cloudCustomData: h.cloudCustomData,
-          isPending: h.isPending,
+          withReceipts: false,
         );
         bus.emit(topicMessage, msg);
       }
