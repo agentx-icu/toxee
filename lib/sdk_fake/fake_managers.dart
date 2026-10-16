@@ -455,7 +455,7 @@ class FakeMessageManager {
   }) async {
     if (conversationID.startsWith('c2c_')) {
       final uid = conversationID.substring(4);
-      await requireC2cFriend(_ffi, uid); // offline friends still queue
+      requireC2cFriend(_ffi, uid); // sync (see there); offline friends queue
       final sent = await _ffi.sendTextWithResult(
         uid,
         text,

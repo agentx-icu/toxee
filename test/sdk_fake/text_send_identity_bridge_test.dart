@@ -10,6 +10,7 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
+import 'package:toxee/sdk_fake/c2c_send_guard.dart';
 import 'package:toxee/sdk_fake/fake_im.dart';
 import 'package:toxee/sdk_fake/fake_models.dart';
 import 'package:toxee/sdk_fake/fake_uikit_core.dart';
@@ -197,6 +198,7 @@ void main() {
         FakeUIKit.instance.dispose();
       } catch (_) {}
       ffi = _BridgeFfiChatService(env.root);
+      debugNativeFriendIds = (_) => ffi.friendIDs.toList();
       await FakeUIKit.instance.startWithFfi(ffi);
       platform = null;
       advancedListener = null;
@@ -205,6 +207,7 @@ void main() {
     });
 
     tearDown(() async {
+      debugNativeFriendIds = null;
       if (platform != null && advancedListener != null) {
         await platform!.removeAdvancedMsgListener(listener: advancedListener);
       }

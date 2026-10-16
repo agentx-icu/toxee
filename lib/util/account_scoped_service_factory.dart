@@ -10,6 +10,7 @@ import '../adapters/shared_prefs_adapter.dart';
 import 'account_scratch_storage.dart';
 import 'account_service.dart';
 import 'app_paths.dart';
+import 'native_dispose.dart';
 import 'safe_diagnostics.dart';
 import 'secret_passphrase_staging.dart';
 import 'secret_password.dart';
@@ -58,18 +59,18 @@ Future<FfiChatService> createAccountScopedService({
       );
     }
     await svc.init(profileDirectory: profileDirectory);
+    await AccountRegistrationTestHooks.duringScopedOpen?.call(svc);
     await svc.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
     return svc;
   } catch (_) {
-    try {
-      await svc.dispose();
-    } catch (disposeError) {
-      SafeDiagnostics.logFailure(
-        '[AccountService] registration_rollback_failed '
-        'stage=scoped_service_disposal',
-        disposeError,
-      );
-    }
+    // The caller never receives this service, so an unproven stop is
+    // recorded here or nowhere: the registration rollback then finds it in
+    // the registry and keeps the account's row, verifier and directories.
+    await disposeRecordingQuarantine(
+      svc,
+      stage: 'scoped_service_open_failed',
+      toxIds: [toxId],
+    );
     rethrow;
   }
 }

@@ -4,7 +4,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import 'account_service_test_hooks.dart';
 import 'current_account_pointer_restore.dart';
-import 'logger.dart';
+import 'native_dispose.dart';
 import 'native_quarantine.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
@@ -101,8 +101,16 @@ Future<void> rollbackFailedRegistration(
   final disposed =
       service == null ||
       await disposeRegistrationBootstrap(service, 'rollback');
-  final stopped = plan.bootstrapStopped && disposed;
   final toxId = plan.toxId;
+  // The registry is consulted too, AFTER the dispose above: an instance this
+  // registration discarded without handing it back (a scoped reopen that
+  // failed inside `createAccountScopedService`, after `service` was already
+  // nulled) is known only there. A clean dispose of a replacement never
+  // clears an earlier mark.
+  final stopped =
+      plan.bootstrapStopped &&
+      disposed &&
+      !(toxId != null && toxId.isNotEmpty && NativeQuarantine.contains(toxId));
   // Whatever is kept below must not be deleted later in this process
   // either (Login's service-less deletion resumes on the same registry).
   if (!stopped && toxId != null && toxId.isNotEmpty) {
@@ -205,15 +213,23 @@ Future<bool> disposeRegistrationBootstrap(
   String stage,
 ) async {
   final hook = AccountRegistrationTestHooks.disposeService;
-  // Captured before the instance goes away: a dispose that throws may no
-  // longer answer, and every false outcome below must be recorded.
-  final toxId = service.getSelfToxId() ?? '';
+  if (hook == null) {
+    // A registration that still succeeds (reopen is the documented recovery)
+    // leaves an account whose directory no deletion in this process may touch;
+    // the helper records that.
+    return disposeRecordingQuarantine(service, stage: 'registration_$stage');
+  }
+  // Captured before the instance goes away: a hook that throws must still be
+  // recorded under the identity it was disposing.
+  String toxId;
   try {
-    if (hook != null) {
-      await hook(service);
-      return true;
-    }
-    await service.dispose();
+    toxId = service.getSelfToxId() ?? '';
+  } catch (_) {
+    toxId = '';
+  }
+  try {
+    await hook(service);
+    return true;
   } catch (e) {
     SafeDiagnostics.logFailure(
       '[AccountService] registration_bootstrap_dispose_failed stage=$stage',
@@ -222,14 +238,4 @@ Future<bool> disposeRegistrationBootstrap(
     NativeQuarantine.mark(toxId);
     return false;
   }
-  if (service.nativeInstanceStopped == true) return true;
-  // A registration that still succeeds (reopen is the documented recovery)
-  // leaves an account whose directory no deletion in this process may touch.
-  NativeQuarantine.mark(toxId);
-  AppLogger.warn(
-    '[AccountService] registration stage=$stage: the bootstrap Tox instance '
-    'was quarantined rather than stopped; its directory is left for the '
-    'next start instead of being deleted under a possible late save',
-  );
-  return false;
 }

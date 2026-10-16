@@ -12,6 +12,8 @@ import 'account_export_service.dart';
 import 'app_paths.dart';
 import 'async_gate.dart';
 import 'logger.dart';
+import 'native_dispose.dart';
+import 'native_quarantine.dart';
 import 'placeholder_account_migration.dart';
 import 'prefs.dart';
 import 'secret_password.dart';
@@ -75,6 +77,16 @@ Future<String?> _discoverUnguarded([
     AppLogger.warn(
         '[PlaceholderAccountMigration] Profile blob missing; '
         'cannot discover real Tox ID');
+    return null;
+  }
+
+  // An earlier discovery in this process could not prove its instance
+  // stopped: a clean session now would authorize migrating the directory that
+  // instance may still save into. The next start (no zombie) discovers again.
+  if (NativeQuarantine.contains(PlaceholderAccountMigration.placeholderToxId)) {
+    AppLogger.warn(
+        '[PlaceholderAccountMigration] an earlier discovery instance was not '
+        'proven stopped; migration deferred to the next start');
     return null;
   }
 
@@ -172,8 +184,9 @@ Future<String?> _discoverUnguarded([
     }
   }
 
+  var nativeStopped = true;
   try {
-    return await _runDiscoverySession(
+    final outcome = await _runDiscoverySession(
       prefs: prefs,
       accountPrefix: accountPrefix,
       historyDir: historyDir,
@@ -182,8 +195,22 @@ Future<String?> _discoverUnguarded([
       avatarsPath: avatarsPath,
       profileDir: discoveryProfileDir,
     );
+    nativeStopped = outcome.nativeStopped;
+    // An instance that may still save into the profile (or the copy) must
+    // not have that directory migrated, or deleted, under it: no migration
+    // in this process; the next start (no zombie) discovers again.
+    return nativeStopped ? outcome.toxId : null;
   } finally {
-    await _deleteScratch(scratch);
+    if (nativeStopped) {
+      await _deleteScratch(scratch);
+    } else if (scratch != null) {
+      // Stays in [_activeScratch], so no sweep in this process removes it
+      // under a late write; the startup sweep of the next process does.
+      AppLogger.warn(
+          '[PlaceholderAccountMigration] discovery instance not proven '
+          'stopped; migration deferred and its profile copy left to the next '
+          'start');
+    }
   }
 }
 
@@ -236,7 +263,10 @@ Future<void> _deleteScratch(Directory? scratch) async {
   }
 }
 
-Future<String?> _runDiscoverySession({
+/// The discovered id, and whether the discovery instance was proven stopped
+/// (see [disposeRecordingQuarantine]); nothing that touches [profileDir] may
+/// follow an unproven stop in this process.
+Future<({String? toxId, bool nativeStopped})> _runDiscoverySession({
   required SharedPreferences prefs,
   required String accountPrefix,
   required String historyDir,
@@ -246,6 +276,7 @@ Future<String?> _runDiscoverySession({
   required String profileDir,
 }) async {
   FfiChatService? service;
+  String? discovered;
   try {
     service = FfiChatService(
       preferencesService:
@@ -260,22 +291,19 @@ Future<String?> _runDiscoverySession({
     await service.init(profileDirectory: profileDir);
     await service.login(
         userId: PlaceholderAccountMigration.placeholderToxId, userSig: 'dummy_sig');
-    return service.getSelfToxId();
+    discovered = service.getSelfToxId();
   } catch (e, st) {
     AppLogger.logError(
         '[PlaceholderAccountMigration] Discovery service init failed', e, st);
-    return null;
-  } finally {
-    try {
-      await service?.dispose();
-    } catch (e, st) {
-      AppLogger.logError(
-          '[PlaceholderAccountMigration] Failed to dispose discovery service '
-          '(non-fatal)',
-          e,
-          st);
-    }
   }
+  final svc = service;
+  final nativeStopped = svc == null ||
+      await disposeRecordingQuarantine(
+        svc,
+        stage: 'placeholder_discovery',
+        toxIds: [PlaceholderAccountMigration.placeholderToxId, discovered],
+      );
+  return (toxId: discovered, nativeStopped: nativeStopped);
 }
 
 /// Apply every step of the migration with a per-step rollback stack. The
