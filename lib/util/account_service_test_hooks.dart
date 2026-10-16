@@ -60,9 +60,16 @@ abstract final class AccountRegistrationTestHooks {
   @visibleForTesting
   static Future<void> Function(String toxId)? beforeScopedReopen;
 
+  /// Runs inside `createAccountScopedService`, after the scoped service was
+  /// constructed and initialised but before it is handed back. Tests throw
+  /// here to exercise the factory's own cleanup of that service.
+  @visibleForTesting
+  static Future<void> Function(FfiChatService service)? duringScopedOpen;
+
   @visibleForTesting
   static void reset() {
     disposeService = null;
     beforeScopedReopen = null;
+    duringScopedOpen = null;
   }
 }

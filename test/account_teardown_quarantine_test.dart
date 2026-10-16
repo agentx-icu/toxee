@@ -9,6 +9,7 @@ import 'package:toxee/util/account_registration_rollback.dart';
 import 'package:toxee/util/account_service.dart';
 import 'package:toxee/util/account_session_cleanup.dart';
 import 'package:toxee/util/account_teardown_failure.dart';
+import 'package:toxee/util/native_dispose.dart';
 import 'package:toxee/util/native_quarantine.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/prefs.dart';
@@ -201,6 +202,76 @@ void main() {
     );
     expect(NativeQuarantine.contains(_toxId), isFalse);
   });
+
+  test('disposeRecordingQuarantine: only a proven stop records nothing',
+      () async {
+    const other = '0123456789ABCDEF';
+    for (final (stopped, error, expected) in <(bool?, Object?, bool)>[
+      (true, null, true),
+      (false, null, false),
+      (null, null, false),
+      (true, StateError('native refused to dispose'), false),
+    ]) {
+      NativeQuarantine.reset();
+      final service = _QuarantinedService(_toxId, stopped: stopped)
+        ..disposeError = error;
+      expect(
+        await disposeRecordingQuarantine(
+          service,
+          stage: 'probe',
+          toxIds: [other, null, ''],
+        ),
+        expected,
+        reason: 'stopped=$stopped error=$error',
+      );
+      expect(service.disposeCalls, 1);
+      expect(NativeQuarantine.contains(other), !expected);
+      expect(
+        NativeQuarantine.contains(_toxId),
+        isFalse,
+        reason: 'explicit ids replace the self-id probe',
+      );
+    }
+    // Without explicit ids the service's own id is recorded.
+    NativeQuarantine.reset();
+    expect(
+      await disposeRecordingQuarantine(
+        _QuarantinedService(_toxId, stopped: false),
+        stage: 'probe',
+      ),
+      isFalse,
+    );
+    expect(NativeQuarantine.contains(_toxId), isTrue);
+  });
+
+  test(
+    'registration rollback honours an earlier quarantine mark even when it '
+    'has no service left to dispose',
+    () async {
+      final root = await AppPaths.getProfileStorageRoot();
+      final finalDir = Directory('$root/p_marked')..createSync(recursive: true);
+      NativeQuarantine.mark(_toxId);
+      await rollbackFailedRegistration(
+        AccountRegistrationRollbackPlan(
+          service: null,
+          toxId: _toxId,
+          tempDir: null,
+          finalDir: finalDir.path,
+          ownsFinalDir: true,
+          ownedDataRoots: const [],
+          accountVisible: true,
+          verifierWritten: true,
+          previousAccount: null,
+          previousNickname: 'Previous',
+          previousStatusMessage: null,
+          previousAvatarPath: null,
+        ),
+      );
+      expect(finalDir.existsSync(), isTrue);
+      expect(await Prefs.getAccountByToxId(_toxId), isNotNull);
+      expect(NativeQuarantine.contains(_toxId), isTrue);
+    },
+  );
 
   test(
     'registration rollback keeps the directories and the published account '

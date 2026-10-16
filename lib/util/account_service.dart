@@ -16,6 +16,7 @@ import 'profile_open_helpers.dart';
 import 'account_deletion.dart';
 import 'account_password_change.dart';
 import 'account_registration_rollback.dart';
+import 'native_dispose.dart';
 import 'native_quarantine.dart';
 import 'account_scoped_service_factory.dart';
 import 'account_session_cleanup.dart';
@@ -501,21 +502,33 @@ class AccountService {
           SessionPasswordStore.clear(canonicalToxId);
         }
       }
-      try {
-        await service?.dispose();
-      } catch (disposeError) {
-        SafeDiagnostics.logFailure(
-          '[AccountService] initialize_rollback_failed stage=service_disposal',
-          disposeError,
+      // The service never reaches the caller, so an instance that was not
+      // proven stopped is recorded here or nowhere (under both id forms).
+      final svc = service;
+      if (svc != null) {
+        await disposeRecordingQuarantine(
+          svc,
+          stage: 'initialize_rollback',
+          toxIds: [toxId, canonicalToxId],
         );
       }
-      await restoreCurrentAccountPointer(previousAccount, '[AccountService]');
+      // Best-effort from here on: a refused restore must not replace the
+      // error this path rethrows.
+      await _bestEffort('pointer', () => restoreCurrentAccountPointer(previousAccount, '[AccountService]'));
       // Mirror the success path: if we set nickname/status/avatar above, undo
       // them. Always — we may have failed AFTER the pointer write above.
-      await Prefs.setNickname(previousNickname ?? '');
-      await Prefs.setStatusMessage(previousStatusMessage ?? '');
-      await Prefs.setAvatarPath(previousAvatarPath);
+      await _bestEffort('nickname', () => Prefs.setNickname(previousNickname ?? ''));
+      await _bestEffort('status', () => Prefs.setStatusMessage(previousStatusMessage ?? ''));
+      await _bestEffort('avatar', () => Prefs.setAvatarPath(previousAvatarPath));
       rethrow;
+    }
+  }
+
+  static Future<void> _bestEffort(String stage, Future<void> Function() step) async {
+    try {
+      await step();
+    } catch (e) {
+      SafeDiagnostics.logFailure('[AccountService] initialize_rollback_failed stage=$stage', e);
     }
   }
 

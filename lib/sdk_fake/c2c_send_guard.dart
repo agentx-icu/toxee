@@ -1,3 +1,7 @@
+import 'dart:ffi' show Int8;
+
+import 'package:ffi/ffi.dart' show Utf8, Utf8Pointer, malloc;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
 import '../util/logger.dart';
@@ -24,12 +28,43 @@ class NotFriendSendException implements Exception {
 /// The match stays exactly the one sendTextWithResult uses (normalizeToxId,
 /// no case folding), so the guard never admits a key the FFI would then
 /// treat as an unknown, queued-forever peer.
-Future<void> requireC2cFriend(FfiChatService ffi, String peerId) async {
+///
+/// SYNCHRONOUS ON PURPOSE. `Tim2ToxSdkPlatform.sendMessage` arms the reply /
+/// forward cloudCustomData (and the read-receipt intent) on the shared
+/// service right before the provider call, and `sendTextWithResult` consumes
+/// it at its entry. An await in between lets a second send re-arm the slot,
+/// so one message persisted the other's quote. The friend list is therefore
+/// read from the same native export `FfiChatService.getFriendList` parses,
+/// without its async nickname/status cache work.
+void requireC2cFriend(FfiChatService ffi, String peerId) {
   if (ffi.isSelfPeer(peerId)) return;
   final id = normalizeToxId(peerId);
-  final friends = await ffi.getFriendList();
-  if (!friends.any((f) => normalizeToxId(f.userId) == id)) {
+  final friends = (debugNativeFriendIds ?? _nativeFriendIds)(ffi);
+  if (!friends.any((f) => normalizeToxId(f) == id)) {
     throw NotFriendSendException(peerId);
+  }
+}
+
+/// Stands in for the native friend list in tests whose service is a fake.
+/// Null => the native export.
+@visibleForTesting
+List<String> Function(FfiChatService ffi)? debugNativeFriendIds;
+
+/// The user ids of `tim2tox_ffi_get_friend_list`: one friend per line,
+/// tab-separated fields, the id first (the format and buffer size
+/// `FfiChatService.getFriendList` uses).
+List<String> _nativeFriendIds(FfiChatService ffi) {
+  const capacity = 64 * 1024;
+  final buf = malloc.allocate<Int8>(capacity);
+  try {
+    final n = ffi.tim2toxFfi.getFriendList(buf, capacity);
+    if (n <= 0) return const [];
+    return [
+      for (final line in buf.cast<Utf8>().toDartString().split('\n'))
+        if (line.split('\t').first case final uid when uid.isNotEmpty) uid,
+    ];
+  } finally {
+    malloc.free(buf);
   }
 }
 
