@@ -192,6 +192,7 @@ void main() {
           msgID: 'q1',
           cloudCustomData: null,
           contentKind: ChatMessageContentKind.normal,
+          control: null,
         ));
 
         expect(

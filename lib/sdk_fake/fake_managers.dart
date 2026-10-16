@@ -412,23 +412,7 @@ class FakeMessageManager {
     // DO NOT reverse here! UIKit's reverse ListView will handle the display order
     final sorted = hist
         .map(
-          (h) => FakeMessage(
-            msgID:
-                h.msgID ??
-                '${h.timestamp.millisecondsSinceEpoch}_${h.fromUserId}',
-            conversationID: conversationID,
-            fromUser: h.fromUserId,
-            text: h.text,
-            timestampMs: h.timestamp.millisecondsSinceEpoch,
-            filePath: h.filePath,
-            fileName: h.fileName, // Pass original file name
-            fileSize: h.fileSize,
-            mediaKind: h.mediaKind,
-            cloudCustomData: h.cloudCustomData,
-            isPending: h.isPending,
-            isReceived: h.isReceived,
-            isRead: h.isRead,
-          ),
+          (h) => FakeMessage.fromChat(h, conversationID: conversationID),
         )
         .toList();
 

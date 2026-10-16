@@ -10,6 +10,7 @@ import 'package:tim2tox_dart/interfaces/draft_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/extended_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/logger_service.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
+import 'package:tim2tox_dart/models/send_control_result.dart';
 import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
@@ -108,6 +109,41 @@ class _FakeFfiChatService implements FfiChatService {
   final bool throwOnDelete;
 
   final List<String> deletedIDs = <String>[];
+
+  @override
+  void Function(String msgID)? onFailureCleared;
+
+  @override
+  ({String conversation, bool isGroup, ChatMessage row})? findOwnLoadedRow(
+    String msgID,
+  ) {
+    for (final entry in _history.entries) {
+      for (final row in entry.value.reversed) {
+        if (row.isSelf && row.msgID == msgID) {
+          return (
+            conversation: entry.key,
+            isGroup: row.groupId?.isNotEmpty ?? false,
+            row: row,
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  /// (conversation, msgID, isGroup) of every retryFailedMessage call.
+  final List<(String, String, bool)> retried = [];
+
+  @override
+  Future<SendControlResult> retryFailedMessage(
+    String conversation,
+    String msgID, {
+    bool isGroup = false,
+  }) async {
+    retried.add((conversation, msgID, isGroup));
+    return SendControlResult.success;
+  }
+
   final List<({String peerId, String payload, bool isGroup})> controlSignals =
       <({String peerId, String payload, bool isGroup})>[];
   final bool throwOnAlternatingSelfIdReads;
@@ -586,6 +622,37 @@ void main() {
         ]);
         expect(restartedService.deletedIDs, ['wire-restart']);
         expect(await _failedRows(userID: 'peer-a'), isEmpty);
+      },
+    );
+
+    test(
+      'a failed queued text in history is retried in place, without its '
+      'failed-message entry',
+      () async {
+        final service = _FakeFfiChatService(
+          history: [
+            ChatMessage(
+              text: 'queued once',
+              fromUserId: 'self',
+              isSelf: true,
+              timestamp: DateTime.fromMillisecondsSinceEpoch(303000),
+              msgID: 'queued-failed',
+              isFailed: true,
+            ),
+          ],
+        );
+        final platform = _platformFor(service);
+        final provider = _ConfigurableProvider(failTextSends: false);
+        ChatMessageProviderRegistry.provider = provider;
+
+        final resent = await platform.reSendMessage(msgID: 'queued-failed');
+
+        expect(resent.code, 0);
+        expect(service.retried, [('peer-a', 'queued-failed', false)]);
+        expect(provider.sentTexts, isEmpty, reason: 'no second send');
+        expect(service.deletedIDs, isEmpty, reason: 'the row stays');
+        platform.dispose();
+        await service.close();
       },
     );
 

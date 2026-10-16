@@ -380,22 +380,7 @@ class SessionRuntimeCoordinator {
         : 'c2c_${normalizeToxId(conversationId)}';
     unawaited(
       provider.noteInboundMessagePersisted(
-        FakeMessage(
-          msgID: message.msgID ??
-              '${message.timestamp.millisecondsSinceEpoch}_${message.fromUserId}',
-          conversationID: convId,
-          fromUser: message.fromUserId,
-          text: message.text,
-          timestampMs: message.timestamp.millisecondsSinceEpoch,
-          filePath: message.filePath,
-          fileName: message.fileName,
-          fileSize: message.fileSize,
-          mediaKind: message.mediaKind,
-          cloudCustomData: message.cloudCustomData,
-          isPending: message.isPending,
-          isReceived: message.isReceived,
-          isRead: message.isRead,
-        ),
+        FakeMessage.fromChat(message, conversationID: convId),
       ),
     );
   }

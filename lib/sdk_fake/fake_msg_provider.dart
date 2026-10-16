@@ -6,11 +6,14 @@ import 'package:tencent_cloud_chat_common/external/chat_message_provider.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
+import 'package:tim2tox_dart/utils/tim2tox_failed_message_rebuild.dart'
+    show isQueuedFailureEntry;
 import 'package:tim2tox_dart/utils/tim2tox_failed_message_persistence.dart';
 import 'package:tim2tox_dart/utils/control_message_envelope.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/fake_im.dart';
 import '../sdk_fake/fake_models.dart';
+import '../sdk_fake/send_state.dart';
 import '../sdk_fake/uikit_data_facade.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
@@ -609,6 +612,7 @@ class FakeChatMessageProvider
           isPending: false, // Failed messages are not pending
           isReceived: false,
           isRead: false,
+          isFailed: true,
         );
 
         // Emit FakeMessage event to trigger FakeProvider to update conversation lastMessage
@@ -660,22 +664,9 @@ class FakeChatMessageProvider
         try {
           final chatMsg = history.firstWhere((m) => m.msgID == msgID);
           // Found the ChatMessage, convert it to FakeMessage then to V2TimMessage
-          final fakeMsg = FakeMessage(
-            msgID:
-                chatMsg.msgID ??
-                '${chatMsg.timestamp.millisecondsSinceEpoch}_${chatMsg.fromUserId}',
+          final fakeMsg = FakeMessage.fromChat(
+            chatMsg,
             conversationID: conversationID,
-            fromUser: chatMsg.fromUserId,
-            text: chatMsg.text,
-            timestampMs: chatMsg.timestamp.millisecondsSinceEpoch,
-            filePath: chatMsg.filePath,
-            fileName: chatMsg.fileName,
-            fileSize: chatMsg.fileSize,
-            mediaKind: chatMsg.mediaKind,
-            cloudCustomData: chatMsg.cloudCustomData,
-            isPending: chatMsg.isPending,
-            isReceived: chatMsg.isReceived,
-            isRead: chatMsg.isRead,
           );
           // Convert FakeMessage to V2TimMessage using _mapMsg
           return _mapMsg(fakeMsg);
