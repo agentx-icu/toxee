@@ -11,6 +11,7 @@ enum AccountTeardownStage {
   providerRegistryCleanup,
   singletonCacheCleanup,
   ircSessionShutdown,
+  nearbyShutdown,
   serviceDisposal,
   profileReEncryption,
   sessionPasswordClear,

@@ -2,3 +2,5 @@
 "NSMicrophoneUsageDescription" = "本应用需要使用麦克风进行语音和视频通话。";
 "NSCameraUsageDescription" = "本应用需要使用相机进行视频通话。";
 "NSPhotoLibraryUsageDescription" = "Toxee 需要访问你的相册以发送照片和视频。";
+"NSLocationWhenInUseUsageDescription" = "Toxee 仅在你发送位置消息或开启“附近的人”时使用你的位置；“位置”设置关闭时绝不读取。";
+"NSLocationUsageDescription" = "Toxee 仅在你发送位置消息或开启“附近的人”时使用你的位置；“位置”设置关闭时绝不读取。";

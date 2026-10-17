@@ -16,6 +16,15 @@ import 'package:flutter/services.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import '../util/disposable_bag.dart';
 import '../util/prefs.dart';
+import '../nearby/location_permission_helper.dart';
+import '../nearby/location_sender.dart';
+import '../nearby/location_source.dart';
+import '../nearby/nearby_controller.dart';
+import 'home/desktop_input_options.dart';
+import 'nearby/nearby_page.dart';
+import 'nearby/nearby_privacy_notice.dart';
+import 'nearby/nearby_reply_prompter.dart';
+import 'widgets/location_message_bubble.dart';
 import 'package:tencent_cloud_chat_common/base/tencent_cloud_chat_theme_widget.dart';
 import '../util/locale_controller.dart';
 import '../util/tox_utils.dart';
@@ -187,6 +196,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Timer? _refreshTimer;
   Set<String> _localFriends = {};
   bool _autoAcceptFriends = false;
+  // Location master switch + nearby visibility (plan §4.5), per account.
+  bool _locationEnabled = false;
+  bool _nearbyVisible = false;
+  String _selfNicknameForNearby = '';
+  String _selfAvatarHashForNearby = '';
+  late final LocationSource _locationSource =
+      NearbyController.locationSourceOverride ??
+      const GeolocatorLocationSource();
+  late final LocationPermissionHelper _locationPermissions =
+      LocationPermissionHelper(_locationSource);
+  late final LocationSender _locationSender = LocationSender(
+    source: _locationSource,
+    currentToxId: () async => widget.service.accountKey,
+    permissions: _locationPermissions,
+  );
   bool _autoAcceptGroupInvites = false;
   List<V2TimFriendApplication> _pendingFriendApps = [];
   // P1-D3: tracks which friend-request userIDs we have already fired a
@@ -599,6 +623,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     _disposed = true;
     NotificationAccessMonitor.instance.access.removeListener(_onAccessChanged);
+    // Plan §4.6: nearby does not outlive the page that hosts it.
+    unawaited(NearbyController.instance.stop());
 
     _applicationsScrollController.dispose();
     _settingsScrollController.dispose();
@@ -895,139 +921,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String? userID,
     String? groupID,
   }) {
-    final appL10n = AppLocalizations.of(context)!;
-    final fileLabel = appL10n.file;
-    final personalCardLabel = appL10n.personalCard;
-    final personalCardGroupLabel = appL10n.sendPersonalCardToGroup;
-    final sentSnack = appL10n.personalCardSent;
-    final sentGroupSnack = appL10n.sentPersonalCardToGroup;
-    // toxee: desktop composer merges File / Photo / Video into a single "file"
-    // button. `_sendMedia(type: file)` opens the OS picker with FileType.any, so
-    // it already sends images, videos and every other file type — the separate
-    // photo/video buttons were removed to declutter the desktop toolbar. Mobile
-    // exposes File plus Camera, with camera results routed back through
-    // [_sendMedia] so both surfaces share the same send/offline behavior.
-    final options = <TencentCloudChatMessageGeneralOptionItem>[
-      TencentCloudChatMessageGeneralOptionItem(
-        icon: Icons.attach_file,
-        label: fileLabel,
-        onTap: ({Offset? offset}) async {
-          await _sendMedia(
-            context,
-            userId: userID,
-            groupId: groupID,
-            type: _MediaPickType.file,
-          );
-        },
+    return buildToxeeDesktopInputOptions(
+      context,
+      userID: userID,
+      groupID: groupID,
+      service: widget.service,
+      pickAndSendFile: (ctx, {userId, groupId}) => _sendMedia(
+        ctx,
+        userId: userId,
+        groupId: groupId,
+        type: _MediaPickType.file,
       ),
-    ];
-    if (userID != null) {
-      options.add(
-        TencentCloudChatMessageGeneralOptionItem(
-          icon: Icons.qr_code_2,
-          label: personalCardLabel,
-          onTap: ({Offset? offset}) async {
-            try {
-              // Check if friend is online before sending
-              final friends = await widget.service.getFriendList();
-              final friend = friends.firstWhere(
-                (f) => f.userId == userID,
-                orElse: () =>
-                    (userId: userID, nickName: '', online: false, status: ''),
-              );
-              if (!friends.any((f) => f.userId == normalizeToxId(userID))) {
-                _showSnackBar(AppLocalizations.of(context)!.userNotInFriendList);
-                return;
-              }
-              if (!friend.online) {
-                final appL10n = AppLocalizations.of(context)!;
-                // Send a text message to chat window indicating failure (two lines: error + file path)
-                final qrPath = await _createSelfQrCardImage();
-                final twoLineMsg =
-                    '${appL10n.friendOfflineSendCardFailed}\n$qrPath';
-                final mgr = FakeUIKit.instance.messageManager;
-                await sendFailureNotice(mgr, 'c2c_$userID', twoLineMsg);
-                return;
-              }
-              final qrPath = await _createSelfQrCardImage();
-              await widget.service.sendFile(userID, qrPath);
-              _showSnackBar(sentSnack);
-            } catch (e, stackTrace) {
-              // Provide more user-friendly error messages
-              final appL10n = AppLocalizations.of(context)!;
-              final errorMsg = e.toString();
-              String userMsg;
-              if (errorMsg.contains('offline') ||
-                  errorMsg.contains('not connected')) {
-                // Send a text message to chat window indicating failure (two lines: error + file path)
-                // Try to get the file path from the error or use a default message
-                try {
-                  final qrPath = await _createSelfQrCardImage();
-                  final twoLineMsg =
-                      '${appL10n.friendOfflineSendCardFailed}\n$qrPath';
-                  final mgr = FakeUIKit.instance.messageManager;
-                  await sendFailureNotice(mgr, 'c2c_$userID', twoLineMsg);
-                } catch (e, st) {
-                  AppLogger.logError(
-                    '[HomePage] Failed to create self QR card image for offline fallback',
-                    e,
-                    st,
-                  );
-                  await sendFailureNotice(
-                    FakeUIKit.instance.messageManager,
-                    'c2c_$userID',
-                    appL10n.friendOfflineSendCardFailed,
-                  );
-                }
-                userMsg = appL10n.friendOfflineCannotSendFile;
-              } else if (errorMsg.contains('not in your friend list')) {
-                userMsg = appL10n.userNotInFriendList;
-              } else {
-                // Extract error message without file path
-                String errorText = e.toString();
-                final appL10n = AppLocalizations.of(context)!;
-                // Remove file path from error message if present
-                if (errorText.contains('File does not exist')) {
-                  errorText = appL10n.fileDoesNotExist;
-                } else if (errorText.contains('File is empty')) {
-                  errorText = appL10n.fileIsEmpty;
-                } else if (errorText.contains(':')) {
-                  // Remove path after colon (e.g., "Exception: /path/to/file")
-                  final colonIndex = errorText.indexOf(':');
-                  if (colonIndex > 0) {
-                    final beforeColon = errorText.substring(0, colonIndex);
-                    final afterColon = errorText
-                        .substring(colonIndex + 1)
-                        .trim();
-                    // Check if after colon looks like a file path
-                    if (afterColon.startsWith('/') ||
-                        afterColon.contains('\\')) {
-                      errorText = beforeColon;
-                    }
-                  }
-                }
-                userMsg = appL10n.sendFailed(errorText);
-              }
-              _showSnackBar(userMsg);
-            }
-          },
-        ),
-      );
-    } else if (groupID != null) {
-      options.add(
-        TencentCloudChatMessageGeneralOptionItem(
-          icon: Icons.qr_code,
-          label: personalCardGroupLabel,
-          onTap: ({Offset? offset}) async {
-            final appL10n = AppLocalizations.of(context)!;
-            final text = '${appL10n.myId}: ${widget.service.accountKey}';
-            await widget.service.sendGroupText(groupID, text);
-            _showSnackBar(sentGroupSnack);
-          },
-        ),
-      );
-    }
-    return options;
+      showSnackBar: _showSnackBar,
+      createSelfQrCardImage: _createSelfQrCardImage,
+      locationLabel: _locationEnabled
+          ? AppLocalizations.of(context)!.locationMessageLabel
+          : null,
+      onSendLocation: _locationEnabled
+          ? () => _sendLocation(userID: userID, groupID: groupID)
+          : null,
+    );
   }
 
   Future<void> _updateTray() async {
@@ -1717,6 +1630,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onAutoAcceptFriendsChanged: _setAutoAcceptFriends,
                   autoAcceptGroupInvites: _autoAcceptGroupInvites,
                   onAutoAcceptGroupInvitesChanged: _setAutoAcceptGroupInvites,
+                  locationEnabled: _locationEnabled,
+                  onLocationEnabledChanged: (v) => unawaited(_setLocationEnabled(v)),
+                  nearbyVisible: _nearbyVisible,
+                  onNearbyVisibleChanged: (v) => unawaited(_setNearbyVisible(v)),
+                  onOpenNearby: _openNearbyPage,
                 ),
               ),
             ],
@@ -1913,6 +1831,87 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     UikitDataFacade.currentConversation = normalizedTarget;
   }
 
+  // --- Location + People nearby (doc/plans/LOCATION_AND_NEARBY_PLAN.md) ---
+
+  Future<void> _loadLocationPrefs(String toxId) async {
+    // Attach FIRST (synchronous): replies to nearby intents can arrive with
+    // the very first application list, before the preferences are read.
+    NearbyController.instance.attach(
+      widget.service,
+      displayName: () => _selfNicknameForNearby,
+      avatarHex: () => _selfAvatarHashForNearby,
+    );
+    final enabled = await LocationPrefs.getLocationEnabled(toxId);
+    final visible = await LocationPrefs.getNearbyVisible(toxId);
+    final nick = await Prefs.getNickname();
+    final avatar = await Prefs.getSelfAvatarHash();
+    if (!mounted) return;
+    setState(() {
+      _locationEnabled = enabled;
+      _nearbyVisible = visible;
+      _selfNicknameForNearby = nick ?? '';
+      // The presence record carries a 32-byte lower-hex digest or nothing.
+      _selfAvatarHashForNearby =
+          (avatar != null && RegExp(r'^[0-9a-f]{64}$').hasMatch(avatar)) ? avatar : '';
+    });
+  }
+
+  Future<void> _setLocationEnabled(bool value) async {
+    if (_locationEnabled == value) return;
+    if (value) {
+      // The OS prompt (or the explain → Settings dialog) decides; a refusal
+      // leaves the switch off.
+      final ok = await _locationPermissions.ensure(context);
+      if (!ok || !mounted) return;
+    }
+    // Stop BEFORE the preference flips, so no timer reads a position in
+    // between; the service re-checks the switches before every read anyway.
+    if (!value) await NearbyController.instance.stop();
+    setState(() => _locationEnabled = value);
+    await LocationPrefs.setLocationEnabled(value, widget.service.accountKey);
+  }
+
+  Future<void> _setNearbyVisible(bool value) async {
+    if (_nearbyVisible == value || (value && !_locationEnabled)) return;
+    final toxId = widget.service.accountKey;
+    if (value && !await LocationPrefs.getNearbyPrivacyShown(toxId)) {
+      // Once per account: what is shared, with whom, what is not.
+      if (!mounted || !await showNearbyPrivacyNotice(context)) return;
+      await LocationPrefs.setNearbyPrivacyShown(true, toxId);
+    }
+    if (!mounted) return;
+    if (!value) await NearbyController.instance.stop();
+    setState(() => _nearbyVisible = value);
+    await LocationPrefs.setNearbyVisible(value, toxId);
+  }
+
+  Future<void> _sendLocation({String? userID, String? groupID}) async {
+    if (!mounted) return;
+    final outcome = await _locationSender.send(
+      context,
+      userID: userID,
+      groupID: groupID,
+    );
+    if (!mounted) return;
+    final text = LocationSender.describeOutcome(context, outcome);
+    if (text != null) _showSnackBar(text);
+  }
+
+  void _openNearbyPage() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NearbyPage(
+          service: widget.service,
+          enabled: _locationEnabled && _nearbyVisible,
+          onOpenSettings: () {
+            Navigator.of(context).pop();
+            if (mounted) setState(() => _index = 3); // Settings tab
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _setAutoAcceptFriends(bool value) async {
     if (_autoAcceptFriends == value) return;
     setState(() => _autoAcceptFriends = value);
@@ -1980,6 +1979,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       builder: (ctx) => AddFriendDialog(
         service: widget.service,
         onShowSnackBar: _showSnackBar,
+        onOpenNearby: _openNearbyPage,
       ),
     );
   }

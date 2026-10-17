@@ -84,6 +84,7 @@ dependencies:
   # does NOT install its own binding, so it can run alongside either
   # flutter_skill or marionette. Gated by kDebugMode in lib/main.dart.
   mcp_toolkit: ^3.0.0
+  geolocator: ^14.0.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -126,4 +127,4 @@ msix_config:
   msix_version: 0.1.0.0
   logo_path: assets/app_icon.png
   store: false
-  capabilities: internetClient, microphone, webcam
+  capabilities: internetClient, microphone, webcam, location

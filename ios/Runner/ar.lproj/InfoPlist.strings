@@ -5,3 +5,4 @@
 "NSPhotoLibraryAddUsageDescription" = "يحفظ Toxee الصور ومقاطع الفيديو المستلمة في مكتبتك عندما تختار ذلك.";
 "NSPhotoLibraryUsageDescription" = "يحتاج Toxee إلى الوصول إلى مكتبة الصور لإرسال الصور ومقاطع الفيديو.";
 "NSUserNotificationsUsageDescription" = "يستخدم Toxee الإشعارات لتنبيهك بالرسائل الجديدة وطلبات الصداقة والمكالمات الواردة.";
+"NSLocationWhenInUseUsageDescription" = "يستخدم Toxee موقعك فقط عند إرسال رسالة موقع أو تفعيل «الأشخاص القريبون». لا تتم قراءته أبدًا عندما يكون إعداد الموقع متوقفًا.";

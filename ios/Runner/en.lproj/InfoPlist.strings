@@ -5,3 +5,4 @@
 "NSPhotoLibraryAddUsageDescription" = "Toxee saves received photos and videos to your library when you choose to.";
 "NSPhotoLibraryUsageDescription" = "Toxee needs access to your photo library to send photos and videos.";
 "NSUserNotificationsUsageDescription" = "Toxee uses notifications to alert you to new messages, friend requests, and incoming calls.";
+"NSLocationWhenInUseUsageDescription" = "Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.";

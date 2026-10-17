@@ -31,6 +31,7 @@ import '../widgets/stagger_list_item.dart';
 import '../login/password_prompt_dialog.dart';
 import '../testing/l3_debug_tools.dart';
 import '../testing/ui_keys.dart';
+import '../testing/nearby_ui_keys.dart';
 import '../testing/ui_keys_settings.dart';
 import '_hoverable_settings_row.dart';
 import '../../i18n/app_localizations.dart';
@@ -62,6 +63,7 @@ part 'settings_page_session_actions.dart';
 part 'settings_page_import.dart';
 part 'settings_page_build.dart';
 part 'settings_page_mobile_index.dart';
+part 'settings_location_rows.dart';
 
 /// Test seam for the logout teardown step. Production binds this to
 /// [AccountService.teardownCurrentSession]; widget tests inject a recording
@@ -184,6 +186,11 @@ class SettingsPage extends StatefulWidget {
     this.setImportedAccountPasswordFn,
     this.exportToxFn,
     this.exportFullBackupFn,
+    this.locationEnabled,
+    this.onLocationEnabledChanged,
+    this.nearbyVisible,
+    this.onNearbyVisibleChanged,
+    this.onOpenNearby,
   });
   final FfiChatService service;
   final Stream<bool>
@@ -192,6 +199,15 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool> onAutoAcceptFriendsChanged;
   final bool autoAcceptGroupInvites;
   final ValueChanged<bool> onAutoAcceptGroupInvitesChanged;
+
+  /// Location master switch + "visible to people nearby" (plan §4.5). All
+  /// optional: when [locationEnabled] is null the rows are not built, so
+  /// callers and tests that predate the feature compile unchanged.
+  final bool? locationEnabled;
+  final ValueChanged<bool>? onLocationEnabledChanged;
+  final bool? nearbyVisible;
+  final ValueChanged<bool>? onNearbyVisibleChanged;
+  final VoidCallback? onOpenNearby;
 
   /// Test seam for logout teardown; defaults to
   /// [AccountService.teardownCurrentSession]. See [SettingsTeardownSessionFn].

@@ -41,6 +41,10 @@
 	<string>This app needs microphone access for voice and video calls.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access for video calls.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Toxee needs access to your photo library to send photos and videos.</string>
 </dict>

@@ -2306,4 +2306,176 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get selfConversationLocalOnly => 'Saved on this device only';
+
+  @override
+  String get locationServices => 'Location';
+
+  @override
+  String get locationServicesDesc =>
+      'Let Toxee read this device\'s location for location messages and People nearby. Off by default; nothing is read while it is off.';
+
+  @override
+  String get nearbyVisible => 'Visible to people nearby';
+
+  @override
+  String get nearbyVisibleDesc =>
+      'While this is on, people within about 5 km who use People nearby can see your name and approximate location.';
+
+  @override
+  String get peopleNearby => 'People nearby';
+
+  @override
+  String get locationMessageLabel => 'Location';
+
+  @override
+  String get openInMaps => 'Open in Maps';
+
+  @override
+  String get openInMapsFailed => 'No maps app could open this location.';
+
+  @override
+  String get copyCoordinates => 'Copy coordinates';
+
+  @override
+  String get openSettings => 'Open Settings';
+
+  @override
+  String get locationPermissionDenied =>
+      'Location permission is denied. Allow it in the system settings to use location features.';
+
+  @override
+  String get locationServiceDisabled =>
+      'Location services are turned off on this device.';
+
+  @override
+  String get locationUnavailable =>
+      'Your current location is not available right now.';
+
+  @override
+  String get locationDisabledHint =>
+      'Turn on Location in Settings to send your location.';
+
+  @override
+  String get locationSendFailed => 'The location could not be sent.';
+
+  @override
+  String get nearbyLocating => 'Finding your location…';
+
+  @override
+  String get nearbyJoining => 'Looking for people nearby…';
+
+  @override
+  String get nearbyNobody =>
+      'Nobody nearby yet. People appear here as they come online.';
+
+  @override
+  String get nearbyDhtNotReady => 'Not connected to the Tox network yet.';
+
+  @override
+  String get nearbyNoLocation => 'Your location is not available.';
+
+  @override
+  String get nearbyOff =>
+      'Turn on Location and “Visible to people nearby” in Settings to see who is around.';
+
+  @override
+  String nearbyPeopleCount(int count) {
+    return '$count people nearby';
+  }
+
+  @override
+  String get nearbySayHi => 'Say hi';
+
+  @override
+  String get nearbySendRequest => 'Send request';
+
+  @override
+  String get nearbyRequestMessageHint => 'Add a short message (optional)';
+
+  @override
+  String get nearbyRequestSent => 'Request sent.';
+
+  @override
+  String get nearbyRequestLimit => 'Too many requests. Try again later.';
+
+  @override
+  String get nearbyRequestTooLong => 'The message is too long.';
+
+  @override
+  String get nearbyPeerGone => 'That person is no longer nearby.';
+
+  @override
+  String get nearbyBlock => 'Block';
+
+  @override
+  String get nearbyBlocked => 'Blocked for this session.';
+
+  @override
+  String get nearbyConsentTitle => 'Share your Tox ID?';
+
+  @override
+  String nearbyConsentBody(String name) {
+    return 'Your Tox ID will be sent to $name so they can send you a friend request. Nobody else receives it.';
+  }
+
+  @override
+  String get nearbyPrivacyTitle => 'People nearby';
+
+  @override
+  String get nearbyPrivacyBody =>
+      'While this is on, people within about 5 km who also use People nearby can see your name, avatar and approximate location (about 100 m). Your Tox ID is never shared unless you send someone a request. Nearby only works while Toxee is open.';
+
+  @override
+  String get nearbyPrivacyAccept => 'Turn on';
+
+  @override
+  String get nearbyReplyTitle => 'Reply from someone nearby';
+
+  @override
+  String nearbyReplyBody(String name) {
+    return '$name answered the request you sent nearby. Add them as a friend?';
+  }
+
+  @override
+  String get nearbyReplyLater => 'Later';
+
+  @override
+  String get nearbyAccept => 'Add friend';
+
+  @override
+  String get nearbyUnnamed => 'Someone nearby';
+
+  @override
+  String get publicKeyLabel => 'Public key';
+
+  @override
+  String nearbyDistanceMeters(int meters) {
+    return 'about $meters m';
+  }
+
+  @override
+  String nearbyDistanceKm(String km) {
+    return 'about $km km';
+  }
+
+  @override
+  String get nearbyIncomingTitle => 'Friend request from nearby';
+
+  @override
+  String nearbyIncomingBody(String name) {
+    return '$name wants to add you. Accepting sends them a friend request.';
+  }
+
+  @override
+  String get nearbyIncomingAccept => 'Accept';
+
+  @override
+  String get nearbyIncomingDecline => 'Decline';
+
+  @override
+  String get nearbyPaused => 'Paused. Tap refresh to look again.';
+
+  @override
+  String get nearbyCellUnavailable =>
+      'Your area is unavailable right now; retrying in the background.';
 }

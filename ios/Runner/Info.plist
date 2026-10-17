@@ -52,6 +52,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Toxee uses the camera to take photos and record videos in chats, make video calls, and scan pairing QR codes.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app needs network access to connect to other users via P2P protocol.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -2281,4 +2281,172 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get selfConversationLocalOnly => 'محفوظ على هذا الجهاز فقط';
+
+  @override
+  String get locationServices => 'الموقع';
+
+  @override
+  String get locationServicesDesc =>
+      'السماح لـ Toxee بقراءة موقع هذا الجهاز لرسائل الموقع و«الأشخاص القريبون». متوقف افتراضيًا، ولا تتم قراءة أي شيء أثناء إيقافه.';
+
+  @override
+  String get nearbyVisible => 'الظهور للأشخاص القريبين';
+
+  @override
+  String get nearbyVisibleDesc =>
+      'أثناء التفعيل، يمكن للأشخاص ضمن نحو 5 كم الذين يستخدمون «الأشخاص القريبون» رؤية اسمك وموقعك التقريبي.';
+
+  @override
+  String get peopleNearby => 'الأشخاص القريبون';
+
+  @override
+  String get locationMessageLabel => 'الموقع';
+
+  @override
+  String get openInMaps => 'فتح في الخرائط';
+
+  @override
+  String get openInMapsFailed => 'لا يوجد تطبيق خرائط يمكنه فتح هذا الموقع.';
+
+  @override
+  String get copyCoordinates => 'نسخ الإحداثيات';
+
+  @override
+  String get openSettings => 'فتح الإعدادات';
+
+  @override
+  String get locationPermissionDenied =>
+      'تم رفض إذن الموقع. اسمح به في إعدادات النظام لاستخدام ميزات الموقع.';
+
+  @override
+  String get locationServiceDisabled => 'خدمات الموقع متوقفة على هذا الجهاز.';
+
+  @override
+  String get locationUnavailable => 'موقعك الحالي غير متاح الآن.';
+
+  @override
+  String get locationDisabledHint => 'فعّل «الموقع» في الإعدادات لإرسال موقعك.';
+
+  @override
+  String get locationSendFailed => 'تعذر إرسال الموقع.';
+
+  @override
+  String get nearbyLocating => 'جارٍ تحديد موقعك…';
+
+  @override
+  String get nearbyJoining => 'جارٍ البحث عن أشخاص قريبين…';
+
+  @override
+  String get nearbyNobody => 'لا أحد قريب بعد. سيظهر الأشخاص هنا عند اتصالهم.';
+
+  @override
+  String get nearbyDhtNotReady => 'لم يتم الاتصال بشبكة Tox بعد.';
+
+  @override
+  String get nearbyNoLocation => 'موقعك غير متاح.';
+
+  @override
+  String get nearbyOff =>
+      'فعّل «الموقع» و«الظهور للأشخاص القريبين» في الإعدادات لرؤية من حولك.';
+
+  @override
+  String nearbyPeopleCount(int count) {
+    return '$count أشخاص قريبون';
+  }
+
+  @override
+  String get nearbySayHi => 'إلقاء التحية';
+
+  @override
+  String get nearbySendRequest => 'إرسال طلب';
+
+  @override
+  String get nearbyRequestMessageHint => 'أضف رسالة قصيرة (اختياري)';
+
+  @override
+  String get nearbyRequestSent => 'تم إرسال الطلب.';
+
+  @override
+  String get nearbyRequestLimit => 'طلبات كثيرة جدًا. حاول لاحقًا.';
+
+  @override
+  String get nearbyRequestTooLong => 'الرسالة طويلة جدًا.';
+
+  @override
+  String get nearbyPeerGone => 'لم يعد هذا الشخص قريبًا.';
+
+  @override
+  String get nearbyBlock => 'حظر';
+
+  @override
+  String get nearbyBlocked => 'تم الحظر لهذه الجلسة.';
+
+  @override
+  String get nearbyConsentTitle => 'مشاركة معرّف Tox الخاص بك؟';
+
+  @override
+  String nearbyConsentBody(String name) {
+    return 'سيتم إرسال معرّف Tox الخاص بك إلى $name ليتمكن من إرسال طلب صداقة إليك. لن يتلقاه أي شخص آخر.';
+  }
+
+  @override
+  String get nearbyPrivacyTitle => 'الأشخاص القريبون';
+
+  @override
+  String get nearbyPrivacyBody =>
+      'أثناء التفعيل، يمكن للأشخاص ضمن نحو 5 كم الذين يستخدمون «الأشخاص القريبون» أيضًا رؤية اسمك وصورتك وموقعك التقريبي (نحو 100 م). لا تتم مشاركة معرّف Tox الخاص بك أبدًا إلا إذا أرسلت طلبًا لشخص ما. تعمل هذه الميزة فقط أثناء فتح Toxee.';
+
+  @override
+  String get nearbyPrivacyAccept => 'تفعيل';
+
+  @override
+  String get nearbyReplyTitle => 'رد من شخص قريب';
+
+  @override
+  String nearbyReplyBody(String name) {
+    return 'رد $name على الطلب الذي أرسلته في الجوار. هل تريد إضافته كصديق؟';
+  }
+
+  @override
+  String get nearbyReplyLater => 'لاحقًا';
+
+  @override
+  String get nearbyAccept => 'إضافة صديق';
+
+  @override
+  String get nearbyUnnamed => 'شخص قريب';
+
+  @override
+  String get publicKeyLabel => 'المفتاح العام';
+
+  @override
+  String nearbyDistanceMeters(int meters) {
+    return 'نحو $meters م';
+  }
+
+  @override
+  String nearbyDistanceKm(String km) {
+    return 'نحو $km كم';
+  }
+
+  @override
+  String get nearbyIncomingTitle => 'طلب صداقة من الجوار';
+
+  @override
+  String nearbyIncomingBody(String name) {
+    return 'يريد $name إضافتك. القبول يرسل إليه طلب صداقة.';
+  }
+
+  @override
+  String get nearbyIncomingAccept => 'قبول';
+
+  @override
+  String get nearbyIncomingDecline => 'رفض';
+
+  @override
+  String get nearbyPaused => 'متوقف مؤقتًا. انقر على تحديث للبحث مجددًا.';
+
+  @override
+  String get nearbyCellUnavailable =>
+      'منطقتك غير متاحة الآن؛ تتم إعادة المحاولة في الخلفية.';
 }

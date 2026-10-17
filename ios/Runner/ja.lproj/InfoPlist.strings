@@ -5,3 +5,4 @@
 "NSPhotoLibraryAddUsageDescription" = "保存を選択した場合、Toxee は受信した写真や動画をライブラリに保存します。";
 "NSPhotoLibraryUsageDescription" = "写真や動画を送信するために、Toxee はフォトライブラリへのアクセスを必要とします。";
 "NSUserNotificationsUsageDescription" = "Toxee は新着メッセージ、友達リクエスト、着信を通知でお知らせします。";
+"NSLocationWhenInUseUsageDescription" = "Toxee は位置情報メッセージの送信時、または「近くの人」をオンにしたときにのみ位置情報を使用します。「位置情報」設定がオフの間は読み取りません。";

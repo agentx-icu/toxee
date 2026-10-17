@@ -38,6 +38,7 @@
 - [integration/INTEGRATION_GUIDE.md](integration/INTEGRATION_GUIDE.md) - 客户端接入 Tim2Tox 的最小实现与初始化流程
 - [reference/CALLING_AND_EXTENSIONS.md](reference/CALLING_AND_EXTENSIONS.md) - 通话、插件、局域网 Bootstrap 与 IRC 扩展能力
 - [reference/GROUP_CHAT_GUIDE.md](reference/GROUP_CHAT_GUIDE.md) - 群聊生命周期、持久化与常见问题
+- [reference/LOCATION_AND_NEARBY.zh-CN.md](reference/LOCATION_AND_NEARBY.zh-CN.md) - 位置消息与"附近的人"（分享什么、给谁、限制）
 - [reference/PLATFORM_SUPPORT.md](reference/PLATFORM_SUPPORT.md) - 各平台支持范围与平台差异点
 - [reference/MOBILE_DEVICE_FEATURES.zh-CN.md](reference/MOBILE_DEVICE_FEATURES.zh-CN.md) - 移动端设备特性（音频路由、旋转 / 分屏、后台、网络……）的适配必要性、现状，以及每个改动都要过的评审检查表
 

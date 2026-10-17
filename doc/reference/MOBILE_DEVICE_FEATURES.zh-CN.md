@@ -101,6 +101,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | B7 | 低电量模式 / 省电模式下降低轮询与视频码率 | P2 | ❌ | |
 | B8 | `dataSync` 前台服务时长限制：targetSdk ≥ 35 的应用在后台时每 24 小时累计 6 小时（回到前台会重置额度），超时后的 `onTimeout` 处理与降级 | P0 | ✅ 🔍 | 2026-09-26 修复：常驻模式 API 34+ 改用无时长限制的 `specialUse`；实现 API 35 `onTimeout` 及时停止；`startForeground` 被拒时降级或停止；Dart `RuntimeForegroundService.ensureRunning` 回前台时查询原生实际状态并重放最后请求的模式（通话中保持通话模式）。待 API 36 真机 / 模拟器验证 |
 | B9 | iOS 设备锁定后的数据保护：后台期间 profile / 消息落盘能否读写 | P1 | ✅ | 2026-09-27 评审。**文件**：未设置保护级别，资料、历史、离线队列与偏好使用 iOS 默认级别（开机首次解锁后即可访问，锁屏时也可）；首次解锁前 iOS 不会运行后台任务。将来若改用更严格级别，必须在原子 rename 前给每个新建的 `tox_profile.tox.tmp` 设置。**钥匙串——修复一个安全漏洞**：条目为 `WhenUnlocked`，而 flutter_secure_storage 9.2.4 会把锁屏时的读取错误变成「不存在」（它带 `kSecAttrSynchronizable` 重试并返回该结果），因此锁屏后台启动时，自动登录关卡可能把有密码的账号当成无密码，打开被系统回收时留下的已解密资料。现在只要插件说「没有值」，iOS 就直接问钥匙串（`toxee/keychain_probe`，与插件相同的查询、不重试）：只有真正的「不存在」才算没有，其他一律视为不可用，关卡按有密码处理；无密码账号锁屏时仍可自动登录。已在 iOS 模拟器验证探测结果（missing / found）；锁屏读取本身需真机。IRC 频道密码锁屏时读不到（带密码的频道解锁后再加入） |
+| B10 | "附近的人" / 位置共享不得在后台运行 | P1 | ✅ | 设计上仅前台（2026-10-17，`doc/reference/LOCATION_AND_NEARBY.md`）：`NearbyController` 在 `paused`/`detached` 时停止，附近页关闭后 5 分钟空闲即停止，Android 不声明 `location` 前台服务类型，iOS 不声明 `location` 后台模式；原生侧的会合群在 `UnInitSDK` 时也会全部退出 |
 
 ## 5. 网络
 
@@ -112,6 +113,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | N3 | IPv6-only / NAT64 网络 | P0（若上架 App Store） | 🔍 | **2026-09-29 代码已修复，未在 NAT64 网络实测**（此环境没有）。IPv6 已开启（`V2TIMManagerImpl` / `ToxManager` 默认 `ipv6_enabled` 为真），主机名走 `getaddrinfo(AF_UNSPEC)`（DNS64 可用）。问题在于：toxcore 自己解析 IPv4 *字面量*并以 `::ffff:a.b.c.d` 发送，在无 CLAT 的纯 IPv6 网络（Apple 审核网络）不可达；toxee 又只 bootstrap 节点的 IPv4——首次启动的 4 个内置节点有 3 个在此不可用。修复：tim2tox `add_bootstrap_node` 与探测用的 `dht_send_nodes_request` 对 IPv4 字面量先试 NAT64 合成地址（Apple `getaddrinfo(AI_DEFAULT)`，`source/Nat64Synthesis.h`，有 gtest），再试字面量本身（toxcore 每个公钥只保留第一个 onion/TCP 地址）；任一候选成功即成功（FFI ABI 不变）。toxee 对节点公布的每个地址都 bootstrap（`BootstrapNode.bootstrapHosts`，先 IPv4 后 IPv6）。Android：IPv4 字面量依赖网络是否运行 CLAT；否则只有节点的 IPv6（排第二）增加一个 DHT 目标。遗留：NAT64 → IPv4 切换后该公钥的 onion bootstrap 条目仍是合成地址（靠 DHT 学到的节点 + N1 的补发恢复）；纯 IPv6 手机仍连不上只有 IPv4 的 DHT 节点（toxcore 限制）；中继端口去重见 N2 / N2a。局域网配对绑定 `0.0.0.0`（仅局域网，不在范围内） |
 | N4 | iOS 本地网络权限（局域网发现、LAN 配对） | P0 | ✅ | `NSLocalNetworkUsageDescription`、Bonjour `_tox._tcp` |
 | N5 | 蜂窝流量控制（文件自动接收、视频码率） | P2 | ❌ | |
+| N6 | "附近的人" 的 DHT 公告流量（NGC 会合群） | P2 | ✅ | 每次定位最多 4 个单元（geohash-5 主单元 + 750 米内的邻格，2 次定位滞回），60 秒定位一次，每单元每 60 秒一条在场广播；会合群就是普通 NGC 群，和其他群一样可走 TCP relay。`tox_dht_get_num_closelist_announce_capable` 为 0 时显示"尚未连接" |
 
 ## 6. 权限与隐私
 
@@ -126,6 +128,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | P5 | 生物识别解锁（Face ID / 指纹） | P2 | ❌ | |
 | P6 | iOS "部分照片"授权、Android 14 部分媒体访问 | P2 | 🔍 | 选择器基于系统 picker，一般无需完整相册权限 |
 | P7 | iOS 剪贴板读取的"允许粘贴"弹窗 | P2 | 🔍 | `pasteboard` 读图时触发 |
+| P8 | 定位权限（仅使用期间）用于位置消息与"附近的人"；拒绝时解释 → 跳设置；"位置"开关关闭时绝不读取 | P0 | ✅ | `geolocator` 包在 `LocationSource` 之后；`LocationPermissionHelper` 在所有平台弹窗（含 macOS CoreLocation、Linux GeoClue、Windows 定位 API，**不**复用通话 helper 的桌面跳过逻辑）；拒绝后开关回弹并弹出解释 → 设置对话框；两份 `Info.plist` 与全部十二份 `InfoPlist.strings` 带用途文案，Android 声明 `ACCESS_COARSE/FINE_LOCATION`，macOS 带 `personal-information.location` entitlement，Windows msix 带 `location` 能力（`test/location_platform_declarations_test.dart`）。使用中被收回与 P2 相同，结束会话 |
 
 ## 7. 媒体与文件
 

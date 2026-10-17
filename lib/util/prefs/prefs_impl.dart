@@ -142,6 +142,16 @@ class PrefsImpl implements ICorePrefs, IFriendPrefs, IUIPrefs, INotificationPref
   Future<void> setNotificationSoundEnabled(bool value, [String? toxId]) =>
       Prefs.setNotificationSoundEnabled(value, toxId);
   @override
+  Future<bool> getLocationEnabled([String? toxId]) => LocationPrefs.getLocationEnabled(toxId);
+  @override
+  Future<void> setLocationEnabled(bool value, [String? toxId]) =>
+      LocationPrefs.setLocationEnabled(value, toxId);
+  @override
+  Future<bool> getNearbyVisible([String? toxId]) => LocationPrefs.getNearbyVisible(toxId);
+  @override
+  Future<void> setNearbyVisible(bool value, [String? toxId]) =>
+      LocationPrefs.setNearbyVisible(value, toxId);
+  @override
   Future<bool> getAutoAcceptFriends([String? toxId]) => Prefs.getAutoAcceptFriends(toxId);
   @override
   Future<void> setAutoAcceptFriends(bool value, [String? toxId]) =>

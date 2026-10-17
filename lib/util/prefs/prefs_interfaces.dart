@@ -90,4 +90,8 @@ abstract class INotificationPrefs {
   Future<void> setAutoAcceptGroupInvites(bool value, [String? toxId]);
   Future<bool> getAutoLogin([String? toxId]);
   Future<void> setAutoLogin(bool value, [String? toxId]);
+  Future<bool> getLocationEnabled([String? toxId]);
+  Future<void> setLocationEnabled(bool value, [String? toxId]);
+  Future<bool> getNearbyVisible([String? toxId]);
+  Future<void> setNearbyVisible(bool value, [String? toxId]);
 }

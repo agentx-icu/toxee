@@ -35,6 +35,7 @@ part 'prefs/password_key_migration.dart';
 part 'prefs/account_secure_secrets.dart';
 part 'prefs/account_registry.dart';
 part 'prefs/failed_message_queue.dart';
+part 'prefs/location_prefs.dart';
 
 /// Static facade for app preferences. New code should prefer repository instances
 /// ([PrefsImpl] or [prefs_interfaces.dart] interfaces) for testability and bounded context.
