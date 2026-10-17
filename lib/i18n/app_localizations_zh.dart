@@ -2171,6 +2171,170 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get selfConversationLocalOnly => '仅保存在本机';
+
+  @override
+  String get locationServices => '位置';
+
+  @override
+  String get locationServicesDesc =>
+      '允许 Toxee 读取本设备位置，用于位置消息和“附近的人”。默认关闭；关闭时不会读取任何位置。';
+
+  @override
+  String get nearbyVisible => '对附近的人可见';
+
+  @override
+  String get nearbyVisibleDesc => '开启后，约 5 公里内同样使用“附近的人”的用户可以看到你的昵称和大致位置。';
+
+  @override
+  String get peopleNearby => '附近的人';
+
+  @override
+  String get locationMessageLabel => '位置';
+
+  @override
+  String get openInMaps => '在地图中打开';
+
+  @override
+  String get openInMapsFailed => '没有可以打开该位置的地图应用。';
+
+  @override
+  String get copyCoordinates => '复制坐标';
+
+  @override
+  String get openSettings => '打开设置';
+
+  @override
+  String get locationPermissionDenied => '位置权限已被拒绝。请在系统设置中允许后再使用位置功能。';
+
+  @override
+  String get locationServiceDisabled => '本设备的定位服务已关闭。';
+
+  @override
+  String get locationUnavailable => '暂时无法获取你的当前位置。';
+
+  @override
+  String get locationDisabledHint => '请先在设置中开启“位置”再发送位置。';
+
+  @override
+  String get locationSendFailed => '位置发送失败。';
+
+  @override
+  String get nearbyLocating => '正在定位…';
+
+  @override
+  String get nearbyJoining => '正在寻找附近的人…';
+
+  @override
+  String get nearbyNobody => '附近还没有人。有人上线后会显示在这里。';
+
+  @override
+  String get nearbyDhtNotReady => '尚未连接到 Tox 网络。';
+
+  @override
+  String get nearbyNoLocation => '无法获取你的位置。';
+
+  @override
+  String get nearbyOff => '请在设置中开启“位置”和“对附近的人可见”以查看周围的人。';
+
+  @override
+  String nearbyPeopleCount(int count) {
+    return '附近有 $count 人';
+  }
+
+  @override
+  String get nearbySayHi => '打招呼';
+
+  @override
+  String get nearbySendRequest => '发送请求';
+
+  @override
+  String get nearbyRequestMessageHint => '附上一句话（可选）';
+
+  @override
+  String get nearbyRequestSent => '请求已发送。';
+
+  @override
+  String get nearbyRequestLimit => '请求过于频繁，请稍后再试。';
+
+  @override
+  String get nearbyRequestTooLong => '消息太长了。';
+
+  @override
+  String get nearbyPeerGone => '对方已不在附近。';
+
+  @override
+  String get nearbyBlock => '屏蔽';
+
+  @override
+  String get nearbyBlocked => '本次会话内已屏蔽。';
+
+  @override
+  String get nearbyConsentTitle => '分享你的 Tox ID？';
+
+  @override
+  String nearbyConsentBody(String name) {
+    return '你的 Tox ID 将发送给 $name，以便对方向你发送好友请求。其他人不会收到。';
+  }
+
+  @override
+  String get nearbyPrivacyTitle => '附近的人';
+
+  @override
+  String get nearbyPrivacyBody =>
+      '开启后，约 5 公里内同样使用“附近的人”的用户可以看到你的昵称、头像和大致位置（约 100 米精度）。除非你主动向某人发送请求，否则不会分享你的 Tox ID。该功能仅在 Toxee 打开时工作。';
+
+  @override
+  String get nearbyPrivacyAccept => '开启';
+
+  @override
+  String get nearbyReplyTitle => '附近的人回复了你';
+
+  @override
+  String nearbyReplyBody(String name) {
+    return '$name 回应了你在附近发出的请求。要添加为好友吗？';
+  }
+
+  @override
+  String get nearbyReplyLater => '稍后';
+
+  @override
+  String get nearbyAccept => '添加好友';
+
+  @override
+  String get nearbyUnnamed => '附近的某人';
+
+  @override
+  String get publicKeyLabel => '公钥';
+
+  @override
+  String nearbyDistanceMeters(int meters) {
+    return '约 $meters 米';
+  }
+
+  @override
+  String nearbyDistanceKm(String km) {
+    return '约 $km 公里';
+  }
+
+  @override
+  String get nearbyIncomingTitle => '来自附近的好友请求';
+
+  @override
+  String nearbyIncomingBody(String name) {
+    return '$name 想添加你为好友。接受后将向对方发送好友请求。';
+  }
+
+  @override
+  String get nearbyIncomingAccept => '接受';
+
+  @override
+  String get nearbyIncomingDecline => '拒绝';
+
+  @override
+  String get nearbyPaused => '已暂停，点击刷新重新查找。';
+
+  @override
+  String get nearbyCellUnavailable => '当前区域暂不可用，正在后台重试。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3823,6 +3987,170 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get selfConversationLocalOnly => '仅保存在本机';
+
+  @override
+  String get locationServices => '位置';
+
+  @override
+  String get locationServicesDesc =>
+      '允许 Toxee 读取本设备位置，用于位置消息和“附近的人”。默认关闭；关闭时不会读取任何位置。';
+
+  @override
+  String get nearbyVisible => '对附近的人可见';
+
+  @override
+  String get nearbyVisibleDesc => '开启后，约 5 公里内同样使用“附近的人”的用户可以看到你的昵称和大致位置。';
+
+  @override
+  String get peopleNearby => '附近的人';
+
+  @override
+  String get locationMessageLabel => '位置';
+
+  @override
+  String get openInMaps => '在地图中打开';
+
+  @override
+  String get openInMapsFailed => '没有可以打开该位置的地图应用。';
+
+  @override
+  String get copyCoordinates => '复制坐标';
+
+  @override
+  String get openSettings => '打开设置';
+
+  @override
+  String get locationPermissionDenied => '位置权限已被拒绝。请在系统设置中允许后再使用位置功能。';
+
+  @override
+  String get locationServiceDisabled => '本设备的定位服务已关闭。';
+
+  @override
+  String get locationUnavailable => '暂时无法获取你的当前位置。';
+
+  @override
+  String get locationDisabledHint => '请先在设置中开启“位置”再发送位置。';
+
+  @override
+  String get locationSendFailed => '位置发送失败。';
+
+  @override
+  String get nearbyLocating => '正在定位…';
+
+  @override
+  String get nearbyJoining => '正在寻找附近的人…';
+
+  @override
+  String get nearbyNobody => '附近还没有人。有人上线后会显示在这里。';
+
+  @override
+  String get nearbyDhtNotReady => '尚未连接到 Tox 网络。';
+
+  @override
+  String get nearbyNoLocation => '无法获取你的位置。';
+
+  @override
+  String get nearbyOff => '请在设置中开启“位置”和“对附近的人可见”以查看周围的人。';
+
+  @override
+  String nearbyPeopleCount(int count) {
+    return '附近有 $count 人';
+  }
+
+  @override
+  String get nearbySayHi => '打招呼';
+
+  @override
+  String get nearbySendRequest => '发送请求';
+
+  @override
+  String get nearbyRequestMessageHint => '附上一句话（可选）';
+
+  @override
+  String get nearbyRequestSent => '请求已发送。';
+
+  @override
+  String get nearbyRequestLimit => '请求过于频繁，请稍后再试。';
+
+  @override
+  String get nearbyRequestTooLong => '消息太长了。';
+
+  @override
+  String get nearbyPeerGone => '对方已不在附近。';
+
+  @override
+  String get nearbyBlock => '屏蔽';
+
+  @override
+  String get nearbyBlocked => '本次会话内已屏蔽。';
+
+  @override
+  String get nearbyConsentTitle => '分享你的 Tox ID？';
+
+  @override
+  String nearbyConsentBody(String name) {
+    return '你的 Tox ID 将发送给 $name，以便对方向你发送好友请求。其他人不会收到。';
+  }
+
+  @override
+  String get nearbyPrivacyTitle => '附近的人';
+
+  @override
+  String get nearbyPrivacyBody =>
+      '开启后，约 5 公里内同样使用“附近的人”的用户可以看到你的昵称、头像和大致位置（约 100 米精度）。除非你主动向某人发送请求，否则不会分享你的 Tox ID。该功能仅在 Toxee 打开时工作。';
+
+  @override
+  String get nearbyPrivacyAccept => '开启';
+
+  @override
+  String get nearbyReplyTitle => '附近的人回复了你';
+
+  @override
+  String nearbyReplyBody(String name) {
+    return '$name 回应了你在附近发出的请求。要添加为好友吗？';
+  }
+
+  @override
+  String get nearbyReplyLater => '稍后';
+
+  @override
+  String get nearbyAccept => '添加好友';
+
+  @override
+  String get nearbyUnnamed => '附近的某人';
+
+  @override
+  String get publicKeyLabel => '公钥';
+
+  @override
+  String nearbyDistanceMeters(int meters) {
+    return '约 $meters 米';
+  }
+
+  @override
+  String nearbyDistanceKm(String km) {
+    return '约 $km 公里';
+  }
+
+  @override
+  String get nearbyIncomingTitle => '来自附近的好友请求';
+
+  @override
+  String nearbyIncomingBody(String name) {
+    return '$name 想添加你为好友。接受后将向对方发送好友请求。';
+  }
+
+  @override
+  String get nearbyIncomingAccept => '接受';
+
+  @override
+  String get nearbyIncomingDecline => '拒绝';
+
+  @override
+  String get nearbyPaused => '已暂停，点击刷新重新查找。';
+
+  @override
+  String get nearbyCellUnavailable => '当前区域暂不可用，正在后台重试。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5992,4 +6320,168 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get selfConversationLocalOnly => '僅保存在本機';
+
+  @override
+  String get locationServices => '位置';
+
+  @override
+  String get locationServicesDesc =>
+      '允許 Toxee 讀取本裝置位置，用於位置訊息和「附近的人」。預設關閉；關閉時不會讀取任何位置。';
+
+  @override
+  String get nearbyVisible => '對附近的人可見';
+
+  @override
+  String get nearbyVisibleDesc => '開啟後，約 5 公里內同樣使用「附近的人」的使用者可以看到你的暱稱和大致位置。';
+
+  @override
+  String get peopleNearby => '附近的人';
+
+  @override
+  String get locationMessageLabel => '位置';
+
+  @override
+  String get openInMaps => '在地圖中開啟';
+
+  @override
+  String get openInMapsFailed => '沒有可以開啟該位置的地圖應用程式。';
+
+  @override
+  String get copyCoordinates => '複製座標';
+
+  @override
+  String get openSettings => '開啟設定';
+
+  @override
+  String get locationPermissionDenied => '位置權限已被拒絕。請在系統設定中允許後再使用位置功能。';
+
+  @override
+  String get locationServiceDisabled => '本裝置的定位服務已關閉。';
+
+  @override
+  String get locationUnavailable => '暫時無法取得你的目前位置。';
+
+  @override
+  String get locationDisabledHint => '請先在設定中開啟「位置」再傳送位置。';
+
+  @override
+  String get locationSendFailed => '位置傳送失敗。';
+
+  @override
+  String get nearbyLocating => '正在定位…';
+
+  @override
+  String get nearbyJoining => '正在尋找附近的人…';
+
+  @override
+  String get nearbyNobody => '附近還沒有人。有人上線後會顯示在這裡。';
+
+  @override
+  String get nearbyDhtNotReady => '尚未連線到 Tox 網路。';
+
+  @override
+  String get nearbyNoLocation => '無法取得你的位置。';
+
+  @override
+  String get nearbyOff => '請在設定中開啟「位置」和「對附近的人可見」以查看周圍的人。';
+
+  @override
+  String nearbyPeopleCount(int count) {
+    return '附近有 $count 人';
+  }
+
+  @override
+  String get nearbySayHi => '打招呼';
+
+  @override
+  String get nearbySendRequest => '傳送請求';
+
+  @override
+  String get nearbyRequestMessageHint => '附上一句話（選填）';
+
+  @override
+  String get nearbyRequestSent => '請求已傳送。';
+
+  @override
+  String get nearbyRequestLimit => '請求過於頻繁，請稍後再試。';
+
+  @override
+  String get nearbyRequestTooLong => '訊息太長了。';
+
+  @override
+  String get nearbyPeerGone => '對方已不在附近。';
+
+  @override
+  String get nearbyBlock => '封鎖';
+
+  @override
+  String get nearbyBlocked => '本次工作階段內已封鎖。';
+
+  @override
+  String get nearbyConsentTitle => '分享你的 Tox ID？';
+
+  @override
+  String nearbyConsentBody(String name) {
+    return '你的 Tox ID 將傳送給 $name，以便對方向你傳送好友請求。其他人不會收到。';
+  }
+
+  @override
+  String get nearbyPrivacyTitle => '附近的人';
+
+  @override
+  String get nearbyPrivacyBody =>
+      '開啟後，約 5 公里內同樣使用「附近的人」的使用者可以看到你的暱稱、頭像和大致位置（約 100 公尺精度）。除非你主動向某人傳送請求，否則不會分享你的 Tox ID。此功能僅在 Toxee 開啟時運作。';
+
+  @override
+  String get nearbyPrivacyAccept => '開啟';
+
+  @override
+  String get nearbyReplyTitle => '附近的人回覆了你';
+
+  @override
+  String nearbyReplyBody(String name) {
+    return '$name 回應了你在附近發出的請求。要加為好友嗎？';
+  }
+
+  @override
+  String get nearbyReplyLater => '稍後';
+
+  @override
+  String get nearbyAccept => '加為好友';
+
+  @override
+  String get nearbyUnnamed => '附近的某人';
+
+  @override
+  String get publicKeyLabel => '公鑰';
+
+  @override
+  String nearbyDistanceMeters(int meters) {
+    return '約 $meters 公尺';
+  }
+
+  @override
+  String nearbyDistanceKm(String km) {
+    return '約 $km 公里';
+  }
+
+  @override
+  String get nearbyIncomingTitle => '來自附近的好友請求';
+
+  @override
+  String nearbyIncomingBody(String name) {
+    return '$name 想加你為好友。接受後將向對方傳送好友請求。';
+  }
+
+  @override
+  String get nearbyIncomingAccept => '接受';
+
+  @override
+  String get nearbyIncomingDecline => '拒絕';
+
+  @override
+  String get nearbyPaused => '已暫停，點擊重新整理重新尋找。';
+
+  @override
+  String get nearbyCellUnavailable => '目前區域暫時無法使用，正在背景重試。';
 }

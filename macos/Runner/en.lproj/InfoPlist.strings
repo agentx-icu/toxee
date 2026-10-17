@@ -2,3 +2,5 @@
 "NSMicrophoneUsageDescription" = "This app needs microphone access for voice and video calls.";
 "NSCameraUsageDescription" = "This app needs camera access for video calls.";
 "NSPhotoLibraryUsageDescription" = "Toxee needs access to your photo library to send photos and videos.";
+"NSLocationWhenInUseUsageDescription" = "Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.";
+"NSLocationUsageDescription" = "Toxee uses your location only when you send a location message or turn on People nearby. It is never read while the Location setting is off.";

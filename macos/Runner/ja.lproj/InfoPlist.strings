@@ -2,3 +2,5 @@
 "NSMicrophoneUsageDescription" = "音声通話とビデオ通話のためにマイクへのアクセスが必要です。";
 "NSCameraUsageDescription" = "ビデオ通話のためにカメラへのアクセスが必要です。";
 "NSPhotoLibraryUsageDescription" = "写真や動画を送信するために、Toxee はフォトライブラリへのアクセスを必要とします。";
+"NSLocationWhenInUseUsageDescription" = "Toxee は位置情報メッセージの送信時、または「近くの人」をオンにしたときにのみ位置情報を使用します。「位置情報」設定がオフの間は読み取りません。";
+"NSLocationUsageDescription" = "Toxee は位置情報メッセージの送信時、または「近くの人」をオンにしたときにのみ位置情報を使用します。「位置情報」設定がオフの間は読み取りません。";

@@ -4077,6 +4077,306 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved on this device only'**
   String get selfConversationLocalOnly;
+
+  /// No description provided for @locationServices.
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get locationServices;
+
+  /// No description provided for @locationServicesDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Let Toxee read this device\'s location for location messages and People nearby. Off by default; nothing is read while it is off.'**
+  String get locationServicesDesc;
+
+  /// No description provided for @nearbyVisible.
+  ///
+  /// In en, this message translates to:
+  /// **'Visible to people nearby'**
+  String get nearbyVisible;
+
+  /// No description provided for @nearbyVisibleDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'While this is on, people within about 5 km who use People nearby can see your name and approximate location.'**
+  String get nearbyVisibleDesc;
+
+  /// No description provided for @peopleNearby.
+  ///
+  /// In en, this message translates to:
+  /// **'People nearby'**
+  String get peopleNearby;
+
+  /// No description provided for @locationMessageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get locationMessageLabel;
+
+  /// No description provided for @openInMaps.
+  ///
+  /// In en, this message translates to:
+  /// **'Open in Maps'**
+  String get openInMaps;
+
+  /// No description provided for @openInMapsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'No maps app could open this location.'**
+  String get openInMapsFailed;
+
+  /// No description provided for @copyCoordinates.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy coordinates'**
+  String get copyCoordinates;
+
+  /// No description provided for @openSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get openSettings;
+
+  /// No description provided for @locationPermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Location permission is denied. Allow it in the system settings to use location features.'**
+  String get locationPermissionDenied;
+
+  /// No description provided for @locationServiceDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Location services are turned off on this device.'**
+  String get locationServiceDisabled;
+
+  /// No description provided for @locationUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Your current location is not available right now.'**
+  String get locationUnavailable;
+
+  /// No description provided for @locationDisabledHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on Location in Settings to send your location.'**
+  String get locationDisabledHint;
+
+  /// No description provided for @locationSendFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The location could not be sent.'**
+  String get locationSendFailed;
+
+  /// No description provided for @nearbyLocating.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding your location…'**
+  String get nearbyLocating;
+
+  /// No description provided for @nearbyJoining.
+  ///
+  /// In en, this message translates to:
+  /// **'Looking for people nearby…'**
+  String get nearbyJoining;
+
+  /// No description provided for @nearbyNobody.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody nearby yet. People appear here as they come online.'**
+  String get nearbyNobody;
+
+  /// No description provided for @nearbyDhtNotReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected to the Tox network yet.'**
+  String get nearbyDhtNotReady;
+
+  /// No description provided for @nearbyNoLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Your location is not available.'**
+  String get nearbyNoLocation;
+
+  /// No description provided for @nearbyOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on Location and “Visible to people nearby” in Settings to see who is around.'**
+  String get nearbyOff;
+
+  /// No description provided for @nearbyPeopleCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} people nearby'**
+  String nearbyPeopleCount(int count);
+
+  /// No description provided for @nearbySayHi.
+  ///
+  /// In en, this message translates to:
+  /// **'Say hi'**
+  String get nearbySayHi;
+
+  /// No description provided for @nearbySendRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Send request'**
+  String get nearbySendRequest;
+
+  /// No description provided for @nearbyRequestMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a short message (optional)'**
+  String get nearbyRequestMessageHint;
+
+  /// No description provided for @nearbyRequestSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Request sent.'**
+  String get nearbyRequestSent;
+
+  /// No description provided for @nearbyRequestLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests. Try again later.'**
+  String get nearbyRequestLimit;
+
+  /// No description provided for @nearbyRequestTooLong.
+  ///
+  /// In en, this message translates to:
+  /// **'The message is too long.'**
+  String get nearbyRequestTooLong;
+
+  /// No description provided for @nearbyPeerGone.
+  ///
+  /// In en, this message translates to:
+  /// **'That person is no longer nearby.'**
+  String get nearbyPeerGone;
+
+  /// No description provided for @nearbyBlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Block'**
+  String get nearbyBlock;
+
+  /// No description provided for @nearbyBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Blocked for this session.'**
+  String get nearbyBlocked;
+
+  /// No description provided for @nearbyConsentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share your Tox ID?'**
+  String get nearbyConsentTitle;
+
+  /// No description provided for @nearbyConsentBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your Tox ID will be sent to {name} so they can send you a friend request. Nobody else receives it.'**
+  String nearbyConsentBody(String name);
+
+  /// No description provided for @nearbyPrivacyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'People nearby'**
+  String get nearbyPrivacyTitle;
+
+  /// No description provided for @nearbyPrivacyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'While this is on, people within about 5 km who also use People nearby can see your name, avatar and approximate location (about 100 m). Your Tox ID is never shared unless you send someone a request. Nearby only works while Toxee is open.'**
+  String get nearbyPrivacyBody;
+
+  /// No description provided for @nearbyPrivacyAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on'**
+  String get nearbyPrivacyAccept;
+
+  /// No description provided for @nearbyReplyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reply from someone nearby'**
+  String get nearbyReplyTitle;
+
+  /// No description provided for @nearbyReplyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} answered the request you sent nearby. Add them as a friend?'**
+  String nearbyReplyBody(String name);
+
+  /// No description provided for @nearbyReplyLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get nearbyReplyLater;
+
+  /// No description provided for @nearbyAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Add friend'**
+  String get nearbyAccept;
+
+  /// No description provided for @nearbyUnnamed.
+  ///
+  /// In en, this message translates to:
+  /// **'Someone nearby'**
+  String get nearbyUnnamed;
+
+  /// No description provided for @publicKeyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Public key'**
+  String get publicKeyLabel;
+
+  /// No description provided for @nearbyDistanceMeters.
+  ///
+  /// In en, this message translates to:
+  /// **'about {meters} m'**
+  String nearbyDistanceMeters(int meters);
+
+  /// No description provided for @nearbyDistanceKm.
+  ///
+  /// In en, this message translates to:
+  /// **'about {km} km'**
+  String nearbyDistanceKm(String km);
+
+  /// No description provided for @nearbyIncomingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Friend request from nearby'**
+  String get nearbyIncomingTitle;
+
+  /// No description provided for @nearbyIncomingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} wants to add you. Accepting sends them a friend request.'**
+  String nearbyIncomingBody(String name);
+
+  /// No description provided for @nearbyIncomingAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get nearbyIncomingAccept;
+
+  /// No description provided for @nearbyIncomingDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get nearbyIncomingDecline;
+
+  /// No description provided for @nearbyPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused. Tap refresh to look again.'**
+  String get nearbyPaused;
+
+  /// No description provided for @nearbyCellUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Your area is unavailable right now; retrying in the background.'**
+  String get nearbyCellUnavailable;
 }
 
 class _AppLocalizationsDelegate

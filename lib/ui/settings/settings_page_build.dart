@@ -221,6 +221,7 @@ extension _SettingsPageBuild on _SettingsPageState {
                       ],
                     ),
                   ),
+                  ..._buildLocationToggleRows(context, mobile: false, outlineVariant: outlineVariant),
                   AppSpacing.verticalLg,
                   Divider(height: 1, color: outlineVariant),
                   AppSpacing.verticalMd,

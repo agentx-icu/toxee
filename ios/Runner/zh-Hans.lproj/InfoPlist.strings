@@ -5,3 +5,4 @@
 "NSPhotoLibraryAddUsageDescription" = "在你选择保存时，Toxee 会将收到的照片和视频存入你的相册。";
 "NSPhotoLibraryUsageDescription" = "Toxee 需要访问你的相册以发送照片和视频。";
 "NSUserNotificationsUsageDescription" = "Toxee 使用通知提醒你新消息、好友申请和来电。";
+"NSLocationWhenInUseUsageDescription" = "Toxee 仅在你发送位置消息或开启“附近的人”时使用你的位置；“位置”设置关闭时绝不读取。";

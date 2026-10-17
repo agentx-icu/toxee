@@ -30,6 +30,7 @@ import 'default_avatar_installer.dart';
 import 'session_password_store.dart';
 import 'group_member_list_debouncer.dart';
 import 'irc_app_manager.dart';
+import '../nearby/nearby_controller.dart';
 import 'legacy_profile_adoption.dart';
 import 'logger.dart';
 import 'safe_diagnostics.dart';
@@ -182,6 +183,14 @@ class AccountService {
         }
       } else {
         IrcAppManager().resetCache();
+      }
+    });
+    // Nearby: leave every rendezvous cell and cancel pending intents while the
+    // service is still alive (the native side leaves them again on UnInitSDK,
+    // but the Dart state machine must not outlive its account either).
+    await runStep(AccountTeardownStage.nearbyShutdown, () async {
+      if (service != null) {
+        await NearbyController.instance.shutdownSession(service);
       }
     });
 

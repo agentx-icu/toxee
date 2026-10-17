@@ -24,9 +24,22 @@ library;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/ui/testing/nearby_ui_keys.dart';
 
 void main() {
   group('settings UiKeys wire contract', () {
+    test('location + nearby switches keep their automation strings', () {
+      expect(NearbyUiKeys.settingsLocationSwitch, const Key('settings_location_switch'));
+      expect(
+        NearbyUiKeys.settingsNearbyVisibleSwitch,
+        const Key('settings_nearby_visible_switch'),
+      );
+      expect(NearbyUiKeys.addFriendNearbyButton, const Key('add_friend_nearby_button'));
+      expect(NearbyUiKeys.nearbyPeerList, const Key('nearby_peer_list'));
+      expect(NearbyUiKeys.chatAttachLocationOption, const Key('chat_attach_location_option'));
+      expect(NearbyUiKeys.locationBubbleOpenMaps, const Key('location_bubble_open_maps'));
+    });
+
     test('account-card action keys keep their automation strings', () {
       expect(
         UiKeys.settingsCopyToxIdButton,

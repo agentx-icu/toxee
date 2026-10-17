@@ -111,8 +111,36 @@ Guard rails:
   UIKit fork): Windows/Linux have no camera capture backend, so they are
   voice-only until one is implemented.
 
+## 7. Location messages and People nearby
+
+Both are built on the P2P link only; there is no toxee server. The user-facing
+reference is [LOCATION_AND_NEARBY.md](LOCATION_AND_NEARBY.md); the design is
+`doc/plans/LOCATION_AND_NEARBY_PLAN.md`.
+
+- **Location message** — the SDK's own `createLocationMessage` (pure Dart on
+  native) plus the existing `__location__:` text envelope in
+  `Tim2ToxSdkPlatform.sendMessage`. toxee adds the composer option
+  (`lib/ui/home/desktop_input_options.dart`, `mobile_attachment_policy.dart`,
+  shown only while the account's Location switch is on), the send path
+  `lib/nearby/location_sender.dart` (switch → permission → one fix → send,
+  C2C and groups) and the bubble `lib/ui/widgets/location_message_bubble.dart`
+  (coordinates, *Open in Maps* through the OS, *Copy*; no map provider).
+- **People nearby** — tim2tox *rendezvous groups*
+  ([RENDEZVOUS_GROUPS.md](../../third_party/tim2tox/doc/architecture/RENDEZVOUS_GROUPS.md)):
+  NGC public groups whose Chat ID is derived from a geohash cell
+  (`SHA-256("toxee/nearby/v1|" + cell)` → seeded keypair,
+  `tox_group_new_with_seed` on the `agentx-icu/c-toxcore` fork). toxee owns
+  the protocol on top (`lib/nearby/`): presence records and friend-request
+  intents, signed with per-session Ed25519 keys and sealed with X25519 +
+  XChaCha20-Poly1305; `NearbyService` is the state machine, `NearbyController`
+  the per-session singleton (attached at HomePage bootstrap, shut down in the
+  `nearbyShutdown` teardown stage and on `paused`). Settings: *Location*
+  (master) and *Visible to people nearby*, both account-scoped and off by
+  default (`lib/util/prefs/location_prefs.dart`).
+
 ## 8. Related documents
 
 - [HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)
 - [../architecture/MAINTAINER_ARCHITECTURE.md](../architecture/MAINTAINER_ARCHITECTURE.md)
 - [../../third_party/tim2tox/doc/integration/TOXAV_AND_SIGNALING.md](../../third_party/tim2tox/doc/integration/TOXAV_AND_SIGNALING.md)
+- [LOCATION_AND_NEARBY.md](LOCATION_AND_NEARBY.md)

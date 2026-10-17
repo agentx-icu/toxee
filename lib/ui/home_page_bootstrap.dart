@@ -636,38 +636,21 @@ extension _HomePageBootstrap on _HomePageState {
         ),
       ),
       additionalAttachmentOptionsForMobile:
-          ({String? userID, String? groupID, String? topicID}) {
-            // GLOBAL UIKit config closure — outlives this HomePage; a stale
-            // chat rebuild hit defunct State.context (red screen, Android).
-            if (!mounted) return const [];
-            final appL10n = AppLocalizations.of(context)!;
-            final fileLabel = appL10n.file;
-            final cameraLabel =
-                TencentCloudChatLocalizations.of(context)?.camera ?? 'Camera';
-            return buildToxeeMobileAttachmentOptions(
-              fileLabel: fileLabel,
-              cameraLabel: cameraLabel,
-              // Invocation-time guards: options BUILT while mounted can be
-              // tapped after this State dies (codex High).
-              onFile: () async {
-                if (!mounted) return;
-                await _sendMedia(
-                  context,
-                  userId: userID,
-                  groupId: groupID,
-                  type: _MediaPickType.file,
-                );
-              },
-              onCamera: () async {
-                if (!mounted) return;
-                await _showCameraMediaOptions(
-                  context,
-                  userId: userID,
-                  groupId: groupID,
-                );
-              },
-            );
-          },
+          buildToxeeMobileAttachmentOptionsBuilder(
+            isMounted: () => mounted,
+            contextOf: () => context,
+            locationEnabled: () => _locationEnabled,
+            onFile: (ctx, {userId, groupId}) => _sendMedia(
+              ctx,
+              userId: userId,
+              groupId: groupId,
+              type: _MediaPickType.file,
+            ),
+            onCamera: (ctx, {userId, groupId}) =>
+                _showCameraMediaOptions(ctx, userId: userId, groupId: groupId),
+            onLocation: ({userId, groupId}) =>
+                _sendLocation(userID: userId, groupID: groupId),
+          ),
       additionalInputControlBarOptionsForDesktop:
           ({String? userID, String? groupID, String? topicID}) {
             return _buildDesktopInputOptions(
@@ -780,13 +763,15 @@ extension _HomePageBootstrap on _HomePageState {
             required MessageItemBuilderData data,
             required MessageItemBuilderMethods methods,
           }) {
-            final defaultWidget =
-                widgets?.messageItemView ??
-                TencentCloudChatMessageItemBuilders.getMessageItemBuilder(
-                  key: key,
-                  data: data,
-                  methods: methods,
-                );
+            final Widget defaultWidget =
+                data.message.elemType == MessageElemType.V2TIM_ELEM_TYPE_LOCATION
+                ? LocationMessageBubble(message: data.message)
+                : widgets?.messageItemView ??
+                      TencentCloudChatMessageItemBuilders.getMessageItemBuilder(
+                        key: key,
+                        data: data,
+                        methods: methods,
+                      );
 
             final isGroupMessage =
                 data.groupID != null && data.groupID!.isNotEmpty;
@@ -1031,6 +1016,7 @@ extension _HomePageBootstrap on _HomePageState {
           _bootstrapSetState(() => _autoAcceptFriends = value);
         }
       });
+      unawaited(_loadLocationPrefs(toxId));
       // The Pref→(UI mirror + native-gate push), its order, and its mounted-guard
       // are extracted to `loadAndApplyAutoAcceptGroupInvites` so they are
       // L1-testable (S47) without pumping HomePage. mirrorToUi runs before the
@@ -1449,6 +1435,8 @@ extension _HomePageBootstrap on _HomePageState {
             UikitDataFacade.buildApplicationList(mapped, "home");
             UikitDataFacade.setApplicationUnreadCount(mapped);
             _pendingFriendApps = List<V2TimFriendApplication>.from(mapped);
+            // Replies to nearby intents (nonce in the wording): one-tap card.
+            unawaited(handleNearbyReplies(context, widget.service, mapped));
             // P1-D3: fire an OS-level notification for any application userID we
             // have not yet notified about in this session. Auto-accept users won't
             // see the banner because we silently accept below before the user

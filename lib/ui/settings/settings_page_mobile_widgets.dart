@@ -202,6 +202,11 @@ extension _MobileSettingsWidgets on _SettingsPageState {
                   ],
                 ),
               ),
+              ..._buildLocationToggleRows(
+                context,
+                mobile: true,
+                outlineVariant: Theme.of(context).colorScheme.outlineVariant,
+              ),
             ],
           ),
         ),

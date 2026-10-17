@@ -17,6 +17,7 @@ import '../../util/tox_utils.dart';
 import 'widgets/app_dialog.dart';
 import 'widgets/qr_scanner_view.dart';
 import 'testing/ui_keys.dart';
+import 'testing/nearby_ui_keys.dart';
 
 // TOX_MAX_FRIEND_REQUEST_LENGTH — used for both inline counter and validation.
 const int _kMaxFriendRequestLength = 921;
@@ -53,11 +54,16 @@ class AddFriendDialog extends StatefulWidget {
     required this.service,
     this.onFriendAdded,
     this.onShowSnackBar,
+    this.onOpenNearby,
   });
 
   final FfiChatService service;
   final Future<void> Function(String friendId)? onFriendAdded;
   final void Function(String message)? onShowSnackBar;
+
+  /// People nearby (plan §4.5): shown as an entry next to the scanner when
+  /// the host provides it; it closes this dialog and opens the nearby page.
+  final VoidCallback? onOpenNearby;
 
   @override
   State<AddFriendDialog> createState() => _AddFriendDialogState();
@@ -382,6 +388,17 @@ class _AddFriendDialogState extends State<AddFriendDialog> {
                           suffixIcon: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if (widget.onOpenNearby != null)
+                                IconButton(
+                                  key: NearbyUiKeys.addFriendNearbyButton,
+                                  icon: const Icon(Icons.near_me_outlined),
+                                  tooltip:
+                                      AppLocalizations.of(context)!.peopleNearby,
+                                  onPressed: () {
+                                    Navigator.of(context).pop();
+                                    widget.onOpenNearby!();
+                                  },
+                                ),
                               if (_supportsCameraScan)
                                 IconButton(
                                   icon: const Icon(

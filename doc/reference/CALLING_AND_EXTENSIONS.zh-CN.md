@@ -109,8 +109,32 @@
   的 `useVideoCall` 数据位）门控：Windows/Linux 无摄像头采集后端，在补全
   之前仅提供语音通话。
 
+## 7. 位置消息与"附近的人"
+
+两者都只建立在 P2P 链路上，没有 toxee 服务器。面向用户的参考见
+[LOCATION_AND_NEARBY.zh-CN.md](LOCATION_AND_NEARBY.zh-CN.md)；设计见
+`doc/plans/LOCATION_AND_NEARBY_PLAN.md`。
+
+- **位置消息** —— SDK 自带的 `createLocationMessage`（原生平台上是纯 Dart）加上
+  `Tim2ToxSdkPlatform.sendMessage` 里已有的 `__location__:` 文本信封。toxee 补上
+  输入框选项（`lib/ui/home/desktop_input_options.dart`、`mobile_attachment_policy.dart`，
+  仅在账号的"位置"开关开启时显示）、发送路径 `lib/nearby/location_sender.dart`
+  （开关 → 权限 → 一次定位 → 发送，单聊与群聊）和气泡
+  `lib/ui/widgets/location_message_bubble.dart`（坐标、经由系统"在地图中打开"、
+  复制；不依赖地图服务商）。
+- **附近的人** —— tim2tox 的*会合群*
+  （[RENDEZVOUS_GROUPS.zh-CN.md](../../third_party/tim2tox/doc/architecture/RENDEZVOUS_GROUPS.zh-CN.md)）：
+  Chat ID 由 geohash 单元推导的 NGC 公开群
+  （`SHA-256("toxee/nearby/v1|" + cell)` → 种子密钥对，`agentx-icu/c-toxcore` fork 上的
+  `tox_group_new_with_seed`）。上层协议由 toxee 拥有（`lib/nearby/`）：在场记录与
+  加好友意向，用每次会话的 Ed25519 密钥签名、X25519 + XChaCha20-Poly1305 封装；
+  `NearbyService` 是状态机，`NearbyController` 是每会话单例（HomePage 启动时附着，
+  在 `nearbyShutdown` 拆除阶段与 `paused` 时停止）。设置项：“位置”（总开关）与
+  “对附近的人可见”，均按账号存储、默认关闭（`lib/util/prefs/location_prefs.dart`）。
+
 ## 8. 相关文档
 
 - [architecture/HYBRID_ARCHITECTURE.md](../architecture/HYBRID_ARCHITECTURE.md)
 - [../architecture/MAINTAINER_ARCHITECTURE.md](../architecture/MAINTAINER_ARCHITECTURE.md)
 - [Tim2Tox ToxAV 与 signaling](../../third_party/tim2tox/doc/integration/TOXAV_AND_SIGNALING.md)
+- [LOCATION_AND_NEARBY.zh-CN.md](LOCATION_AND_NEARBY.zh-CN.md)
