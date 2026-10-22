@@ -466,6 +466,9 @@ jobs:
       - name: Build Tim2Tox native library
         run: bash tool/ci/build_tim2tox.sh --target macos --mode "$BUILD_MODE"
 
+      - name: Verify macOS signing order
+        run: flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart
+
       - name: Build macOS app
         run: flutter build macos --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
 

@@ -68,3 +68,14 @@ macOS 打包 CI 补充：job 119902022028 已构建 release app，但直接执�
 强制helper644，并确认签名失败时停止打包。SDK26.4真实Mach-O fixture通过ad-hoc
 strict校验和PKG生成；正式Developer ID/公证、干净系统安装验证仍需独立完成。
 移动签名使用独立打包路径，不受此问题影响。
+
+PR首轮CI在x86_64暴露第二个签名顺序错误（job119912161238）：直接签CFBundleExecutable时，
+codesign会检查所在bundle，而同级未签名库尚未就绪；arm64链接器自带的ad-hoc签名曾掩盖
+此情况。现在先延后声明的bundle入口，签loose native文件，再自内向外签nested bundle，
+最后用release entitlements签外层app。按inode匹配framework Versions/Current符号链接；
+缺失executable key时不猜测入口。保留最终deep/strict校验，签名不使用--deep。
+
+4项真实macOS fixture先移除全部已有签名，覆盖两种CPU架构、nested app/framework、
+可选executable key、独立helper和含空格路径。旧脚本4项均失败，修复后通过；组合打包
+回归共10项通过。可重复命令见英文镜像，两架构Mac打包job均在app构建前运行这些回归。
+线上证据必须来自最终PR head，不能引用被替代的首轮CI作为合并依据。

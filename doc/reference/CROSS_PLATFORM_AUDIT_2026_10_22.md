@@ -88,3 +88,20 @@ matching the other CI helpers. Regressions run the packaging entry point with a
 passes ad-hoc strict verification and PKG creation; Developer ID/notarization and
 clean installed release validation remain separate requirements. Mobile signing
 uses a separate packaging path and is unaffected.
+
+The first PR CI run exposed a second signing-order failure on x86_64 (job
+119912161238): signing CFBundleExecutable directly makes codesign inspect its
+containing bundle before unsigned siblings are ready. arm64's linker-provided
+ad-hoc signatures had hidden this case. The signer now defers declared bundle
+entry points, signs loose native code, then nested bundles inside-out, then the
+outer app with release entitlements. Inode comparison follows framework
+Versions/Current links; absent executable keys are not guessed. Final deep/strict
+verification is retained; signing does not use --deep.
+
+Four real macOS fixtures remove all initial signatures and cover both CPU
+architectures, nested apps/frameworks, optional executable keys, standalone
+helpers and paths containing spaces. All four fail with the old signer and pass
+after the fix; the combined packaging suite passes all ten tests. Reproduce with
+`SDKROOT="$(xcrun --sdk macosx26.4 --show-sdk-path)" flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart`.
+Both macOS package jobs now run these native/order regressions before app build.
+CI evidence must refer to the final PR head, not the superseded first run.
