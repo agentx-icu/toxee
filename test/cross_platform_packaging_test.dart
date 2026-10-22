@@ -2,6 +2,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('macOS last-window termination cannot race the Dart close checkpoint', () {
+    final delegate = File('macos/Runner/AppDelegate.swift').readAsStringSync();
+    final method = delegate.split('applicationShouldTerminateAfterLastWindowClosed').last.split('override func').first;
+    expect(method, contains('return false'));
+  });
   test('system picker does not declare broad media access', () {
     final manifest = File(
       'android/app/src/main/AndroidManifest.xml',

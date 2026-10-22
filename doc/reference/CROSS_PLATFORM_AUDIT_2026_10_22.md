@@ -73,3 +73,5 @@ extra ABIs, Windows/Linux path/session-end integration and device matrix remain
 unresolved. Never count “needs device” or a configured CI step as a completed run.
 
 Final local regression: 328 selected cross-platform/notification/bootstrap/call/schema/history/network/WinRT tests passed; 39 additional localization/shortcut/exit tests passed; 34 independent tim2tox-related tests passed. `flutter analyze lib tool --no-fatal-warnings --no-fatal-infos` has no errors (existing warning/info findings remain); `dart run tool/check_complexity.dart` passed.
+
+macOS automatic last-window termination is disabled so Cocoa cannot race Dart preventClose/checkpoint. Successful windowManager.destroy still invokes NSApp.terminate. A source declaration regression covers the parity fix; real Cmd+Q/close remains a host check.

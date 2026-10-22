@@ -56,3 +56,5 @@ Windows/Linux 安装运行已验证。
 仍是未解决项；配置好的 CI step 不能计作已执行成功。
 
 最终本地回归：核心跨平台/通知/bootstrap/通话/schema/history/network/WinRT 共328项通过；追加本地化/快捷键/退出39项通过；tim2tox独立相关34项通过。`flutter analyze lib tool --no-fatal-warnings --no-fatal-infos` 无error（既有warning/info仍存在）；`dart run tool/check_complexity.dart`通过。
+
+macOS 最后窗口自动终止已禁用，避免 Cocoa 抢在 Dart preventClose/checkpoint 前退出；成功保存后的 windowManager.destroy 仍调用 NSApp.terminate。此对等修复有源声明回归，仍须真实 Cmd+Q/关闭验证。

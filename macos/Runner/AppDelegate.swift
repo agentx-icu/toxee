@@ -4,7 +4,10 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return true
+    // window_manager prevents close while Dart checkpoints the session. Do not
+    // let Cocoa's last-window path terminate before that asynchronous decision.
+    // A successful checkpoint calls windowManager.destroy -> NSApp.terminate.
+    return false
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
