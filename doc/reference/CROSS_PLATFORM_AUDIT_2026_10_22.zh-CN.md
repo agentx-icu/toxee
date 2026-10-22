@@ -13,7 +13,7 @@
 | 2 桌面独占，P1 | CONFIRMED | bootstrap 写入前获取内核锁，永不 unlink 锁 inode；独立原子 metadata 避开 Windows mandatory lock。第二进程让位/激活，早期激活排队到 shell ready。独立进程竞争、激活、kill 后释放测试通过；Windows/Linux 原生 UI 待主机。隔离 app-support 若手工共享外部 profile 根目录，仍需额外协调。 |
 | 3 hidden 摄像头，macOS P1 | PARTLY | eligibility 和显式暂停分支共用桌面 hidden 策略；移动端 hidden/paused/detached 仍暂停，inactive 继续。Windows/Linux 无捕获能力门禁不变。策略测试、macOS 构建通过；真摄像头双端最小化/隐藏/恢复未测。 |
 | 4 HomePage 快捷键，P1 | CONFIRMED | 四个命令改为 macOS Cmd、Windows/Linux Ctrl。8 个真实 widget 按键/动作测试验证错误修饰键不触发、正确键只触发一次；移动端菜单/硬件命令扩展另计。 |
-| 5 退出保存，P1 | PARTLY | caption close/framework quit 共用等待式幂等协调；失败取消可取消退出、后续可重试；窗口变化去抖保存。binding quit/cancel/retry、pending teardown 结果/超时测试通过。Windows WM_ENDSESSION、Linux session-manager/SIGTERM 未实现；任意 kill 无最终回调保证。 |
+| 5 退出保存，P1 | PARTLY | caption close/framework quit 共用等待式幂等协调；窗口状态保存失败可在账号销毁前取消/重试。不可逆账号 teardown 无超时完整等待；完成时即使失败也记录并退出，避免留在依赖已销毁账号的页面。这不代表失败写入已持久化。延迟真实 dispose、runtime hook 抛错回归覆盖两种边界；移动 detached 保留 best-effort 时限。Windows WM_ENDSESSION、Linux session-manager/SIGTERM 未实现；任意 kill 无最终回调保证。 |
 | 6 Android 权限，提交 P0 | PARTLY | 移除未用 READ_MEDIA_IMAGES/VIDEO/AUDIO，保留有版本上限的旧权限。拒绝移除 MANAGE_OWN_CALLS 的误报：现有 phoneCall FGS 需要它。源声明/通话测试通过；合并 APK/AAB、API34+ 后台捕获及 Play Console 声明待验证。 |
 | 7 macOS 目录访问，P1 | PARTLY | 保存/恢复/刷新 scoped bookmark，探测可写；保留全部已获 URL 至窗口/进程结束，切换目录不撤销异步/native 传输访问。失效时清除自定义路径并提示默认目录回退。通道/prefs 测试、Swift typecheck、app 构建通过；sandbox release 在 Downloads 外选目录、重启、移动/撤销权限及传输中切换未测。未新增不存在的 profile-root UI。 |
 | 8 Windows 通知，P1 | CONFIRMED | 插件17.2.4→19.5.0，仅变5个锁定依赖；稳定 AUMID/GUID、普通通知、来电 attention/取消，由插件注册激活。Android 最低23不变。通知回归通过，测试补等价 registrant；Windows 安装后通知/点击/设置待主机。 |
@@ -58,3 +58,7 @@ Windows/Linux 安装运行已验证。
 最终本地回归：核心跨平台/通知/bootstrap/通话/schema/history/network/WinRT 共328项通过；追加本地化/快捷键/退出39项通过；tim2tox独立相关34项通过。`flutter analyze lib tool --no-fatal-warnings --no-fatal-infos` 无error（既有warning/info仍存在）；`dart run tool/check_complexity.dart`通过。
 
 macOS 最后窗口自动终止已禁用，避免 Cocoa 抢在 Dart preventClose/checkpoint 前退出；成功保存后的 windowManager.destroy 仍调用 NSApp.terminate。此对等修复有源声明回归，仍须真实 Cmd+Q/关闭验证。
+
+退出补充回归：窗口状态/session-shutdown/账号生命周期共25项通过，包括超过旧10秒时限的
+延迟销毁、不可逆销毁后异常。修改的4个Dart文件分析无问题，复杂度门禁通过；这些测试
+不代表失败写入已持久化。

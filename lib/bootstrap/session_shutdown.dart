@@ -12,8 +12,8 @@ import '../util/logger.dart';
 class SessionShutdown {
   SessionShutdown._();
 
-  /// Run — or JOIN — account teardown for the live session, bounded by
-  /// [timeout].
+  /// Run — or JOIN — account teardown for the live session. Desktop exits must
+  /// await completion; [timeout] bounds only best-effort mobile exit paths.
   ///
   /// Joining matters as much as running. A logout or account switch already in
   /// flight may still be checkpointing profile and pending messages after
@@ -23,16 +23,20 @@ class SessionShutdown {
   /// a second call (desktop reaching both `onWindowClose` and `detached`) finds
   /// nothing left to do.
   ///
-  /// Reports false on failure/timeout so cancelable desktop exits can stay
-  /// open. Mobile detached remains best effort; the OS can always kill it.
+  /// Reports false on failure/timeout. Teardown is destructive even on failure,
+  /// so this result does not mean the old account can resume. A timeout stops
+  /// waiting, not the teardown itself. Mobile detached remains best effort.
   static Future<bool> tearDownActiveAccount({
-    required Duration timeout,
+    Duration? timeout,
     required String logContext,
   }) async {
     final pending = ActiveSession.pendingTeardown;
     if (pending != null) {
       try {
-        final stopped = await (pending as Future<Object?>).timeout(timeout);
+        final teardown = pending as Future<Object?>;
+        final stopped = await (timeout == null
+            ? teardown
+            : teardown.timeout(timeout));
         if (stopped == false) return false;
         AppLogger.info(
           '[$logContext] joined an in-flight account teardown before exit',
@@ -51,9 +55,10 @@ class SessionShutdown {
     final service = ActiveSession.current;
     if (service == null) return true;
     try {
-      final stopped = await AccountService.teardownCurrentSession(
-        service: service,
-      ).timeout(timeout);
+      final teardown = AccountService.teardownCurrentSession(service: service);
+      final stopped = await (timeout == null
+          ? teardown
+          : teardown.timeout(timeout));
       AppLogger.info('[$logContext] account torn down before exit');
       return stopped;
     } catch (e, stackTrace) {

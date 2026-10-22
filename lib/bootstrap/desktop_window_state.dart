@@ -11,6 +11,8 @@ import 'session_shutdown.dart';
 /// One awaited exit for both caption close and framework quit (e.g. Cmd+Q).
 class DesktopWindowState with WindowListener, ScreenListener {
   DesktopWindowState({this.checkpointSession});
+
+  /// Optional checkpoint substitute; false must leave the account usable.
   final Future<bool> Function()? checkpointSession;
   Rect? normalBounds;
   bool restoring = true;
@@ -25,7 +27,9 @@ class DesktopWindowState with WindowListener, ScreenListener {
     screenRetriever.addListener(this);
     _lifecycle = AppLifecycleListener(
       onExitRequested: () async {
-        return await prepareToExit() ? AppExitResponse.exit : AppExitResponse.cancel;
+        return await prepareToExit()
+            ? AppExitResponse.exit
+            : AppExitResponse.cancel;
       },
     );
   }
@@ -75,9 +79,20 @@ class DesktopWindowState with WindowListener, ScreenListener {
       saved = false;
     }
     if (!saved) return false;
-    return checkpointSession != null ? await checkpointSession!() :
-        await SessionShutdown.tearDownActiveAccount(
-          timeout: const Duration(seconds: 10), logContext: 'DesktopShell');
+    if (checkpointSession != null) return await checkpointSession!();
+    // Once teardown begins it can dispose runtime/providers even if a later
+    // checkpoint fails. Never cancel back into that destroyed account, and
+    // never time out while teardown still owns pending persistence work.
+    final checkpointed = await SessionShutdown.tearDownActiveAccount(
+      logContext: 'DesktopShell',
+    );
+    if (!checkpointed) {
+      AppLogger.warn(
+        'Desktop exit after account teardown failure; pending data '
+        'may not have been checkpointed',
+      );
+    }
+    return true;
   }
 
   @override
