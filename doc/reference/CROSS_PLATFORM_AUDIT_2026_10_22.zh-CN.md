@@ -93,16 +93,19 @@ candle/light帮助探针及后续MSI/安装smoke。7项provision回归覆盖arch
 路径解析、exit失败和进程超时，不能替代真实Windows运行；移动打包不受该helper影响。
 
 provision通过后，Windows ARM64 job119945606703暴露通知FFI插件的STL1011。已审阅的
-1.0.3 archive指定C++17并包含WinRT；既有普通插件兼容逻辑未覆盖FFI target。仅此target
-改用C++20。真实CMake/编译器fixture先复现C++17失败，再验证标准coroutine编译通过，
-同时无关target仍为C++17；缺target硬错误和artifact到期检查避免兼容逻辑悄然失效。
-新增4项fixture/artifact及既有6项WinRT回归本地通过，MSVC通知编译仍须线上CI实证。
+1.0.3 archive指定C++17并包含WinRT；既有普通插件兼容逻辑未覆盖FFI target。最初的
+C++20覆盖通过标准选择fixture，但真实AMD64 job119961024434随后在旧ATL::CW2A
+转换处报C2440。最终规则保留C++17，仅此target在MSVC19.51及以后使用上游3.1.1已采用
+的兼容define（官方source见英文镜像）。这是experimental header迁移债务，升级插件时
+须重新评估移除。6项CMake/编译器条件及artifact测试覆盖新版/旧版/非MSVC输入、无关
+target、缺target及到期；既有6项WinRT回归也通过。这些宿主编译fixture不等于编译真实
+WinRT/ATL插件源码，仍须Windows CI完整验证。
 
 同一日志明确报告Dart回退x64。2026-10-22核验：3.41.9对应engine的Windows ARM64
 Dart/release archive均404；3.44.0对应文件均200，官方链接及
 [Flutter上游讨论](https://github.com/flutter/flutter/issues/186730)见英文镜像。
 因此仅ARM64 job使用3.44.0，并在执行前核对framework commit
-`559ffa3f75e7402d65a8def9c28389a9b2e6fe42`；其他job及业务依赖pin保留现有版本。
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42`；其他job保留Flutter3.41.9。
 LUCI_CONTEXT用于浅克隆stable checkout保留固定release的engine.version。
 流式读取PE header门禁拒绝非ARM64 Dart，并在打包前检查app、Flutter engine、Tim2Tox
 三者与目标架构一致。11项PE/MSI回归覆盖合法x64/ARM64、混合架构、坏签名、越界offset、
@@ -112,3 +115,14 @@ LUCI_CONTEXT用于浅克隆stable checkout保留固定release的engine.version�
 关闭/repair/uninstall前核对已安装二进制的PE machine。
 最终head仍须真实ARM64构建、MSI生成和安装smoke通过；PR按原条件跳过仅供tag/
 手动发布的GitHub Release job。
+
+真实ARM64构建还复现Flutter3.44移除ExtendSelectionByPageIntent导致旧文本编辑依赖
+16.0.2编译失败。[官方17.0.0](https://pub.dev/packages/extended_text_field/versions/17.0.0)
+移除旧binding，原有adjacent-page action仍支持分页选择；
+声明的Flutter最低版本仍3.24，extended_text_library依赖不变。manifest和bootstrap
+生成覆盖均固定17.0.0，已实际运行bootstrap/pubget并核对lock及package_config解析；
+lock仅此package版本及官方archive SHA变化（完整hash见英文镜像）。生成逻辑提取为
+小模块，使bootstrap复杂度ratchet缩减。Flutter3.41.9真实输入86项通过；独立3.44
+验证真实输入44项、Windows/macOS两种Shift+PageDown/Up选择变体及完整app Dart kernel
+构建通过。同一隔离3.44副本先用16.0.2复现四处missing-intent编译错误。
+kernel通过不代表Windows原生/MSI或物理IME设备验证完成。

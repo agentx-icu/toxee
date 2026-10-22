@@ -119,6 +119,8 @@ flutter:
     - assets/tray/
 dependency_overrides:
   record_linux: ^1.2.1
+  # Matches bootstrap's generated overrides; compatible with both CI SDK pins.
+  extended_text_field: 17.0.0
 
 msix_config:
   display_name: Toxee

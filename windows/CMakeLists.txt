@@ -122,18 +122,23 @@ endforeach()
 
 # The notification FFI plugin is not a *_plugin target and is listed separately
 # from FLUTTER_PLUGIN_LIST. Its locked 1.0.3 sources request C++17 and also include
-# WinRT, reaching the same removed experimental coroutine path on MSVC 14.51.
-# Use standard C++20 coroutines on this target only. The artifact expiry and real
-# CMake build fixture live in
-# test/ci/windows_notifications_cmake_test.dart. Re-check this override when the
-# package is upgraded instead of carrying it after upstream fixes its standard.
+# WinRT, reaching the same experimental coroutine path on MSVC 14.51. Raising
+# this legacy source to C++20 breaks its ATL::CW2A -> std::string conversions
+# (C2440, verified by Windows CI). Keep C++17 and use the same compatibility define
+# as upstream 3.1.1, scoped to this target on the affected compiler generation.
+# This is migration debt: the experimental header will eventually disappear.
+# Re-check/remove it when upgrading the reviewed artifact; expiry/gating fixtures
+# live in test/ci/windows_notifications_cmake_test.dart.
 if("flutter_local_notifications_windows" IN_LIST FLUTTER_FFI_PLUGIN_LIST)
   if(NOT TARGET flutter_local_notifications_windows)
     message(FATAL_ERROR
       "flutter_local_notifications_windows is in FLUTTER_FFI_PLUGIN_LIST but "
       "its target is missing; update the C++/WinRT compatibility target name.")
   endif()
-  target_compile_features(flutter_local_notifications_windows PRIVATE cxx_std_20)
+  if(MSVC AND MSVC_VERSION GREATER_EQUAL 1951)
+    target_compile_definitions(flutter_local_notifications_windows
+      PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+  endif()
 endif()
 
 

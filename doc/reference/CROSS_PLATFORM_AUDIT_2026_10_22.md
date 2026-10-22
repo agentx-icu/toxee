@@ -127,12 +127,17 @@ running the real Windows tools. Mobile packaging is unaffected by this helper.
 
 After provisioning succeeded, Windows ARM64 job 119945606703 exposed STL1011 in
 the notification FFI plugin. Its reviewed 1.0.3 archive requests C++17 and includes
-WinRT; the existing ordinary-plugin workaround did not cover FFI targets. Only
-that target now requests C++20. A real CMake/compiler fixture first failed with
-C++17, then passed with standard coroutines while an unrelated target stayed at
-C++17. Missing-target and artifact-expiry checks prevent a silently stale fix.
-Four new fixture/artifact tests and six existing WinRT tests pass locally;
-MSVC notification compilation remains a required CI result.
+WinRT; the existing ordinary-plugin workaround did not cover FFI targets. The
+initial C++20 override passed a standard-selection fixture but real AMD64 job
+119961024434 rejected the plugin's legacy ATL::CW2A conversions with C2440.
+The final compatibility rule therefore retains C++17 and uses the define adopted
+by [upstream 3.1.1](https://raw.githubusercontent.com/MaikuB/flutter_local_notifications/flutter_local_notifications_windows-v3.1.1/flutter_local_notifications_windows/src/CMakeLists.txt),
+only on this target under MSVC 19.51 or later. This is migration debt until the
+plugin no longer needs the experimental header. Six CMake/compiler-gating and
+artifact tests cover the affected compiler input, older/non-MSVC inputs, unrelated
+targets, missing targets and expiry; six existing WinRT tests also pass locally.
+These host-compiler fixtures do not compile the actual WinRT/ATL plugin; Windows
+CI remains the required full-source validation.
 
 The same log explicitly reported x64 Dart fallback. On 2026-10-22, the pinned
 3.41.9 engine's Windows ARM64 Dart/release archives returned 404; the equivalent
@@ -140,8 +145,8 @@ The same log explicitly reported x64 Dart fallback. On 2026-10-22, the pinned
 and Dart archive returned 200. [Flutter's upstream discussion](https://github.com/flutter/flutter/issues/186730)
 also explains the native Dart architecture's control over the Windows target.
 Only the ARM64 job therefore uses 3.44.0, with framework commit
-`559ffa3f75e7402d65a8def9c28389a9b2e6fe42` checked before execution; other jobs and
-business dependency pins retain their existing versions. LUCI_CONTEXT preserves
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42` checked before execution; other jobs retain
+Flutter 3.41.9. LUCI_CONTEXT preserves
 the pinned release's engine.version on the shallow stable checkout. A streaming
 PE-header gate rejects a non-ARM64 Dart and rejects mismatched app, Flutter engine
 or Tim2Tox binaries before packaging. Eleven PE/MSI regression cases cover valid
@@ -155,3 +160,19 @@ actual MSI SummaryInformation Template and checks the installed binaries' PE
 machines before launch/close/repair/uninstall.
 Actual ARM64 build, MSI creation and installed smoke must still pass on the final
 head. PR runs intentionally skip the tag/manual-only GitHub Release publication.
+
+The real ARM64 build also reproduced Flutter 3.44's removal of
+ExtendSelectionByPageIntent in extended_text_field 16.0.2. The official
+[17.0.0 release](https://pub.dev/packages/extended_text_field/versions/17.0.0)
+removes the obsolete binding while its existing adjacent-page action
+retains keyboard page selection. Its declared Flutter minimum remains 3.24 and
+its extended_text_library dependency is unchanged. Both the manifest and generated
+bootstrap overrides now select exactly 17.0.0; actual bootstrap/pub resolution and
+package_config confirm this, and the lock changes only that package to the
+official archive hash `495b8cc6b4a66b5323d71afe1df1c5f08b716fdc925e4339aeaa14a2f0cf65a9`.
+Override generation was extracted to a small module so the bootstrap complexity
+ratchet shrinks rather than growing. On Flutter 3.41.9, 86 real input tests pass;
+independent Flutter 3.44 checks pass 44 input tests, both new Windows/macOS
+Shift+PageDown/Up selection variants and a full app Dart-kernel build. The same
+isolated 3.44 tree first reproduced the four missing-intent errors with 16.0.2.
+Kernel success is not a Windows native/MSI or physical IME qualification claim.

@@ -21,17 +21,28 @@ void main() {
   Future<ProcessResult> configure({
     bool notifications = true,
     bool targetExists = true,
+    int? msvcVersion = 1951,
+    bool expectCompatibility = true,
   }) async {
     await File('${fixture.path}/notification.cpp').writeAsString(r'''
-#include <coroutine>
 #if defined(_MSVC_LANG)
-static_assert(_MSVC_LANG >= 202002L, "notifications require standard coroutines");
+static_assert(_MSVC_LANG == 201703L, "legacy ATL conversions require C++17");
 #else
-static_assert(__cplusplus >= 202002L, "notifications require standard coroutines");
+static_assert(__cplusplus == 201703L, "legacy ATL conversions require C++17");
+#endif
+#if defined(EXPECT_COMPATIBILITY)
+#ifndef _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#error "MSVC 19.51 notification target requires its upstream compatibility define"
+#endif
+#elif defined(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+#error "compatibility define must not affect other compilers"
 #endif
 int notification_fixture() { return 0; }
 ''');
     await File('${fixture.path}/unrelated.cpp').writeAsString(r'''
+#ifdef _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#error "notification compatibility must not leak to unrelated targets"
+#endif
 #if defined(_MSVC_LANG)
 static_assert(_MSVC_LANG == 201703L, "unrelated plugins must remain C++17");
 #else
@@ -47,6 +58,9 @@ set(FLUTTER_PLUGIN_LIST)
 set(FLUTTER_FFI_PLUGIN_LIST ${notifications ? 'flutter_local_notifications_windows' : ''})
 add_library(unrelated_plugin STATIC unrelated.cpp)
 ${targetExists ? 'add_library(flutter_local_notifications_windows STATIC notification.cpp)' : ''}
+${targetExists && expectCompatibility ? 'target_compile_definitions(flutter_local_notifications_windows PRIVATE EXPECT_COMPATIBILITY)' : ''}
+set(MSVC ${msvcVersion != null ? 'TRUE' : 'FALSE'})
+set(MSVC_VERSION ${msvcVersion ?? 0})
 $compatibility
 ''');
     return Process.run('cmake', [
@@ -57,24 +71,35 @@ $compatibility
     ]);
   }
 
-  test(
-    'notification FFI target builds with standard coroutines only',
-    () async {
-      final configured = await configure();
-      expect(
-        configured.exitCode,
-        0,
-        reason: '${configured.stdout}\n${configured.stderr}',
-      );
-      final built = await Process.run('cmake', [
-        '--build',
-        '${fixture.path}/build',
-        '--config',
-        'Release',
-      ]);
-      expect(built.exitCode, 0, reason: '${built.stdout}\n${built.stderr}');
-    },
-  );
+  // These fixtures execute the real CMake gating logic with compiler-version
+  // inputs. Full WinRT/ATL compilation is separately required on Windows CI.
+  for (final compiler in [
+    (name: 'MSVC 19.51', version: 1951, compatibility: true),
+    (name: 'older MSVC', version: 1930, compatibility: false),
+    (name: 'non-MSVC', version: null, compatibility: false),
+  ]) {
+    test(
+      '${compiler.name} keeps notification C++17 and scopes compatibility',
+      () async {
+        final configured = await configure(
+          msvcVersion: compiler.version,
+          expectCompatibility: compiler.compatibility,
+        );
+        expect(
+          configured.exitCode,
+          0,
+          reason: '${configured.stdout}\n${configured.stderr}',
+        );
+        final built = await Process.run('cmake', [
+          '--build',
+          '${fixture.path}/build',
+          '--config',
+          'Release',
+        ]);
+        expect(built.exitCode, 0, reason: '${built.stdout}\n${built.stderr}');
+      },
+    );
+  }
 
   test(
     'notification target rename fails with an actionable configure error',
