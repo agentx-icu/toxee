@@ -1,6 +1,22 @@
-param([Parameter(Mandatory=$true)][string]$MsiPath)
+param(
+  [Parameter(Mandatory=$true)][string]$MsiPath,
+  [Parameter(Mandatory=$true)][ValidateSet('x64', 'arm64')][string]$ExpectedArchitecture
+)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'assert_windows_architecture.ps1')
 $msi = (Resolve-Path $MsiPath).Path
+# Inspect the generated database's SummaryInformation Template (property 7),
+# rather than treating the architecture in its filename as evidence.
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$summary = $null
+try {
+  $summary = $installer.GetType().InvokeMember('SummaryInformation', 'GetProperty', $null, $installer, @($msi, 0))
+  $template = $summary.GetType().InvokeMember('Property', 'GetProperty', $null, $summary, @(7))
+  Assert-WindowsInstallerArchitecture -Architecture $ExpectedArchitecture -Template $template
+} finally {
+  if ($summary) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($summary) }
+  [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($installer)
+}
 $installRoot = Join-Path $env:RUNNER_TEMP ('toxee-installed-smoke-' + [guid]::NewGuid().ToString('N'))
 $app = $null
 $installed = $false
@@ -13,6 +29,11 @@ try {
   $installed = $true
   $exe = Join-Path $installRoot 'toxee.exe'
   if (-not (Test-Path $exe)) { throw 'MSI did not install the executable at INSTALL_ROOT' }
+  Assert-WindowsArchitecture -Architecture $ExpectedArchitecture -Paths @(
+    $exe,
+    (Join-Path $installRoot 'flutter_windows.dll'),
+    (Join-Path $installRoot 'tim2tox_ffi.dll')
+  )
   $app = Start-Process $exe -WorkingDirectory $installRoot -PassThru
   Start-Sleep -Seconds 12
   if ($app.HasExited) { throw "Installed application exited at startup: $($app.ExitCode)" }

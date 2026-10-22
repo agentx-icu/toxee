@@ -62,3 +62,67 @@ macOS 最后窗口自动终止已禁用，避免 Cocoa 抢在 Dart preventClose/
 退出补充回归：窗口状态/session-shutdown/账号生命周期共25项通过，包括超过旧10秒时限的
 延迟销毁、不可逆销毁后异常。修改的4个Dart文件分析无问题，复杂度门禁通过；这些测试
 不代表失败写入已持久化。
+
+macOS 打包 CI 补充：job 119902022028 已构建 release app，但直接执行 Git 模式644的
+签名 helper 时失败。改为与其他CI helper一致的显式Bash调用；回归实际执行打包入口，
+强制helper644，并确认签名失败时停止打包。SDK26.4真实Mach-O fixture通过ad-hoc
+strict校验和PKG生成；正式Developer ID/公证、干净系统安装验证仍需独立完成。
+移动签名使用独立打包路径，不受此问题影响。
+
+PR首轮CI在x86_64暴露第二个签名顺序错误（job119912161238）：直接签CFBundleExecutable时，
+codesign会检查所在bundle，而同级未签名库尚未就绪；arm64链接器自带的ad-hoc签名曾掩盖
+此情况。现在先延后声明的bundle入口，签loose native文件，再自内向外签nested bundle，
+最后用release entitlements签外层app。按inode匹配framework Versions/Current符号链接；
+缺失executable key时不猜测入口。保留最终deep/strict校验，签名不使用--deep。
+
+4项真实macOS fixture先移除全部已有签名，覆盖两种CPU架构、nested app/framework、
+可选executable key、独立helper和含空格路径。旧脚本4项均失败，修复后通过；组合打包
+回归共10项通过。可重复命令见英文镜像，两架构Mac打包job均在app构建前运行这些回归。
+线上证据必须来自最终PR head，不能引用被替代的首轮CI作为合并依据。
+
+Linux全量coverage随后发现1项旧测试仍将桌面宿主按移动端hidden摄像头策略断言
+（3110项通过、1项失败）。测试现在显式覆盖完整mobile/desktop状态表，相邻controller
+测试也显式指定desktop。生产摄像头行为未变，函数文档同步说明两种策略。
+
+Windows ARM64还在Chocolatey附带的DotNet3.5部署停滞，旧job119912160586一直停留至
+新提交取消。provision现在复用已安装可运行工具，否则有界重试获取
+[官方WiX3.14.1 portable release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm)，
+并校验固定SHA256。旧asset的GitHub API未提供digest；固定值由官方ZIP独立计算并复核，
+完整hash见英文镜像。工具含CLR4 metadata，但仍必须在两架构Windows实际通过有界
+candle/light帮助探针及后续MSI/安装smoke。7项provision回归覆盖archive完整性、缺工具、
+路径解析、exit失败和进程超时，不能替代真实Windows运行；移动打包不受该helper影响。
+
+provision通过后，Windows ARM64 job119945606703暴露通知FFI插件的STL1011。已审阅的
+1.0.3 archive指定C++17并包含WinRT；既有普通插件兼容逻辑未覆盖FFI target。最初的
+C++20覆盖通过标准选择fixture，但真实AMD64 job119961024434随后在旧ATL::CW2A
+转换处报C2440。最终规则保留C++17，仅此target在MSVC19.51及以后使用上游3.1.1已采用
+的兼容define（官方source见英文镜像）。这是experimental header迁移债务，升级插件时
+须重新评估移除。6项CMake/编译器条件及artifact测试覆盖新版/旧版/非MSVC输入、无关
+target、缺target及到期；既有6项WinRT回归也通过。这些宿主编译fixture不等于编译真实
+WinRT/ATL插件源码，仍须Windows CI完整验证。
+
+同一日志明确报告Dart回退x64。2026-10-22核验：3.41.9对应engine的Windows ARM64
+Dart/release archive均404；3.44.0对应文件均200，官方链接及
+[Flutter上游讨论](https://github.com/flutter/flutter/issues/186730)见英文镜像。
+因此仅ARM64 job使用3.44.0，并在执行前核对framework commit
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42`；其他job保留Flutter3.41.9。
+LUCI_CONTEXT用于浅克隆stable checkout保留固定release的engine.version。
+流式读取PE header门禁拒绝非ARM64 Dart，并在打包前检查app、Flutter engine、Tim2Tox
+三者与目标架构一致。11项PE/MSI回归覆盖合法x64/ARM64、混合架构、坏签名、越界offset、
+截断、缺文件和MSI Template不匹配。安装工程显式映射WiX machine和64位文件语义，
+不依赖无编译器项目的默认值；3项真实生成CPackConfig的fixture先失败再通过，覆盖两种
+架构及未知架构拒绝。安装smoke读取实际MSI SummaryInformation Template，并在启动/
+关闭/repair/uninstall前核对已安装二进制的PE machine。
+最终head仍须真实ARM64构建、MSI生成和安装smoke通过；PR按原条件跳过仅供tag/
+手动发布的GitHub Release job。
+
+真实ARM64构建还复现Flutter3.44移除ExtendSelectionByPageIntent导致旧文本编辑依赖
+16.0.2编译失败。[官方17.0.0](https://pub.dev/packages/extended_text_field/versions/17.0.0)
+移除旧binding，原有adjacent-page action仍支持分页选择；
+声明的Flutter最低版本仍3.24，extended_text_library依赖不变。manifest和bootstrap
+生成覆盖均固定17.0.0，已实际运行bootstrap/pubget并核对lock及package_config解析；
+lock仅此package版本及官方archive SHA变化（完整hash见英文镜像）。生成逻辑提取为
+小模块，使bootstrap复杂度ratchet缩减。Flutter3.41.9真实输入86项通过；独立3.44
+验证真实输入44项、Windows/macOS两种Shift+PageDown/Up选择变体及完整app Dart kernel
+构建通过。同一隔离3.44副本先用16.0.2复现四处missing-intent编译错误。
+kernel通过不代表Windows原生/MSI或物理IME设备验证完成。

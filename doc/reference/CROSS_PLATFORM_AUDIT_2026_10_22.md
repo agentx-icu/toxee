@@ -80,3 +80,99 @@ Quit follow-up: 25 window-state/session-shutdown/account-lifecycle tests pass,
 including delayed disposal beyond the old ten-second deadline and failure after
 destructive teardown. Analysis of the four touched Dart files has no issues;
 the complexity gate passes. These tests do not prove failed writes persisted.
+
+macOS packaging CI follow-up: job 119902022028 built the release app, then failed
+to execute the mode-100644 signing helper. Packaging now invokes it with Bash,
+matching the other CI helpers. Regressions run the packaging entry point with a
+644 helper and cover signing failure propagation. A real SDK 26.4 Mach-O fixture
+passes ad-hoc strict verification and PKG creation; Developer ID/notarization and
+clean installed release validation remain separate requirements. Mobile signing
+uses a separate packaging path and is unaffected.
+
+The first PR CI run exposed a second signing-order failure on x86_64 (job
+119912161238): signing CFBundleExecutable directly makes codesign inspect its
+containing bundle before unsigned siblings are ready. arm64's linker-provided
+ad-hoc signatures had hidden this case. The signer now defers declared bundle
+entry points, signs loose native code, then nested bundles inside-out, then the
+outer app with release entitlements. Inode comparison follows framework
+Versions/Current links; absent executable keys are not guessed. Final deep/strict
+verification is retained; signing does not use --deep.
+
+Four real macOS fixtures remove all initial signatures and cover both CPU
+architectures, nested apps/frameworks, optional executable keys, standalone
+helpers and paths containing spaces. All four fail with the old signer and pass
+after the fix; the combined packaging suite passes all ten tests. Reproduce with
+`SDKROOT="$(xcrun --sdk macosx26.4 --show-sdk-path)" flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart`.
+Both macOS package jobs now run these native/order regressions before app build.
+CI evidence must refer to the final PR head, not the superseded first run.
+
+The full Linux coverage run then found one legacy policy test still assuming
+mobile hidden-camera behavior for its desktop host (3110 passed, one failed).
+The test now covers the complete mobile/desktop state table explicitly; an
+adjacent controller test also selects its desktop policy explicitly. Production
+camera behavior is unchanged and its documentation now states the distinction.
+
+Windows ARM64 provisioning also stalled in Chocolatey's optional DotNet3.5
+deployment; old job 119912160586 remained there until the next push canceled it.
+Provisioning now reuses installed, working tools or fetches
+the [official WiX 3.14.1 portable release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm)
+with bounded retries and a pinned SHA256. That older GitHub asset has no API
+digest; the pinned value was independently computed from the official release
+ZIP: `6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31`.
+The executables contain CLR4 metadata; actual bounded candle/light help probes
+and the subsequent MSI/install smoke remain mandatory on both Windows runners.
+Seven provisioning regressions exercise archive integrity, missing tools,
+resolved paths, exit failures and process timeouts; they do not substitute for
+running the real Windows tools. Mobile packaging is unaffected by this helper.
+
+After provisioning succeeded, Windows ARM64 job 119945606703 exposed STL1011 in
+the notification FFI plugin. Its reviewed 1.0.3 archive requests C++17 and includes
+WinRT; the existing ordinary-plugin workaround did not cover FFI targets. The
+initial C++20 override passed a standard-selection fixture but real AMD64 job
+119961024434 rejected the plugin's legacy ATL::CW2A conversions with C2440.
+The final compatibility rule therefore retains C++17 and uses the define adopted
+by [upstream 3.1.1](https://raw.githubusercontent.com/MaikuB/flutter_local_notifications/flutter_local_notifications_windows-v3.1.1/flutter_local_notifications_windows/src/CMakeLists.txt),
+only on this target under MSVC 19.51 or later. This is migration debt until the
+plugin no longer needs the experimental header. Six CMake/compiler-gating and
+artifact tests cover the affected compiler input, older/non-MSVC inputs, unrelated
+targets, missing targets and expiry; six existing WinRT tests also pass locally.
+These host-compiler fixtures do not compile the actual WinRT/ATL plugin; Windows
+CI remains the required full-source validation.
+
+The same log explicitly reported x64 Dart fallback. On 2026-10-22, the pinned
+3.41.9 engine's Windows ARM64 Dart/release archives returned 404; the equivalent
+[3.44.0 engine archive](https://storage.googleapis.com/flutter_infra_release/flutter/4c525dac5ebe5971c5708ef73558ed8edcf4a362/windows-arm64-release/windows-arm64-flutter.zip)
+and Dart archive returned 200. [Flutter's upstream discussion](https://github.com/flutter/flutter/issues/186730)
+also explains the native Dart architecture's control over the Windows target.
+Only the ARM64 job therefore uses 3.44.0, with framework commit
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42` checked before execution; other jobs retain
+Flutter 3.41.9. LUCI_CONTEXT preserves
+the pinned release's engine.version on the shallow stable checkout. A streaming
+PE-header gate rejects a non-ARM64 Dart and rejects mismatched app, Flutter engine
+or Tim2Tox binaries before packaging. Eleven PE/MSI regression cases cover valid
+x64/ARM64, mixed machines, invalid signatures/offsets, truncation, missing files
+and MSI Template mismatches. The installer explicitly maps each supported machine
+to [CPack's WiX architecture](https://cmake.org/cmake/help/latest/cpack_gen/wix.html#variable:CPACK_WIX_ARCHITECTURE)
+and 64-bit file semantics rather than relying on the compiler-free project's
+default. Three generated-CPackConfig fixtures first failed, then passed for both
+machines and rejection of an unknown machine. The installed smoke reads the
+actual MSI SummaryInformation Template and checks the installed binaries' PE
+machines before launch/close/repair/uninstall.
+Actual ARM64 build, MSI creation and installed smoke must still pass on the final
+head. PR runs intentionally skip the tag/manual-only GitHub Release publication.
+
+The real ARM64 build also reproduced Flutter 3.44's removal of
+ExtendSelectionByPageIntent in extended_text_field 16.0.2. The official
+[17.0.0 release](https://pub.dev/packages/extended_text_field/versions/17.0.0)
+removes the obsolete binding while its existing adjacent-page action
+retains keyboard page selection. Its declared Flutter minimum remains 3.24 and
+its extended_text_library dependency is unchanged. Both the manifest and generated
+bootstrap overrides now select exactly 17.0.0; actual bootstrap/pub resolution and
+package_config confirm this, and the lock changes only that package to the
+official archive hash `495b8cc6b4a66b5323d71afe1df1c5f08b716fdc925e4339aeaa14a2f0cf65a9`.
+Override generation was extracted to a small module so the bootstrap complexity
+ratchet shrinks rather than growing. On Flutter 3.41.9, 86 real input tests pass;
+independent Flutter 3.44 checks pass 44 input tests, both new Windows/macOS
+Shift+PageDown/Up selection variants and a full app Dart-kernel build. The same
+isolated 3.44 tree first reproduced the four missing-intent errors with 16.0.2.
+Kernel success is not a Windows native/MSI or physical IME qualification claim.

@@ -212,6 +212,8 @@ jobs:
 
   windows:
     name: Windows ${{ matrix.target.package_arch }}
+    env:
+      FLUTTER_VERSION: ${{ matrix.target.flutter_version }}
     # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
     # default, so one hung run burned 360 x the runner multiplier.
     timeout-minutes: 90
@@ -232,6 +234,7 @@ jobs:
             cmake_arch: x64
             msvc_arch: amd64
             tim2tox_windows_arch: x64
+            flutter_version: 3.41.9
             flutter_setup: action
             experimental: false
           - runner: windows-11-arm
@@ -240,6 +243,11 @@ jobs:
             cmake_arch: ARM64
             msvc_arch: arm64
             tim2tox_windows_arch: arm64
+            # 3.41.9 has no Windows ARM64 Dart/engine artifacts and silently
+            # falls back to an x64 Dart host, selecting an x64 app target.
+            # 3.44.0 is the first stable with the native ARM64 toolchain.
+            flutter_version: 3.44.0
+            flutter_revision: 559ffa3f75e7402d65a8def9c28389a9b2e6fe42
             flutter_setup: manual
             experimental: true
 
@@ -265,18 +273,9 @@ jobs:
         if: matrix.target.flutter_setup == 'manual'
         shell: pwsh
         env:
-          # Flutter 3.29 is a "fusion repo" (DEPS + engine/src/.gn at the
-          # 3.29.0 tag), so shared.bat always calls update_engine_version.ps1
-          # on every flutter invocation. That script does `git merge-base
-          # HEAD origin/master`, which fails on our shallow clone because
-          # there's no common history between HEAD (the 3.29.0 tag commit)
-          # and the master fetched separately. The non-zero $LASTEXITCODE
-          # propagates and shared.bat then prints "Unable to determine
-          # engine version...". Setting LUCI_CONTEXT switches the script
-          # to the `git rev-parse HEAD` branch (always succeeds), and since
-          # BRANCH == stable, the engine.version write block is skipped,
-          # so the file stays at the correct 3.29.0 value.
+          # Preserve the release's engine.version on this shallow checkout.
           LUCI_CONTEXT: ci
+          FLUTTER_REVISION: ${{ matrix.target.flutter_revision }}
         run: |
           $FlutterDir = "$env:RUNNER_TEMP\flutter"
           git clone --depth 1 --branch stable `
@@ -288,12 +287,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C $FlutterDir -c advice.detachedHead=false checkout -B stable $env:FLUTTER_VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $revision = git -C $FlutterDir rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($revision -ne $env:FLUTTER_REVISION) { throw "Flutter release revision mismatch: $revision" }
 
           "$FlutterDir\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "LUCI_CONTEXT=ci" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
           & "$FlutterDir\bin\flutter.bat" --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./tool/ci/assert_windows_architecture.ps1 -Architecture arm64 -Paths @("$FlutterDir\bin\cache\dart-sdk\bin\dart.exe")
           & "$FlutterDir\bin\flutter.bat" config --no-analytics
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$FlutterDir\bin\flutter.bat" precache --windows
@@ -319,59 +322,10 @@ jobs:
 
       - name: Add WiX to PATH
         shell: pwsh
+        timeout-minutes: 8
         run: |
-          # WiX v3 may land in any of several places depending on whether the
-          # runner image preinstalled it, whether choco was used, or whether a
-          # vendored archive ended up under ProgramData. Scan all of them, and
-          # fall back to a direct GitHub release download if the package
-          # manager refuses to cooperate.
-          function Find-WixBin {
-            $patterns = @(
-              "C:\Program Files (x86)\WiX Toolset v3.*\bin",
-              "C:\Program Files\WiX Toolset v3.*\bin",
-              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\*\bin",
-              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\bin",
-              "$env:RUNNER_TEMP\wix\*\bin",
-              "$env:RUNNER_TEMP\wix\bin"
-            )
-            foreach ($p in $patterns) {
-              $hit = Get-ChildItem -Path $p -ErrorAction SilentlyContinue |
-                     Where-Object { Test-Path (Join-Path $_.FullName "candle.exe") } |
-                     Select-Object -First 1
-              if ($hit) { return $hit.FullName }
-              if (Test-Path (Join-Path $p "candle.exe")) { return $p }
-            }
-            return $null
-          }
-
-          $wixDir = Find-WixBin
-          if (-not $wixDir) {
-            Write-Host "Installing WiX via Chocolatey..."
-            choco install wixtoolset --yes --no-progress --version 3.14.1 2>&1 | Write-Host
-            $wixDir = Find-WixBin
-          }
-          if (-not $wixDir) {
-            Write-Host "Chocolatey path empty; downloading WiX v3.14 release directly..."
-            $wixZip = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
-            $wixOut = Join-Path $env:RUNNER_TEMP "wix"
-            Invoke-WebRequest `
-              -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" `
-              -OutFile $wixZip -UseBasicParsing
-            Expand-Archive -Path $wixZip -DestinationPath $wixOut -Force
-            if (Test-Path (Join-Path $wixOut "candle.exe")) {
-              $wixDir = $wixOut
-            } else {
-              $wixDir = Find-WixBin
-            }
-          }
-
-          if (-not $wixDir) {
-            Write-Error "WiX Toolset v3 was not found after installation."
-            exit 1
-          }
-
-          Write-Host "Using WiX at: $wixDir"
-          echo "$wixDir" >> $env:GITHUB_PATH
+          & ./tool/ci/test_wix_provisioning.ps1
+          & ./tool/ci/ensure_wix.ps1
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
@@ -403,6 +357,19 @@ jobs:
       - name: Build Windows runner
         run: flutter build windows --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
 
+      - name: Verify Windows binary architecture
+        shell: pwsh
+        env:
+          EXPECTED_ARCH: ${{ matrix.target.tim2tox_windows_arch }}
+        run: |
+          & ./tool/ci/test_windows_architecture.ps1
+          $runnerDir = "build/windows/$env:EXPECTED_ARCH/runner/Release"
+          & ./tool/ci/assert_windows_architecture.ps1 -Architecture $env:EXPECTED_ARCH -Paths @(
+            "$runnerDir/toxee.exe",
+            "$runnerDir/flutter_windows.dll",
+            "$runnerDir/tim2tox_ffi.dll"
+          )
+
       - name: Package Windows artifacts
         env:
           TOXEE_PACKAGE_ARCH: ${{ matrix.target.package_arch }}
@@ -410,10 +377,12 @@ jobs:
 
       - name: Smoke installed Windows release
         shell: pwsh
+        env:
+          EXPECTED_ARCH: ${{ matrix.target.tim2tox_windows_arch }}
         run: |
           $msi = Get-ChildItem dist/windows/*.msi | Select-Object -First 1
           if (-not $msi) { throw "Packaged MSI missing" }
-          ./tool/ci/test_windows_installer.ps1 -MsiPath $msi.FullName
+          ./tool/ci/test_windows_installer.ps1 -MsiPath $msi.FullName -ExpectedArchitecture $env:EXPECTED_ARCH
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -465,6 +434,9 @@ jobs:
 
       - name: Build Tim2Tox native library
         run: bash tool/ci/build_tim2tox.sh --target macos --mode "$BUILD_MODE"
+
+      - name: Verify macOS signing order
+        run: flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart
 
       - name: Build macOS app
         run: flutter build macos --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
