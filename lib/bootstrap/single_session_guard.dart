@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 import '../util/logger.dart';
+import '../util/app_paths.dart';
+import 'desktop_session_owner.dart';
+import 'package:window_manager/window_manager.dart';
 
 /// Keeps a second Flutter engine in the same Android process away from the
 /// Tox session (see android/.../SessionOwnerChannel.kt).
@@ -16,6 +19,25 @@ import '../util/logger.dart';
 class SingleSessionGuard {
   SingleSessionGuard._();
 
+  static DesktopSessionOwner? _desktopOwner;
+  static bool _desktopReady = false;
+  static bool _activationPending = false;
+
+  static Future<void> _activateDesktop() async {
+    if (!_desktopReady) { _activationPending = true; return; }
+    await windowManager.show();
+    await windowManager.restore();
+    await windowManager.focus();
+  }
+
+  static Future<void> markDesktopReady() async {
+    _desktopReady = true;
+    if (_activationPending) {
+      _activationPending = false;
+      await _activateDesktop();
+    }
+  }
+
   static const MethodChannel _channel = MethodChannel('toxee/session_owner');
 
   /// True when this engine may start the session. False means it yielded to
@@ -28,6 +50,14 @@ class SingleSessionGuard {
     MethodChannel channel = _channel,
     bool? isAndroid,
   }) async {
+    if (isAndroid == null && (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+      _desktopOwner ??= await DesktopSessionOwner.claim(
+        await AppPaths.applicationSupportPath,
+        onActivate: _activateDesktop,
+      );
+      if (_desktopOwner == null) await SystemNavigator.pop();
+      return _desktopOwner != null;
+    }
     if (!(isAndroid ?? Platform.isAndroid)) return true;
     bool owner;
     try {

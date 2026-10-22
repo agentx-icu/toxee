@@ -10,10 +10,10 @@ This document details toxee's multi-operating system and multi-platform support.
 ### Operating system
 
 - ✅ **macOS**: 10.15 or higher (matches `macos/Podfile` `platform :osx, '10.15'` and `MACOSX_DEPLOYMENT_TARGET = 10.15`)
-- ✅ **Linux**: Supports mainstream distributions (Ubuntu 18.04+, Debian 10+, Fedora 30+, etc.)
+- **Linux packages**: built on Ubuntu 24.04 (glibc 2.39). Older Ubuntu/Debian/Fedora releases are not validated; inspect ELF GLIBC/GLIBCXX/CXXABI requirements before distributing to another baseline.
 - ✅ **Windows**: Windows 10 or higher
-- ✅ **Android**: Android 5.0 (API 21) or higher
-- ✅ **iOS**: iOS 13.0 or higher. Note: the Flutter Xcode project's `IPHONEOS_DEPLOYMENT_TARGET` is still `12.0`, but the Tim2Tox FFI library shipped by CI is built with `-miphoneos-version-min=13.0` and its generated framework `Info.plist` sets `MinimumOSVersion=13.0` (see `tool/ci/build_tim2tox.sh`). 13.0 is the effective runtime minimum.
+- **Android**: API 23 or the pinned Flutter minimum, whichever is higher; release artifacts currently include arm64 only.
+- **iOS / iPadOS**: 15.5 or higher (Xcode project / Podfile deployment target).
 
 ### Device type
 

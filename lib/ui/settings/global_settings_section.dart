@@ -12,6 +12,7 @@ import '../../util/appearance_sync.dart';
 import '../../util/locale_controller.dart';
 import '../../util/logger.dart';
 import '../../util/prefs.dart';
+import '../../util/download_directory_access.dart';
 import '../../i18n/app_localizations.dart';
 import '../testing/ui_keys.dart';
 import '../widgets/section_header.dart';
@@ -144,11 +145,11 @@ class _GlobalSettingsSectionState extends State<GlobalSettingsSection> {
     try {
       final selectedDirectory = await FilePicker.platform.getDirectoryPath();
       if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
-        await Prefs.setDownloadsDirectory(selectedDirectory);
+        final retained = await DownloadDirectoryAccess.select(selectedDirectory);
         widget.onDownloadsConfigChanged?.call();
         if (mounted) {
           setState(
-            () => _downloadsDirectoryController.text = selectedDirectory,
+            () => _downloadsDirectoryController.text = retained,
           );
         }
       }

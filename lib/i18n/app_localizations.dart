@@ -4377,6 +4377,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your area is unavailable right now; retrying in the background.'**
   String get nearbyCellUnavailable;
+
+  /// No description provided for @windowMinimize.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize'**
+  String get windowMinimize;
+
+  /// No description provided for @windowMaximize.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize'**
+  String get windowMaximize;
+
+  /// No description provided for @windowRestore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get windowRestore;
 }
 
 class _AppLocalizationsDelegate

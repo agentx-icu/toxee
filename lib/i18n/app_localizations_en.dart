@@ -2478,4 +2478,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get nearbyCellUnavailable =>
       'Your area is unavailable right now; retrying in the background.';
+
+  @override
+  String get windowMinimize => 'Minimize';
+
+  @override
+  String get windowMaximize => 'Maximize';
+
+  @override
+  String get windowRestore => 'Restore';
 }

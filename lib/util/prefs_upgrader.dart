@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'prefs_schema_guard.dart';
+export 'prefs_schema_guard.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -113,19 +115,6 @@ class BlackListScopeMigration {
   bool get moved => fromKey != null;
 }
 
-/// Thrown when stored preferences were saved by a newer app version.
-/// The app should prompt the user to upgrade and not overwrite data.
-class PrefsStorageNewerThanAppException implements Exception {
-  final int storedVersion;
-  final int currentVersion;
-
-  PrefsStorageNewerThanAppException(this.storedVersion, this.currentVersion);
-
-  @override
-  String toString() =>
-      'PrefsStorageNewerThanAppException(stored: $storedVersion, current: $currentVersion)';
-}
-
 /// Runs schema upgrades for SharedPreferences.
 ///
 /// Handles both global migrations (theme defaults, etc.) and per-account
@@ -137,8 +126,9 @@ class PrefsStorageNewerThanAppException implements Exception {
 class PrefsUpgrader {
   PrefsUpgrader._();
 
-  /// Run global schema migrations.
   static Future<void> run(SharedPreferences p) async {
+    validatePrefsSchemas(p, globalVersion: currentGlobalPrefsVersion,
+        accountVersion: currentAccountPrefsVersion);
     final stored = p.getInt(_kPrefsSchemaVersion) ?? 0;
 
     if (stored > currentGlobalPrefsVersion) {
@@ -153,8 +143,6 @@ class PrefsUpgrader {
     }
   }
 
-  /// Run per-account schema migrations for the given account.
-  /// Call this when an account is activated (login / switch).
   static Future<void> runAccountMigrations(
     SharedPreferences p,
     String accountPrefix,
@@ -164,7 +152,10 @@ class PrefsUpgrader {
     final versionKey = _accountPrefsVersionKey(accountPrefix);
     final stored = p.getInt(versionKey) ?? 0;
 
-    if (stored >= currentAccountPrefsVersion) return;
+    if (stored > currentAccountPrefsVersion) {
+      throw PrefsStorageNewerThanAppException(stored, currentAccountPrefsVersion);
+    }
+    if (stored == currentAccountPrefsVersion) return;
 
     for (int from = stored; from < currentAccountPrefsVersion; from++) {
       await _runAccountMigration(from, from + 1, p, accountPrefix);

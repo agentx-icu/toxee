@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
@@ -95,7 +96,8 @@ class LoggingBootstrap {
       // process working directory is `/` (read-only), so this probe always fails
       // and only emits a misleading stderr error before the appSupport fallback
       // below takes over — skip it on mobile and go straight to branch (2).
-      if (logPath == null &&
+      if (kDebugMode &&
+          logPath == null &&
           !useSymlink &&
           !Platform.isIOS &&
           !Platform.isAndroid) {

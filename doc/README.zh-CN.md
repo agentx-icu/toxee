@@ -48,3 +48,5 @@
 - **Tim2Tox**（上游仓库 [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)）：[文档索引](../third_party/tim2tox/doc/README.md)、[Bootstrap 与轮询](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.md)、[API 参考](../third_party/tim2tox/doc/api/API_REFERENCE.md)
 
 实施计划（面向 agent/开发者）见 [tool/mcp_test/REAL_UI_GATES.md](../tool/mcp_test/REAL_UI_GATES.md)。历史/一次性文档归档见 [doc/archive/](archive/README.md)。
+
+- [2026-10-22 跨平台审计及修复](reference/CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)

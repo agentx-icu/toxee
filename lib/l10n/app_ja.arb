@@ -1101,5 +1101,8 @@
   "nearbyIncomingAccept": "承諾",
   "nearbyIncomingDecline": "拒否",
   "nearbyPaused": "一時停止中です。更新をタップして再検索します。",
-  "nearbyCellUnavailable": "現在のエリアは利用できません。バックグラウンドで再試行しています。"
+  "nearbyCellUnavailable": "現在のエリアは利用できません。バックグラウンドで再試行しています。",
+  "windowMinimize": "最小化",
+  "windowMaximize": "最大化",
+  "windowRestore": "元に戻す"
 }

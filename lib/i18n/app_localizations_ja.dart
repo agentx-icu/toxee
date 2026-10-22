@@ -2380,4 +2380,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get nearbyCellUnavailable => '現在のエリアは利用できません。バックグラウンドで再試行しています。';
+
+  @override
+  String get windowMinimize => '最小化';
+
+  @override
+  String get windowMaximize => '最大化';
+
+  @override
+  String get windowRestore => '元に戻す';
 }

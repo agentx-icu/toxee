@@ -6,4 +6,4 @@ Exec=toxee
 Icon=toxee
 Categories=Network;InstantMessaging;Chat;
 Terminal=false
-StartupWMClass=toxee
+StartupWMClass=com.toxee.app

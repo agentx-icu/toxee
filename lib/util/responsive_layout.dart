@@ -41,7 +41,7 @@ class ResponsiveLayout {
   /// [macTitleBarReservedHeight]; the desktop value reuses
   /// [desktopTitleBarDragHeight].
   static double desktopTitleBarInset() {
-    if (!_isDesktopPlatform()) return 0;
+    if (!_isDesktopPlatform() || Platform.isLinux) return 0;
     return Platform.isMacOS
         ? macTitleBarReservedHeight
         : desktopTitleBarDragHeight;

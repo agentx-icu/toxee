@@ -10,10 +10,10 @@
 ### 操作系统
 
 - ✅ **macOS**: 10.15 或更高版本（与 `macos/Podfile` 的 `platform :osx, '10.15'` 和 `MACOSX_DEPLOYMENT_TARGET = 10.15` 一致）
-- ✅ **Linux**: 支持主流发行版（Ubuntu 18.04+, Debian 10+, Fedora 30+ 等）
+- **Linux 安装包**：构建基线为 Ubuntu 24.04（glibc 2.39）。旧 Ubuntu/Debian/Fedora 未验证；向其他基线发布前须检查 ELF 的 GLIBC/GLIBCXX/CXXABI 需求。
 - ✅ **Windows**: Windows 10 或更高版本
-- ✅ **Android**: Android 5.0 (API 21) 或更高版本
-- ✅ **iOS**: iOS 13.0 或更高版本。注意：Flutter Xcode 工程中的 `IPHONEOS_DEPLOYMENT_TARGET` 仍为 `12.0`，但 CI 构建出的 Tim2Tox FFI 库使用 `-miphoneos-version-min=13.0`，生成的 framework `Info.plist` 也设置 `MinimumOSVersion=13.0`（详见 `tool/ci/build_tim2tox.sh`）。运行时的实际最低版本为 13.0。
+- **Android**：API 23 与固定 Flutter 最低版本取较高者；当前发布仅含 arm64。
+- **iOS / iPadOS**：15.5 或更高（Xcode 工程及 Podfile 的部署目标）。
 
 ### 设备类型
 

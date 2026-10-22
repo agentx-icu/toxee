@@ -176,7 +176,7 @@ class NetworkChangeReBootstrapper {
   /// (`NetworkPathChannel.kt` / `NetworkPathChannel.swift`). Empty on
   /// platforms without one (desktop: no handover to follow).
   static Stream<NetworkPathSnapshot> platformSnapshots() {
-    if (!PlatformUtils.isMobile) return const Stream.empty();
+    if (!(PlatformUtils.isMobile || PlatformUtils.isMacOS)) return const Stream.empty();
     return _channel
         .receiveBroadcastStream()
         .map(NetworkPathSnapshot.fromEvent)
@@ -187,7 +187,7 @@ class NetworkChangeReBootstrapper {
   /// Starts the watcher for a live session; returns its disposer (for the
   /// session's DisposableBag). A no-op disposer on desktop.
   static void Function() startForSession(FfiChatService service) {
-    if (!PlatformUtils.isMobile) return () {};
+    if (!(PlatformUtils.isMobile || PlatformUtils.isMacOS)) return () {};
     final r = NetworkChangeReBootstrapper(
       snapshots: platformSnapshots(),
       kick: (isLive) =>

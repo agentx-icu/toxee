@@ -2380,4 +2380,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get nearbyCellUnavailable => '현재 지역을 사용할 수 없습니다. 백그라운드에서 다시 시도 중입니다.';
+
+  @override
+  String get windowMinimize => '최소화';
+
+  @override
+  String get windowMaximize => '최대화';
+
+  @override
+  String get windowRestore => '복원';
 }

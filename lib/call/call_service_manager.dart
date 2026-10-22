@@ -517,6 +517,7 @@ class CallServiceManager
           CallMediaCapabilities.supportsVideoCapture();
     }
 
+    if (state == AppLifecycleState.hidden && _isAppForeground) return;
     switch (state) {
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
@@ -537,7 +538,6 @@ class CallServiceManager
               }),
         );
         break;
-      // On screen, focused or not (cameraMayRunIn, V5): resume the camera.
       case AppLifecycleState.inactive:
       case AppLifecycleState.resumed:
         unawaited(

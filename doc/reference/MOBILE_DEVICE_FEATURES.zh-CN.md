@@ -14,6 +14,15 @@ toxee 同时面向 iOS / iPadOS / Android。手机和平板上有一批桌面端
 [§ 新功能评审检查表](#新功能评审检查表) 过一遍（见仓库根目录 `CLAUDE.md` 的
 "Mobile parity" 条款）。
 
+## 2026-10-22 跨平台对等补充
+
+桌面 hidden 摄像头策略修正后，移动端 V5 的 hidden/paused 暂停、inactive 继续策略不变；
+B5 桌面独占补齐，Android engine-owner guard 保留；P1 移除未用 broad media 声明但保留
+phoneCall FGS 的 MANAGE_OWN_CALLS；M7 可选硬件声明补齐，发布 ABI 仍为 arm64。
+B7 未来账号 prefs/history 拒绝降级覆盖，联系人后台轮询与无变化重建收敛。
+详见[完整跨平台审计及未解决项](CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)；本次
+真摄像头、sandbox 文件传输、Windows/Linux 安装及系统行为仍待设备验证。
+
 ## 分级与状态约定
 
 | 级别 | 含义 |

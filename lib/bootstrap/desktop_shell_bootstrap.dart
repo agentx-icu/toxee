@@ -10,46 +10,10 @@ import '../util/app_tray.dart';
 import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs.dart';
-import 'session_shutdown.dart';
+import 'desktop_window_state.dart';
+import 'single_session_guard.dart';
+import 'desktop_window_geometry.dart';
 import 'windows_window_resurface.dart';
-
-class _WindowStateListener with WindowListener {
-  bool _closing = false;
-
-  @override
-  void onWindowClose() async {
-    if (_closing) return;
-    _closing = true;
-    // The desktop app terminates after its last window closes
-    // (`applicationShouldTerminateAfterLastWindowClosed`), so this is the last
-    // thing a close-driven exit ever logs. Say so explicitly: a process that
-    // vanished with this line was closed, one without it was killed or exited
-    // some other way.
-    AppLogger.info('[DesktopShell] window close requested — app will exit');
-    try {
-      final bounds = await windowManager.getBounds();
-      await Prefs.setWindowBounds(bounds);
-      final maximized = await windowManager.isMaximized();
-      await Prefs.setWindowMaximized(maximized);
-    } catch (e, stackTrace) {
-      AppLogger.warn('Failed to persist window state before close: $e');
-      AppLogger.logError(
-        'Window state persistence error during onWindowClose',
-        e,
-        stackTrace,
-      );
-    }
-    // Closing the window terminates the app, so this is the app's real exit
-    // path and it must run the same account teardown a logout does — otherwise
-    // a password-protected profile is left in plaintext on disk. See
-    // `SessionShutdown` for the full rationale and the limits of this approach.
-    await SessionShutdown.tearDownActiveAccount(
-      timeout: const Duration(seconds: 10),
-      logContext: 'DesktopShell',
-    );
-    await windowManager.destroy();
-  }
-}
 
 /// Window manager and tray initialization (desktop only).
 class DesktopShellBootstrap {
@@ -97,42 +61,29 @@ class DesktopShellBootstrap {
       // at the top-left inside our custom 48px title bar (which reserves space
       // for them). On Windows/Linux this flag is a no-op and the custom title
       // bar draws its own caption buttons at the top-right.
-      titleBarStyle: TitleBarStyle.hidden,
+      titleBarStyle: PlatformUtils.isLinux ? TitleBarStyle.normal : TitleBarStyle.hidden,
       windowButtonVisibility: true,
     );
 
     final savedBounds = await Prefs.getWindowBounds();
     final savedMaximized = await Prefs.getWindowMaximized();
-    // Defensive bounds-on-screen check: window_manager does not expose a
-    // multi-display API, so we reject obviously-off-screen origins (e.g.
-    // the user unplugged the secondary monitor between sessions) and fall
-    // back to the centered default rather than restoring an invisible window.
-    // A saved size larger than today's work area (display swapped, DPI
-    // scaling raised) would also come up clipped: fall back to the default.
-    final validBounds =
-        savedBounds != null &&
-        savedBounds.width >= minSize.width &&
-        savedBounds.height >= minSize.height &&
-        savedBounds.width <= (work?.width ?? 4096) &&
-        savedBounds.height <= (work?.height ?? 4096) &&
-        savedBounds.left > -savedBounds.width + 100 &&
-        savedBounds.top > -100 &&
-        savedBounds.left < 10000 &&
-        savedBounds.top < 10000;
-
-    windowManager.addListener(_WindowStateListener());
+    final displays = await screenRetriever.getAllDisplays().catchError((Object _) => <Display>[]);
+    final restored = restoreDesktopBounds(savedBounds, displays.map((d) =>
+        (d.visiblePosition ?? Offset.zero) & (d.visibleSize ?? d.size)).toList());
+    final state = DesktopWindowState()..install();
     await windowManager.setPreventClose(true);
 
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      if (validBounds) {
+      if (restored != null) {
         try {
-          await windowManager.setBounds(savedBounds);
+          await windowManager.setBounds(restored);
         } catch (e) {
           AppLogger.warn('Could not restore window bounds: $e');
         }
       }
       await windowManager.show();
       await windowManager.focus();
+      state.normalBounds = await windowManager.getBounds();
       if (savedMaximized) {
         try {
           await windowManager.maximize();
@@ -141,6 +92,8 @@ class DesktopShellBootstrap {
         }
       }
     });
+    state.restoring = false;
+    await SingleSessionGuard.markDesktopReady();
     if (AppTray.instance.isSupported) {
       await AppTray.instance.init();
     }

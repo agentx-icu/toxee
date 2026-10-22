@@ -4,6 +4,8 @@ import ImageIO
 import AVFoundation
 
 class MainFlutterWindow: NSWindow {
+  private let networkPath = ToxeeNetworkPathChannel()
+  private var downloadDirectoryAccess: DownloadDirectoryAccess?
   private var mediaTranscoder: ToxeeMediaTranscoder?
 
   override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
@@ -27,6 +29,8 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    networkPath.register(binaryMessenger: flutterViewController.engine.binaryMessenger)
+    downloadDirectoryAccess = DownloadDirectoryAccess(messenger: flutterViewController.engine.binaryMessenger)
     mediaTranscoder = ToxeeMediaTranscoder(
       channel: FlutterMethodChannel(
         name: "toxee/media_transcode", binaryMessenger: flutterViewController.engine.binaryMessenger))

@@ -18,6 +18,7 @@ export 'notification_channels.dart'
     show buildAndroidIncomingCallNotificationDetails;
 
 part 'notification_service_privacy.dart';
+part 'notification_service_windows.dart';
 
 const int _androidIncomingCallNotificationId = 0x746f7865;
 const MethodChannel _androidIncomingCallWindowChannel = MethodChannel(
@@ -56,17 +57,8 @@ enum IncomingCallNotificationOutcome {
 }
 
 /// OS-level notifications for incoming messages.
-///
-/// Cross-platform plumbing:
-/// - macOS:   UNUserNotificationCenter (DarwinInitializationSettings)
-/// - iOS:     UNUserNotificationCenter (DarwinInitializationSettings)
-/// - Android: NotificationManager + dedicated channel + per-conversation
-///            inbox-style grouping (avoids one-notification-per-message
-///            spam when a peer sends a burst)
-/// - Linux:   libnotify (notify-osd / GNOME / KDE — the plugin auto-detects)
-/// - Windows: Toast / AUMID. AUMID is left at the plugin default; if a
-///            custom AUMID becomes necessary, configure it in
-///            `windows/runner/main.cpp` and pass `appName` here.
+/// Darwin notification center, Android channels, Linux desktop notifications,
+/// and Windows toasts (registered com.toxee.app identity).
 ///
 /// Design constraints (see prompt + `lib/notifications/badge_service.dart`):
 /// - All Platform-channel calls are wrapped in try/catch so a missing
@@ -244,6 +236,7 @@ class NotificationService {
         iOS: darwinInit,
         macOS: darwinInit,
         linux: linuxInit,
+        windows: windowsInitializationSettings,
       );
 
       await _plugin.initialize(
@@ -524,6 +517,7 @@ class NotificationService {
           iOS: darwinDetails,
           macOS: darwinDetails,
           linux: linuxDetails,
+          windows: const WindowsNotificationDetails(),
         ),
         payload: conversationId,
       );
@@ -632,6 +626,7 @@ class NotificationService {
           iOS: darwinDetails,
           macOS: darwinDetails,
           linux: _linuxDetails(),
+          windows: const WindowsNotificationDetails(),
         ),
         payload: payload,
       );
@@ -750,6 +745,7 @@ class NotificationService {
           iOS: darwinDetails,
           macOS: darwinDetails,
           linux: linuxDetails,
+          windows: const WindowsNotificationDetails(),
         ),
         payload: 'missed_call:$peerId',
       );
@@ -793,6 +789,10 @@ class NotificationService {
           return;
         }
 
+        if (Platform.isWindows && !_isAndroidPlatform) {
+          complete(await _showWindowsIncomingCall(generation, callId, displayName, isVideo));
+          return;
+        }
         if (!_isAndroidPlatform) {
           complete(IncomingCallNotificationOutcome.unsupported);
           return;
@@ -905,7 +905,7 @@ class NotificationService {
         return;
       }
 
-      if (_isAndroidPlatform && _initialized && _platformSupported) {
+      if ((_isAndroidPlatform || Platform.isWindows) && _initialized && _platformSupported) {
         try {
           await _plugin.cancel(_androidIncomingCallNotificationId);
         } catch (_) {
@@ -970,7 +970,7 @@ class NotificationService {
   }
 
   Future<void> _cancelAndroidIncomingCallBanner() async {
-    if (!_isAndroidPlatform || !_initialized || !_platformSupported) return;
+    if ((!_isAndroidPlatform && !Platform.isWindows) || !_initialized || !_platformSupported) return;
     try {
       await _plugin.cancel(_androidIncomingCallNotificationId);
     } catch (_) {

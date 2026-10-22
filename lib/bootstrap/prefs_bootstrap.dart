@@ -28,6 +28,17 @@ class PrefsBootstrap {
     }
     installIsolatedStoreIfOverridden();
     final prefs = await SharedPreferences.getInstance();
+    try {
+      await PrefsUpgrader.run(prefs);
+    } on PrefsStorageNewerThanAppException catch (e) {
+      AppLogger.log(
+        'Prefs stored by newer app (${e.storedVersion} > ${e.currentVersion}), showing upgrade required',
+      );
+      return AppBootstrapUpgradeRequired(
+        storedVersion: e.storedVersion,
+        currentVersion: e.currentVersion,
+      );
+    }
     await Prefs.initialize(prefs);
     // The LAN bootstrap service is purely in-process state; if we crashed
     // mid-session, the persisted "running" flag would lie to the UI and the
@@ -52,17 +63,6 @@ class PrefsBootstrap {
           '[PrefsBootstrap] Downgraded persisted LAN bootstrap mode to auto on mobile',
         );
       }
-    }
-    try {
-      await PrefsUpgrader.run(prefs);
-    } on PrefsStorageNewerThanAppException catch (e) {
-      AppLogger.log(
-        'Prefs stored by newer app (${e.storedVersion} > ${e.currentVersion}), showing upgrade required',
-      );
-      return AppBootstrapUpgradeRequired(
-        storedVersion: e.storedVersion,
-        currentVersion: e.currentVersion,
-      );
     }
     // Only once the stored schema is known to be ours, and before anything
     // reads secure storage: a reinstalled iOS app still holds the previous

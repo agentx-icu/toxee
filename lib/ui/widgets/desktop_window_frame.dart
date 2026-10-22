@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../util/platform_utils.dart';
+import '../../util/app_l10n.dart';
 import '../../util/responsive_layout.dart';
 import 'modal_barrier_mirror.dart';
 
@@ -87,7 +88,7 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
 
   @override
   Widget build(BuildContext context) {
-    if (!PlatformUtils.isDesktop) {
+    if (!PlatformUtils.isDesktop || PlatformUtils.isLinux) {
       return widget.child;
     }
 
@@ -112,6 +113,7 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
           height: kDesktopTitleBarDragHeight,
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
+            onDoubleTap: () => unawaited(_toggleMaximize()),
             onPanStart: (_) => unawaited(windowManager.startDragging()),
             child: const SizedBox.expand(),
           ),
@@ -133,16 +135,19 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _WindowControlButton(
+                      label: currentAppL10n().windowMinimize,
                       icon: Icons.remove_rounded,
                       onPressed: () => windowManager.minimize(),
                     ),
                     _WindowControlButton(
+                      label: _isMaximized ? currentAppL10n().windowRestore : currentAppL10n().windowMaximize,
                       icon: _isMaximized
                           ? Icons.filter_none_rounded
                           : Icons.crop_square_rounded,
                       onPressed: _toggleMaximize,
                     ),
                     _WindowControlButton(
+                      label: MaterialLocalizations.of(context).closeButtonTooltip,
                       icon: Icons.close_rounded,
                       danger: true,
                       onPressed: () => windowManager.close(),
@@ -159,11 +164,13 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
 
 class _WindowControlButton extends StatefulWidget {
   const _WindowControlButton({
+    required this.label,
     required this.icon,
     required this.onPressed,
     this.danger = false,
   });
 
+  final String label;
   final IconData icon;
   final Future<void> Function() onPressed;
   final bool danger;
@@ -188,7 +195,12 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
         ? Colors.white
         : scheme.onSurface.withValues(alpha: 0.78);
 
-    return MouseRegion(
+    return Tooltip(
+      message: widget.label,
+      child: Semantics(
+        label: widget.label,
+        button: true,
+        child: MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -206,6 +218,8 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
             child: Icon(widget.icon, size: 17, color: iconColor),
           ),
         ),
+      ),
+      ),
       ),
     );
   }

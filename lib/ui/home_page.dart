@@ -21,6 +21,7 @@ import '../nearby/location_sender.dart';
 import '../nearby/location_source.dart';
 import '../nearby/nearby_controller.dart';
 import 'home/desktop_input_options.dart';
+import 'home/desktop_shortcut.dart';
 import 'nearby/nearby_page.dart';
 import 'nearby/nearby_privacy_notice.dart';
 import 'nearby/nearby_reply_prompter.dart';
@@ -684,7 +685,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _load() async {
     final r = await _sessionController.loadContacts();
-    if (!mounted) return;
+    if (!mounted || (listEquals(_friends, r.friends) && setEquals(_localFriends, r.localFriends))) { return; }
     setState(() {
       _friends = r.friends;
       _localFriends = r.localFriends;
@@ -1319,31 +1320,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ),
             );
             // Desktop keyboard shortcuts — meta+/ctrl+ comma/N/W/F.
-            // Setting both `meta` and `control` on the SingleActivator
-            // works for macOS and Win/Linux without a per-platform branch.
             if (PlatformUtils.isDesktop) {
               content = Shortcuts(
-                shortcuts: const <ShortcutActivator, Intent>{
-                  SingleActivator(
-                    LogicalKeyboardKey.comma,
-                    meta: true,
-                    control: true,
-                  ): _OpenSettingsIntent(),
-                  SingleActivator(
-                    LogicalKeyboardKey.keyN,
-                    meta: true,
-                    control: true,
-                  ): _NewConversationIntent(),
-                  SingleActivator(
-                    LogicalKeyboardKey.keyW,
-                    meta: true,
-                    control: true,
-                  ): _CloseWindowIntent(),
-                  SingleActivator(
-                    LogicalKeyboardKey.keyF,
-                    meta: true,
-                    control: true,
-                  ): _OpenSearchIntent(),
+                shortcuts: <ShortcutActivator, Intent>{
+                  desktopShortcut(LogicalKeyboardKey.comma): const _OpenSettingsIntent(),
+                  desktopShortcut(LogicalKeyboardKey.keyN): const _NewConversationIntent(),
+                  desktopShortcut(LogicalKeyboardKey.keyW): const _CloseWindowIntent(),
+                  desktopShortcut(LogicalKeyboardKey.keyF): const _OpenSearchIntent(),
                 },
                 child: Actions(
                   actions: <Type, Action<Intent>>{

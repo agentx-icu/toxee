@@ -1150,5 +1150,8 @@
   "nearbyIncomingAccept": "قبول",
   "nearbyIncomingDecline": "رفض",
   "nearbyPaused": "متوقف مؤقتًا. انقر على تحديث للبحث مجددًا.",
-  "nearbyCellUnavailable": "منطقتك غير متاحة الآن؛ تتم إعادة المحاولة في الخلفية."
+  "nearbyCellUnavailable": "منطقتك غير متاحة الآن؛ تتم إعادة المحاولة في الخلفية.",
+  "windowMinimize": "تصغير",
+  "windowMaximize": "تكبير",
+  "windowRestore": "استعادة"
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show AppLifecycleState;
 
 import '../util/logger.dart';
+import '../util/platform_utils.dart';
 import '../util/serialized_async_tail.dart';
 
 typedef VideoLifecycleAction = Future<void> Function();
@@ -10,8 +11,9 @@ typedef VideoLifecycleAction = Future<void> Function();
 /// Whether the call camera may run in [state]: whenever the app is on
 /// screen, focused or not ([AppLifecycleState.inactive] is on screen without
 /// focus — e.g. the other half of an iPad Split View). Checklist V5.
-bool cameraMayRunIn(AppLifecycleState state) =>
-    state == AppLifecycleState.resumed || state == AppLifecycleState.inactive;
+bool cameraMayRunIn(AppLifecycleState state, {bool? isDesktop}) =>
+    state == AppLifecycleState.resumed || state == AppLifecycleState.inactive ||
+    ((isDesktop ?? PlatformUtils.isDesktop) && state == AppLifecycleState.hidden);
 
 class CallVideoLifecycleController {
   CallVideoLifecycleController({SerializedTailErrorLogger? logTailError})

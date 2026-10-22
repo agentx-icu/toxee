@@ -2335,6 +2335,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get nearbyCellUnavailable => '当前区域暂不可用，正在后台重试。';
+
+  @override
+  String get windowMinimize => '最小化';
+
+  @override
+  String get windowMaximize => '最大化';
+
+  @override
+  String get windowRestore => '还原';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -4151,6 +4160,15 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get nearbyCellUnavailable => '当前区域暂不可用，正在后台重试。';
+
+  @override
+  String get windowMinimize => '最小化';
+
+  @override
+  String get windowMaximize => '最大化';
+
+  @override
+  String get windowRestore => '还原';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -6484,4 +6502,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get nearbyCellUnavailable => '目前區域暫時無法使用，正在背景重試。';
+
+  @override
+  String get windowMinimize => '最小化';
+
+  @override
+  String get windowMaximize => '最大化';
+
+  @override
+  String get windowRestore => '還原';
 }

@@ -1101,5 +1101,8 @@
   "nearbyIncomingAccept": "수락",
   "nearbyIncomingDecline": "거절",
   "nearbyPaused": "일시 중지됨. 새로고침을 눌러 다시 찾습니다.",
-  "nearbyCellUnavailable": "현재 지역을 사용할 수 없습니다. 백그라운드에서 다시 시도 중입니다."
+  "nearbyCellUnavailable": "현재 지역을 사용할 수 없습니다. 백그라운드에서 다시 시도 중입니다.",
+  "windowMinimize": "최소화",
+  "windowMaximize": "최대화",
+  "windowRestore": "복원"
 }

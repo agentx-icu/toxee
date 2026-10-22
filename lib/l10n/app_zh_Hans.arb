@@ -938,5 +938,8 @@
   "nearbyIncomingAccept": "接受",
   "nearbyIncomingDecline": "拒绝",
   "nearbyPaused": "已暂停，点击刷新重新查找。",
-  "nearbyCellUnavailable": "当前区域暂不可用，正在后台重试。"
+  "nearbyCellUnavailable": "当前区域暂不可用，正在后台重试。",
+  "windowMinimize": "最小化",
+  "windowMaximize": "最大化",
+  "windowRestore": "还原"
 }

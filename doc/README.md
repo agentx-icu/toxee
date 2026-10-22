@@ -46,3 +46,5 @@
 
 - [Main README](../README.md)
 - **Tim2Tox** (upstream repo [https://github.com/agentx-icu/tim2tox](https://github.com/agentx-icu/tim2tox)): [Documentation index](../third_party/tim2tox/doc/README.md), [Bootstrap and polling](../third_party/tim2tox/doc/integration/BOOTSTRAP_AND_POLLING.md), [API reference](../third_party/tim2tox/doc/api/API_REFERENCE.md)
+
+- [2026-10-22 cross-platform audit and fixes](reference/CROSS_PLATFORM_AUDIT_2026_10_22.md)

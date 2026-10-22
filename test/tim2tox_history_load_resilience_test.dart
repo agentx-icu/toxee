@@ -108,7 +108,7 @@ void main() {
         reason: 'the original bytes are kept for recovery');
   });
 
-  test('a file from a newer schema is set aside, not loaded and stripped',
+  test('a file from a newer schema blocks loading and stays discoverable',
       () async {
     await seed(5);
     final data = jsonDecode(await mainFile().readAsString()) as Map;
@@ -116,10 +116,11 @@ void main() {
     await mainFile().writeAsString(jsonEncode(data));
 
     final p = MessageHistoryPersistence(historyDirectory: tempDir.path);
-    final loaded = await p.loadAllHistories();
+    final original = await mainFile().readAsString();
+    await expectLater(p.loadAllHistories(),
+        throwsA(isA<HistorySchemaNewerThanAppException>()));
     await p.dispose();
-
-    expect(loaded.containsKey(_group), isFalse);
-    expect(preserved(), hasLength(1));
+    expect(await mainFile().readAsString(), original);
+    expect(preserved(), isEmpty);
   });
 }

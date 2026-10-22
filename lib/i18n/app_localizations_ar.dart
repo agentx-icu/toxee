@@ -2449,4 +2449,13 @@ class AppLocalizationsAr extends AppLocalizations {
   @override
   String get nearbyCellUnavailable =>
       'منطقتك غير متاحة الآن؛ تتم إعادة المحاولة في الخلفية.';
+
+  @override
+  String get windowMinimize => 'تصغير';
+
+  @override
+  String get windowMaximize => 'تكبير';
+
+  @override
+  String get windowRestore => 'استعادة';
 }

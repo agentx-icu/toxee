@@ -586,6 +586,7 @@ build_ios_ffi_dylib() {
   rm -rf "$framework_dir"
   mkdir -p "$framework_dir"
   cp "$built_lib" "$framework_dir/tim2tox_ffi"
+  cp "$REPO_ROOT/tool/ci/NativePrivacyInfo.xcprivacy" "$framework_dir/PrivacyInfo.xcprivacy"
   assert_toxav_artifact "$framework_dir/tim2tox_ffi" nm "ios-arm64"
   assert_hook_free_artifact "$framework_dir/tim2tox_ffi"
   cat > "$framework_dir/Info.plist" <<'EOF'

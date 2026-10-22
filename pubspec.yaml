@@ -70,7 +70,7 @@ dependencies:
   # lib/notifications/notification_service.dart for the entry point and
   # lib/notifications/notification_message_listener.dart for the listener that
   # drives showMessageNotification() off the V2TimAdvancedMsgListener path.
-  flutter_local_notifications: ^17.2.4
+  flutter_local_notifications: ^19.5.0
   # Debug-only: MCP toolkit that exposes the running app to Claude Code via
   # the Dart VM service. Gated by kDebugMode in lib/main.dart so the call is
   # tree-shaken from profile/release builds.

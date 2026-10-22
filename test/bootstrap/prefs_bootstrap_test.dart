@@ -20,6 +20,16 @@ Future<void> _freshPrefs([Map<String, Object> seed = const {}]) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('future account schema blocks bootstrap before LAN recovery writes', () async {
+    await _freshPrefs({
+      'account_prefs_version_aaaaaaaaaaaaaaaa': currentAccountPrefsVersion + 1,
+      'lan_bootstrap_service_running': true,
+    });
+    final result = await PrefsBootstrap.initialize();
+    expect(result, isA<AppBootstrapUpgradeRequired>());
+    expect(await Prefs.getLanBootstrapServiceRunning(), isTrue);
+  });
+
   test(
     'PrefsBootstrap clears stale LAN-running flag and restores pre-LAN node',
     () async {

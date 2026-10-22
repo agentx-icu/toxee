@@ -17,6 +17,18 @@ bugfix is checked against the [review checklist](#review-checklist-for-new-work)
 at design and review time (see the "Mobile parity" clause in the root
 `CLAUDE.md`).
 
+## 2026-10-22 cross-platform parity update
+
+The desktop hidden-camera fix preserves mobile V5 hidden/paused suspension and
+inactive capture. Desktop B5 ownership is added; Android's engine-owner guard is
+retained. P1 removes unused broad-media declarations while preserving the
+phoneCall FGS MANAGE_OWN_CALLS prerequisite. M7 hardware is optional; release ABI
+remains arm64. B7 future account prefs/history refuse downgrade writes. Contact
+polling skips hidden/background work and unchanged lists no longer rebuild.
+See the [full audit and unresolved items](CROSS_PLATFORM_AUDIT_2026_10_22.md).
+Physical camera, sandbox transfers, Windows/Linux installed/system behavior still
+need device verification in this change.
+
 ## Priority and status legend
 
 | Priority | Meaning |

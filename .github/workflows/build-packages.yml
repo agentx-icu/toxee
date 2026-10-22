@@ -408,6 +408,13 @@ jobs:
           TOXEE_PACKAGE_ARCH: ${{ matrix.target.package_arch }}
         run: bash tool/ci/package_artifacts.sh --target windows --mode "$BUILD_MODE"
 
+      - name: Smoke installed Windows release
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem dist/windows/*.msi | Select-Object -First 1
+          if (-not $msi) { throw "Packaged MSI missing" }
+          ./tool/ci/test_windows_installer.ps1 -MsiPath $msi.FullName
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -254,6 +254,8 @@ package_windows() {
     write_note "Bundled $(basename "$dep_dll") into Windows package."
   done < <(find "$NATIVE_DIR" -maxdepth 1 -type f -name '*.dll' | sort)
 
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File     "$(ci_windows_path "$REPO_ROOT/tool/ci/sign_windows_artifacts.ps1")"     -InputPath "$(ci_windows_path "$staged_dir")"
+
   # --- MSI installer via CPack/WiX ---
   local msi_path release_version
   release_version="$(resolve_release_version)"
@@ -274,6 +276,7 @@ package_windows() {
       msi_output="$(find "$installer_build_dir" -maxdepth 1 -type f -name '*.msi' | head -n 1 || true)"
       if [[ -n "$msi_output" && -f "$msi_output" ]]; then
         cp "$msi_output" "$msi_path"
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File           "$(ci_windows_path "$REPO_ROOT/tool/ci/sign_windows_artifacts.ps1")"           -InputPath "$(ci_windows_path "$msi_path")"
         ci_log "Created Windows MSI: $msi_path"
       else
         ci_warn "CPack WIX completed but MSI output not found"
@@ -329,6 +332,12 @@ package_macos() {
     write_note "libtim2tox_ffi.dylib was not found. The macOS app was packaged without the Tim2Tox native library."
   fi
 
+  local application_identity="${MACOS_DEVELOPER_ID_APPLICATION_CERT:-}"
+  if [[ "${TOXEE_REQUIRE_SIGNING:-0}" == 1 ]]; then
+    [[ -n "$application_identity" && -n "${MACOS_DEVELOPER_ID_INSTALLER_CERT:-}" && -n "${MACOS_NOTARYTOOL_PROFILE:-}" ]] ||
+      ci_die "Distribution requires application/installer identities and MACOS_NOTARYTOOL_PROFILE"
+  fi
+  "$REPO_ROOT/tool/ci/sign_macos_bundle.sh" "$app_bundle" "${application_identity:--}"
   release_version="$(resolve_release_version)"
   pkg_path="$DIST_DIR/toxee-$release_version-Darwin-$PACKAGE_ARCH.pkg"
   local unsigned_pkg_path="$pkg_path"
@@ -351,11 +360,16 @@ package_macos() {
       write_note "Signed macOS PKG with Developer ID Installer certificate."
       ci_log "Created signed macOS PKG: $pkg_path"
     else
-      ci_warn "productsign not available; shipping unsigned PKG."
-      mv "$unsigned_pkg_path" "$pkg_path"
-      ci_log "Created macOS PKG (unsigned, productsign missing): $pkg_path"
+      ci_die "productsign is required for the configured installer identity"
     fi
-    # TODO(F9): notarytool submit / staple — requires MACOS_NOTARIZATION_* secrets.
+    if [[ -n "${MACOS_NOTARYTOOL_PROFILE:-}" ]]; then
+      [[ -n "$application_identity" ]] || ci_die "Notarization requires a Developer ID Application identity"
+      xcrun notarytool submit "$pkg_path" --keychain-profile "$MACOS_NOTARYTOOL_PROFILE" --wait
+      xcrun stapler staple "$pkg_path"
+      xcrun stapler validate "$pkg_path"
+      pkgutil --check-signature "$pkg_path"
+      spctl --assess --type install --verbose=2 "$pkg_path"
+    fi
   else
     ci_warn "MACOS_DEVELOPER_ID_INSTALLER_CERT not set — macOS PKG is unsigned and Gatekeeper will warn."
     ci_log "Created macOS PKG (unsigned): $pkg_path"

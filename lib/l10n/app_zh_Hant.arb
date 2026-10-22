@@ -1112,5 +1112,8 @@
   "nearbyIncomingAccept": "接受",
   "nearbyIncomingDecline": "拒絕",
   "nearbyPaused": "已暫停，點擊重新整理重新尋找。",
-  "nearbyCellUnavailable": "目前區域暫時無法使用，正在背景重試。"
+  "nearbyCellUnavailable": "目前區域暫時無法使用，正在背景重試。",
+  "windowMinimize": "最小化",
+  "windowMaximize": "最大化",
+  "windowRestore": "還原"
 }

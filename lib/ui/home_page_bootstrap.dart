@@ -1005,7 +1005,9 @@ extension _HomePageBootstrap on _HomePageState {
       }
     });
 
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _load());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if ({AppLifecycleState.resumed, AppLifecycleState.inactive}.contains(WidgetsBinding.instance.lifecycleState)) { unawaited(_load()); }
+    });
     _bag.add(() => _refreshTimer?.cancel());
     unawaited(_loadLocalFriends());
 

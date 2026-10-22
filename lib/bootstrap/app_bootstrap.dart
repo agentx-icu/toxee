@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
+import '../util/download_directory_access.dart';
+import '../util/app_l10n.dart';
 
 import 'package:tencent_cloud_chat_common/widgets/avatar/tencent_cloud_chat_avatar.dart';
 
@@ -47,6 +50,14 @@ class AppBootstrap {
     final prefsResult = await PrefsBootstrap.initialize();
     if (prefsResult != null) {
       return prefsResult;
+    }
+    if (!await DownloadDirectoryAccess.restore()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final messenger = SendFailureNotifier.scaffoldMessengerKey.currentState;
+        if (messenger != null) {
+          AppSnackBar.showOn(messenger, currentAppL10n().downloadsDirectoryReset, isError: true);
+        }
+      });
     }
     await cleanupScratchAtColdStart();
     // Fail closed: journaled restore recovery must finish before account

@@ -32,6 +32,18 @@ void main() {
       'AAAAAAAAAAAAAAAA0123456789abcdef0123456789abcdef0123456789abcdef';
   const String prefix16 = 'AAAAAAAAAAAAAAAA';
 
+  test('newer account schema is rejected without changing data', () async {
+    SharedPreferences.setMockInitialValues({
+      'account_prefs_version_$prefix16': currentAccountPrefsVersion + 1,
+      'acct_auto_login_$prefix16': false,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await expectLater(PrefsUpgrader.runAccountMigrations(prefs, prefix16),
+        throwsA(isA<PrefsStorageNewerThanAppException>()));
+    expect(prefs.getInt('account_prefs_version_$prefix16'), currentAccountPrefsVersion + 1);
+    expect(prefs.getBool('acct_auto_login_$prefix16'), false);
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });

@@ -1,7 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:ui' show AppLifecycleState;
 import 'package:toxee/call/call_video_lifecycle_controller.dart';
 
 void main() {
+  test('desktop hiding keeps call camera eligible', () {
+    expect(cameraMayRunIn(AppLifecycleState.hidden), isTrue);
+    expect(cameraMayRunIn(AppLifecycleState.detached), isFalse);
+    expect(cameraMayRunIn(AppLifecycleState.hidden, isDesktop: false), isFalse);
+    expect(cameraMayRunIn(AppLifecycleState.inactive, isDesktop: false), isTrue);
+  });
   test(
     'duplicate background/resume events stop and restart video once',
     () async {

@@ -2505,5 +2505,8 @@
   "nearbyIncomingAccept": "Accept",
   "nearbyIncomingDecline": "Decline",
   "nearbyPaused": "Paused. Tap refresh to look again.",
-  "nearbyCellUnavailable": "Your area is unavailable right now; retrying in the background."
+  "nearbyCellUnavailable": "Your area is unavailable right now; retrying in the background.",
+  "windowMinimize": "Minimize",
+  "windowMaximize": "Maximize",
+  "windowRestore": "Restore"
 }
