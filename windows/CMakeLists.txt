@@ -120,6 +120,22 @@ foreach(winrt_plugin audioplayers_windows permission_handler_windows)
   endif()
 endforeach()
 
+# The notification FFI plugin is not a *_plugin target and is listed separately
+# from FLUTTER_PLUGIN_LIST. Its locked 1.0.3 sources request C++17 and also include
+# WinRT, reaching the same removed experimental coroutine path on MSVC 14.51.
+# Use standard C++20 coroutines on this target only. The artifact expiry and real
+# CMake build fixture live in
+# test/ci/windows_notifications_cmake_test.dart. Re-check this override when the
+# package is upgraded instead of carrying it after upstream fixes its standard.
+if("flutter_local_notifications_windows" IN_LIST FLUTTER_FFI_PLUGIN_LIST)
+  if(NOT TARGET flutter_local_notifications_windows)
+    message(FATAL_ERROR
+      "flutter_local_notifications_windows is in FLUTTER_FFI_PLUGIN_LIST but "
+      "its target is missing; update the C++/WinRT compatibility target name.")
+  endif()
+  target_compile_features(flutter_local_notifications_windows PRIVATE cxx_std_20)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

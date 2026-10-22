@@ -91,3 +91,24 @@ Windows ARM64还在Chocolatey附带的DotNet3.5部署停滞，旧job119912160586
 完整hash见英文镜像。工具含CLR4 metadata，但仍必须在两架构Windows实际通过有界
 candle/light帮助探针及后续MSI/安装smoke。7项provision回归覆盖archive完整性、缺工具、
 路径解析、exit失败和进程超时，不能替代真实Windows运行；移动打包不受该helper影响。
+
+provision通过后，Windows ARM64 job119945606703暴露通知FFI插件的STL1011。已审阅的
+1.0.3 archive指定C++17并包含WinRT；既有普通插件兼容逻辑未覆盖FFI target。仅此target
+改用C++20。真实CMake/编译器fixture先复现C++17失败，再验证标准coroutine编译通过，
+同时无关target仍为C++17；缺target硬错误和artifact到期检查避免兼容逻辑悄然失效。
+新增4项fixture/artifact及既有6项WinRT回归本地通过，MSVC通知编译仍须线上CI实证。
+
+同一日志明确报告Dart回退x64。2026-10-22核验：3.41.9对应engine的Windows ARM64
+Dart/release archive均404；3.44.0对应文件均200，官方链接及
+[Flutter上游讨论](https://github.com/flutter/flutter/issues/186730)见英文镜像。
+因此仅ARM64 job使用3.44.0，并在执行前核对framework commit
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42`；其他job及业务依赖pin保留现有版本。
+LUCI_CONTEXT用于浅克隆stable checkout保留固定release的engine.version。
+流式读取PE header门禁拒绝非ARM64 Dart，并在打包前检查app、Flutter engine、Tim2Tox
+三者与目标架构一致。11项PE/MSI回归覆盖合法x64/ARM64、混合架构、坏签名、越界offset、
+截断、缺文件和MSI Template不匹配。安装工程显式映射WiX machine和64位文件语义，
+不依赖无编译器项目的默认值；3项真实生成CPackConfig的fixture先失败再通过，覆盖两种
+架构及未知架构拒绝。安装smoke读取实际MSI SummaryInformation Template，并在启动/
+关闭/repair/uninstall前核对已安装二进制的PE machine。
+最终head仍须真实ARM64构建、MSI生成和安装smoke通过；PR按原条件跳过仅供tag/
+手动发布的GitHub Release job。

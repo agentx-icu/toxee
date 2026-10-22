@@ -124,3 +124,34 @@ and the subsequent MSI/install smoke remain mandatory on both Windows runners.
 Seven provisioning regressions exercise archive integrity, missing tools,
 resolved paths, exit failures and process timeouts; they do not substitute for
 running the real Windows tools. Mobile packaging is unaffected by this helper.
+
+After provisioning succeeded, Windows ARM64 job 119945606703 exposed STL1011 in
+the notification FFI plugin. Its reviewed 1.0.3 archive requests C++17 and includes
+WinRT; the existing ordinary-plugin workaround did not cover FFI targets. Only
+that target now requests C++20. A real CMake/compiler fixture first failed with
+C++17, then passed with standard coroutines while an unrelated target stayed at
+C++17. Missing-target and artifact-expiry checks prevent a silently stale fix.
+Four new fixture/artifact tests and six existing WinRT tests pass locally;
+MSVC notification compilation remains a required CI result.
+
+The same log explicitly reported x64 Dart fallback. On 2026-10-22, the pinned
+3.41.9 engine's Windows ARM64 Dart/release archives returned 404; the equivalent
+[3.44.0 engine archive](https://storage.googleapis.com/flutter_infra_release/flutter/4c525dac5ebe5971c5708ef73558ed8edcf4a362/windows-arm64-release/windows-arm64-flutter.zip)
+and Dart archive returned 200. [Flutter's upstream discussion](https://github.com/flutter/flutter/issues/186730)
+also explains the native Dart architecture's control over the Windows target.
+Only the ARM64 job therefore uses 3.44.0, with framework commit
+`559ffa3f75e7402d65a8def9c28389a9b2e6fe42` checked before execution; other jobs and
+business dependency pins retain their existing versions. LUCI_CONTEXT preserves
+the pinned release's engine.version on the shallow stable checkout. A streaming
+PE-header gate rejects a non-ARM64 Dart and rejects mismatched app, Flutter engine
+or Tim2Tox binaries before packaging. Eleven PE/MSI regression cases cover valid
+x64/ARM64, mixed machines, invalid signatures/offsets, truncation, missing files
+and MSI Template mismatches. The installer explicitly maps each supported machine
+to [CPack's WiX architecture](https://cmake.org/cmake/help/latest/cpack_gen/wix.html#variable:CPACK_WIX_ARCHITECTURE)
+and 64-bit file semantics rather than relying on the compiler-free project's
+default. Three generated-CPackConfig fixtures first failed, then passed for both
+machines and rejection of an unknown machine. The installed smoke reads the
+actual MSI SummaryInformation Template and checks the installed binaries' PE
+machines before launch/close/repair/uninstall.
+Actual ARM64 build, MSI creation and installed smoke must still pass on the final
+head. PR runs intentionally skip the tag/manual-only GitHub Release publication.

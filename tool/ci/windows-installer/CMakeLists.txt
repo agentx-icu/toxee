@@ -19,6 +19,17 @@ if(DEFINED TOXEE_PACKAGE_ARCH AND NOT TOXEE_PACKAGE_ARCH STREQUAL "")
   set(_TOXEE_PACKAGE_ARCH "${TOXEE_PACKAGE_ARCH}")
 endif()
 
+# LANGUAGES NONE does not infer pointer size. Set both WiX's machine and its
+# 64-bit file/registry semantics explicitly; a filename alone cannot select ARM.
+if(_TOXEE_PACKAGE_ARCH STREQUAL "ARM64")
+  set(CPACK_WIX_ARCHITECTURE "arm64")
+elseif(_TOXEE_PACKAGE_ARCH STREQUAL "AMD64")
+  set(CPACK_WIX_ARCHITECTURE "x64")
+else()
+  message(FATAL_ERROR "Unsupported Windows package architecture: ${_TOXEE_PACKAGE_ARCH}")
+endif()
+set(CPACK_WIX_SIZEOF_VOID_P 8)
+
 set(CPACK_PACKAGE_NAME "Toxee")
 set(CPACK_PACKAGE_VENDOR "Toxee Contributors")
 set(CPACK_PACKAGE_CONTACT "maintainers@toxee.local")
