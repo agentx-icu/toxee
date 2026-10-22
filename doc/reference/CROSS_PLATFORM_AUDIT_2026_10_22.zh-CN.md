@@ -62,3 +62,9 @@ macOS 最后窗口自动终止已禁用，避免 Cocoa 抢在 Dart preventClose/
 退出补充回归：窗口状态/session-shutdown/账号生命周期共25项通过，包括超过旧10秒时限的
 延迟销毁、不可逆销毁后异常。修改的4个Dart文件分析无问题，复杂度门禁通过；这些测试
 不代表失败写入已持久化。
+
+macOS 打包 CI 补充：job 119902022028 已构建 release app，但直接执行 Git 模式644的
+签名 helper 时失败。改为与其他CI helper一致的显式Bash调用；回归实际执行打包入口，
+强制helper644，并确认签名失败时停止打包。SDK26.4真实Mach-O fixture通过ad-hoc
+strict校验和PKG生成；正式Developer ID/公证、干净系统安装验证仍需独立完成。
+移动签名使用独立打包路径，不受此问题影响。

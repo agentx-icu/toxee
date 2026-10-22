@@ -337,7 +337,7 @@ package_macos() {
     [[ -n "$application_identity" && -n "${MACOS_DEVELOPER_ID_INSTALLER_CERT:-}" && -n "${MACOS_NOTARYTOOL_PROFILE:-}" ]] ||
       ci_die "Distribution requires application/installer identities and MACOS_NOTARYTOOL_PROFILE"
   fi
-  "$REPO_ROOT/tool/ci/sign_macos_bundle.sh" "$app_bundle" "${application_identity:--}"
+  bash "$SCRIPT_DIR/sign_macos_bundle.sh" "$app_bundle" "${application_identity:--}"
   release_version="$(resolve_release_version)"
   pkg_path="$DIST_DIR/toxee-$release_version-Darwin-$PACKAGE_ARCH.pkg"
   local unsigned_pkg_path="$pkg_path"

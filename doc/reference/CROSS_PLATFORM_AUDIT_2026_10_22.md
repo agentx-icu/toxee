@@ -80,3 +80,11 @@ Quit follow-up: 25 window-state/session-shutdown/account-lifecycle tests pass,
 including delayed disposal beyond the old ten-second deadline and failure after
 destructive teardown. Analysis of the four touched Dart files has no issues;
 the complexity gate passes. These tests do not prove failed writes persisted.
+
+macOS packaging CI follow-up: job 119902022028 built the release app, then failed
+to execute the mode-100644 signing helper. Packaging now invokes it with Bash,
+matching the other CI helpers. Regressions run the packaging entry point with a
+644 helper and cover signing failure propagation. A real SDK 26.4 Mach-O fixture
+passes ad-hoc strict verification and PKG creation; Developer ID/notarization and
+clean installed release validation remain separate requirements. Mobile signing
+uses a separate packaging path and is unaffected.
