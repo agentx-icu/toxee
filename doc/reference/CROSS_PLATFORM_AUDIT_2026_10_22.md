@@ -105,3 +105,22 @@ after the fix; the combined packaging suite passes all ten tests. Reproduce with
 `SDKROOT="$(xcrun --sdk macosx26.4 --show-sdk-path)" flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart`.
 Both macOS package jobs now run these native/order regressions before app build.
 CI evidence must refer to the final PR head, not the superseded first run.
+
+The full Linux coverage run then found one legacy policy test still assuming
+mobile hidden-camera behavior for its desktop host (3110 passed, one failed).
+The test now covers the complete mobile/desktop state table explicitly; an
+adjacent controller test also selects its desktop policy explicitly. Production
+camera behavior is unchanged and its documentation now states the distinction.
+
+Windows ARM64 provisioning also stalled in Chocolatey's optional DotNet3.5
+deployment; old job 119912160586 remained there until the next push canceled it.
+Provisioning now reuses installed, working tools or fetches
+the [official WiX 3.14.1 portable release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm)
+with bounded retries and a pinned SHA256. That older GitHub asset has no API
+digest; the pinned value was independently computed from the official release
+ZIP: `6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31`.
+The executables contain CLR4 metadata; actual bounded candle/light help probes
+and the subsequent MSI/install smoke remain mandatory on both Windows runners.
+Seven provisioning regressions exercise archive integrity, missing tools,
+resolved paths, exit failures and process timeouts; they do not substitute for
+running the real Windows tools. Mobile packaging is unaffected by this helper.

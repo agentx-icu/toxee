@@ -7,14 +7,17 @@ import '../util/serialized_async_tail.dart';
 
 typedef VideoLifecycleAction = Future<void> Function();
 
-/// Serializes camera release/restart across app lifecycle transitions.
-/// Whether the call camera may run in [state]: whenever the app is on
-/// screen, focused or not ([AppLifecycleState.inactive] is on screen without
-/// focus — e.g. the other half of an iPad Split View). Checklist V5.
+/// Whether an ongoing call's camera may run in [state]. Mobile capture needs
+/// the app on screen, including inactive without focus (e.g. iPad Split View).
+/// Desktop calls also keep capturing while hidden/minimized. Paused/detached
+/// suspend capture on every host. Checklist V5/B1.
 bool cameraMayRunIn(AppLifecycleState state, {bool? isDesktop}) =>
-    state == AppLifecycleState.resumed || state == AppLifecycleState.inactive ||
-    ((isDesktop ?? PlatformUtils.isDesktop) && state == AppLifecycleState.hidden);
+    state == AppLifecycleState.resumed ||
+    state == AppLifecycleState.inactive ||
+    ((isDesktop ?? PlatformUtils.isDesktop) &&
+        state == AppLifecycleState.hidden);
 
+/// Serializes camera release/restart across app lifecycle transitions.
 class CallVideoLifecycleController {
   CallVideoLifecycleController({SerializedTailErrorLogger? logTailError})
     : _tail = SerializedAsyncTail(logError: logTailError ?? _logTailError);

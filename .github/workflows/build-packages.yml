@@ -319,59 +319,10 @@ jobs:
 
       - name: Add WiX to PATH
         shell: pwsh
+        timeout-minutes: 8
         run: |
-          # WiX v3 may land in any of several places depending on whether the
-          # runner image preinstalled it, whether choco was used, or whether a
-          # vendored archive ended up under ProgramData. Scan all of them, and
-          # fall back to a direct GitHub release download if the package
-          # manager refuses to cooperate.
-          function Find-WixBin {
-            $patterns = @(
-              "C:\Program Files (x86)\WiX Toolset v3.*\bin",
-              "C:\Program Files\WiX Toolset v3.*\bin",
-              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\*\bin",
-              "C:\ProgramData\chocolatey\lib\wixtoolset\tools\bin",
-              "$env:RUNNER_TEMP\wix\*\bin",
-              "$env:RUNNER_TEMP\wix\bin"
-            )
-            foreach ($p in $patterns) {
-              $hit = Get-ChildItem -Path $p -ErrorAction SilentlyContinue |
-                     Where-Object { Test-Path (Join-Path $_.FullName "candle.exe") } |
-                     Select-Object -First 1
-              if ($hit) { return $hit.FullName }
-              if (Test-Path (Join-Path $p "candle.exe")) { return $p }
-            }
-            return $null
-          }
-
-          $wixDir = Find-WixBin
-          if (-not $wixDir) {
-            Write-Host "Installing WiX via Chocolatey..."
-            choco install wixtoolset --yes --no-progress --version 3.14.1 2>&1 | Write-Host
-            $wixDir = Find-WixBin
-          }
-          if (-not $wixDir) {
-            Write-Host "Chocolatey path empty; downloading WiX v3.14 release directly..."
-            $wixZip = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
-            $wixOut = Join-Path $env:RUNNER_TEMP "wix"
-            Invoke-WebRequest `
-              -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" `
-              -OutFile $wixZip -UseBasicParsing
-            Expand-Archive -Path $wixZip -DestinationPath $wixOut -Force
-            if (Test-Path (Join-Path $wixOut "candle.exe")) {
-              $wixDir = $wixOut
-            } else {
-              $wixDir = Find-WixBin
-            }
-          }
-
-          if (-not $wixDir) {
-            Write-Error "WiX Toolset v3 was not found after installation."
-            exit 1
-          }
-
-          Write-Host "Using WiX at: $wixDir"
-          echo "$wixDir" >> $env:GITHUB_PATH
+          & ./tool/ci/test_wix_provisioning.ps1
+          & ./tool/ci/ensure_wix.ps1
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop

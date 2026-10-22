@@ -79,3 +79,15 @@ codesign会检查所在bundle，而同级未签名库尚未就绪；arm64链接�
 可选executable key、独立helper和含空格路径。旧脚本4项均失败，修复后通过；组合打包
 回归共10项通过。可重复命令见英文镜像，两架构Mac打包job均在app构建前运行这些回归。
 线上证据必须来自最终PR head，不能引用被替代的首轮CI作为合并依据。
+
+Linux全量coverage随后发现1项旧测试仍将桌面宿主按移动端hidden摄像头策略断言
+（3110项通过、1项失败）。测试现在显式覆盖完整mobile/desktop状态表，相邻controller
+测试也显式指定desktop。生产摄像头行为未变，函数文档同步说明两种策略。
+
+Windows ARM64还在Chocolatey附带的DotNet3.5部署停滞，旧job119912160586一直停留至
+新提交取消。provision现在复用已安装可运行工具，否则有界重试获取
+[官方WiX3.14.1 portable release](https://github.com/wixtoolset/wix3/releases/tag/wix3141rtm)，
+并校验固定SHA256。旧asset的GitHub API未提供digest；固定值由官方ZIP独立计算并复核，
+完整hash见英文镜像。工具含CLR4 metadata，但仍必须在两架构Windows实际通过有界
+candle/light帮助探针及后续MSI/安装smoke。7项provision回归覆盖archive完整性、缺工具、
+路径解析、exit失败和进程超时，不能替代真实Windows运行；移动打包不受该helper影响。
