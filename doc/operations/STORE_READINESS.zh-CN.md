@@ -17,7 +17,7 @@ CI 和制品检查只能证明下表列出的内容；上架还需要负责人�
 | Windows MSI | **门禁已验证**：最终 staging 中所有 EXE/DLL 均复核架构，包含 Flutter 构建后追加的库；启用签名时，自有代码和 MSI 必须匹配预期发布者指纹，保留有效第三方签名。安装 smoke 检查所有 PE、启动、修复、卸载。 | 可信发布者证书、最终安装包信任证据、从上一版本升级和数据保留、商店资料。普通开发构建仍可未签名。 |
 | macOS PKG / 已构建 iOS app | **检查已验证**：逐个原生文件架构、最终包自有与 SDK 隐私清单、源码声明的权限用途文案和 bundle ID；核验最终 macOS 签名、功能性 sandbox 权限并拒绝 get-task-allow。带签名但损坏的 iOS app 不会降级为 unsigned 成功。报告保留实际 SDK 元数据。 | API reason/收集行为审计、正式发布者身份、archive/export、profile、隐私报告、真机测试。Ad-hoc 签名仅证明完整性。 |
 | Linux DEB/RPM | **门禁已验证**：所有 staged 原生文件架构；损坏库、悬空或指向开发机外部的符号链接失败。 | 干净发行版安装、升级/卸载、签名/元数据、所选渠道沙箱测试。 |
-| iOS 分发入口 | **限制已验证**：TOXEE_REQUIRE_SIGNING=1 会拒绝现有开发 IPA 打包入口。 | 先实现并验证负责人批准的 Xcode archive/export。仅配置证书不能使现有 zip-based IPA 变成 App Store 导出包。 |
+| iOS 分发入口 | **限制已验证**：TOXEE_REQUIRE_SIGNING=1 会拒绝开发 IPA 打包入口。另有仅本地 archive/export 入口，检查显式手工导出策略及导出包签名/profile 身份。 | 负责人真实签名导出和真机安装仍待验收。Unsigned archive 或 zip-based IPA 不是 App Store 导出包。 |
 
 回归覆盖真实 aapt2/apksigner/JDK 签名操作、真实编译的 macOS 签名，以及损坏/错误架构负例。
 合成 ELF/JAR 仅测试检查器，不证明应用可安装。对应 CI artifact 保留
@@ -50,6 +50,69 @@ MACOS_NOTARYTOOL_PROFILE，strict 模式要求签名及公证。Developer ID 直
 Mac App Store 签名/profile 是不同流程。
 
 ## 渠道选择和负责人交接
+
+### 本地 iOS archive 与手工导出
+
+按正常流程 bootstrap 依赖并暂存无 test-hook 的真机 Tim2Tox framework 后，运行
+`python3 tool/ci/ios_store_export.py --unsigned-archive` 生成 unsigned Xcode archive。
+iOS package job 同样运行此路径，将 archive、dSYM 和检查报告保存七天；它**不是正式签名或可提交商店的 IPA**。
+负责人须在 CI 保留期结束前自行归档拟发布构建。
+
+在负责人安全环境中，已有 Apple Distribution 证书/私钥和 App Store profile 时，提供批准的
+ExportOptions.plist，再运行：
+
+```bash
+python3 tool/ci/ios_store_export.py --team-id ABCDE12345 \
+  --certificate-sha1 OWNER_CERTIFICATE_SHA1 \
+  --export-options /secure/local/ExportOptions.plist
+```
+
+替换示例公开 ID/指纹；文档未批准任何示例团队、profile 或法律主体。plist 必须显式设置
+`method=app-store-connect`、`destination=export`、`signingStyle=manual`、一致的 `teamID`，
+`signingCertificate` 为该证书准确的 40 位 SHA-1，`provisioningProfiles` 仅将
+`com.toxee.app` 映射到已有 profile 名称或 UUID。入口先保存策略快照，拒绝已存在的输出目录，
+防止失败后复用旧 IPA；检查 archive/导出包原生库和声明、签名完整性、profile 到期、明确的
+app/team entitlement、禁用调试，以及 profile 绑定的真实 app signer 证书。
+设备/ad-hoc/enterprise profile 与仅内部 TestFlight 的导出均拒绝。
+
+入口先以 `flutter build ios --config-only --no-codesign` 生成配置，再直接调用 Xcode archive/export；
+不传自动 provisioning/设备注册参数，不上传。直接使用 signed `flutter build ipa` 会传这些自动参数，
+不能用来执行本任务“不修改账号”的边界。检查 `archive-evidence` 和
+`export-evidence/distribution.json`；fixture 策略测试不等于真实签名或 App Store 审核通过。
+导出键依据本机 Xcode 26.4.1 的 `xcodebuild -help`，核验日期 2026-10-23。
+
+2026-10-23 本地真实 unsigned archive 验证：Flutter 3.41.9、Xcode 26.4.1（17E202）、
+iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archive 成功，45 个 arm64
+原生文件、built 声明/隐私清单、嵌入 Tim2Tox 无 test-hook 检查通过。本地复用了已有真机 FFI，
+CI 从锁定源码重建。导出策略/失败传播回归 9 项、Apple metadata 回归 5 项、native payload
+回归 11 项通过。没有执行负责人正式签名导出、商店上传或真机安装。
+
+| Checklist ID | 状态 | 证据和仍需验收 |
+| --- | --- | --- |
+| P1、P4 | 检查门禁 verified；负责人审计 to do | archive/导出包检查 built Apple metadata/原生库；SDK/API reason、数据声明和后台答案仍由负责人复核。 |
+| W4、X6 | unsigned archive/策略门禁 verified；正式分发 to do | 上述真实 unsigned archive；负例拒绝上传、自动签名、错误团队/profile/证书、到期、开发/设备/企业身份和旧输出复用。真实手工签名导出/安装尚未验证。 |
+| X9 | to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
+| X4 | needs device | 负责人签名导出后在 iPhone/iPad 安装/升级，验证权限、网络/媒体和用户数据保留。 |
+| X5 | verified（范围） | 本次仅改变 iOS 打包入口；Android/桌面保持既有终包门禁，共享 runtime/UI 未变。 |
+| L*、D*、I*、B*、M*、F* | 对本次变更 not applicable | 未改布局、输入、生命周期、媒体或性能行为；原完整审计限制保留。移动端第 12 项新增 archive 证据，不等于正式分发验收。 |
+
+### 需要负责人提供的材料
+
+公开 ID、URL、证书指纹可以写入发布证据。私钥、密码、token 和审核凭据仅保留在负责人安全环境
+或商店指定的秘密字段，不在仓库、PR 或报告中收集/提交。
+
+| 平台/渠道 | 材料及用途 | 获取/核实位置 | 阻塞步骤 |
+| --- | --- | --- | --- |
+| Apple iOS/iPadOS、MAS | 法定发布者、Team ID、app record、bundle ID；公开 ID 绑定发行身份 | Apple Developer **Account → Membership details**、**Certificates, Identifiers & Profiles → Identifiers**；App Store Connect **My Apps → 应用 → App Information** | 真实发行身份、导出和后台配置 |
+| Apple iOS/iPadOS | 已有 Apple Distribution 证书 SHA-1、匹配的 App Store profile、批准的手工 ExportOptions | Apple Developer **Certificates, Identifiers & Profiles → Certificates / Profiles**；钥匙串访问 **我的证书**读取已安装私钥对应证书指纹；负责人管理的 Xcode archive 导出选项 | 正式本地导出、真机安装升级；私钥/密码仅安全环境配置 |
+| macOS 直接分发 | 已有 Developer ID Application/Installer identity、notarytool profile | Apple Developer **Certificates**、钥匙串访问 **我的证书**、负责人已经配置的 notarytool keychain profile | 可信 PKG 签名、公证、带 quarantine 下载测试 |
+| Google Play/其他 Android 商店 | 永久 package 记录、批准的上传证书 SHA-256、独立的交付证书 SHA-256 | Play Console **应用 → Test and release → Setup → App signing**；其他所选商店签名/应用后台；负责人保管的上传 keystore | 严格分发 APK/AAB 与签名升级；keystore/密码仅在安全环境或已有 GitHub Actions secret 字段配置 |
+| Microsoft 托管 MSI/EXE | 发布者/product、已有可信代码签名 identity 指纹、不可变 HTTPS 安装 URL | Partner Center **Apps and games → product**；负责人证书提供方/证书管理器；已批准下载托管位置 | 可信 PE/MSI 签名和 hosted-installer 认证；密钥/token 只留安全签名环境 |
+| Microsoft MSIX（可选） | 选定 package Identity Name、Publisher、商店记录 | Partner Center **product → Product identity** | 独立 MSIX 工程与验收；Store 重签不要求为此购买私有分发证书 |
+| 实际选定的所有商店 | 批准的隐私/支持/适用删除 URL、SDK 数据流声明、版权法律文本、年龄/受众答案、本地化介绍/截图、审核说明、UGC 联系/响应机制 | 负责人公开政策页及法律/运营记录；App Store Connect **App Privacy / App Information / App Review**；Play Console **Policy and programs → App content / Store presence**；Partner Center submission **Properties / Age ratings / Store listings / Certification notes** | 负责人声明、审核可达性和政策复核；审核凭据只填商店安全字段 |
+| 中国 Android 渠道（条件适用） | 地区、主体认证、适用的 APP 备案/行业材料 | 所选渠道开发者后台、负责人备案/法律记录 | 渠道准入；不由其他商店要求推断本渠道适用性 |
+| Flathub/Snap/软件源（可选） | 渠道决定、名称/app ID 归属、人工维护的提交资料和沙箱证据 | 对应发布者后台与官方提交流程 | 独立打包审核；Flathub manifest 和提交 PR 仍由人负责 |
+| 每个实际发布版本 | 准确包 hash/版本、地区/track、上一签名版本、真机结果 | CI artifacts、负责人发布归档、商店测试轨道/设备实验室 | 安装升级/数据保留、权限网络媒体、真实 16 KB 设备检查；账号材料不能替代 |
 
 下列渠道均未标记为“可提交”。对实际选择的渠道，负责人须保留控制台导出/截图、精确提交包哈希、
 复核日期及批准人。可选渠道先做产品决定，再补该渠道工程；没有配置不代表合规。
@@ -92,6 +155,7 @@ P8 的计费、广告和第三方主登录规则对当前功能集**不适用**�
 python3 -m unittest discover -s test/ci -p 'test_android*.py'  # 需要 SDK/JDK 17
 python3 -m unittest discover -s test/ci -p 'test_desktop_native_payload.py'
 python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
+python3 -m unittest discover -s test/ci -p 'test_ios_store_export.py'
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```

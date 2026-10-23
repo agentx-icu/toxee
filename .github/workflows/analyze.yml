@@ -71,6 +71,7 @@ jobs:
         run: |
           python3 -m unittest discover -s test/ci -p test_desktop_native_payload.py
           python3 -m unittest discover -s test/ci -p test_apple_release_preflight.py
+          python3 -m unittest discover -s test/ci -p test_ios_store_export.py
 
       # Cross-file source contracts that are lint, not tests: "this UiKey string
       # must appear in the fork widget", "this scenario must be registered in the

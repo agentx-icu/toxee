@@ -19,7 +19,7 @@ store readiness still requires the owner's declarations and device evidence.
 | Windows MSI | **Verified gate**: all final staged EXE/DLL architecture checks, including runtime DLLs copied after the Flutter build; owned code/installer must match the configured publisher thumbprint when signing is enabled; valid third-party signatures are preserved. MSI smoke checks all installed PE files, startup, repair and uninstall. | Trusted publisher certificate, final signed-installer trust evidence, previous-version update/data-preservation test and store listing. Development jobs can remain unsigned. |
 | macOS PKG / built iOS app | **Verified checks**: all built native images match the selected architecture; built app-owned and SDK privacy manifests are inventoried; source-declared permission strings and actual bundle ID are checked. Final macOS signatures and functional sandbox entitlements are checked, and get-task-allow is rejected. A signed iOS app with corrupt signatures cannot pass as an unsigned build. Reports retain actual SDK metadata and declarations. | API-reason/collection audit, publisher identity, archive/export, provisioning, privacy report and device tests. Ad-hoc signing establishes integrity only. |
 | Linux DEB/RPM | **Verified gate**: every staged native object matches the selected architecture; missing/corrupt shared libraries and external/dangling runtime symlinks fail. | Clean-distribution installation, upgrade/uninstall, signing/metadata and channel-specific sandbox qualification. |
-| iOS distribution entry | **Verified restriction**: TOXEE_REQUIRE_SIGNING=1 refuses the development IPA packager. | Implement and qualify an owner-approved Xcode archive/export flow before using this channel for App Store submissions. A certificate alone does not make the existing zip-based IPA an App Store export. |
+| iOS distribution entry | **Verified restriction**: TOXEE_REQUIRE_SIGNING=1 refuses the development IPA packager. A separate local-only archive/export entry validates explicit manual export policy and the exported signature/profile identity. | Qualify a real owner-signed export and device installation. An unsigned archive or the existing zip-based IPA is not an App Store export. |
 
 The regression fixtures cover real aapt2/apksigner/JDK signature operations,
 real compiled macOS signing, and controlled corrupt/mismatched payloads. Synthetic
@@ -66,6 +66,81 @@ Those identities and Developer ID notarization are distinct from Mac App Store
 signing and provisioning.
 
 ## Channel decisions and owner handoff
+
+### Local iOS archive and manual export
+
+After the normal dependency bootstrap and staging a hook-free device Tim2Tox
+framework, run `python3 tool/ci/ios_store_export.py --unsigned-archive` for an
+unsigned Xcode archive. The iOS package job runs this path and retains the
+archive, dSYMs and inspection reports for seven days. It is **not a signed or
+store-submittable IPA**. Keep any build selected for release beyond CI expiry.
+
+For an owner-controlled environment with an existing installed Apple Distribution
+certificate/private key and App Store provisioning profile, supply an approved
+ExportOptions.plist and run:
+
+```bash
+python3 tool/ci/ios_store_export.py --team-id ABCDE12345 \
+  --certificate-sha1 OWNER_CERTIFICATE_SHA1 \
+  --export-options /secure/local/ExportOptions.plist
+```
+
+Replace the public IDs/fingerprint placeholders. The plist must explicitly set
+`method=app-store-connect`, `destination=export`, `signingStyle=manual`, the same
+`teamID`, `signingCertificate` as the exact 40-hex SHA-1, and one
+`provisioningProfiles` mapping from `com.toxee.app` to the existing profile name
+or UUID. No example signing team, profile or legal owner is approved by this doc.
+The entry snapshots the policy before building and rejects existing output
+directories, preventing stale IPA reuse. It validates archive and exported native
+payload/declarations, signature integrity, profile expiry, explicit app/team
+entitlements, disabled debugging, and the actual signer certificate bound to the
+profile. Device/ad-hoc/enterprise profiles and internal-only exports are rejected.
+
+The entry uses unsigned `flutter build ios --config-only` and direct Xcode archive
+and export commands. It never passes automatic provisioning/device-registration
+flags and does not upload. Calling signed `flutter build ipa` directly can pass
+those flags; do not use it to enforce this task's no-account-change boundary.
+Inspect `archive-evidence` and `export-evidence/distribution.json`; fixture policy
+tests do not establish real signing or App Store approval. Xcode's supported export
+keys were checked with local Xcode 26.4.1 `xcodebuild -help` on 2026-10-23.
+
+Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
+26.4.1 (17E202), iphoneos26.4 (23E252), app 0.1.0+1, minimum iOS 15.5. It
+passed the real Xcode archive command and inspected all 45 arm64 native images,
+built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
+That local run reused the existing device FFI binary; CI rebuilds it from the
+pinned source. Nine export-policy/failure regressions, five Apple metadata
+regressions and eleven native-payload regressions pass. No owner-signed export,
+store upload or device installation was performed.
+
+| Checklist IDs | Status | Evidence and remaining qualification |
+| --- | --- | --- |
+| P1, P4 | verified (inspection gates); to do (owner audit) | Built Apple metadata/native inspection runs on archive and export; SDK/API reasons, data disclosures and selected console answers still require owner review. |
+| W4, X6 | verified (unsigned archive and policy gates); to do (distribution) | Real unsigned Xcode archive above; negative tests reject upload, automatic signing, wrong team/profile/certificate, expiry, development/device/enterprise identity and stale output. Real manual signed export/install remains untested. |
+| X9 | to do | Archive/dSYMs retained for seven days; native reporter coverage, symbol match and controlled release crash symbolication are not established by archiving alone. |
+| X4 | needs device | Owner signs/exports, installs and upgrades on iPhone/iPad, then exercises permissions, network/media and preserved user data. |
+| X5 | verified (scope) | This entry changes iOS packaging only. Android and desktop keep their existing final-artifact gates; no shared runtime/UI behavior changes. |
+| L*, D*, I*, B*, M*, F* | not applicable to this change | No layout, input, lifecycle, media or performance behavior changes; existing full-audit limitations remain. Mobile checklist item 12 gains archive evidence, not formal release qualification. |
+
+### Materials the release owner must supply
+
+Public identifiers, URLs and certificate fingerprints may be recorded in release
+evidence. Private keys, passwords, tokens and reviewer credentials stay only in
+the owner's secure environment or the store's designated secret fields. No secret
+is requested in this repository or PR.
+
+| Platform/channel | Material and purpose | Where the owner obtains or confirms it | Blocked step |
+| --- | --- | --- | --- |
+| Apple iOS/iPadOS and MAS | Legal publisher, Team ID, app record and bundle ID; public IDs bind package to owner | Apple Developer **Account → Membership details**; **Certificates, Identifiers & Profiles → Identifiers**; App Store Connect **My Apps → app → App Information** | Real owner identity/export and console configuration |
+| Apple iOS/iPadOS | Existing Apple Distribution certificate SHA-1, matching App Store profile and approved manual ExportOptions | Apple Developer **Certificates, Identifiers & Profiles → Certificates / Profiles**; Keychain Access **My Certificates** for the installed key's fingerprint; owner-managed Xcode archive export options | Signed local export, device installation/update; private key/password only configured locally |
+| Direct macOS | Existing Developer ID Application/Installer identities and notarytool profile | Apple Developer **Certificates**; Keychain Access **My Certificates**; owner's already configured notarytool keychain profile | Trusted PKG signing, notarization, quarantined-download test |
+| Google Play/Android stores | Permanent package record, approved upload-certificate SHA-256 and distinct delivery-certificate SHA-256 | Play Console **app → Test and release → Setup → App signing**; other chosen store's app/signature console; owner-held upload keystore | Strict distribution APK/AAB and signed upgrade; private keystore/passwords only in owner environment or existing GitHub Actions secret fields |
+| Microsoft hosted MSI/EXE | Publisher/product record, existing trusted code-signing identity thumbprint, immutable HTTPS installer URL | Partner Center **Apps and games → product**; owner's certificate provider/store and certificate manager; owner-approved download hosting | Trusted PE/MSI signing and hosted-installer certification; key/token only in secure signing host |
+| Microsoft MSIX (optional) | Chosen package Identity Name, Publisher and store record | Partner Center **product → Product identity** | Separate MSIX implementation/qualification; Store signing does not require buying a private distribution certificate |
+| All selected stores | Approved privacy/support/deletion URLs, SDK/data-flow disclosure, legal copyright, age/audience answers, localized listing text/screenshots, review instructions and UGC contact/response process | Owner's approved public pages and legal/operations records; App Store Connect **App Privacy / App Information / App Review**; Play Console **Policy and programs → App content / Store presence**; Partner Center submission **Properties / Age ratings / Store listings / Certification notes** | Owner declarations, review access and policy review; reviewer credentials only in store's secure review fields |
+| China Android channels (conditional) | Region, publisher verification and applicable APP filing/sector materials | Selected channel's developer console and owner's filing/legal records | Channel-specific eligibility; do not infer applicability from another store |
+| Flathub/Snap/feeds (optional) | Channel decision, name/app ID ownership, human-maintained submission materials and sandbox evidence | Respective publisher console and official submission process | Channel-specific packaging/review; Flathub manifests and submission PR work remain human-owned |
+| Every actual release | Exact artifact hash/version, console-selected regions/track, previous signed build and physical-device results | CI artifacts plus owner-held release archive and store testing tracks/device lab | Install/update/data preservation, permission/network/media and real 16 KB tests; no account material substitutes for these checks |
 
 No channel below is marked ready for submission. For each chosen channel, the
 release owner must retain console screenshots/exports, exact submitted hashes,
@@ -118,6 +193,7 @@ checklist IDs retain their previous audit state, not a new blanket verified stat
 python3 -m unittest discover -s test/ci -p 'test_android*.py'  # SDK + JDK 17 required
 python3 -m unittest discover -s test/ci -p 'test_desktop_native_payload.py'
 python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
+python3 -m unittest discover -s test/ci -p 'test_ios_store_export.py'
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```

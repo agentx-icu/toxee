@@ -675,6 +675,19 @@ jobs:
           path: dist/ios
           if-no-files-found: error
 
+      - name: Validate unsigned iOS archive
+        env:
+          TIM2TOX_IOS_FRAMEWORK_PATH: ${{ github.workspace }}/build/native-artifacts/ios/tim2tox_ffi.framework
+        run: python3 tool/ci/ios_store_export.py --unsigned-archive --output build/ios/store-readiness/ci-archive
+
+      - name: Retain unsigned archive and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: toxee-ios-unsigned-archive
+          path: build/ios/store-readiness/ci-archive
+          retention-days: 7
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
     # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
