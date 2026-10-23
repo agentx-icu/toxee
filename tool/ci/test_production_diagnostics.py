@@ -37,7 +37,9 @@ class ProductionDiagnostics(unittest.TestCase):
             trace.write_text(result.stdout)
             decoded = self.run_checked(['flutter', 'symbolize',
                                         f'--debug-info={symbols}', f'--input={trace}'])
-            self.assertIn('_throwDiagnosticProbe', decoded.stdout)
+            self.assertIn('_captureDiagnosticProbe', decoded.stdout)
+            self.assertNotIn('_throwDiagnosticProbe', decoded.stdout)
+            self.assertIn('stack=capture_point', result.stdout)
             self.assertIn('production_diagnostics_aot_probe.dart', decoded.stdout)
 
 

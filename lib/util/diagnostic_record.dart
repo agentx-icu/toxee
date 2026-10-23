@@ -1,33 +1,45 @@
+import 'dart:async';
+import 'dart:io';
+
 /// Origins are closed metadata, never caller-supplied operation/body strings.
 enum DiagnosticOrigin { application, framework, dispatcher, zone, logger }
 
 /// The production log boundary: no error value, context, URL or arbitrary body.
-/// Only VM-created stacks are eligible; StringStackTrace/third-party renderers
-/// can contain caller data and are deliberately not treated as trusted stacks.
+/// Never evaluates caller-controlled Type/StackTrace objects. Coordinates come
+/// from StackTrace.current inside this boundary: they identify the capture point,
+/// not the original throwing frame. Original exception stacks remain debug-only.
 final class DiagnosticRecord {
-  DiagnosticRecord.capture(this.origin, Object? error, StackTrace? stack)
-    : errorType = _type(error),
-      frames = _trustedFrames(stack);
+  DiagnosticRecord.capture(this.origin, Object? error)
+    : errorType = errorCategory(error),
+      frames = _captureFrames();
 
   final DiagnosticOrigin origin;
   final String errorType;
   final List<String> frames;
 
-  String get body => 'origin=${origin.name} error_type=$errorType';
+  String get body =>
+      'origin=${origin.name} error_type=$errorType stack=capture_point';
 
-  static String _type(Object? error) {
+  /// Static categories do not read a virtual runtimeType getter or render Type.
+  static String errorCategory(Object? error) {
     if (error == null) return 'unspecified';
-    final type = error.runtimeType.toString();
-    return type.length <= 80 &&
-            RegExp(r'^[A-Za-z_$][A-Za-z0-9_$<>, ?]*$').hasMatch(type)
-        ? type
-        : 'unknown';
+    if (error is RangeError) return 'RangeError';
+    if (error is ArgumentError) return 'ArgumentError';
+    if (error is StateError) return 'StateError';
+    if (error is FormatException) return 'FormatException';
+    if (error is FileSystemException) return 'FileSystemException';
+    if (error is TimeoutException) return 'TimeoutException';
+    if (error is UnsupportedError) return 'UnsupportedError';
+    if (error is UnimplementedError) return 'UnimplementedError';
+    if (error is TypeError) return 'TypeError';
+    if (error is IOException) return 'IOException';
+    if (error is Exception) return 'Exception';
+    if (error is Error) return 'Error';
+    return 'unknown';
   }
 
-  static List<String> _trustedFrames(StackTrace? stack) {
-    if (stack == null || stack.runtimeType.toString() != '_StackTrace') {
-      return const [];
-    }
+  static List<String> _captureFrames() {
+    final stack = StackTrace.current;
     final sourceFrame = RegExp(
       r'^#\d+\s+.*\(((?:package:[a-z_][a-z0-9_]*/[A-Za-z0-9_./-]+\.dart|dart:[A-Za-z0-9_./-]+)(?::[0-9]+){1,2})\)$',
     );

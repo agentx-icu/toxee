@@ -5,7 +5,7 @@ final class SafeDiagnostics {
   SafeDiagnostics._();
 
   static String describeError(Object error) {
-    return 'error_type=${error.runtimeType}';
+    return 'error_type=${DiagnosticRecord.errorCategory(error)}';
   }
 
   static void logFailure(String context, Object error) {

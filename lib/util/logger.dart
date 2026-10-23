@@ -12,6 +12,8 @@ enum LogLevel { debug, info, warn, error, fatal }
 
 class AppLogger {
   static int _sequence = 0;
+  static void Function(String) _consoleWriter = Zone.root.print;
+  static void Function(String) _errorWriter = stderr.writeln;
   static bool _production = !kDebugMode;
   static const _maxEarlyRecords = 32;
   static final _earlyRecords = <DiagnosticRecord>[];
@@ -91,7 +93,13 @@ class AppLogger {
   }
 
   @visibleForTesting
-  static void resetForTesting({bool production = false}) {
+  static void resetForTesting({
+    bool production = false,
+    void Function(String)? consoleWriter,
+    void Function(String)? errorWriter,
+  }) {
+    _consoleWriter = consoleWriter ?? Zone.root.print;
+    _errorWriter = errorWriter ?? stderr.writeln;
     _production = !kDebugMode || production;
     _earlyRecords.clear();
     _droppedEarlyRecords = 0;
@@ -137,7 +145,7 @@ class AppLogger {
           );
         }
         if (!_production) {
-          stderr.writeln('AppLogger: Log file initialized at: ${logFile.path}');
+          _writeStderr('AppLogger: Log file initialized at: ${logFile.path}');
         }
       } else {
         final logDir = await AppPaths.logsDir;
@@ -265,7 +273,7 @@ class AppLogger {
     if (_logFile == null) {
       if (!_hasLoggedError) {
         _hasLoggedError = true;
-        stderr.writeln(
+        _writeStderr(
           'AppLogger: Log file is null, cannot write. Call initialize() first.',
         );
       }
@@ -282,17 +290,32 @@ class AppLogger {
         _hasLoggedError = true;
         _internalFailure(e);
         if (!_production) {
-          stderr.writeln(stackTrace);
+          _writeStderr(stackTrace.toString());
         }
       }
     }
   }
 
+  static void _writeStderr(String message) {
+    try {
+      _errorWriter(message);
+    } catch (_) {
+      /* No recursive fallback. */
+    }
+  }
+
+  static void _writeConsole(String message) {
+    try {
+      _consoleWriter(message);
+    } catch (error) {
+      _enableConsoleLogging = false;
+      _internalFailure(error);
+    }
+  }
+
   static void _internalFailure(Object error) {
     // Never call the logger from its own failed sink; this cannot recurse.
-    stderr.writeln(
-      DiagnosticRecord.capture(DiagnosticOrigin.logger, error, null).body,
-    );
+    _writeStderr(DiagnosticRecord.capture(DiagnosticOrigin.logger, error).body);
   }
 
   /// Captures only bounded safe metadata even before the file sink is ready.
@@ -301,7 +324,7 @@ class AppLogger {
     Object? error,
     StackTrace? stack,
   ) {
-    final record = DiagnosticRecord.capture(origin, error, stack);
+    final record = DiagnosticRecord.capture(origin, error);
     if (!_initialized) {
       if (_earlyRecords.length < _maxEarlyRecords) {
         _earlyRecords.add(record);
@@ -337,7 +360,7 @@ class AppLogger {
       // Even root-zone debugPrint would join Flutter's shared throttle queue,
       // whose pending timer may belong to the routed app zone. Console logging
       // is opt-in; direct debug output trades throttling for exactly-once logs.
-      Zone.root.print(formatted);
+      _writeConsole(formatted);
     }
     _writeToFile(formatted);
   }
@@ -383,10 +406,10 @@ class AppLogger {
     }
     if (_enableConsoleLogging && (error != null || stackTrace != null)) {
       if (error != null) {
-        Zone.root.print('Error: $error');
+        _writeConsole('Error: $error');
       }
       if (stackTrace != null) {
-        Zone.root.print(stackTrace.toString());
+        _writeConsole(stackTrace.toString());
       }
     }
   }

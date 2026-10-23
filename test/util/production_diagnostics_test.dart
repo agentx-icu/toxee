@@ -22,6 +22,39 @@ class UnrenderableFailure implements Exception {
       throw StateError('exception values must not be rendered');
 }
 
+class HostileType implements Type {
+  @override
+  String toString() => 'HOSTILE_TYPE_SECRET_5bf841';
+}
+
+class HostileFailure implements Exception {
+  int typeReads = 0;
+  @override
+  Type get runtimeType {
+    typeReads++;
+    return HostileType();
+  }
+
+  @override
+  String toString() => throw StateError('never render error');
+}
+
+class HostileStack implements StackTrace {
+  int typeReads = 0;
+  int valueReads = 0;
+  @override
+  Type get runtimeType {
+    typeReads++;
+    return StackTrace.current.runtimeType;
+  }
+
+  @override
+  String toString() {
+    valueReads++;
+    return '#0 fake (package:toxee/HOSTILE_STACK_SECRET_5bf841.dart:1:1)';
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
@@ -74,7 +107,7 @@ void main() {
       final text = await log.readAsString();
       expect(text, isNot(contains(marker)));
       expect(text, isNot(contains('private.invalid')));
-      expect(text, contains('origin=application error_type=MarkerFailure'));
+      expect(text, contains('origin=application error_type=Exception'));
       expect(text, contains('body=omitted'));
     },
   );
@@ -101,7 +134,7 @@ void main() {
       expect(presented, 0);
       await initialize();
       final text = await log.readAsString();
-      expect(text, contains('origin=framework error_type=UnrenderableFailure'));
+      expect(text, contains('origin=framework error_type=Exception'));
       expect(text, isNot(contains(marker)));
     },
   );
@@ -126,9 +159,7 @@ void main() {
       await initialize();
       final text = await log.readAsString();
       expect(
-        RegExp(
-          'origin=dispatcher error_type=UnrenderableFailure',
-        ).allMatches(text),
+        RegExp('origin=dispatcher error_type=Exception').allMatches(text),
         hasLength(32),
       );
       expect(text, contains('early_records_dropped=9'));
@@ -154,26 +185,15 @@ void main() {
     },
   );
 
-  test(
-    'real VM source frames are retained while synthetic sources are untrusted',
-    () {
-      final real = DiagnosticRecord.capture(
-        DiagnosticOrigin.application,
-        StateError(marker),
-        StackTrace.current,
-      );
-      expect(real.frames, isNotEmpty);
-      expect(real.frames.join('\n'), isNot(contains('/Users/')));
-      final fake = DiagnosticRecord.capture(
-        DiagnosticOrigin.zone,
-        MarkerFailure(),
-        StackTrace.fromString(
-          '#0 secret (package:toxee/stolen.dart:1:1)\n$marker',
-        ),
-      );
-      expect(fake.frames, isEmpty);
-    },
-  );
+  test('internal capture locations never evaluate a caller stack', () {
+    final real = DiagnosticRecord.capture(
+      DiagnosticOrigin.application,
+      StateError(marker),
+    );
+    expect(real.frames, isNotEmpty);
+    expect(real.body, contains('stack=capture_point'));
+    expect(real.frames.join('\n'), isNot(contains('/Users/')));
+  });
 
   test(
     'canonical explicit paths rotate at the existing 10 MB boundary and retain ten segments',
@@ -216,6 +236,55 @@ void main() {
       AppLogger.logError(marker, UnrenderableFailure());
       expect(AppLogger.getLogPath(), log.path);
       expect(log.lengthSync(), greaterThan(10 * 1024 * 1024));
+    },
+  );
+
+  test(
+    'hostile Type and caller StackTrace are never evaluated in production',
+    () async {
+      await initialize();
+      final error = HostileFailure();
+      final stack = HostileStack();
+      RuntimeErrorHooks(production: true).handleZoneError(error, stack);
+      AppLogger.logError(marker, error, stack);
+      final text = await log.readAsString();
+      expect(error.typeReads, 0);
+      expect(stack.typeReads, 0);
+      expect(stack.valueReads, 0);
+      expect(text, isNot(contains('HOSTILE_TYPE_SECRET')));
+      expect(text, isNot(contains('HOSTILE_STACK_SECRET')));
+    },
+  );
+
+  test(
+    'throwing console and stderr writers cannot escape or recursively re-enter the logger',
+    () async {
+      var writes = 0;
+      AppLogger.resetForTesting(
+        production: true,
+        consoleWriter: (_) {
+          writes++;
+          throw StateError(marker);
+        },
+        errorWriter: (_) {
+          writes++;
+          throw StateError(marker);
+        },
+      );
+      await initialize();
+      AppLogger.setConsoleLoggingEnabled(true);
+      expect(
+        () => AppLogger.logError(marker, MarkerFailure()),
+        returnsNormally,
+      );
+      expect(writes, lessThanOrEqualTo(2));
+      final text = await log.readAsString();
+      expect(text, isNot(contains(marker)));
+      expect(text, contains('origin=application'));
+      AppLogger.closeLogSinkForDeletion();
+      AppLogger.setLogPath('${log.path}/bad');
+      expect(AppLogger.initialize, returnsNormally);
+      await AppLogger.initialize();
     },
   );
 

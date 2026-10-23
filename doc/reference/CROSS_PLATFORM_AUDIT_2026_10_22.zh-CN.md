@@ -142,7 +142,7 @@ AMD64/ARM64 安装 MSI 生命周期、Ubuntu24.04 x64/ARM64 干净容器 DEB 安
 | ID | 分类、源码证据与最小后续动作 |
 | --- | --- |
 | W3 | 本轮代码修复：AppPaths 原接受相对 XDG_DATA_HOME，legacy rename 可进入 CWD。忽略相对值、保留 HOME/platform、自选路径及旧账户；四组真实 Linux 子进程检验迁移/字节/幂等。Windows APPDATA roaming 是另一存储策略。 |
-| X9 | 本轮部分代码修复：main 钩子原晚于 bootstrap，通用 logger 原写任意正文/异常值；生产边界、早期有界缓冲和 canonical 10×10MB Dart 留存已覆盖。真实进程 marker 与 stripped AOT 精确符号回归不等于每 OS installed release crash。Tim2Tox 独立 ofstream/仅 set_log_file 导出，Dart rename 后旧 fd 仍写，SDK OnLog 不是该 writer；原生统一 ownership/有界留存、worker 转发、native reporter、完整符号归档仍是代码工程，不必然要远端服务。 |
+| X9 | 本轮部分代码修复：main 钩子原晚于 bootstrap，通用 logger 原写任意正文/异常值；生产边界、早期有界缓冲和 canonical 10×10MB Dart 留存已覆盖。真实进程 marker 与 stripped AOT 捕获点精确符号回归不等于每 OS installed release crash；不求值调用方 Type/StackTrace，不冒充异常原始 throw。Tim2Tox 独立 ofstream/仅 set_log_file 导出，Dart rename 后旧 fd 仍写，SDK OnLog 不是该 writer；原生统一 ownership/有界留存、worker 转发、native reporter、完整符号归档仍是代码工程，不必然要远端服务。 |
 | I2 | macOS 本轮修复原死 Preferences action，复用已可用 Cmd+, 的设置动作，并限制 ready/current route/owner。iPadOS26 当前场景的 core UICommand 菜单仍是独立代码工程；编译与真机菜单资格分开。 |
 | D7 | 确认代码项：fork message-item 的六次 300ms Timer 不读 disableAnimations。采用自有 builder 或 tracked、核源码后 fail-closed 的 bootstrap overlay，静态反馈、运行时取消 timer，并测真实 widget/fresh checkout；不能只改 ignored third_party 或以 upstream 为阻塞。 |
 | I3 | 确认 right-control paste/keyup 门禁代码项：desktop _handleKeyEvent 仅 controlLeft 且早于 RawKeyDown 检查。normal Enter 的 _submitDesktopSend 已读当前 controller 并用 draftCoordinator，旧 typing race 不能再称已复现；modified-Enter/selection 先补实际键盘用例。 |
