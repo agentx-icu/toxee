@@ -15,10 +15,11 @@ dart run tool/bootstrap_deps.dart
 The tool performs these steps in order:
 
 1. **Initialize submodules** — `git submodule sync --recursive` and `git submodule update --init --recursive` for `third_party/tim2tox` and `third_party/chat-uikit-flutter`. If the repo does not yet have submodules registered (no gitlink entries), it clones those repositories from the URLs in `.gitmodules` into `third_party/`.
-2. **Vendor the SDK** — Downloads the tencent_cloud_chat_sdk archive from the URL in `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` (config lives in tim2tox repo), verifies SHA-256 if present, and unpacks it into `third_party/tencent_cloud_chat_sdk`. Skips if already present and version matches (use `--force` to re-vendor).
-3. **Apply SDK patches** — Calls tim2tox's `dart run tool/apply_sdk_patches.dart --sdk-dir=...`, which reads the lock and patch series from the tim2tox repo and applies patches to the vendored SDK. Skips if patches were already applied (tracked in toxee's `tool/vendor_state.json`).
-4. **Generate pubspec_overrides.yaml** — Writes overrides so that `tim2tox_dart`, `tencent_cloud_chat_sdk`, and all UIKit packages resolve to paths under `third_party/`. This file is gitignored and regenerated on every bootstrap.
-5. **You then run** — `flutter pub get` (and any build). Build scripts (`build_all.sh`, `run_toxee.sh`, etc.) and CI run bootstrap before `flutter pub get` automatically.
+2. **Verify and apply the app-owned UIKit overlay** — `tool/uikit_overlays/manifest.json` pins UIKit revision, patch SHA-256 and the before/after source hashes for reduced-motion highlighting and desktop paste. Bootstrap refuses source drift or partial application without resetting local work; already applied files are verified idempotently. CRLF is the only source-hash normalization.
+3. **Vendor the SDK** — Downloads the tencent_cloud_chat_sdk archive from the URL in `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` (config lives in tim2tox repo), verifies SHA-256 if present, and unpacks it into `third_party/tencent_cloud_chat_sdk`. Skips if already present and version matches (use `--force` to re-vendor).
+4. **Apply SDK patches** — Calls tim2tox's `dart run tool/apply_sdk_patches.dart --sdk-dir=...`, which reads the lock and patch series from the tim2tox repo and applies patches to the vendored SDK. Skips if patches were already applied (tracked in toxee's `tool/vendor_state.json`).
+5. **Generate pubspec_overrides.yaml** — Writes overrides so that `tim2tox_dart`, `tencent_cloud_chat_sdk`, and all UIKit packages resolve to paths under `third_party/`. This file is gitignored and regenerated on every bootstrap.
+6. **You then run** — `flutter pub get` (and any build). Build scripts (`build_all.sh`, `run_toxee.sh`, etc.) and CI run bootstrap before `flutter pub get` automatically.
 
 ## One-time setup for a fresh clone
 
@@ -32,10 +33,20 @@ flutter pub get
 
 ## Options
 
-- **`--offline-check-only`** — Only verify that lock file, submodule dirs, and vendored SDK exist; exit 0/1. No network, no writes.
+- **`--offline-check-only`** — Only verify that lock file, submodule dirs, and vendored SDK exist; exit 0/1. No network, no writes. The UIKit overlay must already be applied and its full inventory must match.
 - **`--force`** — Re-vendor the SDK (delete and re-download/unpack) and re-apply patches. Use when upgrading the SDK version or after changing the lock file.
 
 ## See also
 
 - [DEPENDENCY_LAYOUT.md](DEPENDENCY_LAYOUT.md) — Target directory layout and legacy assumptions.
 - [PATCH_MAINTENANCE.md](PATCH_MAINTENANCE.md) — Who owns what and how to upgrade submodules/SDK/patches.
+
+## Updating the UIKit overlay
+
+The app tracks the patch and inventory, not a private edit to the dependency checkout.
+Before changing the pinned UIKit revision, preserve local edits and rebase/review
+`tool/uikit_overlays/motion-and-paste.patch` against that source. Update its digest
+and both target hashes together, then run bootstrap, its offline check and
+`test/tool/bootstrap_uikit_overlay_test.dart`. Do not reset a drifted checkout to
+make verification pass. The fixture applies the real patch to original source
+copies and covers idempotence, partial/drift rejection, CRLF and inventory limits.

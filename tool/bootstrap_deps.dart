@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'bootstrap_overrides.dart';
 import 'bootstrap_patch_integrity.dart';
+import 'bootstrap_uikit_overlay.dart';
 
 void main(List<String> args) async {
   final repoRoot = _repoRoot();
@@ -94,6 +95,13 @@ void main(List<String> args) async {
         );
       }
     }
+  }
+
+  try {
+    ensureUIKitOverlay(repoRoot);
+  } catch (error) {
+    stderr.writeln(error);
+    exit(1);
   }
 
   final tim2toxDir = Directory('$repoRoot/third_party/tim2tox');
@@ -366,6 +374,12 @@ int _offlineCheck(String repoRoot) {
     stderr.writeln(
       'bootstrap_deps: offline-check: third_party/tencent_cloud_chat_sdk missing',
     );
+    return 1;
+  }
+  try {
+    ensureUIKitOverlay(repoRoot, checkOnly: true);
+  } catch (error) {
+    stderr.writeln(error);
     return 1;
   }
   // The generated overrides point flutter_skill at the vendored copy; a

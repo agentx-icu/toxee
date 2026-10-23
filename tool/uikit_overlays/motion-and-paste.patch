@@ -1,0 +1,108 @@
+--- a/tencent_cloud_chat_message/lib/tencent_cloud_chat_message_widgets/tencent_cloud_chat_message_item.dart
++++ b/tencent_cloud_chat_message/lib/tencent_cloud_chat_message_widgets/tencent_cloud_chat_message_item.dart
+@@ -63 +63,20 @@
+-  // This method starts the message highlighting animation.
++  Timer? _highlightPulse;
++  Timer? _highlightCompletion;
++  Timer? _clearHighlightRequest;
++  bool? _disableHighlightAnimations;
++
++  // Completion is independent of motion: a preference change neither restarts
++  // the cue nor leaves a periodic callback running in reduced motion.
++  void _configureHighlightMotion() {
++    _highlightPulse?.cancel();
++    _highlightPulse = null;
++    if (_disableHighlightAnimations == true) {
++      setState(() => showHighlightStatus = true);
++    } else {
++      _highlightPulse = Timer.periodic(const Duration(milliseconds: 300), (_) {
++        if (!mounted) return;
++        setState(() => showHighlightStatus = !showHighlightStatus);
++      });
++    }
++  }
++
+@@ -65,2 +84 @@
+-    // Return early if the animation is already running or the message shouldn't be highlighted.
+-    if ((isAnimating || !widget.data.shouldBeHighlighted)) {
++    if (isAnimating || !widget.data.shouldBeHighlighted) {
+@@ -70,4 +87,0 @@
+-
+-    // Start the highlighting animation.
+-    isAnimating = true;
+-    int highlightCount = 6;
+@@ -74,0 +89 @@
++      isAnimating = true;
+@@ -77,11 +92,6 @@
+-
+-    // Create a timer to periodically update the highlighting state.
+-    Timer.periodic(const Duration(milliseconds: 300), (timer) {
+-      if (mounted) {
+-        setState(() {
+-          showHighlightStatus = highlightCount.isOdd;
+-        });
+-      }
+-
+-      // Stop the timer and animation when the highlight count reaches zero or the widget is no longer mounted.
+-      if (highlightCount == 0 || !mounted) {
++    _configureHighlightMotion();
++    _highlightCompletion = Timer(const Duration(milliseconds: 2100), () {
++      _highlightPulse?.cancel();
++      _highlightPulse = null;
++      if (!mounted) return;
++      setState(() {
+@@ -89,4 +99,2 @@
+-        timer.cancel();
+-      }
+-
+-      highlightCount--;
++        showHighlightStatus = false;
++      });
+@@ -94,4 +102,3 @@
+-
+-    // Reset the message highlighted value after a short delay.
+-    Future.delayed(const Duration(milliseconds: 100), () {
+-      widget.methods.clearHighlightFunc();
++    final clearRequest = widget.methods.clearHighlightFunc;
++    _clearHighlightRequest = Timer(const Duration(milliseconds: 100), () {
++      if (mounted) clearRequest();
+@@ -98,0 +106,22 @@
++  }
++
++  @override
++  void didChangeDependencies() {
++    super.didChangeDependencies();
++    final disableAnimations = MediaQuery.disableAnimationsOf(context);
++    final firstDependencies = _disableHighlightAnimations == null;
++    if (_disableHighlightAnimations == disableAnimations) return;
++    _disableHighlightAnimations = disableAnimations;
++    if (firstDependencies && widget.data.shouldBeHighlighted) {
++      _startMessageHighlightAnimation();
++    } else if (isAnimating) {
++      _configureHighlightMotion();
++    }
++  }
++
++  @override
++  void dispose() {
++    _highlightPulse?.cancel();
++    _highlightCompletion?.cancel();
++    _clearHighlightRequest?.cancel();
++    super.dispose();
+@@ -349,5 +378 @@
+-    // Start the message highlighting animation if the message should be highlighted.
+-    if (widget.data.shouldBeHighlighted) {
+-      consoleLog("shouldBeHighlighted true in initstate");
+-      _startMessageHighlightAnimation();
+-    }
++    // MediaQuery is available in didChangeDependencies, after initState.
+--- a/tencent_cloud_chat_message/lib/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart
++++ b/tencent_cloud_chat_message/lib/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart
+@@ -893,4 +893,3 @@
+-        ((event.isKeyPressed(LogicalKeyboardKey.controlLeft) &&
+-                event.logicalKey == LogicalKeyboardKey.keyV) ||
+-            (event.isMetaPressed &&
+-                event.logicalKey == LogicalKeyboardKey.keyV))) {
++        event is RawKeyDownEvent &&
++        (event.isControlPressed || event.isMetaPressed) &&
++        event.logicalKey == LogicalKeyboardKey.keyV) {

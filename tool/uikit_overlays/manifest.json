@@ -1,0 +1,16 @@
+{
+  "revision": "bae30b7afff852744d9f490b6d3bee00c7ddefc9",
+  "patch_sha256": "ac7c92b49aeea4b9120b772de96356e11e4e40148f9dada9aabcf224b7c767b0",
+  "files": [
+    {
+      "path": "tencent_cloud_chat_message/lib/tencent_cloud_chat_message_widgets/tencent_cloud_chat_message_item.dart",
+      "before_sha256": "40c2b573f6eb0f9cc76f608ead39f6605af2345ffafdc4a5629107a590c17f16",
+      "after_sha256": "2ecb6b8397ee2344b7a0196a11a5a9c2791c1a60b558c5391d08a781fd3f285a"
+    },
+    {
+      "path": "tencent_cloud_chat_message/lib/tencent_cloud_chat_message_input/desktop/tencent_cloud_chat_message_input_desktop.dart",
+      "before_sha256": "d2cf733f55e8dc49633a1060d28af395ff4b18803731af198998e0461d754e42",
+      "after_sha256": "2bbcab40f55d5e038d4159b0e266b00e940a150af98650eaf2eb2592a2925dc7"
+    }
+  ]
+}
