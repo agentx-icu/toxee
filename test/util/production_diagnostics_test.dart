@@ -224,7 +224,7 @@ void main() {
               .length,
           lessThanOrEqualTo(10),
         );
-        expect(File('${directory.path}/.app-log-sink.lock').lengthSync(), 0);
+        expect(File('${directory.path}/.app.log.sink-lock').lengthSync(), 0);
         expect(
           File(AppLogger.getLogPath()!).lengthSync(),
           lessThan(10 * 1024 * 1024),
@@ -260,7 +260,7 @@ void main() {
           .length,
       2,
     );
-    expect(File('${directory.path}/.app.log-sink-lock').lengthSync(), 0);
+    expect(File('${directory.path}/.app.log.sink-lock').lengthSync(), 0);
     expect(directory.listSync().whereType<File>().length, 3);
   });
 

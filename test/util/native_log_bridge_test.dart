@@ -136,7 +136,11 @@ void main() {
       expect(files.where((file) => file.path.endsWith('.log')).length, 1);
       expect(files.length, 2);
       expect(
-        files.singleWhere((file) => !file.path.endsWith('.log')).lengthSync(),
+        files
+            .singleWhere(
+              (file) => file.uri.pathSegments.last == '.app.log.sink-lock',
+            )
+            .lengthSync(),
         0,
       );
     },

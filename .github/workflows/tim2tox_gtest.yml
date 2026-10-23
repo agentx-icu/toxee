@@ -43,6 +43,13 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.11.5'
+
+      - name: Apply source-pinned bounded logging overlay
+        run: dart tool/bootstrap_native_log_overlay.dart
+
       - name: Install native dependencies
         run: |
           sudo apt-get update

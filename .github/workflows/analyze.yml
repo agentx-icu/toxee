@@ -134,7 +134,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/native-artifacts/linux
-          key: tim2tox-${{ runner.os }}-${{ runner.arch }}-linux-debug-toxav-${{ steps.t2t_rev.outputs.sha }}-${{ hashFiles('tool/ci/build_tim2tox.sh') }}
+          key: tim2tox-${{ runner.os }}-${{ runner.arch }}-linux-debug-toxav-${{ steps.t2t_rev.outputs.sha }}-${{ hashFiles('tool/ci/build_tim2tox.sh', 'tool/native_log_overlays/**') }}
 
       - name: Build libtim2tox_ffi (Linux, debug + toxav)
         if: steps.cache_native.outputs.cache-hit != 'true'

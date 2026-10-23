@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'bootstrap_overrides.dart';
+import 'bootstrap_native_log_overlay.dart';
 import 'bootstrap_patch_integrity.dart';
 
 void main(List<String> args) async {
@@ -96,6 +97,12 @@ void main(List<String> args) async {
     }
   }
 
+  try {
+    ensureNativeLogOverlay(repoRoot);
+  } catch (error) {
+    stderr.writeln('bootstrap_deps: native log overlay failed: $error');
+    exit(1);
+  }
   final tim2toxDir = Directory('$repoRoot/third_party/tim2tox');
   final lockFile = File(
     '$repoRoot/third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json',
@@ -360,6 +367,12 @@ int _offlineCheck(String repoRoot) {
     stderr.writeln(
       'bootstrap_deps: offline-check: submodule directory missing',
     );
+    return 1;
+  }
+  try {
+    ensureNativeLogOverlay(repoRoot, checkOnly: true);
+  } catch (error) {
+    stderr.writeln('bootstrap_deps: native log overlay check failed: $error');
     return 1;
   }
   if (!sdkDir.existsSync()) {

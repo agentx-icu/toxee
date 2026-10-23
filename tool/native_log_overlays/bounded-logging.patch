@@ -1,0 +1,697 @@
+diff --git a/source/V2TIMLog.h b/source/V2TIMLog.h
+--- a/source/V2TIMLog.h
++++ b/source/V2TIMLog.h
+@@ -17,0 +18,2 @@
++namespace tim2tox::diag { class BoundedLogSink; }
++
+@@ -102,0 +105,3 @@
++    int32_t configureOwnedLog(const char* path, uint64_t* generation);
++    int32_t appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length);
++    int32_t releaseOwnedLog(uint64_t generation);
+@@ -405 +410,5 @@
+-    std::unique_ptr<std::ofstream> log_file_;
++    std::unique_ptr<tim2tox::diag::BoundedLogSink> log_file_;
++    uint64_t owned_generation_ = 0;
++    uint64_t next_generation_ = 0;
++    uint64_t released_generation_ = 0;
++    bool close_uncertain_ = false;
+diff --git a/source/V2TIMLog.cpp b/source/V2TIMLog.cpp
+--- a/source/V2TIMLog.cpp
++++ b/source/V2TIMLog.cpp
+@@ -25,0 +26,2 @@
++#include "BoundedLogSink.h"
++
+@@ -40 +42,2 @@
+-// Destructor: Close the log file if open
++// The singleton owns every file handle; SDK legacy setters cannot steal a
++// managed application generation. No raw path/error is logged on failure.
+@@ -44,6 +47,3 @@
+-    if (log_file_ && log_file_->is_open()) {
+-        log_file_->close();
+-    }
+-}
+-
+-// Set the path for the log file
++    log_file_.reset();
++}
++
+@@ -51,18 +51,88 @@
+-    if (destroyed_.load()) return;
+-    bool open_failed = false;
+-    {
+-        std::lock_guard<std::mutex> lock(mutex_);
+-        if (destroyed_.load()) return;
+-        if (log_file_ && log_file_->is_open()) {
+-            log_file_->close();
+-        }
+-        log_file_ = std::make_unique<std::ofstream>(path, std::ios::app);
+-        if (!log_file_ || !log_file_->is_open()) {
+-            log_file_.reset();
+-            console_output_ = true;
+-            open_failed = true;
+-        }
+-    }
+-    if (open_failed) {
+-        Error("log_file_open_failed");
+-    }
++    using tim2tox::diag::SinkStatus;
++    if (destroyed_.load()) return;
++    std::unique_lock<std::mutex> lock(mutex_);
++    if (destroyed_.load() || owned_generation_ || close_uncertain_) return;
++    if (log_file_ && log_file_->close() != SinkStatus::Ok) { close_uncertain_ = true; return; }
++    log_file_.reset();
++    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
++    SinkStatus status;
++    try {
++        // Existing SDK callers do not have the Dart canonical-parent bridge.
++        // Resolve only their existing parent (including the OS /tmp alias),
++        // then secure-open the physical directory and unchanged leaf.
++        const auto input = std::filesystem::absolute(std::filesystem::path(std::u8string(path.begin(), path.end())));
++        const auto resolved = std::filesystem::canonical(input.parent_path()) / input.filename();
++        const auto bytes = resolved.u8string();
++        status = candidate->configure(std::string(bytes.begin(), bytes.end()));
++    } catch (...) {
++        status = candidate->close() == SinkStatus::Ok ? SinkStatus::IoNoOwner : SinkStatus::InternalUncertain;
++    }
++    if (status == SinkStatus::Ok) log_file_ = std::move(candidate);
++    else {
++        close_uncertain_ = status == SinkStatus::InternalUncertain;
++        console_output_ = true;
++        lock.unlock();
++        Error(tim2tox::diag::Event<"v2tim_log", "log_file_open_failed">{nullptr, 0});
++    }
++}
++
++int32_t V2TIMLog::configureOwnedLog(const char* path, uint64_t* generation) {
++    using tim2tox::diag::SinkStatus;
++    if (generation) *generation = 0;
++    if (!path || !generation) return int32_t(SinkStatus::Invalid);
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (destroyed_.load() || close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (owned_generation_) return int32_t(SinkStatus::Busy);
++    const auto length = strnlen(path, 32769);
++    if (length > 32768 || tim2tox::diag::BoundedLogSink::validatePath(std::string(path, length)) != SinkStatus::Ok ||
++        next_generation_ == UINT64_MAX) return int32_t(SinkStatus::Invalid);
++    if (log_file_) {
++        const auto closed = log_file_->close(); log_file_.reset();
++        if (closed != SinkStatus::Ok) { close_uncertain_ = true; return int32_t(closed); }
++    }
++    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
++    SinkStatus status;
++    try { status = candidate->configure(path); }
++    catch (...) {
++        close_uncertain_ = candidate->close() != SinkStatus::Ok;
++        throw;
++    }
++    if (status != SinkStatus::Ok) {
++        close_uncertain_ = status == SinkStatus::InternalUncertain;
++        return int32_t(status);
++    }
++    owned_generation_ = ++next_generation_;
++    *generation = owned_generation_;
++    log_file_ = std::move(candidate);
++    console_output_ = false;
++    return int32_t(SinkStatus::Ok);
++}
++
++int32_t V2TIMLog::appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length) {
++    using tim2tox::diag::SinkStatus;
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (!generation || generation != owned_generation_ || !log_file_) return int32_t(SinkStatus::NotOwner);
++    auto status = log_file_->append(bytes, length);
++    if (status != SinkStatus::Ok && status != SinkStatus::Truncated && status != SinkStatus::Invalid) {
++        const auto closed = log_file_->close(); log_file_.reset();
++        released_generation_ = owned_generation_; owned_generation_ = 0;
++        close_uncertain_ = closed != SinkStatus::Ok || status == SinkStatus::InternalUncertain;
++        if (close_uncertain_) status = SinkStatus::InternalUncertain;
++    }
++    return int32_t(status);
++}
++
++int32_t V2TIMLog::releaseOwnedLog(uint64_t generation) {
++    using tim2tox::diag::SinkStatus;
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (!owned_generation_) {
++        return int32_t(!log_file_ && (!generation || generation == released_generation_) ?
++            SinkStatus::Ok : SinkStatus::NotOwner);
++    }
++    if (!generation || generation != owned_generation_) return int32_t(SinkStatus::NotOwner);
++    const auto status = log_file_->close(); log_file_.reset();
++    released_generation_ = owned_generation_; owned_generation_ = 0;
++    close_uncertain_ = status != SinkStatus::Ok;
++    return int32_t(status);
+@@ -106,3 +176,10 @@
+-    if (log_file_ && log_file_->is_open()) {
+-        *log_file_ << full_message;
+-        log_file_->flush();
++    if (log_file_) {
++        const auto status = log_file_->append(reinterpret_cast<const uint8_t*>(full_message.data()), full_message.size());
++        if (status != tim2tox::diag::SinkStatus::Ok && status != tim2tox::diag::SinkStatus::Truncated) {
++            const auto closed = log_file_->close(); log_file_.reset();
++            released_generation_ = owned_generation_; owned_generation_ = 0;
++            close_uncertain_ = closed != tim2tox::diag::SinkStatus::Ok || status == tim2tox::diag::SinkStatus::InternalUncertain;
++            // Fixed typed failure is visible without re-entering this sink.
++            full_message += "[ERROR] component=logger event=native_file_write_failed\n";
++            console_output_ = true;
++        }
+diff --git a/ffi/tim2tox_ffi.h b/ffi/tim2tox_ffi.h
+--- a/ffi/tim2tox_ffi.h
++++ b/ffi/tim2tox_ffi.h
+@@ -127,0 +128,7 @@
++
++// Owned logging ABI v1. 0 OK, 1 UTF8-truncated, 2 invalid, 3 unsafe path,
++// 4 configure I/O with no owner, 5 stale owner, 6 partial I/O released,
++// 7 busy, 8 uncertain. Only successful configure supplies a nonzero generation.
++int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation);
++int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length);
++int32_t tim2tox_ffi_log_release_owned(uint64_t generation);
+diff --git a/ffi/tim2tox_ffi.cpp b/ffi/tim2tox_ffi.cpp
+--- a/ffi/tim2tox_ffi.cpp
++++ b/ffi/tim2tox_ffi.cpp
+@@ -4235,0 +4236,16 @@
++// Never let a C++ exception cross the Dart C ABI. Status 8 deliberately does
++// not claim that ownership was released; callers must confirm via release.
++int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation) {
++    if (generation) *generation = 0;
++    try { return V2TIMLog::getInstance().configureOwnedLog(path, generation); }
++    catch (...) { return 8; }
++}
++int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length) {
++    try { return V2TIMLog::getInstance().appendOwnedLog(generation, bytes, length); }
++    catch (...) { return 8; }
++}
++int32_t tim2tox_ffi_log_release_owned(uint64_t generation) {
++    try { return V2TIMLog::getInstance().releaseOwnedLog(generation); }
++    catch (...) { return 8; }
++}
++
+diff --git a/dart/lib/ffi/tim2tox_ffi.dart b/dart/lib/ffi/tim2tox_ffi.dart
+--- a/dart/lib/ffi/tim2tox_ffi.dart
++++ b/dart/lib/ffi/tim2tox_ffi.dart
+@@ -15,0 +16,5 @@
++typedef _log_configure_owned_c = ffi.Int32 Function(
++    ffi.Pointer<pkgffi.Utf8>, ffi.Pointer<ffi.Uint64>);
++typedef _log_append_owned_c = ffi.Int32 Function(
++    ffi.Uint64, ffi.Pointer<ffi.Uint8>, ffi.Size);
++typedef _log_release_owned_c = ffi.Int32 Function(ffi.Uint64);
+@@ -1868,0 +1874,42 @@
++  /// Claims the bounded native file sink without taking another owner's sink.
++  /// Status 0 is success and returns a nonzero generation. All other statuses
++  /// leave generation zero; callers must follow the ownership status contract.
++  ({int status, int generation}) configureLogOwned(String absolutePath) {
++    if (absolutePath.contains('\u0000')) return (status: 2, generation: 0);
++    final path = absolutePath.toNativeUtf8();
++    final generation = pkgffi.calloc<ffi.Uint64>();
++    try {
++      final configure = _lib.lookupFunction<
++          _log_configure_owned_c,
++          int Function(ffi.Pointer<pkgffi.Utf8>,
++              ffi.Pointer<ffi.Uint64>)>('tim2tox_ffi_log_configure_owned');
++      final status = configure(path, generation);
++      return (status: status, generation: generation.value);
++    } finally {
++      pkgffi.malloc.free(path);
++      pkgffi.calloc.free(generation);
++    }
++  }
++
++  /// Appends one UTF-8 record only for this generation. Native enforces the
++  /// 64 KiB record and 10 MiB x 10 family bounds, including native writers.
++  int appendLogOwned(int generation, Uint8List bytes) {
++    final append = _lib.lookupFunction<
++        _log_append_owned_c,
++        int Function(
++            int, ffi.Pointer<ffi.Uint8>, int)>('tim2tox_ffi_log_append_owned');
++    final buffer = pkgffi.malloc<ffi.Uint8>(bytes.isEmpty ? 1 : bytes.length);
++    try {
++      buffer.asTypedList(bytes.length).setAll(0, bytes);
++      return append(generation, buffer, bytes.length);
++    } finally {
++      pkgffi.malloc.free(buffer);
++    }
++  }
++
++  /// Releases only the matching generation. Generation zero only confirms
++  /// no owner; it never closes an active managed or legacy sink.
++  int releaseLogOwned(int generation) =>
++      _lib.lookupFunction<_log_release_owned_c, int Function(int)>(
++          'tim2tox_ffi_log_release_owned')(generation);
++
+diff --git a/source/BoundedLogSink.h b/source/BoundedLogSink.h
+new file mode 100644
+--- /dev/null
++++ b/source/BoundedLogSink.h
+@@ -0,0 +1,451 @@
++#ifndef TIM2TOX_BOUNDED_LOG_SINK_H
++#define TIM2TOX_BOUNDED_LOG_SINK_H
++
++#include <algorithm>
++#include <array>
++#include <cerrno>
++#include <cstdint>
++#include <filesystem>
++#include <limits>
++#include <regex>
++#include <string>
++#include <vector>
++#ifdef _WIN32
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#else
++#include <dirent.h>
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <sys/file.h>
++#include <unistd.h>
++#endif
++
++namespace tim2tox::diag {
++
++// Stable C ABI status values. A caller must never infer ownership from an
++// exception, INVALID, UNSAFE_PATH, BUSY or NOT_OWNER.
++enum class SinkStatus : int32_t {
++    Ok = 0, Truncated = 1, Invalid = 2, UnsafePath = 3,
++    IoNoOwner = 4, NotOwner = 5, IoPartialReleased = 6,
++    Busy = 7, InternalUncertain = 8,
++};
++
++// Called exclusively under V2TIMLog's mutex. This is the sole file owner for
++// both typed native records and already-sanitized application records. No
++// callback, queue, configurable production budget, or recursive logging.
++class BoundedLogSink {
++public:
++    static constexpr uint64_t kSegmentBytes = 10 * 1024 * 1024;
++    static constexpr size_t kFileCount = 10;
++    static constexpr size_t kRecordBytes = 64 * 1024;
++    ~BoundedLogSink() { close(); }
++
++    static SinkStatus validatePath(const std::string& path) {
++        const auto p = utf8Path(path);
++        return path.empty() || path.find('\0') != std::string::npos ||
++            !p.is_absolute() || p.filename().empty() || familyRoot(utf8(p.stem())).empty() || p.lexically_normal() != p ?
++            SinkStatus::Invalid : SinkStatus::Ok;
++    }
++
++    SinkStatus configure(const std::string& path) {
++        const auto valid = validatePath(path);
++        if (valid != SinkStatus::Ok) return valid;
++        const auto p = utf8Path(path);
++        name_ = utf8(p.filename());
++        parent_ = p.parent_path();
++        // Numeric suffixes are rotation/session variants of one family.
++        // This partitions names: app.log/app_123.log and foo.log/foo_1.log
++        // cannot have overlapping ledgers protected by different locks.
++        const auto root = familyRoot(utf8(p.stem()));
++        const auto extension = utf8(p.extension());
++        lock_name_ = "." + root + extension + ".sink-lock";
++        family_ = std::regex(escape(root) + "(_[0-9]+)*" + escape(extension));
++        auto status = openDirectory();
++        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        status = openLedgerLock();
++        if (status != SinkStatus::Ok) return failedConfigure(status);
++        std::vector<Entry> entries;
++        status = inventory(entries);
++        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        // Validate every candidate before deleting/trimming anything. A link
++        // anywhere in the recognized ledger makes the entire handoff unsafe.
++        status = prune(entries, kFileCount - (contains(entries, name_) ? 0 : 1));
++        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        const auto active = name_;
++        for (const auto& entry : entries) {
++            if (entry.size <= kSegmentBytes || entry.name == active) continue;
++            name_ = entry.name;
++            status = openActive();
++            if (status == SinkStatus::Ok) status = trimLegacy();
++            if (status != SinkStatus::Ok || !closeActive()) { return failedConfigure(status == SinkStatus::Ok ? SinkStatus::InternalUncertain : status); }
++        }
++        name_ = active;
++        status = openActive();
++        if (status == SinkStatus::Ok) status = trimLegacy();
++        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        return SinkStatus::Ok;
++    }
++
++    SinkStatus append(const uint8_t* data, size_t length) {
++        if (!data || !length) return SinkStatus::Invalid;
++        // Native typed records and Dart's UTF-8 encoder produce valid UTF-8.
++        // Validate the C ABI input before persisting or altering ownership.
++        std::string record;
++        bool truncated = length > kRecordBytes;
++        if (truncated) {
++            size_t keep = kRecordBytes - 96;
++            while (keep && (data[keep] & 0xc0) == 0x80) --keep;
++            if (!validUtf8(data, keep)) return SinkStatus::Invalid;
++            record.assign(reinterpret_cast<const char*>(data), keep);
++            record += "\n[WARN] component=logger event=record_truncated omitted_bytes=" +
++                      std::to_string(length - keep) + "\n";
++        } else {
++            if (!validUtf8(data, length)) return SinkStatus::Invalid;
++            record.assign(reinterpret_cast<const char*>(data), length);
++        }
++        if (!activeValid()) return failReleased(SinkStatus::IoPartialReleased);
++        if (size_ > kSegmentBytes) {
++            const auto trimmed = trimLegacy();
++            if (trimmed != SinkStatus::Ok) return failReleased(trimmed);
++        }
++        if (size_ + record.size() > kSegmentBytes) {
++            auto status = rotate();
++            if (status != SinkStatus::Ok) return failReleased(status);
++        }
++        if (!writeAt(reinterpret_cast<const uint8_t*>(record.data()), record.size(), size_))
++            return failReleased(SinkStatus::IoPartialReleased);
++        size_ += record.size();
++        return truncated ? SinkStatus::Truncated : SinkStatus::Ok;
++    }
++
++    SinkStatus close() {
++        bool ok = closeActive();
++#ifdef _WIN32
++        if (ledger_lock_ != INVALID_HANDLE_VALUE) {
++            const auto handle = ledger_lock_; ledger_lock_ = INVALID_HANDLE_VALUE;
++            ok = CloseHandle(handle) && ok;
++        }
++        for (auto handle : directories_) ok = CloseHandle(handle) && ok;
++        directories_.clear();
++#else
++        if (ledger_lock_ >= 0) { const auto fd = ledger_lock_; ledger_lock_ = -1; ok = (::close(fd) == 0) && ok; }
++        if (directory_ >= 0) { const auto fd = directory_; directory_ = -1; ok = (::close(fd) == 0) && ok; }
++#endif
++        return ok ? SinkStatus::Ok : SinkStatus::InternalUncertain;
++    }
++
++private:
++    struct Entry { std::string name; uint64_t size; int64_t time; };
++    std::filesystem::path parent_;
++    std::string name_, lock_name_;
++    std::regex family_;
++    uint64_t size_ = 0;
++#ifdef _WIN32
++    HANDLE file_ = INVALID_HANDLE_VALUE, ledger_lock_ = INVALID_HANDLE_VALUE;
++    std::vector<HANDLE> directories_;
++    BY_HANDLE_FILE_INFORMATION identity_{};
++#else
++    int file_ = -1, directory_ = -1, ledger_lock_ = -1;
++    struct stat identity_{};
++#endif
++
++    static std::string familyRoot(const std::string& stem) {
++        size_t end = stem.size();
++        for (;;) {
++            size_t digits = end;
++            while (digits && stem[digits - 1] >= '0' && stem[digits - 1] <= '9') --digits;
++            if (digits == end || !digits || stem[digits - 1] != '_') break;
++            end = digits - 1;
++        }
++        return stem.substr(0, end);
++    }
++    static std::string utf8(const std::filesystem::path& path) {
++        const auto bytes = path.u8string();
++        return std::string(bytes.begin(), bytes.end());
++    }
++    static std::filesystem::path utf8Path(const std::string& value) {
++        return std::filesystem::path(std::u8string(value.begin(), value.end()));
++    }
++    static std::string escape(const std::string& value) {
++        return std::regex_replace(value, std::regex(R"([.^$|()\[\]{}*+?\\])"), R"(\$&)");
++    }
++    static bool contains(const std::vector<Entry>& entries, const std::string& name) {
++        return std::any_of(entries.begin(), entries.end(), [&](const auto& e) { return e.name == name; });
++    }
++    static bool validUtf8(const uint8_t* p, size_t n) {
++        for (size_t i = 0; i < n;) {
++            uint32_t cp = p[i++]; size_t following = 0;
++            if (cp < 0x80) continue;
++            if (cp >= 0xc2 && cp <= 0xdf) { cp &= 0x1f; following = 1; }
++            else if (cp >= 0xe0 && cp <= 0xef) { cp &= 0x0f; following = 2; }
++            else if (cp >= 0xf0 && cp <= 0xf4) { cp &= 7; following = 3; }
++            else return false;
++            if (i + following > n) return false;
++            for (size_t j = 0; j < following; ++j) {
++                if ((p[i] & 0xc0) != 0x80) return false;
++                cp = (cp << 6) | (p[i++] & 0x3f);
++            }
++            if ((following == 1 && cp < 0x80) || (following == 2 && cp < 0x800) ||
++                (following == 3 && cp < 0x10000) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
++        }
++        return true;
++    }
++    SinkStatus openDirectory() {
++#ifdef _WIN32
++        auto part = parent_.root_path();
++        if (part.empty()) return SinkStatus::Invalid;
++        for (const auto& component : parent_.relative_path()) {
++            part /= component;
++            HANDLE handle = CreateFileW(part.c_str(), FILE_READ_ATTRIBUTES,
++                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
++                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
++            if (handle == INVALID_HANDLE_VALUE) return SinkStatus::IoNoOwner;
++            directories_.push_back(handle);
++            BY_HANDLE_FILE_INFORMATION info{};
++            if (!GetFileInformationByHandle(handle, &info) ||
++                (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
++                !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return SinkStatus::UnsafePath;
++        }
++#else
++        directory_ = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++        if (directory_ < 0) return SinkStatus::IoNoOwner;
++        for (const auto& component : parent_.relative_path()) {
++            int next = ::openat(directory_, component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++            if (next < 0) return errno == ELOOP || errno == ENOTDIR ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
++            ::close(directory_); directory_ = next;
++        }
++#endif
++        return SinkStatus::Ok;
++    }
++    SinkStatus openLedgerLock() {
++        // A zero-byte family lock prevents two cooperating app processes from
++        // pruning an active session belonging to the other owner. It stores no
++        // diagnostic data and is never removed/replaced while held.
++#ifdef _WIN32
++        ledger_lock_ = CreateFileW((parent_ / utf8Path(lock_name_)).c_str(), GENERIC_READ | GENERIC_WRITE,
++            FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
++        if (ledger_lock_ == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_SHARING_VIOLATION ? SinkStatus::Busy : SinkStatus::IoNoOwner;
++        BY_HANDLE_FILE_INFORMATION info{};
++        if (!GetFileInformationByHandle(ledger_lock_, &info) || info.nNumberOfLinks != 1 ||
++            info.nFileSizeHigh || info.nFileSizeLow ||
++            (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) return SinkStatus::UnsafePath;
++#else
++        ledger_lock_ = ::openat(directory_, lock_name_.c_str(), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
++        if (ledger_lock_ < 0) return errno == ELOOP ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
++        struct stat info{};
++        if (::fstat(ledger_lock_, &info) || !S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_size) return SinkStatus::UnsafePath;
++        if (::flock(ledger_lock_, LOCK_EX | LOCK_NB)) return errno == EAGAIN || errno == EWOULDBLOCK ? SinkStatus::Busy : SinkStatus::IoNoOwner;
++#endif
++        return SinkStatus::Ok;
++    }
++    SinkStatus inspect(const std::string& name, Entry& entry) {
++#ifdef _WIN32
++        HANDLE h = CreateFileW((parent_ / utf8Path(name)).c_str(), FILE_READ_ATTRIBUTES,
++            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
++        if (h == INVALID_HANDLE_VALUE) return SinkStatus::IoNoOwner;
++        BY_HANDLE_FILE_INFORMATION info{};
++        bool safe = GetFileInformationByHandle(h, &info) && info.nNumberOfLinks == 1 &&
++            !(info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
++        CloseHandle(h);
++        if (!safe) return SinkStatus::UnsafePath;
++        entry = {name, (uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow,
++            int64_t((uint64_t(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime)};
++#else
++        struct stat s{};
++        if (::fstatat(directory_, name.c_str(), &s, AT_SYMLINK_NOFOLLOW) != 0) return SinkStatus::IoNoOwner;
++        if (!S_ISREG(s.st_mode) || s.st_nlink != 1) return SinkStatus::UnsafePath;
++        entry = {name, uint64_t(s.st_size), int64_t(s.st_mtime)};
++#endif
++        return SinkStatus::Ok;
++    }
++    SinkStatus inventory(std::vector<Entry>& entries) {
++#ifdef _WIN32
++        WIN32_FIND_DATAW data{};
++        HANDLE find = FindFirstFileW((parent_ / L"*").c_str(), &data);
++        if (find == INVALID_HANDLE_VALUE) return SinkStatus::IoNoOwner;
++        SinkStatus status = SinkStatus::Ok;
++        do {
++            auto utf8 = std::filesystem::path(data.cFileName).u8string();
++            std::string name(utf8.begin(), utf8.end());
++            if (!std::regex_match(name, family_)) continue;
++            Entry entry; status = inspect(name, entry);
++            if (status != SinkStatus::Ok) break;
++            entries.push_back(entry);
++        } while (FindNextFileW(find, &data));
++        if (status == SinkStatus::Ok && GetLastError() != ERROR_NO_MORE_FILES) status = SinkStatus::IoNoOwner;
++        if (!FindClose(find) && status == SinkStatus::Ok) status = SinkStatus::IoNoOwner;
++        return status;
++#else
++        int fd = ::openat(directory_, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++        if (fd < 0) return SinkStatus::IoNoOwner;
++        DIR* dir = ::fdopendir(fd);
++        if (!dir) { ::close(fd); return SinkStatus::IoNoOwner; }
++        SinkStatus status = SinkStatus::Ok;
++        for (;;) {
++            errno = 0;
++            auto item = ::readdir(dir);
++            if (!item) {
++                if (errno) status = SinkStatus::IoNoOwner;
++                break;
++            }
++            std::string name(item->d_name);
++            if (!std::regex_match(name, family_)) continue;
++            Entry entry; status = inspect(name, entry);
++            if (status != SinkStatus::Ok) break;
++            entries.push_back(entry);
++        }
++        if (::closedir(dir) && status == SinkStatus::Ok) status = SinkStatus::IoNoOwner;
++        return status;
++#endif
++    }
++    SinkStatus prune(std::vector<Entry>& entries, size_t maximum) {
++        std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
++            return a.time != b.time ? a.time < b.time : a.name < b.name;
++        });
++        for (auto it = entries.begin(); entries.size() > maximum && it != entries.end();) {
++            if (it->name == name_) { ++it; continue; }
++            Entry checked;
++            auto status = inspect(it->name, checked);
++            if (status != SinkStatus::Ok) return status;
++#ifdef _WIN32
++            if (!DeleteFileW((parent_ / utf8Path(it->name)).c_str())) return SinkStatus::IoNoOwner;
++#else
++            if (::unlinkat(directory_, it->name.c_str(), 0) != 0) return SinkStatus::IoNoOwner;
++#endif
++            it = entries.erase(it);
++        }
++        return entries.size() <= maximum ? SinkStatus::Ok : SinkStatus::IoNoOwner;
++    }
++    SinkStatus openActive() {
++#ifdef _WIN32
++        file_ = CreateFileW((parent_ / utf8Path(name_)).c_str(), GENERIC_READ | GENERIC_WRITE,
++            FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
++        if (file_ == INVALID_HANDLE_VALUE) return SinkStatus::IoNoOwner;
++        if (!GetFileInformationByHandle(file_, &identity_) || identity_.nNumberOfLinks != 1 ||
++            (identity_.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) return SinkStatus::UnsafePath;
++        size_ = (uint64_t(identity_.nFileSizeHigh) << 32) | identity_.nFileSizeLow;
++#else
++        file_ = ::openat(directory_, name_.c_str(), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
++        if (file_ < 0) return errno == ELOOP ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
++        if (::fstat(file_, &identity_) || !S_ISREG(identity_.st_mode) || identity_.st_nlink != 1) return SinkStatus::UnsafePath;
++        size_ = identity_.st_size;
++#endif
++        return SinkStatus::Ok;
++    }
++    bool activeValid() {
++#ifdef _WIN32
++        BY_HANDLE_FILE_INFORMATION info{};
++        if (file_ == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(file_, &info) || info.nNumberOfLinks != 1) return false;
++        size_ = (uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
++        return true;
++#else
++        struct stat fd{}, path{};
++        if (file_ < 0 || ::fstat(file_, &fd) || fd.st_nlink != 1 ||
++            ::fstatat(directory_, name_.c_str(), &path, AT_SYMLINK_NOFOLLOW) ||
++            fd.st_dev != path.st_dev || fd.st_ino != path.st_ino || !S_ISREG(path.st_mode)) return false;
++        size_ = uint64_t(fd.st_size);
++        return true;
++#endif
++    }
++    bool closeActive() {
++#ifdef _WIN32
++        if (file_ == INVALID_HANDLE_VALUE) return true;
++        auto handle = file_; file_ = INVALID_HANDLE_VALUE; return CloseHandle(handle);
++#else
++        if (file_ < 0) return true;
++        auto fd = file_; file_ = -1; return ::close(fd) == 0;
++#endif
++    }
++    bool writeAt(const uint8_t* data, size_t n, uint64_t offset) {
++        while (n) {
++#ifdef _WIN32
++            LARGE_INTEGER position; position.QuadPart = offset;
++            DWORD done = 0;
++            if (!SetFilePointerEx(file_, position, nullptr, FILE_BEGIN) ||
++                !WriteFile(file_, data, DWORD(n), &done, nullptr) || !done) return false;
++#else
++            ssize_t done = ::pwrite(file_, data, n, off_t(offset));
++            if (done < 0 && errno == EINTR) continue;
++            if (done <= 0) return false;
++#endif
++            data += done; n -= done; offset += done;
++        }
++        return true;
++    }
++    bool readAt(uint8_t* data, size_t n, uint64_t offset) {
++#ifdef _WIN32
++        LARGE_INTEGER position; position.QuadPart = offset; DWORD done = 0;
++        return SetFilePointerEx(file_, position, nullptr, FILE_BEGIN) &&
++            ReadFile(file_, data, DWORD(n), &done, nullptr) && done == n;
++#else
++        return ::pread(file_, data, n, off_t(offset)) == ssize_t(n);
++#endif
++    }
++    SinkStatus trimLegacy() {
++        if (size_ <= kSegmentBytes) return SinkStatus::Ok;
++        // Bounded in-place tail repair of pre-fix oversized active logs: no
++        // temporary second segment, extra quota, or whole-file allocation.
++        const auto omitted = size_ - (kSegmentBytes - 128);
++        std::array<uint8_t, kRecordBytes> buffer{};
++        uint64_t from = omitted;
++        uint8_t byte{};
++        while (from < size_) {
++            if (!readAt(&byte, 1, from)) return SinkStatus::IoPartialReleased;
++            if ((byte & 0xc0) != 0x80) break;
++            ++from;
++        }
++        std::string marker = "[WARN] component=logger event=legacy_prefix_trimmed omitted_bytes=" + std::to_string(from) + "\n";
++        uint64_t to = marker.size();
++        if (!writeAt(reinterpret_cast<const uint8_t*>(marker.data()), marker.size(), 0)) return SinkStatus::IoPartialReleased;
++        while (from < size_) {
++            const size_t count = size_t(std::min<uint64_t>(buffer.size(), size_ - from));
++            if (!readAt(buffer.data(), count, from) || !writeAt(buffer.data(), count, to)) return SinkStatus::IoPartialReleased;
++            from += count; to += count;
++        }
++#ifdef _WIN32
++        LARGE_INTEGER end; end.QuadPart = to;
++        if (!SetFilePointerEx(file_, end, nullptr, FILE_BEGIN) || !SetEndOfFile(file_)) return SinkStatus::IoPartialReleased;
++#else
++        if (::ftruncate(file_, off_t(to))) return SinkStatus::IoPartialReleased;
++#endif
++        size_ = to; return SinkStatus::Ok;
++    }
++    SinkStatus rotate() {
++        if (!activeValid() || !closeActive()) return SinkStatus::IoPartialReleased;
++        std::vector<Entry> entries;
++        auto status = inventory(entries);
++        if (status != SinkStatus::Ok) return status;
++        uint64_t sequence = 0;
++        const auto stem = utf8(utf8Path(name_).stem());
++        const auto extension = utf8(utf8Path(name_).extension());
++        std::string history;
++        do {
++            if (++sequence == std::numeric_limits<uint64_t>::max()) return SinkStatus::Invalid;
++            history = stem + "_" + std::to_string(sequence) + extension;
++        } while (contains(entries, history));
++#ifdef _WIN32
++        if (!MoveFileW((parent_ / utf8Path(name_)).c_str(), (parent_ / utf8Path(history)).c_str())) return SinkStatus::IoNoOwner;
++#else
++        // linkat without AT_SYMLINK_FOLLOW cannot touch a substituted target;
++        // never replace an existing history segment. The active fd is closed.
++        if (::linkat(directory_, name_.c_str(), directory_, history.c_str(), 0) ||
++            ::unlinkat(directory_, name_.c_str(), 0)) return SinkStatus::IoNoOwner;
++#endif
++        entries.clear(); status = inventory(entries);
++        if (status != SinkStatus::Ok) return status;
++        status = prune(entries, kFileCount - 1);
++        return status == SinkStatus::Ok ? openActive() : status;
++    }
++    SinkStatus failedConfigure(SinkStatus original) {
++        return close() == SinkStatus::Ok ? original : SinkStatus::InternalUncertain;
++    }
++    SinkStatus failReleased(SinkStatus original) {
++        return close() == SinkStatus::Ok ?
++            (original == SinkStatus::UnsafePath ? original : SinkStatus::IoPartialReleased) : SinkStatus::InternalUncertain;
++    }
++};
++} // namespace tim2tox::diag
++#endif
