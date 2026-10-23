@@ -100,8 +100,12 @@ def inspect_app(repo, app, output):
     # Reuse the same final-native and declaration gates as package CI.
     info = plistlib.loads((app / "Info.plist").read_bytes())
     entry = info["CFBundleExecutable"]
-    if not isinstance(entry, str) or Path(entry).name != entry:
+    if not isinstance(entry, str) or not entry or entry in (".", "..") or Path(entry).name != entry:
         raise ValueError("Invalid app executable name")
+    executable = app / entry
+    if (not executable.is_file() or not executable.resolve().is_relative_to(app.resolve())
+            or not executable.stat().st_mode & 0o111):
+        raise ValueError("App executable must be an executable regular file inside the app")
     if list(app.rglob("*.appex")) or list(app.rglob("*.app")):
         raise ValueError("Additional signed targets need a reviewed profile policy")
     run([sys.executable, str(repo / "tool/ci/native_payload.py"), str(app), "--format", "macho",
@@ -115,9 +119,10 @@ def inspect_app(repo, app, output):
 
 
 def inspect_archive(repo, output):
-    app = output / "Runner.xcarchive/Products/Applications/Runner.app"
-    if not app.is_dir():
-        raise ValueError("Xcode did not produce the expected application archive")
+    applications = output / "Runner.xcarchive/Products/Applications"
+    app = applications / "Runner.app"
+    if not app.is_dir() or list(applications.iterdir()) != [app]:
+        raise ValueError("Xcode archive must contain exactly one expected application")
     inspect_app(repo, app, output / "archive-evidence")
 
 

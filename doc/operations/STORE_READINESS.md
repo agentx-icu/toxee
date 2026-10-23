@@ -138,6 +138,9 @@ directories, preventing stale IPA reuse. It validates archive and exported nativ
 payload/declarations, signature integrity, profile expiry, explicit app/team
 entitlements, disabled debugging, and the actual signer certificate bound to the
 profile. Device/ad-hoc/enterprise profiles and internal-only exports are rejected.
+The archive must contain only the expected application; its declared executable
+must be a regular file inside the bundle with executable permissions. The native
+inventory also checks its actual Mach-O header and architecture.
 
 The entry uses unsigned `flutter build ios --config-only` and direct Xcode archive
 and export commands. It never passes automatic provisioning/device-registration
@@ -152,7 +155,7 @@ Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
 passed the real Xcode archive command and inspected all 45 arm64 native images,
 built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
 That local run reused the existing device FFI binary; CI rebuilds it from the
-pinned source. Nine export-policy/failure regressions, five Apple metadata
+pinned source. Twelve export-policy/failure/bundle-boundary regressions, five Apple metadata
 regressions and eleven native-payload regressions pass. No owner-signed export,
 store upload or device installation was performed.
 

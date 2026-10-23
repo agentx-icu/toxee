@@ -104,6 +104,8 @@ python3 tool/ci/ios_store_export.py --team-id ABCDE12345 \
 防止失败后复用旧 IPA；检查 archive/导出包原生库和声明、签名完整性、profile 到期、明确的
 app/team entitlement、禁用调试，以及 profile 绑定的真实 app signer 证书。
 设备/ad-hoc/enterprise profile 与仅内部 TestFlight 的导出均拒绝。
+archive 仅允许预期应用；声明的可执行文件必须是 bundle 内具备执行权限的实际文件。
+原生 inventory 继续检查其真实 Mach-O header 与架构。
 
 入口先以 `flutter build ios --config-only --no-codesign` 生成配置，再直接调用 Xcode archive/export；
 不传自动 provisioning/设备注册参数，不上传。直接使用 signed `flutter build ipa` 会传这些自动参数，
@@ -114,7 +116,7 @@ app/team entitlement、禁用调试，以及 profile 绑定的真实 app signer 
 2026-10-23 本地真实 unsigned archive 验证：Flutter 3.41.9、Xcode 26.4.1（17E202）、
 iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archive 成功，45 个 arm64
 原生文件、built 声明/隐私清单、嵌入 Tim2Tox 无 test-hook 检查通过。本地复用了已有真机 FFI，
-CI 从锁定源码重建。导出策略/失败传播回归 9 项、Apple metadata 回归 5 项、native payload
+CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 12 项、Apple metadata 回归 5 项、native payload
 回归 11 项通过。没有执行负责人正式签名导出、商店上传或真机安装。
 
 | Checklist ID | 状态 | 证据和仍需验收 |

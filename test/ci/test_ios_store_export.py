@@ -112,6 +112,40 @@ class IosStoreExportTests(unittest.TestCase):
                 store.build(self.root, self.root, None, None, None, True)
             runner.assert_not_called()
 
+    def test_empty_and_directory_executable_names_rejected_before_inspection(self):
+        app = self.root / "Runner.app"
+        app.mkdir()
+        for entry in ("", ".", ".."):
+            (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": entry}))
+            with self.subTest(entry=entry), patch.object(store, "run") as runner:
+                with self.assertRaises(ValueError):
+                    store.inspect_app(self.root, app, self.root / "evidence")
+                runner.assert_not_called()
+
+    def test_nonexecutable_app_entry_rejected_before_inspection(self):
+        app = self.root / "Runner.app"
+        app.mkdir()
+        (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "Runner"}))
+        executable = app / "Runner"
+        executable.write_bytes(bytes.fromhex("cffaedfe"))
+        executable.chmod(0o644)
+        with patch.object(store, "run") as runner:
+            with self.assertRaisesRegex(ValueError, "executable regular file"):
+                store.inspect_app(self.root, app, self.root / "evidence")
+            runner.assert_not_called()
+
+    def test_archive_rejects_additional_products_before_inspection(self):
+        applications = self.root / "Runner.xcarchive/Products/Applications"
+        (applications / "Runner.app").mkdir(parents=True)
+        for name in ("Other.app", "Other.appex", "unreviewed-file"):
+            extra = applications / name
+            extra.mkdir()
+            with self.subTest(name=name), patch.object(store, "inspect_app") as inspect:
+                with self.assertRaisesRegex(ValueError, "exactly one"):
+                    store.inspect_archive(self.root, self.root)
+                inspect.assert_not_called()
+            extra.rmdir()
+
     def test_actual_signer_mismatch_cannot_produce_distribution_evidence(self):
         (self.root / "ipa").mkdir()
         (self.root / "ipa/App.ipa").write_bytes(b"fixture, not an exported application")
