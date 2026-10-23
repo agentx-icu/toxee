@@ -71,11 +71,10 @@ List<TencentCloudChatMessageGeneralOptionItem> buildToxeeDesktopInputOptions(
                     (userId: userID, nickName: '', online: false, status: ''),
               );
               if (!friends.any((f) => f.userId == normalizeToxId(userID))) {
-                showSnackBar(AppLocalizations.of(context)!.userNotInFriendList);
+                showSnackBar(appL10n.userNotInFriendList);
                 return;
               }
               if (!friend.online) {
-                final appL10n = AppLocalizations.of(context)!;
                 // Send a text message to chat window indicating failure (two lines: error + file path)
                 final qrPath = await createSelfQrCardImage();
                 final twoLineMsg =
@@ -87,9 +86,8 @@ List<TencentCloudChatMessageGeneralOptionItem> buildToxeeDesktopInputOptions(
               final qrPath = await createSelfQrCardImage();
               await service.sendFile(userID, qrPath);
               showSnackBar(sentSnack);
-            } catch (e, stackTrace) {
+            } catch (e) {
               // Provide more user-friendly error messages
-              final appL10n = AppLocalizations.of(context)!;
               final errorMsg = e.toString();
               String userMsg;
               if (errorMsg.contains('offline') ||
@@ -120,7 +118,6 @@ List<TencentCloudChatMessageGeneralOptionItem> buildToxeeDesktopInputOptions(
               } else {
                 // Extract error message without file path
                 String errorText = e.toString();
-                final appL10n = AppLocalizations.of(context)!;
                 // Remove file path from error message if present
                 if (errorText.contains('File does not exist')) {
                   errorText = appL10n.fileDoesNotExist;

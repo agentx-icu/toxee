@@ -27,7 +27,9 @@ Future<void> main(List<String> args) async {
   for (var i = 0; i < 80; i++) {
     final ii = await vm.getIsolate(iso);
     if ((ii.extensionRPCs ?? const <String>[])
-        .contains('ext.mcp.toolkit.l3_dump_state')) break;
+        .contains('ext.mcp.toolkit.l3_dump_state')) {
+      break;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 500));
   }
   // Poll for up to 75s to see if it connects / reaches Home / times out.
@@ -42,7 +44,7 @@ Future<void> main(List<String> args) async {
     }
     await Future<void>.delayed(const Duration(seconds: 5));
   }
-  final d = await raw('ext.mcp.toolkit.l3_dump_state', {});
+  await raw('ext.mcp.toolkit.l3_dump_state', {});
   final el = await raw('ext.flutter.flutter_skill.interactiveStructured', {});
   final data = el['data'];
   final elements = (data is Map ? data['elements'] : null) as List? ?? [];

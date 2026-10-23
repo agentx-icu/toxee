@@ -14,7 +14,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conversation_item.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 
 const _kRowWidth = 320.0;

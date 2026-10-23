@@ -16,10 +16,10 @@ store readiness still requires the owner's declarations and device evidence.
 | --- | --- | --- |
 | Android final APK/AAB | **Verified by automated checks**: every native library's ELF ABI and load-segment alignment; required app/Flutter/Tim2Tox libraries per selected ABI; 16 KB ZIP offsets for uncompressed APK libraries; final APK merged identity, target SDK, permissions and debuggable flag; actual APK signature and every AAB entry's JAR signature. Reports include artifact/library SHA-256. | AAB ZIP offsets do not establish the alignment of Play-delivered APKs. Use bundletool/Play delivery, review device filtering and merged AAB declarations, and exercise native loading on a real 16 KB device with compatibility fallback disabled. |
 | Android distribution intent | **Verified gate** in Gradle and the local packager as well as CI: configured upload-certificate SHA-256, no debug signer, matching actual APK/AAB signer, complete signing inputs. Invalid ZIPs, unsigned/tampered entries, missing identity and wrong signer fail. | Owner supplies approved upload key and console identity. Play App Signing's delivery certificate is a separate identity. |
-| Windows MSI | **Verified gate**: all final staged EXE/DLL architecture checks, including runtime DLLs copied after the Flutter build; owned code/installer must match the configured publisher thumbprint when signing is enabled; valid third-party signatures are preserved. MSI smoke checks all installed PE files, startup, repair and uninstall. | Trusted publisher certificate, final signed-installer trust evidence, previous-version update/data-preservation test and store listing. Development jobs can remain unsigned. |
+| Windows MSI | Final staged EXE/DLL architecture and publisher gates remain. The app-local MSVC CRT gate additionally requires vendor signatures, complete runtime imports and loaded modules from the installed directory; Windows CI must exercise it on both machines. MSI smoke covers installed PE files, startup, repair and uninstall. | Trusted publisher certificate, redistribution rights, final signed-installer trust evidence, previous-version update/data-preservation test and store listing. Development jobs can remain unsigned; bundled Microsoft CRTs must retain valid vendor signatures. |
 | macOS PKG / built iOS app | **Verified checks**: all built native images match the selected architecture; built app-owned and SDK privacy manifests are inventoried; source-declared permission strings and actual bundle ID are checked. Final macOS signatures and functional sandbox entitlements are checked, and get-task-allow is rejected. A signed iOS app with corrupt signatures cannot pass as an unsigned build. Reports retain actual SDK metadata and declarations. | API-reason/collection audit, publisher identity, archive/export, provisioning, privacy report and device tests. Ad-hoc signing establishes integrity only. |
-| Linux DEB/RPM | **Verified gate**: every staged native object matches the selected architecture; missing/corrupt shared libraries and external/dangling runtime symlinks fail. | Clean-distribution installation, upgrade/uninstall, signing/metadata and channel-specific sandbox qualification. |
-| iOS distribution entry | **Verified restriction**: TOXEE_REQUIRE_SIGNING=1 refuses the development IPA packager. | Implement and qualify an owner-approved Xcode archive/export flow before using this channel for App Store submissions. A certificate alone does not make the existing zip-based IPA an App Store export. |
+| Linux DEB/RPM | **Verified inventory gate**: staged native objects, architecture and runtime links. A separate clean Ubuntu 24.04 container gate now installs the final DEB, checks dependency closure before harness installation, compares installed bytes/modes, launches as nobody, observes the same PID's X11 window and engine/FFI maps, gracefully closes and uninstalls. Final CI evidence is required per native architecture. | RPM and other distributions, Wayland, hardware, previous-version upgrade, signing and channel sandbox qualification remain separate. |
+| iOS distribution entry | **Verified restriction**: TOXEE_REQUIRE_SIGNING=1 refuses the development IPA packager. A separate local-only archive/export entry validates explicit manual export policy and the exported signature/profile identity. | Qualify a real owner-signed export and device installation. An unsigned archive or the existing zip-based IPA is not an App Store export. |
 
 The regression fixtures cover real aapt2/apksigner/JDK signature operations,
 real compiled macOS signing, and controlled corrupt/mismatched payloads. Synthetic
@@ -66,6 +66,183 @@ Those identities and Developer ID notarization are distinct from Mac App Store
 signing and provisioning.
 
 ## Channel decisions and owner handoff
+
+### Native desktop prerequisites and installed evidence
+
+PR #140's ARM64 payload inventory had 23 native images and no MSVC CRT. Actual
+PE imports required MSVCP140/VCRUNTIME140, plus MSVCP140_ATOMIC_WAIT from Tim2Tox;
+the hosted runner's preinstalled tools masked that missing app-local dependency.
+CMake now selects release CRTs from the configured toolchain's target-specific
+VCToolsRedistDir (or CMake's InstallRequiredSystemLibraries), rejects missing,
+debug, ambiguous and wrong-CPU inputs, and installs a redistribution notice.
+Before and after signing, the final package verifies the original Microsoft
+Authenticode signatures and every PE's runtime import closure. The installed
+smoke checks that loaded CRT modules come from the app directory, preserving
+vendor signatures instead of re-signing Microsoft's files with the publisher key.
+The standalone signing entry also rejects invalid/unsigned/non-Microsoft CRTs
+before tool discovery and keeps CRTs out of its re-sign branch. Windows CI mutates
+a copy of a real signed runtime to verify rejection without invoking a signer.
+Read-only PKCS7 inspection of Microsoft's official redists found two precise
+publisher CNs: `Microsoft Corporation` (ARM64) and `Microsoft Windows Software
+Compatibility Publisher` (x64). Both also require the exact Microsoft Corporation
+organization and a Valid Windows Authenticode result. The inspected x64 installer
+SHA-256 was `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`.
+Offline certificate extraction alone does not establish signature trust.
+Installed close requires exit code zero. The runner explicitly destroys the
+controller through OnDestroy before COM teardown, clearing its client pointer
+before native-window callbacks can re-enter Flutter during controller disposal;
+font-change handling also tolerates that cleared pointer. Both Windows targets
+must prove the actual installed shutdown in the latest PR head's CI.
+
+ARM64 is deliberate: the official Microsoft ARM64 redistributable inspected on
+2026-10-23 contains ARM64X MSVCP/VCRUNTIME/atomic-wait DLLs and an EC-only
+vcruntime140_1.dll. Native ARM64 imports in the prior package do not reference
+that EC-only supplement, so it is excluded; x64 still requires the three DLLs
+listed by Flutter. The inspected ARM64X CRTs retain raw PE Machine AA64, while
+that EC-only supplement has raw Machine 8664. The original strict AA64 gate is
+unchanged; no general mixed-machine exception is introduced. CRT filenames are
+reviewed and every included CRT must have a valid Microsoft signature.
+The downloaded reference installer SHA-256 was
+`5139e1440c3a20b92153a4db561c069a0175aaf76c276c3e5b6f56099edcf4b0`;
+CI uses its own compiler-selected redist, not that downloaded installer. Windows
+10/11 supplies the Universal CRT. See [Flutter Windows distribution](https://docs.flutter.dev/platform-integration/windows/building#building-your-own-zip-file-for-windows),
+[Microsoft redistribution](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)
+and [ARM64X compatibility](https://learn.microsoft.com/en-us/windows/arm/arm64x-pe).
+The owner must confirm the applicable Visual Studio redistribution rights;
+successful copying/signature verification does not grant a license.
+
+Both Linux package jobs run the clean-container DEB gate on their native
+x86_64/aarch64 hosts, with no SDK or host desktop/data mounted. Its JSON/logs
+retain the exact DEB/image identity, package dependencies, installed hashes,
+window/PID/maps and uninstall result, including on failure. Xvfb software
+rendering proves this bounded Ubuntu/X11 startup path; it does not establish
+RPM/Wayland, real GPU/audio/camera/network behavior or an old-version upgrade.
+DSO dependency inspection may use only the installed app's private library
+directory to model companions already loaded by the engine; the actual GUI
+launch has no LD_LIBRARY_PATH override and must map the installed engine/FFI.
+The first clean installations exposed a missing libEGL loader: both architectures
+aborted before a window appeared. DEB now explicitly requires libegl1/libgl1/libgles2
+and RPM declares their SONAMEs, because libepoxy uses dlopen and static shlibdeps
+cannot discover them. The final native DEB gate must verify the corrected package;
+the RPM declaration does not establish an installed RPM result.
+Before installing the harness, the gate resolves the exact three loader SONAMEs,
+checks their real files/native architecture and dependency closure, and records
+the result. Harness-provided graphics packages cannot satisfy this earlier gate.
+Linux caption close still awaits the application's window/account checkpoint;
+after success it uses Flutter's SystemNavigator.pop application-quit path. This
+avoids window_manager synchronously destroying the GTK/GL view during engine
+shutdown ([upstream report](https://github.com/leanflutter/window_manager/issues/585)).
+MethodChannel regressions check pending saves, cancellation/retry and duplicate
+close coalescing; final native DEB smoke still requires real exit code zero.
+
+### Local iOS archive and manual export
+
+After the normal dependency bootstrap and staging a hook-free device Tim2Tox
+framework, run `python3 tool/ci/ios_store_export.py --unsigned-archive` for an
+unsigned Xcode archive. The iOS package job runs this path and retains the
+archive, dSYMs and inspection reports for seven days. It is **not a signed or
+store-submittable IPA**. Keep any build selected for release beyond CI expiry.
+
+For an owner-controlled environment with an existing installed Apple Distribution
+certificate/private key and App Store provisioning profile, supply an approved
+ExportOptions.plist and run:
+
+```bash
+python3 tool/ci/ios_store_export.py --team-id ABCDE12345 \
+  --certificate-sha1 OWNER_CERTIFICATE_SHA1 \
+  --export-options /secure/local/ExportOptions.plist
+```
+
+Replace the public IDs/fingerprint placeholders. The plist must explicitly set
+`method=app-store-connect`, `destination=export`, `signingStyle=manual`, the same
+`teamID`, `signingCertificate` as the exact 40-hex SHA-1, and one
+`provisioningProfiles` mapping from `com.toxee.app` to the existing profile name
+or UUID. No example signing team, profile or legal owner is approved by this doc.
+The entry snapshots the policy before building and rejects existing output
+directories, preventing stale IPA reuse. It validates archive and exported native
+payload/declarations, signature integrity, profile expiry, explicit app/team
+entitlements, disabled debugging, and the actual signer certificate bound to the
+profile. Device/ad-hoc/enterprise profiles and internal-only exports are rejected.
+The archive must contain only the expected application; its declared executable
+must be a regular file inside the bundle with executable permissions. The native
+inventory also checks its actual Mach-O header and architecture.
+The archive root must be a real directory. All retained links, including dSYMs, must resolve internally and use
+relative targets so the tar remains usable after extraction elsewhere.
+
+The entry uses unsigned `flutter build ios --config-only` and direct Xcode archive
+and export commands. It never passes automatic provisioning/device-registration
+flags and does not upload. Calling signed `flutter build ipa` directly can pass
+those flags; do not use it to enforce this task's no-account-change boundary.
+Inspect `archive-evidence` and `export-evidence/distribution.json`; fixture policy
+tests do not establish real signing or App Store approval. Xcode's supported export
+keys were checked with local Xcode 26.4.1 `xcodebuild -help` on 2026-10-23.
+
+This store-preparation entry requires built `DTXcode` metadata for Xcode 26+
+and `DTSDKName=iphoneos26+` for both unsigned archives and exported applications.
+The two version floors are independent. Missing, malformed, simulator or old metadata
+fails before the export command or distribution evidence can succeed. CI uses
+`macos-26`, explicitly selects an installed Xcode 26+ through `DEVELOPER_DIR`,
+and checks its actual iPhoneOS SDK before building; it does not change the global
+Xcode selection or install a toolchain. An earlier hosted compatibility archive
+recorded Xcode 16.4 / iPhoneOS 18.5 and does not meet the current store floor.
+The ordinary development IPA path is separate. This minimum follows Apple's
+[submission requirements](https://developer.apple.com/news/upcoming-requirements/)
+reviewed on 2026-10-23; future submissions still need a fresh policy review.
+The newer hosted Xcode also rejected the generated framework identifier's
+underscore. The build now emits `org.toxee.tim2tox-ffi`; framework/executable
+names and the runtime load path remain `tim2tox_ffi`.
+
+Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
+26.4.1 (17E202), iphoneos26.4 (23E252), app 0.1.0+1, minimum iOS 15.5. It
+passed the real Xcode archive command and inspected all 45 arm64 native images,
+built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
+That local run reused the existing device FFI binary; CI rebuilds it from the
+pinned source. Nineteen export-policy/failure/bundle-boundary regressions, five Apple metadata
+regressions and eleven native-payload regressions pass. No owner-signed export,
+store upload or device installation was performed.
+
+The former advisory analyzer returned exit 1 for 62 warnings and 189 infos even
+while GitHub displayed success. Its 251 normalized findings exactly matched
+merged #140; none originated in the native changes. Source fixes now address
+async error ownership, lifecycle/context guards and the remaining diagnostics,
+with existing dependency versions retained. The same full-scope strict command
+`flutter analyze lib tool test integration_test` is a failing CI gate, with no
+continue-on-error, ignored rules or reduced scope. Local zero-diagnostic output
+does not replace final-head CI, behavioral regressions or physical-device tests.
+The coverage job sets `TOXEE_TESTS_NEED_NATIVE=1` after staging the real FFI,
+so encrypted-password cancellation must execute instead of taking the optional
+native-test skip. macOS-only signing cases remain platform-specific and are
+executed on macOS; Linux coverage does not establish those checks.
+
+| Checklist IDs | Status | Evidence and remaining qualification |
+| --- | --- | --- |
+| P1, P4 | verified (inspection gates); to do (owner audit) | Built Apple metadata/native inspection runs on archive and export; SDK/API reasons, data disclosures and selected console answers still require owner review. |
+| W4, X6 | verified (unsigned archive and policy gates); to do (distribution) | Real unsigned Xcode archive above; negative tests reject upload, automatic signing, wrong team/profile/certificate, expiry, development/device/enterprise identity and stale output. Real manual signed export/install remains untested. |
+| X9 | to do | Archive/dSYMs retained for seven days; native reporter coverage, symbol match and controlled release crash symbolication are not established by archiving alone. |
+| X4 | needs device | Owner signs/exports, installs and upgrades on iPhone/iPad, then exercises permissions, network/media and preserved user data. |
+| X5 | verified (change scope); parity qualification retained | Platform packaging gates and analyzer-required async/lifecycle corrections are covered by their regressions and final native CI. Android retains its final-artifact gate; this does not establish general feature parity. |
+| L*, D*, I*, B*, M*, F* | existing audit states retained | Async/lifecycle safety corrections do not establish layout, input, media, performance or device qualification. Existing full-audit limitations remain; mobile checklist item 12 gains archive evidence, not formal release qualification. |
+
+### Materials the release owner must supply
+
+Public identifiers, URLs and certificate fingerprints may be recorded in release
+evidence. Private keys, passwords, tokens and reviewer credentials stay only in
+the owner's secure environment or the store's designated secret fields. No secret
+is requested in this repository or PR.
+
+| Platform/channel | Material and purpose | Where the owner obtains or confirms it | Blocked step |
+| --- | --- | --- | --- |
+| Apple iOS/iPadOS and MAS | Legal publisher, Team ID, app record and bundle ID; public IDs bind package to owner | Apple Developer **Account → Membership details**; **Certificates, Identifiers & Profiles → Identifiers**; App Store Connect **My Apps → app → App Information** | Real owner identity/export and console configuration |
+| Apple iOS/iPadOS | Existing Apple Distribution certificate SHA-1, matching App Store profile and approved manual ExportOptions | Apple Developer **Certificates, Identifiers & Profiles → Certificates / Profiles**; Keychain Access **My Certificates** for the installed key's fingerprint; owner-managed Xcode archive export options | Signed local export, device installation/update; private key/password only configured locally |
+| Direct macOS | Existing Developer ID Application/Installer identities and notarytool profile | Apple Developer **Certificates**; Keychain Access **My Certificates**; owner's already configured notarytool keychain profile | Trusted PKG signing, notarization, quarantined-download test |
+| Google Play/Android stores | Permanent package record, approved upload-certificate SHA-256 and distinct delivery-certificate SHA-256 | Play Console **app → Test and release → Setup → App signing**; other chosen store's app/signature console; owner-held upload keystore | Strict distribution APK/AAB and signed upgrade; private keystore/passwords only in owner environment or existing GitHub Actions secret fields |
+| Microsoft hosted MSI/EXE | Publisher/product record, existing trusted code-signing identity thumbprint, immutable HTTPS installer URL | Partner Center **Apps and games → product**; owner's certificate provider/store and certificate manager; owner-approved download hosting | Trusted PE/MSI signing and hosted-installer certification; key/token only in secure signing host |
+| Windows CRT redistribution | Applicable licensed-toolchain redistribution rights/terms; approve unmodified Microsoft release-runtime delivery | Owner's Visual Studio license records and the applicable Microsoft [2022](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution) / [2026](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution) redistribution list | Legal release qualification; the code/signature gate does not grant rights or accept agreements |
+| Microsoft MSIX (optional) | Chosen package Identity Name, Publisher and store record | Partner Center **product → Product identity** | Separate MSIX implementation/qualification; Store signing does not require buying a private distribution certificate |
+| All selected stores | Approved privacy/support/deletion URLs, SDK/data-flow disclosure, legal copyright, age/audience answers, localized listing text/screenshots, review instructions and UGC contact/response process | Owner's approved public pages and legal/operations records; App Store Connect **App Privacy / App Information / App Review**; Play Console **Policy and programs → App content / Store presence**; Partner Center submission **Properties / Age ratings / Store listings / Certification notes** | Owner declarations, review access and policy review; reviewer credentials only in store's secure review fields |
+| China Android channels (conditional) | Region, publisher verification and applicable APP filing/sector materials | Selected channel's developer console and owner's filing/legal records | Channel-specific eligibility; do not infer applicability from another store |
+| Flathub/Snap/feeds (optional) | Channel decision, name/app ID ownership, human-maintained submission materials and sandbox evidence | Respective publisher console and official submission process | Channel-specific packaging/review; Flathub manifests and submission PR work remain human-owned |
+| Every actual release | Exact artifact hash/version, console-selected regions/track, previous signed build and physical-device results | CI artifacts plus owner-held release archive and store testing tracks/device lab | Install/update/data preservation, permission/network/media and real 16 KB tests; no account material substitutes for these checks |
 
 No channel below is marked ready for submission. For each chosen channel, the
 release owner must retain console screenshots/exports, exact submitted hashes,
@@ -118,6 +295,10 @@ checklist IDs retain their previous audit state, not a new blanket verified stat
 python3 -m unittest discover -s test/ci -p 'test_android*.py'  # SDK + JDK 17 required
 python3 -m unittest discover -s test/ci -p 'test_desktop_native_payload.py'
 python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
+python3 -m unittest discover -s test/ci -p 'test_ios_store_export.py'
+python3 -m unittest discover -s test/ci -p 'test_msvc_runtime.py'
+python3 -m unittest discover -s test/ci -p 'test_linux_installed_smoke.py'
+pwsh -NoProfile -File tool/ci/test_windows_runtime_policy.ps1
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```

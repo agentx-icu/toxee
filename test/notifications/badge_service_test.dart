@@ -16,9 +16,9 @@ import 'package:toxee/util/logger.dart';
 /// [BadgeService] swallows by design, which is exactly why the real plugin
 /// cannot be used to tell "wrote 3" apart from "wrote nothing".
 class _RecordingBadgeWriter implements BadgeWriter {
-  _RecordingBadgeWriter({this.supported = true});
+  _RecordingBadgeWriter();
 
-  bool supported;
+  bool supported = true;
 
   /// When non-null, [isSupported] throws this once and then clears it.
   Object? throwOnNextIsSupported;

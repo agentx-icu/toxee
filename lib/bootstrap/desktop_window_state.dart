@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
@@ -100,7 +102,15 @@ class DesktopWindowState with WindowListener, ScreenListener {
     if (_closing) return;
     _closing = true;
     try {
-      if (await prepareToExit()) await windowManager.destroy();
+      if (await prepareToExit()) {
+        if (defaultTargetPlatform == TargetPlatform.linux) {
+          // Flutter quits the application without destroying the GTK view's
+          // GL context while the engine is still completing raster work.
+          await SystemNavigator.pop();
+        } else {
+          await windowManager.destroy();
+        }
+      }
     } finally {
       _closing = false;
     }

@@ -94,7 +94,7 @@ abstract final class FullBackupRestoreTransaction {
 
   /// For tests that abandon a transaction mid-flight.
   @visibleForTesting
-  static void resetOwnership() => _ownership.reset();
+  static void resetOwnership() => _ownership.release();
 
   static Future<Map<String, dynamic>> restore(FullBackupRestoreInput input) =>
       _transactionGate.run(() => _restoreUnguarded(input));

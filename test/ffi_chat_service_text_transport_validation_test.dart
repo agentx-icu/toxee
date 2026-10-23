@@ -235,7 +235,7 @@ void main() {
         final chat = service(friends: const []);
         addTearDown(() async => chat.dispose());
         chat.debugSetConnected(true);
-        var wireReady = false;
+        const wireReady = false;
         chat.debugGroupWireReadyOverride = (_) => wireReady;
 
         final pending = await chat.sendGroupTextWithResult(groupId, 'hello');

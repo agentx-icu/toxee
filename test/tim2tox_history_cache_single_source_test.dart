@@ -19,7 +19,6 @@
 // the X4 consolidation. Pairing with `message_history_persistence_perf_test.dart`,
 // which exercises the same class for the P2/P3 perf invariants.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -171,7 +170,7 @@ void main() {
         // cleanup in tearDown.
         await reloaded.flushPendingSaves();
       } finally {
-        reloaded.dispose();
+        await reloaded.dispose();
       }
     });
 
@@ -246,7 +245,7 @@ void main() {
         final fromDisk = await reloaded.loadHistory(peer);
         expect(fromDisk, isEmpty);
       } finally {
-        reloaded.dispose();
+        await reloaded.dispose();
       }
     });
 

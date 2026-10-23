@@ -1,6 +1,5 @@
 // Dump the current semantic tree (labels + bounds) of a running sim instance.
 // ignore_for_file: avoid_print, depend_on_referenced_packages
-import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
 Future<void> main(List<String> args) async {

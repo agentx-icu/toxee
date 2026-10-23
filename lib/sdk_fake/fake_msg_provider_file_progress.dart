@@ -184,10 +184,6 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
           if (_buffers.containsKey(matchedConvID)) {
             try {
               final latestMsg = _buffers[matchedConvID]!.firstWhere((msg) => msg.msgID == msgID);
-              final oldPath = matchedMsg?.imageElem?.path ?? matchedMsg?.fileElem?.path;
-              final newPath = latestMsg.imageElem?.path ?? latestMsg.fileElem?.path;
-              final oldLocalUrl = matchedMsg?.imageElem?.imageList?.cast<V2TimImage?>().firstWhere((img) => img?.localUrl != null, orElse: () => null)?.localUrl ?? matchedMsg?.fileElem?.localUrl;
-              final newLocalUrl = latestMsg.imageElem?.imageList?.cast<V2TimImage?>().firstWhere((img) => img?.localUrl != null, orElse: () => null)?.localUrl ?? latestMsg.fileElem?.localUrl;
               // Skip logging re-fetch details - too frequent during file transfer
               matchedMsg = latestMsg; // Update matchedMsg to reference the latest state
             } catch (_) {
@@ -273,7 +269,6 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
               _fileProgress.remove(msgID);
               AppLogger.log('[FakeMessageProvider] File complete; cleared progress hadProgress=$hadProgress');
             } else {
-              final oldProgress = _fileProgress[msgID];
               _fileProgress[msgID] = (
                 received: progress.received,
                 total: progress.total,
@@ -300,7 +295,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
               localUrl: newLocalUrl,
             );
             // CRITICAL: Update the message in _buffers to ensure subsequent progress updates see the updated path/localUrl
-            if (_buffers.containsKey(matchedConvID!)) {
+            if (_buffers.containsKey(matchedConvID)) {
               final bufferList = _buffers[matchedConvID]!;
               final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
               if (bufferIndex >= 0) {
@@ -324,7 +319,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                   localUrl: progress.path,
                 );
                 // CRITICAL: Update the message in _buffers to ensure subsequent progress updates see the updated path/localUrl
-                if (_buffers.containsKey(matchedConvID!)) {
+                if (_buffers.containsKey(matchedConvID)) {
                   final bufferList = _buffers[matchedConvID]!;
                   final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
                   if (bufferIndex >= 0) {
@@ -401,8 +396,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
             // CRITICAL: If imageList is empty, filter oldImageElem.imageList to remove temp path URLs
             final finalImageList = imageList.isNotEmpty
                 ? imageList
-                : (oldImageElem.imageList != null
-                    ? oldImageElem.imageList!.map((img) {
+                : (oldImageElem.imageList?.map((img) {
                         if (img == null) return null;
                         final newImg = V2TimImage(type: img.type);
                         newImg.uuid = img.uuid;
@@ -419,14 +413,13 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                         newImg.height = img.height;
                         newImg.size = img.size;
                         return newImg;
-                      }).toList()
-                    : null);
+                      }).toList());
               matchedMsg.imageElem = V2TimImageElem(
                 path: newPath, // CRITICAL: Only update path if file is complete, otherwise keep temp path
                 imageList: finalImageList,
               );
               // CRITICAL: Update the message in _buffers to ensure subsequent progress updates see the updated path/localUrl
-              if (_buffers.containsKey(matchedConvID!)) {
+              if (_buffers.containsKey(matchedConvID)) {
                 final bufferList = _buffers[matchedConvID]!;
                 final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
                 if (bufferIndex >= 0) {
@@ -480,7 +473,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                 imageList: imageList,
               );
               // CRITICAL: Update the message in _buffers to ensure subsequent progress updates see the updated path/localUrl
-              if (_buffers.containsKey(matchedConvID!)) {
+              if (_buffers.containsKey(matchedConvID)) {
                 final bufferList = _buffers[matchedConvID]!;
                 final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
                 if (bufferIndex >= 0) {
@@ -512,7 +505,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                 snapshotUrl: oldVideoElem.snapshotUrl,
                 localSnapshotUrl: oldVideoElem.localSnapshotUrl,
               );
-              if (_buffers.containsKey(matchedConvID!)) {
+              if (_buffers.containsKey(matchedConvID)) {
                 final bufferList = _buffers[matchedConvID]!;
                 final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
                 if (bufferIndex >= 0) {
@@ -535,7 +528,7 @@ extension _FakeChatMessageProviderFileProgress on FakeChatMessageProvider {
                 url: newUrl,
                 localUrl: newLocalUrl,
               );
-              if (_buffers.containsKey(matchedConvID!)) {
+              if (_buffers.containsKey(matchedConvID)) {
                 final bufferList = _buffers[matchedConvID]!;
                 final bufferIndex = bufferList.indexWhere((m) => m.msgID == msgID);
                 if (bufferIndex >= 0) {

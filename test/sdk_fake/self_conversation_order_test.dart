@@ -73,7 +73,7 @@ void main() {
 
   test('an empty self conversation does not outrank a chat with activity',
       () async {
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
     await Prefs.setNickname('Ann');
@@ -83,9 +83,9 @@ void main() {
     FakeUIKit.instance.conversationManager =
         FakeConversationManager(FakeUIKit.instance.eventBusInstance, service);
     final provider = FakeChatDataProvider(ffiService: service);
-    addTearDown(() {
+    addTearDown(() async {
       provider.dispose();
-      FakeUIKit.instance.dispose();
+      await FakeUIKit.instance.dispose();
     });
 
     final mapped = await provider.getInitialConversations();

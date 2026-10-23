@@ -89,16 +89,6 @@ class _SuccessfulLoginPageController extends LoginPageController {
   }
 }
 
-class _RecordingLoginUseCase extends LoginUseCase {
-  LoginParams? lastParams;
-
-  @override
-  Future<LoginSuccess> execute(LoginParams params) async {
-    lastParams = params;
-    throw Exception('stop after recording');
-  }
-}
-
 class _RestoringLoginPageController extends LoginPageController {
   _RestoringLoginPageController();
 

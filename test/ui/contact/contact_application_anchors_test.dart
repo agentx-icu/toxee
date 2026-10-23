@@ -39,12 +39,12 @@ Widget _buildTabHarness() {
 }
 
 Widget _buildEmptyApplicationListHarness() {
-  return MaterialApp(
-    locale: const Locale('en'),
+  return const MaterialApp(
+    locale: Locale('en'),
     localizationsDelegates:
         TencentCloudChatLocalizations.localizationsDelegates,
     supportedLocales: TencentCloudChatLocalizations.supportedLocales,
-    home: const Scaffold(
+    home: Scaffold(
       body: TencentCloudChatContactApplicationList(applicationList: []),
     ),
   );

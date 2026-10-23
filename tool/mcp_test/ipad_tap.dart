@@ -1,7 +1,6 @@
 // Tap a widget by label substring on a running sim instance.
 // Usage: dart run tool/mcp_test/ipad_tap.dart <ws_uri> <labelSubstr>
 // ignore_for_file: avoid_print, depend_on_referenced_packages
-import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
 Future<void> main(List<String> args) async {

@@ -7,7 +7,6 @@ import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_list_view/message_row/tencent_cloud_chat_message_row.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_widgets/message_type_builders/tencent_cloud_chat_message_tips_common.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 
 /// Regression: the desktop message ROW placed a tips item (recall notice,
 /// group tips) as a bare child of a max-size Row, so the tip got UNBOUNDED

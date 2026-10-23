@@ -750,11 +750,11 @@ void main() {
     expect(homeBootstrap, contains('WidgetsBinding.instance.endOfFrame'));
     expect(homeBootstrap, contains('milliseconds: 100'));
     expect(homeBootstrap, contains('AppLogger.logError'));
-    expect(homeBootstrap, contains('final openAddGroupDialogInvoker'));
+    expect(homeBootstrap, contains('Future<bool> openAddGroupDialogInvoker() async {'));
     expect(homeBootstrap, contains('currentL3OpenAddGroupDialogInvoker'));
-    expect(homeBootstrap, contains('final popToRootInvoker'));
+    expect(homeBootstrap, contains('Future<bool> popToRootInvoker() async {'));
     expect(homeBootstrap, contains('currentL3PopToRootInvoker'));
-    expect(homeBootstrap, contains('final openGroupProfileInvoker'));
+    expect(homeBootstrap, contains('Future<bool> openGroupProfileInvoker(String groupId) async {'));
     expect(homeBootstrap, contains('currentL3OpenGroupProfileInvoker'));
   });
 }

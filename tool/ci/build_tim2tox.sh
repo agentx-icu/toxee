@@ -604,7 +604,7 @@ build_ios_ffi_dylib() {
   <key>CFBundleExecutable</key>
   <string>tim2tox_ffi</string>
   <key>CFBundleIdentifier</key>
-  <string>org.toxee.tim2tox_ffi</string>
+  <string>org.toxee.tim2tox-ffi</string>
   <key>CFBundleName</key>
   <string>tim2tox_ffi</string>
   <key>CFBundlePackageType</key>

@@ -521,7 +521,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             UUID: videoUuid,
             videoSize: m.fileSize ??
                 videoFileSize ??
-                (videoProgress != null ? videoProgress.total : null),
+                (videoProgress?.total),
             // TODO(P1-11): real duration is not available from the Tox file
             // transfer envelope. Probing via dart:io is non-trivial without
             // adding a media-decoding dep; leave as 0 and wire a real
@@ -596,7 +596,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
             UUID: audioUuid,
             dataSize: m.fileSize ??
                 audioFileSize ??
-                (audioProgress != null ? audioProgress.total : null),
+                (audioProgress?.total),
             // TODO(P1-11): real duration is not available from the Tox file
             // transfer envelope. Probing audio length via dart:io is
             // non-trivial without adding a media-decoding dep; leave as 0
@@ -732,7 +732,7 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
         msg.faceUrl = _cachedSelfAvatarPath;
       }
     } else {
-      String? friendAvatarPath = _cachedFriendAvatars[m.fromUser];
+      final String? friendAvatarPath = _cachedFriendAvatars[m.fromUser];
       if (friendAvatarPath == null) {
         Prefs.getFriendAvatarPath(m.fromUser).then((avatarPath) {
           if (_disposed) return;
@@ -968,10 +968,9 @@ extension _FakeChatMessageProviderMapping on FakeChatMessageProvider {
       // UIKit's getMessageListForRender reverses the list, but our stream bypasses it
       // So we need to reverse the list before emitting to match UIKit's expected format
       // Reverse: newest first, oldest last (for reverse ListView, index 0 = newest at bottom)
-      final ctrl = _ctrls[conversationID];
-      if (ctrl != null && !ctrl.isClosed) {
+      if (_ctrls[conversationID]?.isClosed == false) {
         final reversedList = List<V2TimMessage>.from(list.reversed);
-        ctrl.add(reversedList);
+        _ctrls[conversationID]!.add(reversedList);
       }
     } catch (e) {
       // Ignore errors during history loading

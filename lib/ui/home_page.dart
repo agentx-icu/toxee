@@ -67,10 +67,10 @@ import 'contact/contact_builder_override.dart';
 import 'contact/contact_application_item_content_override.dart';
 import 'contact/friend_request_display_name.dart';
 import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profile_body.dart';
-import 'package:tencent_cloud_chat_intl/tencent_cloud_chat_intl.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../i18n/app_localizations.dart';
 import '../util/logger.dart';
+import '../util/async_task.dart';
 import '../sdk_fake/c2c_send_guard.dart';
 import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_contact_event_handlers.dart';
 import 'package:tencent_cloud_chat_common/components/component_config/tencent_cloud_chat_message_config.dart';
@@ -244,7 +244,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const Duration _minMembersChangeInterval = Duration(seconds: 2);
   BuildContext? _scaffoldMessengerContext;
   DateTime? _lastBackPressTime;
-  bool _ircAppInstalled = false;
   // Track UniqueKey per conversation to ensure proper widget lifecycle
   final Map<String, UniqueKey> _messageWidgetKeys = {};
   // Track current conversation to force widget rebuild on change
@@ -472,14 +471,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         userID,
         requestMessage: requestMessage,
       );
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
       if (result.isSuccess) {
         AppSnackBar.show(
           context,
           AppLocalizations.of(context)!.friendRequestSent,
         );
         // Refresh contacts to update UI
-        FakeUIKit.instance.im?.refreshContacts();
+        await FakeUIKit.instance.im?.refreshContacts();
       } else {
         // Async-failure path (e.g. result_code=6770 "Friend add requires full
         // Tox address"). Surface the V2TIM detail so users see the actual
@@ -493,7 +492,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && context.mounted) {
         AppSnackBar.showError(
           context,
           AppLocalizations.of(context)!.failedToSendFriendRequest(e.toString()),
@@ -656,6 +655,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _groupProfileDataSub?.cancel();
     _groupProfileDataSub = null;
+
+    unawaited(_convProviderSub?.cancel());
+    _convProviderSub = null;
+    unawaited(_unreadProviderSub?.cancel());
+    _unreadProviderSub = null;
 
     _friendsSub?.cancel();
     _friendsSub = null;
@@ -890,6 +894,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<String> _createSelfQrCardImage() async {
+    final appL10n = AppLocalizations.of(context);
+    final fallbackSelfId = widget.service.accountKey;
     final nick = await Prefs.getNickname();
     final avatarPath = await Prefs.getAvatarPath();
     // The visible/encoded User ID must be the real Tox ID, NOT the V2TIM
@@ -899,12 +905,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final storedToxId = await Prefs.getCurrentAccountToxId();
     final resolvedSelfId = (storedToxId != null && storedToxId.isNotEmpty)
         ? storedToxId
-        : widget.service.accountKey;
+        : fallbackSelfId;
     final displayName = (nick != null && nick.trim().isNotEmpty)
         ? nick.trim()
         : resolvedSelfId;
     final locale = AppLocale.locale.value;
-    final appL10n = AppLocalizations.of(context);
     return generateContactCardImage(
       userId: resolvedSelfId,
       displayName: displayName,
@@ -1935,6 +1940,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     await FakeUIKit.instance.im?.refreshContacts();
     await _load();
+    if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
     _showSnackBar(
       failed.isEmpty
@@ -2012,14 +2018,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     // No await between the `mounted` guard and this context use, so the
     // BuildContext is still valid (use_build_context_synchronously is satisfied).
-    navigateToAddGroupMember(
+    unawaited(navigateToAddGroupMember(
       context: context,
       options: TencentCloudChatGroupAddMemberOptions(
         groupInfo: groupInfo,
         memberList: memberList,
         contactList: contactList,
       ),
-    );
+    ));
     return true;
   }
 
@@ -2133,23 +2139,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return true;
   }
 
-  Future<void> _checkIrcAppStatus() async {
-    final ircAppManager = IrcAppManager();
-    await ircAppManager.init();
-    if (mounted) {
-      setState(() {
-        _ircAppInstalled = ircAppManager.isInstalled;
-      });
-    }
-  }
+  Future<void> _checkIrcAppStatus() => IrcAppManager().init();
 
   Future<void> _showJoinIrcChannelDialog() async {
+    final appL10n = AppLocalizations.of(context)!;
     final ircAppManager = IrcAppManager();
     await ircAppManager.init();
+    if (!mounted) return;
 
     // Check if app is installed
     if (!ircAppManager.isInstalled) {
-      final appL10n = AppLocalizations.of(context)!;
       _showErrorSnackBar(appL10n.ircAppNotInstalled);
       return;
     }
@@ -2163,7 +2162,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ({String channel, String? password, String? nickname})
         >(context: context, builder: (ctx) => const IrcChannelDialog());
 
-    if (result == null || result.channel.isEmpty) return;
+    if (!mounted || result == null || result.channel.isEmpty) return;
 
     try {
       final addResult = await ircAppManager.addChannel(
@@ -2183,7 +2182,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             addResult.groupId!,
             displayName: 'IRC: ${result.channel}',
           );
-          final appL10n = AppLocalizations.of(context)!;
           _showSnackBar(
             classifyIrcAddChannelResult(addResult) ==
                     IrcAddChannelUiOutcome.addedConnected
@@ -2191,18 +2189,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 : appL10n.ircChannelAddedNotConnected(result.channel),
           );
         case IrcAddChannelUiOutcome.failed:
-          final appL10n = AppLocalizations.of(context)!;
           _showErrorSnackBar(appL10n.ircChannelAddFailed);
       }
     } catch (e) {
-      final appL10n = AppLocalizations.of(context);
-      _showErrorSnackBar('${appL10n?.failed ?? 'Failed'}: $e');
+      _showErrorSnackBar('${appL10n.failed}: $e');
     }
   }
 
   void _showSnackBar(String message) {
     final ctx = _scaffoldMessengerContext;
-    if (ctx == null) return;
+    if (!mounted || ctx == null || !ctx.mounted) return;
     AppSnackBar.show(ctx, message);
   }
 
@@ -2211,7 +2207,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// so it picks up the central error color + 4s duration.
   void _showErrorSnackBar(String message) {
     final ctx = _scaffoldMessengerContext;
-    if (ctx == null) return;
+    if (!mounted || ctx == null || !ctx.mounted) return;
     AppSnackBar.showError(ctx, message);
   }
 

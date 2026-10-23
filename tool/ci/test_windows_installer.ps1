@@ -4,6 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'assert_windows_architecture.ps1')
+. (Join-Path $PSScriptRoot 'assert_windows_runtime_modules.ps1')
 $msi = (Resolve-Path $MsiPath).Path
 # Inspect the generated database's SummaryInformation Template (property 7),
 # rather than treating the architecture in its filename as evidence.
@@ -35,11 +36,14 @@ try {
   $nativeFiles = @(Get-ChildItem -LiteralPath $installRoot -File -Recurse |
     Where-Object { $_.Extension -in '.exe', '.dll' } | ForEach-Object { $_.FullName })
   Assert-WindowsArchitecture -Architecture $ExpectedArchitecture -Paths $nativeFiles
+  & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $installRoot -Architecture $ExpectedArchitecture
   $app = Start-Process $exe -WorkingDirectory $installRoot -PassThru
   Start-Sleep -Seconds 12
   if ($app.HasExited) { throw "Installed application exited at startup: $($app.ExitCode)" }
+  Assert-WindowsRuntimeModules -Modules @($app.Modules) -InstallRoot $installRoot
   if (-not $app.CloseMainWindow()) { throw 'Installed app did not expose a closable main window' }
   if (-not $app.WaitForExit(20000)) { throw 'Installed app did not exit after window close' }
+  if ($app.ExitCode -ne 0) { throw "Installed app crashed on close: $($app.ExitCode)" }
   # Same-version repair exercises MSI ownership; a previous-release upgrade
   # requires supplying a previous artifact in the release qualification matrix.
   Invoke-Msi @('/i', "`"$msi`"", '/qn', '/norestart', 'REINSTALL=ALL', 'REINSTALLMODE=vomus')

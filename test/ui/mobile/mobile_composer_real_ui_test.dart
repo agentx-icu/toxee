@@ -40,7 +40,6 @@ import 'package:tencent_cloud_chat_message/model/tencent_cloud_chat_message_sepa
 import 'package:tencent_cloud_chat_message/model/tencent_cloud_chat_message_separate_data_notifier.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_builders.dart';
 import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_chat_screen_adapter.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 
 // Wrap a child so the UIKit fork's i18n singleton (`tL10n`) is initialized from

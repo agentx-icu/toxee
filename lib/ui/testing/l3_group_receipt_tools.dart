@@ -98,7 +98,7 @@ MCPCallEntry _l3MarkGroupReadEntry(
     // through l3_mark_read's group branch without it. force is test-only and
     // must be spelled out by the caller, so a scenario can never quietly claim
     // the fork's per-row gate was exercised.
-    final force = request['force'] == 'true' || request['force'] == true;
+    final force = request['force'] == 'true';
     final inbound = ffi
         .getHistory(groupId)
         .where((m) => !m.isSelf && (m.msgID?.isNotEmpty ?? false))

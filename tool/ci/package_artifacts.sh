@@ -265,10 +265,19 @@ package_windows() {
     ARM64|arm64) native_arch="arm64" ;;
     *) ci_die "Unsupported Windows package architecture: $package_arch" ;;
   esac
+  local runtime_arch
+  runtime_arch="$native_arch"
+  [[ "$runtime_arch" != x86_64 ]] || runtime_arch=x64
+  powershell.exe -NoProfile -File "$(ci_windows_path "$SCRIPT_DIR/verify_windows_runtime.ps1")" \
+    -InputPath "$(ci_windows_path "$staged_dir")" -Architecture "$runtime_arch" \
+    -Report "$(ci_windows_path "$DIST_DIR/windows-runtime.json")"
   python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \
     --entry toxee.exe --arch "$native_arch" --flutter-windows-aot --report "$DIST_DIR/native-inventory.json"
 
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File     "$(ci_windows_path "$REPO_ROOT/tool/ci/sign_windows_artifacts.ps1")"     -InputPath "$(ci_windows_path "$staged_dir")"
+  powershell.exe -NoProfile -File "$(ci_windows_path "$SCRIPT_DIR/verify_windows_runtime.ps1")" \
+    -InputPath "$(ci_windows_path "$staged_dir")" -Architecture "$runtime_arch" \
+    -Report "$(ci_windows_path "$DIST_DIR/windows-runtime.json")"
   # Signing mutates PE bytes; retain hashes of the staged files that actually
   # enter the installer, after successful signing (or explicit dev-mode skip).
   python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \

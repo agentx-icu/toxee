@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_conversation/widgets/tencent_cloud_chat_conversation_item.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
 
 Widget _wrap(Widget child) {

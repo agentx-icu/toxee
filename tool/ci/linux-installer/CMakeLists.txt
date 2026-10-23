@@ -38,9 +38,13 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "net")
 set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS "${TOXEE_INSTALLER_SOURCE_DIR}/lib")
+# Flutter/libepoxy opens these loaders with dlopen, which shlibdeps/ELF auto
+# requires cannot discover. They must precede any desktop test harness packages.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libegl1, libgl1, libgles2")
 set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0")
 set(CPACK_RPM_PACKAGE_GROUP "Applications/Internet")
 set(CPACK_RPM_COMPRESSION_TYPE "xz")
+set(CPACK_RPM_PACKAGE_REQUIRES "libEGL.so.1()(64bit), libGL.so.1()(64bit), libGLESv2.so.2()(64bit)")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/")
 
 configure_file(

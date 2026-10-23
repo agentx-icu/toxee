@@ -19,7 +19,6 @@ import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localiz
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_list_view/message_list/default_builder.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_list_view/message_row/tencent_cloud_chat_message_row.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_list_view/message_row/tencent_cloud_chat_message_row_message_sender_name.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_header/tencent_cloud_chat_message_header_select_mode.dart';
 import 'package:toxee/call/call_audio_platform.dart';
 import 'package:toxee/call/call_audio_route_sheet.dart';
@@ -163,9 +162,9 @@ void main() {
               bottomBar: CallActionDock(key: _dockKey, actions: _fiveVideoActions()),
               // The REAL identity stage (avatar 86 + title + subtitle + note):
               // ~223 px at 2×, more than the stage has on a landscape phone.
-              child: CallIdentityStage(
+              child: const CallIdentityStage(
                 key: _stageKey,
-                avatar: const CircleAvatar(radius: 43, child: Text('A')),
+                avatar: CircleAvatar(radius: 43, child: Text('A')),
                 title: 'Alice With A Rather Long Display Name',
                 subtitle: '00:32',
                 secondaryNote: 'Reconnecting…',
@@ -384,14 +383,14 @@ void main() {
   group('StatusPill', () {
     testWidgets('long UDP verdict wraps inside a 200-px slot', (tester) async {
       // Hosted the way the settings section does (Align / Wrap = bounded).
-      await tester.pumpWidget(_app(Scaffold(
+      await tester.pumpWidget(_app(const Scaffold(
         body: Align(
           alignment: Alignment.topLeft,
           child: SizedBox(
             width: 200,
             child: Align(
               alignment: AlignmentDirectional.centerStart,
-              child: const StatusPill(
+              child: StatusPill(
                 label: 'Node test needs UDP; this device is running TCP-only',
                 color: Colors.orange,
               ),

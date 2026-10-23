@@ -1,3 +1,4 @@
+import 'dart:async';
 // Widget tests for the first-run backup wizard.
 //
 // These tests render [FirstRunBackupWizard] directly (rather than driving
@@ -284,9 +285,9 @@ void main() {
       await tester.pumpAndSettle();
 
       FirstRunBackupWizardResult? routeResult;
-      holder.future!.then((value) {
+      unawaited(holder.future!.then((value) {
         routeResult = value;
-      });
+      }));
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );
@@ -353,9 +354,9 @@ void main() {
       await tester.pumpAndSettle();
 
       FirstRunBackupWizardResult? routeResult;
-      holder.future!.then((value) {
+      unawaited(holder.future!.then((value) {
         routeResult = value;
-      });
+      }));
       await tester.tap(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
       );

@@ -1,5 +1,5 @@
 import 'dart:io';
-import '../../lib/bootstrap/desktop_session_owner.dart';
+import 'package:toxee/bootstrap/desktop_session_owner.dart';
 
 Future<void> main(List<String> args) async {
   final owner = await DesktopSessionOwner.claim(

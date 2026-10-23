@@ -45,23 +45,10 @@ jobs:
       - name: Flutter analyze (hard gate)
         run: flutter analyze lib tool test integration_test --no-fatal-warnings --no-fatal-infos
 
-      # Advisory pass: surfaces lint warnings/infos (e.g. prefer_final_locals)
-      # without failing CI. Output is informational only — see F12 in the
-      # 2026-05-20 batch-6 review for the path toward making this fatal.
-      #
-      # HONEST STATUS (2026-08-08): this has been advisory for ~2.5 months, which
-      # means every rule CLAUDE.md names as a "hard gate" — avoid_print,
-      # unawaited_futures, use_build_context_synchronously, cancel_subscriptions,
-      # close_sinks, always_declare_return_types — is warning/info severity and
-      # therefore CANNOT fail CI today. CLAUDE.md's "Treat lint output as a hard
-      # gate" and this configuration contradict each other.
-      # To close it, mirror what the `test` job below already did successfully:
-      # take a one-time baseline, fix or ignore-comment the existing hits, then
-      # drop `continue-on-error` and the `--no-fatal-*` flags above. That needs a
-      # working Flutter toolchain to enumerate the baseline, so it is left as an
-      # explicit debt rather than a silent one.
-      - name: Flutter analyze (advisory, warnings + infos)
-        continue-on-error: true
+      # F12: the former advisory pass returned exit 1 for 251 existing
+      # diagnostics even though GitHub displayed success. Those diagnostics
+      # are corrected; retain every rule and scope, and fail on warnings/infos.
+      - name: Flutter analyze (strict warnings + infos)
         run: flutter analyze lib tool test integration_test
 
       - name: Complexity guard
@@ -71,6 +58,9 @@ jobs:
         run: |
           python3 -m unittest discover -s test/ci -p test_desktop_native_payload.py
           python3 -m unittest discover -s test/ci -p test_apple_release_preflight.py
+          python3 -m unittest discover -s test/ci -p test_ios_store_export.py
+          python3 -m unittest discover -s test/ci -p test_msvc_runtime.py
+          python3 -m unittest discover -s test/ci -p test_linux_installed_smoke.py
 
       # Cross-file source contracts that are lint, not tests: "this UiKey string
       # must appear in the fork widget", "this scenario must be registered in the
@@ -169,6 +159,10 @@ jobs:
       # continue-on-error is removed. The coverage steps below use `if: always()`
       # so a future test failure still publishes the partial coverage report.
       - name: Flutter test with coverage
+        env:
+          # FFI is built/staged above: require encrypted-password cancellation
+          # to execute rather than silently taking the optional-native skip.
+          TOXEE_TESTS_NEED_NATIVE: '1'
         run: flutter test --coverage
 
       - name: Summarize lcov coverage

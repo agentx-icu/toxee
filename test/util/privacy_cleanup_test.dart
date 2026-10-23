@@ -284,7 +284,7 @@ void main() {
         return;
       }
       await seedDiagnosticLogs();
-      final legacyA = '${_failedMessagesBase}_$_prefixA';
+      const legacyA = '${_failedMessagesBase}_$_prefixA';
       await prefs.setString(legacyA, '{"peer-a":[]}');
       // Removing `<appSupport>/logs` requires write permission on
       // `<appSupport>`, so clearing it makes the delete fail mid-purge.
@@ -373,8 +373,8 @@ void main() {
 
     test('removes the legacy 16-char-prefix queue key that scoped-pref '
         'clearing deliberately skips', () async {
-      final legacyA = '${_failedMessagesBase}_$_prefixA';
-      final legacyB = '${_failedMessagesBase}_$_prefixB';
+      const legacyA = '${_failedMessagesBase}_$_prefixA';
+      const legacyB = '${_failedMessagesBase}_$_prefixB';
       await prefs.setString(
         legacyA,
         jsonEncode(<String, dynamic>{
@@ -477,9 +477,9 @@ void main() {
       // Over-deletion guard for the sweep. Only 16/64/76-char hex suffixes are
       // shapes `Tim2ToxFailedMessagePersistence` can produce; anything else
       // must not be truncated down to 64 chars and mistaken for this account.
-      final longer = '${_failedMessagesBase}_${_addressA}_shard2';
-      final nonHex = '${_failedMessagesBase}_ZZ11ZZ11ZZ11ZZ11';
-      final unsuffixed = _failedMessagesBase;
+      const longer = '${_failedMessagesBase}_${_addressA}_shard2';
+      const nonHex = '${_failedMessagesBase}_ZZ11ZZ11ZZ11ZZ11';
+      const unsuffixed = _failedMessagesBase;
       await prefs.setString(longer, '{"peer":[]}');
       await prefs.setString(nonHex, '{"peer":[]}');
       // Pre-account-scoping rows: not attributable to the deleted account, so
@@ -496,8 +496,8 @@ void main() {
     test('a Tox ID shorter than the legacy prefix removes only its exact key',
         () async {
       const String shortId = 'AA11AA11';
-      final exactKey = '${_failedMessagesBase}_$shortId';
-      final prefixKey = '${_failedMessagesBase}_$_prefixA';
+      const exactKey = '${_failedMessagesBase}_$shortId';
+      const prefixKey = '${_failedMessagesBase}_$_prefixA';
       await prefs.setString(exactKey, '{"peer":[]}');
       await prefs.setString(prefixKey, '{"peer":[]}');
 
@@ -614,7 +614,7 @@ void main() {
       // fallback — is not attributable to this account and must stay.
       final schemaVariant = '${groupReceiptKey(_addressA)}_v2';
       final fallbackScope = groupReceiptKey('#3');
-      final unsuffixed = 'pending_group_read_receipts_';
+      const unsuffixed = 'pending_group_read_receipts_';
       await prefs.setStringList(schemaVariant, queueRows('GROUP_X'));
       await prefs.setStringList(fallbackScope, queueRows('GROUP_Y'));
       await prefs.setStringList(unsuffixed, queueRows('GROUP_Z'));

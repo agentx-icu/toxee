@@ -4,14 +4,12 @@ import 'package:tim2tox_dart/interfaces/draft_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/extended_preferences_service.dart';
 import 'package:tim2tox_dart/interfaces/group_identity_preferences_service.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
-
 import '../util/auto_download_policy.dart';
 import '../util/group_avatar_path.dart';
 import '../util/logger.dart';
 import '../util/platform_utils.dart';
 import '../util/prefs/draft_prefs.dart';
 import '../util/prefs/scoped_key.dart';
-
 /// Adapter that implements ExtendedPreferencesService using SharedPreferences.
 ///
 /// When [accountPrefix] is provided (recommended), keys are scoped as `${key}_${accountPrefix}`
@@ -572,11 +570,13 @@ class SharedPreferencesAdapter
           ? remove(_prefixKey(key))
           : setString(_prefixKey(key), value);
 
+  @override
   Future<Set<String>> getStringSet(String key) async {
     final list = await getStringList(key);
     return list?.toSet() ?? <String>{};
   }
 
+  @override
   Future<void> setStringSet(String key, Set<String> value) async {
     await setStringList(key, value.toList());
   }

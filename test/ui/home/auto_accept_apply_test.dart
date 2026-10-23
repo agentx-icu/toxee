@@ -47,7 +47,9 @@ void main() {
       isStillMounted: () => true,
       mirrorToUi: (v) => events.add('mirror:$v'),
     );
-    svc.pushed.forEach((v) => events.add('push:$v'));
+    for (var v in svc.pushed) {
+      events.add('push:$v');
+    }
     expect(returned, isTrue);
     expect(svc.pushed, <bool>[true],
         reason: 'the persisted ON toggle must reach setAutoAcceptGroupInvites');
@@ -57,7 +59,7 @@ void main() {
 
     await Prefs.setAutoAcceptGroupInvites(false, _toxId);
     final svc2 = _CaptureService();
-    var mirrored2 = <bool>[];
+    final mirrored2 = <bool>[];
     final returned2 = await loadAndApplyAutoAcceptGroupInvites(
       svc2,
       _toxId,
@@ -75,7 +77,7 @@ void main() {
       'push a stale setting', () async {
     await Prefs.setAutoAcceptGroupInvites(true, _toxId);
     final svc = _CaptureService();
-    var mirrored = <bool>[];
+    final mirrored = <bool>[];
     final returned = await loadAndApplyAutoAcceptGroupInvites(
       svc,
       _toxId,

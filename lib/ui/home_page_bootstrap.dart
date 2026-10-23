@@ -363,7 +363,7 @@ extension _HomePageBootstrap on _HomePageState {
     _bag.add(SendFailureNotifier.watchFileReceiveFailures(widget.service));
 
     if (PlatformUtils.isDesktop) {
-      _loadBootstrapServiceStatus();
+      observeBackgroundTask(_loadBootstrapServiceStatus(), '[HomePage] Bootstrap status');
       _bootstrapServiceStatusTimer = Timer.periodic(
           const Duration(seconds: 2), (_) => _loadBootstrapServiceStatus());
       _bag.add(() => _bootstrapServiceStatusTimer?.cancel());
@@ -440,10 +440,11 @@ extension _HomePageBootstrap on _HomePageState {
         ?.listen((data) {
           if (data.currentUpdatedFields ==
               TencentCloudChatContactDataKeys.groupList) {
-            if (kDebugMode)
+            if (kDebugMode) {
               debugPrint(
                 '[HomePage] Group list updated, refreshing conversations',
               );
+            }
             Future.delayed(const Duration(milliseconds: 100), () {
               FakeUIKit.instance.im?.refreshConversations().catchError((
                 e,
@@ -482,10 +483,11 @@ extension _HomePageBootstrap on _HomePageState {
                 );
                 if (timeSinceLastChange <
                     _HomePageState._minMembersChangeInterval) {
-                  if (kDebugMode)
+                  if (kDebugMode) {
                     debugPrint(
                       '[HomePage] Ignoring rapid membersChange event for group $groupID (${timeSinceLastChange.inMilliseconds}ms ago)',
                     );
+                  }
                   return;
                 }
               }
@@ -495,27 +497,30 @@ extension _HomePageBootstrap on _HomePageState {
           if (data.currentUpdatedFields ==
               TencentCloudChatGroupProfileDataKeys.quitGroup) {
             final groupID = data.updateGroupID;
-            if (kDebugMode)
+            if (kDebugMode) {
               debugPrint(
                 '[HomePage] Group quit/dismissed: $groupID, removing from lists',
               );
+            }
 
             final savedGroups = await Prefs.getGroups();
             if (savedGroups.contains(groupID)) {
               savedGroups.remove(groupID);
               await Prefs.setGroups(savedGroups);
-              if (kDebugMode)
+              if (kDebugMode) {
                 debugPrint(
                   '[HomePage] Removed group $groupID from Prefs.getGroups()',
                 );
+              }
             }
 
             final convId = 'group_$groupID';
             if (_currentConversationID == convId) {
-              if (kDebugMode)
+              if (kDebugMode) {
                 debugPrint(
                   '[HomePage] Quit group $groupID is currently open, clearing chat window',
                 );
+              }
               UikitDataFacade.currentConversation = null;
               if (mounted) {
                 _bootstrapSetState(() {
@@ -525,24 +530,26 @@ extension _HomePageBootstrap on _HomePageState {
             }
 
             UikitDataFacade.removeConversation([convId]);
-            if (kDebugMode)
+            if (kDebugMode) {
               debugPrint(
                 '[HomePage] Removed conversation $convId from conversation list',
               );
+            }
 
             FakeUIKit.instance.eventBusInstance.emit(
               FakeIM.topicGroupDeleted,
               FakeGroupDeleted(groupID: groupID),
             );
-            if (kDebugMode)
+            if (kDebugMode) {
               debugPrint(
                 '[HomePage] Emitted FakeGroupDeleted event for group $groupID',
               );
+            }
           } else if (data.currentUpdatedFields ==
               TencentCloudChatGroupProfileDataKeys.builder) {
             if (UikitDataFacade.updateGroupID.isEmpty ||
                 UikitDataFacade.updateGroupInfo.groupID.isEmpty) {
-              Future.microtask(() async {
+              observeBackgroundTask(Future.microtask(() async {
                 final currentConv = UikitDataFacade.currentConversation;
                 String? targetGroupID;
                 V2TimGroupInfo? targetGroupInfo;
@@ -590,7 +597,7 @@ extension _HomePageBootstrap on _HomePageState {
                   UikitDataFacade.updateGroupID = targetGroupID;
                   UikitDataFacade.updateGroupInfo = targetGroupInfo;
                 }
-              });
+              }), '[HomePage] Restore group profile');
             }
           }
         });
@@ -989,13 +996,13 @@ extension _HomePageBootstrap on _HomePageState {
         }
         await _loadPersistedGroupsIntoUIKit();
         if (FakeUIKit.instance.im != null) {
-          FakeUIKit.instance.im!.refreshContacts().catchError((e, st) {
+          unawaited(FakeUIKit.instance.im!.refreshContacts().catchError((e, st) {
             AppLogger.logError(
               '[HomePage] refreshContacts after initial load failed',
               e,
               st,
             );
-          });
+          }));
         }
         // Register the OS-notification listener AFTER the initial history /
         // contacts load completes so historical messages don't fire banners
@@ -1013,11 +1020,11 @@ extension _HomePageBootstrap on _HomePageState {
 
     final toxId = widget.service.accountKey;
     if (toxId.isNotEmpty) {
-      Prefs.getAutoAcceptFriends(toxId).then((value) {
+      observeBackgroundTask(Prefs.getAutoAcceptFriends(toxId).then((value) {
         if (mounted) {
           _bootstrapSetState(() => _autoAcceptFriends = value);
         }
-      });
+      }), '[HomePage] Load auto-accept preference');
       unawaited(_loadLocationPrefs(toxId));
       // The Pref→(UI mirror + native-gate push), its order, and its mounted-guard
       // are extracted to `loadAndApplyAutoAcceptGroupInvites` so they are
@@ -1075,7 +1082,7 @@ extension _HomePageBootstrap on _HomePageState {
         });
       }
     });
-    final L3HomeShellSnapshotReader homeShellSnapshotReader = () {
+    Map<String, dynamic> homeShellSnapshotReader() {
       final tab = switch (_index) {
         1 => 'contacts',
         2 => 'applications',
@@ -1095,7 +1102,7 @@ extension _HomePageBootstrap on _HomePageState {
         // Null until the first build computes it.
         'shouldShowMasterDetail': _lastShouldShowMasterDetail,
       };
-    };
+    }
     registerL3HomeShellSnapshotReader(homeShellSnapshotReader);
     // Identity-guard the unregister: a switch-back mounts the NEW HomePage
     // (re-registering its reader) BEFORE this (old) instance disposes, so an
@@ -1121,12 +1128,12 @@ extension _HomePageBootstrap on _HomePageState {
       unawaited(_showAddFriendDialog());
       return true;
     });
-    final openAddGroupDialogInvoker = () async {
+    Future<bool> openAddGroupDialogInvoker() async {
       if (!mounted) return false;
       // Same fire-and-forget contract as the add-friend invoker above.
       unawaited(_showAddGroupDialog());
       return true;
-    };
+    }
     registerL3OpenAddGroupDialogInvoker(openAddGroupDialogInvoker);
     _bag.add(() {
       if (identical(
@@ -1175,7 +1182,7 @@ extension _HomePageBootstrap on _HomePageState {
     });
     final homeRoute = ModalRoute.of(context);
     final navigator = Navigator.of(context);
-    final popToRootInvoker = () async {
+    Future<bool> popToRootInvoker() async {
       if (!mounted ||
           homeRoute == null ||
           !navigator.mounted ||
@@ -1211,7 +1218,7 @@ extension _HomePageBootstrap on _HomePageState {
         }
       }
       return false;
-    };
+    }
     registerL3PopToRootInvoker(popToRootInvoker);
     _bag.add(() {
       if (identical(currentL3PopToRootInvoker, popToRootInvoker)) {
@@ -1249,12 +1256,12 @@ extension _HomePageBootstrap on _HomePageState {
       // driven through the real member-list UI.
       return _openGroupMemberList(groupId);
     });
-    final openGroupProfileInvoker = (String groupId) async {
+    Future<bool> openGroupProfileInvoker(String groupId) async {
       if (!mounted) return false;
       // Same fire-and-forget contract: PUSH the clean group-profile page (after
       // popping stale routes) and return as soon as it is on screen.
       return _openGroupProfile(groupId);
-    };
+    }
     registerL3OpenGroupProfileInvoker(openGroupProfileInvoker);
     _bag.add(() {
       if (identical(
@@ -1296,7 +1303,7 @@ extension _HomePageBootstrap on _HomePageState {
       return true;
     }); // NOT unregistered on dispose — see the global-search invoker above.
 
-    _checkIrcAppStatus();
+    observeBackgroundTask(_checkIrcAppStatus(), '[HomePage] IRC app status');
     _msgSub = widget.service.messages.listen((m) {
       if (widget.service.selfId == m.fromUserId) return;
       if (!mounted) return;
@@ -1400,11 +1407,11 @@ extension _HomePageBootstrap on _HomePageState {
     _bag.add(() => _friendsSub?.cancel());
 
     if (FakeUIKit.instance.im != null) {
-      FakeUIKit.instance.im!.forceRefreshContacts().catchError((e) {
+      unawaited(FakeUIKit.instance.im!.forceRefreshContacts().catchError((e) {
         AppLogger.debug(
           '[HomePage] forceRefreshContacts after _friendsSub error: $e',
         );
-      });
+      }));
     }
 
     _appsSub = FakeUIKit.instance.eventBusInstance
@@ -1438,6 +1445,7 @@ extension _HomePageBootstrap on _HomePageState {
             UikitDataFacade.setApplicationUnreadCount(mapped);
             _pendingFriendApps = List<V2TimFriendApplication>.from(mapped);
             // Replies to nearby intents (nonce in the wording): one-tap card.
+            if (!mounted) return;
             unawaited(handleNearbyReplies(context, widget.service, mapped));
             // P1-D3: fire an OS-level notification for any application userID we
             // have not yet notified about in this session. Auto-accept users won't
@@ -1472,13 +1480,13 @@ extension _HomePageBootstrap on _HomePageState {
               (id) => !currentIds.contains(id),
             );
             if (_autoAcceptFriends && mapped.isNotEmpty) {
-              _acceptFriendApplications(mapped).catchError((e, st) {
+              unawaited(_acceptFriendApplications(mapped).catchError((e, st) {
                 AppLogger.logError(
                   '[HomePage] auto-accept friend applications failed',
                   e,
                   st,
                 );
-              });
+              }));
             }
             // No setState — UIKit's contact data layer drives application-row UI;
             // tray update still needs to fire on each apps event.

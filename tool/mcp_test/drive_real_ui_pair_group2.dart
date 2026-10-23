@@ -265,8 +265,7 @@ Future<bool> _waitChatHeaderTitle(
 }) async {
   final deadline = DateTime.now().add(Duration(seconds: timeoutSecs));
   while (DateTime.now().isBefore(deadline)) {
-    if (await _keyedText(inst, 'chat_header_title_text') == expected)
-      return true;
+    if (await _keyedText(inst, 'chat_header_title_text') == expected) { return true; }
     // `chat_header_title_text` is a plain Text whose KEY flutter_skill's
     // interactiveStructured does NOT surface (so `_keyedText` returns null even
     // when the header IS rendered). Fall back to a TEXT match for the expected

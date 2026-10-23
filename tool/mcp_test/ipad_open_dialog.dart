@@ -48,7 +48,7 @@ Future<void> main(List<String> args) async {
   await tapLabel('Contacts');
   await Future<void>.delayed(const Duration(seconds: 2));
   // "+" button: a small tappable near the top-right with no label.
-  var nodes = await snap();
+  final nodes = await snap();
   Map<String, dynamic>? plus;
   double maxRight = 0;
   for (final n in nodes) {
