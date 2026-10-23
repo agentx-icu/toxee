@@ -95,3 +95,5 @@ python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```
+
+CI 兼容性补充：使用 Android build-tools 35 和 37 的真实签名 fixture 均已验证；新版 scheme 标签不改变预期上传证书门禁。Flutter Windows 的 `data/app.so` 是由引擎加载的 ELF AOT snapshot，仅此固定路径显式允许该格式，仍须匹配目标 CPU；EXE/DLL 继续要求 PE。检查器也在真实 Flutter Windows x64 CI 制品的全部 17 个原生文件上通过。

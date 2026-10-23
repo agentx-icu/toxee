@@ -63,11 +63,17 @@ def apk_identity(badging, application_id, minimum_target, distribution):
 
 
 def apk_signer(output, expected, distribution):
-    fingerprints = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$",
-                              output, re.M)
-    if len(fingerprints) != 1:
+    # Build-tools 37 labels the verified signature scheme (e.g. V3.0 Signer:),
+    # while 35 uses Signer #1. Rotation-aware tools may describe SDK ranges.
+    # Only upload-signer certificate records count, never public keys or stamps.
+    prefix = (r"(?:Signer #\d+|V\d+(?:\.\d+)? Signer(?: #\d+)?:|"
+              r"Signer \(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\))")
+    fingerprints = {value.lower() for value in re.findall(
+        rf"^{prefix} certificate SHA-256 digest: ([0-9a-fA-F]{{64}})$", output, re.M)}
+    counts = re.findall(r"^Number of signers: (\d+)$", output, re.M)
+    if counts != ["1"] or len(fingerprints) != 1:
         raise ValueError("Exactly one verified current APK signer is required")
-    fingerprint = fingerprints[0].lower()
+    fingerprint = next(iter(fingerprints))
     if expected and fingerprint != expected:
         raise ValueError("Wrong APK signing certificate")
     if distribution and re.search(r"certificate DN:.*CN=Android\s*Debug(?:,|$)", output, re.I | re.M):

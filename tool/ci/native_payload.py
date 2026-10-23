@@ -102,8 +102,10 @@ def verify(data, format_name, arch, label):
         raise ValueError(f'{label}: {error}') from error
 
 
-def check_tree(directory, format_name, arch, entry=None):
+def check_tree(directory, format_name, arch, entry=None, *, flutter_windows=False):
     root = Path(directory).resolve()
+    if flutter_windows and (format_name != 'pe' or not (root / 'data/app.so').is_file()):
+        raise ValueError('Flutter Windows payload requires its canonical data/app.so snapshot')
     if entry:
         executable = root / entry
         if not executable.is_file() or not executable.resolve().is_relative_to(root):
@@ -127,7 +129,14 @@ def check_tree(directory, format_name, arch, entry=None):
                     raise ValueError(f'{path}: missing native format header')
                 continue
             with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                result.append(verify(data, format_name, arch, str(path.relative_to(root))))
+                relative = path.relative_to(root)
+                # Flutter's Windows engine loads an ELF AOT snapshot as data;
+                # it is not a Windows DLL. Limit this exception to that exact
+                # path and still inspect its actual target CPU.
+                actual_format = 'elf' if flutter_windows and relative.as_posix() == 'data/app.so' else format_name
+                record = verify(data, actual_format, arch, str(relative))
+                record['format'] = actual_format
+                result.append(record)
     if not result:
         raise ValueError('No native runtime binaries found')
     return result
@@ -141,9 +150,11 @@ def main():
     parser.add_argument('--entry', required=True)
     parser.add_argument('--arch', choices=('x86_64', 'arm64', 'arm', 'x86'), required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--flutter-windows-aot', action='store_true')
     args = parser.parse_args()
     try:
-        inventory = check_tree(args.path, args.format, args.arch, args.entry)
+        inventory = check_tree(args.path, args.format, args.arch, args.entry,
+                               flutter_windows=args.flutter_windows_aot)
         for item in inventory:
             digest = hashlib.sha256()
             with (args.path / item['path']).open('rb') as stream:

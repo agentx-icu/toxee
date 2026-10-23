@@ -266,13 +266,13 @@ package_windows() {
     *) ci_die "Unsupported Windows package architecture: $package_arch" ;;
   esac
   python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \
-    --entry toxee.exe --arch "$native_arch" --report "$DIST_DIR/native-inventory.json"
+    --entry toxee.exe --arch "$native_arch" --flutter-windows-aot --report "$DIST_DIR/native-inventory.json"
 
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File     "$(ci_windows_path "$REPO_ROOT/tool/ci/sign_windows_artifacts.ps1")"     -InputPath "$(ci_windows_path "$staged_dir")"
   # Signing mutates PE bytes; retain hashes of the staged files that actually
   # enter the installer, after successful signing (or explicit dev-mode skip).
   python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \
-    --entry toxee.exe --arch "$native_arch" --report "$DIST_DIR/native-inventory.json"
+    --entry toxee.exe --arch "$native_arch" --flutter-windows-aot --report "$DIST_DIR/native-inventory.json"
 
   # --- MSI installer via CPack/WiX ---
   local msi_path release_version

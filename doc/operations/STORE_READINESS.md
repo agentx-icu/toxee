@@ -121,3 +121,5 @@ python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```
+
+CI compatibility follow-up: Android build-tools 35 and 37 were both exercised with real signed fixtures; scheme-labelled signer reports retain the same owner-certificate checks. Flutter Windows `data/app.so` is an ELF AOT snapshot loaded by the engine. Only that canonical path has an explicit format exception; its CPU must still match the selected Windows target, while EXE/DLL files remain PE. The checker also passed against all 17 native images of a real Flutter Windows x64 CI artifact.

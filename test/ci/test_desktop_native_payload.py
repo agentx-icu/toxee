@@ -81,6 +81,28 @@ class DesktopNativePayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "contradicts"):
             native.verify(fat, "macho", "x86_64", "Framework")
 
+    def test_windows_flutter_snapshot_is_elf_but_must_match_target_cpu(self):
+        header = bytearray(88)
+        header[:2] = b"MZ"
+        struct.pack_into("<I", header, 60, 64)
+        header[64:68] = b"PE\0\0"
+        struct.pack_into("<H", header, 68, 0xAA64)
+        (self.root / "toxee.exe").write_bytes(header)
+        (self.root / "toxee").unlink()
+        data = self.root / "data"
+        data.mkdir()
+        snapshot = data / "app.so"
+        snapshot.write_bytes(elf())
+        result = native.check_tree(self.root, "pe", "arm64", "toxee.exe", flutter_windows=True)
+        self.assertEqual(len(result), 2)
+        snapshot.write_bytes(elf(machine=62))
+        with self.assertRaisesRegex(ValueError, "architecture"):
+            native.check_tree(self.root, "pe", "arm64", "toxee.exe", flutter_windows=True)
+        snapshot.write_bytes(elf())
+        (self.root / "plugin.dll").write_bytes(elf())
+        with self.assertRaisesRegex(ValueError, "Expected pe"):
+            native.check_tree(self.root, "pe", "arm64", "toxee.exe", flutter_windows=True)
+
     def test_packager_rechecks_appended_windows_runtime_before_signing(self):
         for runtime_machine, reaches_signing in ((0xAA64, True), (0x8664, False)):
             with self.subTest(runtime_machine=runtime_machine), tempfile.TemporaryDirectory() as temp:
@@ -93,6 +115,8 @@ class DesktopNativePayloadTests(unittest.TestCase):
                 runner.mkdir(parents=True)
                 native_dir = root / "build/native-artifacts/windows"
                 native_dir.mkdir(parents=True)
+                (runner / "data").mkdir()
+                (runner / "data/app.so").write_bytes(elf())
                 for path, machine in ((runner / "toxee.exe", 0xAA64),
                                       (native_dir / "libvpx.dll", runtime_machine)):
                     header = bytearray(88)
