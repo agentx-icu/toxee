@@ -139,7 +139,10 @@ android {
             ?.filter { it.isDirectory && it.resolve("libtim2tox_ffi.so").exists() }
             ?.map { it.name }?.sorted() ?: emptyList()
         if (ffiAbis.isNotEmpty()) {
-            ndk { abiFilters.addAll(ffiAbis) }
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(ffiAbis)
+            }
             // Checked here, where the bytes about to be packaged are. A unit-test
             // invocation packages nothing, so it is skipped for the same reason
             // the branch below skips its own failure.

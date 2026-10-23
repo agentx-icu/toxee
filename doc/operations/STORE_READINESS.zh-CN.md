@@ -101,3 +101,9 @@ CI 兼容性补充：使用 Android build-tools 35 和 37 的真实签名 fixtur
 原生链接修正：此前 PR 提交的最终 APK 检查拒绝了 CI 用 NDK 27.3 构建的真实 libtim2tox_ffi.so，其 PT_LOAD 仍为 4 KB。两个原生构建入口现在都启用 flexible page sizes，并显式将 max-page-size/common-page-size 设为 16384；新构建和外部 staged FFI 在 Gradle 打包前均检查 ELF、ABI 和对齐。缓存中的 4 KB 预编译库须从源码重建，调整 ZIP 偏移不能修复 ELF 对齐。本地重建入口为 `ABIS=arm64-v8a NDK=/path/to/complete/ndk bash tool/build_android_ffi.sh`。
 
 本地以 NDK 27.0 验证：默认共享库被门禁拒绝，加入上述参数的同一 CMake fixture 通过。完整 release Tim2Tox/ToxAV 重编译后的三个 PT_LOAD 均为 16384，真实 ToxAV marker 和无 test-hook 门禁通过（staged SHA-256 `951d0a7fbb4a2d1cdc0612a88bd11be102cbac4c37e2143b8fbff1b3d62fab8e`）。这属于原生制品证据，最终 APK/AAB CI 与真实 16 KB 设备测试仍分别验收。Android 回归现为 33 项，包含 staged ELF 拒绝；原打包回归也覆盖 calling-stub opt-out 不能绕过 4 KB 预编译库拒绝。
+
+Android ABI 选择：最终 CI APK 在指定 arm64 Flutter target 后仍带入了没有对应 FFI 的 armeabi-v7a 第三方库。Flutter 3.41 会预设 build-type ABI filters，覆盖 defaultConfig 中按 staged FFI 设置的范围。项目现[关闭 Flutter 自动 ABI 过滤](https://docs.flutter.dev/release/breaking-changes/default-abi-filters-android)，自行清空并按已构建 FFI 设置 filters。仅暂存请求的 ABI；最终 APK/AAB 清单仍拒绝额外 ABI 或缺少 app/engine/FFI 库的情况。当前发行路径为单个 APK 和 AAB，本次不宣称已验证 split APK。
+
+修正后已在本地重建 release APK（52.9 MB）和 AAB（40.2 MB）。两包均恰含九个 arm64-v8a 原生库，使用 JDK 17.0.20 与 build-tools 37 的完整原生库/对齐及 APK/AAB 签名验证通过。最终 APK 为非 debuggable，标识 com.toxee.app，version code 1、minSdk 24、targetSdk 36；两包使用相同开发证书，不代表所有者批准的商店签名身份。APK SHA-256：`2207fe90f23b52a1f4263be7c4537a25426666c8f5023375e5dcf204d50b3b5e`；AAB SHA-256：`a8f1e0188d9fbea0ef9abb304d670377fdb7560996345abb10387436c4163054`。
+
+Windows Tox 运行时：完整终包检查发现 ARM64 包中的 ImSDK.dll、dart_native_imsdk.dll 实为仅 x64。AppBootstrap 会等待 LoggingBootstrap 在 SDK 使用前将 Dart 原生库名称固定为 tim2tox_ffi；已审查的 vendor Windows 插件仅有空注册入口。应用自有 CMake 策略在两个 Windows 目标上保留编译后的注册插件与其他插件制品，移除未使用的 vendor 运行库/import 库，并清理增量安装中的旧副本。策略记录原生源码和构建定义的 hash，SDK 更新（包括未来动态加载）须显式复核。宿主机 CMake fixture 真实编译该插件源码，安装、加载并调用其 C 注册入口，全程不含两份 vendor DLL。原生 Windows 构建与完整终包架构门禁仍须在 CI 通过；宿主机 fixture 不替代 Windows 设备和安装器验收。
