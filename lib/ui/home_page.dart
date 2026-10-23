@@ -23,6 +23,7 @@ import '../nearby/nearby_controller.dart';
 import 'home/desktop_input_options.dart';
 import 'home/desktop_shortcut.dart';
 import 'home/desktop_settings_menu.dart';
+import 'home/foreground_ui_poller.dart';
 import 'nearby/nearby_page.dart';
 import 'nearby/nearby_privacy_notice.dart';
 import 'nearby/nearby_reply_prompter.dart';
@@ -71,6 +72,7 @@ import 'package:tencent_cloud_chat_contact/widgets/tencent_cloud_chat_user_profi
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import '../i18n/app_localizations.dart';
 import '../util/logger.dart';
+import '../util/safe_diagnostics.dart';
 import '../util/async_task.dart';
 import '../sdk_fake/c2c_send_guard.dart';
 import 'package:tencent_cloud_chat_common/components/component_event_handlers/tencent_cloud_chat_contact_event_handlers.dart';
@@ -266,7 +268,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // the next tick (LAN review 2026-09-15, F3). Reset when the service stops so
   // a later start shows the banner again.
   bool _lanBannerDismissed = false;
-  Timer? _bootstrapServiceStatusTimer;
+  ForegroundUiPoller? _bootstrapServiceStatusPoller;
   final _bag = DisposableBag();
   bool _disposed = false;
   ContactBuilderOverrideHandle? _contactBuilderOverride;
@@ -503,6 +505,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  void _reportBootstrapStatusFailure(Object error, StackTrace _) =>
+      SafeDiagnostics.logFailure('bootstrap_status_refresh', error);
+
   Future<void> _loadBootstrapServiceStatus() async {
     if (!mounted) return;
 
@@ -644,8 +649,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _profileJustOpenedTimer?.cancel();
     _profileJustOpenedTimer = null;
 
-    _bootstrapServiceStatusTimer?.cancel();
-    _bootstrapServiceStatusTimer = null;
+    _bootstrapServiceStatusPoller?.dispose();
+    _bootstrapServiceStatusPoller = null;
 
     _msgSub?.cancel();
     _msgSub = null;
