@@ -24,6 +24,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:toxee/util/async_gate.dart';
 import 'package:toxee/util/prefs.dart';
 
@@ -162,5 +163,57 @@ void main() {
       final row = await Prefs.getAccountByToxId(_toxId);
       expect(row?['nickname'], 'AfterAwaited');
     });
+
+    test('replacing a test gate isolates old completion from the new queue', () async {
+      final originalStore = SharedPreferencesStorePlatform.instance;
+      final store = _PausingRegistryStore(originalStore);
+      SharedPreferencesStorePlatform.instance = store;
+      addTearDown(() {
+        for (final release in store.release) {
+          if (!release.isCompleted) release.complete();
+        }
+        SharedPreferencesStorePlatform.instance = originalStore;
+        Prefs.resetRegistryGate();
+      });
+      final old = Prefs.addAccount(toxId: _toxId, nickname: 'Old');
+      await store.entered[0].future;
+      Prefs.resetRegistryGate();
+      final next = Prefs.addAccount(toxId: _toxId, nickname: 'Next');
+      await store.entered[1].future;
+      store.release[0].complete();
+      await old;
+      final queued = Prefs.addAccount(toxId: _toxId, nickname: 'Queued');
+      await Future<void>.delayed(Duration.zero);
+      expect(store.writes, 2, reason: 'Old completion must not unlock the new owner');
+      store.release[1].complete();
+      await Future.wait([next, queued]);
+      expect(store.writes, 3);
+      expect((await Prefs.getAccountByToxId(_toxId))?['nickname'], 'Queued');
+    });
   });
+}
+
+class _PausingRegistryStore extends SharedPreferencesStorePlatform {
+  _PausingRegistryStore(this.inner);
+  final SharedPreferencesStorePlatform inner;
+  final entered = List.generate(2, (_) => Completer<void>());
+  final release = List.generate(2, (_) => Completer<void>());
+  int writes = 0;
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == 'flutter.account_list') {
+      final index = writes++;
+      if (index < 2) {
+        entered[index].complete();
+        await release[index].future;
+      }
+    }
+    return inner.setValue(valueType, key, value);
+  }
+  @override
+  Future<bool> remove(String key) => inner.remove(key);
+  @override
+  Future<bool> clear() => inner.clear();
+  @override
+  Future<Map<String, Object>> getAll() => inner.getAll();
 }

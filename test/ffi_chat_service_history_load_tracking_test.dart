@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/interfaces/logger_service.dart';
 import 'package:tim2tox_dart/interfaces/scratch_file_service.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
@@ -99,20 +100,15 @@ class _RecordingScratchFileService implements ScratchFileService {
 }
 
 bool _ffiAvailable() {
-  final exeDir = File(Platform.resolvedExecutable).parent;
-  const libName = 'libtim2tox_ffi.dylib';
-  final candidates = <String>[
-    '${exeDir.path}/../../tim2tox/build/ffi/$libName',
-    '${exeDir.path}/../../../tim2tox/build/ffi/$libName',
-    '${exeDir.path}/$libName',
-    '${exeDir.path}/../Frameworks/$libName',
-  ];
-  for (final candidate in candidates) {
-    if (File(candidate).existsSync()) {
-      return true;
+  try {
+    Tim2ToxFfi.open();
+    return true;
+  } catch (_) {
+    if (Platform.environment['TOXEE_TESTS_NEED_NATIVE'] == '1') {
+      throw StateError('The required native FFI library could not be loaded');
     }
+    return false;
   }
-  return false;
 }
 
 void main() {

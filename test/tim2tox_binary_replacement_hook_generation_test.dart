@@ -90,10 +90,10 @@ void main() {
 
     tearDown(() async {
       try {
-        persistenceA.dispose();
+        await persistenceA.dispose();
       } catch (_) {}
       try {
-        persistenceB.dispose();
+        await persistenceB.dispose();
       } catch (_) {}
       try {
         await tempRoot.delete(recursive: true);

@@ -26,7 +26,7 @@ extension _LoginImportFlow on _LoginPageState {
         case ImportSuccess():
           await _loadAccountList();
           if (!mounted) return;
-          setState(() => _error = null);
+          _updateState(() => _error = null);
           AppSnackBar.showSuccess(
             context,
             AppLocalizations.of(context)!.accountImportedSuccessfully,
@@ -54,7 +54,7 @@ extension _LoginImportFlow on _LoginPageState {
             await _loadAccountList();
             if (!mounted) break;
           }
-          setState(() => _error = message);
+          _updateState(() => _error = message);
           // Suppress the toast for user-initiated cancellation paths; surface
           // it for genuine failures.
           if (kind != ImportFailureKind.noFileSelected &&

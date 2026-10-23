@@ -1,7 +1,6 @@
 // Tap the right-most empty-label top button (the "+" in the app bar).
 // Usage: dart run tool/mcp_test/ipad_tap_plus.dart <ws_uri>
 // ignore_for_file: avoid_print, depend_on_referenced_packages
-import 'package:vm_service/vm_service.dart';
 import 'package:vm_service/vm_service_io.dart';
 
 void main(List<String> a) async {

@@ -139,7 +139,7 @@ Future<Tim2ToxSdkPlatform> _installPlatformLikeCoordinator(
 /// invoke the unit-under-test (FakeUIKit.dispose + platform reset) directly
 /// so the assertions reflect the actual teardown contract.
 Future<void> _disposeLikeCoordinator() async {
-  FakeUIKit.instance.dispose();
+  await FakeUIKit.instance.dispose();
   final platform = TencentCloudChatSdkPlatform.instance;
   if (platform is Tim2ToxSdkPlatform) {
     platform.dispose();
@@ -255,7 +255,7 @@ void main() {
       // so we drive FakeUIKit.dispose directly to guarantee a clean slate
       // across tests in the same file.
       try {
-        FakeUIKit.instance.dispose();
+        await FakeUIKit.instance.dispose();
       } catch (_) {}
       await SessionRuntimeCoordinator.disposeRuntime();
       TencentCloudChatSdkPlatform.instance = MethodChannelTencentCloudChatSdk();
@@ -263,7 +263,7 @@ void main() {
 
     tearDown(() async {
       try {
-        FakeUIKit.instance.dispose();
+        await FakeUIKit.instance.dispose();
       } catch (_) {}
       try {
         await SessionRuntimeCoordinator.disposeRuntime();

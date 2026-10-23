@@ -25,14 +25,14 @@ void main() {
   FakeChatDataProvider? provider;
 
   setUp(() async {
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
   });
 
-  tearDown(() {
+  tearDown(() async {
     provider?.dispose();
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
   });
 
   Future<void> tombstone(FakeChatDataProvider p) async {

@@ -321,8 +321,7 @@ Future<int> runIosSettingsMainSweep(Inst inst, String nick) async {
   });
 
   await run('ios_settings_bootstrap', () async {
-    if (!await _openMobileSettingsSection(inst, 'Bootstrap Nodes'))
-      return false;
+    if (!await _openMobileSettingsSection(inst, 'Bootstrap Nodes')) { return false; }
     // Wide iOS (iPad): BootstrapSettingsSection is the last child of the inline
     // settings ListView and starts below the fold, so the lazy list has not
     // built its keys yet — scroll to the bottom to mount them before asserting.

@@ -344,10 +344,10 @@ class BadgeService {
   /// check in the listener prevents queued events from a previous session from
   /// scheduling a write after [dispose] or [debugResetForTesting].
   void _detachSubscription() {
-    final subscription = _sub;
-    _sub = null;
     _lifecycleEpoch++;
-    if (subscription != null) unawaited(subscription.cancel());
+    final cancellation = _sub?.cancel();
+    _sub = null;
+    unawaited(cancellation);
   }
 }
 

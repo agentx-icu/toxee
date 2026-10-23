@@ -144,8 +144,8 @@ void main() {
   group('openSession owner boundary', () {
     test('a session with no owner does not inherit the previous one',
         () async {
-      final a = MessageHistoryPersistence(appSupportRootOverride: tempDir.path)
-        ..openSession(ownerKey: _ownerA);
+      final a = MessageHistoryPersistence(appSupportRootOverride: tempDir.path);
+      await a.openSession(ownerKey: _ownerA);
       await a.saveHistory(_peer, <ChatMessage>[_row(1)]);
       await a.dispose();
 
@@ -165,8 +165,8 @@ void main() {
       await a.dispose();
 
       // And once B's identity IS known, it gets its own directory.
-      final b = MessageHistoryPersistence(appSupportRootOverride: tempDir.path)
-        ..openSession(ownerKey: _ownerB);
+      final b = MessageHistoryPersistence(appSupportRootOverride: tempDir.path);
+      await b.openSession(ownerKey: _ownerB);
       expect(await b.loadHistory(_peer), isEmpty);
       await b.dispose();
     });

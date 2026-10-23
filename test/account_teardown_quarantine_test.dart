@@ -8,7 +8,6 @@ import 'package:toxee/util/account_deletion.dart';
 import 'package:toxee/util/account_registration_rollback.dart';
 import 'package:toxee/util/account_service.dart';
 import 'package:toxee/util/account_session_cleanup.dart';
-import 'package:toxee/util/account_teardown_failure.dart';
 import 'package:toxee/util/native_dispose.dart';
 import 'package:toxee/util/native_quarantine.dart';
 import 'package:toxee/util/app_paths.dart';

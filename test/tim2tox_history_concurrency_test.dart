@@ -200,7 +200,7 @@ void main() {
     // Created OUTSIDE the guarded zone so its result reaches this await.
     final done = Completer<
         ({Object? flushError, List<String?> cached, bool landedByRetry})>();
-    runZonedGuarded(() async {
+    unawaited(runZonedGuarded(() async {
       try {
         final store = MessageHistoryPersistence(historyDirectory: blocker.path);
         // Fire-and-forget, the way native callback paths append (#19).
@@ -238,7 +238,7 @@ void main() {
       } catch (e, st) {
         done.completeError(e, st);
       }
-    }, (e, _) => unhandled.add(e));
+    }, (e, _) => unhandled.add(e)));
     final result = await done.future;
     expect(result.flushError, isA<HistoryFlushException>());
     expect(result.cached, ['keep']);
@@ -279,13 +279,13 @@ void main() {
           'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
       const ownerB =
           'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
-      final a = MessageHistoryPersistence(appSupportRootOverride: dir.path)
-        ..openSession(ownerKey: '${ownerA}0102030405AB');
+      final a = MessageHistoryPersistence(appSupportRootOverride: dir.path);
+      await a.openSession(ownerKey: '${ownerA}0102030405AB');
       await a.saveHistory(_peer, [_row('from_a', 1)]);
       await a.dispose();
 
-      final b = MessageHistoryPersistence(appSupportRootOverride: dir.path)
-        ..openSession(ownerKey: ownerB);
+      final b = MessageHistoryPersistence(appSupportRootOverride: dir.path);
+      await b.openSession(ownerKey: ownerB);
       expect(await b.loadHistory(_peer), isEmpty,
           reason: 'B must not read A\'s history for the same peer');
       await b.saveHistory(_peer, [_row('from_b', 2)]);
@@ -298,8 +298,8 @@ void main() {
       expect(await shared.readAsString(), isNot(contains('from_b')));
       expect(await isolated.readAsString(), contains('from_b'));
 
-      final a2 = MessageHistoryPersistence(appSupportRootOverride: dir.path)
-        ..openSession(ownerKey: ownerA);
+      final a2 = MessageHistoryPersistence(appSupportRootOverride: dir.path);
+      await a2.openSession(ownerKey: ownerA);
       expect((await a2.loadHistory(_peer)).map((m) => m.msgID), ['from_a']);
       await a2.dispose();
     });

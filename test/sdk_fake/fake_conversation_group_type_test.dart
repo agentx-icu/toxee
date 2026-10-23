@@ -20,16 +20,16 @@ void main() {
   FakeChatDataProvider? provider;
 
   setUp(() async {
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await Prefs.initialize(await SharedPreferences.getInstance());
     await Prefs.setCurrentAccountToxId('group_type_test_account');
   });
 
-  tearDown(() {
+  tearDown(() async {
     provider?.dispose();
     provider = null;
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
   });
 
   test(

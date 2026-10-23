@@ -234,6 +234,8 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  void _updateState(VoidCallback update) => setState(update);
+
   bool _autoLogin = true; // Auto-login setting
   final ValueNotifier<bool> _autoLoginNotifier = ValueNotifier<bool>(true);
   int _autoLoginGeneration = 0;
@@ -449,8 +451,9 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   String _formatLastLoginTime(String? isoString, BuildContext context) {
-    if (isoString == null || isoString.isEmpty)
+    if (isoString == null || isoString.isEmpty) {
       return AppLocalizations.of(context)!.never;
+    }
     try {
       final dateTime = DateTime.parse(isoString);
       final now = DateTime.now();
@@ -1084,7 +1087,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ? null
         : _kDeleteConfirmWords[Random().nextInt(_kDeleteConfirmWords.length)];
 
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     // The confirm-input controller is owned by [_DeleteAccountDialog]'s State
     // (disposed in its dispose()). Creating it here and disposing it right
     // after this await crashes in debug ("A TextEditingController was used
@@ -1101,7 +1104,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
 
-    if (confirmed == true && mounted) {
+    if (confirmed == true && mounted && context.mounted) {
       unawaited(HapticFeedback.heavyImpact());
       await _deleteAccount(context);
     }
@@ -1109,12 +1112,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _deleteAccount(BuildContext context) async {
     // Show loading indicator
-    if (!mounted) return;
-    showDialog(
+    if (!mounted || !context.mounted) return;
+    unawaited(showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
+    ));
 
     try {
       // Prefer the LIVE identity. `_showDeleteAccountConfirmation` gated on
@@ -1139,21 +1142,21 @@ class _SettingsPageState extends State<SettingsPage> {
       );
 
       // Close loading dialog
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
       Navigator.of(context).pop();
 
       // Navigate to login page and clear navigation stack
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
+      if (!mounted || !context.mounted) return;
+      unawaited(Navigator.of(context).pushAndRemoveUntil(
         AppPageRoute<void>(page: const LoginPage()),
         (route) => false,
-      );
+      ));
     } catch (e) {
       SafeDiagnostics.logFailure('[SettingsPage] Delete account failed', e);
       // Close loading dialog
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
       Navigator.of(context).pop();
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
 
       // Deletion tears the session down as its FIRST stage, so by the time a
       // later stage fails the Home/Settings tree behind this dialog is driving
@@ -1166,12 +1169,12 @@ class _SettingsPageState extends State<SettingsPage> {
         context,
       )!.deleteAccountFailed(SafeDiagnostics.describeError(e));
       if (AccountService.sessionWasTornDownBy(e)) {
-        Navigator.of(context).pushAndRemoveUntil(
+        unawaited(Navigator.of(context).pushAndRemoveUntil(
           AppPageRoute<void>(page: const LoginPage()),
           (route) => false,
-        );
+        ));
       }
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),

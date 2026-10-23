@@ -195,7 +195,7 @@ void main() {
       env = await setUpAccountExportTestEnv();
       _setAudioChannelMocks();
       try {
-        FakeUIKit.instance.dispose();
+        await FakeUIKit.instance.dispose();
       } catch (_) {}
       ffi = _BridgeFfiChatService(env.root);
       debugNativeFriendIds = (_) => ffi.friendIDs.toList();
@@ -215,7 +215,7 @@ void main() {
       ChatMessageProviderRegistry.provider = previousProvider;
       TencentCloudChat.instance.dataInstance.messageData.messageListMap = {};
       try {
-        FakeUIKit.instance.dispose();
+        await FakeUIKit.instance.dispose();
       } catch (_) {}
       await ffi.dispose();
       _clearAudioChannelMocks();

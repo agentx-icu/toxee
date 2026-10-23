@@ -23,7 +23,7 @@ void main() {
         root.path,
       ]);
       first = await launch();
-      final lines = first!.stdout
+      final lines = first.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .asBroadcastStream();
@@ -31,13 +31,13 @@ void main() {
       final activation = lines.first;
       expect(jsonDecode(await File('${root.path}/.session-owner.json').readAsString())['port'], isA<int>());
       second = await launch();
-      expect(await second!.stdout.transform(utf8.decoder).join(), 'yielded\n');
+      expect(await second.stdout.transform(utf8.decoder).join(), 'yielded\n');
       expect(await activation, 'activated');
-      first!.kill(ProcessSignal.sigkill);
-      await first!.exitCode;
+      first.kill(ProcessSignal.sigkill);
+      await first.exitCode;
       replacement = await launch();
       expect(
-        await replacement!.stdout
+        await replacement.stdout
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .first,

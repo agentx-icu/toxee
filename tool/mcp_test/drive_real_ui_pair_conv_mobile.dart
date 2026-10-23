@@ -47,27 +47,6 @@ Future<bool> _openSearchHistoryMobileDetail(Inst inst, String convId) async {
   return true;
 }
 
-/// Print the flutter_skill bounds of [keys] — live diagnostics for taps that
-/// land on an adjacent control (resolved center vs actual layout).
-Future<void> _dumpKeyBounds(Inst inst, List<String> keys) async {
-  try {
-    final r = await inst.skill('interactiveStructured', const {});
-    final data = r['data'];
-    final els = data is Map ? data['elements'] : null;
-    final hits = <String>[
-      if (els is List)
-        for (final e in els)
-          if (e is Map && keys.contains(e['key'])) '${e['key']}=${e['bounds']}',
-    ];
-    final centers = <String>[
-      for (final k in keys) '$k@${await inst.keyCenter(k)}',
-    ];
-    print('[${inst.name}] key bounds: $hits elementCenters: $centers');
-  } on DriveError {
-    // diagnostics only
-  }
-}
-
 /// All onstage element keys starting with [prefix] (flutter_skill walk) —
 /// live diagnostics for "row not found" failures in keyed virtual lists.
 Future<List<String>> _visibleKeysWithPrefix(Inst inst, String prefix) async {

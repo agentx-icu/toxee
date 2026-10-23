@@ -3,6 +3,7 @@
 /// Lives here, not in `account_service.dart` where it was originally written:
 /// it has nothing to do with the account lifecycle and is used only by the
 /// register/profile form validators.
+library;
 
 /// Calculate text length where Chinese characters count as 1, and
 /// letters/numbers/other characters count as 0.5.

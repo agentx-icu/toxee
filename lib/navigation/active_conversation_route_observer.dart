@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:tencent_cloud_chat_common/router/tencent_cloud_chat_route_names.dart';
 

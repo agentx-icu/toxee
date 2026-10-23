@@ -328,7 +328,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
     );
     if (confirmed != true || !mounted) return;
 
-    setState(() => _legacyRecoveryInProgress = true);
+    _updateState(() => _legacyRecoveryInProgress = true);
     try {
       // RECORD THE CLAIM ONLY — do not copy now.
       //
@@ -367,7 +367,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
       }
     } finally {
       if (mounted) {
-        setState(() => _legacyRecoveryInProgress = false);
+        _updateState(() => _legacyRecoveryInProgress = false);
       }
       await _refreshUnclaimedLegacyData();
     }
@@ -377,7 +377,7 @@ extension _MobileSettingsWidgets on _SettingsPageState {
     final has = await LegacyAccountDataClaim.hasUnclaimedLegacyData();
     if (!mounted) return;
     if (has != _hasUnclaimedLegacyData) {
-      setState(() => _hasUnclaimedLegacyData = has);
+      _updateState(() => _hasUnclaimedLegacyData = has);
     }
   }
 }

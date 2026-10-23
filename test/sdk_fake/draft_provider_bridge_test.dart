@@ -11,15 +11,15 @@ import 'package:toxee/sdk_fake/fake_uikit_core.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
-    FakeUIKit.instance.dispose();
+  setUp(() async {
+    await FakeUIKit.instance.dispose();
     ChatMessageProviderRegistry.provider = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  tearDown(() {
+  tearDown(() async {
     ChatMessageProviderRegistry.provider = null;
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
   });
 
   test(
@@ -110,7 +110,7 @@ void main() {
         .listen((_) {}, onDone: conversationDone.complete);
     addTearDown(conversationSubscription.cancel);
 
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
     await conversationDone.future.timeout(const Duration(seconds: 1));
     await Future<void>.delayed(Duration.zero);
 
@@ -127,7 +127,7 @@ void main() {
     expect(nextSessionProvider, isNot(same(fallback)));
     expect(ChatMessageProviderRegistry.provider, same(nextSessionProvider));
 
-    FakeUIKit.instance.dispose();
+    await FakeUIKit.instance.dispose();
     await Future<void>.delayed(Duration.zero);
     expect(ChatMessageProviderRegistry.provider, isNull);
     expect(ffi.progressController.hasListener, isFalse);

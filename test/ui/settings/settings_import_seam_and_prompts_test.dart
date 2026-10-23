@@ -13,7 +13,6 @@
 //      password writes nothing, the right one restores the profile still
 //      encrypted with the password installed as the verifier.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 

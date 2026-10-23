@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
@@ -12,6 +11,7 @@ import 'package:tim2tox_dart/service/tuicallkit_tuicore_integration.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 import '../adapters/logger_adapter.dart';
 import '../util/logger.dart';
+import '../util/async_task.dart';
 import 'call_codec_profile.dart';
 import 'call_media_capabilities.dart';
 import 'call_media_interruption_controller.dart';
@@ -33,11 +33,9 @@ import '../runtime/runtime_foreground_service.dart';
 import '../util/locale_controller.dart';
 import '../util/prefs.dart';
 import '../util/tox_utils.dart';
-
 part 'call_service_manager_predicates.dart';
 part 'call_service_manager_busy.dart';
 part 'call_service_manager_native.dart';
-
 /// Manages ToxAV service lifecycle and bridges events to CallStateNotifier.
 ///
 /// Supports two call paths:
@@ -62,7 +60,6 @@ class CallServiceManager
   final CallVideoLifecycleController _videoLifecycle =
       CallVideoLifecycleController();
   StreamSubscription<CallAudioEvent>? _audioPlatformSub;
-
   /// CallKit bridge (iOS only; no-op on every other platform). Surfaces the
   /// system call UI for ringing/in-call states so calls work on the lock
   /// screen and through CarPlay / AirPods controls.
@@ -479,10 +476,10 @@ class CallServiceManager
     _avService!.setAudioReceiveCallback(_audioHandler.onAudioReceived);
     _avService!.setVideoReceiveCallback(_videoHandler.onVideoReceived);
     await _callAudioPlatform.initialize();
-    _audioPlatformSub?.cancel();
+    observeBackgroundTask(_audioPlatformSub?.cancel(), '[CallServiceManager] Cancel audio events');
     _audioPlatformSub = _callAudioPlatform.events.listen(_onAudioPlatformEvent);
 
-    _callKitSub?.cancel();
+    observeBackgroundTask(_callKitSub?.cancel(), '[CallServiceManager] Cancel CallKit events');
     _callKitSub = _callKit.userActions.listen(_onCallKitAction);
 
     // AV poll boost: toxav_iterate rides FfiChatService's adaptive poll loop,
@@ -775,7 +772,7 @@ class CallServiceManager
       await Future.delayed(const Duration(milliseconds: 800));
       if (_callState.state == CallUIState.ringing &&
           _callState.inviteID == inviteID) {
-        hangUp();
+        await hangUp();
       }
     }
 
@@ -856,7 +853,7 @@ class CallServiceManager
           break;
         }
         _cancelAndroidIncomingCallSurface();
-        _ringtone.stop();
+        observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
         _callState.enterCall();
         unawaited(_callKitReportConnected());
         _elevateForegroundForCall();
@@ -866,7 +863,7 @@ class CallServiceManager
             : null;
         if (fn != null && _avService != null) {
           // Request permissions then start capture (async, fire-and-forget)
-          _startMediaCapture(fn);
+          observeBackgroundTask(_startMediaCapture(fn), '[CallServiceManager] Start call media');
         }
         break;
       case CallState.ended:
@@ -876,9 +873,9 @@ class CallServiceManager
         if (endReason == 'line_busy') {
           _emitLocalizedUiNotice((l10n) => l10n.callPeerBusy);
         }
-        _ringtone.stop();
-        _audioHandler.stop();
-        _videoHandler.stop();
+        observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
+        observeBackgroundTask(_audioHandler.stop(), '[CallServiceManager] Stop call audio');
+        observeBackgroundTask(_videoHandler.stop(), '[CallServiceManager] Stop call video');
         // Prefer the bridge-supplied endReason (reject/hangup/timeout/cancel).
         // Fall back to the pre-Fix-Y heuristic when the bridge omits it so
         // legacy code paths keep producing a sensible record.
@@ -941,10 +938,10 @@ class CallServiceManager
 
     // Error or finished → end the call
     if (state == stateError || state == stateFinished) {
-      _ringtone.stop();
+      observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
       // Scoped: a stop that no longer owns the pipeline must not close it.
       _audioHandler.stop(claim: _activeAudioClaim);
-      _videoHandler.stop();
+      observeBackgroundTask(_videoHandler.stop(), '[CallServiceManager] Stop call video');
       _reconnectTimer?.cancel();
       _reconnectTimer = null;
       String nativeEndReason = 'hangup';
@@ -989,7 +986,7 @@ class CallServiceManager
     //   - Incoming call: after we answered → state confirms media is flowing
     if ((state & stateSendingA) != 0 || (state & stateAcceptingA) != 0) {
       if (_callState.state == CallUIState.ringing) {
-        _ringtone.stop();
+        observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
         _callState.enterCall();
         unawaited(_callKitReportConnected());
         _elevateForegroundForCall();
@@ -1509,11 +1506,11 @@ class CallServiceManager
           videoBitRate: sendVideoBitRate,
         );
         // Immediately enter call state and start media
-        _ringtone.stop();
+        observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
         _callState.enterCall();
         unawaited(_callKitReportConnected());
         _elevateForegroundForCall();
-        _startMediaCapture(fn);
+        observeBackgroundTask(_startMediaCapture(fn), '[CallServiceManager] Start call media');
       }
     } else {
       // Signaling path
@@ -1542,13 +1539,13 @@ class CallServiceManager
       if (fn != null && _avService != null) {
         await _avService!.endCall(fn);
       }
-      _ringtone.stop();
+      observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
       _callState.endCall();
       _restoreForegroundAfterCall();
       _cleanupNativeCall();
     } else {
       await _callBridge?.rejectInvitation(inviteID);
-      _ringtone.stop();
+      observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
       _callState.endCall();
       _restoreForegroundAfterCall();
     }
@@ -1593,16 +1590,16 @@ class CallServiceManager
         await _avService!.endCall(fn);
       }
       unawaited(_ringtone.stop());
-      _audioHandler.stop();
-      _videoHandler.stop();
+      observeBackgroundTask(_audioHandler.stop(), '[CallServiceManager] Stop call audio');
+      observeBackgroundTask(_videoHandler.stop(), '[CallServiceManager] Stop call video');
       _callState.endCall();
       _restoreForegroundAfterCall();
       _cleanupNativeCall();
     } else {
       await _callBridge?.endCall(inviteID);
-      _ringtone.stop();
-      _audioHandler.stop();
-      _videoHandler.stop();
+      observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
+      observeBackgroundTask(_audioHandler.stop(), '[CallServiceManager] Stop call audio');
+      observeBackgroundTask(_videoHandler.stop(), '[CallServiceManager] Stop call video');
       _callState.endCall();
       _restoreForegroundAfterCall();
     }
@@ -1792,7 +1789,7 @@ class CallServiceManager
       _avPollBoosted = false;
       _chatService.setAvSessionActive(false);
     }
-    _ringtone.stop();
+    observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
     _cancelAndroidIncomingCallSurface();
     _ringtone.dispose();
     // Native first (synchronous FFI dispatch), ToxAV shutdown after.
@@ -1819,8 +1816,9 @@ class CallServiceManager
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     uiNotice.dispose();
-    _audioPlatformSub?.cancel();
-    _callKitSub?.cancel();
+    final audioEvents = _audioPlatformSub?.cancel();
+    _audioPlatformSub = null;
+    final callKitEvents = _callKitSub?.cancel();
     _callKitSub = null;
     _pendingNativeIncoming.clear();
     _endedAvLegs.clear();
@@ -1828,6 +1826,8 @@ class CallServiceManager
     _avService?.shutdown();
     _adapter?.dispose();
     return _disposeFuture = _finishDispose(<Future<void>?>[
+      audioEvents,
+      callKitEvents,
       conference,
       bridge,
       audio,

@@ -49,7 +49,7 @@ Future<bool> _openSelfProfile(Inst inst) async {
     }
     if (inst.isMobileShell && !await _settingsIsWide(inst)) {
       await _openSettings(inst);
-      final profileTileKey = 'settings_mobile_profile_tile';
+      const profileTileKey = 'settings_mobile_profile_tile';
       final tappedByKey =
           await inst.tapKeyCenter(profileTileKey, timeoutSecs: 4) ||
           await inst.tryTapKey(profileTileKey, retries: 2);

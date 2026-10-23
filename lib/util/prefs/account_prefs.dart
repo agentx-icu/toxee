@@ -77,7 +77,7 @@ Future<_AccountListRead> _readAccountList(SharedPreferences p) async {
     // next registry by mutating what they read. A const literal here is
     // unmodifiable, so registering the very first account threw
     // "Cannot add to an unmodifiable list".
-    return _AccountListRead(<Map<String, String>>[], lossy: false);
+    return _AccountListRead(List<Map<String, String>>.empty(growable: true), lossy: false);
   }
   Object? decoded;
   try {

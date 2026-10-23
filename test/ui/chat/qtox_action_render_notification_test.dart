@@ -14,11 +14,6 @@ import 'package:tencent_cloud_chat_common/cross_platforms_adapter/tencent_cloud_
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_widgets/message_type_builders/tencent_cloud_chat_message_text.dart';
-import 'package:tencent_cloud_chat_sdk/enum/V2TimAdvancedMsgListener.dart';
-import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_text_elem.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_user_full_info.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
@@ -211,7 +206,7 @@ void main() {
             size: const Size(1200, 800),
             screenType: DeviceScreenType.desktop,
           ),
-        ])
+        ]) {
       testWidgets('ACTION renders its body as text on ${target.name}', (
         WidgetTester tester,
       ) async {
@@ -226,6 +221,7 @@ void main() {
         expect(find.text('[Custom]'), findsNothing);
         expect(tester.takeException(), isNull);
       });
+    }
 
     testWidgets('ACTION notification previews the text body, not custom data', (
       WidgetTester tester,
@@ -276,7 +272,7 @@ void main() {
         isFalse,
       );
       expect(fakePlatform.listener!.onRecvNewMessage, isNotNull);
-      fakePlatform.listener!.onRecvNewMessage?.call(action);
+      fakePlatform.listener!.onRecvNewMessage.call(action);
       for (var attempt = 0; attempt < 20 && showArguments == null; attempt++) {
         await tester.pump(const Duration(milliseconds: 50));
       }

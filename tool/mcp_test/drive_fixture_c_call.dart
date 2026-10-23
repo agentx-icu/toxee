@@ -29,7 +29,7 @@ Future<void> main(List<String> args) async {
 
 Future<int> _main(List<String> args) async {
   if (args.length < 2) {
-    print(
+    stdout.writeln(
       'usage: drive_fixture_c_call.dart <ws_uri_A> <ws_uri_B> '
       '[--video] [--reject] [--toggle-video]',
     );
@@ -45,45 +45,45 @@ Future<int> _main(List<String> args) async {
   try {
     final toxA = await a.currentToxId();
     final toxB = await b.currentToxId();
-    print(
+    stdout.writeln(
       '[fixture-c-call] toxA=${toxA.substring(0, 16)}... toxB=${toxB.substring(0, 16)}...',
     );
 
     await a.startCall(toxB, video: video);
     await b.waitForCallState('ringing', timeoutSecs: 30);
-    print('[fixture-c-call] B sees incoming ringing');
+    stdout.writeln('[fixture-c-call] B sees incoming ringing');
 
     if (reject) {
       await b.callAction('reject');
       await a.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
       await b.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
-      print('[fixture-c-call] reject completed');
+      stdout.writeln('[fixture-c-call] reject completed');
       return 0;
     }
 
     await b.callAction('accept');
     await a.waitForCallState('inCall', timeoutSecs: 30);
     await b.waitForCallState('inCall', timeoutSecs: 30);
-    print('[fixture-c-call] both sides reached inCall');
+    stdout.writeln('[fixture-c-call] both sides reached inCall');
 
     await a.callAction('mute');
     await a.waitForMuted(true, timeoutSecs: 10);
-    print('[fixture-c-call] A mute toggled on');
+    stdout.writeln('[fixture-c-call] A mute toggled on');
 
     if (toggleVideo) {
       await a.callAction('video');
       await a.waitForVideoEnabled(!video, timeoutSecs: 15);
-      print('[fixture-c-call] A video toggle applied');
+      stdout.writeln('[fixture-c-call] A video toggle applied');
     }
 
     await a.callAction('hangup');
     await a.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
     await b.waitForCallStateAny({'ended', 'idle'}, timeoutSecs: 20);
-    print('[fixture-c-call] hangup completed');
+    stdout.writeln('[fixture-c-call] hangup completed');
 
     return 0;
   } catch (e) {
-    print('[fixture-c-call] ERROR: $e');
+    stdout.writeln('[fixture-c-call] ERROR: $e');
     return 1;
   } finally {
     await a.dispose();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -320,11 +321,11 @@ class AppLogger {
   static void _emit(LogLevel level, String body) {
     final formatted = _formatLine(level, body);
     if (_enableConsoleLogging) {
-      if (level == LogLevel.debug) {
-        debugPrint(formatted);
-      } else {
-        print(formatted);
-      }
+      // Terminal sink: main's print router must not consume our output again.
+      // Even root-zone debugPrint would join Flutter's shared throttle queue,
+      // whose pending timer may belong to the routed app zone. Console logging
+      // is opt-in; direct debug output trades throttling for exactly-once logs.
+      Zone.root.print(formatted);
     }
     _writeToFile(formatted);
   }
@@ -365,8 +366,8 @@ class AppLogger {
       }
     }
     if (_enableConsoleLogging && (error != null || stackTrace != null)) {
-      if (error != null) print('Error: $error');
-      if (stackTrace != null) debugPrint(stackTrace.toString());
+      if (error != null) { Zone.root.print('Error: $error'); }
+      if (stackTrace != null) { Zone.root.print(stackTrace.toString()); }
     }
   }
 

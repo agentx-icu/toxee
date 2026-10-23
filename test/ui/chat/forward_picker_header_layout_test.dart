@@ -19,7 +19,6 @@ import 'package:tencent_cloud_chat_common/models/tencent_cloud_chat_models.dart'
 import 'package:tencent_cloud_chat_common/tencent_cloud_chat.dart';
 import 'package:tencent_cloud_chat_intl/localizations/tencent_cloud_chat_localizations.dart';
 import 'package:tencent_cloud_chat_message/tencent_cloud_chat_message_input/forward/tencent_cloud_chat_message_forward.dart';
-import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

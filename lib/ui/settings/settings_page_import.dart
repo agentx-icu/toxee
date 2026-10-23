@@ -14,7 +14,7 @@ part of 'settings_page.dart';
 extension _SettingsImportFlow on _SettingsPageState {
   Future<void> _importAccount() async {
     if (_importInProgress) return;
-    setState(() => _importInProgress = true);
+    _updateState(() => _importInProgress = true);
     String? rollbackToxId;
     var rollbackFullBackup = false;
     // Set when the rollback refused to half-undo a published restore: the
@@ -370,7 +370,7 @@ extension _SettingsImportFlow on _SettingsPageState {
       password?.dispose();
       profilePassword?.dispose();
       if (mounted) {
-        setState(() => _importInProgress = false);
+        _updateState(() => _importInProgress = false);
       } else {
         _importInProgress = false;
       }

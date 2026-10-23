@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // UI-7: on the master-detail (wide) shell, opening a chat — notably from a
 // notification tap — while a UIKit page (group profile / member list / member
 // info) covers the window used to only rebind the hidden right pane: the tap
@@ -28,16 +30,16 @@ void main() {
     ));
     // The home shell is an AppPageRoute on top of the login route, exactly as
     // LoginPage/StartupGate push HomePage.
-    navKey.currentState!.push(AppPageRoute(page: const Text('shell')));
+    unawaited(navKey.currentState!.push(AppPageRoute(page: const Text('shell'))));
     await tester.pumpAndSettle();
   }
 
   void pushUikitPage(String name, {bool fullscreenDialog = false}) {
-    navKey.currentState!.push(MaterialPageRoute<void>(
+    unawaited(navKey.currentState!.push(MaterialPageRoute<void>(
       fullscreenDialog: fullscreenDialog,
       settings: RouteSettings(name: name),
       builder: (_) => Scaffold(body: Text(name)),
-    ));
+    )));
   }
 
   testWidgets(
@@ -121,8 +123,8 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(navigatorKey: navKey, home: const Text('login')));
-    navKey.currentState!.push(AppPageRoute(page: const Text('shell')));
-    navKey.currentState!.push(MaterialPageRoute<void>(
+    unawaited(navKey.currentState!.push(AppPageRoute(page: const Text('shell'))));
+    unawaited(navKey.currentState!.push(MaterialPageRoute<void>(
       settings: RouteSettings(
         name: TencentCloudChatRouteNames.message,
         arguments: {
@@ -130,7 +132,7 @@ void main() {
         },
       ),
       builder: (_) => const Scaffold(body: Text('chat tox_group_1')),
-    ));
+    )));
     pushUikitPage('groupProfile');
     pushUikitPage('groupMemberList');
     await tester.pumpAndSettle();

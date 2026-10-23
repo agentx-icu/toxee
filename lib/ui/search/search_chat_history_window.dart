@@ -51,7 +51,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
   _filteredResults = [];
 
   /// Resolved display names for senders (userID -> nickname/remark). Messages from search often lack nickName/friendRemark.
-  Map<String, String> _senderDisplayNames = {};
+  final Map<String, String> _senderDisplayNames = {};
 
   /// On mobile, when true show message list for selected conversation; when false show conversation list.
   bool _showMobileDetail = false;

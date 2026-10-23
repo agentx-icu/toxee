@@ -394,7 +394,7 @@ packages:
     source: hosted
     version: "15.0.2"
   extended_text_field:
-    dependency: "direct overridden"
+    dependency: "direct dev"
     description:
       name: extended_text_field
       sha256: "495b8cc6b4a66b5323d71afe1df1c5f08b716fdc925e4339aeaa14a2f0cf65a9"
@@ -410,7 +410,7 @@ packages:
     source: hosted
     version: "12.0.1"
   fake_async:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: fake_async
       sha256: "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"
@@ -1555,7 +1555,7 @@ packages:
     source: hosted
     version: "0.1.9"
   scroll_to_index:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: scroll_to_index
       sha256: b707546e7500d9f070d63e5acf74fd437ec7eeeb68d3412ef7b0afada0b4f176
@@ -2038,7 +2038,7 @@ packages:
     source: hosted
     version: "0.4.0+2"
   vm_service:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: vm_service
       sha256: ddfa8d30d89985b96407efce8acbdd124701f96741f2d981ca860662f1c0dc02

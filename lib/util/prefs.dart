@@ -1955,7 +1955,7 @@ class Prefs {
 
   /// Forget any queued registry mutation. Tests only - see [AsyncGate.reset].
   @visibleForTesting
-  static void resetRegistryGate() => _accountRegistryGate.reset();
+  static void resetRegistryGate() => _accountRegistryGate = AsyncGate();
 
   /// Replace the account registry.
   ///

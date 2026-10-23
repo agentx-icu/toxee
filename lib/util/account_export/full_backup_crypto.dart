@@ -225,9 +225,7 @@ Future<Archive> _decryptEncryptedArchive({
     );
   }
   final rawPayload = payloadFile.content;
-  final cipherText = rawPayload is List<int>
-      ? Uint8List.fromList(rawPayload)
-      : Uint8List(0);
+  final cipherText = Uint8List.fromList(rawPayload);
   // AES-GCM is length preserving, and [encryptFullBackupArchive] refuses to
   // encrypt an empty zip, so a zero-length payload cannot have been produced by
   // this exporter: the file was truncated or the entry was replaced. That is

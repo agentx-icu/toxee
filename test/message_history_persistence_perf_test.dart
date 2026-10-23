@@ -145,7 +145,7 @@ void main() {
       } catch (_) {}
     });
 
-    Future<List<ChatMessage>> _readFromDisk(
+    Future<List<ChatMessage>> readFromDisk(
       MessageHistoryPersistence persistence,
       String id,
     ) async {
@@ -198,7 +198,7 @@ void main() {
       // Force-flush belt-and-braces in case the test host was slow.
       await persistence.flushPendingSaves();
 
-      final loaded = await _readFromDisk(persistence, id);
+      final loaded = await readFromDisk(persistence, id);
       expect(loaded.length, 10);
       for (var i = 0; i < 10; i++) {
         expect(
@@ -224,7 +224,7 @@ void main() {
 
       await persistence.flushPendingSaves();
 
-      final loaded = await _readFromDisk(persistence, id);
+      final loaded = await readFromDisk(persistence, id);
       expect(loaded.length, 1);
       expect(loaded.first.text, 'urgent');
       await persistence.dispose();

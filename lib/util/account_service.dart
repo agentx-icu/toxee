@@ -36,7 +36,6 @@ import 'logger.dart';
 import 'safe_diagnostics.dart';
 import 'secret_passphrase_staging.dart';
 import 'short_tox_id_backfill.dart';
-import 'tox_utils.dart';
 
 // Split out of this file (it had grown past the complexity gate's pin) but
 // re-exported: `AccountActivationTransaction` is part of the account-lifecycle

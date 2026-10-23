@@ -139,7 +139,7 @@ abstract final class ToxImportJournal {
   ///
   /// NOT re-entrant (see [AsyncGate]): everything inside runs the `Unguarded`
   /// bodies.
-  static final AsyncGate _gate = AsyncGate();
+  static AsyncGate _gate = AsyncGate();
 
   static Future<File> _file() async {
     final root = await AppPaths.applicationSupportPath;
@@ -364,7 +364,7 @@ abstract final class ToxImportJournal {
   static void resetUnresolved() {
     _unresolved.clear();
     _unreadable = false;
-    _gate.reset();
+    _gate = AsyncGate();
   }
 
   /// Whether [toxId] is the account an interrupted import was creating.

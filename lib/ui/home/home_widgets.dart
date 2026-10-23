@@ -1,4 +1,3 @@
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 // `TencentCloudChatConversationTotalUnreadCount` lives in its OWN file and the

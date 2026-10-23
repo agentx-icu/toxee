@@ -89,7 +89,6 @@ class _CustomSearchState extends State<CustomSearch> {
   List<V2TimFriendInfoResult> _contactsList = [];
   List<V2TimGroupInfo> _groupsList = [];
   List<V2TimConversation> _conversationFallbackList = [];
-  bool _isDesktop(BuildContext context) => ResponsiveLayout.isDesktop(context);
   Timer? _debounceTimer;
   String? _errorMessage;
 
@@ -161,9 +160,9 @@ class _CustomSearchState extends State<CustomSearch> {
       final key = (c.userID != null && c.userID!.isNotEmpty)
           ? c.userID!
           : (c.groupID ?? c.conversationID);
-      List<V2TimMessage> list = UikitDataFacade.getMessageList(key: key);
+      final List<V2TimMessage> list = UikitDataFacade.getMessageList(key: key);
       // Build full list: in-memory (newest) + paginated history (older). Message order is newest-first.
-      List<V2TimMessage> allMessages = List<V2TimMessage>.from(list);
+      final List<V2TimMessage> allMessages = List<V2TimMessage>.from(list);
       bool foundMatchEarly = false;
       if (c.userID != null || c.groupID != null) {
         try {
@@ -399,8 +398,8 @@ class _CustomSearchState extends State<CustomSearch> {
             final messageSDK =
                 TencentCloudChat.instance.chatSDKInstance.messageSDK;
             final lowerKeyword = keyword.toLowerCase();
-            List<V2TimMessage> list = UikitDataFacade.getMessageList(key: key);
-            List<V2TimMessage> allMessages = List<V2TimMessage>.from(list);
+            final List<V2TimMessage> list = UikitDataFacade.getMessageList(key: key);
+            final List<V2TimMessage> allMessages = List<V2TimMessage>.from(list);
             if (widget.userID != null || widget.groupID != null) {
               try {
                 String? lastMsgID = allMessages.isEmpty
@@ -490,16 +489,15 @@ class _CustomSearchState extends State<CustomSearch> {
               _matchesKeywordCaseInsensitive(c.userID, keyword) ||
               _matchesKeywordCaseInsensitive(c.groupID, keyword);
         }).toList();
-        _searchLocalMessageContent(keyword).then((messageResults) {
-          if (!mounted || _searchKeyword.trim() != keyword) return;
-          setState(() {
-            _messageSearchResults = messageResults;
-            _contactsList = [];
-            _groupsList = [];
-            _conversationFallbackList = fallback;
-            _isSearching = false;
-            _errorMessage = AppLocalizations.of(context)?.searchFailed;
-          });
+        final messageResults = await _searchLocalMessageContent(keyword);
+        if (!mounted || _searchKeyword.trim() != keyword) return;
+        setState(() {
+          _messageSearchResults = messageResults;
+          _contactsList = [];
+          _groupsList = [];
+          _conversationFallbackList = fallback;
+          _isSearching = false;
+          _errorMessage = AppLocalizations.of(context)?.searchFailed;
         });
       } else if (mounted) {
         setState(() {

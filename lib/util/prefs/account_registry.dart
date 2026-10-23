@@ -26,7 +26,7 @@ part of 'package:toxee/util/prefs.dart';
 /// onto the previous caller's future runs the body in THAT caller's zone, and
 /// a mutation issued from inside a `testWidgets` body then never started
 /// until the test was already over. See the class doc for the full trap.
-final AsyncGate _accountRegistryGate = AsyncGate();
+AsyncGate _accountRegistryGate = AsyncGate();
 
 Future<T> _serializedRegistry<T>(Future<T> Function() body) {
   return _accountRegistryGate.run(body);

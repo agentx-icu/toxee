@@ -121,6 +121,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  void _updateState(VoidCallback update) => setState(update);
+
   final _nicknameController = TextEditingController();
   final _statusMessageController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -134,7 +136,6 @@ class _LoginPageState extends State<LoginPage> {
   bool _importInProgress = false;
   bool _exportAccountInProgress = false;
   String? _error;
-  FfiChatService? _service;
   List<Map<String, String>> _accountList = [];
 
   /// True when `account_list` could not be parsed. Distinguishes "no saved
@@ -357,6 +358,7 @@ class _LoginPageState extends State<LoginPage> {
       toxId: toxId,
       nickname: account['nickname'] ?? '',
     );
+    if (!mounted) { outcome.password?.dispose(); return; }
     switch (outcome.result) {
       case PasswordGateResult.cancelled:
         return;
@@ -524,7 +526,6 @@ class _LoginPageState extends State<LoginPage> {
             }
             return;
           }
-          _service = service;
           await _bootSession(service);
           if (!mounted) {
             try {
@@ -876,7 +877,7 @@ class _LoginPageState extends State<LoginPage> {
     await Navigator.of(
       context,
     ).push<void>(AppPageRoute(page: const LoginSettingsPage()));
-    if (mounted) _loadSettings();
+    if (mounted) await _loadSettings();
   }
 
   Widget _buildFloatingSettingsButton(BuildContext context) {
@@ -1071,10 +1072,11 @@ class _LoginPageState extends State<LoginPage> {
                                           String? isoString,
                                         ) {
                                           if (isoString == null ||
-                                              isoString.isEmpty)
+                                              isoString.isEmpty) {
                                             return AppLocalizations.of(
                                               context,
                                             )!.never;
+                                          }
                                           try {
                                             final dateTime = DateTime.parse(
                                               isoString,
@@ -1451,13 +1453,11 @@ class _LoginPageState extends State<LoginPage> {
 class _PressableScale extends StatefulWidget {
   const _PressableScale({
     required this.child,
-    this.pressedScale = 0.97,
-    this.duration = const Duration(milliseconds: 120),
   });
 
   final Widget child;
-  final double pressedScale;
-  final Duration duration;
+  final double pressedScale = 0.97;
+  final Duration duration = const Duration(milliseconds: 120);
 
   @override
   State<_PressableScale> createState() => _PressableScaleState();

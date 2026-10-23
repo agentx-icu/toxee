@@ -219,8 +219,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
               }
               if (preservedUrl != null) {
                 thumbImage.url = preservedUrl;
-                    } else if (effectiveLocalUrl != null &&
-                        !effectiveLocalUrl.startsWith('/tmp/receiving_')) {
+                    } else if (!effectiveLocalUrl.startsWith('/tmp/receiving_')) {
                 // Use localUrl as url if it's not a temp path
                 thumbImage.url = effectiveLocalUrl;
               }
@@ -241,8 +240,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
               }
               if (preservedUrl != null) {
                 originImage.url = preservedUrl;
-                    } else if (effectiveLocalUrl != null &&
-                        !effectiveLocalUrl.startsWith('/tmp/receiving_')) {
+                    } else if (!effectiveLocalUrl.startsWith('/tmp/receiving_')) {
                 // Use localUrl as url if it's not a temp path
                 originImage.url = effectiveLocalUrl;
               }
@@ -361,8 +359,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
               }
               if (preservedUrl != null) {
                 thumbImage.url = preservedUrl;
-                    } else if (effectiveLocalUrl != null &&
-                        !effectiveLocalUrl.startsWith('/tmp/receiving_')) {
+                    } else if (!effectiveLocalUrl.startsWith('/tmp/receiving_')) {
                 // Use localUrl as url if it's not a temp path
                 thumbImage.url = effectiveLocalUrl;
               }
@@ -383,8 +380,7 @@ extension _FakeChatMessageProviderRouting on FakeChatMessageProvider {
               }
               if (preservedUrl != null) {
                 originImage.url = preservedUrl;
-                    } else if (effectiveLocalUrl != null &&
-                        !effectiveLocalUrl.startsWith('/tmp/receiving_')) {
+                    } else if (!effectiveLocalUrl.startsWith('/tmp/receiving_')) {
                 // Use localUrl as url if it's not a temp path
                 originImage.url = effectiveLocalUrl;
               }
