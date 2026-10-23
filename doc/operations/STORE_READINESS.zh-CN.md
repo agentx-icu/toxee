@@ -8,6 +8,10 @@
 这是[此前 65 项审计](../reference/CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)的专项补充。
 CI 和制品检查只能证明下表列出的内容；上架还需要负责人声明与真机证据。
 
+## UIKit 动态效果与粘贴（D7 / I3）
+
+受版本控制的 `tool/uikit_overlays` 补丁在 bootstrap 核对 UIKit revision、补丁及源码前后 SHA-256 后应用；漂移/部分应用失败，不覆盖本地改动，offline check 不写入。共用消息跳转高亮在减少动态效果时改为同样有界的静态提示；运行中切换偏好会取消闪烁且不延长原完成时限，销毁 row 会取消所有计时器及延迟 provider 回调。桌面 Ctrl（左右）/Cmd（左右）+V 仅 key-down 读取资源；保持 Flutter 既有 PasteTextIntent 为唯一纯文本插入，keyup 不再重复读取。实际 UIKit widget 时序/销毁与真实按键回归，加真实源码补丁 fixture 已通过。本项共享高亮代码覆盖手机、平板与桌面，paste 条件仍仅桌面。OS 设置传播、实体键盘/IME、原生选择菜单及其他动画仍需各平台验收；不把此局部修复标成整个 D7/I3 完成。
+
 ## macOS 既有 Preferences 动作（I2）
 
 MainMenu.xib 原本有 Preferences… 项却未连接 action；Flutter 既有 Cmd+, 已能打开设置页。本次 native 项通过 toxee/desktop_menu 调用同一个动作，仅在账户初始化完成且 Home 为当前 route 时启用，被覆盖或 dispose 时禁用；附带 route-owner token，排队的旧命令不能跨账户切换。四条真实 widget/channel 生命周期回归及原八条快捷键回归通过，真实 macOS debug app 已编译 Swift 和接线 XIB。这不代表 iPadOS 26 native 命令或 installed release 的无障碍/菜单巡检完成，后者分别保留。

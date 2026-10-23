@@ -15,10 +15,11 @@ dart run tool/bootstrap_deps.dart
 工具按以下顺序执行：
 
 1. **初始化 submodule** — 对 `third_party/tim2tox` 与 `third_party/chat-uikit-flutter` 执行 `git submodule sync --recursive` 和 `git submodule update --init --recursive`。若仓库尚未注册 submodule（无 gitlink），则根据 `.gitmodules` 中的 URL 克隆到 `third_party/`。
-2. **拉取 SDK（vendor）** — 从 `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` 中的 URL 下载 tencent_cloud_chat_sdk 归档（配置在 tim2tox 仓库），如有 SHA-256 则校验，并解压到 `third_party/tencent_cloud_chat_sdk`。若已存在且版本一致则跳过（使用 `--force` 可强制重新拉取）。
-3. **应用 SDK 补丁** — 调用 tim2tox 的 `dart run tool/apply_sdk_patches.dart --sdk-dir=...`，从 tim2tox 仓库读取 lock 与 patch 系列，对已拉取的 SDK 打补丁。若补丁已应用（由 toxee 的 `tool/vendor_state.json` 记录）则跳过。
-4. **生成 pubspec_overrides.yaml** — 写入 override，使 `tim2tox_dart`、`tencent_cloud_chat_sdk` 及所有 UIKit 包解析到 `third_party/` 下的路径。该文件被 gitignore，每次 bootstrap 都会重新生成。
-5. **随后由你执行** — `flutter pub get`（及任意构建）。构建脚本（`build_all.sh`、`run_toxee.sh` 等）与 CI 会在 `flutter pub get` 前自动执行 bootstrap。
+2. **验证并应用 app 自有 UIKit overlay** — `tool/uikit_overlays/manifest.json` 固定 UIKit revision、补丁 SHA-256 及减少动态效果/桌面粘贴两份源码的前后摘要。源码漂移或部分应用会失败，不 reset 本地工作；已应用时逐文件幂等核验。源码摘要只规范化 CRLF。
+3. **拉取 SDK（vendor）** — 从 `third_party/tim2tox/tool/tencent_cloud_chat_sdk.lock.json` 中的 URL 下载 tencent_cloud_chat_sdk 归档（配置在 tim2tox 仓库），如有 SHA-256 则校验，并解压到 `third_party/tencent_cloud_chat_sdk`。若已存在且版本一致则跳过（使用 `--force` 可强制重新拉取）。
+4. **应用 SDK 补丁** — 调用 tim2tox 的 `dart run tool/apply_sdk_patches.dart --sdk-dir=...`，从 tim2tox 仓库读取 lock 与 patch 系列，对已拉取的 SDK 打补丁。若补丁已应用（由 toxee 的 `tool/vendor_state.json` 记录）则跳过。
+5. **生成 pubspec_overrides.yaml** — 写入 override，使 `tim2tox_dart`、`tencent_cloud_chat_sdk` 及所有 UIKit 包解析到 `third_party/` 下的路径。该文件被 gitignore，每次 bootstrap 都会重新生成。
+6. **随后由你执行** — `flutter pub get`（及任意构建）。构建脚本（`build_all.sh`、`run_toxee.sh` 等）与 CI 会在 `flutter pub get` 前自动执行 bootstrap。
 
 ## 新克隆的一次性准备
 
@@ -32,10 +33,18 @@ flutter pub get
 
 ## 选项
 
-- **`--offline-check-only`** — 仅校验 lock 文件、submodule 目录与已拉取的 SDK 是否存在；退出码 0/1。不访问网络、不写入。
+- **`--offline-check-only`** — 仅校验 lock 文件、submodule 目录与已拉取的 SDK 是否存在；退出码 0/1。不访问网络、不写入；UIKit overlay 必须已应用且完整清单匹配。
 - **`--force`** — 重新拉取 SDK（删除后重新下载/解压）并重新应用补丁。升级 SDK 版本或修改 lock 后使用。
 
 ## 参见
 
 - [DEPENDENCY_LAYOUT.md](DEPENDENCY_LAYOUT.md) — 目标目录布局与旧假设说明。
 - [PATCH_MAINTENANCE.md](PATCH_MAINTENANCE.md) — 所有权归属与 submodule/SDK/补丁升级方式。
+
+## 更新 UIKit overlay
+
+app 跟踪补丁及清单，不依赖私下修改依赖 checkout。升级 UIKit revision 前先保留
+本地编辑，再基于新源码 rebase/review `tool/uikit_overlays/motion-and-paste.patch`，
+同时更新补丁摘要和两份目标源码的前后摘要。运行 bootstrap、offline check 及
+`test/tool/bootstrap_uikit_overlay_test.dart`；不要 reset 漂移文件来让检查变绿。
+fixture 将真实补丁应用到原始源码副本，覆盖幂等、部分应用/漂移拒绝、CRLF 和清单边界。

@@ -10,6 +10,10 @@ This supplements the [65-item audit](../reference/CROSS_PLATFORM_AUDIT_2026_10_2
 An inventory or successful CI run establishes the checks described below;
 store readiness still requires the owner's declarations and device evidence.
 
+## UIKit motion and paste (D7 / I3)
+
+The tracked `tool/uikit_overlays` patch is applied by bootstrap only after checking the UIKit revision, patch and before/after source SHA-256. Drift or partial application fails without resetting local work; offline verification does not write. Shared jump-to-message highlighting uses a bounded static cue under reduced motion. Changing the preference cancels flashing without extending the completion deadline; disposing a row cancels timers and delayed provider callbacks. Desktop left/right Ctrl or Cmd+V reads resources only on key-down. Flutter's existing PasteTextIntent remains the sole plain-text insertion; key-up no longer reads resources again. Actual UIKit widget timing/disposal and real-key regressions, plus real-source patch fixtures, pass. Shared highlighting reaches phone, tablet and desktop; paste remains desktop-only. OS setting propagation, physical keyboard/IME, native selection menus and other animations still need platform qualification; this does not complete all D7/I3.
+
 ## Existing macOS Preferences action (I2)
 
 The shipped MainMenu.xib had a Preferences… item without an action; the existing Flutter Cmd+, shortcut already opened the settings tab. The native item now invokes that same action through toxee/desktop_menu. It is enabled only for an initialized account's current Home route, disabled while covered/disposed, and carries a route-owner token so a queued command cannot cross account replacement. Four real widget/channel lifecycle cases plus the eight existing shortcut cases pass. A real macOS debug app build compiles Swift and the connected XIB. This is not evidence of iPadOS 26 native command coverage or an installed release accessibility/menu sweep; those remain separate work.
