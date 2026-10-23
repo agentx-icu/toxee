@@ -390,6 +390,7 @@ jobs:
             ForEach-Object { $_.FullName })
           if ($nativeFiles.Count -lt 3) { throw 'Incomplete Windows native inventory' }
           & ./tool/ci/assert_windows_architecture.ps1 -Architecture $env:EXPECTED_ARCH -Paths $nativeFiles
+          & ./tool/ci/test_windows_runtime_tamper.ps1 -RuntimeDirectory $runnerDir
 
       - name: Package Windows artifacts
         env:

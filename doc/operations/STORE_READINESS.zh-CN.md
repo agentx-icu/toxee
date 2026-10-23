@@ -59,6 +59,8 @@ MSVCP140/VCRUNTIME140，Tim2Tox 还需要 MSVCP140_ATOMIC_WAIT；hosted runner �
 或官方 InstallRequiredSystemLibraries 取 release CRT，拒绝缺失、debug、歧义或错误 CPU，
 并安装再分发提示。签名前后均检查原始 Microsoft Authenticode 签名和全部 PE 的 runtime import
 闭包；installed smoke 检查已加载 CRT 真实来自 app 目录，不用发布者证书重签微软文件。
+独立本地签名入口也在查找签名工具前拒绝损坏/未签名/非微软 CRT，CRT 永不进入重签分支。
+Windows CI 会修改真实已签运行库副本的字节，验证其在调用 signer 前被拒绝。
 
 ARM64 单独处理：2026-10-23 只读检查的微软官方 ARM64 redistributable 中，
 MSVCP/VCRUNTIME/atomic-wait DLL 为 ARM64X，vcruntime140_1.dll 仅 ARM64EC。
@@ -76,6 +78,8 @@ CI 使用自己编译器选择的 redist，不使用该下载安装器；Windows
 不挂载 SDK 或宿主桌面/数据。JSON/log 记录精确 DEB/image 身份、依赖、installed hash、
 窗口/PID/maps、卸载结果，失败也保留。Xvfb 软件渲染仅证明此 Ubuntu/X11 启动路径，
 不代表 RPM/Wayland、真实 GPU/音频/相机/网络或旧版升级通过。
+DSO 依赖检查仅可使用已安装 app 的私有库目录，模拟 engine 已加载 companion 的上下文；
+真实 GUI 启动不覆盖 LD_LIBRARY_PATH，仍须映射已安装的 engine/FFI。
 
 ### 本地 iOS archive 与手工导出
 

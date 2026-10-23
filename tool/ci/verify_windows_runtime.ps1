@@ -6,14 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'assert_windows_architecture.ps1') -Architecture $Architecture
-function Assert-MicrosoftRuntimeSignature {
-  param([Parameter(Mandatory)][string]$Path)
-  $signature = Get-AuthenticodeSignature -LiteralPath $Path
-  if ($signature.Status -ne 'Valid' -or
-      $signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
-    throw "Runtime must retain a valid Microsoft signature: $Path"
-  }
-}
+. (Join-Path $PSScriptRoot 'microsoft_runtime_signature.ps1')
 $allowed = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'windows_runtime_files.txt'))
 $item = Get-Item -LiteralPath $InputPath
 $root = if ($item.PSIsContainer) { $item.FullName } else { $item.Directory.FullName }
@@ -44,7 +37,7 @@ if ($item.PSIsContainer) {
     $dependencies = & $dumpbin /nologo /dependents $binary.FullName
     if ($LASTEXITCODE -ne 0) { throw "Cannot inspect runtime imports: $($binary.Name)" }
     foreach ($line in $dependencies) {
-      if ($line -match '^\s*((?:msvcp|vcruntime|concrt)[\w.]*\.dll)\s*$') {
+      if ($line -match '^\s*((?:msvcp|vcruntime|concrt|vccorlib)[\w.]*\.dll)\s*$') {
         $name = $Matches[1].ToLowerInvariant()
         if ($name -notin $allowed -or -not (Test-Path -LiteralPath (Join-Path $root $name) -PathType Leaf)) {
           throw "Unresolved app-local runtime import $name in $($binary.Name)"

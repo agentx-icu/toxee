@@ -28,13 +28,57 @@ APPS = {
 }
 ARCHES = {"x86_64": ("amd64", "x86_64"), "aarch64": ("arm64", "aarch64")}
 
+CONTAINER_FUNCTIONS = r'''
+copy_evidence() {
+  local source="$1" target="$2" item status=0
+  # Copy children, never the bind-mounted directory's own metadata. `cp -a
+  # source/. target/` changed the host-owned root to root:root in actual CI.
+  while IFS= read -r -d '' item; do
+    cp -R -- "$item" "$target/" || status=$?
+  done < <(find "$source" -mindepth 1 -maxdepth 1 -print0)
+  return "$status"
+}
+
+inspect_dependency() {
+  local file="$1" entry="$2" private_lib="$3" report="$4" status=0
+  local output
+  output="$(mktemp)"
+  if [[ "$file" == "$entry" ]]; then
+    printf '\n== %s (application loader; no LD_LIBRARY_PATH) ==\n' "$file" >> "$report"
+    env -u LD_LIBRARY_PATH ldd "$file" > "$output" 2>&1 || status=$?
+  else
+    # A standalone plugin has no knowledge of the engine already loaded by
+    # the executable. Inspect its closure against this package's private lib
+    # directory only. This setting is never exported to the actual GUI launch.
+    printf '\n== %s (private DSO closure: %s) ==\n' "$file" "$private_lib" >> "$report"
+    env LD_LIBRARY_PATH="$private_lib" ldd "$file" > "$output" 2>&1 || status=$?
+  fi
+  cat "$output" >> "$report"
+  if grep -Eq '=>[[:space:]]+not found|version .* not found' "$output"; then
+    cat "$output"; rm -f "$output"
+    echo 'Unresolved dependency before harness install' >&2; return 1
+  fi
+  if [[ "$status" != 0 ]] && ! grep -Eq 'not a dynamic executable|statically linked' "$output"; then
+    cat "$output"; rm -f "$output"
+    echo 'Dependency inspection failed' >&2; return 1
+  fi
+  rm -f "$output"
+}
+'''
+
 # Do not install harness packages until the package's own dependency closure has
 # been inspected. Otherwise X/WM/Python dependencies could conceal missing Depends.
 SETUP = r'''set -euo pipefail
 app="$1"; arch="$2"; expected_sha="$3"; logical_arch="$4"
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C
 mkdir -p /tmp/linux-smoke-evidence
-finish() { rc=$?; cp -a /tmp/linux-smoke-evidence/. /evidence/; exit "$rc"; }
+''' + CONTAINER_FUNCTIONS + r'''
+finish() {
+  rc=$?; copy_status=0
+  copy_evidence /tmp/linux-smoke-evidence /evidence || copy_status=$?
+  if [[ "$rc" == 0 ]]; then rc="$copy_status"; fi
+  exit "$rc"
+}
 trap finish EXIT
 exec > >(tee /tmp/linux-smoke-evidence/container.log) 2>&1
 printf '%s  /input/app.deb\n' "$expected_sha" | sha256sum -c -
@@ -51,19 +95,16 @@ apt-get update
 apt-get install -y --no-install-recommends /input/app.deb
 test "$(dpkg-query -W -f='${Status}' "$app")" = 'install ok installed'
 dpkg-query -W > /tmp/linux-smoke-evidence/packages-before-harness.txt
+entry="/opt/$app/$app"
+test -x "$entry"
+test -f "/opt/$app/lib/libflutter_linux_gtk.so"
+if [[ "$app" != morsecq ]]; then test -f "/opt/$app/lib/libtim2tox_ffi.so"; fi
+inspect_dependency "$entry" "$entry" "/opt/$app/lib" /tmp/linux-smoke-evidence/ldd-before-harness.txt
 while IFS= read -r -d '' file; do
+  [[ "$file" != "$entry" ]] || continue
   magic="$(od -An -tx1 -N4 "$file" | tr -d ' \n')"
   if [[ "$magic" == 7f454c46 ]]; then
-    printf '\n== %s ==\n' "$file" >> /tmp/linux-smoke-evidence/ldd-before-harness.txt
-    ldd_status=0
-    ldd "$file" > /tmp/linux-smoke-ldd.txt 2>&1 || ldd_status=$?
-    cat /tmp/linux-smoke-ldd.txt >> /tmp/linux-smoke-evidence/ldd-before-harness.txt
-    if grep -Eq '=>[[:space:]]+not found|version .* not found' /tmp/linux-smoke-ldd.txt; then
-      cat /tmp/linux-smoke-ldd.txt; echo 'Unresolved dependency before harness install' >&2; exit 1
-    fi
-    if [[ "$ldd_status" != 0 ]] && ! grep -Eq 'not a dynamic executable|statically linked' /tmp/linux-smoke-ldd.txt; then
-      cat /tmp/linux-smoke-ldd.txt; echo 'Dependency inspection failed' >&2; exit 1
-    fi
+    inspect_dependency "$file" "$entry" "/opt/$app/lib" /tmp/linux-smoke-evidence/ldd-before-harness.txt
   fi
 done < <(find "/opt/$app" -type f -print0)
 if [[ "$app" == morsecq || "$app" == ditmesh ]]; then
@@ -349,6 +390,9 @@ def host_check(args):
     report = {"app": args.app, "deb_sha256": sha256(package), "host_architecture": platform.machine(),
               "container_architecture": arch, "outcome": "failed"}
     container_name = "linux-installed-smoke-" + uuid.uuid4().hex
+    # Keep the report host-owned even if evidence export itself later fails.
+    save(evidence / "result.json", report)
+    primary_error = None
     try:
         run(["docker", "pull", "--platform", f"linux/{arch}", "ubuntu:24.04"], timeout=300)
         image = run(["docker", "image", "inspect", "ubuntu:24.04", "--format", "{{index .RepoDigests 0}}"],
@@ -365,6 +409,10 @@ def host_check(args):
             if json.loads((evidence / name).read_text()).get("outcome") != "passed":
                 raise ValueError(f"Missing successful {name}")
         report["outcome"] = "passed"
+    except BaseException as error:
+        primary_error = error
+        report["error"] = f"{type(error).__name__}: {error}"
+        raise
     finally:
         # subprocess timeout/cancellation may kill only the Docker client. The
         # unique name permits cleanup of this invocation's container alone.
@@ -373,7 +421,12 @@ def host_check(args):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except (OSError, subprocess.SubprocessError):
             pass
-        save(evidence / "result.json", report)
+        try:
+            save(evidence / "result.json", report)
+        except OSError as error:
+            if primary_error is None:
+                raise
+            print(f"Also could not update the host report: {error}", file=sys.stderr)
 
 
 def main():

@@ -88,6 +88,7 @@ class MsvcRuntimeCmakeTests(unittest.TestCase):
             directory.mkdir(parents=True)
             for name in self.files:
                 (directory / name).write_bytes(pe(0x8664 if arch == 'arm64' and name == 'vcruntime140_1.dll' else machine))
+            (directory / 'vccorlib140.dll').write_bytes(pe(machine))
         if ambiguous:
             (redist / 'arm64/Microsoft.VC143.CRT').mkdir()
         (self.root / 'CMakeLists.txt').write_text(
@@ -108,6 +109,7 @@ class MsvcRuntimeCmakeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / 'installed/msvcp140.dll').read_bytes(), pe(0xaa64))
         self.assertFalse((self.root / 'installed/vcruntime140_1.dll').exists())
+        self.assertFalse((self.root / 'installed/vccorlib140.dll').exists())
 
     def test_ambiguous_toolchain_crt_directories_fail(self):
         result = self.select_toolchain_runtime(ambiguous=True)

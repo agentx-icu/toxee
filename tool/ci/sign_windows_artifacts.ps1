@@ -7,15 +7,30 @@ if (-not $thumbprint) {
   exit 0
 }
 if ($thumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'WINDOWS_SIGN_CERT_SHA1 must be a certificate SHA1 thumbprint' }
-$signTool = (Get-Command signtool.exe -ErrorAction Stop).Source
+. (Join-Path $PSScriptRoot 'microsoft_runtime_signature.ps1')
 if (Test-Path $InputPath -PathType Container) {
   $files = Get-ChildItem $InputPath -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }
 } else { $files = @(Get-Item $InputPath) }
 foreach ($file in $files) {
+  if ($file.Name -match '^(msvcp|vcruntime|concrt|vccorlib).*\.dll$') {
+    # Reject before discovering or invoking a signing tool, even for direct
+    # local calls. The publisher key must never replace Microsoft's signature.
+    Assert-MicrosoftRuntimeSignature -Path $file.FullName
+  }
+}
+$signTool = (Get-Command signtool.exe -ErrorAction Stop).Source
+foreach ($file in $files) {
+  if ($file.Name -match '^(msvcp|vcruntime|concrt|vccorlib).*\.dll$') {
+    Assert-MicrosoftRuntimeSignature -Path $file.FullName
+    & $signTool verify /pa $file.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Microsoft signature verification failed: $($file.Name)" }
+    continue
+  }
   # Preserve valid vendor signatures; sign owned/redistributed unsigned code.
   $owned = ($file.Extension -eq '.msi' -or $file.Name -in 'toxee.exe', 'tim2tox_ffi.dll')
   $signature = Get-AuthenticodeSignature $file.FullName
-  $wrongOwner = $owned -and ($signature.SignerCertificate.Thumbprint -ne $thumbprint)
+  $wrongOwner = $owned -and ($null -eq $signature.SignerCertificate -or
+    $signature.SignerCertificate.Thumbprint -ne $thumbprint)
   if ($signature.Status -ne 'Valid' -or $wrongOwner) {
     & $signTool sign /sha1 $thumbprint /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 $file.FullName
     if ($LASTEXITCODE -ne 0) { throw "Signing failed: $($file.Name)" }

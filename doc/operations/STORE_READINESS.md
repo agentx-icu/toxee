@@ -79,6 +79,9 @@ Before and after signing, the final package verifies the original Microsoft
 Authenticode signatures and every PE's runtime import closure. The installed
 smoke checks that loaded CRT modules come from the app directory, preserving
 vendor signatures instead of re-signing Microsoft's files with the publisher key.
+The standalone signing entry also rejects invalid/unsigned/non-Microsoft CRTs
+before tool discovery and keeps CRTs out of its re-sign branch. Windows CI mutates
+a copy of a real signed runtime to verify rejection without invoking a signer.
 
 ARM64 is deliberate: the official Microsoft ARM64 redistributable inspected on
 2026-10-23 contains ARM64X MSVCP/VCRUNTIME/atomic-wait DLLs and an EC-only
@@ -103,6 +106,9 @@ retain the exact DEB/image identity, package dependencies, installed hashes,
 window/PID/maps and uninstall result, including on failure. Xvfb software
 rendering proves this bounded Ubuntu/X11 startup path; it does not establish
 RPM/Wayland, real GPU/audio/camera/network behavior or an old-version upgrade.
+DSO dependency inspection may use only the installed app's private library
+directory to model companions already loaded by the engine; the actual GUI
+launch has no LD_LIBRARY_PATH override and must map the installed engine/FFI.
 
 ### Local iOS archive and manual export
 
