@@ -165,6 +165,9 @@ jobs:
           TOXEE_TESTS_NEED_NATIVE: '1'
         run: flutter test --coverage
 
+      - name: Test real Linux profile path environments
+        run: python3 tool/ci/test_linux_profile_paths.py
+
       - name: Summarize lcov coverage
         if: ${{ always() }}
         continue-on-error: true

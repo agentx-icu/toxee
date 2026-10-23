@@ -8,6 +8,10 @@
 这是[此前 65 项审计](../reference/CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)的专项补充。
 CI 和制品检查只能证明下表列出的内容；上架还需要负责人声明与真机证据。
 
+## Linux 账户目录（W3）
+
+相对 XDG_DATA_HOME 按 XDG 规范忽略，沿用 HOME/.local/share 默认目录；没有 HOME 时沿用平台 Application Support。保留绝对 XDG override、用户自选目录、既有账户和一次性 legacy 迁移。`python3 tool/ci/test_linux_profile_paths.py` 在真实 Linux 子进程中分别设置四组环境，核对账户字节、重复调用及 CWD 无迁移文件；这是独立的硬 CI 步骤。本机 macOS 路径回归不能代替 Linux 实际执行。
+
 ## 已补齐的仓库检查
 
 | 范围 | 状态与证据 | 尚需完成 |

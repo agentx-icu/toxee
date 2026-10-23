@@ -10,6 +10,10 @@ This supplements the [65-item audit](../reference/CROSS_PLATFORM_AUDIT_2026_10_2
 An inventory or successful CI run establishes the checks described below;
 store readiness still requires the owner's declarations and device evidence.
 
+## Linux profile storage (W3)
+
+A relative XDG_DATA_HOME is ignored, as required by the XDG base-directory contract. The existing HOME/.local/share fallback (or platform Application Support without HOME), explicit absolute overrides, user-selected roots and one-time legacy migration are preserved. `python3 tool/ci/test_linux_profile_paths.py` runs four real native-Linux child-process environments, checks existing account bytes and idempotence, and rejects any migration into the working directory. These cases are a separate hard CI step; local macOS path tests alone do not qualify Linux behavior.
+
 ## Implemented checks
 
 | Scope | Status and evidence | Remaining qualification |
