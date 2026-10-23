@@ -139,6 +139,8 @@ archive 根必须是实际目录；包括 dSYM 在内的所有链接必须使用
 此前 hosted 兼容性 archive 实际为 Xcode 16.4 / iPhoneOS 18.5，不满足当前商店最低要求。
 普通开发 IPA 路径独立保留。此最低要求依据 2026-10-23 复核的
 [Apple 提交要求](https://developer.apple.com/news/upcoming-requirements/)，未来提交仍须重新复核政策。
+新版 hosted Xcode 也拒绝了生成 framework 标识符中的下划线。构建现输出合法的
+`org.toxee.tim2tox-ffi`；framework/可执行文件名和运行时加载路径仍为 `tim2tox_ffi`。
 
 2026-10-23 本地真实 unsigned archive 验证：Flutter 3.41.9、Xcode 26.4.1（17E202）、
 iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archive 成功，45 个 arm64

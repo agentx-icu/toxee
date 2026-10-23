@@ -188,6 +188,9 @@ recorded Xcode 16.4 / iPhoneOS 18.5 and does not meet the current store floor.
 The ordinary development IPA path is separate. This minimum follows Apple's
 [submission requirements](https://developer.apple.com/news/upcoming-requirements/)
 reviewed on 2026-10-23; future submissions still need a fresh policy review.
+The newer hosted Xcode also rejected the generated framework identifier's
+underscore. The build now emits `org.toxee.tim2tox-ffi`; framework/executable
+names and the runtime load path remain `tim2tox_ffi`.
 
 Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
 26.4.1 (17E202), iphoneos26.4 (23E252), app 0.1.0+1, minimum iOS 15.5. It
