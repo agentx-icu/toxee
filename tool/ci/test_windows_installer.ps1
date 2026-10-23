@@ -51,6 +51,7 @@ try {
   }
   if (-not $app.CloseMainWindow()) { throw 'Installed app did not expose a closable main window' }
   if (-not $app.WaitForExit(20000)) { throw 'Installed app did not exit after window close' }
+  if ($app.ExitCode -ne 0) { throw "Installed app crashed on close: $($app.ExitCode)" }
   # Same-version repair exercises MSI ownership; a previous-release upgrade
   # requires supplying a previous artifact in the release qualification matrix.
   Invoke-Msi @('/i', "`"$msi`"", '/qn', '/norestart', 'REINSTALL=ALL', 'REINSTALLMODE=vomus')
