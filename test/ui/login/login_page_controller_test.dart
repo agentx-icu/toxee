@@ -44,6 +44,9 @@ final class _PrivacySentinelFailure implements Exception {
   const _PrivacySentinelFailure();
 
   @override
+  Type get runtimeType => throw StateError('PRIVATE_TYPE_GETTER_MUST_NOT_RUN');
+
+  @override
   String toString() =>
       '/private/accounts/alice/account_backup.tox '
       'FULL_TOX_ID_0123456789 PAYLOAD_SECRET STACK_SECRET';
@@ -618,7 +621,7 @@ void main() {
         expect(result, isA<RestoreFailure>());
         final failure = result as RestoreFailure;
         expect(failure.kind, RestoreFailureKind.generalError);
-        expect(failure.detail, 'error_type=_Exception');
+        expect(failure.detail, 'error_type=Exception');
         expect(failure.detail, isNot(contains('private')));
       },
     );
@@ -1024,7 +1027,7 @@ void main() {
         // must stay a generic failure - `mayRemainImported` would send the user
         // looking for an account that is not there.
         expect(failure.kind, ImportFailureKind.generalError);
-        expect(failure.detail, 'error_type=_Exception');
+        expect(failure.detail, 'error_type=Exception');
         expect(failure.detail, isNot(contains('private')));
         expect(failure.detail, isNot(contains('rollback path')));
       },
@@ -1257,7 +1260,7 @@ void main() {
     );
   });
 
-  test('login failure result exposes only the runtime error type', () async {
+  test('login failure result exposes only the static exception category', () async {
     final controller = LoginPageController(
       loginUseCase: _FailingLoginUseCase(),
     );
@@ -1267,7 +1270,7 @@ void main() {
     expect(result, isA<LoginControllerFailure>());
     expect(
       (result as LoginControllerFailure).message,
-      'error_type=_PrivacySentinelFailure',
+      'error_type=Exception',
     );
     expect(result.message, isNot(contains('/private/accounts')));
     expect(result.message, isNot(contains('FULL_TOX_ID')));
