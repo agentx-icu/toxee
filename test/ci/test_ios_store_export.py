@@ -172,6 +172,21 @@ class IosStoreExportTests(unittest.TestCase):
             store.inspect_archive(self.root, self.root)
             inspect.assert_called_once_with(self.root, app, self.root / "archive-evidence")
 
+    def test_archive_root_cannot_be_an_internal_or_external_link(self):
+        archive = self.root / "Runner.xcarchive"
+        internal = self.root / "inside-output"
+        (internal / "Products/Applications/Runner.app").mkdir(parents=True)
+        with tempfile.TemporaryDirectory(prefix="outside-archive-") as directory:
+            external = Path(directory)
+            (external / "Products/Applications/Runner.app").mkdir(parents=True)
+            for target in ("inside-output", str(external)):
+                archive.symlink_to(target, target_is_directory=True)
+                with self.subTest(target=target), patch.object(store, "inspect_app") as inspect:
+                    with self.assertRaisesRegex(ValueError, "archive root"):
+                        store.inspect_archive(self.root, self.root)
+                    inspect.assert_not_called()
+                archive.unlink()
+
     def test_actual_signer_mismatch_cannot_produce_distribution_evidence(self):
         (self.root / "ipa").mkdir()
         (self.root / "ipa/App.ipa").write_bytes(b"fixture, not an exported application")

@@ -120,6 +120,8 @@ def inspect_app(repo, app, output):
 
 def inspect_archive(repo, output):
     archive = output / "Runner.xcarchive"
+    if archive.is_symlink() or not archive.is_dir():
+        raise ValueError("Xcode archive root must be a real directory")
     applications = archive / "Products/Applications"
     app = applications / "Runner.app"
     if not app.is_dir() or list(applications.iterdir()) != [app]:

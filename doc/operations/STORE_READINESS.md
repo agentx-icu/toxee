@@ -155,7 +155,7 @@ profile. Device/ad-hoc/enterprise profiles and internal-only exports are rejecte
 The archive must contain only the expected application; its declared executable
 must be a regular file inside the bundle with executable permissions. The native
 inventory also checks its actual Mach-O header and architecture.
-All retained archive links, including dSYMs, must resolve internally and use
+The archive root must be a real directory. All retained links, including dSYMs, must resolve internally and use
 relative targets so the tar remains usable after extraction elsewhere.
 
 The entry uses unsigned `flutter build ios --config-only` and direct Xcode archive
@@ -171,7 +171,7 @@ Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
 passed the real Xcode archive command and inspected all 45 arm64 native images,
 built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
 That local run reused the existing device FFI binary; CI rebuilds it from the
-pinned source. Fourteen export-policy/failure/bundle-boundary regressions, five Apple metadata
+pinned source. Fifteen export-policy/failure/bundle-boundary regressions, five Apple metadata
 regressions and eleven native-payload regressions pass. No owner-signed export,
 store upload or device installation was performed.
 
