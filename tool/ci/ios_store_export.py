@@ -119,10 +119,23 @@ def inspect_app(repo, app, output):
 
 
 def inspect_archive(repo, output):
-    applications = output / "Runner.xcarchive/Products/Applications"
+    archive = output / "Runner.xcarchive"
+    applications = archive / "Products/Applications"
     app = applications / "Runner.app"
     if not app.is_dir() or list(applications.iterdir()) != [app]:
         raise ValueError("Xcode archive must contain exactly one expected application")
+    # Tar preserves links, so every retained product/dSYM link must remain
+    # usable after the archive is extracted in a different directory.
+    root = archive.resolve()
+    for path in archive.rglob("*"):
+        if not path.is_symlink():
+            continue
+        try:
+            resolved = path.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise ValueError(f"Xcode archive contains an invalid link: {path}") from error
+        if path.readlink().is_absolute() or not resolved.is_relative_to(root):
+            raise ValueError(f"Xcode archive link is not portable inside the archive: {path}")
     inspect_app(repo, app, output / "archive-evidence")
 
 

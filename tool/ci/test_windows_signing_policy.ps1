@@ -76,6 +76,9 @@ try {
   $env:TOXEE_TEST_VENDOR_SUBJECT = 'CN=Microsoft Corporation, O=Microsoft Corporation, C=US'
   & $policy -InputPath $crt
   Assert-Case (-not (Test-Path $env:TOXEE_TEST_SIGN_TRACE)) 'Microsoft CRT was re-signed'
+  $env:TOXEE_TEST_VENDOR_SUBJECT = 'CN=Microsoft Windows Software Compatibility Publisher, O=Microsoft Corporation, C=US'
+  & $policy -InputPath $crt
+  Assert-Case (-not (Test-Path $env:TOXEE_TEST_SIGN_TRACE)) 'Microsoft compatibility-publisher CRT was re-signed'
   $env:TOXEE_TEST_DENY_TOOL_DISCOVERY = '1'
   foreach ($case in @('unsigned', 'null-certificate', 'wrong-organization')) {
     $env:TOXEE_TEST_NULL_CERT = '0'
@@ -106,7 +109,7 @@ try {
   $rejected = $false
   try { & $policy -InputPath $app } catch { $rejected = $_.Exception.Message -like '*required for distribution*' }
   Assert-Case $rejected 'Distribution without expected identity was accepted'
-  Write-Host '10 Windows publisher-signing policy cases passed.'
+  Write-Host '11 Windows publisher-signing policy cases passed.'
 } finally {
   Remove-Item $fixtureRoot -Recurse -Force
 }

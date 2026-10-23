@@ -44,7 +44,7 @@ inspect_dependency() {
   local output
   output="$(mktemp)"
   if [[ "$file" == "$entry" ]]; then
-    printf '\n== %s (application loader; no LD_LIBRARY_PATH) ==\n' "$file" >> "$report"
+    printf '\n== %s (native loader context; no LD_LIBRARY_PATH) ==\n' "$file" >> "$report"
     env -u LD_LIBRARY_PATH ldd "$file" > "$output" 2>&1 || status=$?
   else
     # A standalone plugin has no knowledge of the engine already loaded by
@@ -63,6 +63,36 @@ inspect_dependency() {
     echo 'Dependency inspection failed' >&2; return 1
   fi
   rm -f "$output"
+}
+
+inspect_runtime_loaders() {
+  local arch="$1" report="$2" cache="${2%.txt}-cache.txt" expected_machine
+  local soname file header machine
+  case "$arch" in
+    x86_64) expected_machine=3e00 ;;
+    aarch64) expected_machine=b700 ;;
+    *) echo 'Unsupported native loader architecture' >&2; return 1 ;;
+  esac
+  # libepoxy dlopens these SONAMEs, so ELF DT_NEEDED/ldd on the application
+  # alone cannot detect their omission. Inspect the installed system cache
+  # before Xvfb/Mesa can incidentally add missing application dependencies.
+  ldconfig -p > "$cache"
+  printf 'Required libepoxy runtime loaders before harness installation (%s)\n' "$arch" > "$report"
+  for soname in libEGL.so.1 libGL.so.1 libGLESv2.so.2; do
+    file="$(awk -v soname="$soname" '$1 == soname && $(NF - 1) == "=>" {print $NF; exit}' "$cache")"
+    if [[ "$file" != /* || ! -f "$file" ]]; then
+      printf '%s => MISSING before harness installation\n' "$soname" | tee -a "$report" >&2
+      return 1
+    fi
+    header="$(od -An -tx1 -N6 "$file" | tr -d ' \n')"
+    machine="$(od -An -tx1 -j18 -N2 "$file" | tr -d ' \n')"
+    printf '%s => %s (ELF header %s, machine %s)\n' "$soname" "$file" "$header" "$machine" >> "$report"
+    if [[ "$header" != 7f454c460201 || "$machine" != "$expected_machine" ]]; then
+      echo 'Runtime loader does not match native ELF CPU' | tee -a "$report" >&2
+      return 1
+    fi
+    inspect_dependency "$file" "$file" '' "$report" || return $?
+  done
 }
 '''
 
@@ -107,6 +137,7 @@ while IFS= read -r -d '' file; do
     inspect_dependency "$file" "$entry" "/opt/$app/lib" /tmp/linux-smoke-evidence/ldd-before-harness.txt
   fi
 done < <(find "/opt/$app" -type f -print0)
+inspect_runtime_loaders "$logical_arch" /tmp/linux-smoke-evidence/runtime-loaders-before-harness.txt
 if [[ "$app" == morsecq || "$app" == ditmesh ]]; then
   for tool in parecord pactl gdbus; do command -v "$tool"; done
 fi

@@ -239,6 +239,84 @@ test "$LD_LIBRARY_PATH" = /untrusted/host/path
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unresolved dependency", result.stderr)
 
+    def runtime_loader_fixture(self, arch="x86_64"):
+        tools = self.root / "loader-tools"
+        tools.mkdir(exist_ok=True)
+        for name, script in {
+            "ldconfig": '''#!/bin/bash
+test "$1" = -p || exit 98
+cat "$FIXTURE_LOADER_CACHE"
+''',
+            "ldd": '''#!/bin/bash
+[[ -z "${LD_LIBRARY_PATH+x}" ]] || exit 97
+if [[ "$(basename "$1")" == "${FAKE_BROKEN_SONAME:-}" ]]; then
+  echo 'librequired.so => not found'
+else
+  echo 'libc.so.6 => /fixture/libc.so.6 (0x1)'
+fi
+''',
+        }.items():
+            command = tools / name
+            command.write_text(script)
+            command.chmod(0o755)
+        cache = self.root / "fixture-ldconfig.txt"
+        entries = []
+        for soname in ("libEGL.so.1", "libGL.so.1", "libGLESv2.so.2"):
+            library = self.root / soname
+            data = bytearray(64)
+            data[:6] = b"\x7fELF\x02\x01"
+            data[18:20] = {"x86_64": 62, "aarch64": 183}[arch].to_bytes(2, "little")
+            library.write_bytes(data)
+            entries.append(f"\t{soname} (libc6) => {library}\n")
+        cache.write_text("3 libs found in cache\n" + "".join(entries))
+        report = self.root / "runtime-loaders.txt"
+        env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],
+                   FIXTURE_LOADER_CACHE=str(cache), LD_LIBRARY_PATH="/untrusted/host/path")
+        script = smoke.CONTAINER_FUNCTIONS + '\ninspect_runtime_loaders "$1" "$2"'
+        command = ["bash", "-c", script, "--", arch, str(report)]
+        return command, env, cache, report
+
+    def test_all_three_native_runtime_loaders_and_their_closures_pass(self):
+        for arch in ("x86_64", "aarch64"):
+            with self.subTest(architecture=arch):
+                command, env, _, report = self.runtime_loader_fixture(arch)
+                subprocess.run(command, env=env, check=True, capture_output=True, text=True)
+                self.assertEqual(report.read_text().count("native loader context; no LD_LIBRARY_PATH"), 3)
+
+    def test_missing_any_runtime_loader_is_rejected_before_harness(self):
+        command, env, cache, report = self.runtime_loader_fixture()
+        complete = cache.read_text()
+        for soname in ("libEGL.so.1", "libGL.so.1", "libGLESv2.so.2"):
+            with self.subTest(missing=soname):
+                # A similarly named SONAME must not satisfy the exact lookup.
+                cache.write_text(complete.replace(soname + " (", soname + ".other ("))
+                result = subprocess.run(command, env=env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(soname + " => MISSING before harness", report.read_text())
+
+    def test_runtime_loader_with_unresolved_dependency_is_rejected(self):
+        command, env, _, _ = self.runtime_loader_fixture()
+        for soname in ("libEGL.so.1", "libGL.so.1", "libGLESv2.so.2"):
+            with self.subTest(broken=soname):
+                result = subprocess.run(command, env=dict(env, FAKE_BROKEN_SONAME=soname),
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unresolved dependency", result.stderr)
+
+    def test_cached_runtime_loader_must_exist_and_match_native_cpu(self):
+        command, env, _, _ = self.runtime_loader_fixture()
+        library = self.root / "libEGL.so.1"
+        data = bytearray(library.read_bytes())
+        data[18:20] = (183).to_bytes(2, "little")
+        library.write_bytes(data)
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native ELF CPU", result.stderr)
+        library.unlink()
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("MISSING before harness", result.stderr)
+
     def test_secondary_report_error_preserves_the_primary_failure(self):
         args = self.host_args()
         original_save = smoke.save

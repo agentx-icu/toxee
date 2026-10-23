@@ -146,6 +146,32 @@ class IosStoreExportTests(unittest.TestCase):
                 inspect.assert_not_called()
             extra.rmdir()
 
+    def test_archive_rejects_dangling_external_and_absolute_links(self):
+        archive = self.root / "Runner.xcarchive"
+        (archive / "Products/Applications/Runner.app").mkdir(parents=True)
+        internal = archive / "symbol-bytes"
+        internal.write_bytes(b"fixture symbols, not a dSYM")
+        outside = self.root / "outside-symbols"
+        outside.write_bytes(b"outside archive")
+        link = archive / "symbol-link"
+        for target in ("missing-symbols", "../outside-symbols", str(internal)):
+            link.symlink_to(target)
+            with self.subTest(target=target), patch.object(store, "inspect_app") as inspect:
+                with self.assertRaisesRegex(ValueError, "archive.*link"):
+                    store.inspect_archive(self.root, self.root)
+                inspect.assert_not_called()
+            link.unlink()
+
+    def test_archive_accepts_valid_relative_internal_link(self):
+        archive = self.root / "Runner.xcarchive"
+        app = archive / "Products/Applications/Runner.app"
+        app.mkdir(parents=True)
+        (archive / "symbol-bytes").write_bytes(b"fixture symbols, not a dSYM")
+        (archive / "symbol-link").symlink_to("symbol-bytes")
+        with patch.object(store, "inspect_app") as inspect:
+            store.inspect_archive(self.root, self.root)
+            inspect.assert_called_once_with(self.root, app, self.root / "archive-evidence")
+
     def test_actual_signer_mismatch_cannot_produce_distribution_evidence(self):
         (self.root / "ipa").mkdir()
         (self.root / "ipa/App.ipa").write_bytes(b"fixture, not an exported application")

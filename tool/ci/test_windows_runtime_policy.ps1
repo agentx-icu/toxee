@@ -31,6 +31,21 @@ try {
   $report = Join-Path $root 'policy.json'
   & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 -Report $report
   if (-not (Test-Path $report)) { throw 'Single-file signature/architecture evidence was not written' }
+  # The official x64 redist uses this Microsoft-owned publisher CN; ARM64
+  # uses Microsoft Corporation. These are policy fixtures, not real signatures.
+  $global:ToxeeFixturePublisher = 'CN=Microsoft Windows Software Compatibility Publisher, O=Microsoft Corporation, C=US'
+  & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64
+  foreach ($subject in @(
+    'CN=Microsoft Windows Software Compatibility Publisher Extra, O=Microsoft Corporation, C=US',
+    'CN=Other Publisher, O=Microsoft Corporation, C=US',
+    'CN=Microsoft Corporation, O=Other Corporation, C=US',
+    'CN=Microsoft Corporation, O=Microsoft Corporation Extra, C=US',
+    'CN=Microsoft Corporation, OU=Microsoft Corporation, C=US'
+  )) {
+    $global:ToxeeFixturePublisher = $subject
+    Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 }
+  }
+  $global:ToxeeFixturePublisher = 'CN=Microsoft Corporation, O=Microsoft Corporation, C=US'
   Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture x64 }
   $global:ToxeeFixtureVendorValid = $false
   Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 }
@@ -45,7 +60,7 @@ try {
   Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 }
   [IO.File]::WriteAllText($crt, 'corrupt')
   Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 }
-  Write-Host 'Runtime policy: accepted script entry and six rejection cases passed'
+  Write-Host 'Runtime policy: two publisher identities accepted and eleven rejection cases passed'
   $installed = Join-Path $root 'installed'
   $modules = @('msvcp140.dll', 'vcruntime140.dll') | ForEach-Object {
     [pscustomobject]@{ ModuleName = $_; FileName = Join-Path $installed $_ }

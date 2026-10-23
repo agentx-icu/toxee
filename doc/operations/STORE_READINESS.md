@@ -82,6 +82,12 @@ vendor signatures instead of re-signing Microsoft's files with the publisher key
 The standalone signing entry also rejects invalid/unsigned/non-Microsoft CRTs
 before tool discovery and keeps CRTs out of its re-sign branch. Windows CI mutates
 a copy of a real signed runtime to verify rejection without invoking a signer.
+Read-only PKCS7 inspection of Microsoft's official redists found two precise
+publisher CNs: `Microsoft Corporation` (ARM64) and `Microsoft Windows Software
+Compatibility Publisher` (x64). Both also require the exact Microsoft Corporation
+organization and a Valid Windows Authenticode result. The inspected x64 installer
+SHA-256 was `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`.
+Offline certificate extraction alone does not establish signature trust.
 
 ARM64 is deliberate: the official Microsoft ARM64 redistributable inspected on
 2026-10-23 contains ARM64X MSVCP/VCRUNTIME/atomic-wait DLLs and an EC-only
@@ -109,6 +115,14 @@ RPM/Wayland, real GPU/audio/camera/network behavior or an old-version upgrade.
 DSO dependency inspection may use only the installed app's private library
 directory to model companions already loaded by the engine; the actual GUI
 launch has no LD_LIBRARY_PATH override and must map the installed engine/FFI.
+The first clean installations exposed a missing libEGL loader: both architectures
+aborted before a window appeared. DEB now explicitly requires libegl1/libgl1/libgles2
+and RPM declares their SONAMEs, because libepoxy uses dlopen and static shlibdeps
+cannot discover them. The final native DEB gate must verify the corrected package;
+the RPM declaration does not establish an installed RPM result.
+Before installing the harness, the gate resolves the exact three loader SONAMEs,
+checks their real files/native architecture and dependency closure, and records
+the result. Harness-provided graphics packages cannot satisfy this earlier gate.
 
 ### Local iOS archive and manual export
 
@@ -141,6 +155,8 @@ profile. Device/ad-hoc/enterprise profiles and internal-only exports are rejecte
 The archive must contain only the expected application; its declared executable
 must be a regular file inside the bundle with executable permissions. The native
 inventory also checks its actual Mach-O header and architecture.
+All retained archive links, including dSYMs, must resolve internally and use
+relative targets so the tar remains usable after extraction elsewhere.
 
 The entry uses unsigned `flutter build ios --config-only` and direct Xcode archive
 and export commands. It never passes automatic provisioning/device-registration
@@ -155,7 +171,7 @@ Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
 passed the real Xcode archive command and inspected all 45 arm64 native images,
 built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
 That local run reused the existing device FFI binary; CI rebuilds it from the
-pinned source. Twelve export-policy/failure/bundle-boundary regressions, five Apple metadata
+pinned source. Fourteen export-policy/failure/bundle-boundary regressions, five Apple metadata
 regressions and eleven native-payload regressions pass. No owner-signed export,
 store upload or device installation was performed.
 

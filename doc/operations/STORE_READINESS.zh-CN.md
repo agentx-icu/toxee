@@ -61,6 +61,11 @@ MSVCP140/VCRUNTIME140，Tim2Tox 还需要 MSVCP140_ATOMIC_WAIT；hosted runner �
 闭包；installed smoke 检查已加载 CRT 真实来自 app 目录，不用发布者证书重签微软文件。
 独立本地签名入口也在查找签名工具前拒绝损坏/未签名/非微软 CRT，CRT 永不进入重签分支。
 Windows CI 会修改真实已签运行库副本的字节，验证其在调用 signer 前被拒绝。
+只读提取微软官方 redist 的 PKCS7 确认两个明确 CN：ARM64 的 `Microsoft Corporation`、
+x64 的 `Microsoft Windows Software Compatibility Publisher`；均还须精确 Microsoft Corporation
+组织及 Windows Authenticode Valid。参考 x64 安装器 SHA-256 为
+`cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`。
+离线提取证书本身不证明签名可信。
 
 ARM64 单独处理：2026-10-23 只读检查的微软官方 ARM64 redistributable 中，
 MSVCP/VCRUNTIME/atomic-wait DLL 为 ARM64X，vcruntime140_1.dll 仅 ARM64EC。
@@ -80,6 +85,12 @@ CI 使用自己编译器选择的 redist，不使用该下载安装器；Windows
 不代表 RPM/Wayland、真实 GPU/音频/相机/网络或旧版升级通过。
 DSO 依赖检查仅可使用已安装 app 的私有库目录，模拟 engine 已加载 companion 的上下文；
 真实 GUI 启动不覆盖 LD_LIBRARY_PATH，仍须映射已安装的 engine/FFI。
+首次干净安装暴露 libEGL loader 缺失：两个架构都在窗口出现前 abort。
+DEB 现显式依赖 libegl1/libgl1/libgles2，RPM 声明对应 SONAME；libepoxy 使用 dlopen，
+静态 shlibdeps 无法发现这些依赖。修正后的终包仍须最终 native DEB gate 验证；
+RPM 依赖声明不等于已完成 RPM 安装验收。
+gate 在安装 harness 前解析这三个准确 SONAME，核对实际文件、native 架构与依赖闭包并留证，
+测试设施带入的图形包不能补足此前缺项。
 
 ### 本地 iOS archive 与手工导出
 
@@ -106,6 +117,7 @@ app/team entitlement、禁用调试，以及 profile 绑定的真实 app signer 
 设备/ad-hoc/enterprise profile 与仅内部 TestFlight 的导出均拒绝。
 archive 仅允许预期应用；声明的可执行文件必须是 bundle 内具备执行权限的实际文件。
 原生 inventory 继续检查其真实 Mach-O header 与架构。
+包括 dSYM 在内的所有 archive 链接必须使用有效的内部相对目标，保证 tar 换目录解压后仍可使用。
 
 入口先以 `flutter build ios --config-only --no-codesign` 生成配置，再直接调用 Xcode archive/export；
 不传自动 provisioning/设备注册参数，不上传。直接使用 signed `flutter build ipa` 会传这些自动参数，
@@ -116,7 +128,7 @@ archive 仅允许预期应用；声明的可执行文件必须是 bundle 内具�
 2026-10-23 本地真实 unsigned archive 验证：Flutter 3.41.9、Xcode 26.4.1（17E202）、
 iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archive 成功，45 个 arm64
 原生文件、built 声明/隐私清单、嵌入 Tim2Tox 无 test-hook 检查通过。本地复用了已有真机 FFI，
-CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 12 项、Apple metadata 回归 5 项、native payload
+CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 14 项、Apple metadata 回归 5 项、native payload
 回归 11 项通过。没有执行负责人正式签名导出、商店上传或真机安装。
 
 | Checklist ID | 状态 | 证据和仍需验收 |
