@@ -14,9 +14,9 @@ CI 和制品检查只能证明下表列出的内容；上架还需要负责人�
 | --- | --- | --- |
 | Android 最终 APK/AAB | **自动检查已验证**：逐个原生库 ELF ABI/加载段对齐、每 ABI 必需 app/Flutter/Tim2Tox 库、未压缩 APK 库的 16 KB ZIP 偏移；最终 APK 合并后的 ID、target SDK、权限、debuggable；真实 APK 签名与 AAB 每个条目的 JAR 签名。保留制品及库 SHA-256。 | AAB ZIP 偏移不能证明 Play 交付 APK 对齐。用 bundletool/Play 检查交付 APK、设备过滤和合并声明，在关闭兼容回退的真实 16 KB 设备验证原生加载。 |
 | Android 分发模式 | **门禁已验证**：Gradle、本地打包入口和 CI 均拒绝缺失上传证书 SHA-256、debug signer、APK/AAB 签名不一致或签名输入不完整。损坏 ZIP、未签名/被篡改条目、错误证书均失败。 | 负责人提供上传密钥及控制台身份；Play App Signing 的交付证书另行记录。 |
-| Windows MSI | **门禁已验证**：最终 staging 中所有 EXE/DLL 均复核架构，包含 Flutter 构建后追加的库；启用签名时，自有代码和 MSI 必须匹配预期发布者指纹，保留有效第三方签名。安装 smoke 检查所有 PE、启动、修复、卸载。 | 可信发布者证书、最终安装包信任证据、从上一版本升级和数据保留、商店资料。普通开发构建仍可未签名。 |
+| Windows MSI | 保留最终 staging 架构和发布者门禁，新增 app-local MSVC CRT 原厂签名、运行库导入闭包、安装目录实际加载检查；须由两个机器目标的最终 Windows CI 验证。MSI smoke 覆盖 installed PE、启动、修复和卸载。 | 可信发布者证书、运行库再分发权利、终包信任、上一版升级/数据保留及商店资料。开发包可不签自有代码，内含 Microsoft CRT 仍须保留有效原厂签名。 |
 | macOS PKG / 已构建 iOS app | **检查已验证**：逐个原生文件架构、最终包自有与 SDK 隐私清单、源码声明的权限用途文案和 bundle ID；核验最终 macOS 签名、功能性 sandbox 权限并拒绝 get-task-allow。带签名但损坏的 iOS app 不会降级为 unsigned 成功。报告保留实际 SDK 元数据。 | API reason/收集行为审计、正式发布者身份、archive/export、profile、隐私报告、真机测试。Ad-hoc 签名仅证明完整性。 |
-| Linux DEB/RPM | **门禁已验证**：所有 staged 原生文件架构；损坏库、悬空或指向开发机外部的符号链接失败。 | 干净发行版安装、升级/卸载、签名/元数据、所选渠道沙箱测试。 |
+| Linux DEB/RPM | **inventory 门禁已验证**：原生架构和链接；新增干净 Ubuntu 24.04 容器 DEB gate，在安装测试工具前检查依赖，核对 installed 字节/mode，以 nobody 启动并观察同 PID 的 X11 窗口、engine/FFI maps，优雅关闭、卸载。最终 CI 须逐原生架构验证。 | RPM/其他发行版、Wayland、硬件、旧版升级、签名及渠道沙箱仍分别验收。 |
 | iOS 分发入口 | **限制已验证**：TOXEE_REQUIRE_SIGNING=1 会拒绝开发 IPA 打包入口。另有仅本地 archive/export 入口，检查显式手工导出策略及导出包签名/profile 身份。 | 负责人真实签名导出和真机安装仍待验收。Unsigned archive 或 zip-based IPA 不是 App Store 导出包。 |
 
 回归覆盖真实 aapt2/apksigner/JDK 签名操作、真实编译的 macOS 签名，以及损坏/错误架构负例。
@@ -50,6 +50,32 @@ MACOS_NOTARYTOOL_PROFILE，strict 模式要求签名及公证。Developer ID 直
 Mac App Store 签名/profile 是不同流程。
 
 ## 渠道选择和负责人交接
+
+### 桌面原生依赖与 installed 证据
+
+#140 的 ARM64 终包清单有 23 个原生文件，但没有 MSVC CRT。真实 PE 导入需要
+MSVCP140/VCRUNTIME140，Tim2Tox 还需要 MSVCP140_ATOMIC_WAIT；hosted runner 预装的
+工具链掩盖了 app-local 依赖缺失。CMake 现从所选工具链的目标架构 VCToolsRedistDir
+或官方 InstallRequiredSystemLibraries 取 release CRT，拒绝缺失、debug、歧义或错误 CPU，
+并安装再分发提示。签名前后均检查原始 Microsoft Authenticode 签名和全部 PE 的 runtime import
+闭包；installed smoke 检查已加载 CRT 真实来自 app 目录，不用发布者证书重签微软文件。
+
+ARM64 单独处理：2026-10-23 只读检查的微软官方 ARM64 redistributable 中，
+MSVCP/VCRUNTIME/atomic-wait DLL 为 ARM64X，vcruntime140_1.dll 仅 ARM64EC。
+旧版 native ARM64 制品导入不引用后者，因此不带入；x64 仍要求 Flutter 列出的三个 DLL。
+这些 ARM64X CRT 的 raw PE Machine 仍为 AA64，EC-only 补充库的 raw Machine 为 8664。
+保持原严格 AA64 架构门禁，不增加通用混合架构例外；CRT 使用经过审查的文件名，全部须保留有效 Microsoft 签名。
+参考安装器 SHA-256 为 `5139e1440c3a20b92153a4db561c069a0175aaf76c276c3e5b6f56099edcf4b0`，
+CI 使用自己编译器选择的 redist，不使用该下载安装器；Windows 10/11 提供 Universal CRT。
+依据：[Flutter Windows 分发](https://docs.flutter.dev/platform-integration/windows/building#building-your-own-zip-file-for-windows)、
+[Microsoft 再分发说明](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)、
+[ARM64X 兼容性](https://learn.microsoft.com/en-us/windows/arm/arm64x-pe)。
+负责人仍需确认适用的 Visual Studio 再分发权利；复制成功/签名有效不等于取得许可。
+
+两个 Linux package job 分别在 native x86_64/aarch64 宿主运行干净容器 DEB gate，
+不挂载 SDK 或宿主桌面/数据。JSON/log 记录精确 DEB/image 身份、依赖、installed hash、
+窗口/PID/maps、卸载结果，失败也保留。Xvfb 软件渲染仅证明此 Ubuntu/X11 启动路径，
+不代表 RPM/Wayland、真实 GPU/音频/相机/网络或旧版升级通过。
 
 ### 本地 iOS archive 与手工导出
 
@@ -93,7 +119,7 @@ CI 从锁定源码重建。导出策略/失败传播回归 9 项、Apple metadat
 | W4、X6 | unsigned archive/策略门禁 verified；正式分发 to do | 上述真实 unsigned archive；负例拒绝上传、自动签名、错误团队/profile/证书、到期、开发/设备/企业身份和旧输出复用。真实手工签名导出/安装尚未验证。 |
 | X9 | to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
 | X4 | needs device | 负责人签名导出后在 iPhone/iPad 安装/升级，验证权限、网络/媒体和用户数据保留。 |
-| X5 | verified（范围） | 本次仅改变 iOS 打包入口；Android/桌面保持既有终包门禁，共享 runtime/UI 未变。 |
+| X5 | verified（范围） | iOS archive/export、Windows CRT、Linux DEB gate 为平台打包变更；Android 保持既有终包门禁，共享 runtime/UI 未变。 |
 | L*、D*、I*、B*、M*、F* | 对本次变更 not applicable | 未改布局、输入、生命周期、媒体或性能行为；原完整审计限制保留。移动端第 12 项新增 archive 证据，不等于正式分发验收。 |
 
 ### 需要负责人提供的材料
@@ -108,6 +134,7 @@ CI 从锁定源码重建。导出策略/失败传播回归 9 项、Apple metadat
 | macOS 直接分发 | 已有 Developer ID Application/Installer identity、notarytool profile | Apple Developer **Certificates**、钥匙串访问 **我的证书**、负责人已经配置的 notarytool keychain profile | 可信 PKG 签名、公证、带 quarantine 下载测试 |
 | Google Play/其他 Android 商店 | 永久 package 记录、批准的上传证书 SHA-256、独立的交付证书 SHA-256 | Play Console **应用 → Test and release → Setup → App signing**；其他所选商店签名/应用后台；负责人保管的上传 keystore | 严格分发 APK/AAB 与签名升级；keystore/密码仅在安全环境或已有 GitHub Actions secret 字段配置 |
 | Microsoft 托管 MSI/EXE | 发布者/product、已有可信代码签名 identity 指纹、不可变 HTTPS 安装 URL | Partner Center **Apps and games → product**；负责人证书提供方/证书管理器；已批准下载托管位置 | 可信 PE/MSI 签名和 hosted-installer 认证；密钥/token 只留安全签名环境 |
+| Windows CRT 再分发 | 适用的工具链许可/再分发权利，批准原版 Microsoft release runtime 分发 | 负责人 Visual Studio 许可记录和适用的 [2022](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution) / [2026](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution) 再分发清单 | 正式发布法律验收；代码/签名门禁不授予权利、不代为接受协议 |
 | Microsoft MSIX（可选） | 选定 package Identity Name、Publisher、商店记录 | Partner Center **product → Product identity** | 独立 MSIX 工程与验收；Store 重签不要求为此购买私有分发证书 |
 | 实际选定的所有商店 | 批准的隐私/支持/适用删除 URL、SDK 数据流声明、版权法律文本、年龄/受众答案、本地化介绍/截图、审核说明、UGC 联系/响应机制 | 负责人公开政策页及法律/运营记录；App Store Connect **App Privacy / App Information / App Review**；Play Console **Policy and programs → App content / Store presence**；Partner Center submission **Properties / Age ratings / Store listings / Certification notes** | 负责人声明、审核可达性和政策复核；审核凭据只填商店安全字段 |
 | 中国 Android 渠道（条件适用） | 地区、主体认证、适用的 APP 备案/行业材料 | 所选渠道开发者后台、负责人备案/法律记录 | 渠道准入；不由其他商店要求推断本渠道适用性 |
@@ -156,6 +183,9 @@ python3 -m unittest discover -s test/ci -p 'test_android*.py'  # 需要 SDK/JDK 
 python3 -m unittest discover -s test/ci -p 'test_desktop_native_payload.py'
 python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
 python3 -m unittest discover -s test/ci -p 'test_ios_store_export.py'
+python3 -m unittest discover -s test/ci -p 'test_msvc_runtime.py'
+python3 -m unittest discover -s test/ci -p 'test_linux_installed_smoke.py'
+pwsh -NoProfile -File tool/ci/test_windows_runtime_policy.ps1
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```

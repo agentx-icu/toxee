@@ -16,9 +16,9 @@ store readiness still requires the owner's declarations and device evidence.
 | --- | --- | --- |
 | Android final APK/AAB | **Verified by automated checks**: every native library's ELF ABI and load-segment alignment; required app/Flutter/Tim2Tox libraries per selected ABI; 16 KB ZIP offsets for uncompressed APK libraries; final APK merged identity, target SDK, permissions and debuggable flag; actual APK signature and every AAB entry's JAR signature. Reports include artifact/library SHA-256. | AAB ZIP offsets do not establish the alignment of Play-delivered APKs. Use bundletool/Play delivery, review device filtering and merged AAB declarations, and exercise native loading on a real 16 KB device with compatibility fallback disabled. |
 | Android distribution intent | **Verified gate** in Gradle and the local packager as well as CI: configured upload-certificate SHA-256, no debug signer, matching actual APK/AAB signer, complete signing inputs. Invalid ZIPs, unsigned/tampered entries, missing identity and wrong signer fail. | Owner supplies approved upload key and console identity. Play App Signing's delivery certificate is a separate identity. |
-| Windows MSI | **Verified gate**: all final staged EXE/DLL architecture checks, including runtime DLLs copied after the Flutter build; owned code/installer must match the configured publisher thumbprint when signing is enabled; valid third-party signatures are preserved. MSI smoke checks all installed PE files, startup, repair and uninstall. | Trusted publisher certificate, final signed-installer trust evidence, previous-version update/data-preservation test and store listing. Development jobs can remain unsigned. |
+| Windows MSI | Final staged EXE/DLL architecture and publisher gates remain. The app-local MSVC CRT gate additionally requires vendor signatures, complete runtime imports and loaded modules from the installed directory; Windows CI must exercise it on both machines. MSI smoke covers installed PE files, startup, repair and uninstall. | Trusted publisher certificate, redistribution rights, final signed-installer trust evidence, previous-version update/data-preservation test and store listing. Development jobs can remain unsigned; bundled Microsoft CRTs must retain valid vendor signatures. |
 | macOS PKG / built iOS app | **Verified checks**: all built native images match the selected architecture; built app-owned and SDK privacy manifests are inventoried; source-declared permission strings and actual bundle ID are checked. Final macOS signatures and functional sandbox entitlements are checked, and get-task-allow is rejected. A signed iOS app with corrupt signatures cannot pass as an unsigned build. Reports retain actual SDK metadata and declarations. | API-reason/collection audit, publisher identity, archive/export, provisioning, privacy report and device tests. Ad-hoc signing establishes integrity only. |
-| Linux DEB/RPM | **Verified gate**: every staged native object matches the selected architecture; missing/corrupt shared libraries and external/dangling runtime symlinks fail. | Clean-distribution installation, upgrade/uninstall, signing/metadata and channel-specific sandbox qualification. |
+| Linux DEB/RPM | **Verified inventory gate**: staged native objects, architecture and runtime links. A separate clean Ubuntu 24.04 container gate now installs the final DEB, checks dependency closure before harness installation, compares installed bytes/modes, launches as nobody, observes the same PID's X11 window and engine/FFI maps, gracefully closes and uninstalls. Final CI evidence is required per native architecture. | RPM and other distributions, Wayland, hardware, previous-version upgrade, signing and channel sandbox qualification remain separate. |
 | iOS distribution entry | **Verified restriction**: TOXEE_REQUIRE_SIGNING=1 refuses the development IPA packager. A separate local-only archive/export entry validates explicit manual export policy and the exported signature/profile identity. | Qualify a real owner-signed export and device installation. An unsigned archive or the existing zip-based IPA is not an App Store export. |
 
 The regression fixtures cover real aapt2/apksigner/JDK signature operations,
@@ -66,6 +66,43 @@ Those identities and Developer ID notarization are distinct from Mac App Store
 signing and provisioning.
 
 ## Channel decisions and owner handoff
+
+### Native desktop prerequisites and installed evidence
+
+PR #140's ARM64 payload inventory had 23 native images and no MSVC CRT. Actual
+PE imports required MSVCP140/VCRUNTIME140, plus MSVCP140_ATOMIC_WAIT from Tim2Tox;
+the hosted runner's preinstalled tools masked that missing app-local dependency.
+CMake now selects release CRTs from the configured toolchain's target-specific
+VCToolsRedistDir (or CMake's InstallRequiredSystemLibraries), rejects missing,
+debug, ambiguous and wrong-CPU inputs, and installs a redistribution notice.
+Before and after signing, the final package verifies the original Microsoft
+Authenticode signatures and every PE's runtime import closure. The installed
+smoke checks that loaded CRT modules come from the app directory, preserving
+vendor signatures instead of re-signing Microsoft's files with the publisher key.
+
+ARM64 is deliberate: the official Microsoft ARM64 redistributable inspected on
+2026-10-23 contains ARM64X MSVCP/VCRUNTIME/atomic-wait DLLs and an EC-only
+vcruntime140_1.dll. Native ARM64 imports in the prior package do not reference
+that EC-only supplement, so it is excluded; x64 still requires the three DLLs
+listed by Flutter. The inspected ARM64X CRTs retain raw PE Machine AA64, while
+that EC-only supplement has raw Machine 8664. The original strict AA64 gate is
+unchanged; no general mixed-machine exception is introduced. CRT filenames are
+reviewed and every included CRT must have a valid Microsoft signature.
+The downloaded reference installer SHA-256 was
+`5139e1440c3a20b92153a4db561c069a0175aaf76c276c3e5b6f56099edcf4b0`;
+CI uses its own compiler-selected redist, not that downloaded installer. Windows
+10/11 supplies the Universal CRT. See [Flutter Windows distribution](https://docs.flutter.dev/platform-integration/windows/building#building-your-own-zip-file-for-windows),
+[Microsoft redistribution](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)
+and [ARM64X compatibility](https://learn.microsoft.com/en-us/windows/arm/arm64x-pe).
+The owner must confirm the applicable Visual Studio redistribution rights;
+successful copying/signature verification does not grant a license.
+
+Both Linux package jobs run the clean-container DEB gate on their native
+x86_64/aarch64 hosts, with no SDK or host desktop/data mounted. Its JSON/logs
+retain the exact DEB/image identity, package dependencies, installed hashes,
+window/PID/maps and uninstall result, including on failure. Xvfb software
+rendering proves this bounded Ubuntu/X11 startup path; it does not establish
+RPM/Wayland, real GPU/audio/camera/network behavior or an old-version upgrade.
 
 ### Local iOS archive and manual export
 
@@ -119,7 +156,7 @@ store upload or device installation was performed.
 | W4, X6 | verified (unsigned archive and policy gates); to do (distribution) | Real unsigned Xcode archive above; negative tests reject upload, automatic signing, wrong team/profile/certificate, expiry, development/device/enterprise identity and stale output. Real manual signed export/install remains untested. |
 | X9 | to do | Archive/dSYMs retained for seven days; native reporter coverage, symbol match and controlled release crash symbolication are not established by archiving alone. |
 | X4 | needs device | Owner signs/exports, installs and upgrades on iPhone/iPad, then exercises permissions, network/media and preserved user data. |
-| X5 | verified (scope) | This entry changes iOS packaging only. Android and desktop keep their existing final-artifact gates; no shared runtime/UI behavior changes. |
+| X5 | verified (scope) | iOS archive/export, Windows CRT and Linux DEB gates are platform-specific packaging changes. Android keeps its existing final-artifact gate; shared runtime/UI behavior is unchanged. |
 | L*, D*, I*, B*, M*, F* | not applicable to this change | No layout, input, lifecycle, media or performance behavior changes; existing full-audit limitations remain. Mobile checklist item 12 gains archive evidence, not formal release qualification. |
 
 ### Materials the release owner must supply
@@ -136,6 +173,7 @@ is requested in this repository or PR.
 | Direct macOS | Existing Developer ID Application/Installer identities and notarytool profile | Apple Developer **Certificates**; Keychain Access **My Certificates**; owner's already configured notarytool keychain profile | Trusted PKG signing, notarization, quarantined-download test |
 | Google Play/Android stores | Permanent package record, approved upload-certificate SHA-256 and distinct delivery-certificate SHA-256 | Play Console **app → Test and release → Setup → App signing**; other chosen store's app/signature console; owner-held upload keystore | Strict distribution APK/AAB and signed upgrade; private keystore/passwords only in owner environment or existing GitHub Actions secret fields |
 | Microsoft hosted MSI/EXE | Publisher/product record, existing trusted code-signing identity thumbprint, immutable HTTPS installer URL | Partner Center **Apps and games → product**; owner's certificate provider/store and certificate manager; owner-approved download hosting | Trusted PE/MSI signing and hosted-installer certification; key/token only in secure signing host |
+| Windows CRT redistribution | Applicable licensed-toolchain redistribution rights/terms; approve unmodified Microsoft release-runtime delivery | Owner's Visual Studio license records and the applicable Microsoft [2022](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution) / [2026](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution) redistribution list | Legal release qualification; the code/signature gate does not grant rights or accept agreements |
 | Microsoft MSIX (optional) | Chosen package Identity Name, Publisher and store record | Partner Center **product → Product identity** | Separate MSIX implementation/qualification; Store signing does not require buying a private distribution certificate |
 | All selected stores | Approved privacy/support/deletion URLs, SDK/data-flow disclosure, legal copyright, age/audience answers, localized listing text/screenshots, review instructions and UGC contact/response process | Owner's approved public pages and legal/operations records; App Store Connect **App Privacy / App Information / App Review**; Play Console **Policy and programs → App content / Store presence**; Partner Center submission **Properties / Age ratings / Store listings / Certification notes** | Owner declarations, review access and policy review; reviewer credentials only in store's secure review fields |
 | China Android channels (conditional) | Region, publisher verification and applicable APP filing/sector materials | Selected channel's developer console and owner's filing/legal records | Channel-specific eligibility; do not infer applicability from another store |
@@ -194,6 +232,9 @@ python3 -m unittest discover -s test/ci -p 'test_android*.py'  # SDK + JDK 17 re
 python3 -m unittest discover -s test/ci -p 'test_desktop_native_payload.py'
 python3 -m unittest discover -s test/ci -p 'test_apple_release_preflight.py'
 python3 -m unittest discover -s test/ci -p 'test_ios_store_export.py'
+python3 -m unittest discover -s test/ci -p 'test_msvc_runtime.py'
+python3 -m unittest discover -s test/ci -p 'test_linux_installed_smoke.py'
+pwsh -NoProfile -File tool/ci/test_windows_runtime_policy.ps1
 pwsh -NoProfile -File tool/ci/test_windows_signing_policy.ps1
 flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart test/cross_platform_packaging_test.dart
 ```

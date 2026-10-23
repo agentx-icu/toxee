@@ -128,7 +128,7 @@ class DesktopNativePayloadTests(unittest.TestCase):
                 commands = root / "bin"
                 commands.mkdir()
                 signer = commands / "powershell.exe"
-                signer.write_text('#!/bin/sh\ntouch "$FIXTURE_SIGNING_MARKER"\nexit 73\n')
+                signer.write_text('#!/bin/sh\ncase "$*" in\n  *sign_windows_artifacts.ps1*) touch "$FIXTURE_SIGNING_MARKER"; exit 73 ;;\n  *) exit 0 ;;\nesac\n')
                 signer.chmod(0o755)
                 marker = root / "reached-signing"
                 result = subprocess.run(["bash", str(scripts / "package_artifacts.sh"),

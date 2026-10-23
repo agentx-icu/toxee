@@ -35,9 +35,20 @@ try {
   $nativeFiles = @(Get-ChildItem -LiteralPath $installRoot -File -Recurse |
     Where-Object { $_.Extension -in '.exe', '.dll' } | ForEach-Object { $_.FullName })
   Assert-WindowsArchitecture -Architecture $ExpectedArchitecture -Paths $nativeFiles
+  & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $installRoot -Architecture $ExpectedArchitecture
   $app = Start-Process $exe -WorkingDirectory $installRoot -PassThru
   Start-Sleep -Seconds 12
   if ($app.HasExited) { throw "Installed application exited at startup: $($app.ExitCode)" }
+  $runtimeModules = @($app.Modules | Where-Object { $_.ModuleName -match '^(msvcp|vcruntime|concrt).*\.dll$' })
+  foreach ($name in @('msvcp140.dll', 'vcruntime140.dll')) {
+    if ($name -notin @($runtimeModules | ForEach-Object { $_.ModuleName })) { throw "Required CRT was not loaded: $name" }
+  }
+  foreach ($module in $runtimeModules) {
+    if ([IO.Path]::GetDirectoryName($module.FileName) -ne $installRoot) {
+      throw "Installed app loaded CRT outside its own directory: $($module.FileName)"
+    }
+    Write-Host "[ci] Installed app-local CRT loaded: $($module.FileName)"
+  }
   if (-not $app.CloseMainWindow()) { throw 'Installed app did not expose a closable main window' }
   if (-not $app.WaitForExit(20000)) { throw 'Installed app did not exit after window close' }
   # Same-version repair exercises MSI ownership; a previous-release upgrade

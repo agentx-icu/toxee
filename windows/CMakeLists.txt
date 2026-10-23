@@ -156,6 +156,11 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+if(MSVC)
+  include(cmake/msvc_runtime.cmake)
+  toxee_install_msvc_runtime("${INSTALL_BUNDLE_LIB_DIR}")
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

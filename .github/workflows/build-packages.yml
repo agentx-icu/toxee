@@ -208,6 +208,20 @@ jobs:
           TOXEE_PACKAGE_ARCH: ${{ matrix.target.package_arch }}
         run: bash tool/ci/package_artifacts.sh --target linux --mode "$BUILD_MODE"
 
+      - name: Smoke final DEB in clean native Ubuntu
+        run: >-
+          python3 tool/ci/linux_installed_smoke.py --app toxee
+          --architecture "${{ matrix.target.package_arch }}"
+          --package-dir dist/linux --evidence-dir build/evidence/linux-installed
+
+      - name: Retain installed Linux evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toxee-linux-installed-${{ matrix.target.package_arch }}
+          path: build/evidence/linux-installed
+          if-no-files-found: error
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -369,6 +383,7 @@ jobs:
         run: |
           & ./tool/ci/test_windows_signing_policy.ps1
           & ./tool/ci/test_windows_architecture.ps1
+          & ./tool/ci/test_windows_runtime_policy.ps1
           $runnerDir = "build/windows/$env:EXPECTED_ARCH/runner/Release"
           $nativeFiles = @(Get-ChildItem $runnerDir -Recurse -File |
             Where-Object { $_.Extension -in '.exe', '.dll' } |
@@ -680,11 +695,15 @@ jobs:
           TIM2TOX_IOS_FRAMEWORK_PATH: ${{ github.workspace }}/build/native-artifacts/ios/tim2tox_ffi.framework
         run: python3 tool/ci/ios_store_export.py --unsigned-archive --output build/ios/store-readiness/ci-archive
 
+      - name: Preserve archive file modes and links
+        # Artifact upload alone normalises executable bits and bundle links.
+        run: tar -czf build/ios/store-readiness/toxee-ios-unsigned-archive.tar.gz -C build/ios/store-readiness ci-archive
+
       - name: Retain unsigned archive and evidence
         uses: actions/upload-artifact@v4
         with:
           name: toxee-ios-unsigned-archive
-          path: build/ios/store-readiness/ci-archive
+          path: build/ios/store-readiness/toxee-ios-unsigned-archive.tar.gz
           retention-days: 7
           if-no-files-found: error
 
