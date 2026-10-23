@@ -26,6 +26,9 @@ final class _SentinelFailure implements Exception {
   const _SentinelFailure();
 
   @override
+  Type get runtimeType => throw StateError(_payloadSecret);
+
+  @override
   String toString() {
     return '$_messageSecret $_pathSecret $_filenameSecret '
         '$_accountIdSecret $_payloadSecret $_stackSecret';
@@ -143,12 +146,12 @@ void main() {
       expect(persisted.state, AccountDeletionState.profileDirectoryDeleted);
       expect(persisted.deletedCurrentAccount, isTrue);
       expect(persisted.failureStage, AccountDeletionStage.accountDataDirectory);
-      expect(persisted.failureDescription, 'error_type=_SentinelFailure');
+      expect(persisted.failureDescription, 'error_type=Exception');
       _expectNoSentinelData(persisted.failureDescription!);
     },
   );
 
-  test('teardown logs only context, stage, and runtime error type', () async {
+  test('teardown logs only context, stage, and static exception category', () async {
     const cause = _SentinelFailure();
     final profileDirectory = await AppPaths.getProfileDirectoryForToxId(
       _accountIdSecret,
@@ -182,7 +185,7 @@ void main() {
 
     final logged = await logFile.readAsString();
     expect(logged, contains('stage=serviceDisposal'));
-    expect(logged, contains('error_type=_SentinelFailure'));
+    expect(logged, contains('error_type=Exception'));
     _expectNoSentinelData(logged);
   });
 

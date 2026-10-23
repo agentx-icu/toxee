@@ -129,6 +129,7 @@ extension _HomePageBootstrap on _HomePageState {
     // initialization path preserves the same listener-ordering invariant.
     runtime.installHistoryHookAfterTimSdkInitialized();
     if (!mounted) return;
+    _markSettingsMenuReady();
     TencentCloudChat.instance.chatSDKInstance.groupSDK.initGroupListener();
     AppLogger.debug(
       '[HomePage] Registered UIKit group listener for GroupTipsEvent dispatch',

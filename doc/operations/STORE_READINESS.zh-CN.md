@@ -8,6 +8,22 @@
 这是[此前 65 项审计](../reference/CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)的专项补充。
 CI 和制品检查只能证明下表列出的内容；上架还需要负责人声明与真机证据。
 
+## macOS 既有 Preferences 动作（I2）
+
+MainMenu.xib 原本有 Preferences… 项却未连接 action；Flutter 既有 Cmd+, 已能打开设置页。本次 native 项通过 toxee/desktop_menu 调用同一个动作，仅在账户初始化完成且 Home 为当前 route 时启用，被覆盖或 dispose 时禁用；附带 route-owner token，排队的旧命令不能跨账户切换。四条真实 widget/channel 生命周期回归及原八条快捷键回归通过，真实 macOS debug app 已编译 Swift 和接线 XIB。这不代表 iPadOS 26 native 命令或 installed release 的无障碍/菜单巡检完成，后者分别保留。
+
+## 本地生产诊断（X9，部分完成）
+
+Framework/dispatcher 钩子现早于 session ownership 和 bootstrap 安装；外层 guarded zone 也覆盖 binding 初始化失败。生产 Dart 日志仅接收固定 origin、静态异常类别、内部捕获的受限 VM package/dart 位置或 AOT build ID/地址；任意正文、异常原值、framework context/collector、SDK print 正文均丢弃，console 和 logger 自身失败出口也遵守此边界。Debug binding 错误缓冲、呈现和 harness 正文保留。早期最多缓冲 32 条记录，每条最多 24 行允许的栈；sink 可用后写入，失败回退不重入 logger。不求值 Type/runtimeType getter 或调用方提供的 StackTrace；`stack=capture_point` 明确表示日志捕获位置而非异常原始 throw，原异常栈仅留在 debug。Console/stderr writer 抛异常也不能逃出 handler；失效 console sink 禁用后仍继续文件输出。
+
+沿用既定十个 app 日志文件、每段 10 MB。显式 canonical app_<timestamp>.log 路径现与隐式默认路径一样轮转；任意 custom fixture 名称保留已说明的 append 行为。`test/util/production_diagnostics_test.dart` 覆盖边界与留存；`python3 tool/ci/test_production_diagnostics.py` 检查真实子进程 stdout/stderr 的 marker secret，并以精确符号还原真实 stripped Dart AOT 栈。这些共享代码证据不代表每个 OS 已安装 release 的真实崩溃验收。
+
+**仍有工程项：** Tim2Tox 的 V2TIMLog 持有独立 mutex 保护的 std::ofstream，FFI 仅有 set-log-file；SDK OnLog listener 并非 V2TIMLog writer。Dart rename/reopen 不能轮转仍持有的原生 descriptor，周期 stat 也不能对并发原生写入建立硬上限。原生 sink ownership/有界留存、独立 worker 错误转发、原生崩溃捕获、完整精确构建符号归档及 installed release 故障/符号还原仍待完成；这些不必然依赖远端服务。本次未增加上传或遥测服务。
+
+## Linux 账户目录（W3）
+
+相对 XDG_DATA_HOME 按 XDG 规范忽略，沿用 HOME/.local/share 默认目录；没有 HOME 时沿用平台 Application Support。保留绝对 XDG override、用户自选目录、既有账户和一次性 legacy 迁移。`python3 tool/ci/test_linux_profile_paths.py` 在真实 Linux 子进程中分别设置四组环境，核对账户字节、重复调用及 CWD 无迁移文件；这是独立的硬 CI 步骤。本机 macOS 路径回归不能代替 Linux 实际执行。
+
 ## 已补齐的仓库检查
 
 | 范围 | 状态与证据 | 尚需完成 |
@@ -161,7 +177,7 @@ Linux coverage 不代表这些平台检查通过。
 | --- | --- | --- |
 | P1、P4 | 检查门禁 verified；负责人审计 to do | archive/导出包检查 built Apple metadata/原生库；SDK/API reason、数据声明和后台答案仍由负责人复核。 |
 | W4、X6 | unsigned archive/策略门禁 verified；正式分发 to do | 上述真实 unsigned archive；负例拒绝上传、自动签名、错误团队/profile/证书、到期、开发/设备/企业身份和旧输出复用。真实手工签名导出/安装尚未验证。 |
-| X9 | to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
+| X9 | Dart 捕获点边界已验证；native/installed 仍 to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
 | X4 | needs device | 负责人签名导出后在 iPhone/iPad 安装/升级，验证权限、网络/媒体和用户数据保留。 |
 | X5 | verified（变更范围）；平台差异验收保留 | 平台打包门禁和 analyzer 要求的 async/生命周期修正由回归及最终 native CI 验证。Android 保留既有终包门禁，不据此宣称通用功能等价。 |
 | L*、D*、I*、B*、M*、F* | 保留既有审计状态 | async/生命周期安全修正不等于布局、输入、媒体、性能或真机验收。原完整审计限制保留；移动端第 12 项新增 archive 证据，不等于正式分发验收。 |
