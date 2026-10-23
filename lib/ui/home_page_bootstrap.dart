@@ -363,10 +363,11 @@ extension _HomePageBootstrap on _HomePageState {
     _bag.add(SendFailureNotifier.watchFileReceiveFailures(widget.service));
 
     if (PlatformUtils.isDesktop) {
-      observeBackgroundTask(_loadBootstrapServiceStatus(), '[HomePage] Bootstrap status');
-      _bootstrapServiceStatusTimer = Timer.periodic(
-          const Duration(seconds: 2), (_) => _loadBootstrapServiceStatus());
-      _bag.add(() => _bootstrapServiceStatusTimer?.cancel());
+      _bootstrapServiceStatusPoller = ForegroundUiPoller(
+        read: _loadBootstrapServiceStatus,
+        onError: _reportBootstrapStatusFailure,
+      )..start();
+      _bag.add(() => _bootstrapServiceStatusPoller?.dispose());
     }
 
     _conversationDataSub = TencentCloudChat.instance.eventBusInstance

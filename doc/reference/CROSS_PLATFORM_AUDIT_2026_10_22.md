@@ -54,7 +54,7 @@ turning old simulator evidence into new device verification.
 | M1–M5 | Existing routing/interruptions/formats/decode/low-storage evidence retained; Bluetooth/headsets/privacy-indicator release need physical devices. |
 | M6–M8 | Windows backend added, taskbar badge remains TODO. Hardware/ABI gaps above. Screen/system audio capture M8 N/A. |
 | W1–W4 | Changes above. Roaming AppData, absolute-XDG validation, tox: registration and shared external-profile-root coordination remain. Apple-silicon iPad/visionOS availability/data continuity is undecided. |
-| F1–F3 | No measured release startup/size/frame/thermal budgets. Contact polling skips hidden/paused and unchanged contacts do not rebuild. Desktop 2s status poll and low-power/thermal adaptation remain. |
+| F1–F3 | No measured release startup/size/frame/thermal budgets. Contact polling skips hidden/paused and unchanged contacts do not rebuild. The desktop UI-only 2s LAN status poll now stops while hidden/paused/detached, refreshes on visibility restoration and coalesces slow reads. Actual energy/thermal/low-power qualification remains. |
 | X1–X9 | Existing evidence stays dated/qualified. No full layout/touch-target/device/network lab or all-platform installed artifact sweep here. Windows installed CI added but not executed. Release/symbol/crash verification remains required. |
 
 Shared Dart fixes cover iOS/Android; desktop windows/locks have no mobile window

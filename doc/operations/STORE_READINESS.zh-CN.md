@@ -245,3 +245,8 @@ Android ABI 选择：最终 CI APK 在指定 arm64 Flutter target 后仍带入�
 修正后已在本地重建 release APK（52.9 MB）和 AAB（40.2 MB）。两包均恰含九个 arm64-v8a 原生库，使用 JDK 17.0.20 与 build-tools 37 的完整原生库/对齐及 APK/AAB 签名验证通过。最终 APK 为非 debuggable，标识 com.toxee.app，version code 1、minSdk 24、targetSdk 36；两包使用相同开发证书，不代表所有者批准的商店签名身份。APK SHA-256：`2207fe90f23b52a1f4263be7c4537a25426666c8f5023375e5dcf204d50b3b5e`；AAB SHA-256：`a8f1e0188d9fbea0ef9abb304d670377fdb7560996345abb10387436c4163054`。
 
 Windows Tox 运行时：完整终包检查发现 ARM64 包中的 ImSDK.dll、dart_native_imsdk.dll 实为仅 x64。AppBootstrap 会等待 LoggingBootstrap 在 SDK 使用前将 Dart 原生库名称固定为 tim2tox_ffi；已审查的 vendor Windows 插件仅有空注册入口。应用自有 CMake 策略在两个 Windows 目标上保留编译后的注册插件与其他插件制品，移除未使用的 vendor 运行库/import 库，并清理增量安装中的旧副本。策略记录原生源码和构建定义的 hash，SDK 更新（包括未来动态加载）须显式复核。宿主机 CMake fixture 真实编译该插件源码，安装、加载并调用其 C 注册入口，全程不含两份 vendor DLL。原生 Windows 构建与完整终包架构门禁仍须在 CI 通过；宿主机 fixture 不替代 Windows 设备和安装器验收。
+
+
+## F3 后续：可见窗口状态轮询
+
+原有桌面 LAN 状态 UI 每两秒读取配置/服务状态，隐藏后仍读取且慢读取可能重叠。`ForegroundUiPoller` 现于 hidden/paused/detached 撤销定时器，可见时刷新，可见但失焦的桌面窗口保持更新；最多一个读取在途，并合并恢复时的追加刷新，dispose 后不再追加。只改变 UI 观察，不停止 P2P、LAN bootstrap 服务或通话。Widget 回归覆盖生命周期、慢读取、释放和错误恢复；已安装窗口、能耗/热量、省电资格仍待设备验证，不据此关闭整个 F3。无需账号、证书或新权限。
