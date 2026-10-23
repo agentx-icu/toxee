@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect the native bytes of a final APK/AAB; this is not store approval."""
+"""Inspect staged ELF or final APK/AAB native bytes; this is not store approval."""
 
 import argparse
 import hashlib
@@ -131,12 +131,21 @@ def inspect_archive(path, kind, expected_abis):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("artifact", type=Path)
-    parser.add_argument("--format", choices=("apk", "aab"), required=True)
+    parser.add_argument("--format", choices=("apk", "aab", "elf"), required=True)
     parser.add_argument("--abis", nargs="+", required=True)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     try:
-        report = inspect_archive(args.artifact, args.format, args.abis)
+        if args.format == "elf":
+            if len(args.abis) != 1 or args.abis[0] not in ABIS:
+                raise ValueError("Staged ELF requires exactly one supported ABI")
+            data = args.artifact.read_bytes()
+            report = {"artifact": args.artifact.name, "format": "elf", "abis": args.abis,
+                      "libraries": [{"path": args.artifact.name, "abi": args.abis[0],
+                                     "sha256": hashlib.sha256(data).hexdigest(),
+                                     **inspect_elf(data, args.abis[0], args.artifact.name)}]}
+        else:
+            report = inspect_archive(args.artifact, args.format, args.abis)
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n")
     except (ValueError, OSError, zipfile.BadZipFile, RuntimeError) as error:

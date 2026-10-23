@@ -97,3 +97,7 @@ flutter test test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test
 ```
 
 CI 兼容性补充：使用 Android build-tools 35 和 37 的真实签名 fixture 均已验证；新版 scheme 标签不改变预期上传证书门禁。Flutter Windows 的 `data/app.so` 是由引擎加载的 ELF AOT snapshot，仅此固定路径显式允许该格式，仍须匹配目标 CPU；EXE/DLL 继续要求 PE。检查器也在真实 Flutter Windows x64 CI 制品的全部 17 个原生文件上通过。
+
+原生链接修正：此前 PR 提交的最终 APK 检查拒绝了 CI 用 NDK 27.3 构建的真实 libtim2tox_ffi.so，其 PT_LOAD 仍为 4 KB。两个原生构建入口现在都启用 flexible page sizes，并显式将 max-page-size/common-page-size 设为 16384；新构建和外部 staged FFI 在 Gradle 打包前均检查 ELF、ABI 和对齐。缓存中的 4 KB 预编译库须从源码重建，调整 ZIP 偏移不能修复 ELF 对齐。本地重建入口为 `ABIS=arm64-v8a NDK=/path/to/complete/ndk bash tool/build_android_ffi.sh`。
+
+本地以 NDK 27.0 验证：默认共享库被门禁拒绝，加入上述参数的同一 CMake fixture 通过。完整 release Tim2Tox/ToxAV 重编译后的三个 PT_LOAD 均为 16384，真实 ToxAV marker 和无 test-hook 门禁通过（staged SHA-256 `951d0a7fbb4a2d1cdc0612a88bd11be102cbac4c37e2143b8fbff1b3d62fab8e`）。这属于原生制品证据，最终 APK/AAB CI 与真实 16 KB 设备测试仍分别验收。Android 回归现为 33 项，包含 staged ELF 拒绝；原打包回归也覆盖 calling-stub opt-out 不能绕过 4 KB 预编译库拒绝。

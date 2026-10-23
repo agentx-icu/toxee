@@ -1,6 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 import warnings
@@ -19,6 +21,22 @@ def elf(machine=183, alignment=16384):
 
 
 class AndroidNativeArtifactTests(unittest.TestCase):
+    def test_staged_library_entrypoint_checks_abi_and_pages_before_packaging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            library, report = root / "libtim2tox_ffi.so", root / "native.json"
+            for payload, succeeds in ((elf(), True), (elf(alignment=4096), False),
+                                      (elf(machine=62), False)):
+                with self.subTest(succeeds=succeeds):
+                    library.write_bytes(payload)
+                    result = subprocess.run([
+                        "python3", str(SCRIPT), str(library), "--format", "elf",
+                        "--abis", "arm64-v8a", "--report", str(report)],
+                        capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                    if succeeds:
+                        self.assertEqual(json.loads(report.read_text())["libraries"][0]["load_alignments"], [16384])
+
     @classmethod
     def setUpClass(cls):
         spec = importlib.util.spec_from_file_location("native_artifact", SCRIPT)
