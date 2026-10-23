@@ -4,6 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'assert_windows_architecture.ps1')
+. (Join-Path $PSScriptRoot 'assert_windows_runtime_modules.ps1')
 $msi = (Resolve-Path $MsiPath).Path
 # Inspect the generated database's SummaryInformation Template (property 7),
 # rather than treating the architecture in its filename as evidence.
@@ -39,16 +40,7 @@ try {
   $app = Start-Process $exe -WorkingDirectory $installRoot -PassThru
   Start-Sleep -Seconds 12
   if ($app.HasExited) { throw "Installed application exited at startup: $($app.ExitCode)" }
-  $runtimeModules = @($app.Modules | Where-Object { $_.ModuleName -match '^(msvcp|vcruntime|concrt).*\.dll$' })
-  foreach ($name in @('msvcp140.dll', 'vcruntime140.dll')) {
-    if ($name -notin @($runtimeModules | ForEach-Object { $_.ModuleName })) { throw "Required CRT was not loaded: $name" }
-  }
-  foreach ($module in $runtimeModules) {
-    if ([IO.Path]::GetDirectoryName($module.FileName) -ne $installRoot) {
-      throw "Installed app loaded CRT outside its own directory: $($module.FileName)"
-    }
-    Write-Host "[ci] Installed app-local CRT loaded: $($module.FileName)"
-  }
+  Assert-WindowsRuntimeModules -Modules @($app.Modules) -InstallRoot $installRoot
   if (-not $app.CloseMainWindow()) { throw 'Installed app did not expose a closable main window' }
   if (-not $app.WaitForExit(20000)) { throw 'Installed app did not exit after window close' }
   if ($app.ExitCode -ne 0) { throw "Installed app crashed on close: $($app.ExitCode)" }

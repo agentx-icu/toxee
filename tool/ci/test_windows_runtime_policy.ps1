@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'assert_windows_architecture.ps1')
+. (Join-Path $PSScriptRoot 'assert_windows_runtime_modules.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ('toxee-runtime-' + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $root | Out-Null
 $global:ToxeeFixtureVendorValid = $true
@@ -45,6 +46,18 @@ try {
   [IO.File]::WriteAllText($crt, 'corrupt')
   Assert-Rejected { & (Join-Path $PSScriptRoot 'verify_windows_runtime.ps1') -InputPath $crt -Architecture arm64 }
   Write-Host 'Runtime policy: accepted script entry and six rejection cases passed'
+  $installed = Join-Path $root 'installed'
+  $modules = @('msvcp140.dll', 'vcruntime140.dll') | ForEach-Object {
+    [pscustomobject]@{ ModuleName = $_; FileName = Join-Path $installed $_ }
+  }
+  $systemModule = [pscustomobject]@{ ModuleName = 'msvcp_win.dll'; FileName = Join-Path $root 'system/msvcp_win.dll' }
+  Assert-WindowsRuntimeModules -Modules @($modules + $systemModule) -InstallRoot $installed
+  foreach ($name in @('msvcp140.dll', 'vcruntime140_1.dll', 'vccorlib140.dll', 'msvcp141.dll')) {
+    $outside = [pscustomobject]@{ ModuleName = $name; FileName = Join-Path $root "system/$name" }
+    Assert-Rejected { Assert-WindowsRuntimeModules -Modules @($modules + $outside) -InstallRoot $installed }
+  }
+  Assert-Rejected { Assert-WindowsRuntimeModules -Modules @($systemModule) -InstallRoot $installed }
+  Write-Host 'Loaded-module policy: OS runtime accepted and five rejection cases passed'
 } finally {
   Remove-Item -LiteralPath $root -Recurse -Force
 }
