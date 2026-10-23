@@ -217,3 +217,8 @@ applicable (with reason)**:
 ## Known inconsistencies
 
 - (Resolved 2026-09-26) `MOBILE_BACKGROUND` described the `voip` background mode, removed in `285c6f7`; the document has been corrected.
+
+
+## 2026-10-23 store-readiness follow-up
+
+Items 1–11: no runtime UI, lifecycle, media, permission or notification behavior change in this packaging audit; earlier device-evidence limitations remain. Item 12: Android and iOS final artifacts both receive inspection; Android strict signing is enforced, while iOS strict distribution is explicitly blocked pending an approved archive/export path. This difference is recorded rather than treating a development IPA as store parity. P4/P9/W4/X6 owner and device evidence remains open; P8 is currently not applicable because billing/ads/third-party primary login are absent. See [Store readiness](../operations/STORE_READINESS.md).

@@ -92,6 +92,38 @@ void main() {
           await _run('codesign', ['--verify', '--deep', '--strict', app]);
           await _run('codesign', ['--verify', '--strict', library]);
           await _run('codesign', ['--verify', '--strict', looseTool]);
+          await _run('python3', [
+            'tool/ci/native_payload.py',
+            app,
+            '--format',
+            'macho',
+            '--arch',
+            architecture,
+            '--entry',
+            'Contents/MacOS/Main',
+            '--report',
+            '${fixture.path}/native-inventory.json',
+          ]);
+          final wrongArchitecture = await Process.run('python3', [
+            'tool/ci/native_payload.py',
+            app,
+            '--format',
+            'macho',
+            '--arch',
+            architecture == 'arm64' ? 'x86_64' : 'arm64',
+            '--entry',
+            'Contents/MacOS/Main',
+            '--report',
+            '${fixture.path}/wrong.json',
+          ]);
+          expect(wrongArchitecture.exitCode, isNot(0));
+          await _run('python3', [
+            '-c',
+            'import runpy; from pathlib import Path; '
+                'runpy.run_path("tool/ci/apple_release_preflight.py")'
+                '["signed_entitlements"](Path(__import__("sys").argv[1]), "macos")',
+            app,
+          ]);
         },
         skip: !Platform.isMacOS,
       );

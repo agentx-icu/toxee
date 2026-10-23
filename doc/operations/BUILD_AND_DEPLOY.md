@@ -26,8 +26,8 @@ This document covers the current build and packaging flow for toxee: local devel
 
 ### Platform-specific requirements
 
-- **macOS**: Xcode, Command Line Tools, Homebrew, `libsodium`, and `create-dmg` if you want `.dmg` packaging.
-- **Linux**: `build-essential`, `cmake`, `libgtk-3-dev`, `libsodium-dev`, `pkg-config`, `patchelf`, and `libfuse2`; `appimagetool` is needed for `.AppImage` packaging.
+- **macOS**: Xcode, Command Line Tools, Homebrew and `libsodium`; the current CI package is a PKG.
+- **Linux**: `build-essential`, `cmake`, `libgtk-3-dev`, `libsodium-dev`, `pkg-config`, `patchelf`, CPack and RPM/DEB packaging tools.
 - **Windows**: Visual Studio 2019/2022, PowerShell, CMake, and WiX Toolset v3 if you want `.msi` packaging. `vcpkg` is used in CI to install `libsodium`.
 - **Android**: Android SDK, Android NDK, and Java 17.
 - **iOS**: Xcode and CocoaPods. For a distributable IPA you also need signing materials (certificate + provisioning profile).
@@ -129,11 +129,11 @@ Current packaging outputs are:
 
 | Platform | Main outputs | Notes |
 | --- | --- | --- |
-| **Windows** | `dist/windows/toxee-windows-x64-release.msi`, `dist/windows/toxee-windows-x64-release.zip` | The `.msi` path depends on CPack + WiX being available. |
-| **macOS** | `dist/macos/toxee-macos-release.dmg`, `dist/macos/toxee-macos-release.zip` | The `.dmg` path depends on `create-dmg`. |
-| **Linux** | `dist/linux/toxee-linux-x64-release.AppImage`, `dist/linux/toxee-linux-x64-release.tar.gz` | The `.AppImage` path depends on `appimagetool`. |
-| **Android** | `dist/android/app-release.apk`, `dist/android/app-release.aab` | `NOTES.txt` records whether Tim2Tox JNI libs were staged. |
-| **iOS** | `dist/ios/toxee-ios-release.ipa` | Can be a signed IPA or an unsigned validation IPA, depending on signing state. |
+| **Windows** | `dist/windows/toxee-<version>-Windows-<AMD64|ARM64>.msi` | CPack + WiX |
+| **macOS** | `dist/macos/toxee-<version>-Darwin-<x86_64|arm64>.pkg` | pkgbuild |
+| **Linux** | `dist/linux/toxee-<version>-Linux-<x86_64|aarch64>.deb`, `.rpm` | CPack DEB/RPM |
+| **Android** | `dist/android/toxee-<version>-Android-arm64.apk`, `.aab` | Development or explicit strict distribution preflight |
+| **iOS** | `dist/ios/toxee-ios-release.ipa` | Development/device validation, not App Store export |
 
 Desktop packaging also tries to bundle the Tim2Tox native library and `libsodium` into the packaged app output, and records the result in `dist/<platform>/NOTES.txt`.
 
@@ -164,27 +164,15 @@ Each platform job uploads `dist/<platform>/` as a workflow artifact. When the ru
 
 The current desktop release assets are:
 
-- **Windows**: `.msi` plus `.zip`
-- **macOS**: `.dmg` plus `.zip`
-- **Linux**: `.AppImage` plus `.tar.gz`
+- **Windows**: `.msi`
+- **macOS**: `.pkg`
+- **Linux**: `.deb` and `.rpm`
 
 ## Signing and native-library gating
 
-### Android
+See [Store readiness](STORE_READINESS.md) for the actual signing inputs, final-artifact checks, policy sources, channel decisions and remaining owner/device evidence. Android signing secrets are optional for development builds; `android_distribution=true` requires all four Android secrets and the expected upload-certificate SHA-256. Strict local packaging enforces the same checks before copying artifacts. Ordinary debug-key release artifacts are development-only.
 
-- Release signing is optional. If `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` are present, CI uses them.
-- If the Tim2Tox JNI set (`libtim2tox_ffi.so`) was **not** staged, CI still records the APK/AAB in the workflow artifact, but the GitHub Release publish step skips them. The reason is written into `dist/android/NOTES.txt` and merged into `BUILD-NOTES.txt`.
-
-### iOS
-
-- A distributable IPA requires `IOS_CERTIFICATE_P12_BASE64`, `IOS_CERTIFICATE_PASSWORD`, and `IOS_PROVISIONING_PROFILE_BASE64`.
-- Without those secrets, CI still performs an unsigned validation build and packages an unsigned IPA in the workflow artifact.
-- Unsigned validation IPAs are **not** uploaded to GitHub Releases. The publish step skips them and keeps the explanation in `BUILD-NOTES.txt`.
-
-### Desktop
-
-- Desktop packages are the only assets currently guaranteed to land on GitHub Releases without extra mobile signing/native-library prerequisites.
-- Release packaging attempts to bundle Tim2Tox FFI and `libsodium` into the app/package output, then records the exact result in `NOTES.txt`.
+Unsigned iOS IPAs remain workflow validation artifacts and are skipped by GitHub Release publishing. The existing signed device-build path is not an App Store archive/export; strict distribution intent refuses that packager until an approved export flow is implemented. Final built Apple declarations and native payloads are inspected in CI. Desktop development outputs may be unsigned; trusted distribution and store qualification require their channel-specific evidence.
 
 ## Desktop runner native-library staging (dev builds)
 

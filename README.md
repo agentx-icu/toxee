@@ -176,18 +176,9 @@ The repository now includes [`.github/workflows/build-packages.yml`](.github/wor
 
 Each job uploads the contents of `dist/<platform>/` as a GitHub Actions artifact. Desktop jobs build the host Tim2Tox FFI library and bundle it into the packaged app output. Android builds both `app-release.apk` and `app-release.aab`; if the secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` are present, the workflow uses them for release signing, otherwise it falls back to the project's existing debug-key release signing.
 
-For the desktop platforms, the packaged installables are:
+Actual CI installables are Windows MSI, macOS PKG, Linux DEB/RPM, Android APK/AAB and an iOS development/device-validation IPA. Desktop names use `toxee-<version>-<Windows|Darwin|Linux>-<arch>.<extension>`; the CI packager does not produce DMG/AppImage/portable ZIPs. Unsigned iOS validation IPAs are retained as workflow artifacts and skipped by GitHub Release publishing. Signed iOS validation still needs the correct profile/device; it is not an App Store archive/export.
 
-- **Windows**: `toxee-windows-x64-release.msi` (plus a `.zip` bundle)
-- **macOS**: `toxee-macos-release.dmg` (plus a `.zip` bundle)
-- **Linux**: `toxee-linux-x64-release.AppImage` (plus a `.tar.gz` bundle)
-
-iOS now has two modes:
-
-- With `IOS_CERTIFICATE_P12_BASE64`, `IOS_CERTIFICATE_PASSWORD`, and `IOS_PROVISIONING_PROFILE_BASE64` configured, the workflow performs a signed `flutter build ios --release` and packages a real `.ipa`.
-- Without those secrets, the iOS job still runs as an unsigned validation build, but it does **not** publish that IPA to GitHub Releases. Instead, `dist/ios/NOTES.txt` explains that signing was not configured.
-
-Mobile jobs also write `dist/<platform>/NOTES.txt` when Tim2Tox mobile native artifacts were not available in the workspace. In release publishing mode, Android APK/AAB assets are skipped when the JNI `libtim2tox_ffi.so` set was not staged, so GitHub Releases only receives Android assets that passed that native-library check.
+Android debug-key release fallback is development-only. Manual `android_distribution=true` additionally requires the owner's `ANDROID_SIGNING_CERT_SHA256` repository variable and complete signing secrets; actual APK/AAB signatures, native ABIs and 16 KB compatibility are checked before strict packaging. See [store readiness and owner handoff](doc/operations/STORE_READINESS.md) for all desktop/mobile channels, exact inputs, evidence and outstanding store/device work.
 
 Publishing to **GitHub Releases** is built into the same workflow:
 

@@ -126,3 +126,6 @@ lock仅此package版本及官方archive SHA变化（完整hash见英文镜像）
 验证真实输入44项、Windows/macOS两种Shift+PageDown/Up选择变体及完整app Dart kernel
 构建通过。同一隔离3.44副本先用16.0.2复现四处missing-intent编译错误。
 kernel通过不代表Windows原生/MSI或物理IME设备验证完成。
+
+
+2026-10-23 商店专项补充：[准备状态、已补门禁和负责人缺项](../operations/STORE_READINESS.zh-CN.md)。未受影响的 ID 保留本文原状态。

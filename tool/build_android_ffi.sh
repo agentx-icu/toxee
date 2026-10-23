@@ -129,6 +129,8 @@ build_abi() {
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI="$abi" \
     -DANDROID_PLATFORM="android-${ANDROID_API}" \
+    -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
     -DCMAKE_BUILD_TYPE=Release \
     -DSTRICT_ABI=OFF -DBOOTSTRAP_DAEMON=OFF -DBUILD_TOXAV="$toxav_on" -DMUST_BUILD_TOXAV="$toxav_on" \
     -DDHT_BOOTSTRAP=OFF -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
@@ -155,6 +157,9 @@ for abi in $ABIS; do
   info "[$abi] -> $JNI_LIBS/$abi/libtim2tox_ffi.so"
   echo -e "${CYAN}--- $abi verification ---${NC}" >&2
   file "$JNI_LIBS/$abi/libtim2tox_ffi.so" >&2
+  python3 "$SCRIPT_DIR/ci/android_native_artifact.py" "$JNI_LIBS/$abi/libtim2tox_ffi.so" \
+    --format elf --abis "$abi" \
+    --report "$REPO_ROOT/build/native-artifacts/android/native-$abi.json" >&2
   # Dart_PostCObject_DL is an *internal* symbol (used within the .so, populated
   # by Dart_InitializeApiDL), so it is stripped from the jniLibs copy and never
   # in .dynsym — check the unstripped build artifact ($so) with full nm instead.

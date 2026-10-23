@@ -29,6 +29,21 @@ assert_file_missing() {
   [[ ! -e "$path" ]] || fail "Expected file to be absent: $path"
 }
 
+write_android_fixture() {
+  # Synthetic ELF for packaging policy tests, not a runnable native backend.
+  python3 - "$1" "$2" "${3:-16384}" <<'PY'
+from pathlib import Path
+import struct
+import sys
+marker = sys.argv[2].encode()
+size = 120 + len(marker)
+header = b'\x7fELF\x02\x01\x01' + bytes(9)
+header += struct.pack('<HHIQQQIHHHHHH', 3, 183, 1, 0, 64, 0, 0, 64, 56, 1, 0, 0, 0)
+header += struct.pack('<IIQQQQQQ', 1, 5, 0, 0, 0, size, size, int(sys.argv[3]))
+Path(sys.argv[1]).write_bytes(header + marker)
+PY
+}
+
 test_android_syncs_jni_libs_into_app_tree() {
   echo "[test] android syncs JNI libs into app tree"
   local src_dir="$TMP_ROOT/android-libs"
@@ -36,7 +51,7 @@ test_android_syncs_jni_libs_into_app_tree() {
   # The fake must carry the ToxAV marker export name — the sync path asserts
   # (via nm, falling back to binary grep) that synced artifacts are not
   # calling-stub builds.
-  printf 'fake-so tim2tox_ffi_av_backend_toxav' > "$src_dir/arm64-v8a/libtim2tox_ffi.so"
+  write_android_fixture "$src_dir/arm64-v8a/libtim2tox_ffi.so" tim2tox_ffi_av_backend_toxav
 
   TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
     bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release
@@ -49,7 +64,7 @@ test_android_sync_rejects_stub_libraries() {
   echo "[test] android sync rejects calling-stub libraries"
   local src_dir="$TMP_ROOT/android-libs-stub"
   mkdir -p "$src_dir/arm64-v8a"
-  printf 'fake-so-without-marker' > "$src_dir/arm64-v8a/libtim2tox_ffi.so"
+  write_android_fixture "$src_dir/arm64-v8a/libtim2tox_ffi.so" fake-so-without-marker
 
   if TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
     bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release >/dev/null 2>&1; then
@@ -60,6 +75,19 @@ test_android_sync_rejects_stub_libraries() {
   TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
     bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release --no-toxav
   assert_file_exists "$ANDROID_JNI_DIR/arm64-v8a/libtim2tox_ffi.so"
+}
+
+test_android_sync_rejects_4k_even_with_stub_opt_out() {
+  echo "[test] android sync rejects 4 KB native libraries even with stub opt-out"
+  local src_dir="$TMP_ROOT/android-libs-4k"
+  mkdir -p "$src_dir/arm64-v8a"
+  write_android_fixture "$src_dir/arm64-v8a/libtim2tox_ffi.so" fake-so 4096
+  if TIM2TOX_ANDROID_LIB_DIR="$src_dir" \
+    bash "$ROOT/tool/ci/build_tim2tox.sh" --target android --mode release --no-toxav \
+      >"$TMP_ROOT/android-4k.log" 2>&1; then
+    fail "Expected the staged-ELF gate to reject 4 KB alignment"
+  fi
+  grep -q '16 KB alignment' "$TMP_ROOT/android-4k.log" || fail 'Expected a page-alignment diagnostic'
 }
 
 test_linux_packaging_supports_deb_and_rpm_installers() {
@@ -156,7 +184,7 @@ test_ios_workflow_passes_staged_framework_to_xcode() {
 
 test_analyze_workflow_tolerates_existing_warnings() {
   echo "[test] analyze workflow is non-fatal for existing warnings"
-  rg -n 'flutter analyze lib tool --no-fatal-warnings --no-fatal-infos' "$ROOT/.github/workflows/analyze.yml" >/dev/null || \
+  rg -n 'flutter analyze .*--no-fatal-warnings --no-fatal-infos' "$ROOT/.github/workflows/analyze.yml" >/dev/null || \
     fail "Analyze workflow still treats warnings as fatal"
 }
 
@@ -311,6 +339,7 @@ test_signed_ios_packaging_resigns_injected_native_binary() {
 
 test_android_syncs_jni_libs_into_app_tree
 test_android_sync_rejects_stub_libraries
+test_android_sync_rejects_4k_even_with_stub_opt_out
 test_linux_packaging_supports_deb_and_rpm_installers
 test_ios_unsigned_build_is_packaged_as_validation_ipa
 test_ios_signed_build_is_packaged_as_ipa

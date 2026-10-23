@@ -14,6 +14,21 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
+// Distribution is an explicit owner action. A release build alone is also used
+// for CI smoke tests, so its debug-key fallback must never become store evidence.
+if (System.getenv("TOXEE_REQUIRE_SIGNING") == "1") {
+    val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .filter { keystoreProperties.getProperty(it).isNullOrBlank() }
+    if (!keystorePropertiesFile.exists() || missing.isNotEmpty()) {
+        throw GradleException("Android distribution requires complete key.properties: $missing")
+    }
+    val expected = System.getenv("ANDROID_SIGNING_CERT_SHA256")
+        ?.replace(":", "")?.replace(" ", "") ?: ""
+    if (!expected.matches(Regex("[0-9a-fA-F]{64}"))) {
+        throw GradleException("Android distribution requires the expected upload certificate ANDROID_SIGNING_CERT_SHA256")
+    }
+}
+
 // Per-machine overrides from the gitignored local.properties (e.g. an
 // `flutter.ndkVersion=<version>` override when the default Flutter NDK is not
 // installed cleanly on this machine). Committed config stays portable.
@@ -124,7 +139,10 @@ android {
             ?.filter { it.isDirectory && it.resolve("libtim2tox_ffi.so").exists() }
             ?.map { it.name }?.sorted() ?: emptyList()
         if (ffiAbis.isNotEmpty()) {
-            ndk { abiFilters.addAll(ffiAbis) }
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(ffiAbis)
+            }
             // Checked here, where the bytes about to be packaged are. A unit-test
             // invocation packages nothing, so it is skipped for the same reason
             // the branch below skips its own failure.

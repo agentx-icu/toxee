@@ -425,6 +425,8 @@ build_android_ffi_for_abi() {
     -DANDROID_ABI="$abi" \
     -DANDROID_PLATFORM=21 \
     -DANDROID_STL=c++_shared \
+    -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
     -DCMAKE_PREFIX_PATH="$prefix" \
     -DTIM2TOX_DEP_PREFIX="$prefix" \
     -DCMAKE_FIND_ROOT_PATH="$prefix;$sysroot" \
@@ -438,6 +440,8 @@ build_android_ffi_for_abi() {
   built_lib="$(find "$build_dir" -type f -name 'libtim2tox_ffi.so' | head -n 1 || true)"
   [[ -n "$built_lib" ]] || ci_die "Failed to locate Android libtim2tox_ffi.so for ABI $abi"
   cp "$built_lib" "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so"
+  python3 "$SCRIPT_DIR/android_native_artifact.py" "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" \
+    --format elf --abis "$abi" --report "$OUTPUT_DIR/native-$abi.json"
   ci_log "Captured Android native library for $abi: $built_lib"
   assert_toxav_artifact "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" "$toolchain/bin/llvm-nm" "android-$abi"
   assert_hook_free_artifact "$OUTPUT_DIR/jniLibs/$abi/libtim2tox_ffi.so" "$toolchain/bin/llvm-nm"
@@ -473,6 +477,9 @@ build_android_ffi_libs() {
     fi
     ci_log "Synced Android JNI libraries from $source_dir"
     while IFS= read -r synced_lib; do
+      python3 "$SCRIPT_DIR/android_native_artifact.py" "$synced_lib" \
+        --format elf --abis "$(basename "$(dirname "$synced_lib")")" \
+        --report "$OUTPUT_DIR/native-$(basename "$(dirname "$synced_lib")").json"
       assert_toxav_artifact "$synced_lib" nm "android-synced"
       # A synced .so was built by someone else entirely, so the CMake gate
       # above never applied to it — this is the only thing standing between a

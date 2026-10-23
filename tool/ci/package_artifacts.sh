@@ -187,6 +187,11 @@ package_linux() {
     fi
   fi
 
+  local native_arch="$PACKAGE_ARCH"
+  [[ "$native_arch" != aarch64 ]] || native_arch=arm64
+  python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format elf \
+    --arch "$native_arch" --entry toxee --report "$DIST_DIR/native-inventory.json"
+
   rm -rf "$installer_build_dir"
   if command -v cpack >/dev/null 2>&1; then
     cmake -S "$REPO_ROOT/tool/ci/linux-installer" -B "$installer_build_dir" \
@@ -254,7 +259,20 @@ package_windows() {
     write_note "Bundled $(basename "$dep_dll") into Windows package."
   done < <(find "$NATIVE_DIR" -maxdepth 1 -type f -name '*.dll' | sort)
 
+  local native_arch
+  case "$package_arch" in
+    AMD64|x64) native_arch="x86_64" ;;
+    ARM64|arm64) native_arch="arm64" ;;
+    *) ci_die "Unsupported Windows package architecture: $package_arch" ;;
+  esac
+  python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \
+    --entry toxee.exe --arch "$native_arch" --flutter-windows-aot --report "$DIST_DIR/native-inventory.json"
+
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File     "$(ci_windows_path "$REPO_ROOT/tool/ci/sign_windows_artifacts.ps1")"     -InputPath "$(ci_windows_path "$staged_dir")"
+  # Signing mutates PE bytes; retain hashes of the staged files that actually
+  # enter the installer, after successful signing (or explicit dev-mode skip).
+  python3 "$SCRIPT_DIR/native_payload.py" "$staged_dir" --format pe \
+    --entry toxee.exe --arch "$native_arch" --flutter-windows-aot --report "$DIST_DIR/native-inventory.json"
 
   # --- MSI installer via CPack/WiX ---
   local msi_path release_version
@@ -385,6 +403,21 @@ package_android() {
   package_arch="${TOXEE_PACKAGE_ARCH:-arm64}"
   output_apk_name="toxee-${release_version}-Android-${package_arch}.apk"
   output_aab_name="toxee-${release_version}-Android-${package_arch}.aab"
+  if [[ "${TOXEE_REQUIRE_SIGNING:-0}" == 1 ]]; then
+    [[ -f "$aab_path" ]] || ci_die "Android distribution requires the final App Bundle"
+    # Keep the local packaging entry point subject to the same final-artifact
+    # checks as CI. These defaults match this workflow's current policy review;
+    # an ABI/SDK change must update its release qualification at the same time.
+    local -a android_abis
+    read -r -a android_abis <<< "${TOXEE_ANDROID_ABIS:-arm64-v8a}"
+    python3 "$SCRIPT_DIR/android_release_preflight.py" \
+      --apk "$apk_path" --aab "$aab_path" --application-id com.toxee.app \
+      --min-target-sdk "${TOXEE_ANDROID_MIN_TARGET_SDK:-36}" \
+      --abis "${android_abis[@]}" --report-dir "$DIST_DIR" --distribution
+    write_note "Android distribution signing verified; retain android-preflight.json and complete channel/console/device checks before submission."
+  else
+    write_note "Development verification artifacts: release optimization does not establish store signing or approval."
+  fi
 
   [[ -f "$apk_path" ]] || ci_die "Android APK not found: $apk_path"
   cp "$apk_path" "$DIST_DIR/$output_apk_name"
@@ -410,6 +443,9 @@ package_android() {
 }
 
 package_ios() {
+  if [[ "${TOXEE_REQUIRE_SIGNING:-0}" == 1 ]]; then
+    ci_die "This IPA packager is for device/development validation. App Store distribution requires an Xcode archive/export with approved export options; see doc/operations/STORE_READINESS.md."
+  fi
   local app_bundle="$REPO_ROOT/build/ios/iphoneos/Runner.app"
   local archive_path="$DIST_DIR/toxee-ios-$MODE.ipa"
   local frameworks_dir="$app_bundle/Frameworks"
