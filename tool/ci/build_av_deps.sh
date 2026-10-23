@@ -34,7 +34,9 @@ set -euo pipefail
 # mismatch must be treated as tampering until proven otherwise.
 OPUS_VERSION="1.5.2"
 OPUS_SHA256="65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
-OPUS_URL="https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz"
+# The official release asset has the same pinned bytes as the Xiph tarball.
+# Xiph TLS resets broke macOS CI twice; keep checksum verification mandatory.
+OPUS_URL="https://github.com/xiph/opus/releases/download/v${OPUS_VERSION}/opus-${OPUS_VERSION}.tar.gz"
 VPX_VERSION="1.15.2"
 VPX_SHA256="26fcd3db88045dee380e581862a6ef106f49b74b6396ee95c2993a260b4636aa"
 VPX_URL="https://github.com/webmproject/libvpx/archive/refs/tags/v${VPX_VERSION}.tar.gz"
