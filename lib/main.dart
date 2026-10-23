@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -39,6 +37,7 @@ import 'ui/app_theme_data.dart';
 import 'util/app_theme_config.dart';
 import 'util/account_service.dart';
 import 'bootstrap/logging_bootstrap.dart';
+import 'bootstrap/runtime_error_hooks.dart';
 import 'bootstrap/session_shutdown.dart';
 import 'util/prefs.dart';
 import 'util/safe_diagnostics.dart';
@@ -67,6 +66,7 @@ const _mcpBinding = String.fromEnvironment(
 );
 
 Future<void> main() async {
+  final errorHooks = RuntimeErrorHooks();
   await runZonedGuarded(
     () async {
       // Step 1: install the binding. Marionette REPLACES WidgetsFlutterBinding
@@ -114,6 +114,7 @@ Future<void> main() async {
         // ever wanted.
         FlutterSkillBinding.ensureInitialized(autoEnableIndicators: false);
       }
+      errorHooks.install();
       if (kDebugMode) {
         MCPToolkitBinding.instance
           ..initialize()
@@ -131,52 +132,6 @@ Future<void> main() async {
       // One engine per Android process owns the Tox session.
       if (!await SingleSessionGuard.claimOrYield()) return;
       final result = await AppBootstrap.initialize();
-
-      // A binding installed above (flutter_skill records every FlutterError
-      // into its `getErrors` buffer) must keep receiving errors: iOS builds
-      // have no file log, so that buffer is the ONLY place a real-UI campaign
-      // can read a framework assertion's stack from afterwards. The stock
-      // handler is `presentError`, which this handler already calls itself.
-      final priorOnError = FlutterError.onError;
-      FlutterError.onError = (FlutterErrorDetails details) {
-        if (priorOnError != null && priorOnError != FlutterError.presentError) {
-          priorOnError(details);
-        }
-        // Capture the widget that triggered the error and (for RenderFlex
-        // overflow) the offending RenderObject's brief description. Without
-        // this, the log only sees the message ("A RenderFlex overflowed by
-        // N pixels") with no clue which widget is at fault.
-        final libraryAndContext = StringBuffer()
-          ..write('Flutter Error: ${details.exception}');
-        final ctx = details.context;
-        if (ctx != null) {
-          libraryAndContext.write(' (context: ${ctx.toString()})');
-        }
-        final lib = details.library;
-        if (lib != null && lib.isNotEmpty) {
-          libraryAndContext.write(' [library: $lib]');
-        }
-        AppLogger.logError(
-          libraryAndContext.toString(),
-          details.exception,
-          details.stack,
-        );
-        final info = StringBuffer();
-        details.informationCollector?.call().forEach((node) {
-          final s = node.toString();
-          if (s.trim().isNotEmpty) info.writeln(s);
-        });
-        if (info.isNotEmpty) {
-          AppLogger.error('Flutter Error details:\n${info.toString().trim()}');
-        }
-        FlutterError.presentError(details);
-      };
-
-      ui.PlatformDispatcher.instance.onError =
-          (Object error, StackTrace stack) {
-            AppLogger.logError('Uncaught async error', error, stack);
-            return true;
-          };
 
       switch (result) {
         case AppBootstrapSuccess():
@@ -199,17 +154,7 @@ Future<void> main() async {
           runApp(RecoveryBlockedApp(detail: detail));
       }
     },
-    (Object error, StackTrace stack) {
-      try {
-        AppLogger.logError('Uncaught error in zone', error, stack);
-      } catch (e) {
-        // If logging itself fails (e.g. StackOverflow from deep Future chains),
-        // fall back to stderr which doesn't allocate or call DateTime.
-        try {
-          stderr.writeln('[ZONE ERROR] $error');
-        } catch (_) {}
-      }
-    },
+    errorHooks.handleZoneError,
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
         LoggingBootstrap.routePrintToLogger(line);

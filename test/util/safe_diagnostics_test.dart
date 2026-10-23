@@ -63,23 +63,26 @@ void main() {
       await tempDir.delete(recursive: true);
     });
 
-    test('describeError returns only a stable runtime-type token', () {
-      expect(
-        SafeDiagnostics.describeError(_failure('_first')),
-        'error_type=SentinelFailure',
-      );
-      expect(
-        SafeDiagnostics.describeError(_failure('_second')),
-        'error_type=SentinelFailure',
-      );
-    });
+    test(
+      'describeError returns only a closed exception category without rendering Type',
+      () {
+        expect(
+          SafeDiagnostics.describeError(_failure('_first')),
+          'error_type=Exception',
+        );
+        expect(
+          SafeDiagnostics.describeError(_failure('_second')),
+          'error_type=Exception',
+        );
+      },
+    );
 
     test('logFailure omits all exception details', () async {
       SafeDiagnostics.logFailure('account_restore_failed', _failure(''));
 
       final logged = await logFile.readAsString();
       expect(logged, contains('account_restore_failed'));
-      expect(logged, contains('error_type=SentinelFailure'));
+      expect(logged, contains('error_type=Exception'));
       for (final secret in <String>[
         _messageSecret,
         _stackSecret,

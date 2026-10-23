@@ -10,6 +10,22 @@ This supplements the [65-item audit](../reference/CROSS_PLATFORM_AUDIT_2026_10_2
 An inventory or successful CI run establishes the checks described below;
 store readiness still requires the owner's declarations and device evidence.
 
+## Existing macOS Preferences action (I2)
+
+The shipped MainMenu.xib had a Preferences… item without an action; the existing Flutter Cmd+, shortcut already opened the settings tab. The native item now invokes that same action through toxee/desktop_menu. It is enabled only for an initialized account's current Home route, disabled while covered/disposed, and carries a route-owner token so a queued command cannot cross account replacement. Four real widget/channel lifecycle cases plus the eight existing shortcut cases pass. A real macOS debug app build compiles Swift and the connected XIB. This is not evidence of iPadOS 26 native command coverage or an installed release accessibility/menu sweep; those remain separate work.
+
+## Local production diagnostics (X9, partial)
+
+Framework/dispatcher hooks are installed before session ownership and bootstrap; the guarded zone also captures binding failures. Production Dart logs accept closed origins, static exception categories and bounded internally captured VM package/dart locations or AOT build IDs/addresses. Arbitrary messages, exception values, framework context/collectors and SDK print bodies are omitted, including console and logger-failure paths. Debug binding buffers, presentation and harness bodies remain available. Up to 32 early records (24 allowed stack lines each) are flushed when the sink opens; failure fallback cannot re-enter the logger. Type/runtimeType getters and caller-supplied StackTrace objects are never evaluated. `stack=capture_point` identifies the logger capture location, not the original throw origin; original exception stacks remain debug-only. A failed console/stderr writer cannot escape the handler, and a failed console sink is disabled while file output continues.
+
+The existing Dart retention limits remain ten app log files and 10 MB segments. Canonical explicit app_<timestamp>.log paths now receive the same rotation as the implicit default; arbitrary custom fixture names retain their documented append behavior. `test/util/production_diagnostics_test.dart` exercises the boundary and retention. `python3 tool/ci/test_production_diagnostics.py` inspects actual child-process stdout/stderr with a marker secret and symbolizes a real stripped Dart AOT trace from its exact symbols. These shared-code checks are not an installed release crash test on every OS.
+
+**Still engineering work:** Tim2Tox's V2TIMLog has its own mutex-protected std::ofstream and only a set-log-file FFI export; its SDK OnLog listener is not the V2TIMLog writer. Dart renaming/reopening cannot rotate that retained native descriptor, and periodic file stats cannot bound concurrent native writes. Native sink ownership/bounded retention, spawned-worker forwarding, native crash capture, complete exact-build symbol archives and installed release fault/symbolication tests remain open. They do not inherently require a remote service. No upload or new telemetry service is added.
+
+## Linux profile storage (W3)
+
+A relative XDG_DATA_HOME is ignored, as required by the XDG base-directory contract. The existing HOME/.local/share fallback (or platform Application Support without HOME), explicit absolute overrides, user-selected roots and one-time legacy migration are preserved. `python3 tool/ci/test_linux_profile_paths.py` runs four real native-Linux child-process environments, checks existing account bytes and idempotence, and rejects any migration into the working directory. These cases are a separate hard CI step; local macOS path tests alone do not qualify Linux behavior.
+
 ## Implemented checks
 
 | Scope | Status and evidence | Remaining qualification |
@@ -218,7 +234,7 @@ executed on macOS; Linux coverage does not establish those checks.
 | --- | --- | --- |
 | P1, P4 | verified (inspection gates); to do (owner audit) | Built Apple metadata/native inspection runs on archive and export; SDK/API reasons, data disclosures and selected console answers still require owner review. |
 | W4, X6 | verified (unsigned archive and policy gates); to do (distribution) | Real unsigned Xcode archive above; negative tests reject upload, automatic signing, wrong team/profile/certificate, expiry, development/device/enterprise identity and stale output. Real manual signed export/install remains untested. |
-| X9 | to do | Archive/dSYMs retained for seven days; native reporter coverage, symbol match and controlled release crash symbolication are not established by archiving alone. |
+| X9 | verified (bounded Dart capture-point diagnostics); to do (native/installed qualification) | Static categories and internal capture-point AOT symbolize regression above; original exception stacks are debug-only. Archive/dSYMs retained for seven days do not by themselves establish native reporter coverage, all-binary symbol match or controlled installed release crash symbolication. |
 | X4 | needs device | Owner signs/exports, installs and upgrades on iPhone/iPad, then exercises permissions, network/media and preserved user data. |
 | X5 | verified (change scope); parity qualification retained | Platform packaging gates and analyzer-required async/lifecycle corrections are covered by their regressions and final native CI. Android retains its final-artifact gate; this does not establish general feature parity. |
 | L*, D*, I*, B*, M*, F* | existing audit states retained | Async/lifecycle safety corrections do not establish layout, input, media, performance or device qualification. Existing full-audit limitations remain; mobile checklist item 12 gains archive evidence, not formal release qualification. |

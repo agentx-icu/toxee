@@ -116,7 +116,7 @@ abstract final class AppPaths {
   ///   the App Sandbox container when sandboxed, falls back to
   ///   `~/Library/Application Support/<bundle>` otherwise; H10 from the
   ///   2026-05-19 persistence review)
-  /// Linux: $XDG_DATA_HOME/toxee/profiles or ~/.local/share/toxee/profiles (XDG Base Dir spec)
+  /// Linux: absolute $XDG_DATA_HOME/toxee/profiles or ~/.local/share/toxee/profiles
   /// Windows: %APPDATA%/toxee/profiles
   /// Fallback: app Application Support when custom root not set.
   ///
@@ -152,14 +152,14 @@ abstract final class AppPaths {
     if (Platform.isLinux) {
       final dataHome = Platform.environment['XDG_DATA_HOME'];
       String? root;
-      if (dataHome != null && dataHome.isNotEmpty) {
+      // Ignore relative XDG values: never migrate accounts into the launch CWD.
+      if (dataHome != null && dataHome.isNotEmpty && p.isAbsolute(dataHome)) {
         root = p.join(dataHome, 'toxee', 'profiles');
       } else {
         final home = Platform.environment['HOME'];
         if (home != null && home.isNotEmpty) {
-          // XDG spec default: $XDG_DATA_HOME defaults to $HOME/.local/share
-          // (NOT $HOME/.config — that's $XDG_CONFIG_HOME, which is for
-          // app configuration, not user data).
+          // XDG user data defaults to $HOME/.local/share, not .config.
+          // Keep the established path for existing accounts.
           root = p.join(home, '.local', 'share', 'toxee', 'profiles');
         }
       }

@@ -22,6 +22,7 @@ import '../nearby/location_source.dart';
 import '../nearby/nearby_controller.dart';
 import 'home/desktop_input_options.dart';
 import 'home/desktop_shortcut.dart';
+import 'home/desktop_settings_menu.dart';
 import 'nearby/nearby_page.dart';
 import 'nearby/nearby_privacy_notice.dart';
 import 'nearby/nearby_reply_prompter.dart';
@@ -171,6 +172,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _index = 0;
+  bool _settingsMenuReady = false;
 
   /// Scroll controllers for the first-party tab pages, so a re-tap on the
   /// active bottom-nav tab can send them back to the top (tabs 0 and 1 use
@@ -614,6 +616,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Rebuilds for the LAN banner, which yields to the notification notice.
   void _onAccessChanged() => mounted ? setState(() {}) : null;
+
+  void _markSettingsMenuReady() {
+    if (mounted) setState(() => _settingsMenuReady = true);
+  }
+  void _openSettings() {
+    if (mounted) setState(() => _index = 3);
+  }
 
   @override
   void dispose() {
@@ -1337,7 +1346,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   actions: <Type, Action<Intent>>{
                     _OpenSettingsIntent: CallbackAction<_OpenSettingsIntent>(
                       onInvoke: (_) {
-                        setState(() => _index = 3);
+                        _openSettings();
                         return null;
                       },
                     ),
@@ -1368,7 +1377,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               );
             }
-            return content;
+            return DesktopSettingsMenu(
+              ready: _settingsMenuReady,
+              onOpenSettings: _openSettings,
+              child: content,
+            );
           },
         );
       },

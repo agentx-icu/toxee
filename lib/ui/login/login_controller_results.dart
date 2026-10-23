@@ -65,7 +65,7 @@ final class ImportFailure extends ImportResult {
   const ImportFailure(this.kind, {this.detail});
   final ImportFailureKind kind;
 
-  /// Sanitized runtime-type detail for [ImportFailureKind.generalError]; null
+  /// Static exception-category detail for [ImportFailureKind.generalError]; null
   /// for cancellation / file-not-selected / duplicate-account cases.
   final String? detail;
 }

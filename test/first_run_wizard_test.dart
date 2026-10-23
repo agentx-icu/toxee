@@ -209,7 +209,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Inline error surface, wizard still mounted.
-      expect(find.textContaining('error_type=_Exception'), findsOneWidget);
+      expect(find.textContaining('error_type=Exception'), findsOneWidget);
       expect(find.textContaining(privateDetail), findsNothing);
       expect(
         find.byKey(const Key('firstRunBackupWizard.exportButton')),
