@@ -148,10 +148,15 @@ AMD64/ARM64 安装 MSI 生命周期、Ubuntu24.04 x64/ARM64 干净容器 DEB 安
 | I3 | 确认 right-control paste/keyup 门禁代码项：desktop _handleKeyEvent 仅 controlLeft 且早于 RawKeyDown 检查。normal Enter 的 _submitDesktopSend 已读当前 controller 并用 draftCoordinator，旧 typing race 不能再称已复现；modified-Enter/selection 先补实际键盘用例。 |
 | W2,B4 | 原生工程：Windows app/plugin 和精确 Flutter42d3d75 engine 仅 WM_CLOSE→request quit，没有 WM_QUERYENDSESSION/WM_ENDSESSION；Linux shutdown 无保存桥，也无 SIGTERM/session-manager 路由。复用现有 prepareToExit/checkpoint、按 OS deadline/idempotence 接入，再验真实 session end；已修正常关窗不重做，SIGKILL/断电无最终回调保证。 |
 | X8,B4 | 原生工程：NetworkChangeReBootstrapper 明确排除 Win/Linux，现有 resume 和 3s debounce/30s throttle 保留。IP Helper/power、GNetworkMonitor/sleep 事件可接既有策略，无新服务/权限；代码/原生测试后才做真实断网、切网、睡眠矩阵。 |
-| F3 | 工程：Home 2s UI status poll 没有 hidden/paused 分支，contact poll 已有。仅暂停 UI 读取、resume 刷新/合并并发，不停 P2P/call；能耗/热预算还需目标设备与测量标准。 |
+| F3 | 本轮 UI 轮询代码已修：`ForegroundUiPoller` 在 hidden/paused/detached 暂停 Home 2s 状态读取，可见时刷新并合并在途读取；contact poll 原已有生命周期门禁。生命周期/慢读取/释放/失败回归覆盖 UI 观察，不停 P2P/LAN/call。已安装窗口、能耗/热量/省电资格仍需目标设备与测量标准。 |
 | L8 | 基本 hinge avoidance 是工程：现只有宽度模拟，没有 DisplayFeature/遮挡 hinge；可先做合成 hinge/draft continuity。Tabletop/双 pane 分配另需产品布局和折叠设备，不能把整个代码项说成 needs-device。 |
 | P7 | 真正产品决定：MOBILE_DEVICE_FEATURES 权限表 P4 明说 screenshot/recording 为产品决定，未见已批准敏感页面策略或平台实现。先明确保护面和 snapshot/录屏响应，再做分平台实现/实测，不能擅自全屏禁截或承诺万能阻止。 |
 | W3,W4,I8,I9,M6 | Roaming AppData 迁移/共享 external profile ownership 需数据迁移设计与实现；verified scheme/domain、incoming share content、Windows taskbar badge 属渠道/产品范围，不能凭 checklist 新造可选能力。既有 WinRT/出站 share/clipboard 仍须宿主验收。 |
 | P1–P6,P9,W4,X6 | 负责人材料/运营及设备：正式签名、隐私/API reason、文案素材、UGC 真实运营、旧版升级数据保留。按 Store readiness 的平台/用途/控制台/公开 ID 与安全环境表交接，不收密钥或账号。 |
 | 其余 L/D/I/B/M/F/X | 保留原有部分证据的日期、测试范围与缺测组合；未复现不等于确定代码 defect。大字/RTL/DPI/readers/硬件/权限/16KB/升级/release 性能需真实矩阵，客观预算还需目标；上列已确认源码缺项不能归入设备阻塞。 |
 | P8,B8,M8 | 当前不适用：未提供购买、Tox server-version reconciliation、screen/system-audio capture；产品新增时重开。 |
+
+
+## F3 后续：可见窗口的 LAN 状态读取
+
+Home 的两秒 UI 状态读取原在 hidden/paused 后继续运行，慢读取也可能重叠。现使用独立可释放的 `ForegroundUiPoller`：隐藏、暂停、分离时撤销定时器，恢复可见时立即刷新；可见但失焦的桌面窗口继续更新。最多一个读取在途；恢复过程中合并为一个追加读取，普通忙时 tick 不堆积。释放后不再追加刷新。这里只控制已有 UI 状态查询，P2P、LAN 服务和通话生命周期不受影响。真实生命周期/慢 Future/同步和异步失败回归可在普通 Widget 测试运行；真实已安装窗口、能耗、热量及省电资格仍需设备，不据此关闭完整 F3。无需账号、证书、新权限或产品能力。
