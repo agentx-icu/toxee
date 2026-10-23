@@ -25,6 +25,11 @@ on:
       - "LICENSE"
   workflow_dispatch:
     inputs:
+      android_distribution:
+        description: "Require the owner's Android upload signature (does not submit to Play)"
+        required: false
+        default: false
+        type: boolean
       publish_release:
         description: "Publish downloaded build artifacts to GitHub Releases"
         required: false
@@ -362,13 +367,14 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.target.tim2tox_windows_arch }}
         run: |
+          & ./tool/ci/test_windows_signing_policy.ps1
           & ./tool/ci/test_windows_architecture.ps1
           $runnerDir = "build/windows/$env:EXPECTED_ARCH/runner/Release"
-          & ./tool/ci/assert_windows_architecture.ps1 -Architecture $env:EXPECTED_ARCH -Paths @(
-            "$runnerDir/toxee.exe",
-            "$runnerDir/flutter_windows.dll",
-            "$runnerDir/tim2tox_ffi.dll"
-          )
+          $nativeFiles = @(Get-ChildItem $runnerDir -Recurse -File |
+            Where-Object { $_.Extension -in '.exe', '.dll' } |
+            ForEach-Object { $_.FullName })
+          if ($nativeFiles.Count -lt 3) { throw 'Incomplete Windows native inventory' }
+          & ./tool/ci/assert_windows_architecture.ps1 -Architecture $env:EXPECTED_ARCH -Paths $nativeFiles
 
       - name: Package Windows artifacts
         env:
@@ -446,6 +452,18 @@ jobs:
           TOXEE_PACKAGE_ARCH: ${{ matrix.target.package_arch }}
         run: bash tool/ci/package_artifacts.sh --target macos --mode "$BUILD_MODE"
 
+      - name: Verify final macOS payload
+        env:
+          PACKAGE_ARCH: ${{ matrix.target.package_arch }}
+        run: |
+          app=build/macos/Build/Products/Release/Toxee.app
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          python3 tool/ci/native_payload.py "$app" --format macho --arch "$PACKAGE_ARCH" \
+            --entry "Contents/MacOS/$executable" --report dist/macos/native-inventory.json
+          python3 tool/ci/apple_release_preflight.py --app "$app" --platform macos \
+            --bundle-id com.toxee.app --source-info macos/Runner/Info.plist \
+            --report dist/macos/apple-preflight.json
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -455,6 +473,9 @@ jobs:
 
   android:
     name: Android
+    env:
+      TOXEE_REQUIRE_SIGNING: ${{ inputs.android_distribution == true && '1' || '0' }}
+      ANDROID_SIGNING_CERT_SHA256: ${{ inputs.android_distribution == true && vars.ANDROID_SIGNING_CERT_SHA256 || '' }}
     # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
     # default, so one hung run burned 360 x the runner multiplier.
     timeout-minutes: 60
@@ -508,7 +529,17 @@ jobs:
               "$ANDROID_KEY_ALIAS" \
               "$ANDROID_KEY_PASSWORD" \
               > android/key.properties
+          elif [[ "$TOXEE_REQUIRE_SIGNING" == 1 ]]; then
+            echo 'Android distribution requires all four signing secrets.' >&2
+            exit 1
           fi
+          if [[ "$TOXEE_REQUIRE_SIGNING" == 1 && ! "$ANDROID_SIGNING_CERT_SHA256" =~ ^([[:xdigit:]]{2}:?){32}$ ]]; then
+            echo 'Android distribution requires the expected upload certificate SHA256 repository variable.' >&2
+            exit 1
+          fi
+
+      - name: Test Android artifact rejection gates
+        run: python3 -m unittest discover -s test/ci -p 'test_android*.py'
 
       - name: Stage optional Android Tim2Tox JNI libs
         env:
@@ -530,6 +561,14 @@ jobs:
 
       - name: Package Android artifacts
         run: bash tool/ci/package_artifacts.sh --target android --mode "$BUILD_MODE"
+
+      - name: Verify final Android release artifacts
+        run: |
+          python3 tool/ci/android_release_preflight.py \
+            --apk build/app/outputs/flutter-apk/app-release.apk \
+            --aab build/app/outputs/bundle/release/app-release.aab \
+            --application-id com.toxee.app --min-target-sdk 36 --abis arm64-v8a \
+            --report-dir dist/android
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -618,6 +657,16 @@ jobs:
 
       - name: Package iOS artifacts
         run: bash tool/ci/package_artifacts.sh --target ios --mode "$BUILD_MODE"
+
+      - name: Verify final iOS payload
+        run: |
+          app=build/ios/iphoneos/Runner.app
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          python3 tool/ci/native_payload.py "$app" --format macho --arch arm64 \
+            --entry "$executable" --report dist/ios/native-inventory.json
+          python3 tool/ci/apple_release_preflight.py --app "$app" --platform ios \
+            --bundle-id com.toxee.app --source-info ios/Runner/Info.plist \
+            --report dist/ios/apple-preflight.json
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4

@@ -28,6 +28,7 @@
 
 - [getting-started.md](getting-started.md) - 从克隆到跑起来的单页指引（首次运行推荐）
 - [operations/BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md) - 本地构建流程、安装包产物、GitHub Actions 打包与 Release 发布
+- [operations/STORE_READINESS.zh-CN.md](operations/STORE_READINESS.zh-CN.md) - 桌面/移动商店门禁、渠道选择及负责人证据
 - [operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md) - 从克隆到可构建的引导顺序与选项（首次克隆必看）
 - [operations/DEPENDENCY_LAYOUT.md](operations/DEPENDENCY_LAYOUT.md) - third_party 目标结构、legacy 假设
 - [operations/PATCH_MAINTENANCE.md](operations/PATCH_MAINTENANCE.md) - 补丁与依赖维护、SDK 升级检查清单

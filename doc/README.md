@@ -28,6 +28,7 @@
 
 - [getting-started.md](getting-started.md) - Clone to run (recommended for first run)
 - [operations/BUILD_AND_DEPLOY.md](operations/BUILD_AND_DEPLOY.md) - Local build flow, package outputs, GitHub Actions packaging and Release publishing
+- [operations/STORE_READINESS.md](operations/STORE_READINESS.md) - Desktop/mobile store gates, channel choices and owner evidence
 - [operations/DEPENDENCY_BOOTSTRAP.md](operations/DEPENDENCY_BOOTSTRAP.md) - Bootstrap order and options (required for fresh clone)
 - [operations/DEPENDENCY_LAYOUT.md](operations/DEPENDENCY_LAYOUT.md) - third_party target layout, legacy assumptions
 - [operations/PATCH_MAINTENANCE.md](operations/PATCH_MAINTENANCE.md) - Patch and dependency maintenance, SDK upgrade checklist

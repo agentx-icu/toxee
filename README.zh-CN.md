@@ -176,18 +176,9 @@ flutter pub get
 
 每个平台 job 都会把 `dist/<platform>/` 目录作为 GitHub Actions artifact 上传。桌面端 job 会先构建宿主平台的 Tim2Tox FFI 动态库，再把它一起打进应用产物。Android 会同时产出 `app-release.apk` 和 `app-release.aab`；如果配置了 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 这 4 个 secrets，workflow 会自动使用 release keystore 签名，否则继续沿用项目当前的 debug-key release 签名。
 
-桌面端当前的安装型产物分别是：
+实际 CI 安装产物为 Windows MSI、macOS PKG、Linux DEB/RPM、Android APK/AAB，以及 iOS 开发/设备验证 IPA。桌面命名为 `toxee-<version>-<Windows|Darwin|Linux>-<arch>.<扩展名>`；当前 CI packager 不生成 DMG/AppImage/便携 ZIP。未签名 iOS IPA 保留在 workflow artifact，但不进入 GitHub Release；带签名的设备验证包仍取决于 profile/设备，不等于 App Store archive/export。
 
-- **Windows**：`toxee-windows-x64-release.msi`（另附 `.zip` 便携包）
-- **macOS**：`toxee-macos-release.dmg`（另附 `.zip` 包）
-- **Linux**：`toxee-linux-x64-release.AppImage`（另附 `.tar.gz` 包）
-
-iOS 现在分两种模式：
-
-- 如果配置了 `IOS_CERTIFICATE_P12_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`，workflow 会执行带签名的 `flutter build ios --release`，并产出真实可安装的 `.ipa`。
-- 如果没有这些 secrets，iOS job 仍会执行未签名校验构建，但**不会**把这个 IPA 发布到 GitHub Releases；此时只会在 `dist/ios/NOTES.txt` 中说明未配置签名。
-
-对于 Android/iOS，如果工作区里还没有可注入的 Tim2Tox 移动端原生库，CI 也会继续把这个限制写进 `dist/<platform>/NOTES.txt`。在正式发布模式下，如果 Android 的 JNI `libtim2tox_ffi.so` 没有被 staged，APK/AAB 也不会再进入 GitHub Release，避免把“能编译”误认为“已经完成原生注入”。
+Android debug-key release 回退仅用于开发验证。手动开启 `android_distribution=true` 还要求负责人提供 `ANDROID_SIGNING_CERT_SHA256` repository variable 和完整签名 secrets；strict 打包前核验真实 APK/AAB 签名、原生 ABI 和 16 KB 兼容性。桌面与移动渠道的输入、证据和剩余负责人/真机工作见[商店上架准备](doc/operations/STORE_READINESS.zh-CN.md)。
 
 同一个 workflow 也支持发布到 **GitHub Releases**：
 

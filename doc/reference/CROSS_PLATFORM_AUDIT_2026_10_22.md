@@ -176,3 +176,6 @@ independent Flutter 3.44 checks pass 44 input tests, both new Windows/macOS
 Shift+PageDown/Up selection variants and a full app Dart-kernel build. The same
 isolated 3.44 tree first reproduced the four missing-intent errors with 16.0.2.
 Kernel success is not a Windows native/MSI or physical IME qualification claim.
+
+
+Store-specific follow-up (2026-10-23): [readiness, implemented gates and owner blockers](../operations/STORE_READINESS.md). Unaffected IDs retain the states above.

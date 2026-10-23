@@ -207,3 +207,8 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 ## 已知不一致
 
 - （已解决 2026-09-26）`MOBILE_BACKGROUND` 曾描述 `voip` 后台模式，该模式已在 `285c6f7` 中移除；文档已更正。
+
+
+## 2026-10-23 商店上架专项复查
+
+审查项 1–11：本次仅修改打包/验证，不改 UI、生命周期、媒体、权限或通知行为，沿用此前真机证据限制。第 12 项：Android/iOS 最终制品均增加检查；Android 强制 strict 签名，iOS 在合格 archive/export 实现前明确拒绝 strict 分发。该差异已记录，不将开发 IPA 当作商店能力对齐。P4/P9/W4/X6 的负责人及真机证据仍待补；当前没有计费/广告/第三方主登录，P8 条件不适用。见[商店上架准备](../operations/STORE_READINESS.zh-CN.md)。

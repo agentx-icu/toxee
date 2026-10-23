@@ -29,11 +29,12 @@ try {
   $installed = $true
   $exe = Join-Path $installRoot 'toxee.exe'
   if (-not (Test-Path $exe)) { throw 'MSI did not install the executable at INSTALL_ROOT' }
-  Assert-WindowsArchitecture -Architecture $ExpectedArchitecture -Paths @(
-    $exe,
-    (Join-Path $installRoot 'flutter_windows.dll'),
-    (Join-Path $installRoot 'tim2tox_ffi.dll')
-  )
+  foreach ($required in @('flutter_windows.dll', 'tim2tox_ffi.dll')) {
+    if (-not (Test-Path (Join-Path $installRoot $required))) { throw "MSI omitted $required" }
+  }
+  $nativeFiles = @(Get-ChildItem -LiteralPath $installRoot -File -Recurse |
+    Where-Object { $_.Extension -in '.exe', '.dll' } | ForEach-Object { $_.FullName })
+  Assert-WindowsArchitecture -Architecture $ExpectedArchitecture -Paths $nativeFiles
   $app = Start-Process $exe -WorkingDirectory $installRoot -PassThru
   Start-Sleep -Seconds 12
   if ($app.HasExited) { throw "Installed application exited at startup: $($app.ExitCode)" }

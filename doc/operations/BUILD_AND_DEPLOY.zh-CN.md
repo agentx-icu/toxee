@@ -26,8 +26,8 @@
 
 ### 平台要求
 
-- **macOS**：Xcode、Command Line Tools、Homebrew；如果要打 `.dmg`，还需要 `create-dmg`；本地桌面构建需要 `libsodium`。
-- **Linux**：`build-essential`、`cmake`、`libgtk-3-dev`、`libsodium-dev`、`pkg-config`、`patchelf`、`libfuse2`；如果要打 `.AppImage`，还需要 `appimagetool`。
+- **macOS**：Xcode、Command Line Tools、Homebrew、`libsodium`；当前 CI 生成 PKG。
+- **Linux**：`build-essential`、`cmake`、`libgtk-3-dev`、`libsodium-dev`、`pkg-config`、`patchelf`、CPack 及 RPM/DEB 打包工具。
 - **Windows**：Visual Studio 2019/2022、PowerShell、CMake；如果要打 `.msi`，还需要 WiX Toolset v3。CI 使用 `vcpkg` 安装 `libsodium`。
 - **Android**：Android SDK、Android NDK、Java 17。
 - **iOS**：Xcode、CocoaPods；如果要产出正式可分发 IPA，还需要证书和 provisioning profile。
@@ -127,11 +127,11 @@ bash tool/ci/package_artifacts.sh --target ios --mode release
 
 | 平台 | 主要产物 | 说明 |
 | --- | --- | --- |
-| **Windows** | `dist/windows/toxee-windows-x64-release.msi`、`dist/windows/toxee-windows-x64-release.zip` | `.msi` 依赖 CPack + WiX。 |
-| **macOS** | `dist/macos/toxee-macos-release.dmg`、`dist/macos/toxee-macos-release.zip` | `.dmg` 依赖 `create-dmg`。 |
-| **Linux** | `dist/linux/toxee-linux-x64-release.AppImage`、`dist/linux/toxee-linux-x64-release.tar.gz` | `.AppImage` 依赖 `appimagetool`。 |
-| **Android** | `dist/android/app-release.apk`、`dist/android/app-release.aab` | `NOTES.txt` 会记录 JNI 原生库是否已注入。 |
-| **iOS** | `dist/ios/toxee-ios-release.ipa` | 可能是 signed IPA，也可能只是 unsigned validation IPA。 |
+| **Windows** | `dist/windows/toxee-<version>-Windows-<AMD64|ARM64>.msi` | CPack + WiX |
+| **macOS** | `dist/macos/toxee-<version>-Darwin-<x86_64|arm64>.pkg` | pkgbuild |
+| **Linux** | `dist/linux/toxee-<version>-Linux-<x86_64|aarch64>.deb`, `.rpm` | CPack DEB/RPM |
+| **Android** | `dist/android/toxee-<version>-Android-arm64.apk`, `.aab` | Development or explicit strict distribution preflight |
+| **iOS** | `dist/ios/toxee-ios-release.ipa` | Development/device validation, not App Store export |
 
 桌面端打包还会尽量把 Tim2Tox FFI 和 `libsodium` 一起带进安装包，并把结果写进 `dist/<platform>/NOTES.txt`。
 
@@ -162,27 +162,15 @@ bash tool/ci/package_artifacts.sh --target ios --mode release
 
 当前桌面端 Release 资产类型为：
 
-- **Windows**：`.msi` + `.zip`
-- **macOS**：`.dmg` + `.zip`
-- **Linux**：`.AppImage` + `.tar.gz`
+- **Windows**：`.msi`
+- **macOS**：`.pkg`
+- **Linux**：`.deb` + `.rpm`
 
 ## 签名与原生库门禁
 
-### Android
+签名输入、最终制品门禁、官方政策、渠道选择和剩余负责人/真机证据统一见[商店上架准备](STORE_READINESS.zh-CN.md)。Android secrets 对开发构建可选；`android_distribution=true` 要求全部四项 secrets 和预期上传证书 SHA-256。本地 strict 入口在复制制品前执行相同门禁；普通 debug-key release 属于开发验证。
 
-- Android release 签名是可选的。如果提供了 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`，CI 会自动使用这些 secrets。
-- 如果 Tim2Tox 的 JNI 集合（`libtim2tox_ffi.so`）**没有**被 staged，CI 仍会在 workflow artifact 中保留 APK/AAB，但 GitHub Release 发布步骤会跳过这些资产。原因会写入 `dist/android/NOTES.txt`，并最终汇总到 `BUILD-NOTES.txt`。
-
-### iOS
-
-- 正式可分发 IPA 需要 `IOS_CERTIFICATE_P12_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`。
-- 如果没有这些 secrets，CI 仍会执行 unsigned validation build，并在 workflow artifact 中保留一个 unsigned IPA。
-- unsigned validation IPA **不会**进入 GitHub Releases；发布步骤会跳过它，同时把原因写入 `BUILD-NOTES.txt`。
-
-### 桌面端
-
-- 目前最稳定、默认可发布到 GitHub Releases 的资产仍然是桌面端安装包。
-- 打包脚本会尝试把 Tim2Tox FFI 和 `libsodium` 一起带进桌面端产物，并把准确结果写进各平台 `NOTES.txt`。
+未签名 iOS IPA 仅保留为 workflow 验证制品，不进入 GitHub Release。已有带签名的设备构建不等于 App Store archive/export；在合格 export 流程实现前，strict 分发意图会被该打包入口拒绝。CI 检查最终 built Apple 声明和原生 payload。桌面开发包可以未签名，正式分发及商店提交仍需各渠道的信任/验收证据。
 
 ## 桌面端 runner 原生库装载（开发构建）
 
