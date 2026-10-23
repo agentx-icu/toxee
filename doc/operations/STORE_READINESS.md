@@ -175,14 +175,23 @@ pinned source. Fifteen export-policy/failure/bundle-boundary regressions, five A
 regressions and eleven native-payload regressions pass. No owner-signed export,
 store upload or device installation was performed.
 
+The former advisory analyzer returned exit 1 for 62 warnings and 189 infos even
+while GitHub displayed success. Its 251 normalized findings exactly matched
+merged #140; none originated in the native changes. Source fixes now address
+async error ownership, lifecycle/context guards and the remaining diagnostics,
+with existing dependency versions retained. The same full-scope strict command
+`flutter analyze lib tool test integration_test` is a failing CI gate, with no
+continue-on-error, ignored rules or reduced scope. Local zero-diagnostic output
+does not replace final-head CI, behavioral regressions or physical-device tests.
+
 | Checklist IDs | Status | Evidence and remaining qualification |
 | --- | --- | --- |
 | P1, P4 | verified (inspection gates); to do (owner audit) | Built Apple metadata/native inspection runs on archive and export; SDK/API reasons, data disclosures and selected console answers still require owner review. |
 | W4, X6 | verified (unsigned archive and policy gates); to do (distribution) | Real unsigned Xcode archive above; negative tests reject upload, automatic signing, wrong team/profile/certificate, expiry, development/device/enterprise identity and stale output. Real manual signed export/install remains untested. |
 | X9 | to do | Archive/dSYMs retained for seven days; native reporter coverage, symbol match and controlled release crash symbolication are not established by archiving alone. |
 | X4 | needs device | Owner signs/exports, installs and upgrades on iPhone/iPad, then exercises permissions, network/media and preserved user data. |
-| X5 | verified (scope) | iOS archive/export, Windows CRT and Linux DEB gates are platform-specific packaging changes. Android keeps its existing final-artifact gate; shared runtime/UI behavior is unchanged. |
-| L*, D*, I*, B*, M*, F* | not applicable to this change | No layout, input, lifecycle, media or performance behavior changes; existing full-audit limitations remain. Mobile checklist item 12 gains archive evidence, not formal release qualification. |
+| X5 | verified (change scope); parity qualification retained | Platform packaging gates and analyzer-required async/lifecycle corrections are covered by their regressions and final native CI. Android retains its final-artifact gate; this does not establish general feature parity. |
+| L*, D*, I*, B*, M*, F* | existing audit states retained | Async/lifecycle safety corrections do not establish layout, input, media, performance or device qualification. Existing full-audit limitations remain; mobile checklist item 12 gains archive evidence, not formal release qualification. |
 
 ### Materials the release owner must supply
 

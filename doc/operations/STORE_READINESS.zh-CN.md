@@ -131,14 +131,20 @@ iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archi
 CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 15 项、Apple metadata 回归 5 项、native payload
 回归 11 项通过。没有执行负责人正式签名导出、商店上传或真机安装。
 
+原 advisory analyzer 实际以 exit 1 结束，含 62 warnings、189 infos，却被 GitHub 显示为成功。
+251 条 normalized 诊断与已合并 #140 完全相同，无原生变更新增项。源代码修正 async 错误归属、
+生命周期/context 守卫及其余诊断，依赖保留既有版本。同范围严格命令
+`flutter analyze lib tool test integration_test` 现为 CI 硬门禁，移除 continue-on-error，
+没有忽略规则或缩减范围。本地零诊断不能替代最终 head CI、行为回归和真机测试。
+
 | Checklist ID | 状态 | 证据和仍需验收 |
 | --- | --- | --- |
 | P1、P4 | 检查门禁 verified；负责人审计 to do | archive/导出包检查 built Apple metadata/原生库；SDK/API reason、数据声明和后台答案仍由负责人复核。 |
 | W4、X6 | unsigned archive/策略门禁 verified；正式分发 to do | 上述真实 unsigned archive；负例拒绝上传、自动签名、错误团队/profile/证书、到期、开发/设备/企业身份和旧输出复用。真实手工签名导出/安装尚未验证。 |
 | X9 | to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
 | X4 | needs device | 负责人签名导出后在 iPhone/iPad 安装/升级，验证权限、网络/媒体和用户数据保留。 |
-| X5 | verified（范围） | iOS archive/export、Windows CRT、Linux DEB gate 为平台打包变更；Android 保持既有终包门禁，共享 runtime/UI 未变。 |
-| L*、D*、I*、B*、M*、F* | 对本次变更 not applicable | 未改布局、输入、生命周期、媒体或性能行为；原完整审计限制保留。移动端第 12 项新增 archive 证据，不等于正式分发验收。 |
+| X5 | verified（变更范围）；平台差异验收保留 | 平台打包门禁和 analyzer 要求的 async/生命周期修正由回归及最终 native CI 验证。Android 保留既有终包门禁，不据此宣称通用功能等价。 |
+| L*、D*、I*、B*、M*、F* | 保留既有审计状态 | async/生命周期安全修正不等于布局、输入、媒体、性能或真机验收。原完整审计限制保留；移动端第 12 项新增 archive 证据，不等于正式分发验收。 |
 
 ### 需要负责人提供的材料
 
@@ -184,7 +190,7 @@ CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 15 �
 已有屏蔽功能不等于完整审核/处置机制；不要虚构举报接口、法律主体、政策 URL 或审核账号。
 P8 的计费、广告和第三方主登录规则对当前功能集**不适用**（未提供这些功能）；新增功能或地区时重评。
 
-移动端审查 1–11 沿用现有行为及真机限制；第 12 项同时检查 Android/iOS 制品路径。
+移动端审查 1–11 保留既有验收状态及真机限制；第 12 项同时检查 Android/iOS 制品路径。
 见 [MOBILE_DEVICE_FEATURES.zh-CN.md](../reference/MOBILE_DEVICE_FEATURES.zh-CN.md) 的本次记录。
 未受影响的 checklist ID 保留此前状态，不因本次变为全部已验证。
 
