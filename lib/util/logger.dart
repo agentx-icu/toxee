@@ -4,12 +4,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'app_paths.dart';
+import 'diagnostic_record.dart';
+import 'logger_retention.dart';
 
 /// Log levels for unified format (matches C++ V2TIMLog).
 enum LogLevel { debug, info, warn, error, fatal }
 
 class AppLogger {
   static int _sequence = 0;
+  static bool _production = !kDebugMode;
+  static const _maxEarlyRecords = 32;
+  static final _earlyRecords = <DiagnosticRecord>[];
+  static int _droppedEarlyRecords = 0;
   static final int _pid = _getPid();
   static bool _enableFileLogging = true;
   static bool _enableConsoleLogging = false;
@@ -85,7 +91,10 @@ class AppLogger {
   }
 
   @visibleForTesting
-  static void resetForTesting() {
+  static void resetForTesting({bool production = false}) {
+    _production = !kDebugMode || production;
+    _earlyRecords.clear();
+    _droppedEarlyRecords = 0;
     _sequence = 0;
     _enableFileLogging = true;
     _enableConsoleLogging = false;
@@ -102,7 +111,7 @@ class AppLogger {
     try {
       await _initialize();
     } catch (e) {
-      stderr.writeln('Warning: Failed to initialize file logging: $e');
+      _internalFailure(e);
       _enableFileLogging = false;
     }
   }
@@ -117,10 +126,19 @@ class AppLogger {
           await logDir.create(recursive: true);
         }
         _logFile = logFile;
-        stderr.writeln('AppLogger: Log file initialized at: ${logFile.path}');
-        stderr.writeln(
-          'AppLogger: Log directory exists: ${await logDir.exists()}',
-        );
+        // LoggingBootstrap supplies the canonical timestamped path explicitly.
+        // It must receive the same rotation policy as the implicit default.
+        final timestamp = RegExp(
+          r'^app_([0-9]+)\.log$',
+        ).firstMatch(logFile.uri.pathSegments.last)?.group(1);
+        if (timestamp != null) {
+          _sessionTimestamp = DateTime.fromMillisecondsSinceEpoch(
+            int.parse(timestamp),
+          );
+        }
+        if (!_production) {
+          stderr.writeln('AppLogger: Log file initialized at: ${logFile.path}');
+        }
       } else {
         final logDir = await AppPaths.logsDir;
         if (!await logDir.exists()) {
@@ -152,6 +170,18 @@ class AppLogger {
       await _pruneOldLogFiles();
     }
     _initialized = true;
+    final early = List<DiagnosticRecord>.of(_earlyRecords);
+    _earlyRecords.clear();
+    for (final record in early) {
+      _writeDiagnostic(record);
+    }
+    if (_droppedEarlyRecords != 0) {
+      _emitTrusted(
+        LogLevel.warn,
+        'origin=logger early_records_dropped=$_droppedEarlyRecords',
+      );
+      _droppedEarlyRecords = 0;
+    }
   }
 
   static Future<int> _verifySinkWrite(
@@ -183,69 +213,13 @@ class AppLogger {
     return 0;
   }
 
-  /// P11: Delete the oldest `app_*.log` files in the same directory as the
-  /// current log, keeping only the most recent [_maxLogFiles] entries by
-  /// modification time. Never deletes the currently open log file.
   static Future<void> _pruneOldLogFiles() async {
     final current = _logFile;
     if (current == null) return;
     try {
-      final dir = current.parent;
-      if (!await dir.exists()) return;
-
-      final logFiles = <File>[];
-      await for (final entity in dir.list(followLinks: false)) {
-        if (entity is! File) continue;
-        final name = entity.uri.pathSegments.isNotEmpty
-            ? entity.uri.pathSegments.last
-            : entity.path.split(Platform.pathSeparator).last;
-        if (!name.startsWith('app_') || !name.endsWith('.log')) continue;
-        logFiles.add(entity);
-      }
-      if (logFiles.length <= _maxLogFiles) return;
-
-      // Sort by mtime descending (newest first). Files that fail to stat
-      // sort to the back so they're the first candidates for deletion.
-      final stats = <File, DateTime>{};
-      for (final f in logFiles) {
-        try {
-          stats[f] = (await f.stat()).modified;
-        } catch (_) {
-          stats[f] = DateTime.fromMillisecondsSinceEpoch(0);
-        }
-      }
-      logFiles.sort((a, b) => stats[b]!.compareTo(stats[a]!));
-
-      final currentPath = current.path;
-      var kept = 0;
-      for (final f in logFiles) {
-        // "Never delete the file we just opened" must hold even when the two
-        // paths differ textually (Windows mixed / and \ separators, symlinked
-        // dirs): a raw string compare silently drops the guard there. Use the
-        // OS-level same-file check, with the string compare as fallback for
-        // paths that cannot be stat'd.
-        bool isCurrent;
-        try {
-          isCurrent = FileSystemEntity.identicalSync(f.path, currentPath);
-        } catch (_) {
-          isCurrent = f.path == currentPath;
-        }
-        if (isCurrent) {
-          kept++;
-          continue;
-        }
-        if (kept < _maxLogFiles) {
-          kept++;
-          continue;
-        }
-        try {
-          await f.delete();
-        } catch (_) {
-          // Ignore — file may be locked or already gone.
-        }
-      }
+      LoggerRetention.prune(current, maximumFiles: _maxLogFiles);
     } catch (e) {
-      stderr.writeln('AppLogger: log pruning failed: $e');
+      _internalFailure(e);
     }
   }
 
@@ -262,18 +236,15 @@ class AppLogger {
       _rotationIndex++;
       final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
       final next = File('${dir.path}/app_${timestamp}_$_rotationIndex.log');
+      next.writeAsStringSync(
+        '=== App Log Rotated (segment $_rotationIndex) ===\n',
+        mode: FileMode.append,
+      );
       _logFile = next;
-      _currentLogBytes = 0;
-      try {
-        next.writeAsStringSync(
-          '=== App Log Rotated (segment $_rotationIndex) ===\n',
-          mode: FileMode.append,
-        );
-      } catch (_) {
-        // Ignore; the next _writeToFile will surface the error path.
-      }
+      _currentLogBytes = next.lengthSync();
+      LoggerRetention.prune(next, maximumFiles: _maxLogFiles);
     } catch (e) {
-      stderr.writeln('AppLogger: log rotation failed: $e');
+      _internalFailure(e);
     }
   }
 
@@ -303,22 +274,63 @@ class AppLogger {
     try {
       final bytes = '$line\n';
       _logFile!.writeAsStringSync(bytes, mode: FileMode.append);
-      _currentLogBytes += bytes.length;
+      _currentLogBytes = _logFile!.lengthSync();
       _rotateIfNeeded();
       _hasLoggedError = false;
     } catch (e, stackTrace) {
       if (!_hasLoggedError) {
         _hasLoggedError = true;
-        stderr.writeln('AppLogger: Failed to write to log file: $e');
-        stderr.writeln('AppLogger: Log file path: ${_logFile?.path}');
-        for (final line in stackTrace.toString().split('\n')) {
-          if (line.trim().isNotEmpty) stderr.writeln('AppLogger:   $line');
+        _internalFailure(e);
+        if (!_production) {
+          stderr.writeln(stackTrace);
         }
       }
     }
   }
 
+  static void _internalFailure(Object error) {
+    // Never call the logger from its own failed sink; this cannot recurse.
+    stderr.writeln(
+      DiagnosticRecord.capture(DiagnosticOrigin.logger, error, null).body,
+    );
+  }
+
+  /// Captures only bounded safe metadata even before the file sink is ready.
+  static void recordError(
+    DiagnosticOrigin origin,
+    Object? error,
+    StackTrace? stack,
+  ) {
+    final record = DiagnosticRecord.capture(origin, error, stack);
+    if (!_initialized) {
+      if (_earlyRecords.length < _maxEarlyRecords) {
+        _earlyRecords.add(record);
+      } else {
+        _droppedEarlyRecords++;
+      }
+      return;
+    }
+    _writeDiagnostic(record);
+  }
+
+  static void _writeDiagnostic(DiagnosticRecord record) {
+    _emitTrusted(LogLevel.error, record.body);
+    for (final frame in record.frames) {
+      _emitTrusted(LogLevel.error, frame);
+    }
+  }
+
   static void _emit(LogLevel level, String body) {
+    if (_production) {
+      if (level.index >= LogLevel.warn.index) {
+        _emitTrusted(level, 'origin=application body=omitted');
+      }
+      return;
+    }
+    _emitTrusted(level, body);
+  }
+
+  static void _emitTrusted(LogLevel level, String body) {
     final formatted = _formatLine(level, body);
     if (_enableConsoleLogging) {
       // Terminal sink: main's print router must not consume our output again.
@@ -356,6 +368,10 @@ class AppLogger {
     Object? error,
     StackTrace? stackTrace,
   ]) {
+    if (_production) {
+      recordError(DiagnosticOrigin.application, error, stackTrace);
+      return;
+    }
     _emit(LogLevel.error, message);
     if (error != null) {
       _emit(LogLevel.error, 'Error: $error');
@@ -366,8 +382,12 @@ class AppLogger {
       }
     }
     if (_enableConsoleLogging && (error != null || stackTrace != null)) {
-      if (error != null) { Zone.root.print('Error: $error'); }
-      if (stackTrace != null) { Zone.root.print(stackTrace.toString()); }
+      if (error != null) {
+        Zone.root.print('Error: $error');
+      }
+      if (stackTrace != null) {
+        Zone.root.print(stackTrace.toString());
+      }
     }
   }
 

@@ -168,6 +168,9 @@ jobs:
       - name: Test real Linux profile path environments
         run: python3 tool/ci/test_linux_profile_paths.py
 
+      - name: Test production diagnostic sinks and stripped AOT symbolication
+        run: python3 tool/ci/test_production_diagnostics.py
+
       - name: Summarize lcov coverage
         if: ${{ always() }}
         continue-on-error: true

@@ -1,3 +1,4 @@
+import 'diagnostic_record.dart';
 import 'logger.dart';
 
 final class SafeDiagnostics {
@@ -8,6 +9,7 @@ final class SafeDiagnostics {
   }
 
   static void logFailure(String context, Object error) {
+    AppLogger.recordError(DiagnosticOrigin.application, error, null);
     AppLogger.error('$context ${describeError(error)}');
   }
 }

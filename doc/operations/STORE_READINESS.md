@@ -10,6 +10,14 @@ This supplements the [65-item audit](../reference/CROSS_PLATFORM_AUDIT_2026_10_2
 An inventory or successful CI run establishes the checks described below;
 store readiness still requires the owner's declarations and device evidence.
 
+## Local production diagnostics (X9, partial)
+
+Framework/dispatcher hooks are installed before session ownership and bootstrap; the guarded zone also captures binding failures. Production Dart logs accept closed origins, exception runtime types and bounded VM-generated package/dart locations or AOT build IDs/addresses. Arbitrary messages, exception values, framework context/collectors and SDK print bodies are omitted, including console and logger-failure paths. Debug binding buffers, presentation and harness bodies remain available. Up to 32 early records (24 allowed stack lines each) are flushed when the sink opens; failure fallback cannot re-enter the logger.
+
+The existing Dart retention limits remain ten app log files and 10 MB segments. Canonical explicit app_<timestamp>.log paths now receive the same rotation as the implicit default; arbitrary custom fixture names retain their documented append behavior. `test/util/production_diagnostics_test.dart` exercises the boundary and retention. `python3 tool/ci/test_production_diagnostics.py` inspects actual child-process stdout/stderr with a marker secret and symbolizes a real stripped Dart AOT trace from its exact symbols. These shared-code checks are not an installed release crash test on every OS.
+
+**Still engineering work:** Tim2Tox's V2TIMLog has its own mutex-protected std::ofstream and only a set-log-file FFI export; its SDK OnLog listener is not the V2TIMLog writer. Dart renaming/reopening cannot rotate that retained native descriptor, and periodic file stats cannot bound concurrent native writes. Native sink ownership/bounded retention, spawned-worker forwarding, native crash capture, complete exact-build symbol archives and installed release fault/symbolication tests remain open. They do not inherently require a remote service. No upload or new telemetry service is added.
+
 ## Linux profile storage (W3)
 
 A relative XDG_DATA_HOME is ignored, as required by the XDG base-directory contract. The existing HOME/.local/share fallback (or platform Application Support without HOME), explicit absolute overrides, user-selected roots and one-time legacy migration are preserved. `python3 tool/ci/test_linux_profile_paths.py` runs four real native-Linux child-process environments, checks existing account bytes and idempotence, and rejects any migration into the working directory. These cases are a separate hard CI step; local macOS path tests alone do not qualify Linux behavior.
