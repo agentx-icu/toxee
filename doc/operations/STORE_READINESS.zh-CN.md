@@ -8,6 +8,10 @@
 这是[此前 65 项审计](../reference/CROSS_PLATFORM_AUDIT_2026_10_22.zh-CN.md)的专项补充。
 CI 和制品检查只能证明下表列出的内容；上架还需要负责人声明与真机证据。
 
+## macOS 既有 Preferences 动作（I2）
+
+MainMenu.xib 原本有 Preferences… 项却未连接 action；Flutter 既有 Cmd+, 已能打开设置页。本次 native 项通过 toxee/desktop_menu 调用同一个动作，仅在账户初始化完成且 Home 为当前 route 时启用，被覆盖或 dispose 时禁用；附带 route-owner token，排队的旧命令不能跨账户切换。四条真实 widget/channel 生命周期回归及原八条快捷键回归通过，真实 macOS debug app 已编译 Swift 和接线 XIB。这不代表 iPadOS 26 native 命令或 installed release 的无障碍/菜单巡检完成，后者分别保留。
+
 ## 本地生产诊断（X9，部分完成）
 
 Framework/dispatcher 钩子现早于 session ownership 和 bootstrap 安装；外层 guarded zone 也覆盖 binding 初始化失败。生产 Dart 日志仅接收固定 origin、异常 runtime type、受限的真实 VM package/dart 位置或 AOT build ID/地址；任意正文、异常原值、framework context/collector、SDK print 正文均丢弃，console 和 logger 自身失败出口也遵守此边界。Debug binding 错误缓冲、呈现和 harness 正文保留。早期最多缓冲 32 条记录，每条最多 24 行允许的栈；sink 可用后写入，失败回退不重入 logger。

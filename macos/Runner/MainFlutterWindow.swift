@@ -7,6 +7,8 @@ class MainFlutterWindow: NSWindow {
   private let networkPath = ToxeeNetworkPathChannel()
   private var downloadDirectoryAccess: DownloadDirectoryAccess?
   private var mediaTranscoder: ToxeeMediaTranscoder?
+  private var settingsMenuChannel: FlutterMethodChannel?
+  private var settingsMenuOwner: Int?
 
   override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
     super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
@@ -29,6 +31,25 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    let menuChannel = FlutterMethodChannel(
+      name: "toxee/desktop_menu", binaryMessenger: flutterViewController.engine.binaryMessenger)
+    settingsMenuChannel = menuChannel
+    menuChannel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "setSettingsOwner" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      if call.arguments == nil {
+        self?.settingsMenuOwner = nil
+      } else if let owner = call.arguments as? Int, owner > 0 {
+        self?.settingsMenuOwner = owner
+      } else {
+        result(FlutterError(code: "INVALID_OWNER", message: "Expected a positive owner token", details: nil))
+        return
+      }
+      result(nil)
+    }
+
     networkPath.register(binaryMessenger: flutterViewController.engine.binaryMessenger)
     downloadDirectoryAccess = DownloadDirectoryAccess(messenger: flutterViewController.engine.binaryMessenger)
     mediaTranscoder = ToxeeMediaTranscoder(
@@ -36,6 +57,19 @@ class MainFlutterWindow: NSWindow {
         name: "toxee/media_transcode", binaryMessenger: flutterViewController.engine.binaryMessenger))
     
     super.awakeFromNib()
+  }
+
+  @IBAction func openPreferences(_ sender: Any?) {
+    guard let owner = settingsMenuOwner, NSApp.modalWindow == nil else { return }
+    makeKeyAndOrderFront(sender)
+    settingsMenuChannel?.invokeMethod("openSettings", arguments: owner)
+  }
+
+  override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+    if menuItem.action == #selector(openPreferences(_:)) {
+      return settingsMenuOwner != nil && NSApp.modalWindow == nil
+    }
+    return super.validateMenuItem(menuItem)
   }
 }
 

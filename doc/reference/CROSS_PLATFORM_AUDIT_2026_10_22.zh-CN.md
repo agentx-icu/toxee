@@ -129,3 +129,29 @@ kernel通过不代表Windows原生/MSI或物理IME设备验证完成。
 
 
 2026-10-23 商店专项补充：[准备状态、已补门禁和负责人缺项](../operations/STORE_READINESS.zh-CN.md)。未受影响的 ID 保留本文原状态。
+
+
+## 2026-10-23 后续工程归因
+
+合并 #141（`2a0934495682ff36f0b833893860ce0daf1583ec`）已实际通过 Windows
+AMD64/ARM64 安装 MSI 生命周期、Ubuntu24.04 x64/ARM64 干净容器 DEB 安装/同 PID
+窗口与 engine/FFI maps/exit0/卸载，以及 Xcode26 unsigned archive。不能再沿用旧表
+“门禁已写但未执行”的状态；正式 owner 签名、RPM/Wayland、旧版升级和真机仍分开。
+本轮后续 PR 同样必须检查自己的最终 head。完整 65 项仍以英文表逐组记录的限定范围为准。
+
+| ID | 分类、源码证据与最小后续动作 |
+| --- | --- |
+| W3 | 本轮代码修复：AppPaths 原接受相对 XDG_DATA_HOME，legacy rename 可进入 CWD。忽略相对值、保留 HOME/platform、自选路径及旧账户；四组真实 Linux 子进程检验迁移/字节/幂等。Windows APPDATA roaming 是另一存储策略。 |
+| X9 | 本轮部分代码修复：main 钩子原晚于 bootstrap，通用 logger 原写任意正文/异常值；生产边界、早期有界缓冲和 canonical 10×10MB Dart 留存已覆盖。真实进程 marker 与 stripped AOT 精确符号回归不等于每 OS installed release crash。Tim2Tox 独立 ofstream/仅 set_log_file 导出，Dart rename 后旧 fd 仍写，SDK OnLog 不是该 writer；原生统一 ownership/有界留存、worker 转发、native reporter、完整符号归档仍是代码工程，不必然要远端服务。 |
+| I2 | macOS 本轮修复原死 Preferences action，复用已可用 Cmd+, 的设置动作，并限制 ready/current route/owner。iPadOS26 当前场景的 core UICommand 菜单仍是独立代码工程；编译与真机菜单资格分开。 |
+| D7 | 确认代码项：fork message-item 的六次 300ms Timer 不读 disableAnimations。采用自有 builder 或 tracked、核源码后 fail-closed 的 bootstrap overlay，静态反馈、运行时取消 timer，并测真实 widget/fresh checkout；不能只改 ignored third_party 或以 upstream 为阻塞。 |
+| I3 | 确认 right-control paste/keyup 门禁代码项：desktop _handleKeyEvent 仅 controlLeft 且早于 RawKeyDown 检查。normal Enter 的 _submitDesktopSend 已读当前 controller 并用 draftCoordinator，旧 typing race 不能再称已复现；modified-Enter/selection 先补实际键盘用例。 |
+| W2,B4 | 原生工程：Windows app/plugin 和精确 Flutter42d3d75 engine 仅 WM_CLOSE→request quit，没有 WM_QUERYENDSESSION/WM_ENDSESSION；Linux shutdown 无保存桥，也无 SIGTERM/session-manager 路由。复用现有 prepareToExit/checkpoint、按 OS deadline/idempotence 接入，再验真实 session end；已修正常关窗不重做，SIGKILL/断电无最终回调保证。 |
+| X8,B4 | 原生工程：NetworkChangeReBootstrapper 明确排除 Win/Linux，现有 resume 和 3s debounce/30s throttle 保留。IP Helper/power、GNetworkMonitor/sleep 事件可接既有策略，无新服务/权限；代码/原生测试后才做真实断网、切网、睡眠矩阵。 |
+| F3 | 工程：Home 2s UI status poll 没有 hidden/paused 分支，contact poll 已有。仅暂停 UI 读取、resume 刷新/合并并发，不停 P2P/call；能耗/热预算还需目标设备与测量标准。 |
+| L8 | 基本 hinge avoidance 是工程：现只有宽度模拟，没有 DisplayFeature/遮挡 hinge；可先做合成 hinge/draft continuity。Tabletop/双 pane 分配另需产品布局和折叠设备，不能把整个代码项说成 needs-device。 |
+| P7 | 真正产品决定：MOBILE_DEVICE_FEATURES 权限表 P4 明说 screenshot/recording 为产品决定，未见已批准敏感页面策略或平台实现。先明确保护面和 snapshot/录屏响应，再做分平台实现/实测，不能擅自全屏禁截或承诺万能阻止。 |
+| W3,W4,I8,I9,M6 | Roaming AppData 迁移/共享 external profile ownership 需数据迁移设计与实现；verified scheme/domain、incoming share content、Windows taskbar badge 属渠道/产品范围，不能凭 checklist 新造可选能力。既有 WinRT/出站 share/clipboard 仍须宿主验收。 |
+| P1–P6,P9,W4,X6 | 负责人材料/运营及设备：正式签名、隐私/API reason、文案素材、UGC 真实运营、旧版升级数据保留。按 Store readiness 的平台/用途/控制台/公开 ID 与安全环境表交接，不收密钥或账号。 |
+| 其余 L/D/I/B/M/F/X | 保留原有部分证据的日期、测试范围与缺测组合；未复现不等于确定代码 defect。大字/RTL/DPI/readers/硬件/权限/16KB/升级/release 性能需真实矩阵，客观预算还需目标；上列已确认源码缺项不能归入设备阻塞。 |
+| P8,B8,M8 | 当前不适用：未提供购买、Tox server-version reconciliation、screen/system-audio capture；产品新增时重开。 |

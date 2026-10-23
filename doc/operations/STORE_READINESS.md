@@ -10,6 +10,10 @@ This supplements the [65-item audit](../reference/CROSS_PLATFORM_AUDIT_2026_10_2
 An inventory or successful CI run establishes the checks described below;
 store readiness still requires the owner's declarations and device evidence.
 
+## Existing macOS Preferences action (I2)
+
+The shipped MainMenu.xib had a Preferences… item without an action; the existing Flutter Cmd+, shortcut already opened the settings tab. The native item now invokes that same action through toxee/desktop_menu. It is enabled only for an initialized account's current Home route, disabled while covered/disposed, and carries a route-owner token so a queued command cannot cross account replacement. Four real widget/channel lifecycle cases plus the eight existing shortcut cases pass. A real macOS debug app build compiles Swift and the connected XIB. This is not evidence of iPadOS 26 native command coverage or an installed release accessibility/menu sweep; those remain separate work.
+
 ## Local production diagnostics (X9, partial)
 
 Framework/dispatcher hooks are installed before session ownership and bootstrap; the guarded zone also captures binding failures. Production Dart logs accept closed origins, exception runtime types and bounded VM-generated package/dart locations or AOT build IDs/addresses. Arbitrary messages, exception values, framework context/collectors and SDK print bodies are omitted, including console and logger-failure paths. Debug binding buffers, presentation and harness bodies remain available. Up to 32 early records (24 allowed stack lines each) are flushed when the sink opens; failure fallback cannot re-enter the logger.
