@@ -99,6 +99,62 @@ class IosStoreExportTests(unittest.TestCase):
             self.assertNotIn("-allowProvisioningUpdates", command)
             self.assertNotIn("-allowProvisioningDeviceRegistration", command)
 
+    def test_store_sdk_accepts_current_and_future_toolchains_independently(self):
+        for xcode, sdk in (("2600", "iphoneos26.0"), ("2641", "iphoneos26.4"),
+                           ("2700", "iphoneos27.0.1"), ("2700", "iphoneos26.4")):
+            with self.subTest(xcode=xcode, sdk=sdk):
+                self.assertEqual(store.require_store_sdk({"DTXcode": xcode, "DTSDKName": sdk}),
+                                 {"DTXcode": xcode, "DTSDKName": sdk})
+
+    def test_store_sdk_rejects_old_missing_malformed_and_simulator_metadata(self):
+        cases = [{}, {"DTXcode": "2641"}, {"DTSDKName": "iphoneos26.4"},
+                 {"DTXcode": "1640", "DTSDKName": "iphoneos18.5"},
+                 {"DTXcode": "2641", "DTSDKName": "iphoneos18.5"},
+                 {"DTXcode": "1640", "DTSDKName": "iphoneos26.4"}]
+        for xcode in (2641, "26.4.1", "264", "26410", "x2641", "2641\n", None):
+            cases.append({"DTXcode": xcode, "DTSDKName": "iphoneos26.4"})
+        for sdk in (26, "iphonesimulator26.4", "iphoneos26", "iphoneos26.4beta",
+                    "iphoneos026.4", "iphoneos26.4\n", None):
+            cases.append({"DTXcode": "2641", "DTSDKName": sdk})
+        for info in cases:
+            with self.subTest(info=info), self.assertRaisesRegex(ValueError, "Xcode 26"):
+                store.require_store_sdk(info)
+
+    def app_fixture(self, sdk="iphoneos26.4", xcode="2641", root=None):
+        app = (root or self.root) / "Runner.xcarchive/Products/Applications/Runner.app"
+        app.mkdir(parents=True, exist_ok=True)
+        (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "Runner",
+                                                        "DTSDKName": sdk, "DTXcode": xcode}))
+        (app / "Runner").write_bytes(bytes.fromhex("cffaedfe"))
+        (app / "Runner").chmod(0o755)
+        framework = app / "Frameworks/tim2tox_ffi.framework"
+        framework.mkdir(parents=True, exist_ok=True)
+        (framework / "tim2tox_ffi").write_bytes(b"fixture, not a native framework")
+        return app
+
+    def test_archive_and_export_app_inspection_rejects_old_sdk_before_external_tools(self):
+        app = self.app_fixture(sdk="iphoneos18.5", xcode="1640")
+        with patch.object(store, "run") as runner:
+            with self.assertRaisesRegex(ValueError, "Xcode 26"):
+                store.inspect_app(self.root, app, self.root / "evidence")
+            runner.assert_not_called()
+        app = self.app_fixture()
+        with patch.object(store, "run") as runner:
+            store.inspect_app(self.root, app, self.root / "evidence")
+            self.assertEqual(runner.call_count, 3)
+
+    def test_old_archive_cannot_reach_export_command(self):
+        self.options_check()
+        output = self.root / "store-output"
+        def runner(command, **kwargs):
+            if "archive" in command:
+                self.app_fixture(sdk="iphoneos18.5", xcode="1640", root=output)
+        with patch.object(store, "run", side_effect=runner) as commands:
+            with self.assertRaisesRegex(ValueError, "Xcode 26"):
+                store.build(self.root, output, self.path, "ABCDE12345", self.fingerprint, False)
+            self.assertEqual(commands.call_count, 2)
+            self.assertFalse(any("-exportArchive" in call.args[0] for call in commands.call_args_list))
+
     def test_signing_authority_must_be_distribution_not_development(self):
         self.assertEqual(store.distribution_authority("Authority=Apple Distribution: Owner (ABCDE12345)\nAuthority=Apple Root CA"),
                          "Apple Distribution: Owner (ABCDE12345)")

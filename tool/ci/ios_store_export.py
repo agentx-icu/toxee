@@ -96,6 +96,19 @@ def commands(repo, output, options):
     return archive, export
 
 
+def require_store_sdk(info):
+    # Both the archived product and the exported app must record the current
+    # App Store toolchain floor; selecting a new Xcode alone is not evidence.
+    sdk = info.get("DTSDKName")
+    xcode = info.get("DTXcode")
+    sdk_version = re.fullmatch(r"iphoneos([1-9][0-9]*)\.([0-9]+)(?:\.([0-9]+))?", sdk or "") if isinstance(sdk, str) else None
+    if (not sdk_version or not isinstance(xcode, str)
+            or not re.fullmatch(r"[1-9][0-9]{3}", xcode)
+            or int(xcode) < 2600 or int(sdk_version[1]) < 26):
+        raise ValueError("Store archive/export requires built Xcode 26+ and iphoneos26+ SDK metadata")
+    return {"DTXcode": xcode, "DTSDKName": sdk}
+
+
 def inspect_app(repo, app, output):
     # Reuse the same final-native and declaration gates as package CI.
     info = plistlib.loads((app / "Info.plist").read_bytes())
@@ -108,6 +121,7 @@ def inspect_app(repo, app, output):
         raise ValueError("App executable must be an executable regular file inside the app")
     if list(app.rglob("*.appex")) or list(app.rglob("*.app")):
         raise ValueError("Additional signed targets need a reviewed profile policy")
+    require_store_sdk(info)
     run([sys.executable, str(repo / "tool/ci/native_payload.py"), str(app), "--format", "macho",
          "--arch", "arm64", "--entry", entry, "--report", str(output / "native-inventory.json")])
     run([sys.executable, str(repo / "tool/ci/apple_release_preflight.py"), "--app", str(app),

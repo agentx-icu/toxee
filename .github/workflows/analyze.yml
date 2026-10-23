@@ -159,6 +159,10 @@ jobs:
       # continue-on-error is removed. The coverage steps below use `if: always()`
       # so a future test failure still publishes the partial coverage report.
       - name: Flutter test with coverage
+        env:
+          # FFI is built/staged above: require encrypted-password cancellation
+          # to execute rather than silently taking the optional-native skip.
+          TOXEE_TESTS_NEED_NATIVE: '1'
         run: flutter test --coverage
 
       - name: Summarize lcov coverage

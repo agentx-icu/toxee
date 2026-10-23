@@ -177,12 +177,24 @@ Inspect `archive-evidence` and `export-evidence/distribution.json`; fixture poli
 tests do not establish real signing or App Store approval. Xcode's supported export
 keys were checked with local Xcode 26.4.1 `xcodebuild -help` on 2026-10-23.
 
+This store-preparation entry requires built `DTXcode` metadata for Xcode 26+
+and `DTSDKName=iphoneos26+` for both unsigned archives and exported applications.
+The two version floors are independent. Missing, malformed, simulator or old metadata
+fails before the export command or distribution evidence can succeed. CI uses
+`macos-26`, explicitly selects an installed Xcode 26+ through `DEVELOPER_DIR`,
+and checks its actual iPhoneOS SDK before building; it does not change the global
+Xcode selection or install a toolchain. An earlier hosted compatibility archive
+recorded Xcode 16.4 / iPhoneOS 18.5 and does not meet the current store floor.
+The ordinary development IPA path is separate. This minimum follows Apple's
+[submission requirements](https://developer.apple.com/news/upcoming-requirements/)
+reviewed on 2026-10-23; future submissions still need a fresh policy review.
+
 Local unsigned-archive verification on 2026-10-23 used Flutter 3.41.9, Xcode
 26.4.1 (17E202), iphoneos26.4 (23E252), app 0.1.0+1, minimum iOS 15.5. It
 passed the real Xcode archive command and inspected all 45 arm64 native images,
 built declarations/privacy manifests and the hook-free embedded Tim2Tox framework.
 That local run reused the existing device FFI binary; CI rebuilds it from the
-pinned source. Fifteen export-policy/failure/bundle-boundary regressions, five Apple metadata
+pinned source. Nineteen export-policy/failure/bundle-boundary regressions, five Apple metadata
 regressions and eleven native-payload regressions pass. No owner-signed export,
 store upload or device installation was performed.
 
@@ -194,6 +206,10 @@ with existing dependency versions retained. The same full-scope strict command
 `flutter analyze lib tool test integration_test` is a failing CI gate, with no
 continue-on-error, ignored rules or reduced scope. Local zero-diagnostic output
 does not replace final-head CI, behavioral regressions or physical-device tests.
+The coverage job sets `TOXEE_TESTS_NEED_NATIVE=1` after staging the real FFI,
+so encrypted-password cancellation must execute instead of taking the optional
+native-test skip. macOS-only signing cases remain platform-specific and are
+executed on macOS; Linux coverage does not establish those checks.
 
 | Checklist IDs | Status | Evidence and remaining qualification |
 | --- | --- | --- |

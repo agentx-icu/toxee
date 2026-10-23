@@ -598,16 +598,50 @@ jobs:
     # Cap the tail risk: without this these jobs inherited GitHub's 360-minute
     # default, so one hung run burned 360 x the runner multiplier.
     timeout-minutes: 75
-    # macos-14 is deprecated and ships Xcode 15.x — drifts vs. macOS desktop
-    # job which is on macos-15 / Xcode 16.x. Keep both Apple jobs on the same
-    # runner image so SDK paths and Swift ABI line up (F8).
-    runs-on: macos-15
+    # The App Store requires Xcode 26 and the iOS 26 SDK. Do not inherit the
+    # runner's default selection; verify both the selected and built metadata.
+    runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           submodules: recursive
+
+      - name: Select installed Xcode 26 and iOS SDK
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+
+          candidates = []
+          for app in Path('/Applications').glob('Xcode*.app'):
+              developer = app / 'Contents/Developer'
+              environment = dict(os.environ, DEVELOPER_DIR=str(developer))
+              version = subprocess.run(['/usr/bin/xcodebuild', '-version'], env=environment,
+                                       text=True, capture_output=True, check=False)
+              match = re.search(r'^Xcode ([0-9]+(?:\.[0-9]+){0,2})$', version.stdout, re.MULTILINE)
+              if version.returncode or not match:
+                  continue
+              components = tuple(map(int, match[1].split('.')))
+              if components[0] < 26:
+                  continue
+              sdk = subprocess.run(['/usr/bin/xcrun', '--sdk', 'iphoneos', '--show-sdk-version'],
+                                   env=environment, text=True, capture_output=True, check=False)
+              sdk_version = sdk.stdout.strip()
+              if (sdk.returncode or not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', sdk_version)
+                      or int(sdk_version.split('.')[0]) < 26):
+                  continue
+              candidates.append((components, str(developer), sdk_version))
+          if not candidates:
+              raise SystemExit('No installed Xcode 26+ with iphoneos26+ SDK; refusing old default')
+          version, developer, sdk = max(candidates)
+          print(f'Selected Xcode {version}, iphoneos SDK {sdk}: {developer}')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'DEVELOPER_DIR={developer}\n')
+          PY
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

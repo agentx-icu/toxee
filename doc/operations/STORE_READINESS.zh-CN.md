@@ -132,10 +132,18 @@ archive 根必须是实际目录；包括 dSYM 在内的所有链接必须使用
 `export-evidence/distribution.json`；fixture 策略测试不等于真实签名或 App Store 审核通过。
 导出键依据本机 Xcode 26.4.1 的 `xcodebuild -help`，核验日期 2026-10-23。
 
+此商店准备入口对 unsigned archive 和实际导出 app 均要求 built `DTXcode` 为 Xcode 26+，
+`DTSDKName` 为 `iphoneos26+`，两个最低版本要求独立核验。缺失、畸形、模拟器或旧版本元数据
+会在导出命令或分发证据成功前失败。CI 使用 `macos-26`，通过 `DEVELOPER_DIR` 显式选择
+已经安装的 Xcode 26+，构建前核验实际 iPhoneOS SDK；不改变全局 Xcode 选择或安装工具链。
+此前 hosted 兼容性 archive 实际为 Xcode 16.4 / iPhoneOS 18.5，不满足当前商店最低要求。
+普通开发 IPA 路径独立保留。此最低要求依据 2026-10-23 复核的
+[Apple 提交要求](https://developer.apple.com/news/upcoming-requirements/)，未来提交仍须重新复核政策。
+
 2026-10-23 本地真实 unsigned archive 验证：Flutter 3.41.9、Xcode 26.4.1（17E202）、
 iphoneos26.4（23E252）、应用 0.1.0+1、最低 iOS 15.5。真实 Xcode archive 成功，45 个 arm64
 原生文件、built 声明/隐私清单、嵌入 Tim2Tox 无 test-hook 检查通过。本地复用了已有真机 FFI，
-CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 15 项、Apple metadata 回归 5 项、native payload
+CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 19 项、Apple metadata 回归 5 项、native payload
 回归 11 项通过。没有执行负责人正式签名导出、商店上传或真机安装。
 
 原 advisory analyzer 实际以 exit 1 结束，含 62 warnings、189 infos，却被 GitHub 显示为成功。
@@ -143,6 +151,9 @@ CI 从锁定源码重建。导出策略/失败传播及 bundle 边界回归 15 �
 生命周期/context 守卫及其余诊断，依赖保留既有版本。同范围严格命令
 `flutter analyze lib tool test integration_test` 现为 CI 硬门禁，移除 continue-on-error，
 没有忽略规则或缩减范围。本地零诊断不能替代最终 head CI、行为回归和真机测试。
+coverage job 在暂存真实 FFI 后设置 `TOXEE_TESTS_NEED_NATIVE=1`，强制执行加密密码取消
+案例，不能走可选 native 测试的 skip。仅适用 macOS 的签名案例仍在 macOS 执行，
+Linux coverage 不代表这些平台检查通过。
 
 | Checklist ID | 状态 | 证据和仍需验收 |
 | --- | --- | --- |
