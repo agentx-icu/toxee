@@ -38,6 +38,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
+  // OnDestroy clears the client controller before destroying native child
+  // windows, whose callbacks can re-enter MessageHandler during teardown.
+  // Do this while FlutterWindow's dynamic type and COM are still available.
+  window.Destroy();
   ::CoUninitialize();
   return EXIT_SUCCESS;
 }

@@ -17,13 +17,18 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late bool maximized;
   late Rect bounds;
+  late List<String> nativeExitCalls;
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await Prefs.initialize(await SharedPreferences.getInstance());
     maximized = false;
     bounds = const Rect.fromLTWH(50, 60, 1000, 700);
+    nativeExitCalls = [];
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
+        case 'destroy':
+          nativeExitCalls.add('destroy');
+          return null;
         case 'isMaximized':
           return maximized;
         case 'isFullScreen':
@@ -39,9 +44,16 @@ void main() {
       }
       return null;
     });
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemNavigator.pop') {
+        nativeExitCalls.add('SystemNavigator.pop');
+      }
+      return null;
+    });
   });
   tearDown(() {
     messenger.setMockMethodCallHandler(channel, null);
+    messenger.setMockMethodCallHandler(SystemChannels.platform, null);
     AccountTeardownTestHooks.reset();
     SessionRuntimeCoordinator.debugReset();
     ActiveSession.reset();
@@ -79,6 +91,63 @@ void main() {
     expect(await tester.binding.handleRequestAppExit(), AppExitResponse.exit);
     expect(await Prefs.getWindowBounds(), bounds);
   });
+  testWidgets(
+    'Linux close awaits one checkpoint before framework exit',
+    (tester) async {
+      final checkpoint = Completer<bool>();
+      var attempts = 0;
+      final state = DesktopWindowState(
+        checkpointSession: () {
+          attempts++;
+          return checkpoint.future;
+        },
+      )..restoring = false;
+      addTearDown(state.dispose);
+      state.onWindowClose();
+      state.onWindowClose();
+      await tester.pump();
+      expect(attempts, 1);
+      expect(nativeExitCalls, isEmpty);
+      checkpoint.complete(true);
+      await tester.pump();
+      expect(nativeExitCalls, ['SystemNavigator.pop']);
+      expect(await Prefs.getWindowBounds(), bounds);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
+  );
+  testWidgets(
+    'Linux failed checkpoint leaves the app open and permits retry',
+    (tester) async {
+      var attempts = 0;
+      final state = DesktopWindowState(
+        checkpointSession: () async => ++attempts > 1,
+      )..restoring = false;
+      addTearDown(state.dispose);
+      state.onWindowClose();
+      await tester.pump();
+      expect(nativeExitCalls, isEmpty);
+      state.onWindowClose();
+      await tester.pump();
+      expect(attempts, 2);
+      expect(nativeExitCalls, ['SystemNavigator.pop']);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
+  );
+  testWidgets(
+    'other desktop platforms retain the window manager close path',
+    (tester) async {
+      final state = DesktopWindowState(checkpointSession: () async => true)
+        ..restoring = false;
+      addTearDown(state.dispose);
+      state.onWindowClose();
+      await tester.pump();
+      expect(nativeExitCalls, ['destroy']);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
   testWidgets('quit waits past ten seconds for the same account teardown', (
     tester,
   ) async {

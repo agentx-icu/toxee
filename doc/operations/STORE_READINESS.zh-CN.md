@@ -66,6 +66,9 @@ x64 的 `Microsoft Windows Software Compatibility Publisher`；均还须精确 M
 组织及 Windows Authenticode Valid。参考 x64 安装器 SHA-256 为
 `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`。
 离线提取证书本身不证明签名可信。
+安装后关窗必须 exit 0。runner 在 COM 退出前显式通过 OnDestroy 销毁 controller，
+先清空 client 指针，避免 native 子窗口销毁回调重入已失效的 Flutter controller；
+字体变化消息也容许该指针已清空。两个 Windows 目标均须在最新 PR head CI 证明实际正常退出。
 
 ARM64 单独处理：2026-10-23 只读检查的微软官方 ARM64 redistributable 中，
 MSVCP/VCRUNTIME/atomic-wait DLL 为 ARM64X，vcruntime140_1.dll 仅 ARM64EC。
@@ -91,6 +94,10 @@ DEB 现显式依赖 libegl1/libgl1/libgles2，RPM 声明对应 SONAME；libepoxy
 RPM 依赖声明不等于已完成 RPM 安装验收。
 gate 在安装 harness 前解析这三个准确 SONAME，核对实际文件、native 架构与依赖闭包并留证，
 测试设施带入的图形包不能补足此前缺项。
+Linux 关窗仍先等待应用窗口/账号 checkpoint，成功后使用 Flutter SystemNavigator.pop 的
+application-quit 路径，避免 window_manager 在 engine 退出中同步销毁 GTK/GL view
+（[上游报告](https://github.com/leanflutter/window_manager/issues/585)）。MethodChannel 回归检查
+保存等待、取消后重试及重复关窗合并；最终 native DEB smoke 仍须实测 exit 0。
 
 ### 本地 iOS archive 与手工导出
 

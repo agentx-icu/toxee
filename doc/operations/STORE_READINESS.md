@@ -88,6 +88,11 @@ Compatibility Publisher` (x64). Both also require the exact Microsoft Corporatio
 organization and a Valid Windows Authenticode result. The inspected x64 installer
 SHA-256 was `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`.
 Offline certificate extraction alone does not establish signature trust.
+Installed close requires exit code zero. The runner explicitly destroys the
+controller through OnDestroy before COM teardown, clearing its client pointer
+before native-window callbacks can re-enter Flutter during controller disposal;
+font-change handling also tolerates that cleared pointer. Both Windows targets
+must prove the actual installed shutdown in the latest PR head's CI.
 
 ARM64 is deliberate: the official Microsoft ARM64 redistributable inspected on
 2026-10-23 contains ARM64X MSVCP/VCRUNTIME/atomic-wait DLLs and an EC-only
@@ -123,6 +128,12 @@ the RPM declaration does not establish an installed RPM result.
 Before installing the harness, the gate resolves the exact three loader SONAMEs,
 checks their real files/native architecture and dependency closure, and records
 the result. Harness-provided graphics packages cannot satisfy this earlier gate.
+Linux caption close still awaits the application's window/account checkpoint;
+after success it uses Flutter's SystemNavigator.pop application-quit path. This
+avoids window_manager synchronously destroying the GTK/GL view during engine
+shutdown ([upstream report](https://github.com/leanflutter/window_manager/issues/585)).
+MethodChannel regressions check pending saves, cancellation/retry and duplicate
+close coalescing; final native DEB smoke still requires real exit code zero.
 
 ### Local iOS archive and manual export
 
