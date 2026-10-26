@@ -32,7 +32,16 @@ extern "C" int fsync(int fd) {
     return real(fd);
 }
 extern "C" int fstatat(int directory, const char* path, struct stat* info, int flags) {
-    const auto real = reinterpret_cast<int (*)(int, const char*, struct stat*, int)>(dlsym(RTLD_NEXT, "fstatat"));
+#ifdef __APPLE__
+    // Match sys/stat.h's __DARWIN_INODE64(fstatat) declaration. Intel macOS
+    // uses the versioned stat layout; ARM64's suffix is empty. Calling the
+    // unversioned Intel symbol would fill the wrong struct before fault setup.
+    const char* symbol = "fstatat" __DARWIN_SUF_64_BIT_INO_T;
+#else
+    const char* symbol = "fstatat";
+#endif
+    const auto real = reinterpret_cast<int (*)(int, const char*, struct stat*, int)>(dlsym(RTLD_NEXT, symbol));
+    if (!real) { errno = ENOSYS; return -1; }
     if (mode == "victim-replaced" && !std::strcmp(path, "app_1.log") && ++victimInspections == 2) {
         if (::renameat(directory, "app_1.log", directory, "saved-original") ||
             ::renameat(directory, "app_2.log", directory, "app_1.log")) { errno = EIO; return -1; }
