@@ -61,6 +61,7 @@ jobs:
           python3 -m unittest discover -s test/ci -p test_ios_store_export.py
           python3 -m unittest discover -s test/ci -p test_msvc_runtime.py
           python3 -m unittest discover -s test/ci -p test_linux_installed_smoke.py
+          python3 -m unittest discover -s test/ci -p test_native_log_source_hash.py
 
       # Cross-file source contracts that are lint, not tests: "this UiKey string
       # must appear in the fork widget", "this scenario must be registered in the

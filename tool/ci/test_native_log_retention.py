@@ -13,6 +13,12 @@ PIN = "5341e64ed62b81a94a311c768a73863a3cffcbb1"
 LIMIT = 10 * 1024 * 1024
 
 
+def source_digest(path):
+    # Match the overlay's UTF-8 bytes with only Git's CRLF conversion removed.
+    # Windows' default code page must not decode/re-encode the pinned source.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", type=Path, default=Path("third_party/tim2tox"))
@@ -27,13 +33,12 @@ def main():
     if not compiler:
         raise RuntimeError("A native C++20 compiler is required")
     report = {"source_commit": commit, "limit_bytes": LIMIT, "maximum_files": 10}
-    manifest = json.loads(Path(__file__).resolve().parents[1].joinpath('native_log_overlays/manifest.json').read_text())
+    manifest = json.loads(Path(__file__).resolve().parents[1].joinpath('native_log_overlays/manifest.json').read_text(encoding="utf-8"))
     report["source_sha256"] = {}
     for entry in manifest["files"]:
-        contents = (source / entry["path"]).read_text().replace("\r\n", "\n").encode()
-        digest = hashlib.sha256(contents).hexdigest()
+        digest = source_digest(source / entry["path"])
         if digest != entry["after_sha256"]:
-            raise RuntimeError("Native retention probe requires the source-verified app overlay")
+            raise RuntimeError(f"Native retention source mismatch for {entry['path']}: expected {entry['after_sha256']}, got {digest}")
         report["source_sha256"][entry["path"]] = digest
 
     # All generated binaries and repetitive log payloads are removed even when
@@ -49,10 +54,10 @@ def main():
             (baseline / name).write_bytes(subprocess.check_output([
                 "git", "-C", str(source), "show", f"{PIN}:source/{name}",
             ]))
-        producer = Path(__file__).with_name("native_log_retention_probe.cpp").read_text()
+        producer = Path(__file__).with_name("native_log_retention_probe.cpp").read_text(encoding="utf-8")
         legacy = producer[producer.index("    logger.setLogFile(argv[1]);"):producer.index("\n#ifdef _WIN32\nint wmain")]
         baseline_probe = baseline / "probe.cpp"
-        baseline_probe.write_text('#include "V2TIMLog.h"\n#include <array>\nint main(int argc, char** argv) {\n    if (argc != 2) return 2;\n    auto& logger = V2TIMLog::getInstance();\n' + legacy)
+        baseline_probe.write_text('#include "V2TIMLog.h"\n#include <array>\nint main(int argc, char** argv) {\n    if (argc != 2) return 2;\n    auto& logger = V2TIMLog::getInstance();\n' + legacy, encoding="utf-8")
         baseline_executable = baseline / ("baseline.exe" if os.name == "nt" else "baseline")
         baseline_sources = [str(baseline / "V2TIMLog.cpp"), str(baseline_probe)]
         if Path(compiler).stem.lower() == "cl":
@@ -80,12 +85,12 @@ def main():
         report["total_bytes"] = sum(p.stat().st_size for p in logs)
         report["outcome"] = "passed" if len(logs) <= 10 and all(p.stat().st_size <= LIMIT for p in logs) and report["recent_event_readable"] else "failed"
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
-        args.evidence.write_text(json.dumps(report, indent=2) + "\n")
+        args.evidence.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report, indent=2))
         assert report["outcome"] == "passed", "Actual native logger exceeded the existing 10 MiB segment / ten-file retention budget"
 
         report["outcome"] = "in_progress"
-        args.evidence.write_text(json.dumps(report, indent=2) + "\n")
+        args.evidence.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
         def check_ledger(directory, final=True):
             files = sorted(directory.glob("app_*.log"))
@@ -220,7 +225,7 @@ def main():
             subprocess.run([str(executable), str(failure / "app_1792746400000.log"), "failure"], check=True, timeout=15)
             report["actual_posix_write_failure_releases_owner"] = "passed"
         report["outcome"] = "passed"
-        args.evidence.write_text(json.dumps(report, indent=2) + "\n")
+        args.evidence.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report, indent=2))
 
 
