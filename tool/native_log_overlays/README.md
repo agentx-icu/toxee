@@ -31,8 +31,17 @@ BUSY without disrupting the SDK/app; independent harness families can persist
 concurrently. This is not cross-process log merging.
 
 Dart resolves an established parent, including normal OS aliases, before
-secure native opens. POSIX uses directory-relative no-follow handles and
-actual inode/link checks; Windows holds physical parent handles and rejects
+secure native opens. Linux/Android walks ancestors using no-follow `O_PATH`
+directory references and opens the final ledger directory for reading;
+search-only ancestors do not need enumeration permission. Darwin opens only
+the readable final directory with `O_DIRECTORY|O_NOFOLLOW`, then verifies that
+the held fd's public `F_GETPATH` exactly matches the canonical physical parent
+before any mutation. All later operations use that same directory fd. This
+uses APIs present in the supported macOS 10.15 source, without relying on a
+newer kernel's `O_SEARCH`; it is not an old-device qualification. See Apple's
+[fcntl contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html)
+and [10.15-era implementation](https://github.com/apple-oss-distributions/xnu/blob/xnu-6153.11.26/bsd/kern/kern_descrip.c#L1626).
+POSIX also checks actual inode/link identity. Windows holds physical parent handles and rejects
 reparse points and multiple links on the actual file handles. Clear-logs
 requires confirmed close before deleting. Refused/uncertain ownership never
 falls back to another file writer. When native logging is unavailable, bounded
@@ -51,8 +60,10 @@ original oversized-file defect, then compiles the actual overlaid writer with
 the same legacy producer, more than 120 MiB from four concurrent producers,
 twelve sessions, original-size UTF-8 truncation, old-tail repair, two-process
 ownership, independent harness families, Unicode paths and link negatives.
-POSIX additionally exercises actual kernel write refusal and a test-link-only
-failed directory enumeration. There is no production test hook or reduced
+POSIX additionally exercises a legal search-only ancestor, unreadable or
+unsearchable ledger rejection, ancestor replacement during a held owner and
+rotation, actual kernel write refusal and a test-link-only failed directory
+enumeration. There is no production test hook or reduced
 budget. MSVC C++20 must be available when running the Windows probe. Reports
 qualify only the actual CI OS/architecture; iOS/Android compilation does not
 replace on-device storage/crash qualification.

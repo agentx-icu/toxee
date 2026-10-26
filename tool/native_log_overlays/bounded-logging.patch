@@ -1,202 +1,14 @@
-diff --git a/source/V2TIMLog.h b/source/V2TIMLog.h
---- a/source/V2TIMLog.h
-+++ b/source/V2TIMLog.h
-@@ -17,0 +18,2 @@
-+namespace tim2tox::diag { class BoundedLogSink; }
-+
-@@ -102,0 +105,3 @@
-+    int32_t configureOwnedLog(const char* path, uint64_t* generation);
-+    int32_t appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length);
-+    int32_t releaseOwnedLog(uint64_t generation);
-@@ -405 +410,5 @@
--    std::unique_ptr<std::ofstream> log_file_;
-+    std::unique_ptr<tim2tox::diag::BoundedLogSink> log_file_;
-+    uint64_t owned_generation_ = 0;
-+    uint64_t next_generation_ = 0;
-+    uint64_t released_generation_ = 0;
-+    bool close_uncertain_ = false;
-diff --git a/source/V2TIMLog.cpp b/source/V2TIMLog.cpp
---- a/source/V2TIMLog.cpp
-+++ b/source/V2TIMLog.cpp
-@@ -25,0 +26,2 @@
-+#include "BoundedLogSink.h"
-+
-@@ -40 +42,2 @@
--// Destructor: Close the log file if open
-+// The singleton owns every file handle; SDK legacy setters cannot steal a
-+// managed application generation. No raw path/error is logged on failure.
-@@ -44,6 +47,3 @@
--    if (log_file_ && log_file_->is_open()) {
--        log_file_->close();
--    }
--}
--
--// Set the path for the log file
-+    log_file_.reset();
-+}
-+
-@@ -51,18 +51,88 @@
--    if (destroyed_.load()) return;
--    bool open_failed = false;
--    {
--        std::lock_guard<std::mutex> lock(mutex_);
--        if (destroyed_.load()) return;
--        if (log_file_ && log_file_->is_open()) {
--            log_file_->close();
--        }
--        log_file_ = std::make_unique<std::ofstream>(path, std::ios::app);
--        if (!log_file_ || !log_file_->is_open()) {
--            log_file_.reset();
--            console_output_ = true;
--            open_failed = true;
--        }
--    }
--    if (open_failed) {
--        Error("log_file_open_failed");
--    }
-+    using tim2tox::diag::SinkStatus;
-+    if (destroyed_.load()) return;
-+    std::unique_lock<std::mutex> lock(mutex_);
-+    if (destroyed_.load() || owned_generation_ || close_uncertain_) return;
-+    if (log_file_ && log_file_->close() != SinkStatus::Ok) { close_uncertain_ = true; return; }
-+    log_file_.reset();
-+    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
-+    SinkStatus status;
-+    try {
-+        // Existing SDK callers do not have the Dart canonical-parent bridge.
-+        // Resolve only their existing parent (including the OS /tmp alias),
-+        // then secure-open the physical directory and unchanged leaf.
-+        const auto input = std::filesystem::absolute(std::filesystem::path(std::u8string(path.begin(), path.end())));
-+        const auto resolved = std::filesystem::canonical(input.parent_path()) / input.filename();
-+        const auto bytes = resolved.u8string();
-+        status = candidate->configure(std::string(bytes.begin(), bytes.end()));
-+    } catch (...) {
-+        status = candidate->close() == SinkStatus::Ok ? SinkStatus::IoNoOwner : SinkStatus::InternalUncertain;
-+    }
-+    if (status == SinkStatus::Ok) log_file_ = std::move(candidate);
-+    else {
-+        close_uncertain_ = status == SinkStatus::InternalUncertain;
-+        console_output_ = true;
-+        lock.unlock();
-+        Error(tim2tox::diag::Event<"v2tim_log", "log_file_open_failed">{nullptr, 0});
-+    }
-+}
-+
-+int32_t V2TIMLog::configureOwnedLog(const char* path, uint64_t* generation) {
-+    using tim2tox::diag::SinkStatus;
-+    if (generation) *generation = 0;
-+    if (!path || !generation) return int32_t(SinkStatus::Invalid);
-+    std::lock_guard<std::mutex> lock(mutex_);
-+    if (destroyed_.load() || close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
-+    if (owned_generation_) return int32_t(SinkStatus::Busy);
-+    const auto length = strnlen(path, 32769);
-+    if (length > 32768 || tim2tox::diag::BoundedLogSink::validatePath(std::string(path, length)) != SinkStatus::Ok ||
-+        next_generation_ == UINT64_MAX) return int32_t(SinkStatus::Invalid);
-+    if (log_file_) {
-+        const auto closed = log_file_->close(); log_file_.reset();
-+        if (closed != SinkStatus::Ok) { close_uncertain_ = true; return int32_t(closed); }
-+    }
-+    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
-+    SinkStatus status;
-+    try { status = candidate->configure(path); }
-+    catch (...) {
-+        close_uncertain_ = candidate->close() != SinkStatus::Ok;
-+        throw;
-+    }
-+    if (status != SinkStatus::Ok) {
-+        close_uncertain_ = status == SinkStatus::InternalUncertain;
-+        return int32_t(status);
-+    }
-+    owned_generation_ = ++next_generation_;
-+    *generation = owned_generation_;
-+    log_file_ = std::move(candidate);
-+    console_output_ = false;
-+    return int32_t(SinkStatus::Ok);
-+}
-+
-+int32_t V2TIMLog::appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length) {
-+    using tim2tox::diag::SinkStatus;
-+    std::lock_guard<std::mutex> lock(mutex_);
-+    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
-+    if (!generation || generation != owned_generation_ || !log_file_) return int32_t(SinkStatus::NotOwner);
-+    auto status = log_file_->append(bytes, length);
-+    if (status != SinkStatus::Ok && status != SinkStatus::Truncated && status != SinkStatus::Invalid) {
-+        const auto closed = log_file_->close(); log_file_.reset();
-+        released_generation_ = owned_generation_; owned_generation_ = 0;
-+        close_uncertain_ = closed != SinkStatus::Ok || status == SinkStatus::InternalUncertain;
-+        if (close_uncertain_) status = SinkStatus::InternalUncertain;
-+    }
-+    return int32_t(status);
-+}
-+
-+int32_t V2TIMLog::releaseOwnedLog(uint64_t generation) {
-+    using tim2tox::diag::SinkStatus;
-+    std::lock_guard<std::mutex> lock(mutex_);
-+    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
-+    if (!owned_generation_) {
-+        return int32_t(!log_file_ && (!generation || generation == released_generation_) ?
-+            SinkStatus::Ok : SinkStatus::NotOwner);
-+    }
-+    if (!generation || generation != owned_generation_) return int32_t(SinkStatus::NotOwner);
-+    const auto status = log_file_->close(); log_file_.reset();
-+    released_generation_ = owned_generation_; owned_generation_ = 0;
-+    close_uncertain_ = status != SinkStatus::Ok;
-+    return int32_t(status);
-@@ -106,3 +176,10 @@
--    if (log_file_ && log_file_->is_open()) {
--        *log_file_ << full_message;
--        log_file_->flush();
-+    if (log_file_) {
-+        const auto status = log_file_->append(reinterpret_cast<const uint8_t*>(full_message.data()), full_message.size());
-+        if (status != tim2tox::diag::SinkStatus::Ok && status != tim2tox::diag::SinkStatus::Truncated) {
-+            const auto closed = log_file_->close(); log_file_.reset();
-+            released_generation_ = owned_generation_; owned_generation_ = 0;
-+            close_uncertain_ = closed != tim2tox::diag::SinkStatus::Ok || status == tim2tox::diag::SinkStatus::InternalUncertain;
-+            // Fixed typed failure is visible without re-entering this sink.
-+            full_message += "[ERROR] component=logger event=native_file_write_failed\n";
-+            console_output_ = true;
-+        }
-diff --git a/ffi/tim2tox_ffi.h b/ffi/tim2tox_ffi.h
---- a/ffi/tim2tox_ffi.h
-+++ b/ffi/tim2tox_ffi.h
-@@ -127,0 +128,7 @@
-+
-+// Owned logging ABI v1. 0 OK, 1 UTF8-truncated, 2 invalid, 3 unsafe path,
-+// 4 configure I/O with no owner, 5 stale owner, 6 partial I/O released,
-+// 7 busy, 8 uncertain. Only successful configure supplies a nonzero generation.
-+int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation);
-+int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length);
-+int32_t tim2tox_ffi_log_release_owned(uint64_t generation);
-diff --git a/ffi/tim2tox_ffi.cpp b/ffi/tim2tox_ffi.cpp
---- a/ffi/tim2tox_ffi.cpp
-+++ b/ffi/tim2tox_ffi.cpp
-@@ -4235,0 +4236,16 @@
-+// Never let a C++ exception cross the Dart C ABI. Status 8 deliberately does
-+// not claim that ownership was released; callers must confirm via release.
-+int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation) {
-+    if (generation) *generation = 0;
-+    try { return V2TIMLog::getInstance().configureOwnedLog(path, generation); }
-+    catch (...) { return 8; }
-+}
-+int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length) {
-+    try { return V2TIMLog::getInstance().appendOwnedLog(generation, bytes, length); }
-+    catch (...) { return 8; }
-+}
-+int32_t tim2tox_ffi_log_release_owned(uint64_t generation) {
-+    try { return V2TIMLog::getInstance().releaseOwnedLog(generation); }
-+    catch (...) { return 8; }
-+}
-+
 diff --git a/dart/lib/ffi/tim2tox_ffi.dart b/dart/lib/ffi/tim2tox_ffi.dart
+index 7bfa18b..3a2c1d2 100644
 --- a/dart/lib/ffi/tim2tox_ffi.dart
 +++ b/dart/lib/ffi/tim2tox_ffi.dart
-@@ -15,0 +16,5 @@
+@@ -15,0 +16,5 @@ typedef _set_log_file_c = ffi.Void Function(ffi.Pointer<pkgffi.Utf8>);
 +typedef _log_configure_owned_c = ffi.Int32 Function(
 +    ffi.Pointer<pkgffi.Utf8>, ffi.Pointer<ffi.Uint64>);
 +typedef _log_append_owned_c = ffi.Int32 Function(
 +    ffi.Uint64, ffi.Pointer<ffi.Uint8>, ffi.Size);
 +typedef _log_release_owned_c = ffi.Int32 Function(ffi.Uint64);
-@@ -1868,0 +1874,42 @@
+@@ -1868,0 +1874,42 @@ class Tim2ToxFfi {
 +  /// Claims the bounded native file sink without taking another owner's sink.
 +  /// Status 0 is success and returns a nonzero generation. All other statuses
 +  /// leave generation zero; callers must follow the ownership status contract.
@@ -239,11 +51,199 @@ diff --git a/dart/lib/ffi/tim2tox_ffi.dart b/dart/lib/ffi/tim2tox_ffi.dart
 +      _lib.lookupFunction<_log_release_owned_c, int Function(int)>(
 +          'tim2tox_ffi_log_release_owned')(generation);
 +
+diff --git a/ffi/tim2tox_ffi.cpp b/ffi/tim2tox_ffi.cpp
+index 16ae141..53846bf 100644
+--- a/ffi/tim2tox_ffi.cpp
++++ b/ffi/tim2tox_ffi.cpp
+@@ -4235,0 +4236,16 @@ void tim2tox_ffi_set_log_file(const char* path) {
++// Never let a C++ exception cross the Dart C ABI. Status 8 deliberately does
++// not claim that ownership was released; callers must confirm via release.
++int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation) {
++    if (generation) *generation = 0;
++    try { return V2TIMLog::getInstance().configureOwnedLog(path, generation); }
++    catch (...) { return 8; }
++}
++int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length) {
++    try { return V2TIMLog::getInstance().appendOwnedLog(generation, bytes, length); }
++    catch (...) { return 8; }
++}
++int32_t tim2tox_ffi_log_release_owned(uint64_t generation) {
++    try { return V2TIMLog::getInstance().releaseOwnedLog(generation); }
++    catch (...) { return 8; }
++}
++
+diff --git a/ffi/tim2tox_ffi.h b/ffi/tim2tox_ffi.h
+index b7094b0..8f37525 100644
+--- a/ffi/tim2tox_ffi.h
++++ b/ffi/tim2tox_ffi.h
+@@ -128,0 +129,7 @@ void tim2tox_ffi_set_log_file(const char* path);
++// Owned logging ABI v1. 0 OK, 1 UTF8-truncated, 2 invalid, 3 unsafe path,
++// 4 configure I/O with no owner, 5 stale owner, 6 partial I/O released,
++// 7 busy, 8 uncertain. Only successful configure supplies a nonzero generation.
++int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation);
++int32_t tim2tox_ffi_log_append_owned(uint64_t generation, const uint8_t* bytes, size_t length);
++int32_t tim2tox_ffi_log_release_owned(uint64_t generation);
++
+diff --git a/source/V2TIMLog.cpp b/source/V2TIMLog.cpp
+index 3b4dc25..8e3fdc4 100644
+--- a/source/V2TIMLog.cpp
++++ b/source/V2TIMLog.cpp
+@@ -25,0 +26,2 @@
++#include "BoundedLogSink.h"
++
+@@ -40 +42,2 @@ V2TIMLog::V2TIMLog()
+-// Destructor: Close the log file if open
++// The singleton owns every file handle; SDK legacy setters cannot steal a
++// managed application generation. No raw path/error is logged on failure.
+@@ -44,3 +47 @@ V2TIMLog::~V2TIMLog() {
+-    if (log_file_ && log_file_->is_open()) {
+-        log_file_->close();
+-    }
++    log_file_.reset();
+@@ -49 +49,0 @@ V2TIMLog::~V2TIMLog() {
+-// Set the path for the log file
+@@ -50,0 +51 @@ void V2TIMLog::setLogFile(const std::string& path) {
++    using tim2tox::diag::SinkStatus;
+@@ -52,13 +53,39 @@ void V2TIMLog::setLogFile(const std::string& path) {
+-    bool open_failed = false;
+-    {
+-        std::lock_guard<std::mutex> lock(mutex_);
+-        if (destroyed_.load()) return;
+-        if (log_file_ && log_file_->is_open()) {
+-            log_file_->close();
+-        }
+-        log_file_ = std::make_unique<std::ofstream>(path, std::ios::app);
+-        if (!log_file_ || !log_file_->is_open()) {
+-            log_file_.reset();
+-            console_output_ = true;
+-            open_failed = true;
+-        }
++    std::unique_lock<std::mutex> lock(mutex_);
++    if (destroyed_.load() || owned_generation_ || close_uncertain_) return;
++    if (log_file_ && log_file_->close() != SinkStatus::Ok) { close_uncertain_ = true; return; }
++    log_file_.reset();
++    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
++    SinkStatus status;
++    try {
++        // Existing SDK callers do not have the Dart canonical-parent bridge.
++        // Resolve only their existing parent (including the OS /tmp alias),
++        // then secure-open the physical directory and unchanged leaf.
++        const auto input = std::filesystem::absolute(std::filesystem::path(std::u8string(path.begin(), path.end())));
++        const auto resolved = std::filesystem::canonical(input.parent_path()) / input.filename();
++        const auto bytes = resolved.u8string();
++        status = candidate->configure(std::string(bytes.begin(), bytes.end()));
++    } catch (...) {
++        status = candidate->close() == SinkStatus::Ok ? SinkStatus::IoNoOwner : SinkStatus::InternalUncertain;
++    }
++    if (status == SinkStatus::Ok) log_file_ = std::move(candidate);
++    else {
++        close_uncertain_ = status == SinkStatus::InternalUncertain;
++        console_output_ = true;
++        lock.unlock();
++        Error(tim2tox::diag::Event<"v2tim_log", "log_file_open_failed">{nullptr, 0});
++    }
++}
++
++int32_t V2TIMLog::configureOwnedLog(const char* path, uint64_t* generation) {
++    using tim2tox::diag::SinkStatus;
++    if (generation) *generation = 0;
++    if (!path || !generation) return int32_t(SinkStatus::Invalid);
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (destroyed_.load() || close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (owned_generation_) return int32_t(SinkStatus::Busy);
++    const auto length = strnlen(path, 32769);
++    if (length > 32768 || tim2tox::diag::BoundedLogSink::validatePath(std::string(path, length)) != SinkStatus::Ok ||
++        next_generation_ == UINT64_MAX) return int32_t(SinkStatus::Invalid);
++    if (log_file_) {
++        const auto closed = log_file_->close(); log_file_.reset();
++        if (closed != SinkStatus::Ok) { close_uncertain_ = true; return int32_t(closed); }
+@@ -66,2 +93,6 @@ void V2TIMLog::setLogFile(const std::string& path) {
+-    if (open_failed) {
+-        Error("log_file_open_failed");
++    auto candidate = std::make_unique<tim2tox::diag::BoundedLogSink>();
++    SinkStatus status;
++    try { status = candidate->configure(path); }
++    catch (...) {
++        close_uncertain_ = candidate->close() != SinkStatus::Ok;
++        throw;
+@@ -68,0 +100,39 @@ void V2TIMLog::setLogFile(const std::string& path) {
++    if (status != SinkStatus::Ok) {
++        close_uncertain_ = status == SinkStatus::InternalUncertain;
++        return int32_t(status);
++    }
++    owned_generation_ = ++next_generation_;
++    *generation = owned_generation_;
++    log_file_ = std::move(candidate);
++    console_output_ = false;
++    return int32_t(SinkStatus::Ok);
++}
++
++int32_t V2TIMLog::appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length) {
++    using tim2tox::diag::SinkStatus;
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (!generation || generation != owned_generation_ || !log_file_) return int32_t(SinkStatus::NotOwner);
++    auto status = log_file_->append(bytes, length);
++    if (status != SinkStatus::Ok && status != SinkStatus::Truncated && status != SinkStatus::Invalid) {
++        const auto closed = log_file_->close(); log_file_.reset();
++        released_generation_ = owned_generation_; owned_generation_ = 0;
++        close_uncertain_ = closed != SinkStatus::Ok || status == SinkStatus::InternalUncertain;
++        if (close_uncertain_) status = SinkStatus::InternalUncertain;
++    }
++    return int32_t(status);
++}
++
++int32_t V2TIMLog::releaseOwnedLog(uint64_t generation) {
++    using tim2tox::diag::SinkStatus;
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (close_uncertain_) return int32_t(SinkStatus::InternalUncertain);
++    if (!owned_generation_) {
++        return int32_t(!log_file_ && (!generation || generation == released_generation_) ?
++            SinkStatus::Ok : SinkStatus::NotOwner);
++    }
++    if (!generation || generation != owned_generation_) return int32_t(SinkStatus::NotOwner);
++    const auto status = log_file_->close(); log_file_.reset();
++    released_generation_ = owned_generation_; owned_generation_ = 0;
++    close_uncertain_ = status != SinkStatus::Ok;
++    return int32_t(status);
+@@ -106,3 +176,10 @@ void V2TIMLog::writeLog(LogLevel level, const char* component, const char* event
+-    if (log_file_ && log_file_->is_open()) {
+-        *log_file_ << full_message;
+-        log_file_->flush();
++    if (log_file_) {
++        const auto status = log_file_->append(reinterpret_cast<const uint8_t*>(full_message.data()), full_message.size());
++        if (status != tim2tox::diag::SinkStatus::Ok && status != tim2tox::diag::SinkStatus::Truncated) {
++            const auto closed = log_file_->close(); log_file_.reset();
++            released_generation_ = owned_generation_; owned_generation_ = 0;
++            close_uncertain_ = closed != tim2tox::diag::SinkStatus::Ok || status == tim2tox::diag::SinkStatus::InternalUncertain;
++            // Fixed typed failure is visible without re-entering this sink.
++            full_message += "[ERROR] component=logger event=native_file_write_failed\n";
++            console_output_ = true;
++        }
+diff --git a/source/V2TIMLog.h b/source/V2TIMLog.h
+index 42c178b..ed32e11 100644
+--- a/source/V2TIMLog.h
++++ b/source/V2TIMLog.h
+@@ -17,0 +18,2 @@
++namespace tim2tox::diag { class BoundedLogSink; }
++
+@@ -102,0 +105,3 @@ public:
++    int32_t configureOwnedLog(const char* path, uint64_t* generation);
++    int32_t appendOwnedLog(uint64_t generation, const uint8_t* bytes, size_t length);
++    int32_t releaseOwnedLog(uint64_t generation);
+@@ -405 +410,5 @@ private:
+-    std::unique_ptr<std::ofstream> log_file_;
++    std::unique_ptr<tim2tox::diag::BoundedLogSink> log_file_;
++    uint64_t owned_generation_ = 0;
++    uint64_t next_generation_ = 0;
++    uint64_t released_generation_ = 0;
++    bool close_uncertain_ = false;
 diff --git a/source/BoundedLogSink.h b/source/BoundedLogSink.h
 new file mode 100644
+index 0000000..6c79a88
 --- /dev/null
 +++ b/source/BoundedLogSink.h
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,473 @@
 +#ifndef TIM2TOX_BOUNDED_LOG_SINK_H
 +#define TIM2TOX_BOUNDED_LOG_SINK_H
 +
@@ -267,6 +267,9 @@ new file mode 100644
 +#include <sys/stat.h>
 +#include <sys/file.h>
 +#include <unistd.h>
++#ifdef __APPLE__
++#include <sys/param.h>
++#endif
 +#endif
 +
 +namespace tim2tox::diag {
@@ -455,11 +458,30 @@ new file mode 100644
 +                (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
 +                !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return SinkStatus::UnsafePath;
 +        }
++#elif defined(__APPLE__)
++        // O_SEARCH is absent on supported older Darwin kernels; O_EVTONLY
++        // still requires read access. Open only the readable ledger directory,
++        // then prove this held vnode is the caller-canonical physical parent
++        // before creating a lock, pruning or writing. Never reopen by path.
++        directory_ = ::open(parent_.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++        if (directory_ < 0) return errno == ELOOP || errno == ENOTDIR ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
++        std::array<char, MAXPATHLEN> physical{};
++        if (::fcntl(directory_, F_GETPATH, physical.data()) != 0 ||
++            std::find(physical.begin(), physical.end(), '\0') == physical.end()) return SinkStatus::IoNoOwner;
++        if (utf8Path(physical.data()) != parent_) return SinkStatus::UnsafePath;
 +#else
-+        directory_ = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++#ifdef __linux__
++        constexpr int searchAccess = O_PATH;
++#else
++        constexpr int searchAccess = O_RDONLY;
++#endif
++        const auto relative = parent_.relative_path();
++        directory_ = ::open("/", (relative.empty() ? O_RDONLY : searchAccess) | O_DIRECTORY | O_CLOEXEC);
 +        if (directory_ < 0) return SinkStatus::IoNoOwner;
-+        for (const auto& component : parent_.relative_path()) {
-+            int next = ::openat(directory_, component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
++        for (auto component = relative.begin(); component != relative.end(); ++component) {
++            auto following = component; ++following;
++            const auto access = following == relative.end() ? O_RDONLY : searchAccess;
++            int next = ::openat(directory_, component->c_str(), access | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
 +            if (next < 0) return errno == ELOOP || errno == ENOTDIR ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
 +            ::close(directory_); directory_ = next;
 +        }

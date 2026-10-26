@@ -209,6 +209,66 @@ def main():
         subprocess.run([str(executable), str(root / "missing-parent/app_1792746300003.log"), "missing"], check=True, timeout=10)
         report["symlink_hardlink_parent_negative"] = "passed"
         if os.name != "nt":
+            # The final parent is an ordinary directory: only an earlier
+            # ancestor is a link. On Darwin this exercises F_GETPATH, rather
+            # than succeeding solely because O_NOFOLLOW rejected the leaf.
+            physical_ancestor = root / "physical-ancestor"
+            physical_ledger = physical_ancestor / "logs"
+            physical_ledger.mkdir(parents=True)
+            sentinel = physical_ledger / "unrelated-sentinel"
+            sentinel.write_bytes(b"must-not-change")
+            ancestor_alias = root / "ancestor-alias"
+            ancestor_alias.symlink_to(physical_ancestor, target_is_directory=True)
+            aliased_log = ancestor_alias / "logs" / "app_1792746540000.log"
+            subprocess.run([str(executable), str(aliased_log), "unsafe"], check=True, timeout=10)
+            assert sentinel.read_bytes() == b"must-not-change"
+            assert not (physical_ledger / aliased_log.name).exists()
+            assert not (physical_ledger / ".app.log.sink-lock").exists()
+            report["noncanonical_ancestor_with_ordinary_final_directory_rejected"] = "passed"
+
+            # A search-only ancestor is a legal path, especially in app
+            # containers. Hardening may not require enumerating every parent;
+            # the final retention directory still requires read/search access.
+            assert os.geteuid() != 0, "Permission fixtures require an unprivileged runner"
+            permissions = root / "permission-layout"
+            ancestor = permissions / "search-only"
+            ledger = ancestor / "logs"
+            ledger.mkdir(parents=True)
+            control = ledger / "direct-control"
+            control.write_bytes(b"unrelated-control")
+            permission_log = ledger / "app_1792746550000.log"
+            try:
+                ancestor.chmod(0o111)
+                assert control.read_bytes() == b"unrelated-control"
+                subprocess.run([str(executable), str(permission_log), "basic"], check=True, timeout=10)
+                assert b"event=retention_final" in permission_log.read_bytes()
+                ancestor.chmod(0o000)
+                subprocess.run([str(executable), str(permission_log), "missing"], check=True, timeout=10)
+                ancestor.chmod(0o700)
+                for denied_mode in (0o111, 0o400):
+                    ledger.chmod(denied_mode)
+                    subprocess.run([str(executable), str(permission_log), "missing"], check=True, timeout=10)
+                    ledger.chmod(0o700)
+                assert control.read_bytes() == b"unrelated-control"
+            finally:
+                ancestor.chmod(0o700)
+                ledger.chmod(0o700)
+            report["search_only_ancestor_and_final_permission_negatives"] = "passed"
+
+            replacement = root / "held-parent"
+            original = replacement / "logs"
+            unrelated = replacement / "unrelated"
+            original.mkdir(parents=True)
+            unrelated.mkdir()
+            active_name = "app_1792746560000.log"
+            outside = unrelated / active_name
+            outside.write_bytes(b"unrelated-file-must-not-change")
+            subprocess.run([str(executable), str(original / active_name), "held-parent-replaced"], check=True, timeout=10)
+            assert outside.read_bytes() == b"unrelated-file-must-not-change"
+            assert b"held-directory-marker" in (replacement / "held-directory" / active_name).read_bytes()
+            assert not (unrelated / ".app.log.sink-lock").exists()
+            report["held_directory_survives_ancestor_replacement_without_redirecting_writes"] = "passed"
+
             inventory_probe = root / "inventory-error-probe"
             subprocess.run([compiler, "-std=c++20", "-pthread", "-I", str(source / "source"),
                             str(source / "source/V2TIMLog.cpp"),

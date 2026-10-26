@@ -27,6 +27,24 @@ int runProbe(int argc, char** argv) {
         if (mode == "unsafe") return configured == 3 && generation == 0 ? 0 : 10;
         if (mode == "missing") return configured == 4 && generation == 0 && logger.releaseOwnedLog(0) == 0 ? 0 : 11;
         if (configured != 0 || generation == 0) return 12;
+        if (mode == "held-parent-replaced") {
+#ifndef _WIN32
+            const auto active = std::filesystem::path(argv[1]);
+            const auto directory = active.parent_path();
+            const auto moved = directory.parent_path() / "held-directory";
+            const auto unrelated = directory.parent_path() / "unrelated";
+            std::filesystem::rename(directory, moved);
+            std::filesystem::create_directory_symlink(unrelated, directory);
+            // Force the subsequent native append through rotate/reopen too.
+            std::filesystem::resize_file(moved / active.filename(), 10 * 1024 * 1024);
+            const std::string record = "held-directory-marker\n";
+            return logger.appendOwnedLog(generation,
+                reinterpret_cast<const uint8_t*>(record.data()), record.size()) == 0 &&
+                logger.releaseOwnedLog(generation) == 0 ? 0 : 28;
+#else
+            return 29; // Windows holds parent handles against replacement.
+#endif
+        }
         if (mode == "hold") {
             std::cout << "READY\n" << std::flush;
             std::string command;

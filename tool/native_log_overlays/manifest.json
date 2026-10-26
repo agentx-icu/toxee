@@ -1,6 +1,6 @@
 {
   "revision": "5341e64ed62b81a94a311c768a73863a3cffcbb1",
-  "patch_sha256": "fe6178813a11e2b6390e03a7ec4b5ae63a012b06daac65075e4497defe004431",
+  "patch_sha256": "3ed73807016e97da914400b90deb131c3d185b63ba00a9702c40523f1f1a5d8e",
   "files": [
     {
       "path": "source/V2TIMLog.h",
@@ -30,7 +30,7 @@
     {
       "path": "source/BoundedLogSink.h",
       "before_sha256": null,
-      "after_sha256": "9c165d6dbea104f97239bfa834368324559040f0fb9037f12dc7e8633e4a7bfa"
+      "after_sha256": "c7d635bbf3962a2bee89ce18f3611fcbac788255f6c7dcafc466bf105990cd44"
     }
   ]
 }
