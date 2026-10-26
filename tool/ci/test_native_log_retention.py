@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 PIN = "5341e64ed62b81a94a311c768a73863a3cffcbb1"
@@ -77,6 +78,33 @@ def main():
         else:
             command = [compiler, "-std=c++20", "-pthread", "-I", str(source / "source"), *sources, "-o", str(executable)]
         subprocess.run(command, check=True, cwd=root)
+        # The ordering regression uses the same pinned implementation through
+        # a minimal test C ABI, not a replacement writer or the complete FFI.
+        adapter = root / ("order-probe.dll" if os.name == "nt" else
+                          "liborder-probe.dylib" if sys.platform == "darwin" else "liborder-probe.so")
+        adapter_sources = [str(source / "source/V2TIMLog.cpp"),
+                           str(Path(__file__).with_name("native_log_order_exports.cpp").resolve())]
+        if Path(compiler).stem.lower() == "cl":
+            adapter_command = [compiler, "/nologo", "/std:c++20", "/EHsc", "/utf-8", "/LD",
+                               "/I" + str(source / "source"), *adapter_sources, "/Fe:" + str(adapter)]
+        else:
+            adapter_command = [compiler, "-std=c++20", "-pthread", "-I", str(source / "source"),
+                               *( ["-dynamiclib"] if sys.platform == "darwin" else ["-shared", "-fPIC"]),
+                               *adapter_sources, "-o", str(adapter)]
+        subprocess.run(adapter_command, check=True, cwd=root)
+        ordering_command = [sys.executable, str(Path(__file__).with_name("test_native_log_order.py").resolve()),
+                            str(adapter), "--evidence", str(root / "order-evidence.json")]
+        if os.name != "nt":
+            fault = root / "order-fault-probe"
+            subprocess.run([compiler, "-std=c++20", "-pthread", "-I", str(source / "source"),
+                            str(source / "source/V2TIMLog.cpp"),
+                            str(Path(__file__).with_name("native_log_order_fault_probe.cpp").resolve()),
+                            *([] if sys.platform == "darwin" else ["-ldl"]), "-o", str(fault)],
+                           check=True, cwd=root)
+            ordering_command += ["--fault-probe", str(fault)]
+        subprocess.run(ordering_command, check=True, cwd=root, timeout=120)
+        report["persistent_chronology_and_order_index"] = json.loads((root / "order-evidence.json").read_text(encoding="utf-8"))
+        report["persistent_chronology_and_order_index"]["scope"] = "Actual pinned source three-symbol test adapter; complete app FFI qualified separately"
         active = root / "app_1792746000000.log"
         subprocess.run([str(executable), str(active)], check=True, timeout=30)
         logs = sorted(root.glob("app_*.log"))
@@ -138,13 +166,16 @@ def main():
             folder = root / ("overlap-" + first)
             folder.mkdir()
             active = folder / first
+            # Existing history must precede the first managed claim. A valid
+            # index intentionally refuses later externally injected nonempty
+            # files; that separate failure contract is exercised by order tests.
+            prefix = "app" if first.startswith("app") else "foo"
+            for index in range(101, 110):
+                (folder / f"{prefix}_{index}.log").write_text("historical diagnostic\n")
             owner = subprocess.Popen([str(executable), str(active), "hold"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
             try:
                 assert owner.stdout.readline().strip() == "READY"
                 inode = active.stat().st_ino
-                prefix = "app" if first.startswith("app") else "foo"
-                for index in range(101, 110):
-                    (folder / f"{prefix}_{index}.log").write_text("historical diagnostic\n")
                 os.utime(active, (1, 1))
                 subprocess.run([str(executable), str(folder / second), "busy"], check=True, timeout=10)
                 assert active.exists() and active.stat().st_ino == inode

@@ -3,7 +3,7 @@
 This app-owned overlay modifies exactly Tim2Tox
 `5341e64ed62b81a94a311c768a73863a3cffcbb1`; it neither advances the
 submodule nor publishes another repository. `manifest.json` records every
-before/after source hash (the new header has an absent-before value) and the
+before/after source hash (new headers have absent-before values) and the
 patch hash. Bootstrap applies pristine sources, accepts verified outputs
 idempotently, and rejects revision drift, partial application, links, unknown
 files at the new-header path and out-of-inventory patch paths without resets.
@@ -25,10 +25,39 @@ explicit omitted-byte marker. Rotation happens before writing, never replaces
 an existing history name, and trims oversized legacy files in place to retain
 the recent tail with a fixed omission notice. Canonical `app_<timestamp>.log`
 sessions share the ledger. Custom/harness numeric-suffix roots plus extensions each have the same
-budget and remain independent. A zero-byte family lock is ownership metadata,
-not an eleventh diagnostic segment. A second process in the same family gets
+budget and remain independent. The existing family lock inode holds exactly
+1024 bytes of bounded ownership/order metadata, outside the ten `.log` segments. A second process in the same family gets
 BUSY without disrupting the SDK/app; independent harness families can persist
 concurrently. This is not cross-process log merging.
+
+Each successful claim, including a short session or a reused custom active path,
+receives a fresh family-wide rank before writing any body. The fixed 1 KiB
+index has two 512-byte versioned/checksummed snapshots of a monotonic counter
+and at most ten actual file identities/ranks (POSIX device/inode; Windows
+volume/file index). Both copies are flushed before new body bytes are allowed.
+Rotation keeps the archived inode's rank; suffix reuse, tied timestamps and
+wall-clock rollback cannot make that new archive older. Victims are unlinked
+before their identities are removed from the durable index, and that removal
+is flushed before a new active file is created and bound to its fresh rank.
+The lock inode is never renamed, and no sidecar, log-header change or per-record
+fsync is introduced.
+
+Only an initial zero-byte pre-upgrade lock permits legacy bootstrap. Its entire
+safe inventory is ordered by subsecond mtime and numeric filename order; exact
+legacy ties have no recoverable true chronology. An overfull legacy population
+is pruned to the existing budget before the first bounded index commit, with
+no managed body written during bootstrap. Later missing identities are
+reconciled, but an unknown nonempty file (external copy/restore/replacement),
+invalid/oversized index, duplicate identity/rank or exhausted counter is
+refused, never silently treated as a fresh legacy ledger. A created-but-empty
+unbound file can be claimed and indexed before its first body. One intact slot
+recovers a damaged copy; two invalid slots require explicit owner action.
+Metadata partial writes or flush failures remain uncertain and cannot permit
+clear-logs deletion or replay. After all writers are stopped/confirmed closed,
+the owner may explicitly remove unwanted restored files or clear the family,
+then reclaim it; refusal itself never deletes them. This does not qualify a
+backup/restore or previous-release upgrade flow. Existing iOS logs backup
+exclusion and profile migration scope are unchanged.
 
 Dart resolves an established parent, including normal OS aliases, before
 secure native opens. Linux/Android walks ancestors using no-follow `O_PATH`
@@ -63,7 +92,12 @@ ownership, independent harness families, Unicode paths and link negatives.
 POSIX additionally exercises a legal search-only ancestor, unreadable or
 unsearchable ledger rejection, ancestor replacement during a held owner and
 rotation, actual kernel write refusal and a test-link-only failed directory
-enumeration. There is no production test hook or reduced
+enumeration. The ordering fixture additionally checks retained recent content,
+sixteen tied/rollback rotations across restarts, short sessions/custom reclaim,
+either damaged slot, malformed/duplicate/overflow metadata, external identity
+replacement, and POSIX partial/flush failure plus victim-identity substitution.
+Its three-symbol source adapter is not the complete app FFI; full-library
+qualification runs separately. There is no production test hook or reduced
 budget. MSVC C++20 must be available when running the Windows probe. Reports
 qualify only the actual CI OS/architecture; iOS/Android compilation does not
 replace on-device storage/crash qualification.

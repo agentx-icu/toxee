@@ -173,14 +173,20 @@ void main() {
     ensureNativeLogOverlay(fixture.path);
     ensureNativeLogOverlay(fixture.path, checkOnly: true);
   });
-  test('new header collision preserves the user file and every original', () {
-    final entry = entries.singleWhere(
-      (entry) => entry['before_sha256'] == null,
-    );
-    final file = File('${source.path}/${entry['path']}')
-      ..writeAsStringSync('user data');
-    expect(() => ensureNativeLogOverlay(fixture.path), throwsStateError);
-    expect(file.readAsStringSync(), 'user data');
-    expect(digest(target(0)), entries[0]['before_sha256']);
+  test('every new header collision preserves user data and all originals', () {
+    final headers = entries.where((entry) => entry['before_sha256'] == null);
+    expect(headers, isNotEmpty);
+    for (final entry in headers) {
+      final file = File('${source.path}/${entry['path']}')
+        ..writeAsStringSync('user data');
+      expect(() => ensureNativeLogOverlay(fixture.path), throwsStateError);
+      expect(file.readAsStringSync(), 'user data');
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i]['before_sha256'] != null) {
+          expect(digest(target(i)), entries[i]['before_sha256']);
+        }
+      }
+      file.deleteSync(); // Only this isolated fixture's deliberate collision.
+    }
   });
 }

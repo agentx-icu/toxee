@@ -240,10 +240,10 @@ index 42c178b..ed32e11 100644
 +    bool close_uncertain_ = false;
 diff --git a/source/BoundedLogSink.h b/source/BoundedLogSink.h
 new file mode 100644
-index 0000000..6c79a88
+index 0000000..30277ce
 --- /dev/null
 +++ b/source/BoundedLogSink.h
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,573 @@
 +#ifndef TIM2TOX_BOUNDED_LOG_SINK_H
 +#define TIM2TOX_BOUNDED_LOG_SINK_H
 +
@@ -282,6 +282,8 @@ index 0000000..6c79a88
 +    Busy = 7, InternalUncertain = 8,
 +};
 +
++#include "BoundedLogOrder.h"
++
 +// Called exclusively under V2TIMLog's mutex. This is the sole file owner for
 +// both typed native records and already-sanitized application records. No
 +// callback, queue, configurable production budget, or recursive logging.
@@ -319,10 +321,30 @@ index 0000000..6c79a88
 +        std::vector<Entry> entries;
 +        status = inventory(entries);
 +        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        if (order_.pristine) {
++            // A zero-byte pre-upgrade lock is the only legacy bootstrap.
++            // Validate the entire inventory before this best-effort ordering.
++            std::sort(entries.begin(), entries.end(), older);
++            for (auto& entry : entries)
++                if (!order_.reserve(entry.rank)) return failedConfigure(SinkStatus::UnsafePath);
++            // More than ten legacy files cannot fit in a bounded snapshot.
++            // Prune only this pre-upgrade population before its first commit;
++            // no managed body exists yet. An interrupted bootstrap is legacy.
++            status = prune(entries, kFileCount - (contains(entries, name_) ? 0 : 1));
++            if (status != SinkStatus::Ok) return failedConfigure(status);
++        }
++        uint64_t claimedRank = 0;
++        if (!order_.reserve(claimedRank)) return failedConfigure(SinkStatus::UnsafePath);
++        for (auto& entry : entries) if (entry.name == name_) entry.rank = claimedRank;
++        status = commitOrder(entries);
++        if (status != SinkStatus::Ok) return failedConfigure(status);
 +        // Validate every candidate before deleting/trimming anything. A link
 +        // anywhere in the recognized ledger makes the entire handoff unsafe.
 +        status = prune(entries, kFileCount - (contains(entries, name_) ? 0 : 1));
 +        if (status != SinkStatus::Ok) { return failedConfigure(status); }
++        // Unlink victims, persist their removal, then create any new active ID.
++        status = commitOrder(entries);
++        if (status != SinkStatus::Ok) return failedConfigure(status);
 +        const auto active = name_;
 +        for (const auto& entry : entries) {
 +            if (entry.size <= kSegmentBytes || entry.name == active) continue;
@@ -333,6 +355,7 @@ index 0000000..6c79a88
 +        }
 +        name_ = active;
 +        status = openActive();
++        if (status == SinkStatus::Ok) status = bindActiveRank(claimedRank);
 +        if (status == SinkStatus::Ok) status = trimLegacy();
 +        if (status != SinkStatus::Ok) { return failedConfigure(status); }
 +        return SinkStatus::Ok;
@@ -387,11 +410,18 @@ index 0000000..6c79a88
 +    }
 +
 +private:
-+    struct Entry { std::string name; uint64_t size; int64_t time; };
++    struct Entry {
++        std::string name;
++        uint64_t size = 0;
++        int64_t time = 0;
++        int32_t nanoseconds = 0;
++        uint64_t device = 0, file = 0, rank = 0;
++    };
 +    std::filesystem::path parent_;
 +    std::string name_, lock_name_;
 +    std::regex family_;
 +    uint64_t size_ = 0;
++    BoundedLogOrder order_;
 +#ifdef _WIN32
 +    HANDLE file_ = INVALID_HANDLE_VALUE, ledger_lock_ = INVALID_HANDLE_VALUE;
 +    std::vector<HANDLE> directories_;
@@ -423,6 +453,56 @@ index 0000000..6c79a88
 +    }
 +    static bool contains(const std::vector<Entry>& entries, const std::string& name) {
 +        return std::any_of(entries.begin(), entries.end(), [&](const auto& e) { return e.name == name; });
++    }
++    static bool naturalLess(const std::string& a, const std::string& b) {
++        size_t i = 0, j = 0;
++        while (i < a.size() && j < b.size()) {
++            if (a[i] >= '0' && a[i] <= '9' && b[j] >= '0' && b[j] <= '9') {
++                size_t endA = i, endB = j;
++                while (endA < a.size() && a[endA] >= '0' && a[endA] <= '9') ++endA;
++                while (endB < b.size() && b[endB] >= '0' && b[endB] <= '9') ++endB;
++                auto firstA = i, firstB = j;
++                while (firstA < endA && a[firstA] == '0') ++firstA;
++                while (firstB < endB && b[firstB] == '0') ++firstB;
++                if (endA - firstA != endB - firstB) return endA - firstA < endB - firstB;
++                const auto comparison = a.compare(firstA, endA - firstA, b, firstB, endB - firstB);
++                if (comparison) return comparison < 0;
++                i = endA; j = endB;
++            } else {
++                if (a[i] != b[j]) return a[i] < b[j];
++                ++i; ++j;
++            }
++        }
++        return i != a.size() || j != b.size() ? i == a.size() : a < b;
++    }
++    static bool older(const Entry& a, const Entry& b) {
++        if (a.rank != b.rank) return a.rank < b.rank;
++        if (a.time != b.time) return a.time < b.time;
++        return a.nanoseconds != b.nanoseconds ? a.nanoseconds < b.nanoseconds : naturalLess(a.name, b.name);
++    }
++    SinkStatus commitOrder(const std::vector<Entry>& entries) {
++#ifdef _WIN32
++        BY_HANDLE_FILE_INFORMATION lock{};
++        if (!GetFileInformationByHandle(ledger_lock_, &lock) || lock.nNumberOfLinks != 1 ||
++            (lock.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) return SinkStatus::UnsafePath;
++#else
++        struct stat lock{}, path{};
++        if (::fstat(ledger_lock_, &lock) || ::fstatat(directory_, lock_name_.c_str(), &path, AT_SYMLINK_NOFOLLOW) ||
++            !S_ISREG(lock.st_mode) || lock.st_nlink != 1 || !S_ISREG(path.st_mode) ||
++            lock.st_dev != path.st_dev || lock.st_ino != path.st_ino) return SinkStatus::UnsafePath;
++#endif
++        std::vector<BoundedLogOrder::Record> retained;
++        for (const auto& entry : entries)
++            if (entry.rank) retained.push_back({entry.device, entry.file, entry.rank});
++        return order_.commit(ledger_lock_, retained);
++    }
++    SinkStatus bindActiveRank(uint64_t rank) {
++        std::vector<Entry> actual;
++        auto status = inventory(actual);
++        if (status != SinkStatus::Ok) return status;
++        bool found = false;
++        for (auto& entry : actual) if (entry.name == name_) { entry.rank = rank; found = true; }
++        return found ? commitOrder(actual) : SinkStatus::IoNoOwner;
 +    }
 +    static bool validUtf8(const uint8_t* p, size_t n) {
 +        for (size_t i = 0; i < n;) {
@@ -498,16 +578,19 @@ index 0000000..6c79a88
 +        if (ledger_lock_ == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_SHARING_VIOLATION ? SinkStatus::Busy : SinkStatus::IoNoOwner;
 +        BY_HANDLE_FILE_INFORMATION info{};
 +        if (!GetFileInformationByHandle(ledger_lock_, &info) || info.nNumberOfLinks != 1 ||
-+            info.nFileSizeHigh || info.nFileSizeLow ||
++            info.nFileSizeHigh || info.nFileSizeLow > 1024 ||
 +            (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) return SinkStatus::UnsafePath;
++        return order_.load(ledger_lock_, info.nFileSizeLow);
 +#else
 +        ledger_lock_ = ::openat(directory_, lock_name_.c_str(), O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
 +        if (ledger_lock_ < 0) return errno == ELOOP ? SinkStatus::UnsafePath : SinkStatus::IoNoOwner;
 +        struct stat info{};
-+        if (::fstat(ledger_lock_, &info) || !S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_size) return SinkStatus::UnsafePath;
++        if (::fstat(ledger_lock_, &info) || !S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_size > 1024) return SinkStatus::UnsafePath;
 +        if (::flock(ledger_lock_, LOCK_EX | LOCK_NB)) return errno == EAGAIN || errno == EWOULDBLOCK ? SinkStatus::Busy : SinkStatus::IoNoOwner;
++        if (::fstat(ledger_lock_, &info)) return SinkStatus::IoNoOwner;
++        if (!S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_size > 1024) return SinkStatus::UnsafePath;
++        return order_.load(ledger_lock_, uint64_t(info.st_size));
 +#endif
-+        return SinkStatus::Ok;
 +    }
 +    SinkStatus inspect(const std::string& name, Entry& entry) {
 +#ifdef _WIN32
@@ -519,14 +602,25 @@ index 0000000..6c79a88
 +            !(info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
 +        CloseHandle(h);
 +        if (!safe) return SinkStatus::UnsafePath;
++        const auto written = (uint64_t(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime;
 +        entry = {name, (uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow,
-+            int64_t((uint64_t(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime)};
++            int64_t(written / 10000000), int32_t((written % 10000000) * 100),
++            info.dwVolumeSerialNumber, (uint64_t(info.nFileIndexHigh) << 32) | info.nFileIndexLow};
 +#else
 +        struct stat s{};
 +        if (::fstatat(directory_, name.c_str(), &s, AT_SYMLINK_NOFOLLOW) != 0) return SinkStatus::IoNoOwner;
 +        if (!S_ISREG(s.st_mode) || s.st_nlink != 1) return SinkStatus::UnsafePath;
-+        entry = {name, uint64_t(s.st_size), int64_t(s.st_mtime)};
++        entry = {name, uint64_t(s.st_size), int64_t(s.st_mtime), 0, uint64_t(s.st_dev), uint64_t(s.st_ino)};
++#ifdef __APPLE__
++        entry.nanoseconds = int32_t(s.st_mtimespec.tv_nsec);
++#elif defined(__linux__)
++        entry.nanoseconds = int32_t(s.st_mtim.tv_nsec);
 +#endif
++#endif
++        entry.rank = order_.rank(entry.device, entry.file);
++        // Only the initial zero-byte lock may adopt nonempty legacy files.
++        // An interrupted create may leave an unbound EMPTY file, never a body.
++        if (!order_.pristine && !entry.rank && entry.size) return SinkStatus::UnsafePath;
 +        return SinkStatus::Ok;
 +    }
 +    SinkStatus inventory(std::vector<Entry>& entries) {
@@ -570,14 +664,13 @@ index 0000000..6c79a88
 +#endif
 +    }
 +    SinkStatus prune(std::vector<Entry>& entries, size_t maximum) {
-+        std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
-+            return a.time != b.time ? a.time < b.time : a.name < b.name;
-+        });
++        std::sort(entries.begin(), entries.end(), older);
 +        for (auto it = entries.begin(); entries.size() > maximum && it != entries.end();) {
 +            if (it->name == name_) { ++it; continue; }
 +            Entry checked;
 +            auto status = inspect(it->name, checked);
 +            if (status != SinkStatus::Ok) return status;
++            if (checked.device != it->device || checked.file != it->file) return SinkStatus::UnsafePath;
 +#ifdef _WIN32
 +            if (!DeleteFileW((parent_ / utf8Path(it->name)).c_str())) return SinkStatus::IoNoOwner;
 +#else
@@ -682,9 +775,13 @@ index 0000000..6c79a88
 +        size_ = to; return SinkStatus::Ok;
 +    }
 +    SinkStatus rotate() {
-+        if (!activeValid() || !closeActive()) return SinkStatus::IoPartialReleased;
++        if (!activeValid()) return SinkStatus::IoPartialReleased;
 +        std::vector<Entry> entries;
 +        auto status = inventory(entries);
++        if (status != SinkStatus::Ok) return status;
++        uint64_t nextRank = 0;
++        if (!order_.reserve(nextRank)) return SinkStatus::UnsafePath;
++        status = commitOrder(entries); // Reserve order before mutating log files.
 +        if (status != SinkStatus::Ok) return status;
 +        uint64_t sequence = 0;
 +        const auto stem = utf8(utf8Path(name_).stem());
@@ -694,6 +791,7 @@ index 0000000..6c79a88
 +            if (++sequence == std::numeric_limits<uint64_t>::max()) return SinkStatus::Invalid;
 +            history = stem + "_" + std::to_string(sequence) + extension;
 +        } while (contains(entries, history));
++        if (!closeActive()) return SinkStatus::IoPartialReleased;
 +#ifdef _WIN32
 +        if (!MoveFileW((parent_ / utf8Path(name_)).c_str(), (parent_ / utf8Path(history)).c_str())) return SinkStatus::IoNoOwner;
 +#else
@@ -705,15 +803,179 @@ index 0000000..6c79a88
 +        entries.clear(); status = inventory(entries);
 +        if (status != SinkStatus::Ok) return status;
 +        status = prune(entries, kFileCount - 1);
-+        return status == SinkStatus::Ok ? openActive() : status;
++        if (status == SinkStatus::Ok) status = commitOrder(entries);
++        if (status == SinkStatus::Ok) status = openActive();
++        return status == SinkStatus::Ok ? bindActiveRank(nextRank) : status;
 +    }
 +    SinkStatus failedConfigure(SinkStatus original) {
 +        return close() == SinkStatus::Ok ? original : SinkStatus::InternalUncertain;
 +    }
 +    SinkStatus failReleased(SinkStatus original) {
-+        return close() == SinkStatus::Ok ?
-+            (original == SinkStatus::UnsafePath ? original : SinkStatus::IoPartialReleased) : SinkStatus::InternalUncertain;
++        if (close() != SinkStatus::Ok || original == SinkStatus::InternalUncertain) return SinkStatus::InternalUncertain;
++        return original == SinkStatus::UnsafePath ? original : SinkStatus::IoPartialReleased;
 +    }
 +};
 +} // namespace tim2tox::diag
++#endif
+diff --git a/source/BoundedLogOrder.h b/source/BoundedLogOrder.h
+new file mode 100644
+index 0000000..7344a0e
+--- /dev/null
++++ b/source/BoundedLogOrder.h
+@@ -0,0 +1,156 @@
++#ifndef TIM2TOX_BOUNDED_LOG_ORDER_H
++#define TIM2TOX_BOUNDED_LOG_ORDER_H
++
++// Included after BoundedLogSink's platform headers and SinkStatus declaration.
++// The existing family lock inode also holds two bounded ordering snapshots.
++// It is never renamed. No filenames, log bodies or account data are stored.
++class BoundedLogOrder {
++public:
++#ifdef _WIN32
++    using Handle = HANDLE;
++#else
++    using Handle = int;
++#endif
++    struct Record { uint64_t device, file, rank; };
++    bool pristine = true;
++    uint64_t sequence = 0;
++    std::vector<Record> records;
++
++    uint64_t rank(uint64_t device, uint64_t file) const {
++        for (const auto& entry : records)
++            if (entry.device == device && entry.file == file) return entry.rank;
++        return 0;
++    }
++    bool reserve(uint64_t& value) {
++        if (sequence == std::numeric_limits<uint64_t>::max()) return false;
++        value = ++sequence;
++        return true;
++    }
++    SinkStatus load(Handle handle, uint64_t bytes) {
++        if (!bytes) return SinkStatus::Ok; // The sole pre-upgrade bootstrap.
++        if (bytes != 1024) return SinkStatus::UnsafePath;
++        std::array<uint8_t, 512> a{}, b{};
++        if (!read(handle, a.data(), a.size(), 0) || !read(handle, b.data(), b.size(), 512))
++            return SinkStatus::IoNoOwner;
++        Snapshot first{}, second{};
++        const bool validA = decode(a, first), validB = decode(b, second);
++        if (!validA && !validB) return SinkStatus::UnsafePath;
++        if (validA && validB && ((first.generation == second.generation && a != b) ||
++            (first.generation > second.generation && first.sequence < second.sequence) ||
++            (second.generation > first.generation && second.sequence < first.sequence)))
++            return SinkStatus::UnsafePath;
++        const auto& latest = validA && (!validB || first.generation >= second.generation) ? first : second;
++        generation_ = latest.generation;
++        sequence = latest.sequence;
++        records = latest.records;
++        pristine = false;
++        return SinkStatus::Ok;
++    }
++    SinkStatus commit(Handle handle, const std::vector<Record>& retained) {
++        Snapshot next{generation_ + 1, sequence, retained};
++        if (generation_ == std::numeric_limits<uint64_t>::max() || !valid(next))
++            return SinkStatus::UnsafePath;
++        std::array<uint8_t, 512> data{};
++        std::copy_n("TXLORD01", 8, data.begin());
++        put(data, 8, next.generation); put(data, 16, next.sequence); put(data, 24, retained.size());
++        for (size_t i = 0; i < retained.size(); ++i) {
++            put(data, 32 + i * 24, retained[i].device);
++            put(data, 40 + i * 24, retained[i].file);
++            put(data, 48 + i * 24, retained[i].rank);
++        }
++        put(data, 504, checksum(data));
++        // Both copies must be durable before any new log body is written.
++        // The second copy lets a completed claim recover from one damaged slot.
++        if (!resize(handle)) return SinkStatus::InternalUncertain;
++        const auto first = size_t(next.generation % 2) * 512;
++        if (!write(handle, data.data(), data.size(), first) || !flush(handle) ||
++            !write(handle, data.data(), data.size(), 512 - first) || !flush(handle))
++            return SinkStatus::InternalUncertain;
++        generation_ = next.generation; records = retained; pristine = false;
++        return SinkStatus::Ok;
++    }
++private:
++    struct Snapshot { uint64_t generation = 0, sequence = 0; std::vector<Record> records; };
++    uint64_t generation_ = 0;
++    static uint64_t get(const std::array<uint8_t, 512>& data, size_t offset) {
++        uint64_t value = 0;
++        for (size_t i = 0; i < 8; ++i) value |= uint64_t(data[offset + i]) << (i * 8);
++        return value;
++    }
++    static void put(std::array<uint8_t, 512>& data, size_t offset, uint64_t value) {
++        for (size_t i = 0; i < 8; ++i) data[offset + i] = uint8_t(value >> (i * 8));
++    }
++    static uint64_t checksum(const std::array<uint8_t, 512>& data) {
++        uint64_t value = 14695981039346656037ULL;
++        for (size_t i = 0; i < 504; ++i) { value ^= data[i]; value *= 1099511628211ULL; }
++        return value; // Integrity check for bounded snapshots, not authentication.
++    }
++    static bool valid(const Snapshot& snapshot) {
++        if (!snapshot.generation || snapshot.records.size() > 10) return false;
++        for (size_t i = 0; i < snapshot.records.size(); ++i) {
++            const auto& a = snapshot.records[i];
++            if (!a.rank || a.rank > snapshot.sequence) return false;
++            for (size_t j = 0; j < i; ++j) {
++                const auto& b = snapshot.records[j];
++                if (a.rank == b.rank || (a.device == b.device && a.file == b.file)) return false;
++            }
++        }
++        return true;
++    }
++    static bool decode(const std::array<uint8_t, 512>& data, Snapshot& snapshot) {
++        if (!std::equal(data.begin(), data.begin() + 8, "TXLORD01") || get(data, 504) != checksum(data)) return false;
++        snapshot.generation = get(data, 8); snapshot.sequence = get(data, 16);
++        const auto count = get(data, 24);
++        if (count > 10) return false;
++        for (size_t i = 0; i < count; ++i)
++            snapshot.records.push_back({get(data, 32 + i * 24), get(data, 40 + i * 24), get(data, 48 + i * 24)});
++        for (size_t i = 32 + count * 24; i < 504; ++i) if (data[i]) return false;
++        return valid(snapshot);
++    }
++    static bool resize(Handle handle) {
++#ifdef _WIN32
++        LARGE_INTEGER end; end.QuadPart = 1024;
++        return SetFilePointerEx(handle, end, nullptr, FILE_BEGIN) && SetEndOfFile(handle);
++#else
++        return ::ftruncate(handle, 1024) == 0;
++#endif
++    }
++    static bool flush(Handle handle) {
++#ifdef _WIN32
++        return FlushFileBuffers(handle);
++#else
++        return ::fsync(handle) == 0;
++#endif
++    }
++    static bool read(Handle handle, uint8_t* data, size_t count, uint64_t offset) {
++        while (count) {
++#ifdef _WIN32
++            LARGE_INTEGER position; position.QuadPart = offset; DWORD done = 0;
++            if (!SetFilePointerEx(handle, position, nullptr, FILE_BEGIN) ||
++                !ReadFile(handle, data, DWORD(count), &done, nullptr) || !done) return false;
++#else
++            const auto done = ::pread(handle, data, count, off_t(offset));
++            if (done < 0 && errno == EINTR) continue;
++            if (done <= 0) return false;
++#endif
++            data += done; count -= done; offset += done;
++        }
++        return true;
++    }
++    static bool write(Handle handle, const uint8_t* data, size_t count, uint64_t offset) {
++        while (count) {
++#ifdef _WIN32
++            LARGE_INTEGER position; position.QuadPart = offset; DWORD done = 0;
++            if (!SetFilePointerEx(handle, position, nullptr, FILE_BEGIN) ||
++                !WriteFile(handle, data, DWORD(count), &done, nullptr) || !done) return false;
++#else
++            const auto done = ::pwrite(handle, data, count, off_t(offset));
++            if (done < 0 && errno == EINTR) continue;
++            if (done <= 0) return false;
++#endif
++            data += done; count -= done; offset += done;
++        }
++        return true;
++    }
++};
 +#endif

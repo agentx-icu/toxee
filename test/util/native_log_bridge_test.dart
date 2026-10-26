@@ -141,7 +141,7 @@ void main() {
               (file) => file.uri.pathSegments.last == '.app.log.sink-lock',
             )
             .lengthSync(),
-        0,
+        1024,
       );
     },
   );
