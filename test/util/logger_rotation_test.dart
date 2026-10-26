@@ -1,18 +1,6 @@
-// P11 regression test: the toxee logger used to create
-// `app_<timestamp>.log` per launch and never delete the old ones. Long-lived
-// installs accumulated an unbounded number of files in `logs/`. We now keep
-// the most recent N files (default 10).
-//
-// We exercise the prune helper indirectly via `AppLogger.initialize` by
-// pointing `setLogPath` at a temp directory and pre-seeding 12 fake
-// `app_*.log` files. After init we expect exactly 10 files plus the new one
-// the logger just opened.
-//
-// We deliberately do not assert on the in-session 10MB size-rotation here —
-// generating > 10MB of log output in a unit test is wasteful, and the
-// rotation code path is shielded by a guard that no-ops on custom paths
-// anyway. The basic correctness of the size threshold is enforced by
-// reading the code: see `_rotateIfNeeded` in `lib/util/logger.dart`.
+// Real file IO exercises the same native owner used by production. Its
+// canonical numeric app_<session>.log family is bounded across launches; names
+// outside that family belong to their caller and must not be deleted.
 
 import 'dart:io';
 
@@ -27,16 +15,17 @@ void main() {
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('toxee_logger_p11_');
+      AppLogger.resetForTesting();
     });
 
     tearDown(() async {
+      AppLogger.resetForTesting();
       try {
         await tempDir.delete(recursive: true);
       } catch (_) {}
     });
 
-    test(
-        'initialize keeps the new log file and prunes old app_*.log files '
+    test('initialize keeps the new log file and prunes old app_*.log files '
         'beyond the most recent 10', () async {
       // Pre-seed 12 fake old log files with monotonically increasing mtimes
       // so the sort by mtime is deterministic. The mtimes are STAMPED, not
@@ -46,19 +35,19 @@ void main() {
       // order — and therefore this test — a coin flip.
       final base = DateTime.now().subtract(const Duration(hours: 1));
       for (var i = 0; i < 12; i++) {
-        final f = File('${tempDir.path}/app_old_$i.log');
+        final f = File('${tempDir.path}/app_${1700000000000 + i}.log');
         await f.writeAsString('seed $i');
         await f.setLastModified(base.add(Duration(minutes: i)));
       }
 
-      // Point the logger at a NEW file inside the same directory. Using a
-      // custom path bypasses the timestamped session filename but still
-      // exercises the prune helper, which scans the parent directory for
-      // anything matching `app_*.log`. Join with the PLATFORM separator: on
+      // Point the logger at a new numeric canonical session in the same family.
+      // Join with the PLATFORM separator: on
       // Windows a hardcoded '/' produced a mixed-separator activePath that
       // never string-matched the '\'-separated listSync() paths below.
       final activePath =
-          '${tempDir.path}${Platform.pathSeparator}app_active.log';
+          '${tempDir.path}${Platform.pathSeparator}app_1800000000000.log';
+      final unrelated = File('${tempDir.path}/app_developer_notes.log')
+        ..writeAsStringSync('unrelated synthetic notes');
       AppLogger.setLogPath(activePath);
 
       await AppLogger.initialize();
@@ -70,17 +59,26 @@ void main() {
       final remaining = tempDir
           .listSync()
           .whereType<File>()
-          .where((f) =>
-              f.uri.pathSegments.last.startsWith('app_') &&
-              f.uri.pathSegments.last.endsWith('.log'))
+          .where(
+            (f) => RegExp(
+              r'^app_[0-9]+(_[0-9]+)*\.log$',
+            ).hasMatch(f.uri.pathSegments.last),
+          )
           .toList();
 
       // We expect at most 10 total: the active file is guaranteed to be
       // kept; the 9 most-recent of the 12 seeded files round it out.
       // (We seeded 12 and keep 10, so 3 of the old files must be gone.)
-      expect(remaining.length, lessThanOrEqualTo(10));
+      expect(remaining.length, 10);
       // The active file MUST still exist.
       expect(remaining.any((f) => f.path == activePath), isTrue);
+      for (var i = 0; i < 12; i++) {
+        expect(
+          File('${tempDir.path}/app_${1700000000000 + i}.log').existsSync(),
+          i >= 3,
+        );
+      }
+      expect(unrelated.readAsStringSync(), 'unrelated synthetic notes');
     });
   });
 }

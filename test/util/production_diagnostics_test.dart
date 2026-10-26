@@ -210,11 +210,21 @@ void main() {
           await handle.close();
         }
         AppLogger.logError(marker, UnrenderableFailure());
-        expect(AppLogger.getLogPath(), isNot(current.path));
+        expect(AppLogger.getLogPath(), current.path);
+        expect(current.lengthSync(), lessThanOrEqualTo(10 * 1024 * 1024));
         expect(
-          directory.listSync().whereType<File>().length,
+          directory
+              .listSync()
+              .whereType<File>()
+              .where(
+                (file) => RegExp(
+                  r'^app_[0-9]+(_[0-9]+)*\.log$',
+                ).hasMatch(file.uri.pathSegments.last),
+              )
+              .length,
           lessThanOrEqualTo(10),
         );
+        expect(File('${directory.path}/.app.log.sink-lock').lengthSync(), 1024);
         expect(
           File(AppLogger.getLogPath()!).lengthSync(),
           lessThan(10 * 1024 * 1024),
@@ -223,21 +233,36 @@ void main() {
     },
   );
 
-  test(
-    'arbitrary custom fixture paths retain their explicit append behavior',
-    () async {
-      await initialize();
-      final handle = await log.open(mode: FileMode.append);
-      try {
-        await handle.truncate(10 * 1024 * 1024);
-      } finally {
-        await handle.close();
-      }
-      AppLogger.logError(marker, UnrenderableFailure());
-      expect(AppLogger.getLogPath(), log.path);
-      expect(log.lengthSync(), greaterThan(10 * 1024 * 1024));
-    },
-  );
+  test('custom paths share the bounded stable-path policy', () async {
+    await initialize();
+    final handle = await log.open(mode: FileMode.append);
+    try {
+      await handle.truncate(10 * 1024 * 1024);
+    } finally {
+      await handle.close();
+    }
+    AppLogger.logError(marker, UnrenderableFailure());
+    expect(
+      File(AppLogger.getLogPath()!).absolute.resolveSymbolicLinksSync(),
+      log.absolute.resolveSymbolicLinksSync(),
+    );
+    expect(log.lengthSync(), lessThanOrEqualTo(10 * 1024 * 1024));
+    expect(log.readAsStringSync(), contains('origin=application'));
+    expect(
+      directory
+          .listSync()
+          .whereType<File>()
+          .where(
+            (file) => RegExp(
+              r'^app(_[0-9]+)?\.log$',
+            ).hasMatch(file.uri.pathSegments.last),
+          )
+          .length,
+      2,
+    );
+    expect(File('${directory.path}/.app.log.sink-lock').lengthSync(), 1024);
+    expect(directory.listSync().whereType<File>().length, 3);
+  });
 
   test(
     'hostile Type and caller StackTrace are never evaluated in production',
@@ -285,6 +310,32 @@ void main() {
       AppLogger.setLogPath('${log.path}/bad');
       expect(AppLogger.initialize, returnsNormally);
       await AppLogger.initialize();
+    },
+  );
+
+  test(
+    'a reentrant failing terminal writer cannot recursively route failures',
+    () async {
+      var consoleAttempts = 0;
+      var errorAttempts = 0;
+      AppLogger.resetForTesting(
+        production: true,
+        consoleWriter: (_) {
+          consoleAttempts++;
+          throw StateError(marker);
+        },
+        errorWriter: (_) {
+          errorAttempts++;
+          AppLogger.setConsoleLoggingEnabled(true);
+          AppLogger.warn(marker);
+        },
+      );
+      await initialize();
+      AppLogger.setConsoleLoggingEnabled(true);
+      expect(() => AppLogger.warn(marker), returnsNormally);
+      expect(consoleAttempts, 2);
+      expect(errorAttempts, 1);
+      expect(log.readAsStringSync(), isNot(contains(marker)));
     },
   );
 

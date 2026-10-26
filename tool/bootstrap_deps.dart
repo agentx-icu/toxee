@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'bootstrap_overrides.dart';
+import 'bootstrap_native_log_overlay.dart';
 import 'bootstrap_patch_integrity.dart';
 import 'bootstrap_uikit_overlay.dart';
 
@@ -97,6 +98,12 @@ void main(List<String> args) async {
     }
   }
 
+  try {
+    ensureNativeLogOverlay(repoRoot);
+  } catch (error) {
+    stderr.writeln('bootstrap_deps: native log overlay failed: $error');
+    exit(1);
+  }
   try {
     ensureUIKitOverlay(repoRoot);
   } catch (error) {
@@ -368,6 +375,12 @@ int _offlineCheck(String repoRoot) {
     stderr.writeln(
       'bootstrap_deps: offline-check: submodule directory missing',
     );
+    return 1;
+  }
+  try {
+    ensureNativeLogOverlay(repoRoot, checkOnly: true);
+  } catch (error) {
+    stderr.writeln('bootstrap_deps: native log overlay check failed: $error');
     return 1;
   }
   if (!sdkDir.existsSync()) {

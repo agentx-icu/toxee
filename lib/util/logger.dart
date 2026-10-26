@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
 import 'app_paths.dart';
 import 'diagnostic_record.dart';
-import 'logger_retention.dart';
+import 'native_log_bridge.dart';
+import 'owned_log_sink.dart';
 
 /// Log levels for unified format (matches C++ V2TIMLog).
 enum LogLevel { debug, info, warn, error, fatal }
@@ -14,6 +17,7 @@ class AppLogger {
   static int _sequence = 0;
   static void Function(String) _consoleWriter = Zone.root.print;
   static void Function(String) _errorWriter = stderr.writeln;
+  static bool _writingStderr = false;
   static bool _production = !kDebugMode;
   static const _maxEarlyRecords = 32;
   static final _earlyRecords = <DiagnosticRecord>[];
@@ -21,20 +25,13 @@ class AppLogger {
   static final int _pid = _getPid();
   static bool _enableFileLogging = true;
   static bool _enableConsoleLogging = false;
-  static File? _logFile;
+  static String? _logPath;
+  static OwnedLogSink _fileSink = OwnedLogSink();
+  static NativeLogBridge? _nativeBridge;
   static bool _initialized = false;
+  static Future<void>? _initializing;
+  static int _sinkEpoch = 0;
   static String? _customLogPath;
-  static bool _hasLoggedError = false;
-
-  /// P11 (`local-storage-review-2026-05-18.md`): the logger creates a new
-  /// `app_<timestamp>.log` per launch. Without bounds the `logs/` directory
-  /// grows for the lifetime of the install. We keep the most recent N files
-  /// and within a session rotate when the current file exceeds [_maxLogBytes].
-  static const int _maxLogFiles = 10;
-  static const int _maxLogBytes = 10 * 1024 * 1024; // 10 MB
-  static int _currentLogBytes = 0;
-  static int _rotationIndex = 0;
-  static DateTime? _sessionTimestamp;
 
   static const String _tid =
       'main'; // Dart main isolate; use Isolate.current.debugName if needed
@@ -77,19 +74,23 @@ class AppLogger {
   }
 
   static void closeLogSinkForDeletion() {
-    _logFile = null;
+    _sinkEpoch++;
+    _initializing = null;
+    // Throws before a caller can delete any logs if native cannot confirm close.
+    _fileSink.close();
+    _logPath = null;
     _initialized = false;
-    _hasLoggedError = false;
-    _currentLogBytes = 0;
-    _rotationIndex = 0;
-    _sessionTimestamp = null;
   }
 
   static Future<void> openFreshLogSink(String path) async {
     closeLogSinkForDeletion();
+    final epoch = _sinkEpoch;
     _customLogPath = path;
     _enableFileLogging = true;
-    await _initialize(verifySink: true);
+    await _initialize();
+    if (epoch != _sinkEpoch || !_fileSink.ownsFile) {
+      throw StateError('Fresh native log sink could not be established');
+    }
   }
 
   @visibleForTesting
@@ -98,6 +99,11 @@ class AppLogger {
     void Function(String)? consoleWriter,
     void Function(String)? errorWriter,
   }) {
+    _sinkEpoch++;
+    _initializing = null;
+    _fileSink.discardMemory();
+    _fileSink = OwnedLogSink();
+    _nativeBridge = null;
     _consoleWriter = consoleWriter ?? Zone.root.print;
     _errorWriter = errorWriter ?? stderr.writeln;
     _production = !kDebugMode || production;
@@ -106,77 +112,59 @@ class AppLogger {
     _sequence = 0;
     _enableFileLogging = true;
     _enableConsoleLogging = false;
-    _logFile = null;
+    _logPath = null;
     _initialized = false;
     _customLogPath = null;
-    _hasLoggedError = false;
-    _currentLogBytes = 0;
-    _rotationIndex = 0;
-    _sessionTimestamp = null;
   }
 
   static Future<void> initialize() async {
+    final epoch = _sinkEpoch;
     try {
       await _initialize();
     } catch (e) {
+      if (epoch != _sinkEpoch) return;
       _internalFailure(e);
-      _enableFileLogging = false;
+      // Directory/native failure must not silently disable the bounded memory
+      // sink. It performs no IO and cannot bypass the failed path validation.
+      _completeInitialization();
     }
   }
 
-  static Future<void> _initialize({bool verifySink = false}) async {
-    if (_initialized) return;
-    if (_enableFileLogging) {
-      if (_customLogPath != null) {
-        final logFile = File(_customLogPath!);
-        final logDir = logFile.parent;
-        if (!await logDir.exists()) {
-          await logDir.create(recursive: true);
-        }
-        _logFile = logFile;
-        // LoggingBootstrap supplies the canonical timestamped path explicitly.
-        // It must receive the same rotation policy as the implicit default.
-        final timestamp = RegExp(
-          r'^app_([0-9]+)\.log$',
-        ).firstMatch(logFile.uri.pathSegments.last)?.group(1);
-        if (timestamp != null) {
-          _sessionTimestamp = DateTime.fromMillisecondsSinceEpoch(
-            int.parse(timestamp),
-          );
-        }
-        if (!_production) {
-          _writeStderr('AppLogger: Log file initialized at: ${logFile.path}');
-        }
-      } else {
-        final logDir = await AppPaths.logsDir;
-        if (!await logDir.exists()) {
-          await logDir.create(recursive: true);
-        }
-        _sessionTimestamp = DateTime.now();
-        final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
-        _logFile = File('${logDir.path}/app_$timestamp.log');
-      }
-      const startMarker = '=== App Log Started ===\n';
-      final logFile = _logFile!;
-      final previousLength = verifySink && await logFile.exists()
-          ? await logFile.length()
-          : 0;
-      await logFile.writeAsString(
-        startMarker,
-        mode: FileMode.append,
-        flush: verifySink,
-      );
-      _currentLogBytes = verifySink
-          ? await _verifySinkWrite(
-              logFile,
-              minimumLength: previousLength + startMarker.length,
-            )
-          : await _safeFileLength(logFile);
+  static Future<void> _initialize() {
+    if (_initialized) return Future.value();
+    final pending = _initializing;
+    if (pending != null) return pending;
+    final task = _initializeSink(_sinkEpoch);
+    _initializing = task;
+    return task.whenComplete(() {
+      if (identical(_initializing, task)) _initializing = null;
+    });
+  }
 
-      // P11: clean up old log files. Keep the most recent [_maxLogFiles]
-      // app_*.log files; never delete the file we just opened.
-      await _pruneOldLogFiles();
+  static Future<void> _initializeSink(int epoch) async {
+    if (_enableFileLogging) {
+      final path = _customLogPath ?? await AppPaths.logFilePath;
+      if (epoch != _sinkEpoch) return;
+      // Resolve legitimate OS/container aliases on the established parent only.
+      // Never resolve or probe the leaf: native rejects leaf links/hard links
+      // and owns the validated physical directory handle for all later writes.
+      final log = File(path).absolute;
+      await log.parent.create(recursive: true);
+      final parent = await log.parent.resolveSymbolicLinks();
+      if (epoch != _sinkEpoch) return;
+      _fileSink.begin();
+      _logPath = p.join(parent, p.basename(log.path));
+      _fileSink.append('=== App Log Started ===\n');
+      if (!handoffToNative()) {
+        _writeStderr(
+          'origin=logger file_sink=unavailable buffer=bounded_memory',
+        );
+      }
     }
+    _completeInitialization();
+  }
+
+  static void _completeInitialization() {
     _initialized = true;
     final early = List<DiagnosticRecord>.of(_earlyRecords);
     _earlyRecords.clear();
@@ -192,72 +180,30 @@ class AppLogger {
     }
   }
 
-  static Future<int> _verifySinkWrite(
-    File file, {
-    required int minimumLength,
-  }) async {
-    if (!await file.exists()) {
-      throw FileSystemException('Fresh log sink was not created', file.path);
-    }
-    final length = await file.length();
-    if (length < minimumLength) {
-      throw FileSystemException(
-        'Fresh log sink did not persist the startup marker',
-        file.path,
-      );
-    }
-    return length;
-  }
-
-  /// Length of [file] in bytes, or 0 if it does not exist / cannot be stat'd.
-  static Future<int> _safeFileLength(File file) async {
+  /// Explicitly retries a safe handoff after an unavailable native library.
+  /// Until it succeeds, at most 32 bounded records remain in memory and process
+  /// death can lose them. No Dart file writer bypasses native path validation.
+  static bool handoffToNative() {
+    final path = _logPath;
+    if (!_enableFileLogging || path == null) return false;
+    if (_fileSink.ownsFile) return true;
     try {
-      if (await file.exists()) {
-        return await file.length();
-      }
-    } catch (_) {
-      // Ignore stat failures; treat as zero.
-    }
-    return 0;
-  }
-
-  static Future<void> _pruneOldLogFiles() async {
-    final current = _logFile;
-    if (current == null) return;
-    try {
-      LoggerRetention.prune(current, maximumFiles: _maxLogFiles);
-    } catch (e) {
-      _internalFailure(e);
-    }
-  }
-
-  /// P11: rotate the active log when it exceeds [_maxLogBytes]. Only applies
-  /// when a session timestamp is set (i.e., the default `app_<ts>.log` path).
-  /// Custom paths (CI / test) keep the previous append-forever behaviour.
-  static void _rotateIfNeeded() {
-    if (_sessionTimestamp == null) return;
-    final current = _logFile;
-    if (current == null) return;
-    if (_currentLogBytes < _maxLogBytes) return;
-    try {
-      final dir = current.parent;
-      _rotationIndex++;
-      final timestamp = _sessionTimestamp!.millisecondsSinceEpoch;
-      final next = File('${dir.path}/app_${timestamp}_$_rotationIndex.log');
-      next.writeAsStringSync(
-        '=== App Log Rotated (segment $_rotationIndex) ===\n',
-        mode: FileMode.append,
-      );
-      _logFile = next;
-      _currentLogBytes = next.lengthSync();
-      LoggerRetention.prune(next, maximumFiles: _maxLogFiles);
-    } catch (e) {
-      _internalFailure(e);
+      final bridge = _nativeBridge ??= Tim2ToxLogBridge(Tim2ToxFfi.open());
+      return _fileSink.handoff(bridge, path);
+    } catch (error) {
+      _internalFailure(error);
+      return false;
     }
   }
 
   static void setFileLoggingEnabled(bool enabled) {
+    if (!enabled) {
+      _sinkEpoch++;
+      _initializing = null;
+      _fileSink.close();
+    }
     _enableFileLogging = enabled;
+    if (enabled && _logPath != null) handoffToNative();
   }
 
   static void setConsoleLoggingEnabled(bool enabled) {
@@ -265,42 +211,23 @@ class AppLogger {
   }
 
   static String? getLogPath() {
-    return _logFile?.path;
+    return _fileSink.ownsFile ? _logPath : null;
   }
 
   static void _writeToFile(String line) {
     if (!_enableFileLogging) return;
-    if (_logFile == null) {
-      if (!_hasLoggedError) {
-        _hasLoggedError = true;
-        _writeStderr(
-          'AppLogger: Log file is null, cannot write. Call initialize() first.',
-        );
-      }
-      return;
-    }
-    try {
-      final bytes = '$line\n';
-      _logFile!.writeAsStringSync(bytes, mode: FileMode.append);
-      _currentLogBytes = _logFile!.lengthSync();
-      _rotateIfNeeded();
-      _hasLoggedError = false;
-    } catch (e, stackTrace) {
-      if (!_hasLoggedError) {
-        _hasLoggedError = true;
-        _internalFailure(e);
-        if (!_production) {
-          _writeStderr(stackTrace.toString());
-        }
-      }
-    }
+    _fileSink.append('$line\n');
   }
 
   static void _writeStderr(String message) {
+    if (_writingStderr) return;
+    _writingStderr = true;
     try {
       _errorWriter(message);
     } catch (_) {
       /* No recursive fallback. */
+    } finally {
+      _writingStderr = false;
     }
   }
 

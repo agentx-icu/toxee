@@ -200,6 +200,17 @@ jobs:
       - name: Build Tim2Tox native library
         run: bash tool/ci/build_tim2tox.sh --target linux --mode "$BUILD_MODE"
 
+      - name: Verify native log budget, ownership and safe paths
+        run: python3 tool/ci/test_native_log_retention.py --evidence build/evidence/native-log-retention.json
+
+      - name: Upload native log retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toxee-native-logs-${{ runner.os }}-${{ runner.arch }}
+          path: build/evidence/native-log-retention.json
+          if-no-files-found: warn
+
       - name: Build Linux bundle
         run: flutter build linux --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
 
@@ -373,6 +384,17 @@ jobs:
           VCPKG_ROOT: ${{ runner.temp }}/vcpkg
         run: bash tool/ci/build_tim2tox.sh --target windows --mode "$BUILD_MODE"
 
+      - name: Verify native log budget, ownership and safe paths
+        run: python tool/ci/test_native_log_retention.py --evidence build/evidence/native-log-retention.json
+
+      - name: Upload native log retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toxee-native-logs-${{ runner.os }}-${{ runner.arch }}
+          path: build/evidence/native-log-retention.json
+          if-no-files-found: warn
+
       - name: Build Windows runner
         run: flutter build windows --release --dart-define=FLUTTER_BUILD_MODE="$BUILD_MODE"
 
@@ -456,6 +478,17 @@ jobs:
 
       - name: Build Tim2Tox native library
         run: bash tool/ci/build_tim2tox.sh --target macos --mode "$BUILD_MODE"
+
+      - name: Verify native log budget, ownership and safe paths
+        run: python3 tool/ci/test_native_log_retention.py --evidence build/evidence/native-log-retention.json
+
+      - name: Upload native log retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toxee-native-logs-${{ runner.os }}-${{ runner.arch }}
+          path: build/evidence/native-log-retention.json
+          if-no-files-found: warn
 
       - name: Verify macOS signing order
         run: flutter test --no-pub test/ci/macos_signing_native_test.dart test/ci/macos_packaging_test.dart

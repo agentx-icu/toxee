@@ -20,9 +20,13 @@ MainMenu.xib 原本有 Preferences… 项却未连接 action；Flutter 既有 Cm
 
 Framework/dispatcher 钩子现早于 session ownership 和 bootstrap 安装；外层 guarded zone 也覆盖 binding 初始化失败。生产 Dart 日志仅接收固定 origin、静态异常类别、内部捕获的受限 VM package/dart 位置或 AOT build ID/地址；任意正文、异常原值、framework context/collector、SDK print 正文均丢弃，console 和 logger 自身失败出口也遵守此边界。Debug binding 错误缓冲、呈现和 harness 正文保留。早期最多缓冲 32 条记录，每条最多 24 行允许的栈；sink 可用后写入，失败回退不重入 logger。不求值 Type/runtimeType getter 或调用方提供的 StackTrace；`stack=capture_point` 明确表示日志捕获位置而非异常原始 throw，原异常栈仅留在 debug。Console/stderr writer 抛异常也不能逃出 handler；失效 console sink 禁用后仍继续文件输出。
 
-沿用既定十个 app 日志文件、每段 10 MB。显式 canonical app_<timestamp>.log 路径现与隐式默认路径一样轮转；任意 custom fixture 名称保留已说明的 append 行为。`test/util/production_diagnostics_test.dart` 覆盖边界与留存；`python3 tool/ci/test_production_diagnostics.py` 检查真实子进程 stdout/stderr 的 marker secret，并以精确符号还原真实 stripped Dart AOT 栈。这些共享代码证据不代表每个 OS 已安装 release 的真实崩溃验收。
+既定留存预算现由单一 native 文件 owner 同时约束 Dart 与原生 typed 记录：包含固定 active 文件和跨会话历史在内，最多十段，每段实际 UTF-8 字节不超过 10 MiB；先轮转再写。单条超过 64 KiB 时保留完整 UTF-8 前缀并显式记 omitted bytes；旧版超限文件仅保留最近尾部并写固定省略标记。Canonical app 会话共用一本账；custom/harness 按反复去掉末尾 `_digits` 的根名及 extension 分族有界，修复此前 custom 路径无限 append 豁免。精确固定 Tim2Tox `5341e64ed62b81a94a311c768a73863a3cffcbb1` 的 overlay 及前后文件/patch hash 已纳入版本控制，bootstrap 失败即停、offline 再核，native cache key 同时包含 overlay。
 
-**仍有工程项：** Tim2Tox 的 V2TIMLog 持有独立 mutex 保护的 std::ofstream，FFI 仅有 set-log-file；SDK OnLog listener 并非 V2TIMLog writer。Dart rename/reopen 不能轮转仍持有的原生 descriptor，周期 stat 也不能对并发原生写入建立硬上限。原生 sink ownership/有界留存、独立 worker 错误转发、原生崩溃捕获、完整精确构建符号归档及 installed release 故障/符号还原仍待完成；这些不必然依赖远端服务。本次未增加上传或遥测服务。
+受控 C ABI 使用 generation ownership 和明确状态；旧 SDK setter 不能抢走 managed sink。清日志先关闭 native 句柄再删除，之后打开新 generation；拒绝或不确定的 close 阻止删除。已知 partial write 不重放，并写固定丢失通知。Native 使用实际 no-follow 文件句柄、单 hardlink 普通文件校验；Dart 先解析已建立父目录的真实位置，覆盖 macOS/iOS 正常 `/var` 别名，不跟随日志 leaf。默认真实预算回归包含并发 Dart 形状/native producer 超过 120 MiB、十二会话、显式 UTF-8 截断、真实 POSIX 写失败及 symlink/hardlink 负例；Windows 和桌面 native 双架构设有同源 probe 的 CI 硬门禁。见 `tool/ci/test_native_log_retention.py` 及最终 PR 制品；只将实际执行的平台列为通过。
+
+固定 1024 字节 family lock/顺序索引防止第二进程删除或写入首 owner 的 live ledger；同一 family 的第二进程收到 BUSY，应用继续运行，仅使用安全诊断而不落盘；独立 per-instance harness family 仍可并发落盘。同一 held inode 保存最多十个实际文件身份/rank 的两个已 flush 快照；每个新短会话和 custom path 重 claim 都先持久化新 rank 再写正文，轮转在同时间戳、suffix 复用、进程重启及墙钟回退下仍保留最近内容。首次 0B 旧锁仅以原时间戳/数字名作 legacy best-effort，无法恢复升级前完全同时间戳的真实先后；损坏/过大索引、未知非空恢复或替换身份均拒绝，metadata partial/flush 失败不能授权删除或重放。负责人确认所有 writer 已关闭后，可显式清理不需要的恢复文件并重新 claim；这不代表备份恢复/旧版升级验收。额外 1 KiB 元数据不占十个 .log 段，也不引入每记录 fsync。这是保守的所有权边界，没有实现跨进程日志合并。Native 缺失、拒绝或状态不确定时，仅在内存保留最多 32 条、每条至多 64 KiB，并使用受保护的安全 stderr；没有绕过路径验证的 Dart 文件 writer，进程退出会丢失尚未落盘的 buffer。正常打包/debug/harness 含 native owner，保留原文件名与 tail 行为；本次未增加上传或遥测服务。
+
+**仍有工程项：** native crash capture、完整精确构建符号归档及 installed release 故障/符号还原仍待完成。当前短寿命 `compute`/`Isolate.run` worker 已经通过 Future 向既有处理器回传失败（`video_handler.dart`、`windows_window_resurface.dart`）；本仓没有需新增 listener 架构的长驻 `Isolate.spawn` worker。尚未在 installed release 独立强制 worker 故障、恢复原 throw 栈或验收 SDK/plugin/native-thread 覆盖。本地 writer/留存修复不代表 native crash reporter 或全 OS installed release 验收完成；这些不必然依赖远端服务。
 
 ## Linux 账户目录（W3）
 
@@ -181,7 +185,7 @@ Linux coverage 不代表这些平台检查通过。
 | --- | --- | --- |
 | P1、P4 | 检查门禁 verified；负责人审计 to do | archive/导出包检查 built Apple metadata/原生库；SDK/API reason、数据声明和后台答案仍由负责人复核。 |
 | W4、X6 | unsigned archive/策略门禁 verified；正式分发 to do | 上述真实 unsigned archive；负例拒绝上传、自动签名、错误团队/profile/证书、到期、开发/设备/企业身份和旧输出复用。真实手工签名导出/安装尚未验证。 |
-| X9 | Dart 捕获点边界已验证；native/installed 仍 to do | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
+| X9 | 有界捕获点诊断与统一本地 writer；worker/crash/symbol/installed 仍待验证 | archive/dSYM 保留七天；仅归档不能证明 native reporter 覆盖、符号匹配或受控 release crash 解析。 |
 | X4 | needs device | 负责人签名导出后在 iPhone/iPad 安装/升级，验证权限、网络/媒体和用户数据保留。 |
 | X5 | verified（变更范围）；平台差异验收保留 | 平台打包门禁和 analyzer 要求的 async/生命周期修正由回归及最终 native CI 验证。Android 保留既有终包门禁，不据此宣称通用功能等价。 |
 | L*、D*、I*、B*、M*、F* | 保留既有审计状态 | async/生命周期安全修正不等于布局、输入、媒体、性能或真机验收。原完整审计限制保留；移动端第 12 项新增 archive 证据，不等于正式分发验收。 |

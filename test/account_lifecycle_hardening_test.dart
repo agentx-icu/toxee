@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -803,6 +804,10 @@ Future<void> _seedPrivacyResidue(String toxId) async {
     p.join(logsDir.path, 'app_old.log'),
   ).writeAsString('old diagnostic residue $toxId', flush: true);
 
+  await File(
+    p.join(logsDir.path, 'binary-diagnostic.bin'),
+  ).writeAsBytes([0xff, ...utf8.encode(toxId), 0x80], flush: true);
+
   final activeLogPath = p.join(logsDir.path, 'app_active.log');
   AppLogger.setLogPath(activeLogPath);
   await AppLogger.initialize();
@@ -819,14 +824,15 @@ Future<bool> _logResidueContains(String value) async {
   if (await logsDir.exists()) {
     await for (final entry in logsDir.list(recursive: true)) {
       if (entry is! File) continue;
-      if ((await entry.readAsString()).contains(value)) return true;
+      // Tox ID markers are ASCII; scan binary metadata and non-UTF8 residue too.
+      if (latin1.decode(await entry.readAsBytes()).contains(value)) return true;
     }
   }
   final flatLog = File(
     p.join(await AppPaths.applicationSupportPath, 'flutter_client.log'),
   );
   return await flatLog.exists() &&
-      (await flatLog.readAsString()).contains(value);
+      latin1.decode(await flatLog.readAsBytes()).contains(value);
 }
 
 void _installSecureStorageHarness(_SecureStorageHarness harness) {

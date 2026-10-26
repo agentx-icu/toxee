@@ -163,6 +163,9 @@ void main() {
     await File(
       p.join(logsDir.path, 'nested', 'deep.log'),
     ).writeAsString(_logSecret);
+    await File(
+      p.join(logsDir.path, 'binary-diagnostic.bin'),
+    ).writeAsBytes([0xff, ...utf8.encode(_logSecret), 0x80]);
     await flatLog.writeAsString(_logSecret);
   }
 
@@ -213,11 +216,16 @@ void main() {
 
       expect(flatLog.existsSync(), isFalse);
       expect(File(p.join(logsDir.path, 'app_0001.log')).existsSync(), isFalse);
+      expect(
+        File(p.join(logsDir.path, 'binary-diagnostic.bin')).existsSync(),
+        isFalse,
+      );
       expect(Directory(p.join(logsDir.path, 'nested')).existsSync(), isFalse);
       expectFreshLogSink();
       for (final file in logFiles()) {
         expect(
-          file.readAsStringSync(),
+          // Scan all bytes, including binary order metadata. The marker is ASCII.
+          latin1.decode(file.readAsBytesSync()),
           isNot(contains(_logSecret)),
           reason: 'purged log content must not survive in ${file.path}',
         );

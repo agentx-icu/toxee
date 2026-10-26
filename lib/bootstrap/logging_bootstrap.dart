@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
-import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 
 import '../util/app_paths.dart';
 import '../util/harness_environment.dart';
@@ -61,6 +60,13 @@ class LoggingBootstrap {
     AppLogger.info(line);
   }
 
+  /// Probe a private temporary child, never overwrite the intended log leaf.
+  static void _probeDirectory(Directory directory) {
+    directory.createSync(recursive: true);
+    final probe = directory.createTempSync('.toxee-log-probe-');
+    probe.deleteSync();
+  }
+
   static Future<void> initialize() async {
     final logDirEnv = HarnessEnvironment.value(HarnessEnvironment.logDirKey);
     try {
@@ -71,13 +77,7 @@ class LoggingBootstrap {
       if (logDirEnv != null && logDirEnv.isNotEmpty) {
         final testPath = p.join(logDirEnv, 'flutter_client.log');
         try {
-          final testFile = File(testPath);
-          final testDir = testFile.parent;
-          if (!testDir.existsSync()) {
-            testDir.createSync(recursive: true);
-          }
-          testFile.writeAsStringSync('test', mode: FileMode.write);
-          testFile.deleteSync();
+          _probeDirectory(File(testPath).parent);
           logPath = testPath;
           stderr.writeln('AppLogger: Using configured log directory');
         } catch (e) {
@@ -108,12 +108,10 @@ class LoggingBootstrap {
             'build',
             'flutter_client.log',
           );
-          final testFile = File(testPath);
-          final testDir = testFile.parent;
+          final testDir = File(testPath).parent;
           if (testDir.existsSync() || testDir.parent.existsSync()) {
             try {
-              testFile.writeAsStringSync('test', mode: FileMode.write);
-              testFile.deleteSync();
+              _probeDirectory(testDir);
               logPath = testPath;
               stderr.writeln('AppLogger: Using working-directory log storage');
             } catch (e) {
@@ -176,37 +174,14 @@ class LoggingBootstrap {
     await AppLogger.initialize();
 
     final logPath = AppLogger.getLogPath();
-    if (logPath != null) {
-      try {
-        final logFile = File(logPath);
-        logFile.writeAsStringSync(
-          '=== Test Write ===\n',
-          mode: FileMode.append,
-        );
-        stderr.writeln('AppLogger: Test write successful');
-        AppLogger.log('AppLogger initialized with file logging');
-        AppLogger.log('AppLogger: Log file exists and is ready');
-      } catch (e) {
-        stderr.writeln(
-          'AppLogger: ERROR - Failed to write to log file '
-          '${SafeDiagnostics.describeError(e)}',
-        );
-      }
-    } else {
+    // initialize already made the first secure claim. This explicit handoff is
+    // also the retry point if native loading was temporarily unavailable.
+    if (!AppLogger.handoffToNative()) {
       stderr.writeln(
-        'AppLogger: WARNING - Log file path is null after initialization',
+        'origin=logger file_sink=unavailable buffer=bounded_memory',
       );
     }
     AppLogger.log('Application starting...');
-
-    if (logPath != null) {
-      try {
-        final ffiLib = Tim2ToxFfi.open();
-        ffiLib.setLogFile(logPath);
-      } catch (e) {
-        SafeDiagnostics.logFailure('Could not set C++ log file', e);
-      }
-    }
 
     setNativeLibraryName('tim2tox_ffi');
     AppLogger.log(
