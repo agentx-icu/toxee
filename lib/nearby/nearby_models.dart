@@ -1,34 +1,62 @@
+import 'dart:typed_data';
+
 import 'nearby_records.dart';
 
 /// Model types of the nearby feature (see nearby_service.dart).
 /// [idle] = not running (never started, stopped, paused); [cellUnavailable]
 /// = every cell we want is backing off / unavailable right now (the native
 /// side keeps retrying).
-enum NearbyStatus { idle, locating, joining, active, noLocation, dhtNotReady, cellUnavailable }
+enum NearbyStatus {
+  idle,
+  locating,
+  joining,
+  active,
+  noLocation,
+  dhtNotReady,
+  cellUnavailable,
+}
 
 /// Someone in one of our cells, as last heard.
 class NearbyPeer {
   NearbyPeer({
     required this.skHex,
     required this.ekHex,
-    required this.ngcPeerPkHex,
     required this.record,
+    required this.presencePayload,
     required this.lastSeen,
   });
   final String skHex;
   String ekHex;
 
-  /// toxcore-authenticated NGC peer key — the rate/binding key.
-  String ngcPeerPkHex;
   PresenceRecord record;
+  Uint8List presencePayload;
   DateTime lastSeen;
 
   /// The cell the latest record arrived on (where intents are sent).
-  String? cellChatIdHex;
+  String? _cellChatIdHex;
+  String? get cellChatIdHex => _cellChatIdHex;
+
+  /// Each NGC group gives this user its own authenticated peer key.
+  final Map<String, String> _peerKeyByCell = {};
+  String? get ngcPeerPkHex => _peerKeyByCell[_cellChatIdHex];
+  String? peerKeyForCell(String chatIdHex) => _peerKeyByCell[chatIdHex];
 
   /// Every joined cell this peer was heard on; the peer stays listed until
   /// it is gone from all of them (plan §3.4 multi-cell de-duplication).
-  final Set<String> cells = <String>{};
+  Set<String> get cells => _peerKeyByCell.keys.toSet();
+
+  void bindCell(String chatIdHex, String peerKey) {
+    _peerKeyByCell[chatIdHex] = peerKey;
+    _cellChatIdHex = chatIdHex;
+  }
+
+  void forgetCell(String chatIdHex, {String? peerKey}) {
+    if (peerKey != null && _peerKeyByCell[chatIdHex] != peerKey) return;
+    _peerKeyByCell.remove(chatIdHex);
+    if (_cellChatIdHex == chatIdHex) {
+      _cellChatIdHex = _peerKeyByCell.keys.firstOrNull;
+    }
+  }
 
   String get name => record.name;
 }
@@ -66,9 +94,12 @@ class IncomingIntent {
   final String message;
   final DateTime receivedAt;
 
-  String get requestWording =>
-      IntentBody(address: address, nonceHex: nonceHex, message: message, exp: 0)
-          .requestWording();
+  String get requestWording => IntentBody(
+    address: address,
+    nonceHex: nonceHex,
+    message: message,
+    exp: 0,
+  ).requestWording();
 }
 
 enum NearbyIntentFailure { notRunning, messageTooLong, rateLimited, peerGone }

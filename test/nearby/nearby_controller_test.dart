@@ -150,6 +150,31 @@ void main() {
     expect(controller.nearby, same(current));
   });
 
+  test('desktop hidden stops location reads and resume restarts an open page', () async {
+    final service = _FakeService(toxA);
+    controller.attach(service, displayName: () => 'A');
+    await switchesOn(toxA);
+    controller.pageOpened();
+    addTearDown(controller.pageClosed);
+    expect(await controller.startIfEnabled(), isTrue);
+    final readsBefore = location.reads;
+
+    controller.didChangeAppLifecycleState(AppLifecycleState.hidden);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.nearby!.running, isFalse);
+    expect(wire.leaveAlls, greaterThanOrEqualTo(1));
+    await controller.nearby!.refresh();
+    expect(location.reads, readsBefore);
+
+    controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    for (var i = 0; i < 20 && !controller.nearby!.running; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(controller.nearby!.running, isTrue);
+    await controller.nearby!.refresh();
+    expect(location.reads, greaterThan(readsBefore));
+  });
+
   test('shutdownSession only acts on the live service and detaches', () async {
     final a = _FakeService(toxA);
     controller.attach(a, displayName: () => 'A');

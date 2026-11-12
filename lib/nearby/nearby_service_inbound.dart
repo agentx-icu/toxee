@@ -18,10 +18,13 @@ extension _NearbyServiceInbound on NearbyService {
       if (lastBytes != null && _sameBytes(lastBytes, e.payload)) {
         final bound = _bindingByNgcPk[e.peerPkHex];
         final peer = bound == null ? null : _peers[bound.sk];
-        if (peer != null && _joinedChatIds.contains(e.chatIdHex) && peer.cells.add(e.chatIdHex)) {
+        if (peer != null &&
+            _joinedChatIds.contains(e.chatIdHex) &&
+            _sameBytes(peer.presencePayload, e.payload)) {
+          peer.bindCell(e.chatIdHex, e.peerPkHex);
           _notify();
+          return;
         }
-        return;
       }
       final last = _lastRecordByNgcPk[e.peerPkHex];
       if (last != null && now.difference(last) < NearbyService.peerRateWindow) {
@@ -60,6 +63,14 @@ extension _NearbyServiceInbound on NearbyService {
   /// True when the record was taken (new or newer).
   bool _acceptPresence(RendezvousPacket e, PresenceRecord r, DateTime now) {
     if (_keys != null && r.skHex == _keys!.skHex) return false; // our own echo
+    final existing = _peers[r.skHex];
+    if (existing != null &&
+        (r.seq < existing.record.seq ||
+            (r.seq == existing.record.seq &&
+                !_sameBytes(existing.presencePayload, e.payload)))) {
+      _dropped++;
+      return false; // stale or conflicting record, not a copy from another cell
+    }
     final bound = _bindingByNgcPk[e.peerPkHex];
     if (bound == null) {
       _bindingByNgcPk[e.peerPkHex] = (sk: r.skHex, ek: r.ekHex);
@@ -71,34 +82,27 @@ extension _NearbyServiceInbound on NearbyService {
         return false;
       }
       rebinds.add(now);
-      _peers.remove(bound.sk);
+      final previous = _peers[bound.sk];
+      previous?.forgetCell(e.chatIdHex, peerKey: e.peerPkHex);
+      if (previous != null && previous.cells.isEmpty) _peers.remove(bound.sk);
       _bindingByNgcPk[e.peerPkHex] = (sk: r.skHex, ek: r.ekHex);
     }
-    final existing = _peers[r.skHex];
-    if (existing != null) {
-      // A copy of the same record through another cell has identical bytes
-      // and was absorbed before verification (_onPacket); a re-signed record
-      // with an old seq is a replay.
-      if (r.seq <= existing.record.seq) {
-        _dropped++;
-        return false; // replay / stale
-      }
-      existing.record = r;
-      existing.ekHex = r.ekHex;
-      existing.ngcPeerPkHex = e.peerPkHex;
-      existing.lastSeen = now;
-      existing.cellChatIdHex = e.chatIdHex;
-      existing.cells.add(e.chatIdHex);
+    final peer = _peers[r.skHex];
+    if (peer != null) {
+      peer.record = r;
+      peer.presencePayload = Uint8List.fromList(e.payload);
+      peer.ekHex = r.ekHex;
+      peer.lastSeen = now;
+      peer.bindCell(e.chatIdHex, e.peerPkHex);
     } else {
       _peers[r.skHex] = NearbyPeer(
         skHex: r.skHex,
         ekHex: r.ekHex,
-        ngcPeerPkHex: e.peerPkHex,
         record: r,
+        presencePayload: Uint8List.fromList(e.payload),
         lastSeen: now,
       )
-        ..cellChatIdHex = e.chatIdHex
-        ..cells.add(e.chatIdHex);
+        ..bindCell(e.chatIdHex, e.peerPkHex);
     }
     _pruneExpired(now);
     _notify();

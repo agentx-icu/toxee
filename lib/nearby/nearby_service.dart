@@ -457,9 +457,8 @@ class NearbyService extends ChangeNotifier {
   /// heard on another joined cell stay (and are addressed there).
   void _dropPeersOfCell(String chatIdHex) {
     _peers.removeWhere((_, p) {
-      p.cells.remove(chatIdHex);
+      p.forgetCell(chatIdHex);
       if (p.cells.isEmpty) return true;
-      if (p.cellChatIdHex == chatIdHex) p.cellChatIdHex = p.cells.first;
       return false;
     });
   }
@@ -470,15 +469,13 @@ class NearbyService extends ChangeNotifier {
     if (bound == null) return;
     final peer = _peers[bound.sk];
     if (peer != null) {
-      peer.cells.remove(chatIdHex);
-      if (peer.cells.isNotEmpty) {
-        if (peer.cellChatIdHex == chatIdHex) peer.cellChatIdHex = peer.cells.first;
-        return;
-      }
-      _peers.remove(bound.sk);
+      peer.forgetCell(chatIdHex, peerKey: ngcPk);
+      if (peer.cells.isEmpty) _peers.remove(bound.sk);
+      if (peer.cells.any((cell) => peer.peerKeyForCell(cell) == ngcPk)) return;
     }
     _bindingByNgcPk.remove(ngcPk);
     _lastRecordByNgcPk.remove(ngcPk);
+    _lastPayloadByNgcPk.remove(ngcPk);
   }
 
   /// Coarse distance in metres from our last fix to [peer]'s reported cell

@@ -168,7 +168,9 @@ class NearbyController with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Foreground-only feature (checklist B1/B8): nothing runs in background.
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       unawaited(stop());
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_resume());

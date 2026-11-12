@@ -16,7 +16,8 @@ extension NearbyServiceIntents on NearbyService {
     _intentsOut.removeWhere((t) => now.difference(t) > const Duration(hours: 1));
     if (_intentsOut.length >= NearbyService.maxIntentsOutPerHour) return NearbyIntentFailure.rateLimited;
     final chatId = peer.cellChatIdHex;
-    if (chatId == null || !_joinedChatIds.contains(chatId)) {
+    final peerKey = chatId == null ? null : peer.peerKeyForCell(chatId);
+    if (chatId == null || peerKey == null || !_joinedChatIds.contains(chatId)) {
       return NearbyIntentFailure.peerGone;
     }
     // Reserve the slot before the async work (concurrent taps), give it
@@ -41,8 +42,10 @@ extension NearbyServiceIntents on NearbyService {
         keys: keys, recipientEkHex: peer.ekHex, body: body);
     if (!_live(gen)) return fail(NearbyIntentFailure.notRunning);
     if (bytes == null) return fail(NearbyIntentFailure.messageTooLong);
-    if (!_joinedChatIds.contains(chatId)) return fail(NearbyIntentFailure.peerGone);
-    final rc = _transport.send(chatId, bytes, peerPkHex: peer.ngcPeerPkHex);
+    if (!_joinedChatIds.contains(chatId) || peer.peerKeyForCell(chatId) != peerKey) {
+      return fail(NearbyIntentFailure.peerGone);
+    }
+    final rc = _transport.send(chatId, bytes, peerPkHex: peerKey);
     if (rc != 1) return fail(NearbyIntentFailure.peerGone);
     final pending = PendingIntent(
       nonceHex: nonceHex,

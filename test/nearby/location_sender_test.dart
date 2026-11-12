@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +46,7 @@ void main() {
     final sender = LocationSender(
       source: source,
       currentToxId: () async => toxId,
+      isSessionCurrent: () => true,
       permissions: LocationPermissionHelper(source),
       dispatch: (f, u, g) async {
         onDispatch?.call(f);
@@ -86,6 +89,7 @@ void main() {
     final sender = LocationSender(
       source: source,
       currentToxId: () async => toxId,
+      isSessionCurrent: () => true,
       permissions: _DenyingPermissions(source),
       dispatch: (f, u, g) async => LocationSendOutcome.sent,
     );
@@ -108,6 +112,7 @@ void main() {
     final sender = LocationSender(
       source: source,
       currentToxId: () async => toxId,
+      isSessionCurrent: () => true,
       permissions: _FlippingPermissions(source, toxId),
       dispatch: (f, u, g) async => LocationSendOutcome.sent,
     );
@@ -138,6 +143,110 @@ void main() {
     await LocationPrefs.setLocationEnabled(true, toxId);
     final source = _Source(state: LocationPermissionState.granted, fix: null);
     expect(await run(tester, source), LocationSendOutcome.noFix);
+  });
+
+  testWidgets('a disposed account page cannot dispatch a pending location', (tester) async {
+    await LocationPrefs.setLocationEnabled(true, toxId);
+    final gate = Completer<void>();
+    final source = _Source(
+      state: LocationPermissionState.granted,
+      fix: fix,
+      onRead: () => gate.future,
+    );
+    var dispatched = false;
+    final sender = LocationSender(
+      source: source,
+      currentToxId: () async => toxId,
+      isSessionCurrent: () => true,
+      dispatch: (f, u, g) async {
+        dispatched = true;
+        return LocationSendOutcome.sent;
+      },
+    );
+    late BuildContext pageContext;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      pageContext = context;
+      return const SizedBox();
+    })));
+    final pending = sender.send(pageContext, groupID: 'tox_group_1');
+    await tester.pump();
+    expect(source.reads, 1);
+    await tester.pumpWidget(const SizedBox());
+    gate.complete();
+    await tester.pump();
+    expect(await pending, LocationSendOutcome.failed);
+    expect(dispatched, isFalse);
+  });
+
+  testWidgets('an account change while locating cancels the old target', (tester) async {
+    var account = toxId;
+    final otherAccount = 'B' * 64;
+    await LocationPrefs.setLocationEnabled(true, toxId);
+    await LocationPrefs.setLocationEnabled(true, otherAccount);
+    final gate = Completer<void>();
+    final source = _Source(
+      state: LocationPermissionState.granted,
+      fix: fix,
+      onRead: () => gate.future,
+    );
+    var dispatched = false;
+    final sender = LocationSender(
+      source: source,
+      currentToxId: () async => account,
+      isSessionCurrent: () => true,
+      dispatch: (f, u, g) async {
+        dispatched = true;
+        return LocationSendOutcome.sent;
+      },
+    );
+    late BuildContext pageContext;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      pageContext = context;
+      return const SizedBox();
+    })));
+    final pending = sender.send(pageContext, userID: 'mutual_friend');
+    await tester.pump();
+    expect(source.reads, 1);
+    account = otherAccount;
+    gate.complete();
+    await tester.pump();
+    expect(await pending, LocationSendOutcome.failed);
+    expect(dispatched, isFalse);
+  });
+
+  testWidgets('teardown cancels a send before its page is disposed', (tester) async {
+    await LocationPrefs.setLocationEnabled(true, toxId);
+    var sessionCurrent = true;
+    final gate = Completer<void>();
+    final source = _Source(
+      state: LocationPermissionState.granted,
+      fix: fix,
+      onRead: () => gate.future,
+    );
+    var dispatched = false;
+    final sender = LocationSender(
+      source: source,
+      currentToxId: () async => toxId,
+      isSessionCurrent: () => sessionCurrent,
+      dispatch: (f, u, g) async {
+        dispatched = true;
+        return LocationSendOutcome.sent;
+      },
+    );
+    late BuildContext pageContext;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      pageContext = context;
+      return const SizedBox();
+    })));
+    final pending = sender.send(pageContext, groupID: 'tox_group_1');
+    await tester.pump();
+    expect(source.reads, 1);
+    sessionCurrent = false;
+    expect(pageContext.mounted, isTrue);
+    gate.complete();
+    await tester.pump();
+    expect(await pending, LocationSendOutcome.failed);
+    expect(dispatched, isFalse);
   });
 }
 
