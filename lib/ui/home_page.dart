@@ -211,9 +211,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       const GeolocatorLocationSource();
   late final LocationPermissionHelper _locationPermissions =
       LocationPermissionHelper(_locationSource);
+  late final _locationOwner = widget.service;
   late final LocationSender _locationSender = LocationSender(
     source: _locationSource,
-    currentToxId: () async => widget.service.accountKey,
+    currentToxId: () async => _locationOwner.accountKey,
+    isSessionCurrent: () =>
+        mounted &&
+        !_disposed &&
+        identical(NearbyController.instance.service, _locationOwner),
     permissions: _locationPermissions,
   );
   bool _autoAcceptGroupInvites = false;

@@ -1,6 +1,10 @@
 # Declared test tags. Run `flutter test --exclude-tags=needs-native` to skip
 # tests that require the libtim2tox_ffi native lib or a host platform binary.
 tags:
+  network:
+    description: >-
+      Uses real native network sockets. The location two-peer test is opt-in
+      through tool/test_location_native_network.py.
   needs-native:
     description: >-
       Requires the libtim2tox_ffi native library to be built and present on the

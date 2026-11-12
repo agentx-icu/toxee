@@ -20,22 +20,32 @@ class LocationSender {
   LocationSender({
     required LocationSource source,
     required Future<String?> Function() currentToxId,
+    required bool Function() isSessionCurrent,
     LocationPermissionHelper? permissions,
     Future<LocationSendOutcome> Function(
-            LocationFix fix, String? userID, String? groupID)?
-        dispatch,
-  })  : _source = source,
-        _currentToxId = currentToxId,
-        _permissions = permissions ?? LocationPermissionHelper(source),
-        _dispatch = dispatch ?? _sendThroughUiKit;
+      LocationFix fix,
+      String? userID,
+      String? groupID,
+    )?
+    dispatch,
+  }) : _source = source,
+       _currentToxId = currentToxId,
+       _isSessionCurrent = isSessionCurrent,
+       _permissions = permissions ?? LocationPermissionHelper(source),
+       _dispatch = dispatch;
 
   final LocationSource _source;
   final Future<String?> Function() _currentToxId;
+  final bool Function() _isSessionCurrent;
   final LocationPermissionHelper _permissions;
 
   /// The actual send (test seam; production goes through the UIKit).
   final Future<LocationSendOutcome> Function(
-      LocationFix fix, String? userID, String? groupID) _dispatch;
+    LocationFix fix,
+    String? userID,
+    String? groupID,
+  )?
+  _dispatch;
 
   /// Formats a fix for the bubble label: `39.9042, 116.4074`.
   static String describe(LocationFix fix) =>
@@ -46,32 +56,56 @@ class LocationSender {
     String? userID,
     String? groupID,
   }) async {
-    if ((userID == null || userID.isEmpty) && (groupID == null || groupID.isEmpty)) {
+    if ((userID == null || userID.isEmpty) &&
+        (groupID == null || groupID.isEmpty)) {
       return LocationSendOutcome.failed;
     }
-    if (!await LocationPrefs.getLocationEnabled(await _currentToxId())) {
-      return LocationSendOutcome.disabled;
+    bool isCurrent() => context.mounted && _isSessionCurrent();
+    if (!isCurrent()) return LocationSendOutcome.failed;
+    final account = await _currentToxId();
+    if (!isCurrent() || account == null || account.isEmpty) {
+      return LocationSendOutcome.failed;
     }
-    if (!context.mounted) return LocationSendOutcome.failed;
-    if (!await _permissions.ensure(context)) {
-      return LocationSendOutcome.permissionDenied;
+
+    Future<LocationSendOutcome?> validate() async {
+      final current = await _currentToxId();
+      if (!isCurrent() || current != account) return LocationSendOutcome.failed;
+      final enabled = await LocationPrefs.getLocationEnabled(account);
+      if (!isCurrent()) return LocationSendOutcome.failed;
+      return enabled ? null : LocationSendOutcome.disabled;
     }
-    // The prompt took time: the switch may have been turned off meanwhile.
-    if (!await LocationPrefs.getLocationEnabled(await _currentToxId())) {
-      return LocationSendOutcome.disabled;
+
+    var blocked = await validate();
+    if (!context.mounted || !_isSessionCurrent()) {
+      return LocationSendOutcome.failed;
     }
+    if (blocked != null) return blocked;
+    final allowed = await _permissions.ensure(context);
+    if (!isCurrent()) return LocationSendOutcome.failed;
+    if (!allowed) return LocationSendOutcome.permissionDenied;
+    blocked = await validate();
+    if (!isCurrent()) return LocationSendOutcome.failed;
+    if (blocked != null) return blocked;
     final fix = await _source.currentFix();
+    if (!isCurrent()) return LocationSendOutcome.failed;
     if (fix == null) return LocationSendOutcome.noFix;
-    // ... and again after the (slow) fix: a position read under a switch
-    // that is now off is never sent.
-    if (!await LocationPrefs.getLocationEnabled(await _currentToxId())) {
-      return LocationSendOutcome.disabled;
-    }
-    return _dispatch(fix, userID, groupID);
+    blocked = await validate();
+    if (!isCurrent()) return LocationSendOutcome.failed;
+    if (blocked != null) return blocked;
+    final dispatch = _dispatch;
+    if (dispatch != null) return dispatch(fix, userID, groupID);
+    return _sendThroughUiKit(fix, userID, groupID, isCurrent);
   }
 
   static Future<LocationSendOutcome> _sendThroughUiKit(
-      LocationFix fix, String? userID, String? groupID) async {
+    LocationFix fix,
+    String? userID,
+    String? groupID,
+    bool Function() isCurrent,
+  ) async {
+    // Message creation and the UIKit's profile lookup can both suspend. Do
+    // not let either resume into another account's global SDK instance.
+    if (!isCurrent()) return LocationSendOutcome.failed;
     final created = await TencentImSDKPlugin.v2TIMManager
         .getMessageManager()
         .createLocationMessage(
@@ -79,15 +113,34 @@ class LocationSender {
           longitude: fix.longitude,
           latitude: fix.latitude,
         );
+    if (!isCurrent()) return LocationSendOutcome.failed;
     final info = created.data;
     if (created.code != 0 || info == null) return LocationSendOutcome.failed;
+    var cancelled = false;
     final result = await TencentCloudChatMessageDataTools.sendMessage(
       createdMessage: info,
       userID: (userID != null && userID.isNotEmpty) ? userID : null,
       groupID: (groupID != null && groupID.isNotEmpty) ? groupID : null,
+      beforeMessageSendingHook:
+          ({
+            required createdMessage,
+            repliedMessage,
+            userID,
+            groupID,
+            topicID,
+          }) {
+            if (!isCurrent()) {
+              cancelled = true;
+              return null;
+            }
+            return createdMessage;
+          },
     );
+    if (cancelled) return LocationSendOutcome.failed;
     if (result == null) return LocationSendOutcome.sent; // optimistic row shown
-    return result.code == 0 ? LocationSendOutcome.sent : LocationSendOutcome.failed;
+    return result.code == 0
+        ? LocationSendOutcome.sent
+        : LocationSendOutcome.failed;
   }
 
   /// A user-facing line for a non-sent outcome (null for [LocationSendOutcome.sent]).
