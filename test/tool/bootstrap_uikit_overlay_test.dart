@@ -14,10 +14,29 @@ void main() {
   late Map<String, dynamic> manifest;
   late List<Map<String, dynamic>> entries;
 
-  String git(List<String> args) {
-    final result = Process.runSync('git', args, workingDirectory: source.path);
+  String git(List<String> args, {Directory? cwd}) {
+    final result = Process.runSync(
+      'git',
+      args,
+      workingDirectory: (cwd ?? source).path,
+      environment: {'GIT_ALLOW_PROTOCOL': 'file'},
+    );
     expect(result.exitCode, 0, reason: '${result.stderr}');
     return result.stdout as String;
+  }
+
+  void commitFixture(String message, {Directory? cwd}) {
+    git([
+      '-c',
+      'user.name=Overlay fixture',
+      '-c',
+      'user.email=fixture@invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-qm',
+      message,
+    ], cwd: cwd);
   }
 
   File target(int index) => File('${source.path}/${entries[index]['path']}');
@@ -58,17 +77,7 @@ void main() {
     final hooks = Directory('${fixture.path}/empty-hooks')..createSync();
     git(['config', 'core.hooksPath', hooks.path]);
     git(['add', '.']);
-    git([
-      '-c',
-      'user.name=Overlay fixture',
-      '-c',
-      'user.email=fixture@invalid',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '-qm',
-      'pinned sources',
-    ]);
+    commitFixture('pinned sources');
     manifest['revision'] = git(['rev-parse', 'HEAD']).trim();
     saveManifest();
     File(
@@ -95,6 +104,102 @@ void main() {
     ensureUIKitOverlay(fixture.path);
     ensureUIKitOverlay(fixture.path, checkOnly: true);
     expect(target(0).readAsBytesSync(), after);
+  });
+
+  void verifyPinnedBootstrap({required bool hasGitlink}) {
+    final pinned = manifest['revision'] as String;
+    git(['switch', '-C', 'v2']);
+    final upstream = Directory('${fixture.path}/uikit-upstream.git');
+    git(['clone', '--bare', '.', upstream.path]);
+    final upstreamUrl = Uri.directory(upstream.path).toString();
+    git(['remote', 'add', 'origin', upstreamUrl]);
+    git(['init', '-q'], cwd: fixture);
+    File('${fixture.path}/pubspec.yaml').writeAsStringSync('name: fixture\n');
+    git(['add', 'pubspec.yaml'], cwd: fixture);
+    if (hasGitlink) {
+      git([
+        'submodule',
+        'add',
+        '-b',
+        'v2',
+        upstreamUrl,
+        'third_party/chat-uikit-flutter',
+      ], cwd: fixture);
+    }
+    commitFixture('bootstrap fixture root', cwd: fixture);
+
+    // A miniature native checkout with a valid overlay and pre-vendored SDK
+    // lets the real bootstrap complete without external dependencies.
+    final native = Directory('${fixture.path}/third_party/tim2tox');
+    git(['clone', upstreamUrl, native.path], cwd: fixture);
+    final nativeOverlay = Directory('${fixture.path}/tool/native_log_overlays')
+      ..createSync();
+    manifestFile.copySync('${nativeOverlay.path}/manifest.json');
+    File(
+      '${manifestFile.parent.path}/motion-and-paste.patch',
+    ).copySync('${nativeOverlay.path}/bounded-logging.patch');
+    File('${native.path}/tool/tencent_cloud_chat_sdk.lock.json')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        jsonEncode({
+          'version': '0.0.0',
+          'archive_url': 'https://example.invalid/unused.tar.gz',
+          'sha256': 'fixture',
+        }),
+      );
+    File(
+      '${fixture.path}/tool/vendor_state.json',
+    ).writeAsStringSync(jsonEncode({'version': '0.0.0', 'sha256': 'fixture'}));
+    Directory(
+      '${fixture.path}/third_party/tencent_cloud_chat_sdk',
+    ).createSync();
+    for (final script in [
+      'bootstrap_deps.dart',
+      'bootstrap_overrides.dart',
+      'bootstrap_native_log_overlay.dart',
+      'bootstrap_patch_integrity.dart',
+      'bootstrap_uikit_overlay.dart',
+    ]) {
+      File(
+        '${appRoot.path}/tool/$script',
+      ).copySync('${fixture.path}/tool/$script');
+    }
+
+    File(
+      '${source.path}/unrelated.txt',
+    ).writeAsStringSync('new upstream commit\n');
+    git(['add', 'unrelated.txt']);
+    commitFixture('advance v2');
+    git(['push', upstreamUrl, 'v2']);
+    git(['checkout', '--detach', pinned]);
+    if (!hasGitlink) source.renameSync('${fixture.path}/uikit-seed');
+
+    final result = Process.runSync(
+      'dart',
+      ['tool/bootstrap_deps.dart'],
+      workingDirectory: fixture.path,
+      environment: {
+        'GIT_ALLOW_PROTOCOL': 'file',
+        'GIT_CONFIG_COUNT': '1',
+        'GIT_CONFIG_KEY_0': 'url.$upstreamUrl.insteadOf',
+        'GIT_CONFIG_VALUE_0':
+            'https://github.com/agentx-icu/chat-uikit-flutter.git',
+      },
+    );
+    final output = '${result.stdout}\n${result.stderr}';
+    expect(git(['rev-parse', 'HEAD']).trim(), pinned, reason: output);
+    expect(result.exitCode, 0, reason: output);
+    for (var index = 0; index < entries.length; index++) {
+      expect(digest(target(index)), entries[index]['after_sha256']);
+    }
+  }
+
+  test('bootstrap preserves the gitlink after upstream v2 advances', () {
+    verifyPinnedBootstrap(hasGitlink: true);
+  });
+
+  test('a UIKit fallback clone checks out the overlay pin', () {
+    verifyPinnedBootstrap(hasGitlink: false);
   });
 
   test('user source drift is rejected without overwriting either target', () {

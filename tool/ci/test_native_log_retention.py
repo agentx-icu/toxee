@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 
-PIN = "98c5b25d9ed27dad4a544b077675b0978d82d73d"
 LIMIT = 10 * 1024 * 1024
 
 
@@ -26,15 +25,17 @@ def main():
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args()
     source = args.source_dir.resolve()
+    manifest_path = Path(__file__).resolve().parents[1] / "native_log_overlays/manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    revision = manifest["revision"]
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
-    if commit != PIN:
+    if commit != revision:
         raise RuntimeError("Native retention fixture requires the exact pinned source")
     compiler = shutil.which("cl") if os.name == "nt" else None
     compiler = compiler or shutil.which("clang++") or shutil.which("g++")
     if not compiler:
         raise RuntimeError("A native C++20 compiler is required")
     report = {"source_commit": commit, "limit_bytes": LIMIT, "maximum_files": 10}
-    manifest = json.loads(Path(__file__).resolve().parents[1].joinpath('native_log_overlays/manifest.json').read_text(encoding="utf-8"))
     report["source_sha256"] = {}
     for entry in manifest["files"]:
         digest = source_digest(source / entry["path"])
@@ -53,7 +54,7 @@ def main():
         baseline.mkdir()
         for name in ["V2TIMLog.h", "V2TIMLog.cpp"]:
             (baseline / name).write_bytes(subprocess.check_output([
-                "git", "-C", str(source), "show", f"{PIN}:source/{name}",
+                "git", "-C", str(source), "show", f"{revision}:source/{name}",
             ]))
         producer = Path(__file__).with_name("native_log_retention_probe.cpp").read_text(encoding="utf-8")
         legacy = producer[producer.index("    logger.setLogFile(argv[1]);"):producer.index("\n#ifdef _WIN32\nint wmain")]

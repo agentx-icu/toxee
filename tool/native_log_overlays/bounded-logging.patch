@@ -1,5 +1,5 @@
 diff --git a/dart/lib/ffi/tim2tox_ffi.dart b/dart/lib/ffi/tim2tox_ffi.dart
-index 7bfa18b..3a2c1d2 100644
+index b3976da..7d706e2 100644
 --- a/dart/lib/ffi/tim2tox_ffi.dart
 +++ b/dart/lib/ffi/tim2tox_ffi.dart
 @@ -15,0 +16,5 @@ typedef _set_log_file_c = ffi.Void Function(ffi.Pointer<pkgffi.Utf8>);
@@ -8,7 +8,7 @@ index 7bfa18b..3a2c1d2 100644
 +typedef _log_append_owned_c = ffi.Int32 Function(
 +    ffi.Uint64, ffi.Pointer<ffi.Uint8>, ffi.Size);
 +typedef _log_release_owned_c = ffi.Int32 Function(ffi.Uint64);
-@@ -1868,0 +1874,42 @@ class Tim2ToxFfi {
+@@ -1932,0 +1938,42 @@ class Tim2ToxFfi {
 +  /// Claims the bounded native file sink without taking another owner's sink.
 +  /// Status 0 is success and returns a nonzero generation. All other statuses
 +  /// leave generation zero; callers must follow the ownership status contract.
@@ -52,10 +52,10 @@ index 7bfa18b..3a2c1d2 100644
 +          'tim2tox_ffi_log_release_owned')(generation);
 +
 diff --git a/ffi/tim2tox_ffi.cpp b/ffi/tim2tox_ffi.cpp
-index 16ae141..53846bf 100644
+index c339bfc..eaf86d8 100644
 --- a/ffi/tim2tox_ffi.cpp
 +++ b/ffi/tim2tox_ffi.cpp
-@@ -4235,0 +4236,16 @@ void tim2tox_ffi_set_log_file(const char* path) {
+@@ -4345,0 +4346,16 @@ void tim2tox_ffi_set_log_file(const char* path) {
 +// Never let a C++ exception cross the Dart C ABI. Status 8 deliberately does
 +// not claim that ownership was released; callers must confirm via release.
 +int32_t tim2tox_ffi_log_configure_owned(const char* path, uint64_t* generation) {
@@ -73,7 +73,7 @@ index 16ae141..53846bf 100644
 +}
 +
 diff --git a/ffi/tim2tox_ffi.h b/ffi/tim2tox_ffi.h
-index b7094b0..8f37525 100644
+index 3863e02..3a4ba57 100644
 --- a/ffi/tim2tox_ffi.h
 +++ b/ffi/tim2tox_ffi.h
 @@ -128,0 +129,7 @@ void tim2tox_ffi_set_log_file(const char* path);

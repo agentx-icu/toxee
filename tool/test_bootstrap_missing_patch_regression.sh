@@ -101,9 +101,7 @@ fi
 if [ "${BOOTSTRAP_REGRESSION_MODE:-}" = "normal-integrity" ]; then
   case "$*" in
     "submodule sync --recursive"|\
-    "submodule update --init --recursive"|\
-    "-C third_party/chat-uikit-flutter fetch origin v2"|\
-    "-C third_party/chat-uikit-flutter checkout -B v2 FETCH_HEAD")
+    "submodule update --init --recursive")
       exit 0
       ;;
   esac

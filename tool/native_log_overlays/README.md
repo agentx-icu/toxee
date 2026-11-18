@@ -1,8 +1,7 @@
 # Bounded local logging overlay
 
-This app-owned overlay modifies exactly Tim2Tox
-`98c5b25d9ed27dad4a544b077675b0978d82d73d`; it neither advances the
-submodule nor publishes another repository. `manifest.json` records every
+This app-owned overlay applies to the Tim2Tox revision pinned in
+`manifest.json` and the toxee submodule. `manifest.json` records every
 before/after source hash (new headers have absent-before values) and the
 patch hash. Bootstrap applies pristine sources, accepts verified outputs
 idempotently, and rejects revision drift, partial application, links, unknown
