@@ -20,3 +20,11 @@ class ProfileUnopenableWithPasswordException implements Exception {
       'ProfileUnopenableWithPasswordException: the profile did not open with '
       'the verified password (passwordChangeInFlight=$passwordChangeInFlight)';
 }
+
+/// The selected account and the Tox identity loaded from its file disagree.
+final class AccountProfileIdentityMismatchException implements Exception {
+  const AccountProfileIdentityMismatchException();
+
+  @override
+  String toString() => 'Savedata does not identify the selected account';
+}

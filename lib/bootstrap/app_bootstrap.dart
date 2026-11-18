@@ -19,6 +19,7 @@ import '../util/account_deletion_journal.dart';
 import '../util/account_export/tox_import_journal.dart';
 import '../util/placeholder_identity_discovery.dart';
 import '../util/account_reconciliation.dart';
+import '../util/account_registration_recovery.dart';
 import '../util/account_scratch_storage.dart';
 import '../util/account_service.dart';
 import '../util/app_paths.dart';
@@ -188,6 +189,7 @@ class AppBootstrap {
   static Future<void> recoverPendingRestoreBeforeAccountExposure({
     Future<void> Function()? recoverPendingRestore,
     Future<void> Function()? recoverPendingDeletions,
+    Future<void> Function()? recoverPendingRegistrations,
     Future<void> Function()? retryStrandedVerifiers,
     Future<void> Function()? reconcileAccounts,
   }) async {
@@ -220,6 +222,7 @@ class AppBootstrap {
 
     await recover();
     await recoverDeletions();
+    await (recoverPendingRegistrations ?? AccountRegistrationRecovery.recover)();
     // A verifier a failed registration could not delete gates nothing and
     // blocks nothing, so its retry sits before the fail-closed checks below:
     // it runs on every start, including one that ends on the recovery screen

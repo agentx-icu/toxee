@@ -6,6 +6,7 @@ import 'account_export/encryption.dart';
 import 'account_export/ffi_constants.dart';
 import 'account_export/tox_file_io.dart';
 import 'app_paths.dart';
+import 'account_registration_recovery.dart';
 import 'default_avatar_installer.dart';
 import 'logger.dart';
 import 'prefs.dart';
@@ -61,6 +62,7 @@ abstract final class AccountReconciliation {
         final prefix = dirName.substring(2);
         if (prefix.isEmpty) continue;
         if (knownPrefixes.contains(prefix)) continue;
+        if (await AccountRegistrationRecovery.hasMarker(entity.path)) continue;
 
         final profilePath = AppPaths.profileFileInDirectory(entity.path);
         final profileFile = File(profilePath);

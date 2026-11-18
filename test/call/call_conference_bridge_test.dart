@@ -7,6 +7,7 @@ import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart' as ffi_lib;
 import 'package:tim2tox_dart/service/toxav_service.dart';
 import 'package:toxee/call/audio_handler.dart';
 import 'package:toxee/call/av_conference_session_bridge.dart';
+import 'package:toxee/call/av_conference_session_controller.dart';
 import 'package:toxee/call/call_conference_bridge.dart';
 import 'package:toxee/call/conference_audio_mixer.dart';
 
@@ -463,6 +464,43 @@ void main() {
   });
 
   group('conference lifecycle queue (review #2 #3 #5 #6 #7)', () {
+    test('leaving the page during the mic prompt never starts media', () async {
+      final prompt = Completer<bool>();
+      final requested = Completer<void>();
+      final bridge = CallConferenceBridge(
+        resolveBackend: () async => backend,
+        audio: audio,
+        isOneToOneCallActive: () => false,
+        requestMicrophone: () {
+          requested.complete();
+          return prompt.future;
+        },
+        hooks: ConferenceMediaHooks(
+          onMediaStarted: (name) async => hookEvents.add('start:$name'),
+        ),
+      );
+      addTearDown(bridge.dispose);
+      final controller = AvConferenceSessionController(
+        groupId: 'tox_conf_1',
+        displayName: 'Room',
+        bridge: bridge,
+      );
+      final joining = controller.join();
+      await requested.future;
+
+      final closing = controller.disposeSession();
+      controller.dispose();
+      prompt.complete(true);
+
+      expect(await joining, isFalse);
+      await closing;
+      expect(controller.session.lifecycle, AvConferenceSessionLifecycle.disposed);
+      expect(backend.enableCalls, 0);
+      expect(mic.startCount, 0);
+      expect(hookEvents, isEmpty);
+      expect(audio.owner, AudioHandlerOwner.none);
+    });
+
     test('logout during the mic prompt: enable never opens audio', () async {
       final prompt = Completer<bool>();
       final bridge = CallConferenceBridge(
@@ -813,6 +851,7 @@ class _FakeBackend implements ConferenceAvBackend {
   final List<bool> muteCalls = <bool>[];
   AvConferenceAudioFrameCallback? _callback;
   bool disableResult = true;
+  int enableCalls = 0;
   int disableCalls = 0;
 
   @override
@@ -820,6 +859,7 @@ class _FakeBackend implements ConferenceAvBackend {
 
   @override
   Future<bool> enableConferenceAudio(String groupId) async {
+    enableCalls++;
     enabled.add(groupId);
     return true;
   }

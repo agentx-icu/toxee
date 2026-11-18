@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimAdvancedMsgListener.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
+import 'package:tencent_cloud_chat_sdk/tencent_cloud_chat_sdk_platform_interface.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 
@@ -26,11 +27,7 @@ import 'notification_service.dart';
 ///   - Conversation is muted (best-effort: read from the V2TimConversation
 ///     when available, fall back to "not muted")
 ///
-/// Registration is idempotent: [register] guards on [_registered] so calling
-/// twice from HomePage doesn't double-listen. The Tim2Tox platform's
-/// listener list is per-instance and we don't have a stable handle back to
-/// remove the listener once it's registered — by design this listener lives
-/// for the lifetime of the session.
+/// The listener belongs to a single signed-in session.
 class NotificationMessageListener {
   NotificationMessageListener._(this._service);
 
@@ -63,6 +60,8 @@ class NotificationMessageListener {
   final FfiChatService _service;
   V2TimAdvancedMsgListener? _listener;
   bool _registered = false;
+  Future<void>? _registration;
+  bool _disposed = false;
   StreamSubscription<String>? _onTapSub;
 
   /// Registers the listener with the SDK. Idempotent.
@@ -73,51 +72,52 @@ class NotificationMessageListener {
   Future<void> register({
     ValueChanged<String>? onConversationTapped,
   }) async {
-    if (_registered) {
-      AppLogger.debug(
-          '[NotificationMessageListener] register() called twice; ignoring');
-      // Update the tap handler if a new one was supplied, even on a repeat
-      // call — caller may have remounted HomePage and wants the new routing
-      // closure.
-      if (onConversationTapped != null) {
-        await _onTapSub?.cancel();
-        _onTapSub = NotificationService.instance.onSelectStream
-            .listen(onConversationTapped);
-      }
-      return;
+    if (_disposed) return;
+    if (!_registered) {
+      final registration = _registration ??= _registerSdkListener();
+      await registration;
+      if (identical(_registration, registration)) _registration = null;
     }
+    if (_disposed || !_registered || onConversationTapped == null) return;
 
-    // Make sure the service is ready before we start posting.
+    final previousTapSubscription = _onTapSub;
+    _onTapSub = NotificationService.instance.onSelectStream
+        .listen(onConversationTapped);
+    await previousTapSubscription?.cancel();
+    if (_disposed) return;
+
+    final launchPayload = NotificationService.instance.consumeLaunchPayload();
+    if (launchPayload != null && launchPayload.isNotEmpty) {
+      scheduleMicrotask(() {
+        if (!_disposed) onConversationTapped(launchPayload);
+      });
+    }
+  }
+
+  Future<void> _registerSdkListener() async {
     await NotificationService.instance.init();
+    if (_disposed) return;
 
-    _listener = V2TimAdvancedMsgListener(
+    final listener = _listener = V2TimAdvancedMsgListener(
       onRecvNewMessage: _onRecvNewMessage,
     );
+    final manager = TencentImSDKPlugin.v2TIMManager.getMessageManager();
+    final platform = TencentCloudChatSdkPlatform.instance;
     try {
-      await TencentImSDKPlugin.v2TIMManager
-          .getMessageManager()
-          .addAdvancedMsgListener(listener: _listener!);
+      await manager.addAdvancedMsgListener(listener: listener);
+      if (_disposed) {
+        if (identical(TencentCloudChatSdkPlatform.instance, platform)) {
+          await manager.removeAdvancedMsgListener(listener: listener);
+        }
+        return;
+      }
       _registered = true;
       AppLogger.info(
           '[NotificationMessageListener] Registered V2TimAdvancedMsgListener');
     } catch (e, st) {
+      _listener = null;
       AppLogger.logError(
           '[NotificationMessageListener] Failed to register listener', e, st);
-      return;
-    }
-
-    if (onConversationTapped != null) {
-      _onTapSub = NotificationService.instance.onSelectStream
-          .listen(onConversationTapped);
-    }
-
-    // Replay the cold-start payload (if any) once a tap handler exists.
-    if (onConversationTapped != null) {
-      final launchPayload = NotificationService.instance.consumeLaunchPayload();
-      if (launchPayload != null && launchPayload.isNotEmpty) {
-        // Defer to next microtask so the caller's wiring has time to settle.
-        scheduleMicrotask(() => onConversationTapped(launchPayload));
-      }
     }
   }
 
@@ -135,6 +135,7 @@ class NotificationMessageListener {
   /// Most callers should use [disposeAndReset] instead — it deals with the
   /// "singleton was never created" case without forcing them to null-check.
   Future<void> dispose() async {
+    _disposed = true;
     await _onTapSub?.cancel();
     _onTapSub = null;
 
@@ -171,6 +172,7 @@ class NotificationMessageListener {
   }
 
   void _onRecvNewMessage(V2TimMessage message) {
+    if (_disposed) return;
     try {
       if (_shouldSuppress(message)) return;
       final senderName = _resolveSenderName(message);
@@ -194,6 +196,7 @@ class NotificationMessageListener {
         final title = isGroup
             ? await Prefs.resolveGroupDisplayName(groupId)
             : senderName;
+        if (_disposed) return;
         await NotificationService.instance.showMessageNotification(
           conversationId: conversationId,
           senderName: title,

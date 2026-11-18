@@ -86,7 +86,12 @@ extension _MobileSettingsIndex on _SettingsPageState {
           title: appL10n.accountManagement,
           onTap: () => _pushMobileSettingsSection(
             appL10n.accountManagement,
-            _buildMobileAccountManagementCard(context, colorTheme),
+            ListenableBuilder(
+              listenable: _mobileAccountSettingsRevision,
+              builder: (context, _) => mounted
+                  ? _buildMobileAccountManagementCard(context, colorTheme)
+                  : const SizedBox.shrink(),
+            ),
           ),
         ),
         sectionTile(

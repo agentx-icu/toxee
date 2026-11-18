@@ -12,6 +12,7 @@ import '../util/logger.dart';
 import '../util/serialized_async_tail.dart';
 import 'incoming_call_window_lease.dart';
 import 'notification_channels.dart';
+import 'notification_payload.dart';
 import 'notification_privacy.dart';
 
 export 'notification_channels.dart'
@@ -145,18 +146,31 @@ class NotificationService {
     _incomingCallWindowLeaseStore = store ?? IncomingCallWindowLeaseStore();
   }
 
-  // Per-conversation message accumulator for inbox-style grouping. Cleared
-  // when the user opens the conversation (callers tell us via
-  // [clearConversationGroup]) or when the system reports the notification
-  // tapped/dismissed (best-effort — the plugin's removal callbacks are not
-  // available everywhere).
+  // Inbox-style lines, cleared on opening the chat or ending the session.
   final Map<String, List<String>> _grouped = <String, List<String>>{};
 
-  // Stable numeric notification IDs per conversation. Android/iOS need a
-  // 32-bit int; we hash the conversationID into the lower 31 bits so the
-  // value fits even on stricter Java callers and stays stable across runs.
+  // Posts in flight belong to the session that initiated them.
+  int _sessionGeneration = 0;
+  bool _sessionPostsEnabled = true;
+  String? _sessionAccountKey;
+  final _sessionPosts = <Future<void>>{};
   final Map<String, int> _conversationIdHashCache = <String, int>{};
   int _conversationCounter = 0;
+
+  void setSessionPostsEnabled(bool enabled, {String? accountKey}) {
+    _sessionPostsEnabled = enabled;
+    _sessionAccountKey = enabled ? accountKey : null;
+    if (!enabled) _sessionGeneration++;
+  }
+
+  Future<void> _trackSessionPost(Future<void> post) async {
+    _sessionPosts.add(post);
+    try {
+      await post;
+    } finally {
+      _sessionPosts.remove(post);
+    }
+  }
 
   // Captured cold-start payload (notification that launched the app). Read
   // once by [consumeLaunchPayload] then cleared.
@@ -166,13 +180,7 @@ class NotificationService {
   /// Subscribe from the page that knows how to route to a conversation.
   Stream<String> get onSelectStream => _onSelectController.stream;
 
-  /// L3 TEST seam: push a tap [payload] onto [onSelectStream] exactly as the
-  /// OS tap handler [_handleNotificationResponse] does, WITHOUT a real banner:
-  /// the SAME subscribers production uses (`NotificationMessageListener
-  /// .onConversationTapped` → `_routeToNotificationPayload` → `_openChat`)
-  /// run, so the in-app routing half of S53 is exercised faithfully.
-  /// Used by `l3_simulate_notification_tap`. False on an empty payload, a
-  /// closed controller, or NO LISTENER YET (a broadcast would drop the event).
+  /// Injects an in-app route for the L3 notification tap test.
   bool debugInjectNotificationTap(String payload) {
     final ctrl = _onSelectController;
     if (payload.isEmpty || ctrl.isClosed || !ctrl.hasListener) return false;
@@ -393,7 +401,8 @@ class NotificationService {
   String? consumeLaunchPayload() {
     final p = _launchPayload;
     _launchPayload = null;
-    return p;
+    if (p == null || !_sessionPostsEnabled) return null;
+    return notificationPayloadForAccount(p, _sessionAccountKey);
   }
 
   /// Post a notification for an incoming message. The plugin returns
@@ -402,32 +411,22 @@ class NotificationService {
   ///
   /// [conversationId] becomes the notification payload (the tap handler
   /// receives it on [onSelectStream]).
-  /// [senderName] is the notification title — the contact's nickname or
-  /// remark, falling back to the conversation ID where the caller can't
-  /// resolve a display name.
-  /// [preview] is the message preview body. Long bodies are clamped to 80
-  /// chars to avoid OS truncation noise.
-  /// [avatarPath] is currently best-effort — only Android attachments are
-  /// supported in this implementation; macOS/iOS would require an
-  /// attachment file in a sandbox-readable location.
+  /// [avatarPath] supplies a best-effort Android notification attachment.
   Future<void> showMessageNotification({
     required String conversationId,
     required String senderName,
     required String preview,
     String? avatarPath,
   }) async {
+    if (!_sessionPostsEnabled) return;
+    final generation = _sessionGeneration;
     if (!_initialized) {
       // Lazy init — concurrent callers join the same in-flight future.
       await init();
     }
     if (!_initialized || !_platformSupported) return;
 
-    // Android 13+ permission gate. If init() ran before the permission was
-    // decided (or the user is on a platform where the channel exists but
-    // notifications are blocked from system settings), the cached result
-    // tells us to bail before queueing a no-op platform call. The contextual
-    // prompt fires here for the first message — exactly the moment a banner
-    // would otherwise be useful.
+    // Android 13+ requests permission when a message is ready to display.
     if (_isAndroidPlatform) {
       await _ensureAndroidPermission();
       if (_androidPermissionGranted == false) {
@@ -439,22 +438,20 @@ class NotificationService {
     }
 
     try {
-      final hidden = await NotificationPrivacy.hidesContent();
+      final savedPrivacy = await NotificationPrivacy.hidesContent();
+      if (generation != _sessionGeneration) return;
+      final hidden = NotificationPrivacy.hideContent.value ?? savedPrivacy;
       if (hidden) {
         (senderName, preview, avatarPath) = NotificationPrivacy.redacted();
         _grouped.remove(conversationId); // older lines hold real text
       }
       final clampedBody = _clampBody(preview);
 
-      // Inbox-style grouping: accumulate up to 5 lines per conversation so
-      // a burst of "Alice: hi / Alice: there / Alice: are you free?" shows
-      // up as one expandable notification, not three separate banners.
+      // Group up to five lines in one expandable notification.
       final lines = hidden
           ? <String>[]
           : _grouped.putIfAbsent(conversationId, () => <String>[]);
       lines.add(clampedBody);
-      // Don't keep an unbounded list — only the last 5 lines are shown by
-      // Android's inbox style; past that, switch the summary to a count.
       if (lines.length > 5) {
         lines.removeRange(0, lines.length - 5);
       }
@@ -468,8 +465,6 @@ class NotificationService {
             )
           : null;
 
-      // Android inbox style — preserves per-message lines plus a summary
-      // count. The summary is shown when the notification is collapsed.
       final androidDetails = AndroidNotificationDetails(
         ToxeeNotificationChannel.messages.id,
         ToxeeNotificationChannel.messages.displayName,
@@ -485,18 +480,12 @@ class NotificationService {
                 summaryText: summary,
               )
             : null,
-        // Best-effort large icon when an avatar path is available. We don't
-        // ship attachment files for iOS/macOS yet — those need a sandbox
-        // copy step that's out of scope for this change.
         largeIcon: (avatarPath != null && avatarPath.isNotEmpty)
             ? FilePathAndroidBitmap(avatarPath)
             : null,
       );
 
-      // iOS / macOS thread identifier collapses multiple notifications from
-      // the same conversation into one stack on the Lock Screen / Notification
-      // Center. The OS does the grouping for us — no need to maintain our
-      // own inbox-style list.
+      // iOS and macOS group by the thread identifier.
       final darwinDetails = DarwinNotificationDetails(
         threadIdentifier: 'toxee.messages.$conversationId',
         presentAlert: true,
@@ -508,7 +497,7 @@ class NotificationService {
 
       final body = isGrouped ? (summary ?? clampedBody) : clampedBody;
 
-      await _plugin.show(
+      await _trackSessionPost(_plugin.show(
         id,
         senderName,
         body,
@@ -519,12 +508,9 @@ class NotificationService {
           linux: linuxDetails,
           windows: const WindowsNotificationDetails(),
         ),
-        payload: conversationId,
-      );
+        payload: bindNotificationPayload(conversationId, _sessionAccountKey),
+      ));
     } catch (e, st) {
-      // Don't propagate — notifications are best-effort. Logging at warn so
-      // a persistent platform issue (denied permission, missing channel) is
-      // visible without spamming error on every message.
       AppLogger.warn(
         '[NotificationService] showMessageNotification failed for conv=$conversationId: $e',
       );
@@ -585,6 +571,8 @@ class NotificationService {
     ToxeeNotificationChannel channel = ToxeeNotificationChannel.friendRequests,
     String groupKey = 'toxee.friend_requests',
   }) async {
+    if (!_sessionPostsEnabled) return;
+    final generation = _sessionGeneration;
     if (!_initialized) {
       await init();
     }
@@ -600,6 +588,7 @@ class NotificationService {
       }
     }
 
+    if (generation != _sessionGeneration) return;
     try {
       final androidDetails = AndroidNotificationDetails(
         channel.id,
@@ -617,7 +606,7 @@ class NotificationService {
         presentSound: true,
       );
 
-      await _plugin.show(
+      await _trackSessionPost(_plugin.show(
         _idFor(logKey),
         title,
         _clampBody(body),
@@ -628,8 +617,8 @@ class NotificationService {
           linux: _linuxDetails(),
           windows: const WindowsNotificationDetails(),
         ),
-        payload: payload,
-      );
+        payload: bindNotificationPayload(payload, _sessionAccountKey),
+      ));
     } catch (e, st) {
       AppLogger.warn(
         '[NotificationService] social notification failed for $logKey: $e',
@@ -666,21 +655,20 @@ class NotificationService {
     }
   }
 
-  /// Clear all per-session inbox state and any pending OS-level banners so a
-  /// subsequent account does not inherit the prior account's grouped lines or
-  /// notification-id mapping. Safe to call before [init] (the maps are empty);
-  /// platform-channel `cancelAll` is a no-op when uninitialized.
+  /// Invalidates pending posts and clears inbox state and OS banners.
   Future<void> resetSessionState() async {
-    await cancelIncomingCallNotification();
-    _grouped.clear();
-    _conversationIdHashCache.clear();
-    _conversationCounter = 0;
-    // Reset the Android POST_NOTIFICATIONS cache so the next signed-in
-    // account re-queries OS state (or re-prompts). Without this, "account A
-    // denied notifications" silently suppresses banners for account B in
-    // the same process.
-    _androidPermissionGranted = null;
-    await cancelAll();
+    _sessionGeneration++;
+    try {
+      await cancelIncomingCallNotification();
+    } finally {
+      // Some platforms obtain their cancellation ID only when show completes.
+      await _waitForSessionPosts();
+      _conversationIdHashCache.clear();
+      _conversationCounter = 0;
+      _androidPermissionGranted = null;
+      _launchPayload = null;
+      await cancelAll();
+    }
   }
 
   /// Post a missed-call notification — used when an incoming call rings out,
@@ -697,6 +685,8 @@ class NotificationService {
     required String displayName,
     required bool wasVideo,
   }) async {
+    if (!_sessionPostsEnabled) return;
+    final generation = _sessionGeneration;
     if (!_initialized) {
       await init();
     }
@@ -712,6 +702,7 @@ class NotificationService {
       }
     }
 
+    if (generation != _sessionGeneration) return;
     try {
       final title = wasVideo
           ? currentAppL10n().notificationMissedVideoCall
@@ -736,7 +727,7 @@ class NotificationService {
       );
       final linuxDetails = _linuxDetails();
 
-      await _plugin.show(
+      await _trackSessionPost(_plugin.show(
         id,
         title,
         body,
@@ -747,8 +738,8 @@ class NotificationService {
           linux: linuxDetails,
           windows: const WindowsNotificationDetails(),
         ),
-        payload: 'missed_call:$peerId',
-      );
+        payload: bindNotificationPayload('missed_call:$peerId', _sessionAccountKey),
+      ));
     } catch (e, st) {
       AppLogger.warn(
         '[NotificationService] showMissedCallNotification failed for $peerId: $e',
@@ -765,6 +756,9 @@ class NotificationService {
     required String displayName,
     required bool isVideo,
   }) {
+    if (!_sessionPostsEnabled) {
+      return Future.value(IncomingCallNotificationOutcome.cancelled);
+    }
     final generation = _incomingCallLease.begin(callId);
     final completer = Completer<IncomingCallNotificationOutcome>();
 
@@ -1007,10 +1001,7 @@ class NotificationService {
   int _idFor(String conversationId) {
     final cached = _conversationIdHashCache[conversationId];
     if (cached != null) return cached;
-    // Reserve 0 for "anonymous" and use a monotonic counter so the IDs are
-    // stable for the session. Hash collisions don't matter because we map
-    // through this table — but we also want IDs that fit in a signed 32-bit
-    // int (Android's NotificationManager.notify takes a Java int).
+    // Reserve ID 0 and stay within Android's signed 32-bit range.
     _conversationCounter++;
     final id = _conversationCounter & 0x7fffffff;
     _conversationIdHashCache[conversationId] = id;
@@ -1019,9 +1010,11 @@ class NotificationService {
 
   void _handleNotificationResponse(NotificationResponse response) {
     final payload = response.payload;
-    if (payload == null || payload.isEmpty) return;
-    if (_onSelectController.isClosed) return;
-    _onSelectController.add(stripIncomingCallWindowNonce(payload));
+    if (payload == null || payload.isEmpty || !_sessionPostsEnabled) return;
+    final route = notificationPayloadForAccount(payload, _sessionAccountKey);
+    if (route != null && !_onSelectController.isClosed) {
+      _onSelectController.add(stripIncomingCallWindowNonce(route));
+    }
   }
 
   /// Lazily asks the user for Android POST_NOTIFICATIONS permission, caching

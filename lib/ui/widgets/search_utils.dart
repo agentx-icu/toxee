@@ -2,12 +2,31 @@ import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
 import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_bounded_image.dart';
+import 'package:tencent_cloud_chat_common/utils/tencent_cloud_chat_utils.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 
 import '../../util/app_theme_config.dart';
 
 /// Shared utility methods for search UI components.
 class SearchUtils {
   SearchUtils._();
+
+  static String messageSummary(V2TimMessage message) {
+    final summary = TencentCloudChatUtils.getMessageSummary(
+      message: message,
+      needStatus: false,
+    );
+    final filename = message.fileElem?.fileName;
+    return filename == null || filename.isEmpty
+        ? summary
+        : '$summary $filename';
+  }
+
+  static bool messageMatchesKeyword(V2TimMessage message, String keyword) {
+    if (keyword.isEmpty) return true;
+    return (message.textElem?.text?.toLowerCase().contains(keyword) ?? false) ||
+        messageSummary(message).toLowerCase().contains(keyword);
+  }
 
   /// Builds a [CircleAvatar] that supports both `file://` paths and network URLs.
   /// Only shows [defaultChild] when there is no valid image (no overlay on avatar).

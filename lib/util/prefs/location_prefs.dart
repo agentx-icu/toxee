@@ -20,7 +20,10 @@ extension LocationPrefs on Prefs {
   }
 
   static Future<void> _setScopedBool(
-      String baseKey, bool value, String? toxId) async {
+    String baseKey,
+    bool value,
+    String? toxId,
+  ) async {
     final p = await Prefs._getPrefs();
     var effectiveToxId = toxId;
     if (effectiveToxId == null || effectiveToxId.isEmpty) {
@@ -33,6 +36,14 @@ extension LocationPrefs on Prefs {
   /// Master switch: may toxee read this device's position at all.
   static Future<bool> getLocationEnabled([String? toxId]) =>
       _getScopedBool(_kLocationEnabled, toxId);
+
+  /// Reads the account's live cached value from a synchronous send hook.
+  static Future<bool Function()> locationEnabledReader(String toxId) async {
+    final p = await Prefs._getPrefs();
+    final key = Prefs._scopedKey(_kLocationEnabled, toxId);
+    return () => p.getBool(key) ?? false;
+  }
+
   static Future<void> setLocationEnabled(bool value, [String? toxId]) =>
       _setScopedBool(_kLocationEnabled, value, toxId);
 

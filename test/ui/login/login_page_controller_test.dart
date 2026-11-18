@@ -153,6 +153,49 @@ Future<void> _expectImportRolledBack(String toxId) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  for (final dedicatedRestore in [false, true]) {
+    test(
+      '${dedicatedRestore ? 'direct restore' : 'file import'} stores the '
+      'scoped auto-login setting for a new .tox account',
+      () async {
+        final env = await setUpAccountExportTestEnv();
+        addTearDown(env.dispose);
+        final toxId = 'a' * 64;
+        final controller = LoginPageController(
+          importAccountDataFn:
+              ({required String filePath, SecretPassword? password}) async =>
+                  <String, dynamic>{
+                    'toxId': toxId,
+                    'toxProfile': Uint8List.fromList([1, 2, 3]),
+                    'nickname': 'Imported profile',
+                  },
+        );
+
+        if (dedicatedRestore) {
+          expect(
+            await controller.restoreFromToxFile(
+              requestPassword: () async => null,
+              importedAccountDefaultName: 'Imported',
+              filePathOverride: '/tmp/autologin_restore.tox',
+            ),
+            isA<RestoreSuccess>(),
+          );
+        } else {
+          expect(
+            await controller.importAccount(
+              requestPassword: () async => null,
+              importedAccountDefaultName: 'Imported',
+              filePathOverride: '/tmp/autologin_import.tox',
+            ),
+            isA<ImportSuccess>(),
+          );
+        }
+        await (await SharedPreferences.getInstance()).reload();
+        expect(await Prefs.getAutoLogin(toxId), isFalse);
+      },
+    );
+  }
+
   group('LoginPageController.restoreFromToxFile', () {
     test(
       'rejects non-.tox file with notAToxProfile (no FFI, no disk I/O)',

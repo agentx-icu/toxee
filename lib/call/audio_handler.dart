@@ -88,6 +88,7 @@ class AudioHandler {
   final List<int> _buffer = [];
   CapturedPcmFrameSink? _frameSink;
   bool _capturing = false;
+  bool _callMicMuted = false;
   bool _zeroDataWarningLogged = false;
 
   /// Intended owner, decided synchronously at request time (see class doc).
@@ -153,9 +154,11 @@ class AudioHandler {
   /// Start capturing from microphone and sending to ToxAV for a 1:1 call with
   /// [friendNumber]. Returns the call's [claim], or null when refused (an AV
   /// conference owns the pipeline) or superseded before the mic opened.
-  /// On desktop (e.g. macOS), tries [PcmCaptureDevice.startStream] even when
-  /// permission is reported false so the system permission dialog can appear.
-  Future<int?> startCapture(int friendNumber, ToxAVService avService) {
+  Future<int?> startCapture(
+    int friendNumber,
+    ToxAVService avService, {
+    bool muted = false,
+  }) {
     if (_disposed || _owner == AudioHandlerOwner.conference) {
       AppLogger.warn(
         '[AudioHandler] startCapture refused: '
@@ -169,6 +172,7 @@ class AudioHandler {
       _owner = AudioHandlerOwner.call;
       _callFriendNumber = friendNumber;
     }
+    setCallMicMuted(muted);
     final claim = _claim;
     return _enqueue(() async {
       await _openCapture(claim, (frame) {
@@ -184,6 +188,13 @@ class AudioHandler {
       });
       return claim == _claim ? claim : null;
     });
+  }
+
+  /// Applies to the 1:1 microphone, including incomplete PCM frames.
+  void setCallMicMuted(bool muted) {
+    if (_owner != AudioHandlerOwner.call || muted == _callMicMuted) return;
+    _buffer.clear();
+    _callMicMuted = muted;
   }
 
   /// Take the pipeline for a legacy AV conference: captured frames go to
@@ -280,6 +291,7 @@ class AudioHandler {
   }
 
   void _onRecordData(Uint8List data) {
+    if (_owner == AudioHandlerOwner.call && _callMicMuted) return;
     if (data.isNotEmpty &&
         data.every((b) => b == 0) &&
         !_zeroDataWarningLogged) {
@@ -302,8 +314,7 @@ class AudioHandler {
     }
   }
 
-  /// Convert little-endian byte pairs to signed int16 PCM samples
-  /// (-32768..32767).
+  /// Convert little-endian byte pairs to signed int16 PCM samples.
   @visibleForTesting
   static Int16List bytesToInt16(List<int> bytes) {
     final bd = ByteData.sublistView(Uint8List.fromList(bytes));
@@ -314,26 +325,15 @@ class AudioHandler {
     return out;
   }
 
-  /// Called when ToxAV receives audio from the remote peer of a 1:1 call.
-  /// Queues PCM for playback. Handles both mono (ch=1) and stereo (ch=2)
-  /// input by downmixing to mono. Ignored while a conference owns playback.
+  /// Queues the current 1:1 peer's PCM, downmixing stereo for playback.
   void onAudioReceived(int friendNumber, List<int> pcm, int sampleCount, int ch,
       int samplingRate) {
     if (pcm.isEmpty || sampleCount <= 0) return;
-    // Only a live 1:1 call plays remote PCM: a conference owns the speaker,
-    // and a late frame after teardown (no owner) must not set playback up
-    // again (on iOS that would re-category the audio session).
-    if (_owner != AudioHandlerOwner.call) return;
-    // The ToxAV receive callback is global: a second caller's leg (e.g. one
-    // about to be busy-rejected) must never reach this call's speaker.
-    if (friendNumber != _callFriendNumber) return;
-    // Same environment gate as capture, for the PLAYBACK half. `AudioQueue`'s
-    // converter chain crashes the Simulator's AudioControl thread with SIGILL
-    // inside `AudioConverterNewInternal` (measured 2026-08-16, crash report
-    // Runner-2026-08-16-143603.ips), which killed the app AFTER the voice-call
-    // cases had already passed and took the rest of `sweep_calls_misc` with it.
-    // Dropping remote PCM on the floor there keeps the call state machine —
-    // the thing under test — alive; real hardware is unaffected.
+    // The global callback can deliver other peers' frames and late frames.
+    if (_owner != AudioHandlerOwner.call || friendNumber != _callFriendNumber) {
+      return;
+    }
+    // The iOS Simulator crashes in the native playback converter.
     if (!CallMediaCapabilities.supportsAudioPlayback()) return;
     _ensurePlayback();
 

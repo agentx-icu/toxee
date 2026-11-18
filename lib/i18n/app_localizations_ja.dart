@@ -1634,7 +1634,8 @@ class AppLocalizationsJa extends AppLocalizations {
   String get pairingCodesMatch => 'コードが一致しています';
 
   @override
-  String get pairingHostCompleted => 'アカウントを送信しました。もう一方のデバイスでこのアカウントを使用できます。';
+  String get pairingHostCompleted =>
+      'アカウントを送信しました。受信側のデバイスでインポートが完了したことを確認してください。';
 
   @override
   String get pairingClientCompleted => 'アカウントを受信しました。ペアリングが完了しました。';

@@ -42,7 +42,7 @@ part 'call_service_manager_native.dart';
 ///   1. **Signaling path** — via CallBridgeService (UIKit-based invitations)
 ///   2. **Native ToxAV path** — direct toxav_call/answer/control (qTox interop)
 ///
-/// Native ToxAV calls use inviteIDs of the form `native_av_<friendNumber>`.
+/// Native ToxAV calls use a local ID for each incoming attempt.
 class CallServiceManager
     with WidgetsBindingObserver
     implements CallOverlayManager {
@@ -51,7 +51,7 @@ class CallServiceManager
   ToxAVService? _avService;
   CallBridgeService? _callBridge;
   TUICallKitAdapter? _adapter;
-  final AudioHandler _audioHandler = AudioHandler();
+  final AudioHandler _audioHandler;
   final CallAudioPlatform _callAudioPlatform = CallAudioPlatform();
   final VideoHandler _videoHandler = VideoHandler();
   final RingtonePlayer _ringtone;
@@ -88,7 +88,8 @@ class CallServiceManager
   /// Native incoming calls still resolving their caller (friend → token);
   /// removed when that caller's leg ends first (see the native part).
   final Map<int, int> _pendingNativeIncoming = {};
-  int _nativeIncomingSeq = 0;
+  static int _nativeIncomingSeq = 0;
+  ({String inviteId, Future<void> result})? _pendingAcceptance;
   bool _disposed = false;
   Future<void>? _disposeFuture;
 
@@ -136,7 +137,7 @@ class CallServiceManager
   static const Duration _reconnectGrace = Duration(seconds: 8);
 
   /// The outgoing call whose preflight reserved the pipeline (busy part).
-  ({String user, DateTime at})? _outgoingClaim;
+  ({String user, String? nickname, DateTime at})? _outgoingClaim;
 
   /// Friend → the ToxAV leg WE ended, awaiting its terminal event. A toxav
   /// terminal carries no leg identity, only a friend number (native part).
@@ -150,7 +151,13 @@ class CallServiceManager
     this._chatService,
     this._callState, {
     @visibleForTesting RingtonePlayer? ringtone,
-  }) : _ringtone = ringtone ?? RingtonePlayer();
+    @visibleForTesting AudioHandler? audioHandler,
+  }) : _ringtone = ringtone ?? RingtonePlayer(),
+       _audioHandler = audioHandler ?? AudioHandler();
+
+  @visibleForTesting
+  void debugOutgoingCallInitiated(String inviteId, String userId, String type) =>
+      _onOutgoingCallInitiated(inviteId, userId, type);
 
   /// Test seam: attach backends without [initialize] (no adapter, platform
   /// channels or observers) and wire the same busy-aware callbacks.
@@ -379,10 +386,8 @@ class CallServiceManager
   /// it synthetically. The ToxAV friend_call_state bitfield itself cannot
   /// distinguish "reconnecting" from "ended", hence the sampling approach.
   void markReconnecting() {
-    if (_callState.state != CallUIState.inCall &&
-        _callState.state != CallUIState.reconnecting) {
-      return;
-    }
+    final inviteId = _callState.inviteID;
+    if (!_hasActiveMediaCall || inviteId == null) return;
     _callState.setState(CallUIState.reconnecting);
     // Drop bitrate samples so the transport-down dip doesn't pin the indicator
     // at poor after recovery, and so _applyPeerSuggestedProfile won't latch a
@@ -391,28 +396,10 @@ class CallServiceManager
     _callState.setCallQuality(CallQuality.unknown);
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(_reconnectGrace, () {
-      if (_callState.state == CallUIState.reconnecting) {
-        debugPrint('[CallServiceManager] reconnect grace expired, ending call');
-        // 'network_error' rather than 'hangup' — the call was dropped by the
-        // transport, not user-terminated. Surfacing this distinctly lets the
-        // UI / history layer label the record accurately.
-        //
-        // We intentionally do NOT fire a missed-call notification here:
-        // reconnect grace expiry means the user was already on a connected
-        // call that dropped, so the call UI was on screen the entire time
-        // (or in PiP) and they saw the drop. A "missed call" notification
-        // would be misleading — they didn't miss anything; their call ended
-        // unexpectedly. Surfacing the drop only via the call record is the
-        // less-noisy, more accurate signal. (A distinct "call dropped" OS
-        // notification could be added later if telemetry shows users want it.)
-        _emitCallRecord('network_error');
-        unawaited(_callKitReportEnded('network_error'));
-        _endCallCleanup();
-        _callState.endCall();
-        _restoreForegroundAfterCall();
-        _cleanupNativeCall();
-      }
       _reconnectTimer = null;
+      if (_callState.state == CallUIState.reconnecting) {
+        observeBackgroundTask(_endFailedCall(inviteId), '[CallServiceManager] End disconnected call');
+      }
     });
   }
 
@@ -474,7 +461,7 @@ class CallServiceManager
     _avService!.setAudioBitrateChangedCallback(_onAudioBitrateChanged);
     _avService!.setVideoBitrateChangedCallback(_onVideoBitrateChanged);
     _avService!.setAudioReceiveCallback(_audioHandler.onAudioReceived);
-    _avService!.setVideoReceiveCallback(_videoHandler.onVideoReceived);
+    _avService!.setVideoReceiveCallback(_onVideoFrameReceived);
     await _callAudioPlatform.initialize();
     observeBackgroundTask(_audioPlatformSub?.cancel(), '[CallServiceManager] Cancel audio events');
     _audioPlatformSub = _callAudioPlatform.events.listen(_onAudioPlatformEvent);
@@ -579,6 +566,7 @@ class CallServiceManager
   /// already locally ended). Empty callId means CallKit was reset — tear
   /// down whatever's live.
   void _onCallKitAction(CallKitAction action) {
+    if (_disposed) return;
     debugPrint(
       '[CallServiceManager] CallKit action: kind=${action.kind} '
       'muted=${action.muted}',
@@ -588,7 +576,7 @@ class CallServiceManager
       if (activeId != null) unawaited(hangUp());
       return;
     }
-    if (activeId != null && action.callId != activeId) {
+    if (action.callId != activeId) {
       debugPrint(
         '[CallServiceManager] CallKit action for stale call; ignoring',
       );
@@ -720,27 +708,20 @@ class CallServiceManager
     debugPrint(
       '[CallServiceManager] _onOutgoingCallInitiated: inviteID=$inviteID, userID=$userID, type=$type, currentState=${_callState.state}',
     );
-    // The invite exists now, so the preflight's reservation has done its job;
-    // from here the checks below (and the ringing state) arbitrate.
-    _outgoingClaim = null;
-    final nickname = await _resolveNickname(userID);
-    // The adapter continues past this callback into startCall(); if that
-    // fails it tears the invite down via CallBridgeService.endCall → our
-    // ended handler. The nickname await above can resume AFTER that cleanup
-    // — re-opening a ringing overlay for a dead invite. Only start ringing
-    // if the bridge still tracks the invite.
-    if (_callBridge?.getCallInfo(inviteID) == null) {
-      AppLogger.info(
-        '[CallServiceManager] outgoing invite $inviteID ended during '
-        'nickname resolution — not showing ringing UI',
-      );
+    final claim = _outgoingClaim;
+    if (claim != null && !compareToxIds(userID, claim.user)) {
+      unawaited(_callBridge?.endCall(inviteID));
       return;
     }
-    // An incoming call started ringing during the await: never overwrite it.
+    // Claim the invite and its UI before any await. A signaling acceptance
+    // can arrive as soon as the adapter returns from this callback.
+    _outgoingClaim = null;
+    if (_disposed || _callBridge?.getCallInfo(inviteID) == null) return;
     if (_isBusyForNewCall && _callState.inviteID != inviteID) {
       unawaited(_callBridge?.endCall(inviteID));
       return;
     }
+    final nickname = claim?.nickname;
     _callRecordEmitted = false;
     _callState.startRinging(
       mode: type == TYPE_VIDEO ? CallMode.video : CallMode.audio,
@@ -749,6 +730,10 @@ class CallServiceManager
       remoteUserID: userID,
       remoteNickname: nickname,
     );
+    if (_callState.inviteID != inviteID ||
+        _callState.state == CallUIState.ended) {
+      return;
+    }
     // Surface in the iOS system call UI so the user can see / interact with
     // the outgoing call from the lock screen / AirPods. No-op off-iOS.
     unawaited(
@@ -765,22 +750,14 @@ class CallServiceManager
 
     // Check friend online status — auto-cancel if offline
     final isOnline = await _isFriendOnline(userID);
-    if (!isOnline && _callState.state == CallUIState.ringing) {
+    if (!isOnline &&
+        _callState.state == CallUIState.ringing &&
+        _callState.inviteID == inviteID) {
       debugPrint(
         '[CallServiceManager] Friend $userID is offline, auto-ending call after brief delay',
       );
       await Future.delayed(const Duration(milliseconds: 800));
       if (_callState.state == CallUIState.ringing &&
-          _callState.inviteID == inviteID) {
-        await hangUp();
-      }
-    }
-
-    if (_callState.state == CallUIState.ringing &&
-        _callState.inviteID == inviteID) {
-      final granted = await _ensurePermissionsForCurrentMode();
-      if (!granted &&
-          _callState.state == CallUIState.ringing &&
           _callState.inviteID == inviteID) {
         await hangUp();
       }
@@ -848,28 +825,34 @@ class CallServiceManager
         // that is not the call on screen belongs to another attempt (ended
         // here, so its peer is not left in a phantom call).
         if (_callBridge?.getCallInfo(inviteID) == null) break;
-        if (_callState.inviteID != null && _callState.inviteID != inviteID) {
+        if (_callState.inviteID != inviteID ||
+            _callState.state == CallUIState.ended) {
           unawaited(_callBridge?.endCall(inviteID));
           break;
         }
         _cancelAndroidIncomingCallSurface();
         observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
+        final generation = _captureGeneration;
         _callState.enterCall();
+        if (_disposed ||
+            _captureGeneration != generation ||
+            _callState.inviteID != inviteID ||
+            !_hasActiveMediaCall) {
+          break;
+        }
         unawaited(_callKitReportConnected());
         _elevateForegroundForCall();
-        // Resolved (never the Tox sentinel) friend of the call on screen.
-        final fn = _callState.inviteID == inviteID
-            ? _getActiveFriendNumber()
-            : null;
+        final fn = _getActiveFriendNumber();
         if (fn != null && _avService != null) {
           // Request permissions then start capture (async, fire-and-forget)
           observeBackgroundTask(_startMediaCapture(fn), '[CallServiceManager] Start call media');
         }
         break;
       case CallState.ended:
-        // Another invite's end (e.g. a busy-rejected one) must not tear down
-        // the call — or conference — that is actually live.
-        if (_isBusyForNewCall && _callState.inviteID != inviteID) break;
+        if (_callState.inviteID != inviteID ||
+            _callState.state == CallUIState.ended) {
+          break;
+        }
         if (endReason == 'line_busy') {
           _emitLocalizedUiNotice((l10n) => l10n.callPeerBusy);
         }
@@ -934,7 +917,10 @@ class CallServiceManager
     }
     // Events for a friend that is not the call on screen (a busy-declined
     // caller's leg) must not end the active call or a conference's audio.
-    if (!_isCallStateForActiveCall(friendNumber)) return;
+    if ((!_hasActiveMediaCall && _callState.state != CallUIState.ringing) ||
+        !_isCallStateForActiveCall(friendNumber)) {
+      return;
+    }
 
     // Error or finished → end the call
     if (state == stateError || state == stateFinished) {
@@ -998,6 +984,23 @@ class CallServiceManager
     }
   }
 
+  void _onVideoFrameReceived(
+    int friendNumber,
+    int width,
+    int height,
+    List<int> y,
+    List<int> u,
+    List<int> v,
+  ) {
+    if (_disposed ||
+        !_hasActiveMediaCall ||
+        _callState.mode != CallMode.video ||
+        !_isCallStateForActiveCall(friendNumber)) {
+      return;
+    }
+    unawaited(_videoHandler.onVideoReceived(width, height, y, u, v));
+  }
+
   // ---------------------------------------------------------------------------
   // Call quality (from ToxAV peer-suggested bitrates)
   // ---------------------------------------------------------------------------
@@ -1055,7 +1058,7 @@ class CallServiceManager
     _videoHandler.setCodecProfile(next);
     // Mirror to libtoxav so our outgoing encoder follows the suggestion.
     _avService!.setAudioBitRate(fn, next.audioBitRate);
-    if (_callState.mode == CallMode.video) {
+    if (_callState.mode == CallMode.video && _callState.isVideoEnabled) {
       _avService!.setVideoBitRate(fn, next.videoBitRate);
     }
   }
@@ -1082,7 +1085,11 @@ class CallServiceManager
     final avService = _avService;
     if (avService == null) return;
     try {
-      final claim = await _audioHandler.startCapture(friendNumber, avService);
+      final claim = await _audioHandler.startCapture(
+        friendNumber,
+        avService,
+        muted: _callState.isMuted,
+      );
       if (gen != _captureGeneration) {
         // Hang-up landed while we were initialising the mic; tear down THIS
         // call's capture only (a newer call may own the pipeline by now).
@@ -1137,25 +1144,14 @@ class CallServiceManager
   /// Rationale for the await: CallMediaCapabilities.ensureCaptureDevicesKnown.
   Future<CallPermissionResult> _requestCallPermissions({
     required bool wantVideo,
+    bool reportDenial = true,
   }) async {
     await CallMediaCapabilities.ensureCaptureDevicesKnown();
     final result = await CallPermissionHelper.requestPermissionsForCallDetailed(
       isVideo: wantVideo && CallMediaCapabilities.supportsVideoCapture(),
     );
-    if (!result.granted) _emitPermissionNotice(result);
+    if (reportDenial && !result.granted) _emitPermissionNotice(result);
     return result;
-  }
-
-  Future<bool> _ensurePermissionsForCurrentMode() async {
-    final result = await _requestCallPermissions(
-      wantVideo: _callState.mode == CallMode.video,
-    );
-    if (!result.granted) {
-      debugPrint(
-        '[CallServiceManager] Required call permissions denied for mode=${_callState.mode}',
-      );
-    }
-    return result.granted;
   }
 
   Future<bool> _preflightOutgoingCall(String userID, String type) async {
@@ -1188,12 +1184,13 @@ class CallServiceManager
     if (!_canClaimOutgoingCall(userID)) return false;
     final result = await _requestCallPermissions(wantVideo: type == TYPE_VIDEO);
     if (!result.granted) return false;
+    final nickname = await _resolveNickname(userID);
     // The pipeline can have been claimed while the OS permission sheet was up
     // (a conference join, an incoming call that was answered). Re-check and
     // RESERVE it here — the adapter goes straight on to send the signaling
     // invite and start ToxAV, which would cut that claimant's media.
-    if (!_canClaimOutgoingCall(userID)) return false;
-    _outgoingClaim = (user: userID, at: DateTime.now());
+    if (_disposed || !_canClaimOutgoingCall(userID)) return false;
+    _outgoingClaim = (user: userID, nickname: nickname, at: DateTime.now());
     return true;
   }
 
@@ -1207,8 +1204,14 @@ class CallServiceManager
     AppLogger.warn(
       '[CallServiceManager] call setup failed: $reason userids=${userids.length}',
     );
-    // No invite will arrive for this attempt: release the pipeline claim.
-    _outgoingClaim = null;
+    // A denied duplicate never acquired a reservation. Setup errors for a
+    // previous peer must also leave the current reservation alone.
+    final claimedUser = _outgoingClaim?.user;
+    if (reason != CallSetupFailureReason.preflightDenied &&
+        claimedUser != null &&
+        userids.any((user) => compareToxIds(user, claimedUser))) {
+      _outgoingClaim = null;
+    }
     switch (reason) {
       case CallSetupFailureReason.preflightDenied:
         return;
@@ -1238,6 +1241,7 @@ class CallServiceManager
     bool isError = true,
     bool offerSettings = false,
   }) {
+    if (_disposed) return;
     uiNotice.value = CallUiNotice(
       id: ++_nextNoticeId,
       resolveMessage: resolveMessage,
@@ -1426,7 +1430,11 @@ class CallServiceManager
           CallMediaCapabilities.supportsVideoCapture();
     }
 
-    final claim = await _audioHandler.startCapture(friendNumber, avService);
+    final claim = await _audioHandler.startCapture(
+      friendNumber,
+      avService,
+      muted: _callState.isMuted,
+    );
     if (!sameActiveCall()) {
       if (claim != null) await _audioHandler.stop(claim: claim);
       await _videoHandler.stop();
@@ -1475,48 +1483,7 @@ class CallServiceManager
   // ---------------------------------------------------------------------------
 
   @override
-  Future<void> acceptCall() async {
-    _cancelAndroidIncomingCallSurface();
-    final inviteID = _callState.inviteID;
-    if (inviteID == null) return;
-
-    final granted = await _ensurePermissionsForCurrentMode();
-    if (!granted) {
-      await rejectCall();
-      return;
-    }
-    if (_isNativeCall(inviteID)) {
-      // Native ToxAV path — answer directly via toxav_answer
-      final fn = _getNativeFriendNumber(inviteID);
-      if (fn != null && _avService != null) {
-        final isVideo = _callState.mode == CallMode.video;
-        final profile = isVideo
-            ? CallCodecProfile.defaultProfile
-            : CallCodecProfile.defaultProfile.audioOnly();
-        // Camera-less platforms answer video calls receive-only: bitRate 0
-        // tells the peer we won't send video (we still decode theirs).
-        // Audio-only profiles already carry videoBitRate 0.
-        final sendVideoBitRate =
-            isVideo && CallMediaCapabilities.supportsVideoCapture()
-            ? profile.videoBitRate
-            : 0;
-        await _avService!.answerCall(
-          fn,
-          audioBitRate: profile.audioBitRate,
-          videoBitRate: sendVideoBitRate,
-        );
-        // Immediately enter call state and start media
-        observeBackgroundTask(_ringtone.stop(), '[CallServiceManager] Stop ringtone');
-        _callState.enterCall();
-        unawaited(_callKitReportConnected());
-        _elevateForegroundForCall();
-        observeBackgroundTask(_startMediaCapture(fn), '[CallServiceManager] Start call media');
-      }
-    } else {
-      // Signaling path
-      await _callBridge?.acceptInvitation(inviteID);
-    }
-  }
+  Future<void> acceptCall() => _acceptIncomingCall();
 
   @override
   Future<void> rejectCall() async {
@@ -1607,20 +1574,12 @@ class CallServiceManager
 
   @override
   Future<void> toggleMute() async {
-    _callState.toggleMute();
-    final inviteID = _callState.inviteID;
-
-    if (_isNativeCall(inviteID)) {
-      // Native ToxAV path — use friendNumber directly
-      final fn = _getNativeFriendNumber(inviteID);
-      if (fn != null) {
-        await _avService?.muteAudio(fn, _callState.isMuted);
-      }
-    } else {
-      // Signaling path — resolved friend number (never the Tox sentinel).
-      final fn = _getActiveFriendNumber();
-      if (fn != null) await _avService?.muteAudio(fn, _callState.isMuted);
+    if (_disposed ||
+        (!_hasActiveMediaCall && _callState.state != CallUIState.ringing)) {
+      return;
     }
+    _audioHandler.setCallMicMuted(!_callState.isMuted);
+    _callState.toggleMute();
   }
 
   @override
@@ -1640,55 +1599,65 @@ class CallServiceManager
 
   @override
   Future<void> toggleVideo() async {
+    final inviteID = _callState.inviteID;
+    final generation = _captureGeneration;
+    bool ownsVideoCall() =>
+        !_disposed &&
+        inviteID != null &&
+        _callState.inviteID == inviteID &&
+        _captureGeneration == generation &&
+        _hasActiveMediaCall &&
+        _callState.mode == CallMode.video;
+
+    if (!ownsVideoCall()) return;
     final enableVideo = !_callState.isVideoEnabled;
     if (enableVideo) {
-      // Join the startup capture-device probe BEFORE the gate below reads
-      // supportsVideoCapture() — see _requestCallPermissions.
       await CallMediaCapabilities.ensureCaptureDevicesKnown();
+      if (!ownsVideoCall() || _callState.isVideoEnabled) return;
       if (!CallMediaCapabilities.supportsVideoCapture()) {
-        // Windows/Linux have no camera capture backend — enabling the camera
-        // would silently send no frames (see VideoHandler's
-        // MissingPluginException fallback). Tell the user instead.
         _emitLocalizedUiNotice((l10n) => l10n.callVideoUnsupportedPlatform);
         return;
       }
-      final result = await _requestCallPermissions(wantVideo: true);
+      final result = await _requestCallPermissions(
+        wantVideo: true,
+        reportDenial: false,
+      );
+      if (!ownsVideoCall() || _callState.isVideoEnabled) return;
       if (!result.granted) {
-        // _requestCallPermissions already emitted the user-facing notice.
-        debugPrint(
-          '[CallServiceManager] Video permission denied while enabling camera',
-        );
+        _emitPermissionNotice(result);
         return;
       }
     }
 
     _callState.toggleVideo();
-    final inviteID = _callState.inviteID;
+    if (!ownsVideoCall() || _callState.isVideoEnabled != enableVideo) return;
     final friendNumber = _getActiveFriendNumber();
-
-    if (_isNativeCall(inviteID)) {
-      if (friendNumber != null) {
-        await _avService?.muteVideo(friendNumber, !_callState.isVideoEnabled);
-      }
+    final av = _avService;
+    // The bitrate controls local transmission. ToxAV HIDE_VIDEO controls
+    // receiving the peer's stream.
+    final bitrateChange = friendNumber == null || av == null
+        ? null
+        : av.setVideoBitRate(
+            friendNumber,
+            enableVideo ? _activeProfile.videoBitRate : 0,
+          );
+    if (!enableVideo) {
+      await Future.wait<void>([
+        _videoHandler.stopCapture(),
+        if (bitrateChange != null) bitrateChange,
+      ]);
     } else {
-      if (friendNumber != null) {
-        await _avService?.muteVideo(friendNumber, !_callState.isVideoEnabled);
+      await bitrateChange;
+      if (ownsVideoCall() &&
+          _callState.isVideoEnabled &&
+          _isAppForeground &&
+          !_mediaInterruption.isSuspended &&
+          friendNumber != null &&
+          av != null) {
+        await _videoHandler.startCapture(friendNumber, av);
       }
     }
-
-    if (!_callState.isVideoEnabled) {
-      await _videoHandler.stop();
-      _refreshForegroundForCall();
-      return;
-    }
-
-    if (_callState.state == CallUIState.inCall &&
-        _callState.mode == CallMode.video &&
-        friendNumber != null &&
-        _avService != null) {
-      await _videoHandler.startCapture(friendNumber, _avService!);
-      _refreshForegroundForCall();
-    }
+    if (ownsVideoCall()) _refreshForegroundForCall();
   }
 
   @override

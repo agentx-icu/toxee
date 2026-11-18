@@ -735,15 +735,9 @@ class _ToxeeGroupProfileDeleteButtonState
       TencentCloudChat.instance.dataInstance.messageData.clearMessageList(
         groupID: groupID,
       );
-      // The binary-replacement path above clears in-memory view caches and
-      // C++ state, but the Platform path owns the persisted JSON. Wipe history
-      // directly without going through deleteConversation, which would also
-      // strip the pinned flag — clearing history must not unpin the group.
+      // The SDK clear owns the persisted history. A second clear here could
+      // erase a new message received while the first call was returning.
       try {
-        final ffi = FakeUIKit.instance.im?.ffi;
-        if (ffi != null) {
-          await ffi.clearGroupHistory(groupID);
-        }
         FakeUIKit.instance.messageProvider?.clearMessageBuffer(
           'group_$groupID',
         );

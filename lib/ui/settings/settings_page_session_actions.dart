@@ -58,7 +58,16 @@ extension _SettingsSessionActions on _SettingsPageState {
     // A photo recovered after a camera reclaim is this account's to answer;
     // logging out gives it up (M9). Cleanup never holds up the logout.
     unawaited(CameraCaptureRecovery.purge(widget.service.accountKey));
-    await _teardownSession(service: widget.service);
+    try {
+      await _teardownSession(service: widget.service);
+    } on AccountTeardownFailure catch (error) {
+      // Teardown attempts every stage before reporting a failure. The old
+      // session cannot be used, so still clear its pointer and leave Home.
+      SafeDiagnostics.logFailure(
+        '[SettingsPage] logout teardown failed stage=${error.stage.name}',
+        error.cause,
+      );
+    }
     try {
       await Prefs.setCurrentAccountToxId(null);
     } on CurrentAccountPointerFailure catch (e, st) {

@@ -126,6 +126,7 @@ void main() {
 
   test('a published row and its verifier are both undone', () async {
     await stageInterruptedImport(ToxImportStage.accountPublished);
+    await Prefs.disableAutoLoginBeforeAccountPublication(toxId);
     await Prefs.addAccount(toxId: toxId, nickname: 'Half imported');
     expect(await Prefs.setAccountPassword(toxId, SecretPassword.fromString('pw')), isTrue);
 
@@ -133,6 +134,8 @@ void main() {
 
     expect(await Prefs.getAccountByToxId(toxId), isNull,
         reason: 'the row must go with the profile');
+    expect(await Prefs.exportScopedPrefsForAccount(toxId), isEmpty,
+        reason: 'a restarted import must not inherit the old startup policy');
     expect(await Prefs.accountProtectionState(toxId),
         AccountProtectionState.none,
         reason: 'and so must the verifier — otherwise a later import of the '

@@ -442,6 +442,82 @@ void main() {
       expect(shell.opened, isEmpty);
     });
 
+    testWidgets('a compact chat can refresh until the user goes back', (
+      tester,
+    ) async {
+      final tracker = RootRouteTracker.forTest();
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [tracker],
+          home: const SizedBox(),
+        ),
+      );
+      final shell = _Shell()..home = tracker.topRoute;
+      final transition = MasterDetailTransition(
+        host: shell.host,
+        tracker: tracker,
+      );
+      final chat = MaterialPageRoute<void>(
+        settings: _chatSettings(_peer),
+        builder: (_) => const Text('chat'),
+      );
+      unawaited(navKey.currentState!.push(chat));
+      await tester.pumpAndSettle();
+      var refreshes = 0;
+      transition.refreshVisibleChat(_peer, () => refreshes++);
+      expect(refreshes, 1);
+      expect(tracker.topRoute, same(chat));
+
+      navKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      transition.refreshVisibleChat(_peer, () => refreshes++);
+      expect(refreshes, 1);
+      expect(tracker.topRoute, same(shell.home));
+      expect(shell.opened, isEmpty);
+    });
+
+    testWidgets('wide chat refresh respects a newer selection and an overlay', (
+      tester,
+    ) async {
+      final tracker = RootRouteTracker.forTest();
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [tracker],
+          home: const SizedBox(),
+        ),
+      );
+      final shell = _Shell()
+        ..home = tracker.topRoute
+        ..wideNow = true
+        ..selection = _peer;
+      final transition = MasterDetailTransition(
+        host: shell.host,
+        tracker: tracker,
+      );
+      var refreshes = 0;
+      transition.refreshVisibleChat(_peer, () => refreshes++);
+      expect(refreshes, 1);
+
+      shell.selection = const ChatTarget(groupID: 'other-group');
+      transition.refreshVisibleChat(_peer, () => refreshes++);
+      expect(refreshes, 1);
+
+      shell.selection = _peer;
+      final overlay = MaterialPageRoute<void>(
+        builder: (_) => const Text('profile'),
+      );
+      unawaited(navKey.currentState!.push(overlay));
+      await tester.pumpAndSettle();
+      transition.refreshVisibleChat(_peer, () => refreshes++);
+      expect(refreshes, 1);
+      expect(tracker.topRoute, same(overlay));
+      expect(shell.opened, isEmpty);
+    });
+
     testWidgets('tracker follows push / pop / pushAndRemoveUntil', (
       tester,
     ) async {

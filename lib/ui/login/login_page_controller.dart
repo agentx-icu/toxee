@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../auth/login_use_case.dart';
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export/exceptions.dart';
+import '../../util/account_export/tox_file_io.dart' show decodeAccountData;
 import '../../util/account_export_service.dart';
 import '../../util/app_paths.dart';
 import '../../util/default_avatar_installer.dart';
@@ -371,6 +372,7 @@ class LoginPageController {
           expectsPassword: password != null && password.isNotEmpty,
           ownership: ownership,
         );
+        await Prefs.disableAutoLoginBeforeAccountPublication(toxId);
       }
 
       // Allocate a name no OTHER account holds. `.tox` files carry no nickname,

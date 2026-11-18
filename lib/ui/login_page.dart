@@ -854,18 +854,16 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Launch the QR pairing client page. On successful pair, the receiving
-  /// device materialized a new account on disk via [AccountExportService]; we
-  /// refresh the account list so the new entry shows up immediately and the
-  /// user can tap-to-login. Gated on [FeatureFlags.enableQRPairing].
+  /// Refresh the account list when pairing returns, including when the user
+  /// goes Back after a successful import instead of tapping Done.
   Future<void> _startPairingAsClient() async {
     final result = await Navigator.of(
       context,
     ).push<bool>(AppPageRoute(page: const PairingClientPage()));
     if (!mounted) return;
+    await _loadAccountList();
+    if (!mounted) return;
     if (result == true) {
-      await _loadAccountList();
-      if (!mounted) return;
       AppSnackBar.showSuccess(
         context,
         AppLocalizations.of(context)!.pairingClientCompleted,

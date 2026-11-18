@@ -97,6 +97,9 @@ class PairingFrameReader {
       _controller.addError(const FormatException(
           'Pairing connection closed mid-frame'));
     }
-    await _controller.close();
+    // Before SAS confirmation the client may have no frame listener.
+    // A single-subscription controller can buffer EOF until one attaches.
+    final closed = _controller.close();
+    if (_controller.hasListener) await closed;
   }
 }

@@ -20,14 +20,14 @@ import 'package:tim2tox_dart/utils/message_history_persistence.dart';
 
 const _group = 'tox_7';
 
-ChatMessage _msg(int i, {String? text}) => ChatMessage(
-      text: text ?? 'm$i',
-      fromUserId: 'PEER',
-      isSelf: false,
-      groupId: _group,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000 + i * 1000),
-      msgID: 'id_$i',
-    );
+ChatMessage _msg(int i, {String? text, String? id}) => ChatMessage(
+  text: text ?? 'm$i',
+  fromUserId: 'PEER',
+  isSelf: false,
+  groupId: _group,
+  timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000 + i * 1000),
+  msgID: id ?? 'id_$i',
+);
 
 /// Every wait in this file is settled by a timer or a completer inside the
 /// store. A bug that drops either would otherwise hang until the runner's own
@@ -38,15 +38,18 @@ const Duration _settleBudget = Duration(seconds: 30);
 
 Future<void> _flush(MessageHistoryPersistence p) async {
   await p.flushPendingSaves().timeout(
-        _settleBudget,
-        onTimeout: () => fail(
-          'flushPendingSaves did not settle within ${_settleBudget.inSeconds}s',
-        ),
-      );
+    _settleBudget,
+    onTimeout: () => fail(
+      'flushPendingSaves did not settle within ${_settleBudget.inSeconds}s',
+    ),
+  );
 }
 
 Future<void> _appendRange(
-    MessageHistoryPersistence p, int from, int toExclusive) async {
+  MessageHistoryPersistence p,
+  int from,
+  int toExclusive,
+) async {
   final appends = <Future<void>>[];
   for (var i = from; i < toExclusive; i++) {
     // Deliberately not awaited one by one: that is how the product appends.
@@ -86,8 +89,39 @@ void main() {
   File mainFile() => File('${tempDir.path}/$_group.json');
   File archiveFile() => File('${tempDir.path}/$_group.archive.jsonl');
 
-  test('rows past the memory window stay on disk across later saves',
-      () async {
+  test(
+    'archive failure keeps the in-memory alias needed for a delete retry',
+    () async {
+      final archived = _msg(1);
+      final current = _msg(1, id: 'live_id').copyWith(altMsgIds: ['id_1']);
+      await persistence.appendHistory(_group, current);
+      await archiveFile().writeAsString(
+        '${jsonEncode(archived.toJson())}\n${jsonEncode(_msg(0).toJson())}\n',
+      );
+      final unwritableStage = await Directory(
+        '${archiveFile().path}.tmp',
+      ).create();
+      bool matches(ChatMessage row) => row.msgID == 'live_id';
+
+      await expectLater(
+        persistence.removeCachedMessages(_group, matches),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(persistence.getHistory(_group).single.msgID, 'live_id');
+
+      await unwritableStage.delete();
+      expect(
+        await persistence.removeCachedMessages(_group, matches),
+        hasLength(1),
+      );
+      expect(
+        (await persistence.loadArchivedHistory(_group)).map((row) => row.msgID),
+        ['id_0'],
+      );
+    },
+  );
+
+  test('rows past the memory window stay on disk across later saves', () async {
     await _appendRange(persistence, 0, 1005);
     // The regression needed a SECOND save after the truncating one.
     await _appendRange(persistence, 1005, 1010);
@@ -96,13 +130,15 @@ void main() {
     expect(persistence.getHistory(_group).first.msgID, 'id_10');
 
     final archived = await persistence.loadArchivedHistory(_group);
-    expect(archived.map((m) => m.msgID).toList(),
-        [for (var i = 0; i < 10; i++) 'id_$i']);
+    expect(archived.map((m) => m.msgID).toList(), [
+      for (var i = 0; i < 10; i++) 'id_$i',
+    ]);
 
     // Nothing is in both places, nothing is missing.
     final mainJson = jsonDecode(await mainFile().readAsString()) as Map;
     final onDisk = <String>{
-      for (final m in mainJson['messages'] as List) (m as Map)['msgID'] as String,
+      for (final m in mainJson['messages'] as List)
+        (m as Map)['msgID'] as String,
       for (final m in archived) m.msgID!,
     };
     expect(onDisk.length, 1010);
@@ -114,8 +150,9 @@ void main() {
 
     persistence = MessageHistoryPersistence(historyDirectory: tempDir.path);
     final loaded = await persistence.loadAllHistories();
-    expect(loaded.keys, [_group],
-        reason: 'the archive must not be loaded as a conversation file');
+    expect(loaded.keys, [
+      _group,
+    ], reason: 'the archive must not be loaded as a conversation file');
     expect(loaded[_group]!.length, 1000);
     expect(await persistence.hasArchivedHistory(_group), isTrue);
     expect((await persistence.loadArchivedHistory(_group)).length, 3);
@@ -123,8 +160,10 @@ void main() {
 
   test('a torn archive line costs that line, not the archive', () async {
     await _appendRange(persistence, 0, 1003);
-    await archiveFile()
-        .writeAsString('{"text":"half-writ', mode: FileMode.append);
+    await archiveFile().writeAsString(
+      '{"text":"half-writ',
+      mode: FileMode.append,
+    );
     await persistence.dispose();
 
     persistence = MessageHistoryPersistence(historyDirectory: tempDir.path);
@@ -132,12 +171,36 @@ void main() {
     expect((await persistence.loadArchivedHistory(_group)).length, 3);
   });
 
+  test('search skips a bad archive row and stops at the hit limit', () async {
+    await archiveFile().writeAsString(
+      [
+        '{torn',
+        for (var i = 0; i < 750; i++) jsonEncode(_msg(i).toJson()),
+      ].join('\n'),
+    );
+    var examined = 0;
+    final found = await persistence.searchArchivedHistory(
+      _group,
+      matches: (_) {
+        examined++;
+        return true;
+      },
+      limit: 500,
+    );
+    expect(examined, 500);
+    expect(found.length, 500);
+    expect(found.first.msgID, 'id_0');
+    expect(found.last.msgID, 'id_499');
+  });
+
   test('rows still in memory are not returned twice (crash between the '
       'archive append and the main-file rewrite)', () async {
     await _appendRange(persistence, 0, 1003);
     // Simulate the crash window: id_500 is in the main file AND the archive.
-    await archiveFile().writeAsString('${jsonEncode(_msg(500).toJson())}\n',
-        mode: FileMode.append);
+    await archiveFile().writeAsString(
+      '${jsonEncode(_msg(500).toJson())}\n',
+      mode: FileMode.append,
+    );
     await persistence.dispose();
 
     persistence = MessageHistoryPersistence(historyDirectory: tempDir.path);
@@ -150,8 +213,10 @@ void main() {
   test('deleting an archived row rewrites only the archive', () async {
     await _appendRange(persistence, 0, 1003);
     expect(await persistence.removeArchivedMessages(_group, {'id_1'}), 1);
-    expect((await persistence.loadArchivedHistory(_group)).map((m) => m.msgID),
-        ['id_0', 'id_2']);
+    expect(
+      (await persistence.loadArchivedHistory(_group)).map((m) => m.msgID),
+      ['id_0', 'id_2'],
+    );
     expect(persistence.getHistory(_group).length, 1000);
   });
 

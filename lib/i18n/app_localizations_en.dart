@@ -1703,7 +1703,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pairingHostCompleted =>
-      'Account sent. The other device now has your account.';
+      'Account sent. Check the receiving device to confirm the import.';
 
   @override
   String get pairingClientCompleted => 'Account received. You\'re paired.';

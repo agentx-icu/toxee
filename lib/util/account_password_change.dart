@@ -100,9 +100,9 @@ abstract final class AccountPasswordChange {
   /// Remove the password of the live session's account.
   ///
   /// 1 record{remove, staged}  2 re-key to plaintext + persist
-  /// 3 record{remove, rekeyed}  4 delete every verifier source + clear record
-  /// 5 SessionPasswordStore.clear. A failure at 2 clears the record; after 2
-  /// the removal is committed — the gate finishes step 4 on its own.
+  /// 3 clear the cached passphrase  4 record{remove, rekeyed}
+  /// 5 delete every verifier source + clear record. A failure at 2 clears the
+  /// record. After 2 the removal is committed and login can finish the journal.
   static Future<PasswordChangeOutcome> remove(FfiChatService service) =>
       _gate.run(() => _remove(service));
 
@@ -122,6 +122,9 @@ abstract final class AccountPasswordChange {
       await tx.abort(toxId);
       return PasswordChangeOutcome.rekeyFailed;
     }
+    // Teardown must see the live profile's new state even if the journal write
+    // fails or logout starts while secure storage is still working.
+    SessionPasswordStore.clear(toxId);
     if (!await tx.markRekeyed(toxId)) {
       AppLogger.warn(
         '[AccountPasswordChange] profile is plaintext but the phase could not '
@@ -135,7 +138,6 @@ abstract final class AccountPasswordChange {
         'could not be deleted; the gate finishes the removal when it can',
       );
     }
-    SessionPasswordStore.clear(toxId);
     return PasswordChangeOutcome.ok;
   }
 

@@ -1512,10 +1512,7 @@ extension _HomePageBootstrap on _HomePageState {
     _groupBuilderOverride!.installOverrides();
   }
 
-  /// Routes a notification payload to the matching in-app surface via the
-  /// same plumbing as the user-facing tap. Cold-start: `_openChat` opens
-  /// immediately even before the conversation list loads; a single scheduled
-  /// retry rebinds to the real entry once the list populates.
+  /// Opens notification targets and refreshes the chat if it stays visible.
   void _routeToNotificationPayload(String payload) {
     if (!mounted) return;
     final target = parseNotificationTapPayload(payload);
@@ -1547,16 +1544,12 @@ extension _HomePageBootstrap on _HomePageState {
     }
 
     final listEmpty = UikitDataFacade.conversationList.isEmpty;
-    // Use _openChat (not _selectConversation) so the home shell also flips
-    // to the Chats tab (_index = 0). Without this, tapping a notification
-    // while on Settings/Contacts sets currentConversation but the user
-    // still sees the previous tab and the tap looks dead.
+    // Opening the chat also switches the home shell to the Chats tab.
     _openChat(peerId: target.peerId, groupId: target.groupId);
 
     if (!listEmpty) return;
-    // Cold-start path: list hadn't loaded yet, so the call above only set a
-    // stub conversation. Wait for the list to populate (one shot, capped at
-    // 2s) and re-select so the chat view picks up the real entry.
+    // Give the conversation list two seconds to supply the chat's metadata.
+    final opened = ChatTarget(userID: target.peerId, groupID: target.groupId);
     StreamSubscription<TencentCloudChatConversationData<dynamic>>? sub;
     Timer? timeout;
     void cleanup() {
@@ -1577,8 +1570,13 @@ extension _HomePageBootstrap on _HomePageState {
           }
           if (UikitDataFacade.conversationList.isEmpty) return;
           cleanup();
-          if (!mounted) return;
-          _openChat(peerId: target.peerId, groupId: target.groupId);
+          if (_disposed || !mounted) return;
+          _masterDetail.refreshVisibleChat(opened, () {
+            UikitDataFacade.currentConversation = resolveConversationTarget(
+              peerId: opened.userID,
+              groupId: opened.groupID,
+            );
+          });
         });
     timeout = Timer(const Duration(seconds: 2), () {
       if (sub == null) return;

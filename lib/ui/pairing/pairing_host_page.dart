@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-
-import 'package:path_provider/path_provider.dart';
 
 import '../../i18n/app_localizations.dart';
 import '../../util/account_export_service.dart';
@@ -34,6 +31,7 @@ class PairingHostPage extends StatefulWidget {
   const PairingHostPage({
     super.key,
     required this.toxId,
+    this.saveLiveProfile,
     this.exportServiceForTest,
     this.lanAddressForTest,
   });
@@ -42,9 +40,10 @@ class PairingHostPage extends StatefulWidget {
   /// `.tox` blob to send.
   final String toxId;
 
-  /// Test seam — production code uses [AccountExportService.exportAccountData]
-  /// to write the bytes to a temp file and read them back. The integration
-  /// test injects a fixed byte payload.
+  /// Checkpoints the live account after the user confirms pairing.
+  final VoidCallback? saveLiveProfile;
+
+  /// Supplies an owned byte buffer in place of the production profile reader.
   final Future<Uint8List> Function()? exportServiceForTest;
 
   /// Test seam for the QR-advertised address. Production discovers a real LAN
@@ -83,8 +82,8 @@ class _PairingHostPageState extends State<PairingHostPage> {
     try {
       final lanIp =
           widget.lanAddressForTest ?? await PairingLan.findLanAddress();
+      if (!mounted) return;
       if (lanIp == null) {
-        if (!mounted) return;
         setState(() {
           _startingUp = false;
           _error = AppLocalizations.of(context)!.pairingNoLanInterface;
@@ -97,27 +96,10 @@ class _PairingHostPageState extends State<PairingHostPage> {
           if (widget.exportServiceForTest != null) {
             return widget.exportServiceForTest!();
           }
-          // Export to a temp file, read back, delete. Reuses the audited
-          // export path so the byte layout matches what the receiving
-          // device's importAccountData() expects. No export password: the
-          // temp file holds the PLAINTEXT profile for every account (a
-          // protected one is opened with the session password), and the
-          // pairing channel encrypts the blob itself — guarantee deletion
-          // via try/finally, and on delete failure overwrite the bytes with
-          // zeros before retrying so a stranded file is not a usable
-          // identity blob.
-          final tmp = await _tempExportPath(widget.toxId);
-          await AccountExportService.exportAccountData(
+          widget.saveLiveProfile?.call();
+          return AccountExportService.readPlaintextAccountProfileForExport(
             toxId: widget.toxId,
-            filePath: tmp,
           );
-          Uint8List bytes;
-          try {
-            bytes = await File(tmp).readAsBytes();
-          } finally {
-            await _zeroFillAndDelete(tmp);
-          }
-          return bytes;
         },
         bindAddress: '0.0.0.0',
       );
@@ -175,47 +157,6 @@ class _PairingHostPageState extends State<PairingHostPage> {
       case HostFailureReason.protocolError:
         return l10n.pairingProtocolError(message);
     }
-  }
-
-  /// Best-effort secure cleanup for the plaintext temp export. Try delete
-  /// first (cheapest), and on failure overwrite the file contents with zeros
-  /// before a second delete attempt — so a stranded file at minimum no
-  /// longer contains a usable Tox identity blob.
-  static Future<void> _zeroFillAndDelete(String path) async {
-    final file = File(path);
-    try {
-      if (await file.exists()) {
-        await file.delete();
-      }
-      return;
-    } catch (e) {
-      AppLogger.warn(
-        '[PairingHostPage] initial delete of temp export failed for $path: $e',
-      );
-    }
-    try {
-      if (await file.exists()) {
-        final len = await file.length();
-        if (len > 0) {
-          await file.writeAsBytes(Uint8List(len), flush: true);
-        }
-        await file.delete();
-      }
-    } catch (e) {
-      AppLogger.warn(
-        '[PairingHostPage] zero-fill+delete of temp export failed for $path: $e',
-      );
-    }
-  }
-
-  static Future<String> _tempExportPath(String toxId) async {
-    // Use OS temp dir, not the persistent tim2tox profile dir: this file is
-    // exported, read, and deleted within a single `_start()` call. Living in
-    // `getTemporaryDirectory()` means the OS will clean it up if we crash
-    // mid-flow and it won't be backed up to iCloud / iTunes.
-    final dir = await getTemporaryDirectory();
-    final prefix = toxId.length >= 8 ? toxId.substring(0, 8) : toxId;
-    return '${dir.path}${Platform.pathSeparator}pairing_$prefix.tox';
   }
 
   @override

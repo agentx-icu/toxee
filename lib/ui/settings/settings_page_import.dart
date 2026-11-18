@@ -216,6 +216,7 @@ extension _SettingsImportFlow on _SettingsPageState {
           expectsPassword: password != null && password.isNotEmpty,
           ownership: ownership,
         );
+        await Prefs.disableAutoLoginBeforeAccountPublication(toxId);
       }
 
       // Add/update account (.zip may contain nickname, .tox does not)

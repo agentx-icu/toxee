@@ -892,7 +892,7 @@
   "pairingVerifyCodeHeader": "両方のデバイスに同じコードが表示されていることを確認してください",
   "pairingVerifyCodeInstructions": "もう一方のデバイスに表示されているコードと一致する場合は、下をタップしてください。異なる場合はキャンセルしてください — 接続が傍受されている可能性があります。",
   "pairingCodesMatch": "コードが一致しています",
-  "pairingHostCompleted": "アカウントを送信しました。もう一方のデバイスでこのアカウントを使用できます。",
+  "pairingHostCompleted": "アカウントを送信しました。受信側のデバイスでインポートが完了したことを確認してください。",
   "pairingClientCompleted": "アカウントを受信しました。ペアリングが完了しました。",
   "pairingCancelled": "ペアリングをキャンセルしました。",
   "pairingTimeout": "ペアリングがタイムアウトしました — もう一度お試しください。",

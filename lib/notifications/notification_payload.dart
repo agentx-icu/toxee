@@ -1,4 +1,41 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+
+import '../util/tox_utils.dart';
+
+const _accountRoutePrefix = 'account:';
+
+String _accountRouteKey(String toxId) =>
+    sha256.convert(utf8.encode(toToxPublicKey(toxId))).toString();
+
+String bindNotificationPayload(String payload, String? accountKey) {
+  if (accountKey == null || accountKey.isEmpty) return payload;
+  return '$_accountRoutePrefix${_accountRouteKey(accountKey)}:$payload';
+}
+
+/// Returns the original route only for its issuing account. Legacy OS banners
+/// can reopen the app without directing a newly selected account to a chat.
+String? notificationPayloadForAccount(String payload, String? accountKey) {
+  if (!payload.startsWith(_accountRoutePrefix)) {
+    return accountKey == null || payload.startsWith('incoming_call:')
+        ? payload
+        : null;
+  }
+  if (accountKey == null || accountKey.isEmpty) return null;
+  final prefix = '$_accountRoutePrefix${_accountRouteKey(accountKey)}:';
+  return payload.startsWith(prefix) ? payload.substring(prefix.length) : null;
+}
+
+bool isMessageNotificationPayload(String payload) {
+  if (payload.startsWith(_accountRoutePrefix)) {
+    final targetStart = payload.indexOf(':', _accountRoutePrefix.length);
+    if (targetStart == -1) return false;
+    payload = payload.substring(targetStart + 1);
+  }
+  return payload.startsWith('c2c_') || payload.startsWith('group_');
+}
 
 enum NotificationTapTargetKind { c2c, group, incomingCall, friendRequest }
 

@@ -102,6 +102,66 @@ void main() {
   // results, this proves the keyword filter + highlight logic).
   group('S93 message search matching + highlight', () {
     testWidgets(
+      'filename hits stay visible and navigate to the matching file',
+      (tester) async {
+        TencentCloudChatIntl().setLocale(const Locale('en'));
+        final file = _textMessage(msgId: 'attachment', text: '')
+          ..elemType = MessageElemType.V2TIM_ELEM_TYPE_FILE
+          ..textElem = null
+          ..fileElem = V2TimFileElem(fileName: 'Quarterly-Report.pdf');
+        final result = TencentCloudChatSearchResultItemData(
+          conversationID: 'c2c_friend_123',
+          userID: 'friend_123',
+          showName: 'Friend 123',
+          messageList: [file],
+        );
+        V2TimMessage? target;
+        await _pumpSettled(
+          tester,
+          SearchChatHistoryWindow(
+            initialKeyword: 'report.pdf',
+            messageSearchResults: [result],
+            onNavigateToMessage: ({userID, groupID, targetMessage}) {
+              target = targetMessage;
+            },
+          ),
+        );
+
+        final row = find.byKey(UiKeys.searchHistoryMessage('attachment'));
+        expect(row, findsOneWidget);
+        final preview = tester.widget<Text>(
+          find
+              .descendant(
+                of: row,
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Text &&
+                      (widget.textSpan?.toPlainText().endsWith(
+                            'Quarterly-Report.pdf',
+                          ) ??
+                          false),
+                ),
+              )
+              .first,
+        );
+        expect(
+          (preview.textSpan! as TextSpan).children!.whereType<TextSpan>(),
+          contains(
+            isA<TextSpan>()
+                .having((span) => span.text, 'text', 'Report.pdf')
+                .having(
+                  (span) => span.style?.fontWeight,
+                  'weight',
+                  FontWeight.w600,
+                ),
+          ),
+        );
+        await tester.tap(row);
+        expect(target, same(file));
+      },
+    );
+
+    testWidgets(
       'SearchChatHistoryWindow renders only messages matching the keyword',
       (tester) async {
         // One matching ("pizza"), one not ("hello world"). The window filters

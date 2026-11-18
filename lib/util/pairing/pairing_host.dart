@@ -32,14 +32,12 @@ class PairingHost {
     required String bindAddress,
     int port = 0,
     Duration acceptTimeout = const Duration(minutes: 2),
-  })  : _loadProfileBlob = loadProfileBlob,
-        _bindAddress = bindAddress,
-        _requestedPort = port,
-        _acceptTimeout = acceptTimeout;
+  }) : _loadProfileBlob = loadProfileBlob,
+       _bindAddress = bindAddress,
+       _requestedPort = port,
+       _acceptTimeout = acceptTimeout;
 
-  /// Loader for the `.tox` profile bytes. Injected (not a hard dep on
-  /// `AccountExportService`) so unit tests can drive deterministic payloads
-  /// without spinning up real Tox state.
+  /// Returns a fresh buffer whose ownership passes to the pairing host.
   final Future<Uint8List> Function() _loadProfileBlob;
 
   /// Address to bind the listener on. Typically `0.0.0.0` so any LAN client
@@ -60,6 +58,7 @@ class PairingHost {
   Socket? _peer;
   final _events = StreamController<HostEvent>.broadcast();
   final _sasConfirmed = Completer<void>();
+  bool _started = false;
   bool _completed = false;
   Timer? _acceptTimer;
 
@@ -74,15 +73,19 @@ class PairingHost {
   /// pass an actual LAN IP. The integration tests pass `127.0.0.1` for both
   /// bind and advertise so the loopback round-trip works cleanly.
   Future<String> start({required String advertiseAddress}) async {
-    if (_server != null) {
-      throw StateError('PairingHost.start() called twice');
+    if (_started || _completed) {
+      throw StateError('Pairing host session has already started or ended');
     }
+    _started = true;
     _ephemeral = await PairingCrypto.generateEphemeral();
-    final pubKey =
-        Uint8List.fromList(await _extractPublicKey(_ephemeral!));
+    final pubKey = Uint8List.fromList(await _extractPublicKey(_ephemeral!));
     final nonce = PairingCrypto.generateNonce();
 
     final server = await ServerSocket.bind(_bindAddress, _requestedPort);
+    if (_completed) {
+      await server.close();
+      throw StateError('Pairing host session ended during startup');
+    }
     _server = server;
     final boundPort = server.port;
 
@@ -94,22 +97,27 @@ class PairingHost {
     );
     final url = PairingUrl.encode(invite);
     AppLogger.log(
-        '[PairingHost] listening on $_bindAddress:$boundPort, advertising '
-        '$advertiseAddress:$boundPort');
+      '[PairingHost] listening on $_bindAddress:$boundPort, advertising '
+      '$advertiseAddress:$boundPort',
+    );
 
     // Listen for exactly one connection. Future is fire-and-forget; we wire
     // its completion through the _events stream that the caller listens to.
-    unawaited(server.first.then(
-      (sock) => _handlePeer(sock, nonce, pubKey),
-      onError: (Object e, StackTrace st) {
-        _fail(HostFailureReason.networkError, '$e');
-      },
-    ));
+    unawaited(
+      server.first.then(
+        (sock) => _handlePeer(sock, nonce, pubKey),
+        onError: (Object e, StackTrace st) {
+          _fail(HostFailureReason.networkError, '$e');
+        },
+      ),
+    );
 
     _acceptTimer = Timer(_acceptTimeout, () {
       if (_peer == null && !_completed) {
-        _fail(HostFailureReason.timeout,
-            'No device connected within ${_acceptTimeout.inSeconds}s');
+        _fail(
+          HostFailureReason.timeout,
+          'No device connected within ${_acceptTimeout.inSeconds}s',
+        );
       }
     });
 
@@ -128,6 +136,7 @@ class PairingHost {
   Future<void> cancel({String reason = 'cancelled by user'}) async {
     if (_completed) return;
     _completed = true;
+    confirmSas();
     _acceptTimer?.cancel();
     try {
       await _peer?.close();
@@ -144,7 +153,10 @@ class PairingHost {
   }
 
   Future<void> _handlePeer(
-      Socket sock, Uint8List nonce, Uint8List ourPub) async {
+    Socket sock,
+    Uint8List nonce,
+    Uint8List ourPub,
+  ) async {
     if (_completed) {
       // Race: cancelled while we were waiting for `first`. Drop the socket.
       try {
@@ -157,27 +169,38 @@ class PairingHost {
     _peer = sock;
     _acceptTimer?.cancel();
     AppLogger.log(
-        '[PairingHost] peer connected from ${sock.remoteAddress.address}:${sock.remotePort}');
+      '[PairingHost] peer connected from ${sock.remoteAddress.address}:${sock.remotePort}',
+    );
 
     final reader = PairingFrameReader();
+    var sendingProfile = false;
     final dataSub = sock.listen(
       reader.feed,
       onError: (Object e, StackTrace st) {
         _fail(HostFailureReason.networkError, 'socket error: $e');
       },
-      onDone: reader.close,
+      onDone: () {
+        if (!sendingProfile) {
+          _fail(
+            HostFailureReason.networkError,
+            'The receiving device disconnected before the transfer',
+          );
+        }
+        unawaited(reader.close());
+      },
     );
 
     try {
       // 1. Receive Device B's pubkey.
       final peerPub = await reader.frames.first.timeout(
         const Duration(seconds: 15),
-        onTimeout: () => throw TimeoutException(
-            'No handshake from peer within 15s'),
+        onTimeout: () =>
+            throw TimeoutException('No handshake from peer within 15s'),
       );
       if (peerPub.length != PairingCrypto.publicKeyLength) {
         throw FormatException(
-            'Peer public key has wrong length: ${peerPub.length}');
+          'Peer public key has wrong length: ${peerPub.length}',
+        );
       }
 
       // 2. ECDH + derive (transit_key, sas).
@@ -191,6 +214,7 @@ class PairingHost {
         ourPublicKey: ourPub,
         theirPublicKey: peerPub,
       );
+      if (_completed) return;
       _events.add(HostAwaitingSas(keys.sas));
 
       // 3. Wait for the user to tap "the codes match". The peer is similarly
@@ -201,14 +225,23 @@ class PairingHost {
       // 4. Load + AEAD-encrypt the .tox blob. AEAD unconditional — see class
       // docstring.
       final plain = await _loadProfileBlob();
-      final cipher = await PairingCrypto.aeadEncrypt(
-        transitKey: keys.transitKey,
-        plaintext: plain,
-      );
+      final Uint8List cipher;
+      try {
+        if (_completed) return;
+        cipher = await PairingCrypto.aeadEncrypt(
+          transitKey: keys.transitKey,
+          plaintext: plain,
+        );
+      } finally {
+        plain.fillRange(0, plain.length, 0);
+      }
+      if (_completed) return;
+      sendingProfile = true;
       sock.add(PairingFrame.encode(cipher));
       await sock.flush();
       AppLogger.log(
-          '[PairingHost] sent AEAD blob: ${cipher.length} bytes (plain=${plain.length})');
+        '[PairingHost] sent AEAD blob: ${cipher.length} bytes (plain=${plain.length})',
+      );
 
       // 5. Half-close + done.
       await sock.close();
@@ -216,6 +249,7 @@ class PairingHost {
     } on TimeoutException catch (e) {
       _fail(HostFailureReason.timeout, '$e');
     } catch (e, st) {
+      if (_completed) return;
       AppLogger.logError('[PairingHost] handshake error', e, st);
       _fail(HostFailureReason.protocolError, '$e');
     } finally {
@@ -240,6 +274,7 @@ class PairingHost {
   void _fail(HostFailureReason reason, String message) {
     if (_completed) return;
     _completed = true;
+    confirmSas();
     _acceptTimer?.cancel();
     try {
       _peer?.destroy();
@@ -289,9 +324,4 @@ class HostFailed extends HostEvent {
   final String message;
 }
 
-enum HostFailureReason {
-  cancelled,
-  timeout,
-  networkError,
-  protocolError,
-}
+enum HostFailureReason { cancelled, timeout, networkError, protocolError }

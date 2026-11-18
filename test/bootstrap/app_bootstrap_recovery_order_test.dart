@@ -18,6 +18,7 @@ void main() {
         events.add('restore:complete');
       },
       recoverPendingDeletions: () async => events.add('deletion:complete'),
+      recoverPendingRegistrations: () async => events.add('registration'),
       retryStrandedVerifiers: () async =>
           events.add('stranded-verifier-retry'),
       reconcileAccounts: () async => events.add('reconciliation'),
@@ -32,6 +33,7 @@ void main() {
       'restore:start',
       'restore:complete',
       'deletion:complete',
+      'registration',
       'stranded-verifier-retry',
       'reconciliation',
     ]);

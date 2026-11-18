@@ -551,6 +551,7 @@ final class _FakeAvConferenceSessionBridge
     required AvConferenceSessionOwner owner,
     required AvConferenceAudioFrameCallback onAudioFrame,
     AvConferenceMediaStateCallback? onMediaStateChanged,
+    bool Function()? canEnable,
   }) async {
     mediaStateCallback = onMediaStateChanged;
     final busy = nextEnableBusyResult;

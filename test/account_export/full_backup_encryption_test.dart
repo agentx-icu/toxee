@@ -67,6 +67,58 @@ void main() {
     );
 
     test(
+      'preserves the previous archive when an account section cannot be read',
+      () async {
+        await _seedAccountPayload();
+        final queue = File(
+          await AppPaths.getAccountOfflineQueueFilePath(_toxId),
+        );
+        await queue.delete();
+        await Directory(queue.path).create();
+        final destination = File(p.join(env.extras, 'existing_backup.zip'));
+        await destination.writeAsString('previous backup');
+        final password = SecretPassword.fromString(_exportPassword);
+        addTearDown(password.dispose);
+
+        await expectLater(
+          AccountExportService.exportFullBackup(
+            toxId: _toxId,
+            password: password,
+            filePath: destination.path,
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(await destination.readAsString(), 'previous backup');
+      },
+    );
+
+    test(
+      'refuses to publish when an existing account data directory is inaccessible',
+      () async {
+        await _seedAccountPayload();
+        final dataRoot = await AppPaths.getAccountDataRoot(_toxId);
+        final destination = File(p.join(env.extras, 'unreadable_source.zip'));
+        final password = SecretPassword.fromString(_exportPassword);
+        addTearDown(password.dispose);
+        expect((await Process.run('chmod', ['000', dataRoot])).exitCode, 0);
+        try {
+          await expectLater(
+            AccountExportService.exportFullBackup(
+              toxId: _toxId,
+              password: password,
+              filePath: destination.path,
+            ),
+            throwsA(isA<FileSystemException>()),
+          );
+          expect(await destination.exists(), isFalse);
+        } finally {
+          expect((await Process.run('chmod', ['700', dataRoot])).exitCode, 0);
+        }
+      },
+      skip: Platform.isWindows,
+    );
+
+    test(
       'keeps account identity and payload secrets out of raw v2 bytes',
       () async {
         await _seedAccountPayload();

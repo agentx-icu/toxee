@@ -6,9 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:toxee/util/account_export/restore_transaction.dart';
 import 'package:toxee/ui/settings/settings_page.dart';
+import 'package:toxee/ui/testing/ui_keys.dart';
 import 'package:toxee/util/account_export_service.dart';
 import 'package:toxee/util/app_paths.dart';
 import 'package:toxee/util/prefs.dart';
+import 'package:toxee/util/responsive_layout.dart';
 
 import '../../account_export/test_support.dart';
 import 'settings_account_test_support.dart';
@@ -27,10 +29,21 @@ Future<void> _pumpSettings(
   EncryptProfileFileFn? encryptProfileFileFn,
   SettingsAddImportedAccountFn? addImportedAccountFn,
   SettingsSetImportedAccountPasswordFn? setImportedAccountPasswordFn,
+  bool compact = false,
 }) async {
   final service = SettingsHarnessService();
   addTearDown(service.disposeStub);
-  await tester.binding.setSurfaceSize(const Size(1280, 1400));
+  if (compact) {
+    ResponsiveLayout.debugIsDesktopPlatformOverride = () => false;
+    addTearDown(() => ResponsiveLayout.debugIsDesktopPlatformOverride = null);
+    tester.view.physicalSize = const Size(390, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+  await tester.binding.setSurfaceSize(
+    compact ? const Size(390, 900) : const Size(1280, 1400),
+  );
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     settingsApp(
@@ -50,7 +63,10 @@ Future<void> _pumpSettings(
     ),
   );
   await settleSettings(tester);
-  // Appearance is above the account card; scroll to the real import action.
+  if (compact) {
+    await tester.tap(find.byKey(UiKeys.settingsMobileAccountManagementSection));
+    await settleSettings(tester);
+  }
   await tester.ensureVisible(_importButton());
   await settleSettings(tester);
 }
@@ -349,9 +365,10 @@ void main() {
                 'toxProfile': Uint8List.fromList(<int>[1, 2, 3, 4]),
                 'nickname': 'Partial Account',
               },
-      encryptProfileFileFn: (String profilePath, SecretPassword password) async {
-        fail('plain .tox imports must not encrypt the staged profile');
-      },
+      encryptProfileFileFn:
+          (String profilePath, SecretPassword password) async {
+            fail('plain .tox imports must not encrypt the staged profile');
+          },
       addImportedAccountFn:
           ({
             required String toxId,
@@ -405,13 +422,15 @@ void main() {
               'nickname': 'Encrypted Account',
             };
           },
-      encryptProfileFileFn: (String profilePath, SecretPassword password) async => true,
-      setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
-        final persisted = await Prefs.setAccountPassword(toxId, password);
-        expect(persisted, isTrue);
-        await _seedRollbackResidue(toxId);
-        return false;
-      },
+      encryptProfileFileFn:
+          (String profilePath, SecretPassword password) async => true,
+      setImportedAccountPasswordFn:
+          (String toxId, SecretPassword password) async {
+            final persisted = await Prefs.setAccountPassword(toxId, password);
+            expect(persisted, isTrue);
+            await _seedRollbackResidue(toxId);
+            return false;
+          },
     );
 
     await tester.runAsync(() async {
@@ -474,14 +493,15 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, SecretPassword supplied) async {
-          events.add('encrypt');
-          encryptedPath = profilePath;
-          encryptionPassword = secretText(supplied);
-          bytesAtEncryption = await File(profilePath).readAsBytes();
-          await File(profilePath).writeAsBytes(<int>[9, 9, 9]);
-          return true;
-        },
+        encryptProfileFileFn:
+            (String profilePath, SecretPassword supplied) async {
+              events.add('encrypt');
+              encryptedPath = profilePath;
+              encryptionPassword = secretText(supplied);
+              bytesAtEncryption = await File(profilePath).readAsBytes();
+              await File(profilePath).writeAsBytes(<int>[9, 9, 9]);
+              return true;
+            },
         addImportedAccountFn:
             ({
               required String toxId,
@@ -492,13 +512,15 @@ void main() {
               required bool notificationSoundEnabled,
             }) async {
               events.add('addAccount');
+              expect(await Prefs.getAutoLogin(toxId), isFalse);
               bytesAtAddAccount = await File(expectedProfilePath).readAsBytes();
             },
-        setImportedAccountPasswordFn: (String toxId, SecretPassword supplied) async {
-          events.add('savePassword');
-          persistedPassword = secretText(supplied);
-          return true;
-        },
+        setImportedAccountPasswordFn:
+            (String toxId, SecretPassword supplied) async {
+              events.add('savePassword');
+              persistedPassword = secretText(supplied);
+              return true;
+            },
       );
 
       await tester.runAsync(() async {
@@ -550,10 +572,11 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
-          expect(await File(profilePath).readAsBytes(), <int>[5, 6, 7, 8]);
-          return false;
-        },
+        encryptProfileFileFn:
+            (String profilePath, SecretPassword password) async {
+              expect(await File(profilePath).readAsBytes(), <int>[5, 6, 7, 8]);
+              return false;
+            },
         addImportedAccountFn:
             ({
               required String toxId,
@@ -565,10 +588,11 @@ void main() {
             }) async {
               addAccountCalls++;
             },
-        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
-          passwordWriteCalls++;
-          return true;
-        },
+        setImportedAccountPasswordFn:
+            (String toxId, SecretPassword password) async {
+              passwordWriteCalls++;
+              return true;
+            },
       );
 
       await tester.runAsync(() async {
@@ -620,10 +644,11 @@ void main() {
                 'nickname': 'Encrypted Account',
               };
             },
-        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
-          expect(await File(profilePath).readAsBytes(), <int>[8, 7, 6, 5]);
-          throw StateError('private encryption implementation detail');
-        },
+        encryptProfileFileFn:
+            (String profilePath, SecretPassword password) async {
+              expect(await File(profilePath).readAsBytes(), <int>[8, 7, 6, 5]);
+              throw StateError('private encryption implementation detail');
+            },
         addImportedAccountFn:
             ({
               required String toxId,
@@ -635,10 +660,11 @@ void main() {
             }) async {
               addAccountCalls++;
             },
-        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
-          passwordWriteCalls++;
-          return true;
-        },
+        setImportedAccountPasswordFn:
+            (String toxId, SecretPassword password) async {
+              passwordWriteCalls++;
+              return true;
+            },
       );
 
       await tester.runAsync(() async {
@@ -695,7 +721,7 @@ void main() {
   );
 
   testWidgets(
-    'zip password stays archive-only and never encrypts the restored profile',
+    'compact account management shows the restored account in the open route',
     (tester) async {
       const archivePassword = 'archive-only-password';
       final zipPath = (await tester.runAsync<String>(
@@ -712,19 +738,22 @@ void main() {
       var passwordWriteCalls = 0;
       await _pumpSettings(
         tester,
+        compact: true,
         pickImportFileFn: () async => zipPath,
         importAccountDataFn:
             ({required String filePath, SecretPassword? password}) async {
               fail('the .zip branch must not invoke .tox decoding');
             },
-        encryptProfileFileFn: (String profilePath, SecretPassword password) async {
-          encryptionCalls++;
-          return true;
-        },
-        setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
-          passwordWriteCalls++;
-          return true;
-        },
+        encryptProfileFileFn:
+            (String profilePath, SecretPassword password) async {
+              encryptionCalls++;
+              return true;
+            },
+        setImportedAccountPasswordFn:
+            (String toxId, SecretPassword password) async {
+              passwordWriteCalls++;
+              return true;
+            },
       );
 
       await tester.runAsync(() async {
@@ -750,6 +779,11 @@ void main() {
 
       expect(encryptionCalls, 0);
       expect(passwordWriteCalls, 0);
+      expect(find.text('ZIP Account'), findsOneWidget);
+      expect(
+        tester.widget<OutlinedButton>(_importButton()).onPressed,
+        isNotNull,
+      );
     },
   );
 
@@ -777,14 +811,16 @@ void main() {
           ({required String filePath, SecretPassword? password}) async {
             fail('the .zip branch must not invoke .tox decoding');
           },
-      encryptProfileFileFn: (String profilePath, SecretPassword password) async {
-        encryptionCalls++;
-        return true;
-      },
-      setImportedAccountPasswordFn: (String toxId, SecretPassword password) async {
-        passwordWriteCalls++;
-        return true;
-      },
+      encryptProfileFileFn:
+          (String profilePath, SecretPassword password) async {
+            encryptionCalls++;
+            return true;
+          },
+      setImportedAccountPasswordFn:
+          (String toxId, SecretPassword password) async {
+            passwordWriteCalls++;
+            return true;
+          },
     );
 
     await tester.runAsync(() async {

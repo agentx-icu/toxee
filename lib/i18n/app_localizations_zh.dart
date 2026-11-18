@@ -1613,7 +1613,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get pairingCodesMatch => '验证码一致';
 
   @override
-  String get pairingHostCompleted => '账号已发送。另一台设备现在拥有你的账号。';
+  String get pairingHostCompleted => '账号已发送。请在接收设备上确认导入是否完成。';
 
   @override
   String get pairingClientCompleted => '账号已接收。配对完成。';
@@ -3708,6 +3708,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
+  String get pairingHostCompleted => '账号已发送。请在接收设备上确认导入是否完成。';
+
+  @override
   String get runtimeForegroundTitle => 'Toxee 正在运行';
 
   @override
@@ -5779,7 +5782,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get pairingCodesMatch => '驗證碼相同';
 
   @override
-  String get pairingHostCompleted => '帳號已發送，另一台裝置現在已擁有你的帳號。';
+  String get pairingHostCompleted => '帳號已傳送。請在接收裝置上確認匯入是否完成。';
 
   @override
   String get pairingClientCompleted => '帳號已接收，配對完成。';

@@ -51,12 +51,14 @@ enum AvConferenceEnableResult {
 }
 
 abstract interface class AvConferenceSessionBridge {
+  /// [canEnable] checks whether the join still owns its pending setup.
   Future<AvConferenceEnableResult> enable({
     required String groupId,
     required String displayName,
     required AvConferenceSessionOwner owner,
     required AvConferenceAudioFrameCallback onAudioFrame,
     AvConferenceMediaStateCallback? onMediaStateChanged,
+    bool Function()? canEnable,
   });
 
   Future<bool> disable({

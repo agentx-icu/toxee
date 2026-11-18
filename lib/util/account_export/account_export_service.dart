@@ -8,6 +8,8 @@
 // New code should depend on these static methods exactly as before — the
 // split only changes WHERE the bodies live, not WHAT they do.
 
+import 'dart:typed_data';
+
 import '../secret_password.dart';
 import 'encryption.dart' as enc;
 import 'restore_transaction_journal.dart';
@@ -37,6 +39,11 @@ class AccountExportService {
     accountPassword: accountPassword,
     filePath: filePath,
   );
+
+  /// Returns owned plaintext savedata for immediate use by the caller.
+  static Future<Uint8List> readPlaintextAccountProfileForExport({
+    required String toxId,
+  }) => tox.readPlaintextAccountProfileForExport(toxId: toxId);
 
   /// Import account data from a .tox file. Throws
   /// [PasswordRequiredException] if the file is encrypted and no password

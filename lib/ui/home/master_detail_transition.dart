@@ -173,6 +173,11 @@ class MasterDetailTransition {
   ChatTarget? visibleChat() =>
       _captureVisibleChat(toWide: !host.showsMasterDetailNow());
 
+  /// Updates an already visible conversation after its data loads.
+  void refreshVisibleChat(ChatTarget target, VoidCallback refresh) {
+    if (host.isMounted() && visibleChat() == target) refresh();
+  }
+
   ChatTarget? _captureVisibleChat({required bool toWide}) {
     if (!host.isChatsTabIdle()) return null;
     final top = tracker.topRoute;

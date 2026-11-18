@@ -157,47 +157,7 @@ Future<String> exportAccountData({
       ? normalizedToxId.substring(0, 8)
       : normalizedToxId;
 
-  // Read tox profile file (try primary and fallback paths)
-  Uint8List toxProfileData;
-  try {
-    final resolvedPath = await AppPaths.resolveToxProfilePath(normalizedToxId);
-    if (resolvedPath == null) {
-      throw Exception(
-        'Tox profile file not found. '
-        'Ensure this account has been used at least once on this device, or restore from a full backup.',
-      );
-    }
-    final toxProfileFile = File(resolvedPath);
-    toxProfileData = await toxProfileFile.readAsBytes();
-    if (toxProfileData.isEmpty) {
-      throw Exception('Tox profile file is empty');
-    }
-    AppLogger.log(
-      '[AccountExportService] Export: Read profile: '
-      'byteCount=${toxProfileData.length}',
-    );
-  } catch (error) {
-    AppLogger.error(
-      '[AccountExportService] Export: Profile read succeeded=false; '
-      'errorType=${error.runtimeType}',
-    );
-    if (error is FileSystemException) {
-      throw const FileSystemException('Unable to read account profile data');
-    }
-    rethrow;
-  }
-
-  // Encrypt if a password is supplied AND the bytes are not already encrypted.
-  //
-  // The profile's encryption state depends on when the export runs: it is
-  // plaintext for the whole of an authenticated session and ciphertext once
-  // `teardownCurrentSession` has re-encrypted it. Encrypting unconditionally
-  // therefore produced a DOUBLE-encrypted `.tox` whenever the source was
-  // already ciphertext — a file that needs two passphrase rounds and so is
-  // neither importable by toxee nor readable by qTox, despite the export
-  // reporting success. Only ever produce the single-layer format.
-  toxProfileData = await plaintextProfileForExport(
-    toxProfileData,
+  final toxProfileData = await readPlaintextAccountProfileForExport(
     toxId: normalizedToxId,
     accountPassword: accountPassword,
   );
@@ -288,6 +248,54 @@ Future<String> exportAccountData({
   }
 }
 
+/// Reads the saved profile into an owned plaintext buffer. The caller clears
+/// the returned bytes when finished. Protected profiles use the supplied
+/// account password or the matching live session password.
+Future<Uint8List> readPlaintextAccountProfileForExport({
+  required String toxId,
+  SecretPassword? accountPassword,
+}) async {
+  final normalizedToxId = toxId.trim();
+  if (normalizedToxId.isEmpty) throw ArgumentError('toxId cannot be empty');
+
+  final Uint8List bytes;
+  try {
+    final path = await AppPaths.resolveToxProfilePath(normalizedToxId);
+    if (path == null) {
+      throw Exception(
+        'Tox profile file not found. '
+        'Ensure this account has been used at least once on this device, or restore from a full backup.',
+      );
+    }
+    bytes = await File(path).readAsBytes();
+    if (bytes.isEmpty) throw Exception('Tox profile file is empty');
+    AppLogger.log(
+      '[AccountExportService] Export: Read profile: byteCount=${bytes.length}',
+    );
+  } catch (error) {
+    AppLogger.error(
+      '[AccountExportService] Export: Profile read succeeded=false; '
+      'errorType=${error.runtimeType}',
+    );
+    if (error is FileSystemException) {
+      throw const FileSystemException('Unable to read account profile data');
+    }
+    rethrow;
+  }
+
+  Uint8List? plaintext;
+  try {
+    plaintext = await plaintextProfileForExport(
+      bytes,
+      toxId: normalizedToxId,
+      accountPassword: accountPassword,
+    );
+    return plaintext;
+  } finally {
+    if (!identical(bytes, plaintext)) bytes.fillRange(0, bytes.length, 0);
+  }
+}
+
 /// Import account data from a .tox file.
 ///
 /// [filePath] - Path to the .tox file
@@ -317,6 +325,14 @@ Future<Map<String, dynamic>> importAccountData({
     }
     rethrow;
   }
+  return decodeAccountData(fileData, password: password);
+}
+
+/// Decodes caller-owned savedata bytes without writing anything to disk.
+Map<String, dynamic> decodeAccountData(
+  Uint8List fileData, {
+  SecretPassword? password,
+}) {
   if (fileData.isEmpty) {
     throw Exception('File is empty');
   }
@@ -365,17 +381,20 @@ Future<Map<String, dynamic>> importAccountData({
     decryptedData = fileData;
   }
 
-  // Extract toxId from profile
-  final toxId = _extractToxIdFromProfile(
-    decryptedData,
-    isEncrypted ? password : null,
-  );
-  AppLogger.log(
-    '[AccountExportService] Import: Identifier extraction succeeded=true; '
-    'identifierLength=${toxId.length}',
-  );
-
-  return {'toxId': toxId, 'toxProfile': decryptedData};
+  try {
+    final toxId = _extractToxIdFromProfile(decryptedData, null);
+    AppLogger.log(
+      '[AccountExportService] Import: Identifier extraction succeeded=true; '
+      'identifierLength=${toxId.length}',
+    );
+    return {'toxId': toxId, 'toxProfile': decryptedData};
+  } catch (_) {
+    // Until returned, the decoder owns only the buffer it allocated.
+    if (!identical(decryptedData, fileData)) {
+      decryptedData.fillRange(0, decryptedData.length, 0);
+    }
+    rethrow;
+  }
 }
 
 /// Extract the 64-char public-key hex Tox ID from a profile blob.

@@ -941,5 +941,6 @@
   "nearbyCellUnavailable": "当前区域暂不可用，正在后台重试。",
   "windowMinimize": "最小化",
   "windowMaximize": "最大化",
-  "windowRestore": "还原"
+  "windowRestore": "还原",
+  "pairingHostCompleted": "账号已发送。请在接收设备上确认导入是否完成。"
 }

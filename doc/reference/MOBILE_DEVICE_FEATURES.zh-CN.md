@@ -55,7 +55,7 @@ B7 未来账号 prefs/history 拒绝降级覆盖，联系人后台轮询与无�
 | A5 | 距离传感器：贴耳熄屏防误触 | P0 | ✅ | iOS `CallAudioChannel.swift:132`（`isProximityMonitoringEnabled`）；Android `CallAudioChannel.kt:233-253`（proximity wakelock）。群通话页有意不启用（`call_service_manager_busy.dart:303`） |
 | A6 | 音频中断：系统来电、闹钟、Siri、其他 App 抢占音频焦点，结束后恢复 | P0 | ✅ | iOS `interruptionNotification`（`CallAudioChannel.swift:86`）；Android `OnAudioFocusChangeListener`（`CallAudioChannel.kt:48`）；群通话 `av_conference_session_bridge.dart` 的 `interrupted` 状态 |
 | A7 | 回声消除 / 降噪 / 自动增益（外放时尤其关键） | P0 | ◐ | 录音已请求回声消除和降噪（`audio_handler.dart:70`），iOS 用 `voiceChat` 模式（`CallAudioChannel.swift:91`）；自动增益没有实现证据，AEC 实际效果需真机外放实测 |
-| A8 | 通话结束后确实释放麦克风 / 摄像头（状态栏隐私指示灯熄灭） | P0 | 🔍 | `call_service_manager_native.dart:209`；指示灯残留即资源泄漏 |
+| A8 | 通话结束后确实释放麦克风 / 摄像头（状态栏隐私指示灯熄灭） | P0 | 🔍 | `call_service_manager_native.dart:209`；指示灯残留即资源泄漏 2026-11-18 的单测验证了重连超时释放媒体、会议页退出后麦克风授权不会启动采集，以及通话结束后丢弃晚到的解码帧。隐私指示灯仍待实机核验。 |
 | A9 | 静音键 / 勿扰 / 专注模式对来电铃声、消息提示音的影响 | P1 | ◐ | 2026-09-26 评审：Android `playIncomingRingtone`（`CallAudioChannel.kt:260`）显式按 `ringerMode` 处理：静音不响、振动只振动、否则在 `STREAM_RING` 上响铃；勿扰模式下的行为未验证。iOS 来电通常走 CallKit；CallKit 报告失败时回退到 App 内铃声。它原先用 audioplayers 的默认 `playback` 类别，无视静音键——**2026-09-27 已修复**：iOS 也改为原生响铃（`ios/Runner/CallAudioChannel.swift` 的 `IncomingRinger`，与 Android 一样走 `playIncomingRingtone`）：应用在前台时循环播放系统提示音，遵守静音键和铃声音量（是否振动取决于设置），且完全不动全 App 共用的音频会话（因此否决了把 audioplayers 改为 `soloAmbient`）。系统提示音无法让后台应用保持运行，iOS 也不允许后台再启动音频，所以原有的 audioplayers 循环同时以静音运行，应用离开屏幕时取消静音——此时与以前一样不遵守静音键（CallKit 不可用的地区如中国大陆，这就是主要铃声）。启动过程中的停止现在会生效。已在 iOS 模拟器验证（前台原生 + 静音循环、后台循环全音量、正常停止）；静音键本身需真机验证。通知音由通知渠道与勿扰管理 |
 | A10 | 通话中音量键调的是通话音量而非媒体音量 | P1 | ✅ 🔍 | 2026-09-26 评审：由平台处理——通话期间音频模式为 `MODE_IN_COMMUNICATION`，AOSP `AudioService.getActiveStreamType` 在该模式下把未指定流的音量键映射到 `STREAM_VOICE_CALL`（蓝牙 SCO 时为其流）；toxee 未设 `volumeControlStream`，正走此默认路径。iOS 的 `voiceChat` 会话同理。离线对端无法发起通话，未实测 |
 | A11 | 录音、播放、通话三方共用 AVAudioSession 时的类别冲突（`record` / `audioplayers` / 通话） | P1 | ◐ | `audio_devices.dart:133` 只补救了 PCM 播放器改写会话类别的情况；语音消息录音 / `audioplayers` 播放与通话交错时未覆盖。**2026-09-29：未验证（本环境受阻）。** 通话需要在线的 Tox 对端；iPad 模拟器上合成的鼠标长按没能开始录音，录音 ↔ 播放交错也无法驱动。代码阅读得到的线索（未在设备上验证）：`audioplayers_darwin` 5.0.2 在没有播放器播放时会对共享会话调用 `setActive(false)`（`controlAudioSession`）；`record_darwin` 1.2.2 每次开始录音都会用自己的选项设置 `.playAndRecord` 并激活会话——两者都可能干扰进行中的通话会话 |
@@ -137,7 +137,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | P5 | 生物识别解锁（Face ID / 指纹） | P2 | ❌ | |
 | P6 | iOS "部分照片"授权、Android 14 部分媒体访问 | P2 | 🔍 | 选择器基于系统 picker，一般无需完整相册权限 |
 | P7 | iOS 剪贴板读取的"允许粘贴"弹窗 | P2 | 🔍 | `pasteboard` 读图时触发 |
-| P8 | 定位权限（仅使用期间）用于位置消息与"附近的人"；拒绝时解释 → 跳设置；"位置"开关关闭时绝不读取 | P0 | ✅ | `geolocator` 包在 `LocationSource` 之后；`LocationPermissionHelper` 在所有平台弹窗（含 macOS CoreLocation、Linux GeoClue、Windows 定位 API，**不**复用通话 helper 的桌面跳过逻辑）；拒绝后开关回弹并弹出解释 → 设置对话框；两份 `Info.plist` 与全部十二份 `InfoPlist.strings` 带用途文案，Android 声明 `ACCESS_COARSE/FINE_LOCATION`，macOS 带 `personal-information.location` entitlement，Windows msix 带 `location` 能力（`test/location_platform_declarations_test.dart`）。使用中被收回与 P2 相同，结束会话 2026-11-12：位置获取及 SDK 异步阶段检查账号和会话；发送取消回归通过。真机 GPS/权限弹窗未复测。 |
+| P8 | 定位权限（仅使用期间）用于位置消息与"附近的人"；拒绝时解释 → 跳设置；"位置"开关关闭时绝不读取 | P0 | ✅ | `geolocator` 包在 `LocationSource` 之后；`LocationPermissionHelper` 在所有平台弹窗（含 macOS CoreLocation、Linux GeoClue、Windows 定位 API，**不**复用通话 helper 的桌面跳过逻辑）；拒绝后开关回弹并弹出解释 → 设置对话框；两份 `Info.plist` 与全部十二份 `InfoPlist.strings` 带用途文案，Android 声明 `ACCESS_COARSE/FINE_LOCATION`，macOS 带 `personal-information.location` entitlement，Windows msix 带 `location` 能力（`test/location_platform_declarations_test.dart`）。使用中被收回与 P2 相同，结束会话 2026-11-12：位置获取及 SDK 异步阶段检查账号和会话；发送取消回归通过。真机 GPS/权限弹窗未复测。 2026-11-18 补充 UIKit 回归，覆盖 SDK 查询期间关闭定位，以及创建消息期间切后台再恢复。 |
 
 ## 7. 媒体与文件
 
@@ -158,7 +158,7 @@ P2P 客户端在移动端最根本的限制在这里，详见 [MOBILE_BACKGROUND
 | # | 特性 | 级别 | 状态 | 说明 / 位置 |
 |---|---|---|---|---|
 | S1 | 本地通知、角标 | P0 | ✅ | `flutter_local_notifications`、`app_badge_plus`、`lib/notifications/` |
-| S2 | 锁屏通知隐藏消息内容的选项 | P1 | ✅ | 设置 → 后台与通知 →「通知中隐藏消息内容」，默认关，整机生效，全平台。隐藏时消息通知只显示「Toxee / 新消息」，不带头像，且不再合并多行（开关打开前合并的行含真实内容）；打开时撤回已发出的消息通知，包括上一个进程发出的（`notification_service_privacy.dart`）；读不到设置时按隐藏处理，保存失败则开关回退（`lib/notifications/notification_privacy.dart`）。好友请求 / 群邀请 / 通话通知不属于消息内容，保持原样 |
+| S2 | 锁屏通知隐藏消息内容的选项 | P1 | ✅ | 设置 → 后台与通知 →「通知中隐藏消息内容」，默认关，整机生效，全平台。隐藏时消息通知只显示「Toxee / 新消息」，不带头像，且不再合并多行（开关打开前合并的行含真实内容）；打开时撤回已发出的消息通知，包括上一个进程发出的（`notification_service_privacy.dart`）；读不到设置时按隐藏处理，保存失败则开关回退（`lib/notifications/notification_privacy.dart`）。好友请求 / 群邀请 / 通话通知不属于消息内容，保持原样 2026-11-18：切换隐私设置会等待已提交的通知发布完成，再撤回旧通知，避免延迟发布导致旧预览留在通知中心。 |
 | S3 | 振动 / 触感反馈 | P1 | ✅ | |
 | S4 | 视频通话画中画（切后台继续小窗） | P2 | ❌ | iOS 需 `AVPictureInPictureVideoCallViewController` + 多任务摄像头授权，Android 需 `supportsPictureInPicture`，原生工作量大 |
 | S5 | 通话中的灵动岛 / Live Activity、Android 进行中通话通知 | P2 | ◐ | Android 前台服务通知已存在 |

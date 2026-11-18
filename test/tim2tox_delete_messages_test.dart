@@ -155,5 +155,76 @@ void main() {
       expect(deleted, 0);
       expect(service.getHistory(conversationId).length, 1);
     });
+
+    test('a rejected message deletion retains its row for retry', () async {
+      final time = DateTime.now();
+      for (final id in ['keep', 'delete']) {
+        await persistence.appendHistory(
+          conversationId,
+          ChatMessage(
+            text: id,
+            fromUserId: conversationId,
+            isSelf: false,
+            timestamp: time,
+            msgID: id,
+          ),
+        );
+      }
+      final historyDir = p.join(tempRoot.path, 'history');
+      final obstruction = Directory(
+        p.join(historyDir, '$conversationId.json.tmp'),
+      );
+      await obstruction.create();
+      try {
+        await expectLater(
+          service.deleteMessages(['delete']),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(service.getHistory(conversationId).map((row) => row.msgID),
+            orderedEquals(['keep', 'delete']));
+      } finally {
+        await obstruction.delete();
+      }
+      expect(await service.deleteMessages(['delete']), 1);
+      final reopened = MessageHistoryPersistence(historyDirectory: historyDir);
+      addTearDown(reopened.dispose);
+      expect(
+        (await reopened.loadHistory(conversationId)).map((row) => row.msgID),
+        orderedEquals(['keep']),
+      );
+    });
+
+    for (final isGroup in [false, true]) {
+      test('a refused ${isGroup ? 'group' : 'C2C'} history clear propagates',
+          () async {
+        await persistence.appendHistory(
+          conversationId,
+          ChatMessage(
+            text: 'message still on disk',
+            fromUserId: conversationId,
+            isSelf: false,
+            timestamp: DateTime.now(),
+            msgID: 'retained',
+            groupId: isGroup ? conversationId : null,
+          ),
+        );
+        final historyDir = p.join(tempRoot.path, 'history');
+        final archive = File(p.join(historyDir, '$conversationId.archive.jsonl'));
+        await archive.writeAsString('archive');
+        Future<void> clear() => isGroup
+            ? service.clearGroupHistory(conversationId)
+            : service.clearC2CHistory(conversationId);
+        expect((await Process.run('chmod', ['500', historyDir])).exitCode, 0);
+        try {
+          await expectLater(clear(), throwsA(isA<FileSystemException>()));
+          expect(await archive.exists(), isTrue);
+        } finally {
+          expect((await Process.run('chmod', ['700', historyDir])).exitCode, 0);
+        }
+        await clear();
+        expect(service.getHistory(conversationId), isEmpty);
+        expect(await archive.exists(), isFalse);
+      }, skip: Platform.isWindows);
+    }
   });
 }

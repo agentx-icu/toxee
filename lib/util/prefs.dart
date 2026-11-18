@@ -896,8 +896,7 @@ class Prefs {
     return p.getBool(_kAutoLogin) ?? true;
   }
 
-  /// Set auto-login setting for a specific account.
-  /// When [toxId] is null, uses current account.
+  /// Sets auto-login for [toxId] or the current account.
   static Future<void> setAutoLogin(bool value, [String? toxId]) async {
     final p = await _getPrefs();
     var effectiveToxId = toxId;
@@ -910,6 +909,14 @@ class Prefs {
       return;
     }
     await p.setBool(_kAutoLogin, value);
+  }
+
+  /// Persists the startup policy before publishing a restored account row.
+  static Future<void> disableAutoLoginBeforeAccountPublication(String toxId) async {
+    final prefs = await _getPrefs();
+    if (!await prefs.setBool(_scopedKey(_kAccountAutoLogin, toxId), false)) {
+      throw StateError('Could not persist the account auto-login setting');
+    }
   }
 
   /// Get notification sound enabled setting for a specific account.
@@ -1540,7 +1547,8 @@ class Prefs {
     bool clearCurrentAccountPointer = true,
   }) async {
     final p = await _getPrefs();
-    final current = await getCurrentAccountToxId();
+    await _reloadAccountPreferences(p);
+    final current = p.getString(_kCurrentAccountToxId);
     final scopedSuffix = _scopedKey('', toxId);
     final legacyFailedMessagesKey = _legacyFailedMessagesKeyForToxId(toxId);
 
@@ -1575,7 +1583,7 @@ class Prefs {
       }
     }
 
-    await Future.wait(keysToRemove.map((key) => p.remove(key)));
+    await _removeAccountPreferenceKeys(p, keysToRemove);
     if (toxId.isNotEmpty) {
       await clearScopedKeysForAccount(toxId);
     }
@@ -1605,7 +1613,7 @@ class Prefs {
               DraftPrefs.isStorageKeyForAccount(key: key, accountToxId: toxId),
         )
         .toList();
-    await Future.wait(keysToRemove.map((key) => p.remove(key)));
+    await _removeAccountPreferenceKeys(p, keysToRemove);
   }
 
   /// The account's pending failed-message queue as a portable string, or null.
@@ -1623,28 +1631,21 @@ class Prefs {
 
   /// Whether [toxId]'s registry row is gone ON DISK.
   ///
-  /// Reloads the backing store first. `SharedPreferences` updates its own cache
-  /// before the platform write completes, and the registry write discards the
-  /// returned bool, so a REFUSED removal reads back as "gone" from the cache —
-  /// which would let a rollback verification pass over a row that is still
-  /// there. Anything establishing that cleanup actually happened must use this.
-  static Future<bool> accountRowGoneOnDisk(String toxId) async {
-    final p = await _getPrefs();
-    try {
-      await p.reload();
-    } catch (_) {
-      // Cannot confirm; report NOT gone so the caller keeps its journal.
-      return false;
-    }
-    _cachedCurrentAccountToxId = null;
-    _accountToxIdCached = false;
-    try {
-      return await getAccountByToxId(toxId) == null;
-    } on AccountRegistryUnreadableException {
-      // An unreadable registry is not evidence the row is gone.
-      return false;
-    }
-  }
+  /// Reloads the backing store first. `SharedPreferences` updates its cache
+  /// before the platform write completes, so verify a rollback against the
+  /// backing store before dropping its journal.
+  static Future<bool> accountRowGoneOnDisk(String toxId) =>
+      _serializedRegistry(() async {
+        final p = await _getPrefs();
+        if (!await _refreshAccountRegistryCache(p, force: true)) return false;
+        _cachedCurrentAccountToxId = null;
+        _accountToxIdCached = false;
+        try {
+          return await getAccountByToxId(toxId) == null;
+        } on AccountRegistryUnreadableException {
+          return false;
+        }
+      });
 
   /// Remove the account's failed-message queue in every shape it can be stored
   /// in (modern full-id key and the legacy 16-char one).

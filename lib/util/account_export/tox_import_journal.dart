@@ -301,10 +301,8 @@ abstract final class ToxImportJournal {
   /// come through here, including the in-process failure handlers: an exception
   /// path can fail to clean up exactly as a crash-recovery path can.
   ///
-  /// The registry read goes through a RELOADED store. `SharedPreferences`
-  /// updates its own cache before the platform write completes and the registry
-  /// write discards the returned bool, so a refused removal would otherwise read
-  /// back as gone.
+  /// The registry read verifies that the row is gone from the backing store
+  /// after the best-effort removal.
   ///
   /// The verifier is CHECKED here, not passed in. It used to be a parameter
   /// defaulting to `true`, and every production caller omitted it: their

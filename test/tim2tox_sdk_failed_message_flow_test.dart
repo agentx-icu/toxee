@@ -893,6 +893,28 @@ void main() {
         );
       },
     );
+
+    test('a rejected local revoke leaves the remote message untouched', () async {
+      final service = _FakeFfiChatService(
+        throwOnDelete: true,
+        history: [
+          ChatMessage(
+            text: 'try revoking this',
+            fromUserId: _account.substring(0, 64),
+            isSelf: true,
+            timestamp: DateTime.now(),
+            msgID: 'rejected-revoke',
+          ),
+        ],
+      );
+      final platform = _platformFor(service);
+
+      final result = await platform.revokeMessage(msgID: 'rejected-revoke');
+
+      expect(result.code, isNot(0));
+      expect(service.deletedIDs, ['rejected-revoke']);
+      expect(service.controlSignals, isEmpty);
+    });
   });
 
   // CONTRACT: "delete for me" is IDEMPOTENT. `code == 0` means "none of the

@@ -44,6 +44,7 @@ import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/ui/login_page.dart';
 import 'package:toxee/ui/settings/settings_page.dart';
 import 'package:toxee/ui/testing/ui_keys.dart';
+import 'package:toxee/util/account_teardown_failure.dart';
 import 'package:toxee/util/prefs.dart';
 
 import 'settings_account_test_support.dart';
@@ -192,6 +193,46 @@ void main() {
       // Navigated to LoginPage (pushAndRemoveUntil → Settings is gone).
       expect(find.byType(LoginPage), findsOneWidget);
       expect(find.byKey(UiKeys.settingsLogoutButton), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Logout reaches LoginPage after teardown completes with a failure',
+    (WidgetTester tester) async {
+      final service = SettingsHarnessService();
+      addTearDown(service.disposeStub);
+      final page = SettingsPage(
+        service: service,
+        connectionStatusStream: service.connectionStatusStream,
+        autoAcceptFriends: false,
+        onAutoAcceptFriendsChanged: (_) {},
+        autoAcceptGroupInvites: false,
+        onAutoAcceptGroupInvitesChanged: (_) {},
+        teardownSession: ({required service, reEncryptProfile = true}) async {
+          throw AccountTeardownFailure(
+            toxId: kSettingsToxId,
+            stage: AccountTeardownStage.profileReEncryption,
+            cause: StateError('injected post-disposal failure'),
+            stackTrace: StackTrace.current,
+          );
+        },
+      );
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await Prefs.removeAccount(kSettingsToxId);
+      await tester.pumpWidget(settingsApp(page));
+      await settleSettings(tester);
+
+      await tester.ensureVisible(find.byKey(UiKeys.settingsLogoutButton));
+      await tester.pump();
+      await tester.tap(find.byKey(UiKeys.settingsLogoutButton));
+      await settleSettings(tester);
+      await tester.tap(find.byKey(UiKeys.settingsLogoutConfirmButton));
+      await settleSettings(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(await Prefs.getCurrentAccountToxId(), isNull);
+      expect(find.byType(LoginPage), findsOneWidget);
     },
   );
 
