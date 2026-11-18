@@ -66,3 +66,4 @@
 - macOS ARM64 原生 CTest 通过 131 项启用测试。附件阶段 18 项虚拟双节点场景通过，包含断线后清理两端状态并重新传输。
 - 使用 tim2tox `ff97979` 干净检出验证日志 overlay 应用与留存。UIKit 引导场景覆盖远端分支移动后仍使用锁定提交。
 - tim2tox 的[首轮 PR #37](https://github.com/agentx-icu/tim2tox/pull/37)和[深审 PR #38](https://github.com/agentx-icu/tim2tox/pull/38)均在其 CI 通过后合并。
+- toxee PR 的 Linux 虚拟场景发现群消息别名用例用两次轮询模拟两种回调。[tim2tox PR #39](https://github.com/agentx-icu/tim2tox/pull/39)改用实际高级监听器持久化入口，并覆盖同源同文消息分别保留。独立复审通过，群消息、回执和历史相关套件共通过 74 项。
