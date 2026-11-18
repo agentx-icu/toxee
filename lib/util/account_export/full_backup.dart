@@ -66,6 +66,46 @@ String? _metadataToxId(Map<String, dynamic> metadata) {
 String _archiveRelative(String absPath, {required String from}) =>
     p.url.joinAll(p.split(p.relative(absPath, from: from)));
 
+Future<Map<String, FileSystemEntity>> _listBackupSections(
+  String accountDataRoot,
+) async {
+  const sectionNames = {
+    'chat_history',
+    'offline_message_queue.json',
+    'avatars',
+  };
+  final sections = <String, FileSystemEntity>{};
+  try {
+    await for (final entry in Directory(accountDataRoot).list()) {
+      final name = p.basename(entry.path);
+      if (sectionNames.contains(name)) sections[name] = entry;
+    }
+  } on FileSystemException catch (error) {
+    // Filesystem type/exists lookups can report an unreadable path as absent.
+    // ENOENT on POSIX and FILE_NOT_FOUND / PATH_NOT_FOUND on Windows mean
+    // this account has no data directory yet.
+    final code = error.osError?.errorCode;
+    if (code != 2 && !(Platform.isWindows && code == 3)) rethrow;
+  }
+  return sections;
+}
+
+Future<void> _addBackupDirectory(
+  Archive archive,
+  String directory,
+  String entryPrefix,
+) async {
+  await for (final entity in Directory(directory).list(recursive: true)) {
+    if (entity is File) {
+      final relativePath = _archiveRelative(entity.path, from: directory);
+      final bytes = await entity.readAsBytes();
+      archive.addFile(
+        ArchiveFile('$entryPrefix/$relativePath', bytes.length, bytes),
+      );
+    }
+  }
+}
+
 /// Returns the path to the exported .zip file.
 Future<String> exportFullBackup({
   required String toxId,
@@ -113,166 +153,119 @@ Future<String> exportFullBackup({
     ArchiveFile('tox_profile.tox', profileData.length, profileData),
   );
 
-  // 2. Add chat_history/ directory
-  try {
-    final historyDir = await AppPaths.getAccountChatHistoryPath(
-      normalizedToxId,
-    );
-    final historyDirectory = Directory(historyDir);
-    if (await historyDirectory.exists()) {
-      await for (final entity in historyDirectory.list(recursive: true)) {
-        if (entity is File) {
-          final relativePath = _archiveRelative(entity.path, from: historyDir);
-          final data = await entity.readAsBytes();
-          archive.addFile(
-            ArchiveFile('chat_history/$relativePath', data.length, data),
-          );
-        }
-      }
-    }
-  } catch (e) {
-    SafeDiagnostics.logFailure('Full backup: Error adding chat_history', e);
+  // An absent optional section is valid. A read or type error must abort
+  // before publishing or replacing the destination archive.
+  final accountDataRoot = await AppPaths.getAccountDataRoot(normalizedToxId);
+  final sections = await _listBackupSections(accountDataRoot);
+  final history = sections['chat_history'];
+  if (history != null) {
+    await _addBackupDirectory(archive, history.path, 'chat_history');
   }
 
-  // 3. Add offline_message_queue.json
-  try {
-    final queuePath = await AppPaths.getAccountOfflineQueueFilePath(
-      normalizedToxId,
-    );
-    final queueFile = File(queuePath);
-    if (await queueFile.exists()) {
-      final data = await queueFile.readAsBytes();
-      archive.addFile(
-        ArchiveFile('offline_message_queue.json', data.length, data),
-      );
-    }
-  } catch (e) {
-    SafeDiagnostics.logFailure('Full backup: Error adding offline queue', e);
-  }
-
-  // 3.5 Add avatars/ directory
-  try {
-    final avatarsDir = await AppPaths.getAccountAvatarsPath(normalizedToxId);
-    final avatarsDirectory = Directory(avatarsDir);
-    if (await avatarsDirectory.exists()) {
-      await for (final entity in avatarsDirectory.list(recursive: true)) {
-        if (entity is File) {
-          final relativePath = _archiveRelative(entity.path, from: avatarsDir);
-          final data = await entity.readAsBytes();
-          archive.addFile(
-            ArchiveFile('avatars/$relativePath', data.length, data),
-          );
-        }
-      }
-    }
-  } catch (e) {
-    SafeDiagnostics.logFailure('Full backup: Error adding avatars', e);
-  }
-
-  // 4. Add metadata.json (scoped prefs)
-  try {
-    final scopedPrefs = await Prefs.exportScopedPrefsForAccount(
-      normalizedToxId,
-    );
-
-    // 4a. Discover missing friend_avatar_path entries from avatars directory.
-    // Avatar files may exist on disk but have no corresponding pref key
-    // (e.g. migrated from global dir, or pref was never saved).
-    final avatarsDir = await AppPaths.getAccountAvatarsPath(normalizedToxId);
-    final avatarsDirectory = Directory(avatarsDir);
-    if (await avatarsDirectory.exists()) {
-      await for (final entity in avatarsDirectory.list()) {
-        if (entity is File) {
-          final fileName = p.basename(entity.path);
-          // Match the friend avatar naming used by FriendAssetCleanup and the
-          // receive path: friend_<id>_avatar_<timestamp>.<ext>. Older backups
-          // may also have friend_<id>_avatar or friend_<id>_avatar.<ext>.
-          final match = RegExp(
-            r'^friend_([A-Fa-f0-9]{64}(?:[A-Fa-f0-9]{12})?)_avatar(?:[_\.].*)?$',
-          ).firstMatch(fileName);
-          if (match != null) {
-            final friendId = normalizeToxId(match.group(1)!);
-            final pathKey = 'friend_avatar_path_$friendId';
-            if (!scopedPrefs.containsKey(pathKey)) {
-              // Add discovered avatar path
-              scopedPrefs[pathKey] = entity.path;
-            }
-          }
-        }
-      }
-    }
-
-    // 4b. Convert absolute avatar paths to relative paths for portability.
-    // On import, these will be converted back to the target machine's paths.
-    final accountDataRoot = await AppPaths.getAccountDataRoot(normalizedToxId);
-    final accountAvatarsDir = await AppPaths.getAccountAvatarsPath(
-      normalizedToxId,
-    );
-    for (final key in scopedPrefs.keys.toList()) {
-      if (key.contains('avatar_path') && scopedPrefs[key] is String) {
-        final absPath = scopedPrefs[key] as String;
-        if (absPath.startsWith(accountDataRoot)) {
-          // Path is under per-account data root — convert directly
-          scopedPrefs[key] =
-              '@account_data/${_archiveRelative(absPath, from: accountDataRoot)}';
-        } else {
-          // Path may be in the global avatars dir or elsewhere.
-          // If the same filename exists in per-account avatars dir, normalize it.
-          final fileName = p.basename(absPath);
-          final accountPath = p.join(accountAvatarsDir, fileName);
-          if (await File(accountPath).exists()) {
-            scopedPrefs[key] = '@account_data/avatars/$fileName';
-          } else {
-            // Not portable: the file lives outside the account data we
-            // archive, so its absolute path would dangle (or point at a
-            // foreign location) on any other machine. Drop the pref so the
-            // avatar falls back to default on restore instead.
-            scopedPrefs.remove(key);
-          }
-        }
-      }
-    }
-
-    // Also include account info. `formatVersion` lets a future schema bump
-    // detect and refuse incompatible backups instead of silently importing
-    // mis-shaped scoped prefs.
-    // Two key families are scoped by the FULL Tox ID rather than the
-    // `_<first16>` suffix `exportScopedPrefsForAccount` sweeps, so both were
-    // silently absent from every backup. Carry them explicitly.
-    //
-    //  * the blocked-peer list — a restore quietly unblocked everyone;
-    //  * the failed-message queue — messages the user believes are still
-    //    pending a resend, which a restore silently dropped.
-    final blockedPeers = (await Prefs.getBlackList(normalizedToxId)).toList()
-      ..sort();
-    final failedMessages = await Prefs.exportFailedMessageQueue(
-      normalizedToxId,
-    );
-
-    final metadata = <String, dynamic>{
-      'formatVersion': _kBackupFormatVersion,
-      'toxId': normalizedToxId,
-      'nickname': nickname,
-      'statusMessage': account?['statusMessage'] ?? '',
-      'exportDate': DateTime.now().toIso8601String(),
-      'scopedPrefs': scopedPrefs,
-      if (blockedPeers.isNotEmpty) 'blockedPeers': blockedPeers,
-      if (failedMessages != null) 'failedMessageQueue': failedMessages,
-      // Disclose what a full backup does NOT carry, so a restore that comes up
-      // short is explainable rather than mysterious. Received attachments are
-      // referenced by chat history but stored outside the account data this
-      // archive walks, so history entries can restore with their media missing.
-      'notIncluded': const <String>['receivedAttachments'],
-      'profileEncrypted': false,
-    };
-    final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
-    final metadataBytes = utf8.encode(metadataJson);
+  final queue = sections['offline_message_queue.json'];
+  if (queue != null) {
+    final data = await File(queue.path).readAsBytes();
     archive.addFile(
-      ArchiveFile('metadata.json', metadataBytes.length, metadataBytes),
+      ArchiveFile('offline_message_queue.json', data.length, data),
     );
-  } catch (e) {
-    SafeDiagnostics.logFailure('Full backup: Error adding metadata', e);
   }
+
+  final avatars = sections['avatars'];
+  final avatarsDir = avatars?.path ?? p.join(accountDataRoot, 'avatars');
+  if (avatars != null) {
+    await _addBackupDirectory(archive, avatars.path, 'avatars');
+  }
+
+  // Add metadata.json, including account-scoped preferences.
+  final scopedPrefs = await Prefs.exportScopedPrefsForAccount(normalizedToxId);
+
+  // 4a. Discover missing friend_avatar_path entries from avatars directory.
+  // Avatar files may exist on disk but have no corresponding pref key
+  // (e.g. migrated from global dir, or pref was never saved).
+  if (avatars != null) {
+    await for (final entity in Directory(avatarsDir).list()) {
+      if (entity is File) {
+        final fileName = p.basename(entity.path);
+        // Match the friend avatar naming used by FriendAssetCleanup and the
+        // receive path: friend_<id>_avatar_<timestamp>.<ext>. Older backups
+        // may also have friend_<id>_avatar or friend_<id>_avatar.<ext>.
+        final match = RegExp(
+          r'^friend_([A-Fa-f0-9]{64}(?:[A-Fa-f0-9]{12})?)_avatar(?:[_\.].*)?$',
+        ).firstMatch(fileName);
+        if (match != null) {
+          final friendId = normalizeToxId(match.group(1)!);
+          final pathKey = 'friend_avatar_path_$friendId';
+          if (!scopedPrefs.containsKey(pathKey)) {
+            // Add discovered avatar path
+            scopedPrefs[pathKey] = entity.path;
+          }
+        }
+      }
+    }
+  }
+
+  // 4b. Convert absolute avatar paths to relative paths for portability.
+  // On import, these will be converted back to the target machine's paths.
+  for (final key in scopedPrefs.keys.toList()) {
+    if (key.contains('avatar_path') && scopedPrefs[key] is String) {
+      final absPath = scopedPrefs[key] as String;
+      if (absPath.startsWith(accountDataRoot)) {
+        // Path is under per-account data root — convert directly
+        scopedPrefs[key] =
+            '@account_data/${_archiveRelative(absPath, from: accountDataRoot)}';
+      } else {
+        // Path may be in the global avatars dir or elsewhere.
+        // If the same filename exists in per-account avatars dir, normalize it.
+        final fileName = p.basename(absPath);
+        final accountPath = p.join(avatarsDir, fileName);
+        if (await File(accountPath).exists()) {
+          scopedPrefs[key] = '@account_data/avatars/$fileName';
+        } else {
+          // Not portable: the file lives outside the account data we
+          // archive, so its absolute path would dangle (or point at a
+          // foreign location) on any other machine. Drop the pref so the
+          // avatar falls back to default on restore instead.
+          scopedPrefs.remove(key);
+        }
+      }
+    }
+  }
+
+  // Also include account info. `formatVersion` lets a future schema bump
+  // detect and refuse incompatible backups instead of silently importing
+  // mis-shaped scoped prefs.
+  // Two key families are scoped by the FULL Tox ID rather than the
+  // `_<first16>` suffix `exportScopedPrefsForAccount` sweeps, so both were
+  // silently absent from every backup. Carry them explicitly.
+  //
+  //  * the blocked-peer list — a restore quietly unblocked everyone;
+  //  * the failed-message queue — messages the user believes are still
+  //    pending a resend, which a restore silently dropped.
+  final blockedPeers = (await Prefs.getBlackList(normalizedToxId)).toList()
+    ..sort();
+  final failedMessages = await Prefs.exportFailedMessageQueue(normalizedToxId);
+
+  final metadata = <String, dynamic>{
+    'formatVersion': _kBackupFormatVersion,
+    'toxId': normalizedToxId,
+    'nickname': nickname,
+    'statusMessage': account?['statusMessage'] ?? '',
+    'exportDate': DateTime.now().toIso8601String(),
+    'scopedPrefs': scopedPrefs,
+    if (blockedPeers.isNotEmpty) 'blockedPeers': blockedPeers,
+    if (failedMessages != null) 'failedMessageQueue': failedMessages,
+    // Disclose what a full backup does NOT carry, so a restore that comes up
+    // short is explainable rather than mysterious. Received attachments are
+    // referenced by chat history but stored outside the account data this
+    // archive walks, so history entries can restore with their media missing.
+    'notIncluded': const <String>['receivedAttachments'],
+    'profileEncrypted': false,
+  };
+  final metadataJson = const JsonEncoder.withIndent('  ').convert(metadata);
+  final metadataBytes = utf8.encode(metadataJson);
+  archive.addFile(
+    ArchiveFile('metadata.json', metadataBytes.length, metadataBytes),
+  );
 
   // 5. Encrypt the plaintext archive, then encode the outer archive to ZIP.
   final encryptedArchive = await encryptFullBackupArchive(
@@ -477,7 +470,8 @@ Future<Map<String, dynamic>> importFullBackup({
       toxProfile: toxProfile,
       // The restored file stays ciphertext on disk; the password that opened
       // it becomes the account's verifier inside the restore transaction.
-      accountPassword: toxProfile != null && isBackupProfileEncrypted(toxProfile)
+      accountPassword:
+          toxProfile != null && isBackupProfileEncrypted(toxProfile)
           ? profilePassword
           : null,
     ),

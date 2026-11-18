@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
+import 'package:tim2tox_dart/models/send_control_result.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/utils/message_history_persistence.dart';
 import 'package:tim2tox_dart/utils/offline_message_queue_persistence.dart';
@@ -60,6 +61,56 @@ void main() {
         await tempRoot.delete(recursive: true);
       }
     });
+
+    test(
+      'a message received during group clear keeps its preview and unread count',
+      () async {
+        const group = 'tox_294';
+        final peer = 'c' * 64;
+        expect(
+          service.ingestInboundGroupText(gid: group, from: peer, text: 'old'),
+          isTrue,
+        );
+        final clearing = service.clearGroupHistory(group);
+        expect(
+          service.ingestInboundGroupText(gid: group, from: peer, text: 'new'),
+          isTrue,
+        );
+        await clearing;
+
+        expect(service.getHistory(group).map((row) => row.text), ['new']);
+        expect(service.lastMessages[group]?.text, 'new');
+        expect(service.getUnreadOf(group), 1);
+      },
+      skip: skipReason,
+    );
+
+    test(
+      'queued sends must settle or be cancelled before local deletion',
+      () async {
+        final peer = 'a' * 64;
+        const msgId = 'queued-delete';
+        await service.sendTextWithResult(
+          peer,
+          'pending',
+          clientMessageID: msgId,
+        );
+
+        await expectLater(service.deleteMessages([msgId]), throwsStateError);
+        expect(service.getHistory(peer).single.msgID, msgId);
+        expect(
+          service.offlineMessageQueuePersistence.getMessages(peer).single.msgID,
+          msgId,
+        );
+        expect(
+          await service.cancelQueuedMessage(peer, msgId),
+          SendControlResult.success,
+        );
+        expect(await service.deleteMessages([msgId]), 1);
+        expect(service.getHistory(peer), isEmpty);
+      },
+      skip: skipReason,
+    );
 
     test(
       'offline C2C sends return distinct pending messages with caller IDs',

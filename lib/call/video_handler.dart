@@ -248,29 +248,19 @@ class VideoHandler extends ChangeNotifier {
   CallCodecProfile _codecProfile = CallCodecProfile.defaultProfile;
   Duration get _minFrameInterval => _codecProfile.minFrameInterval;
 
-  /// Update the codec profile in response to a peer-suggested bitrate
-  /// change (forwarded by `CallServiceManager` from the ToxAV bitrate
-  /// callbacks). Hot-swapping is safe — the throttle picks up the new
-  /// interval on the next frame.
+  /// Applies the new codec profile on the next camera frame.
   void setCodecProfile(CallCodecProfile profile) {
     _codecProfile = profile;
   }
 
-  /// Guard against overlapping compute() calls.
   bool _converting = false;
-
-  /// Set once `dispose` or `disposeAsync` has been called. Suppresses any
-  /// subsequent `notifyListeners` so in-flight `stop()` work cannot throw
-  /// against an already-disposed [ChangeNotifier].
+  int _remoteFrameGeneration = 0;
   bool _disposed = false;
 
-  /// Future tracking an in-flight `startCapture` body. `stop()` waits on
-  /// this so it doesn't tear down camera state mid-init.
+  // Serialize camera initialization and local teardown.
   Future<void>? _startFuture;
-
-  /// Future tracking an in-flight `_doStop` body. `startCapture` waits on
-  /// this so it doesn't race a previous teardown.
   Future<void>? _stopFuture;
+  int _captureRequestGeneration = 0;
 
   /// Whether the handler has been disposed.
   @visibleForTesting
@@ -286,17 +276,11 @@ class VideoHandler extends ChangeNotifier {
       (_controller != null && _controller!.value.isInitialized) ||
       (_usingMacOSCamera && _macosTextureId != null);
 
-  /// Start camera capture and send YUV420 frames to ToxAV.
-  /// On macOS uses [camera_macos] (official camera plugin has no macOS impl);
-  /// that triggers the system camera permission dialog and provides the stream.
-  ///
-  /// If a previous [stop] is still tearing down, this waits for it to complete
-  /// before initializing a fresh camera session. After [dispose] this is a
-  /// no-op.
+  /// Starts local camera capture after any teardown has finished.
+  /// macOS uses its own camera plugin.
   Future<void> startCapture(int friendNumber, ToxAVService avService) async {
     if (_disposed) return;
-    // Wait for any in-flight stop so we don't initialize against a
-    // half-torn-down camera session.
+    final generation = _captureRequestGeneration;
     final pending = _stopFuture;
     if (pending != null) {
       try {
@@ -307,7 +291,9 @@ class VideoHandler extends ChangeNotifier {
         );
       }
     }
-    if (_disposed || _capturing) return;
+    if (_disposed || _capturing || generation != _captureRequestGeneration) {
+      return;
+    }
     final future = _doStartCapture(friendNumber, avService);
     _startFuture = future;
     try {
@@ -565,45 +551,53 @@ class VideoHandler extends ChangeNotifier {
     }
   }
 
-  /// ToxAV video frame in: RGBA-convert in an Isolate → [remoteImage].
-  void onVideoReceived(
-    int friendNumber,
+  /// Converts the latest ToxAV frame off-thread before publishing its image.
+  Future<void> onVideoReceived(
     int width,
     int height,
     List<int> y,
     List<int> u,
     List<int> v,
-  ) {
+  ) async {
+    if (_disposed || _converting) return;
     if (width <= 0 || height <= 0 || y.length < width * height) return;
-    final uvWidth = width ~/ 2;
-    final uvHeight = height ~/ 2;
-    if (u.length < uvWidth * uvHeight || v.length < uvWidth * uvHeight) return;
+    final chromaSize = (width ~/ 2) * (height ~/ 2);
+    if (u.length < chromaSize || v.length < chromaSize) return;
+    final generation = _remoteFrameGeneration;
+    bool expired() => _disposed || generation != _remoteFrameGeneration;
 
-    // Skip if a previous conversion is still running
-    if (_converting) return;
     _converting = true;
-
-    final frame = _Yuv420Frame(width, height, y, u, v);
-    compute(_convertYuv420ToRgba, frame)
-        .then((rgba) {
-          _converting = false;
-          ui.decodeImageFromPixels(
-            rgba,
-            width,
-            height,
-            ui.PixelFormat.rgba8888,
-            (ui.Image image) {
-              final previous = remoteImage.value;
-              remoteImage.value = image;
-              previous?.dispose();
-            },
-            rowBytes: width * 4,
-          );
-        })
-        .catchError((e) {
-          _converting = false;
-          debugPrint('[VideoHandler] compute error: $e');
-        });
+    ui.ImmutableBuffer? buffer;
+    ui.ImageDescriptor? descriptor;
+    ui.Codec? codec;
+    try {
+      final frame = _Yuv420Frame(width, height, y, u, v);
+      final rgba = await compute(_convertYuv420ToRgba, frame);
+      if (expired()) return;
+      buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+      descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: width,
+        height: height,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      codec = await descriptor.instantiateCodec();
+      final image = (await codec.getNextFrame()).image;
+      if (expired()) {
+        image.dispose();
+        return;
+      }
+      final previous = remoteImage.value;
+      remoteImage.value = image;
+      previous?.dispose();
+    } catch (e) {
+      debugPrint('[VideoHandler] frame conversion failed: $e');
+    } finally {
+      codec?.dispose();
+      descriptor?.dispose();
+      buffer?.dispose();
+      _converting = false;
+    }
   }
 
   /// Local camera preview widget.
@@ -615,24 +609,22 @@ class VideoHandler extends ChangeNotifier {
     return CameraPreview(_controller!);
   }
 
-  /// Stop capture + release the camera. Coalesces concurrent calls and waits
-  /// for an in-flight [startCapture], so a mid-init stop releases the handle.
-  Future<void> stop() async {
+  /// Releases the camera and clears the last peer image when the call ends.
+  Future<void> stop() {
+    _remoteFrameGeneration++;
+    final stopping = stopCapture();
+    final previous = remoteImage.value;
+    remoteImage.value = null;
+    previous?.dispose();
+    return stopping;
+  }
+
+  /// Releases the local camera while preserving incoming peer video.
+  Future<void> stopCapture() async {
+    _captureRequestGeneration++;
     final inFlight = _stopFuture;
     if (inFlight != null) return inFlight;
-    // Await an in-flight start first — teardown must not race the start
-    // path still attaching the stream / writing _controller.
-    final pendingStart = _startFuture;
-    if (pendingStart != null) {
-      try {
-        await pendingStart;
-      } catch (e) {
-        AppLogger.warn(
-          '[VideoHandler] awaiting in-flight start before stop failed: $e',
-        );
-      }
-    }
-    final future = _doStop();
+    final future = _doStop(pendingStart: _startFuture);
     _stopFuture = future;
     try {
       await future;
@@ -641,8 +633,14 @@ class VideoHandler extends ChangeNotifier {
     }
   }
 
-  Future<void> _doStop() async {
+  Future<void> _doStop({Future<void>? pendingStart}) async {
     _capturing = false;
+    // Let an in-flight start finish attaching its camera before releasing it.
+    try {
+      if (pendingStart != null) await pendingStart;
+    } catch (e) {
+      AppLogger.warn('[VideoHandler] waiting for camera start failed: $e');
+    }
     if (_usingMacOSCamera) {
       try {
         await CameraMacOS.instance.stopImageStream();
@@ -660,9 +658,6 @@ class VideoHandler extends ChangeNotifier {
       AppLogger.warn('[VideoHandler] camera controller teardown failed: $e');
     }
     _controller = null;
-    final previous = remoteImage.value;
-    remoteImage.value = null;
-    previous?.dispose();
     notifyListeners();
   }
 

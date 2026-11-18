@@ -80,6 +80,7 @@ void main() {
   // others (which never write a verifier).
   final secureStore = <String, String>{};
   bool failSecureDeletes = false;
+  bool failRemovalPhaseWrite = false;
   const secureChannel =
       MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
 
@@ -88,13 +89,23 @@ void main() {
     SessionPasswordStore.clear(); // static singleton — avoid cross-test bleed.
     secureStore.clear();
     failSecureDeletes = false;
+    failRemovalPhaseWrite = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureChannel, (MethodCall call) async {
       final args =
           (call.arguments as Map?)?.cast<String, dynamic>() ?? const {};
       switch (call.method) {
         case 'write':
-          secureStore[args['key'] as String] = args['value'] as String;
+          final key = args['key'] as String;
+          final value = args['value'] as String;
+          if (failRemovalPhaseWrite && key.startsWith('pwd_txn_')) {
+            final record = PasswordChangeRecord.tryParse(value);
+            if (record?.kind == PasswordChangeKind.remove &&
+                record?.phase == PasswordChangePhase.rekeyed) {
+              throw PlatformException(code: 'journal-write-failed');
+            }
+          }
+          secureStore[key] = value;
           return null;
         case 'read':
           return secureStore[args['key'] as String];
@@ -125,6 +136,74 @@ void main() {
         .setMockMethodCallHandler(secureChannel, null);
     SessionPasswordStore.clear();
     await env.dispose();
+  });
+
+  group('Existing savedata identity', () {
+    for (final protected in [false, true]) {
+      test(
+        protected
+            ? 'rejects another account’s encrypted savedata'
+            : 'rejects another account’s plaintext savedata',
+        () async {
+          final selected = ToxProfileFixture.create();
+          final other = ToxProfileFixture.create();
+          if (selected == null || other == null) {
+            markTestSkipped('ToxProfileFixture.create() returned null');
+            return;
+          }
+          final profilePath = await _stageProfile(selected);
+          final file = File(profilePath);
+          await file.writeAsBytes(other.savedata, flush: true);
+          final password =
+              protected ? SecretPassword.fromString('savedata-owner-pw') : null;
+          if (password != null) {
+            addTearDown(password.dispose);
+            await AccountExportService.encryptProfileFile(profilePath, password);
+          }
+          final original = await file.readAsBytes();
+          await Prefs.setCurrentAccountToxId(other.toxId);
+
+          await expectLater(
+            AccountService.initializeServiceForAccount(
+              toxId: selected.toxId,
+              password: password,
+              startPolling: false,
+            ).then((service) => addTearDown(service.dispose)),
+            throwsException,
+          );
+          expect(await file.readAsBytes(), original);
+          expect(await Prefs.getCurrentAccountToxId(), other.toxId);
+        },
+        skip: skipReason,
+      );
+    }
+
+    test(
+      'leaves damaged savedata unchanged when a known account opens it',
+      () async {
+        final fixture = ToxProfileFixture.create();
+        if (fixture == null) {
+          markTestSkipped('ToxProfileFixture.create() returned null');
+          return;
+        }
+        final profilePath = await _stageProfile(fixture);
+        final file = File(profilePath);
+        final truncated = fixture.savedata.sublist(0, 4);
+        await file.writeAsBytes(truncated, flush: true);
+
+        await expectLater(
+          AccountService.initializeServiceForAccount(
+            toxId: fixture.toxId,
+            startPolling: false,
+          ).then((service) => addTearDown(service.dispose)),
+          throwsException,
+        );
+        expect(await file.readAsBytes(), truncated);
+        expect(await File('$profilePath.corrupted').exists(), isFalse);
+        expect(await Prefs.getCurrentAccountToxId(), isNull);
+      },
+      skip: skipReason,
+    );
   });
 
   group('Savedata at rest — the profile is ciphertext for the whole session',
@@ -363,6 +442,60 @@ void main() {
       expect(await Prefs.accountProtectionState(toxId),
           AccountProtectionState.none);
     }, skip: skipReason);
+
+    for (final recoverAtLogin in [false, true]) {
+      test(
+        recoverAtLogin
+            ? 'logout keeps password removal recovered at login when its journal update fails'
+            : 'logout keeps live password removal when its journal update fails',
+        () async {
+          final fixture = ToxProfileFixture.create();
+          if (fixture == null) {
+            markTestSkipped('ToxProfileFixture.create() returned null');
+            return;
+          }
+          final toxId = fixture.toxId;
+          final password = SecretPassword.fromString('interrupted-removal-pw');
+          addTearDown(password.dispose);
+          final profilePath = await _stageProfile(fixture);
+          await AccountExportService.encryptProfileFile(profilePath, password);
+          await Prefs.addAccount(toxId: toxId, nickname: 'Removal Account');
+          expect(await Prefs.setAccountPassword(toxId, password), isTrue);
+
+          if (recoverAtLogin) {
+            expect(await Prefs.passwordChanges.beginRemove(toxId), isTrue);
+            failRemovalPhaseWrite = true;
+          }
+          final service = await AccountService.initializeServiceForAccount(
+            toxId: toxId,
+            password: password,
+            startPolling: false,
+          );
+          addTearDown(service.dispose);
+          if (!recoverAtLogin) {
+            failRemovalPhaseWrite = true;
+            expect(
+              await AccountService.removeAccountPassword(service),
+              PasswordChangeOutcome.ok,
+            );
+          }
+          final pending = await Prefs.passwordChanges.pending(toxId);
+          expect(pending.record?.phase, PasswordChangePhase.staged);
+          expect(
+            await AccountExportService.isProfileFileEncrypted(profilePath),
+            isFalse,
+            reason: 'the native re-key already persisted the plaintext save',
+          );
+          await AccountService.teardownCurrentSession(service: service);
+          expect(
+            await AccountExportService.isProfileFileEncrypted(profilePath),
+            isFalse,
+            reason: 'teardown must not reapply the previous passphrase',
+          );
+        },
+        skip: skipReason,
+      );
+    }
 
     test(
         'setting a password mid-session arms logout to encrypt with the NEW '

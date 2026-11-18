@@ -21,6 +21,7 @@ import '../sdk_fake/fake_models.dart';
 import '../sdk_fake/fake_provider.dart';
 import '../sdk_fake/fake_uikit_core.dart';
 import '../sdk_fake/uikit_data_facade.dart';
+import '../util/ffi_chat_service_account_key.dart';
 import '../util/logger.dart';
 import '../util/tox_utils.dart';
 import '../util/safe_diagnostics.dart';
@@ -211,6 +212,10 @@ class SessionRuntimeCoordinator {
           completer.complete();
           continue;
         }
+        NotificationService.instance.setSessionPostsEnabled(
+          true,
+          accountKey: service.accountKey,
+        );
         _state = SessionRuntimeState.started;
         completer.complete();
         return;

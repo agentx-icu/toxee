@@ -15,7 +15,6 @@ import 'app_bootstrap_coordinator.dart';
 import 'prefs.dart';
 import 'safe_diagnostics.dart';
 import 'secret_password.dart';
-import 'tox_utils.dart';
 
 final class InvalidAccountSwitchPasswordException implements Exception {
   const InvalidAccountSwitchPasswordException();
@@ -201,15 +200,7 @@ class AccountSwitcher {
         throw const AccountSwitchContextUnavailable();
       }
 
-      // 6. Verify the FFI-reported Tox ID matches what we asked for. The
-      // V2TIM `selfId` is always the same placeholder string, so comparing
-      // it with `targetToxId` would always mismatch — use the real address.
-      final actualToxId = newService.getSelfToxId() ?? '';
-      if (actualToxId.isNotEmpty && !compareToxIds(actualToxId, targetToxId)) {
-        // Log warning but continue
-      }
-
-      // 7. Schedule navigation before committing the durable activation. The
+      // 6. Schedule navigation before committing the durable activation. The
       // route Future represents Home's lifetime and must not hold this
       // transaction open; synchronous Navigator failures remain rollbackable.
       unawaited(navigate(context, newService));

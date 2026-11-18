@@ -235,7 +235,16 @@ abstract final class AccountDeletionJournalStore {
     if (!await dir.exists()) return const <AccountDeletionTombstone>[];
     final tombstones = <AccountDeletionTombstone>[];
     await for (final entry in dir.list()) {
-      if (entry is! File || !entry.path.endsWith('.json')) continue;
+      if (entry is! File) continue;
+      final name = p.basename(entry.path);
+      if (name.endsWith('.json.corrupt')) {
+        final original = name.substring(0, name.length - '.corrupt'.length);
+        if (_accountFromFileName(original) == null) {
+          _unattributable.add(original);
+        }
+        continue;
+      }
+      if (!name.endsWith('.json')) continue;
       try {
         final decoded = json.decode(await entry.readAsString());
         if (decoded is! Map<String, dynamic>) {
@@ -277,6 +286,12 @@ abstract final class AccountDeletionJournalStore {
   /// any tombstone this code wrote, the basename IS the account id.
   static final RegExp _toxIdFileName = RegExp(r'^[A-Fa-f0-9]{16,76}$');
 
+  static String? _accountFromFileName(String name) {
+    if (!name.endsWith('.json')) return null;
+    final candidate = name.substring(0, name.length - '.json'.length);
+    return _toxIdFileName.hasMatch(candidate) ? candidate : null;
+  }
+
   /// Move an unparseable tombstone aside, and REPLACE the gate it was providing.
   ///
   /// Renaming alone was not enough. `hasPendingForToxId` is what stops a
@@ -300,36 +315,30 @@ abstract final class AccountDeletionJournalStore {
     Object cause,
   ) async {
     final name = p.basename(entry.path);
-    final candidate = name.endsWith('.json')
-        ? name.substring(0, name.length - '.json'.length)
-        : '';
-    final attributable = _toxIdFileName.hasMatch(candidate);
+    final candidate = _accountFromFileName(name);
     SafeDiagnostics.logFailure(
       '[AccountDeletionJournalStore] unreadable tombstone '
-      '(attributable=$attributable)',
+      '(attributable=${candidate != null})',
       cause,
     );
-    var renamed = false;
-    try {
-      await entry.rename('${entry.path}.corrupt');
-      renamed = true;
-    } catch (renameError) {
-      SafeDiagnostics.logFailure(
-        '[AccountDeletionJournalStore] could not move the unreadable tombstone '
-        'aside',
-        renameError,
-      );
-    }
-    if (!attributable) {
+    final quarantine = File('${entry.path}.corrupt');
+    if (candidate == null) {
       _unattributable.add(name);
+      try {
+        await entry.rename(quarantine.path);
+      } catch (error) {
+        SafeDiagnostics.logFailure(
+          '[AccountDeletionJournalStore] could not move the unreadable tombstone',
+          error,
+        );
+      }
       return null;
     }
-    // Rebuild the gate. If the rename failed the original is still in place and
-    // writing now would clobber the corrupt bytes we are trying to preserve, so
-    // only do this once it is safely aside.
-    if (!renamed) return null;
+
     final rebuilt = AccountDeletionTombstone.initial(toxId: candidate);
     try {
+      // Preserve the active filename until an atomic replacement commits.
+      await writeBytesAtomically(quarantine, await entry.readAsBytes());
       await write(rebuilt);
       AppLogger.warn(
         '[AccountDeletionJournalStore] rebuilt a minimal tombstone from the '
@@ -338,12 +347,8 @@ abstract final class AccountDeletionJournalStore {
       );
       return rebuilt;
     } catch (writeError) {
-      // Could not rebuild it either. Treat as unattributable: something must
-      // refuse to expose accounts rather than proceed with no gate at all.
-      _unattributable.add(name);
       SafeDiagnostics.logFailure(
-        '[AccountDeletionJournalStore] could not rebuild the tombstone; '
-        'startup will refuse to expose any account',
+        '[AccountDeletionJournalStore] could not rebuild the tombstone',
         writeError,
       );
       return null;
@@ -351,7 +356,14 @@ abstract final class AccountDeletionJournalStore {
   }
 
   static Future<bool> hasPendingForToxId(String toxId) async {
-    return (await read(toxId)) != null;
+    if ((await read(toxId)) != null) return true;
+    final dir = await _directory();
+    if (!await dir.exists()) return false;
+    await for (final entry in dir.list()) {
+      final candidate = _accountFromFileName(p.basename(entry.path));
+      if (candidate != null && compareToxIds(candidate, toxId)) return true;
+    }
+    return false;
   }
 
   static Future<void> write(AccountDeletionTombstone tombstone) async {

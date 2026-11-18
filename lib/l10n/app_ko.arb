@@ -892,7 +892,7 @@
   "pairingVerifyCodeHeader": "두 기기에 같은 코드가 표시되는지 확인하세요",
   "pairingVerifyCodeInstructions": "코드가 다른 기기에 표시된 코드와 일치하면 아래를 탭하세요. 다르면 취소하세요. 누군가 연결을 가로채고 있을 수 있습니다.",
   "pairingCodesMatch": "코드가 일치합니다",
-  "pairingHostCompleted": "계정을 보냈습니다. 이제 다른 기기에서 계정을 사용할 수 있습니다.",
+  "pairingHostCompleted": "계정을 보냈습니다. 받는 기기에서 가져오기가 완료되었는지 확인하세요.",
   "pairingClientCompleted": "계정을 받았습니다. 페어링이 완료되었습니다.",
   "pairingCancelled": "페어링이 취소되었습니다.",
   "pairingTimeout": "페어링 시간이 초과되었습니다. 다시 시도하세요.",

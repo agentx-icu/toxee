@@ -4,6 +4,12 @@ part of 'notification_service.dart';
 /// on screen — lock-screen and Notification Center entries posted before the
 /// switch still show the sender and the text.
 extension NotificationServicePrivacy on NotificationService {
+  Future<void> _waitForSessionPosts() async {
+    await Future.wait([
+      for (final post in _sessionPosts) post.onError((_, _) {}),
+    ]);
+  }
+
   /// Withdraws every posted message notification, including ones a previous
   /// process posted, and drops the grouped lines. Friend requests, invites
   /// and calls stay. Android reports no payload for active notifications, so
@@ -15,6 +21,7 @@ extension NotificationServicePrivacy on NotificationService {
     };
     _grouped.clear();
     if (!_initialized || !_platformSupported) return;
+    await _waitForSessionPosts();
     try {
       for (final active in await _plugin.getActiveNotifications()) {
         final payload = active.payload ?? '';
@@ -22,8 +29,7 @@ extension NotificationServicePrivacy on NotificationService {
         final isMessage =
             (active.groupKey ?? '').startsWith('toxee.messages.') ||
             active.channelId == ToxeeNotificationChannel.messages.id ||
-            payload.startsWith('c2c_') ||
-            payload.startsWith('group_');
+            isMessageNotificationPayload(payload);
         if (id != null && isMessage) ids.add(id);
       }
     } catch (e) {

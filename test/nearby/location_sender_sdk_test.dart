@@ -18,6 +18,8 @@ class _Message implements V2TimMessage {
   @override
   int? timestamp, status;
   @override
+  String? cloudCustomData;
+  @override
   bool? isSelf, needReadReceipt;
   @override
   OfflinePushInfo? offlinePushInfo = OfflinePushInfo(desc: 'Location');
@@ -101,7 +103,12 @@ void main() {
     );
   });
 
-  tearDown(() => TencentCloudChat.instance.dataInstance.basic.clear());
+  tearDown(() {
+    TencentCloudChat.instance.dataInstance.basic.clear();
+    TencentCloudChat.instance.dataInstance.messageData.clearMessageList(
+      userID: target,
+    );
+  });
   tearDownAll(() => TencentImSDKPlugin.v2TIMManager = oldManager);
 
   Future<BuildContext> mount(WidgetTester tester) async {
@@ -169,4 +176,76 @@ void main() {
       expect(await pending, LocationSendOutcome.failed);
     },
   );
+  testWidgets(
+    'revoking location during UIKit profile lookup inserts and sends nothing',
+    (tester) async {
+      manager.profileGate = Completer();
+      final context = await mount(tester);
+      final pending = sender().send(context, userID: target);
+      await tester.pump();
+      expect(manager.profileReads, 1);
+
+      await LocationPrefs.setLocationEnabled(false, toxId);
+      manager.profileGate.complete(
+        V2TimValueCallback(code: 0, desc: 'ok', data: []),
+      );
+      await tester.pump();
+
+      expect(manager.messages.sends, 0);
+      expect(
+        TencentCloudChat.instance.dataInstance.messageData.getMessageList(
+          key: target,
+        ),
+        isEmpty,
+      );
+      expect(await pending, LocationSendOutcome.disabled);
+    },
+  );
+
+  testWidgets(
+    'leaving the foreground during SDK creation cancels after resume',
+    (tester) async {
+      manager.messages.creationGate = Completer();
+      manager.profileGate = Completer()
+        ..complete(V2TimValueCallback(code: 0, desc: 'ok', data: []));
+      final context = await mount(tester);
+      final binding = tester.binding;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final pending = sender().send(context, userID: target);
+      await tester.pump();
+      expect(manager.messages.creations, 1);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      manager.messages.creationGate!.complete();
+      await tester.pump();
+
+      expect(manager.profileReads, 0);
+      expect(manager.messages.sends, 0);
+      expect(await pending, LocationSendOutcome.failed);
+    },
+  );
+  testWidgets('temporary inactivity preserves the manual location send', (
+    tester,
+  ) async {
+    manager.messages.creationGate = Completer();
+    manager.profileGate = Completer()
+      ..complete(V2TimValueCallback(code: 0, desc: 'ok', data: []));
+    final context = await mount(tester);
+    final binding = tester.binding;
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final pending = sender().send(context, userID: target);
+    await tester.pump();
+    expect(manager.messages.creations, 1);
+
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    manager.messages.creationGate!.complete();
+    await tester.pump();
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+    expect(manager.messages.sends, 1);
+    expect(await pending, LocationSendOutcome.sent);
+  });
 }

@@ -1,9 +1,14 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimSignalingListener.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_callback.dart';
@@ -13,6 +18,7 @@ import 'package:tim2tox_dart/service/call_bridge_service.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:tim2tox_dart/service/toxav_service.dart';
 import 'package:tim2tox_dart/service/tuicallkit_adapter.dart';
+import 'package:toxee/call/audio_handler.dart';
 import 'package:toxee/call/av_conference_session_bridge.dart';
 import 'package:toxee/call/call_media_capabilities.dart';
 import 'package:toxee/call/call_service_manager.dart';
@@ -40,6 +46,9 @@ void main() {
   late CallServiceManager manager;
   late List<String> records;
   late _FakeChat chat;
+  late _FakeMic mic;
+  late _FakeSpeaker speaker;
+  late AudioHandler audio;
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -48,7 +57,15 @@ void main() {
     bridge = CallBridgeService(sdk, av);
     callState = CallStateNotifier();
     chat = _FakeChat();
-    manager = CallServiceManager(chat, callState, ringtone: _FakeRingtone());
+    mic = _FakeMic();
+    speaker = _FakeSpeaker();
+    audio = AudioHandler(captureDevice: mic, playbackDevice: speaker);
+    manager = CallServiceManager(
+      chat,
+      callState,
+      ringtone: _FakeRingtone(),
+      audioHandler: audio,
+    );
     manager.debugAttachBackends(av, bridge);
     records = <String>[];
     manager.onCallRecordNeeded = (peer, _, outgoing, __, reason) {
@@ -56,8 +73,10 @@ void main() {
     };
   });
 
-  tearDown(() {
-    bridge.dispose();
+  tearDown(() async {
+    await audio.dispose();
+    await mic.dispose();
+    await bridge.dispose();
     callState.dispose();
   });
 
@@ -407,7 +426,7 @@ void main() {
 
     ToxAVService.dispatchAvCall(0, friendB, true, false); // native ring
     await pumpEventQueue();
-    expect(callState.inviteID, 'native_av_$friendB');
+    expect(callState.inviteID, startsWith('native_av_${friendB}_'));
     await manager.syncPlatformEffectsForState(CallUIState.ringing);
     expect(calls, contains('activateSession'));
 
@@ -420,17 +439,18 @@ void main() {
     expect(calls, isEmpty);
   });
 
-  group('outgoing preflight claims the pipeline (review P1 #1)', () {
-    const permissions = MethodChannel('flutter.baseflow.com/permissions/methods');
+  group('permission-delayed call setup', () {
+    const permissions = MethodChannel(
+      'flutter.baseflow.com/permissions/methods',
+    );
 
-    /// Holds the "OS permission sheet" open until [gate] completes, then grants.
-    void gatePermissionSheet(Completer<void> gate) {
+    void gatePermissionSheet(Completer<void> gate, {bool granted = true}) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(permissions, (call) async {
             await gate.future;
             if (call.method == 'requestPermissions') {
               final requested = (call.arguments as List).cast<int>();
-              return <int, int>{for (final v in requested) v: 1};
+              return <int, int>{for (final v in requested) v: granted ? 1 : 0};
             }
             return 1; // granted
           });
@@ -448,73 +468,255 @@ void main() {
           .setMockMethodCallHandler(permissions, null);
     });
 
-    test('a call claimed while the permission sheet was up refuses the call',
-        () async {
+    test('a fast accept has an outgoing invite and starts its media', () async {
+      gatePermissionSheet(Completer<void>()..complete());
+      expect(await manager.debugPreflightOutgoingCall(userA, TYPE_AUDIO), isTrue);
+      bridge.registerOutgoingCall(
+        inviteID: 'out-A',
+        inviter: 'self',
+        invitee: userA,
+        data: '{}',
+        friendNumber: friendA,
+      );
+      manager.debugOutgoingCallInitiated('out-A', userA, TYPE_AUDIO);
+      sdk.listener!.onInviteeAccepted('out-A', userA, '{}');
+      await pumpEventQueue();
+
+      expect(callState.inviteID, 'out-A');
+      expect(callState.remoteUserID, userA);
+      expect(callState.state, CallUIState.inCall);
+      expect(audio.owner, AudioHandlerOwner.call);
+    });
+
+    test(
+      'a call claimed while the permission sheet was up refuses the call',
+      () async {
+        final gate = Completer<void>();
+        gatePermissionSheet(gate);
+        final pending = manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO);
+        await pumpEventQueue();
+        // The pipeline is claimed while the user is still answering the sheet;
+        // the pre-sheet busy check said "free".
+        inCallWithA();
+        gate.complete();
+
+        expect(await pending, isFalse);
+      },
+    );
+
+    test(
+      'denying permission for a cancelled ring leaves the next ring alone',
+      () async {
+        final gate = Completer<void>();
+        gatePermissionSheet(gate, granted: false);
+        final listener = sdk.listener!;
+        listener.onReceiveNewInvitation('invite-A', userA, '', const [
+          'self',
+        ], '{}');
+        await pumpEventQueue();
+        final accepting = manager.acceptCall();
+        await pumpEventQueue();
+
+        listener.onInvitationCancelled('invite-A', userA, '{}');
+        listener.onReceiveNewInvitation('invite-B', userB, '', const [
+          'self',
+        ], '{}');
+        await pumpEventQueue();
+        expect(callState.inviteID, 'invite-B');
+        gate.complete();
+        await accepting;
+
+        expect(callState.inviteID, 'invite-B');
+        expect(callState.state, CallUIState.ringing);
+        expect(sdk.rejects, isEmpty);
+      },
+    );
+
+    test('native answer failure never enters the call', () async {
+      final gate = Completer<void>()..complete();
+      gatePermissionSheet(gate);
+      av.answerResult = false;
+      ToxAVService.dispatchAvCall(0, friendA, true, false);
+      await pumpEventQueue();
+
+      await manager.acceptCall();
+
+      expect(av.answers, [friendA]);
+      expect(callState.state, CallUIState.ended);
+    });
+
+    test('accepting the same signaling ring twice sends one answer', () async {
       final gate = Completer<void>();
       gatePermissionSheet(gate);
-      final pending = manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO);
+      sdk.listener!.onReceiveNewInvitation('invite-A', userA, '', const [
+        'self',
+      ], '{}');
       await pumpEventQueue();
-      // The pipeline is claimed while the user is still answering the sheet;
-      // the pre-sheet busy check said "free".
-      inCallWithA();
+      final first = manager.acceptCall();
+      final second = manager.acceptCall();
       gate.complete();
+      await Future.wait([first, second]);
 
-      expect(await pending, isFalse);
+      expect(sdk.accepts, ['invite-A']);
+      expect(av.answers, [friendA]);
+      expect(av.answerVideoBitRates, [0]);
+      expect(callState.state, CallUIState.inCall);
     });
 
-    test('an approved outgoing call reserves the pipeline until it rings',
-        () async {
-      final gate = Completer<void>()..complete();
-      gatePermissionSheet(gate);
-      expect(
-        await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
-        isTrue,
-      );
-      // The invite has not surfaced yet (no ringing state), but the audio
-      // pipeline is spoken for: a conference join must not take it.
-      final joined = await manager.conferenceBridge.enable(
-        groupId: 'tox_conf_1',
-        displayName: 'Room',
-        owner: AvConferenceSessionOwner(),
-        onAudioFrame: (_, __, ___, ____, _____, ______, _______) {},
-      );
-      expect(joined, AvConferenceEnableResult.busy);
-    });
+    test(
+      'native redial while ended receives its own identity and permission',
+      () async {
+        final gate = Completer<void>();
+        gatePermissionSheet(gate, granted: false);
+        ToxAVService.dispatchAvCall(0, friendA, true, false);
+        await pumpEventQueue();
+        final firstId = callState.inviteID;
+        final accepting = manager.acceptCall();
+        await pumpEventQueue();
 
-    test('a setup that never produces an invite releases the reservation',
-        () async {
-      final gate = Completer<void>()..complete();
-      gatePermissionSheet(gate);
-      expect(
-        await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
-        isTrue,
-      );
-      expect(
-        await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
-        isFalse,
-        reason: 'the first attempt still holds the claim',
-      );
-      expect(
-        manager.uiNotice.value,
-        isNull,
-        reason: 'a double tap on the call button is not a busy line',
-      );
-      expect(
-        await manager.debugPreflightOutgoingCall(userC, TYPE_AUDIO),
-        isFalse,
-      );
-      expect(manager.uiNotice.value, isNotNull, reason: 'another peer: busy');
-      // The adapter failed after the preflight: nothing will ever ring, so the
-      // claim must not wedge calling for the rest of the session.
-      manager.debugOnCallSetupFailed(
-        CallSetupFailureReason.inviteFailed,
-        <String>[userB],
-      );
-      expect(
-        await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
-        isTrue,
-      );
-    });
+        ToxAVService.dispatchAvCallState(0, friendA, 2);
+        ToxAVService.dispatchAvCall(0, friendA, true, false);
+        await pumpEventQueue();
+        gate.complete();
+        await accepting;
+
+        expect(callState.state, CallUIState.ringing);
+        expect(callState.inviteID, isNot(firstId));
+        expect(av.ended, isEmpty);
+      },
+    );
+
+    test(
+      'an approved outgoing call reserves the pipeline until it rings',
+      () async {
+        final gate = Completer<void>()..complete();
+        gatePermissionSheet(gate);
+        expect(
+          await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
+          isTrue,
+        );
+        // The invite has not surfaced yet (no ringing state), but the audio
+        // pipeline is spoken for: a conference join must not take it.
+        final joined = await manager.conferenceBridge.enable(
+          groupId: 'tox_conf_1',
+          displayName: 'Room',
+          owner: AvConferenceSessionOwner(),
+          onAudioFrame: (_, __, ___, ____, _____, ______, _______) {},
+        );
+        expect(joined, AvConferenceEnableResult.busy);
+      },
+    );
+
+    test(
+      'a setup that never produces an invite releases the reservation',
+      () async {
+        final gate = Completer<void>()..complete();
+        gatePermissionSheet(gate);
+        expect(
+          await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
+          isTrue,
+        );
+        expect(
+          await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
+          isFalse,
+          reason: 'the first attempt still holds the claim',
+        );
+        manager.debugOnCallSetupFailed(
+          CallSetupFailureReason.preflightDenied,
+          <String>[userB],
+        );
+        expect(
+          manager.uiNotice.value,
+          isNull,
+          reason: 'a double tap on the call button is not a busy line',
+        );
+        expect(
+          await manager.debugPreflightOutgoingCall(userC, TYPE_AUDIO),
+          isFalse,
+        );
+        expect(manager.uiNotice.value, isNotNull, reason: 'another peer: busy');
+        // The adapter failed after the preflight: nothing will ever ring, so the
+        // claim must not wedge calling for the rest of the session.
+        manager.debugOnCallSetupFailed(
+          CallSetupFailureReason.inviteFailed,
+          <String>[userB],
+        );
+        expect(
+          await manager.debugPreflightOutgoingCall(userB, TYPE_AUDIO),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  test('microphone mute drops local PCM and preserves peer playback', () async {
+    bridge.registerOutgoingCall(
+      inviteID: 'out-A',
+      inviter: 'self',
+      invitee: userA,
+      data: '{}',
+      friendNumber: friendA,
+    );
+    callState.startRinging(
+      mode: CallMode.audio,
+      direction: CallDirection.outgoing,
+      inviteID: 'out-A',
+      remoteUserID: userA,
+    );
+    sdk.listener!.onInviteeAccepted('out-A', userA, '{}');
+    await pumpEventQueue();
+    expect(audio.isCapturing, isTrue);
+
+    Uint8List frame(int sample) => Uint8List(AudioHandler.bytesPerFrame)
+      ..[0] = sample;
+    mic.frames.add(frame(1));
+    mic.frames.add(Uint8List.fromList([9, 0]));
+    await manager.toggleMute();
+    mic.frames.add(frame(2));
+    mic.frames.add(Uint8List.fromList([9, 0]));
+    audio.onAudioReceived(friendA, [123], 1, 1, AudioHandler.sampleRate);
+    await pumpEventQueue();
+
+    expect(callState.isMuted, isTrue);
+    expect(av.sentAudio, [1]);
+    expect(av.receiveAudioControls, isEmpty);
+    expect(speaker.fed, [123]);
+
+    await manager.toggleMute();
+    mic.frames.add(frame(3));
+    expect(av.sentAudio, [1, 3]);
+  });
+
+  test('disabling the camera preserves the incoming video', () async {
+    bridge.registerOutgoingCall(
+      inviteID: 'out-A',
+      inviter: 'self',
+      invitee: userA,
+      data: '{"video":true}',
+      friendNumber: friendA,
+    );
+    callState.startRinging(
+      mode: CallMode.video,
+      direction: CallDirection.outgoing,
+      inviteID: 'out-A',
+      remoteUserID: userA,
+    );
+    callState.enterCall();
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawColor(const ui.Color(0xFFFFFFFF), ui.BlendMode.src);
+    final picture = recorder.endRecording();
+    addTearDown(picture.dispose);
+    final image = await picture.toImage(2, 2);
+    final remote = manager.remoteVideo as ValueNotifier<ui.Image?>;
+    remote.value = image;
+    addTearDown(() async => manager.hangUp());
+
+    await manager.toggleVideo();
+
+    expect(callState.isVideoEnabled, isFalse);
+    expect(av.videoBitRates, [(friendA, 0)]);
+    expect(av.receiveVideoControls, isEmpty);
+    expect(remote.value, same(image));
   });
 
   test('a late acceptance for an invite that is not on screen is refused '
@@ -545,6 +747,46 @@ void main() {
     expect(callState.inviteID, 'invite-A');
     expect(callState.state, CallUIState.ringing, reason: 'still just a ring');
     expect(bridge.getCallInfo('out-stale'), isNull, reason: 'torn down');
+  });
+
+  test('reconnect expiry ends the signaling invite and its native AV leg', () {
+    fakeAsync((clock) {
+      final timerAudio = AudioHandler(captureDevice: mic, playbackDevice: speaker);
+      final timerManager = CallServiceManager(
+        chat,
+        callState,
+        ringtone: _FakeRingtone(),
+        audioHandler: timerAudio,
+      )..onCallRecordNeeded = manager.onCallRecordNeeded;
+      timerManager.debugAttachBackends(av, bridge);
+      bridge.registerOutgoingCall(
+        inviteID: 'out-A',
+        inviter: 'self',
+        invitee: userA,
+        data: '{}',
+        friendNumber: friendA,
+      );
+      callState.startRinging(
+        mode: CallMode.audio,
+        direction: CallDirection.outgoing,
+        inviteID: 'out-A',
+        remoteUserID: userA,
+      );
+      bridge.markAvLegStarted('out-A');
+      sdk.listener!.onInviteeAccepted('out-A', userA, '{}');
+      clock.flushMicrotasks();
+      expect(callState.state, CallUIState.inCall);
+      timerManager.markReconnecting();
+      clock.elapse(const Duration(seconds: 8));
+      clock.flushMicrotasks();
+
+      expect(callState.state, CallUIState.ended);
+      expect(records, ['$userA:out:network_error']);
+      expect(bridge.getCallInfo('out-A'), isNull);
+      expect(av.ended, [friendA]);
+      unawaited(timerAudio.dispose());
+      clock.flushMicrotasks();
+    });
   });
 
   test('a delayed FINISHED from the old leg cannot end a redial to the same '
@@ -686,6 +928,13 @@ class _FakeToxAv extends ToxAVService {
 
   final Map<int, String> _users;
   final List<int> ended = <int>[];
+  final List<int> answers = <int>[];
+  final List<int> answerVideoBitRates = <int>[];
+  bool answerResult = true;
+  final List<int> sentAudio = <int>[];
+  final List<(int, int)> videoBitRates = [];
+  final List<bool> receiveAudioControls = [];
+  final List<bool> receiveVideoControls = [];
 
   /// Users whose friend-number lookup returns the Tox sentinel.
   final Set<String> hidden = <String>{};
@@ -699,6 +948,47 @@ class _FakeToxAv extends ToxAVService {
   @override
   Future<bool> endCall(int friendNumber) async {
     ended.add(friendNumber);
+    return true;
+  }
+
+  @override
+  Future<bool> answerCall(
+    int friendNumber, {
+    int audioBitRate = 48,
+    int videoBitRate = 0,
+  }) async {
+    answers.add(friendNumber);
+    answerVideoBitRates.add(videoBitRate);
+    return answerResult;
+  }
+
+  @override
+  Future<bool> sendAudioFrame(
+    int friendNumber,
+    List<int> pcm,
+    int sampleCount,
+    int channels,
+    int samplingRate,
+  ) async {
+    sentAudio.add(pcm.first);
+    return true;
+  }
+
+  @override
+  Future<bool> setVideoBitRate(int friendNumber, int videoBitRate) async {
+    videoBitRates.add((friendNumber, videoBitRate));
+    return true;
+  }
+
+  @override
+  Future<bool> muteAudio(int friendNumber, bool mute) async {
+    receiveAudioControls.add(mute);
+    return true;
+  }
+
+  @override
+  Future<bool> muteVideo(int friendNumber, bool hide) async {
+    receiveVideoControls.add(hide);
     return true;
   }
 
@@ -729,10 +1019,46 @@ class _FakeRingtone implements RingtonePlayer {
   Future<void> dispose() async {}
 }
 
+class _FakeMic implements PcmCaptureDevice {
+  final frames = StreamController<Uint8List>.broadcast(sync: true);
+
+  Future<void> dispose() => frames.close();
+
+  @override
+  Future<bool> hasPermission() async => true;
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) async =>
+      frames.stream;
+
+  @override
+  Future<void> stop() async {}
+}
+
+class _FakeSpeaker implements PcmPlaybackDevice {
+  final List<int> fed = [];
+
+  @override
+  Future<void> setup({required int sampleRate, required int channelCount}) async {}
+
+  @override
+  void setFeedThreshold(int frames) {}
+
+  @override
+  void setFeedCallback(void Function(int)? callback) {}
+
+  @override
+  void feed(Int16List samples) => fed.addAll(samples);
+
+  @override
+  Future<void> release() async {}
+}
+
 class _FakeSdk extends TencentCloudChatSdkPlatform {
   V2TimSignalingListener? listener;
   final List<(String, String?)> rejects = <(String, String?)>[];
   final List<String> cancels = <String>[];
+  final List<String> accepts = <String>[];
 
   @override
   Future<void> addSignalingListener({
@@ -757,6 +1083,12 @@ class _FakeSdk extends TencentCloudChatSdkPlatform {
   @override
   Future<V2TimCallback> cancel({required String inviteID, String? data}) async {
     cancels.add(inviteID);
+    return V2TimCallback(code: 0, desc: 'ok');
+  }
+
+  @override
+  Future<V2TimCallback> accept({required String inviteID, String? data}) async {
+    accepts.add(inviteID);
     return V2TimCallback(code: 0, desc: 'ok');
   }
 }

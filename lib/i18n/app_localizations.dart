@@ -3073,7 +3073,7 @@ abstract class AppLocalizations {
   /// No description provided for @pairingHostCompleted.
   ///
   /// In en, this message translates to:
-  /// **'Account sent. The other device now has your account.'**
+  /// **'Account sent. Check the receiving device to confirm the import.'**
   String get pairingHostCompleted;
 
   /// No description provided for @pairingClientCompleted.

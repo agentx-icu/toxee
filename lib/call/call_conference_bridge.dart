@@ -107,18 +107,21 @@ class CallConferenceBridge implements AvConferenceSessionBridge {
     required AvConferenceSessionOwner owner,
     required AvConferenceAudioFrameCallback onAudioFrame,
     AvConferenceMediaStateCallback? onMediaStateChanged,
+    bool Function()? canEnable,
   }) async {
-    if (_disposed) return AvConferenceEnableResult.failed;
+    bool ownsSetup() => !_disposed && (canEnable?.call() ?? true);
+    if (!ownsSetup()) return AvConferenceEnableResult.failed;
     final busyBefore = _busyFor(groupId);
     if (busyBefore != null) return busyBefore;
     final backend = _backend ??= await _resolveBackend();
-    if (backend == null || !backend.isAvailable) {
+    if (!ownsSetup() || backend == null || !backend.isAvailable) {
       return AvConferenceEnableResult.failed;
     }
     // Ask before touching the native side: the OS dialog can take a while
     // and nothing should be flowing while it is up. Deliberately OUTSIDE the
     // lifecycle queue: a pending OS prompt must not block other transitions.
     final micGranted = await _requestMicrophone();
+    if (!ownsSetup()) return AvConferenceEnableResult.failed;
     return _serialize(
       () => _commitEnable(
         backend,
@@ -126,6 +129,7 @@ class CallConferenceBridge implements AvConferenceSessionBridge {
         displayName: displayName,
         owner: owner,
         micGranted: micGranted,
+        ownsSetup: ownsSetup,
         onAudioFrame: onAudioFrame,
         onMediaStateChanged: onMediaStateChanged,
       ),
@@ -150,10 +154,11 @@ class CallConferenceBridge implements AvConferenceSessionBridge {
     required String displayName,
     required AvConferenceSessionOwner owner,
     required bool micGranted,
+    required bool Function() ownsSetup,
     required AvConferenceAudioFrameCallback onAudioFrame,
     AvConferenceMediaStateCallback? onMediaStateChanged,
   }) async {
-    if (_disposed) return AvConferenceEnableResult.failed;
+    if (!ownsSetup()) return AvConferenceEnableResult.failed;
     final busyAfterPrompt = _busyFor(groupId);
     if (busyAfterPrompt != null) return busyAfterPrompt;
     // Re-join while the native side is still enabled: from an abandoned

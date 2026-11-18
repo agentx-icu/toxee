@@ -80,6 +80,7 @@ class AvConferenceSessionController extends ChangeNotifier {
         owner: _owner,
         onAudioFrame: _handleAudioFrame,
         onMediaStateChanged: _handleMediaState,
+        canEnable: () => _isJoinCurrent(generation),
       );
     } catch (_) {
       if (_isJoinCurrent(generation)) {

@@ -4,6 +4,7 @@ part of 'session_runtime_coordinator.dart';
 /// but the runtime remains fail-closed until one complete attempt succeeds.
 Future<void> _runSessionRuntimeTeardown() async {
   SessionRuntimeCoordinator._generation++;
+  NotificationService.instance.setSessionPostsEnabled(false);
   final inFlight = SessionRuntimeCoordinator._initializing;
   if (inFlight != null) {
     try {

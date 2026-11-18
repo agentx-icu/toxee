@@ -24,15 +24,16 @@ extension _CallNativeHandling on CallServiceManager {
       await _rejectNativeIncomingAsBusy(friendNumber, videoEnabled);
       return;
     }
-    // Same peer (its ToxAV leg of the ringing signaling call) / ended banner.
-    if (_callState.state != CallUIState.idle) {
+    // The media leg of a signaling call already on screen.
+    if (_callState.state != CallUIState.idle &&
+        _callState.state != CallUIState.ended) {
       debugPrint(
         '[CallServiceManager] _onIncomingCall: ignored (not idle), '
         'friendNumber=$friendNumber',
       );
       return;
     }
-    final token = ++_nativeIncomingSeq;
+    final token = ++CallServiceManager._nativeIncomingSeq;
     _pendingNativeIncoming[friendNumber] = token;
 
     // Reverse-lookup user ID from friend number (may return null).
@@ -54,16 +55,14 @@ extension _CallNativeHandling on CallServiceManager {
     }
     _pendingNativeIncoming.remove(friendNumber);
     if (_disposed) return;
-    if (_isBusyForNewCall || _callState.state != CallUIState.idle) {
+    if (_isBusyForNewCall) {
       // Its own signaling invite surfaced meanwhile: this is that call's leg.
       if (_isActiveCallPeer(friendNumber)) return;
-      if (_isBusyForNewCall) {
-        await _rejectNativeIncomingAsBusy(friendNumber, videoEnabled);
-      }
+      await _rejectNativeIncomingAsBusy(friendNumber, videoEnabled);
       return;
     }
 
-    final inviteID = 'native_av_$friendNumber';
+    final inviteID = 'native_av_${friendNumber}_$token';
     _nativeCallFriendNumbers[inviteID] = friendNumber;
     _callRecordEmitted = false;
 
@@ -100,6 +99,123 @@ extension _CallNativeHandling on CallServiceManager {
         _callState.state == CallUIState.ringing &&
         _callState.inviteID == inviteID) {
       unawaited(_ringtone.start());
+    }
+  }
+
+  Future<void> _acceptIncomingCall() async {
+    final inviteId = _callState.inviteID;
+    final generation = _captureGeneration;
+    bool ownsRing() =>
+        !_disposed &&
+        inviteId == _callState.inviteID &&
+        generation == _captureGeneration &&
+        _callState.state == CallUIState.ringing &&
+        _callState.direction == CallDirection.incoming;
+    if (inviteId == null || !ownsRing()) return;
+
+    final pending = _pendingAcceptance;
+    if (pending != null && pending.inviteId == inviteId) {
+      await pending.result;
+      return;
+    }
+    final result = _answerCurrentRing(inviteId, ownsRing);
+    _pendingAcceptance = (inviteId: inviteId, result: result);
+    try {
+      await result;
+    } finally {
+      if (identical(_pendingAcceptance?.result, result)) {
+        _pendingAcceptance = null;
+      }
+    }
+  }
+
+  Future<void> _answerCurrentRing(
+    String inviteId,
+    bool Function() ownsRing,
+  ) async {
+    _cancelAndroidIncomingCallSurface();
+    final permissions = await _requestCallPermissions(
+      wantVideo: _callState.mode == CallMode.video,
+      reportDenial: false,
+    );
+    if (!ownsRing()) return;
+    if (!permissions.granted) {
+      _emitPermissionNotice(permissions);
+      await rejectCall();
+      return;
+    }
+
+    const profile = CallCodecProfile.defaultProfile;
+    final videoBitRate =
+        _callState.isVideoEnabled &&
+            CallMediaCapabilities.supportsVideoCapture()
+        ? profile.videoBitRate
+        : 0;
+    if (!_isNativeCall(inviteId)) {
+      await _callBridge?.acceptInvitation(
+        inviteId,
+        audioBitRate: profile.audioBitRate,
+        videoBitRate: videoBitRate,
+      );
+      return;
+    }
+
+    final friendNumber = _getNativeFriendNumber(inviteId);
+    final av = _avService;
+    if (friendNumber == null || av == null) return;
+    final answered = await av.answerCall(
+      friendNumber,
+      audioBitRate: profile.audioBitRate,
+      videoBitRate: videoBitRate,
+    );
+    if (!ownsRing()) return;
+    if (!answered) {
+      _emitLocalizedUiNotice((l10n) => l10n.callFailedMediaChannel);
+      await _endFailedCall(inviteId);
+      return;
+    }
+    observeBackgroundTask(
+      _ringtone.stop(),
+      '[CallServiceManager] Stop ringtone',
+    );
+    _callState.enterCall();
+    unawaited(_callKitReportConnected());
+    _elevateForegroundForCall();
+    observeBackgroundTask(
+      _startMediaCapture(friendNumber),
+      '[CallServiceManager] Start call media',
+    );
+  }
+
+  /// Ends a failed setup or an expired reconnect window. Local resources are
+  /// released immediately so neither a slow backend nor its late callback owns
+  /// the next attempt.
+  Future<void> _endFailedCall(String inviteId) async {
+    if (_disposed || _callState.inviteID != inviteId) return;
+    final friendNumber = _getNativeFriendNumber(inviteId);
+    _emitCallRecord('network_error');
+    unawaited(_callKitReportEnded('network_error'));
+    _markAvLegEnded(inviteId);
+    _endCallCleanup();
+    observeBackgroundTask(
+      _ringtone.stop(),
+      '[CallServiceManager] Stop ringtone',
+    );
+    observeBackgroundTask(
+      _audioHandler.stop(),
+      '[CallServiceManager] Stop call audio',
+    );
+    observeBackgroundTask(
+      _videoHandler.stop(),
+      '[CallServiceManager] Stop call video',
+    );
+    _nativeCallFriendNumbers.remove(inviteId);
+    _callState.endCall();
+    _restoreForegroundAfterCall();
+    if (friendNumber != null) {
+      await _avService?.endCall(friendNumber);
+    } else {
+      await _callBridge?.endCall(inviteId);
     }
   }
 

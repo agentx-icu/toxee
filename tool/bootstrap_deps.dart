@@ -20,14 +20,11 @@ void main(List<String> args) async {
 
   // 1) Submodule sync and update (or clone from .gitmodules if not yet registered)
   //    Do this first so third_party/tim2tox exists and contains the lock file.
-  const submodulePaths = [
-    'third_party/tim2tox',
-    'third_party/chat-uikit-flutter',
-  ];
+  const uikitPath = 'third_party/chat-uikit-flutter';
+  const submodulePaths = ['third_party/tim2tox', uikitPath];
   const submoduleUrls = {
     'third_party/tim2tox': 'https://github.com/agentx-icu/tim2tox.git',
-    'third_party/chat-uikit-flutter':
-        'https://github.com/agentx-icu/chat-uikit-flutter.git',
+    uikitPath: 'https://github.com/agentx-icu/chat-uikit-flutter.git',
   };
   int code = await _run(repoRoot, 'git', ['submodule', 'sync', '--recursive']);
   if (code != 0) {
@@ -67,33 +64,21 @@ void main(List<String> args) async {
         stderr.writeln('bootstrap_deps: git clone $p failed');
         exit(code);
       }
-    }
-  }
-
-  // Pin chat-uikit-flutter to v2 branch (see .gitmodules branch = v2)
-  final uikitDir = Directory('$repoRoot/third_party/chat-uikit-flutter');
-  if (uikitDir.existsSync()) {
-    const branch = 'v2';
-    int c = await _run(repoRoot, 'git', [
-      '-C',
-      'third_party/chat-uikit-flutter',
-      'fetch',
-      'origin',
-      branch,
-    ]);
-    if (c == 0) {
-      c = await _run(repoRoot, 'git', [
-        '-C',
-        'third_party/chat-uikit-flutter',
-        'checkout',
-        '-B',
-        branch,
-        'FETCH_HEAD',
-      ]);
-      if (c == 0) {
-        stdout.writeln(
-          'third_party/chat-uikit-flutter switched to branch $branch',
-        );
+      // Registered UIKit checkouts use the gitlink set by submodule update.
+      // A fresh fallback clone also needs the exact overlay revision.
+      if (p == uikitPath) {
+        try {
+          final revision = pinnedUIKitOverlayRevision(repoRoot);
+          code = await _run(dir.path, 'git', [
+            'checkout',
+            '--detach',
+            revision,
+          ]);
+          if (code != 0) exit(code);
+        } catch (error) {
+          stderr.writeln('bootstrap_deps: UIKit pin failed: $error');
+          exit(1);
+        }
       }
     }
   }

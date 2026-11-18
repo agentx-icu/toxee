@@ -903,7 +903,7 @@
   "pairingVerifyCodeHeader": "請確認兩台裝置顯示的驗證碼相同",
   "pairingVerifyCodeInstructions": "如果驗證碼與另一台裝置上顯示的相同，請點擊下方按鈕。若不相同，請取消——可能有人正在攔截連線。",
   "pairingCodesMatch": "驗證碼相同",
-  "pairingHostCompleted": "帳號已發送，另一台裝置現在已擁有你的帳號。",
+  "pairingHostCompleted": "帳號已傳送。請在接收裝置上確認匯入是否完成。",
   "pairingClientCompleted": "帳號已接收，配對完成。",
   "pairingCancelled": "已取消配對。",
   "pairingTimeout": "配對逾時，請再試一次。",

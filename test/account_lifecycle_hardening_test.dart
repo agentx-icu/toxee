@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:tim2tox_dart/service/ffi_chat_service.dart';
 import 'package:toxee/auth/login_use_case.dart';
 import 'package:toxee/runtime/session_runtime_coordinator.dart';
@@ -56,6 +57,28 @@ void main() {
   });
 
   group('durable account-deletion tombstones', () {
+    test('refused scoped preference removal remains pending and retryable', () async {
+      await _seedDeletableAccount(_toxId, nickname: 'Deleting', current: true);
+      const draft = 'draft_v2:$_toxId:c2c_peer';
+      final original = SharedPreferencesStorePlatform.instance;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(draft, 'draft to delete');
+      final store = _RefusingPreferenceRemoval(await original.getAll());
+      SharedPreferencesStorePlatform.instance = store;
+      addTearDown(() => SharedPreferencesStorePlatform.instance = original);
+      store.refusedKey = 'flutter.$draft';
+
+      final result = await AccountDeletionCoordinator.deleteAccount(toxId: _toxId);
+      expect(result.failure?.stage, AccountDeletionStage.prefsData);
+      expect(await AccountDeletionJournalStore.hasPendingForToxId(_toxId), isTrue);
+      expect((await store.getAll())['flutter.$draft'], 'draft to delete');
+
+      store.refusedKey = null;
+      final retry = await AccountDeletionCoordinator.recoverPendingDeletions();
+      expect(retry.single.completed, isTrue);
+      expect((await store.getAll())['flutter.$draft'], isNull);
+    });
+
     test(
       'secure-storage delete failure leaves a tombstone and retries on restart',
       () async {
@@ -885,4 +908,16 @@ final class _FakeFfiChatService implements FfiChatService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RefusingPreferenceRemoval extends InMemorySharedPreferencesStore {
+  _RefusingPreferenceRemoval(super.data) : super.withData();
+
+  String? refusedKey;
+
+  @override
+  Future<bool> remove(String key) async {
+    if (key == refusedKey) return false;
+    return super.remove(key);
+  }
 }

@@ -1,6 +1,6 @@
 {
-  "revision": "98c5b25d9ed27dad4a544b077675b0978d82d73d",
-  "patch_sha256": "b56ca737f61292032fb3c75af611733e33f56a578418a3a03f4ffcc9796a9c87",
+  "revision": "ef3e9a5415ba731d33cde06e689258b1b44e8e51",
+  "patch_sha256": "606be7d20aeb0ef394737a4c0438ea7cda28e5007f3e3b8394bc112c5efa4e89",
   "files": [
     {
       "path": "source/V2TIMLog.h",
@@ -14,18 +14,18 @@
     },
     {
       "path": "ffi/tim2tox_ffi.h",
-      "before_sha256": "67859d4e1ab233055af00b5c762acabcf249b734c0e9fdf2a2663a8dafc28793",
-      "after_sha256": "17572fe14014a1dbc13830a6e0381773630682b9af1d28ae67e3db820c4c2f74"
+      "before_sha256": "95583daa8eb4a118b5496c94c4fe20e5075028b87293d3aa62e258c3356d9df2",
+      "after_sha256": "a717115963c5194ebaf57ec8d9c480882020ee8c08f72b35f2f2d7b8c99a75da"
     },
     {
       "path": "ffi/tim2tox_ffi.cpp",
-      "before_sha256": "92ad73fc9de6d1d653ddeca12ef4dc34a102425f137175e47bceefe8985603fc",
-      "after_sha256": "7a56cd352455643e5e6510b583390e99d40ffd5653b8c35ed7c4aa4fe546d3d3"
+      "before_sha256": "735e5775f45d0daa077537592b7a46e3fa6135ef81317325a40f87f34653cd8a",
+      "after_sha256": "b80533891c696fa55ad9fb884a1bee3e2ddfeaaeee1475f4b3a48156e66502ea"
     },
     {
       "path": "dart/lib/ffi/tim2tox_ffi.dart",
-      "before_sha256": "14b0b3d97fb4854306bff2fde96768ed2d0e71a0c0779f624d9d6f1d81eba48f",
-      "after_sha256": "fbcb23fa01f1aaf1b4b5affbf25a4919f7db4683b356d92ca0fc13ebfe8cbffa"
+      "before_sha256": "410b781d4c73607b927a05d1b129ab544d79be8797ddff5e2274e7257d1a1cbb",
+      "after_sha256": "c26246acbcd15e7ecc0d4e276281bd0d54aa6d2b76998a8cb24fe588d5f44275"
     },
     {
       "path": "source/BoundedLogSink.h",

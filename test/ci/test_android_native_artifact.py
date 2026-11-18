@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -21,6 +23,36 @@ def elf(machine=183, alignment=16384):
 
 
 class AndroidNativeArtifactTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("bash"), "requires Bash")
+    def test_native_builder_requires_explicit_prebuilt_selection(self):
+        root = Path(self.temp.name)
+        tools = root / "tool/ci"
+        tools.mkdir(parents=True)
+        for name in ("build_tim2tox.sh", "common.sh", "android_native_artifact.py",
+                     "assert_no_test_hooks.sh"):
+            shutil.copyfile(SCRIPT.parent / name, tools / name)
+        (root / "third_party/tim2tox").mkdir(parents=True)
+        jni = root / "android/app/src/main/jniLibs"
+        library = jni / "arm64-v8a/libtim2tox_ffi.so"
+        library.parent.mkdir(parents=True)
+        library.write_bytes(elf())
+        staged = root / "build/native-artifacts/android/jniLibs/arm64-v8a" / library.name
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("ANDROID_", "TIM2TOX_", "TOXEE_"))}
+        command = ["bash", str(tools / "build_tim2tox.sh"), "--target", "android",
+                   "--no-toxav"]
+
+        default = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(default.returncode, 0, default.stdout)
+        self.assertIn("Unable to locate Android NDK", default.stderr)
+        self.assertFalse(staged.exists())
+        self.assertEqual(library.read_bytes(), elf())
+
+        env["TIM2TOX_ANDROID_LIB_DIR"] = str(jni)
+        override = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(override.returncode, 0, override.stderr)
+        self.assertEqual(staged.read_bytes(), elf())
+
     def test_staged_library_entrypoint_checks_abi_and_pages_before_packaging(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

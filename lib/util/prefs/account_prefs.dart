@@ -1,5 +1,34 @@
 part of 'package:toxee/util/prefs.dart';
 
+Future<void> _reloadAccountPreferences(SharedPreferences prefs) async {
+  if (!await _serializedRegistry(
+    () => _refreshAccountRegistryCache(prefs, force: true),
+  )) {
+    throw StateError('Account preferences could not be reloaded');
+  }
+}
+
+Future<void> _removeAccountPreferenceKeys(
+  SharedPreferences prefs,
+  Iterable<String> candidates,
+) async {
+  final keys = candidates.where(prefs.containsKey).toList();
+  try {
+    final removed = await Future.wait([for (final key in keys) prefs.remove(key)]);
+    if (removed.contains(false)) {
+      throw StateError('Account preference removal was refused');
+    }
+  } catch (_) {
+    // SharedPreferences removes from its cache before the platform replies.
+    try {
+      await _reloadAccountPreferences(prefs);
+    } catch (error) {
+      AppLogger.warn('Account preference reload failed (${error.runtimeType})');
+    }
+    rethrow;
+  }
+}
+
 // Account list (implementation helper used by Prefs)
 //
 // CORRUPTION POLICY — read before changing the error handling.
@@ -39,6 +68,14 @@ final class AccountRegistryUnreadableException implements Exception {
   String toString() => 'AccountRegistryUnreadableException: $detail';
 }
 
+/// The backing store declined to persist an account-registry update.
+final class AccountRegistryWriteException implements Exception {
+  const AccountRegistryWriteException();
+
+  @override
+  String toString() => 'Account registry write was refused';
+}
+
 /// Raised by [Prefs.setCurrentAccountToxId] when the store refused the write.
 ///
 /// The durable pointer still names whatever it named before, so the session the
@@ -59,25 +96,28 @@ final class CurrentAccountPointerFailure implements Exception {
 
 /// The registry as stored, plus whether reading it lost anything.
 final class _AccountListRead {
-  const _AccountListRead(this.rows, {required this.lossy});
+  const _AccountListRead(this.rows, {this.canRewrite = true});
 
   final List<Map<String, String>> rows;
 
-  /// True when at least one row could not be parsed and was dropped, so [rows]
-  /// is a RECONSTRUCTION. Publishing it would erase the dropped rows, which is
-  /// why [_setAccountListImpl]'s caller refuses unless the raw payload was
-  /// durably preserved first.
-  final bool lossy;
+  /// A partially parsed registry may be rewritten once its raw payload is
+  /// durably preserved.
+  final bool canRewrite;
 }
 
 Future<_AccountListRead> _readAccountList(SharedPreferences p) async {
+  if (!await _refreshAccountRegistryCache(p)) {
+    throw const AccountRegistryUnreadableException(
+      'could not reload the account registry after a failed write',
+    );
+  }
   final accountsJson = p.getString(Prefs._kAccountList);
   if (accountsJson == null || accountsJson.isEmpty) {
     // GROWABLE, and not `const`: callers such as `Prefs.addAccount` build the
     // next registry by mutating what they read. A const literal here is
     // unmodifiable, so registering the very first account threw
     // "Cannot add to an unmodifiable list".
-    return _AccountListRead(List<Map<String, String>>.empty(growable: true), lossy: false);
+    return _AccountListRead(List<Map<String, String>>.empty(growable: true));
   }
   Object? decoded;
   try {
@@ -110,15 +150,14 @@ Future<_AccountListRead> _readAccountList(SharedPreferences p) async {
       dropped++;
     }
   }
-  if (dropped > 0) {
-    await _backUpCorruptAccountList(p, accountsJson);
-    AppLogger.warn(
-      '[Prefs] account_list: dropped $dropped malformed row(s); '
-      '${rows.length} kept. Raw payload preserved under '
-      '${Prefs._kAccountListCorruptBackup}.',
-    );
-  }
-  return _AccountListRead(rows, lossy: dropped > 0);
+  if (dropped == 0) return _AccountListRead(rows);
+
+  final preserved = await _backUpCorruptAccountList(p, accountsJson);
+  AppLogger.warn(
+    '[Prefs] account_list: dropped $dropped malformed row(s); '
+    '${rows.length} kept, backup available: $preserved',
+  );
+  return _AccountListRead(rows, canRewrite: preserved);
 }
 
 /// Whether [toxId] is in the registry, answered without trusting the parsed
@@ -158,7 +197,9 @@ Future<AccountRegistryPresence> _accountRegistryPresenceImpl(
   String toxId,
 ) async {
   final wanted = toxId.trim().toUpperCase();
-  if (wanted.isEmpty) return AccountRegistryPresence.unknown;
+  if (wanted.isEmpty || !await _refreshAccountRegistryCache(p)) {
+    return AccountRegistryPresence.unknown;
+  }
   final accountsJson = p.getString(Prefs._kAccountList);
   if (accountsJson == null || accountsJson.isEmpty) {
     return AccountRegistryPresence.absent;
@@ -214,8 +255,7 @@ Future<void> _setAccountListGuarded(
   List<Map<String, String>> accounts,
 ) async {
   final current = await _readAccountList(p); // throws when unreadable
-  if (current.lossy &&
-      (p.getString(Prefs._kAccountListCorruptBackup) ?? '').isEmpty) {
+  if (!current.canRewrite) {
     // The backup write is what makes a lossy rewrite survivable. Without it the
     // dropped rows would be gone for good.
     throw const AccountRegistryUnreadableException(
@@ -230,25 +270,33 @@ Future<void> _setAccountListImpl(
   SharedPreferences p,
   List<Map<String, String>> accounts,
 ) async {
-  await p.setString(Prefs._kAccountList, jsonEncode(accounts));
+  if (!await _writeAccountRegistryString(
+    p,
+    Prefs._kAccountList,
+    jsonEncode(accounts),
+  )) {
+    throw const AccountRegistryWriteException();
+  }
 }
 
 /// Preserve the raw payload once, before anything can overwrite it.
 ///
 /// Only the FIRST corruption is kept: a later well-meaning write must not push
-/// the original out of the backup slot. Confirmed with a reload because
-/// `SharedPreferences` updates its cache before the platform write completes,
-/// so an unchecked `setString` can leave a cached value that merely looks
-/// durable.
-Future<void> _backUpCorruptAccountList(
+/// the original out of the backup slot. Readers outside the registry gate
+/// also attempt this backup, so serialize it before trusting the cached slot.
+final _accountRegistryBackupGate = AsyncGate();
+
+Future<bool> _backUpCorruptAccountList(
   SharedPreferences p,
   String rawPayload,
-) async {
+) => _accountRegistryBackupGate.run(() async {
+  if (!await _refreshAccountRegistryCache(p)) return false;
   try {
     if ((p.getString(Prefs._kAccountListCorruptBackup) ?? '').isNotEmpty) {
-      return;
+      return true;
     }
-    final wrote = await p.setString(
+    final wrote = await _writeAccountRegistryString(
+      p,
       Prefs._kAccountListCorruptBackup,
       rawPayload,
     );
@@ -258,10 +306,55 @@ Future<void> _backUpCorruptAccountList(
         'rewrite will be refused',
       );
     }
+    return wrote;
   } catch (e) {
     AppLogger.warn(
       '[Prefs] account_list: preserving the corrupt payload threw '
       '(${e.runtimeType}); a lossy rewrite will be refused',
     );
+    return false;
+  }
+});
+
+// SharedPreferences updates its cache before the platform write returns.
+// Require a successful reload before reading either key again after a failure.
+final _accountRegistryNeedsReload = Expando<bool>();
+final _accountRegistryReloads = Expando<Future<bool>>();
+
+Future<bool> _writeAccountRegistryString(
+  SharedPreferences prefs,
+  String key,
+  String value,
+) async {
+  var wrote = false;
+  try {
+    wrote = await prefs.setString(key, value);
+    return wrote;
+  } finally {
+    if (!wrote) _accountRegistryNeedsReload[prefs] = true;
+  }
+}
+
+Future<bool> _refreshAccountRegistryCache(
+  SharedPreferences prefs, {
+  bool force = false,
+}) async {
+  final pending = _accountRegistryReloads[prefs];
+  if (pending != null) return pending;
+  if (!force && _accountRegistryNeedsReload[prefs] != true) return true;
+  final reload = _reloadAccountRegistryCache(prefs);
+  _accountRegistryReloads[prefs] = reload;
+  return reload;
+}
+
+Future<bool> _reloadAccountRegistryCache(SharedPreferences prefs) async {
+  try {
+    await prefs.reload();
+    _accountRegistryNeedsReload[prefs] = null;
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    _accountRegistryReloads[prefs] = null;
   }
 }

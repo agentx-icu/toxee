@@ -115,6 +115,26 @@ void main() {
       );
 
   group('StartupSessionUseCase.execute — decisions that land on login', () {
+    test('resolved account opt-out is honored without a current pointer', () async {
+      final toxId = 'E' * 76;
+      await Prefs.addAccount(toxId: toxId, nickname: 'Restored account');
+      await Prefs.setNickname('Restored account');
+      await Prefs.setAutoLogin(true);
+      await Prefs.setAutoLogin(false, toxId);
+      var initialized = false;
+
+      final outcome = await StartupSessionUseCase(
+        initializeServiceForAccount:
+            ({required toxId, nickname, statusMessage, password, startPolling = true}) async {
+              initialized = true;
+              throw StateError('auto-login was disabled');
+            },
+      ).execute(onStepChanged: (_) {}, loadFriends: (_) async {});
+
+      expect(initialized, isFalse);
+      expect(outcome, isA<StartupShowLogin>());
+    });
+
     test(
         'nickname set + autoLogin=false → StartupShowLogin '
         '(toggle-off then cold restart)', () async {

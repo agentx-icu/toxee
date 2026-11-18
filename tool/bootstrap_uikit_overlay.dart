@@ -3,23 +3,32 @@ import 'dart:io';
 
 import 'bootstrap_patch_integrity.dart';
 
+Map<String, dynamic> _readManifest(String repoRoot) {
+  final manifestFile = File('$repoRoot/tool/uikit_overlays/manifest.json');
+  final manifest =
+      jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+  final revision = manifest['revision'];
+  if (revision is! String || !RegExp(r'^[a-f0-9]{40}$').hasMatch(revision)) {
+    throw StateError('UIKit overlay: invalid pinned revision');
+  }
+  return manifest;
+}
+
+String pinnedUIKitOverlayRevision(String repoRoot) =>
+    _readManifest(repoRoot)['revision'] as String;
+
 // App-owned changes to the ignored UIKit checkout must be reproducible from a
 // fresh bootstrap. Do not repair drift by resetting or overwriting user files.
 void ensureUIKitOverlay(String repoRoot, {bool checkOnly = false}) {
   final source = Directory('$repoRoot/third_party/chat-uikit-flutter');
   final overlays = Directory('$repoRoot/tool/uikit_overlays');
-  final manifestFile = File('${overlays.path}/manifest.json');
   final patch = File('${overlays.path}/motion-and-paste.patch');
   if (FileSystemEntity.typeSync(source.path, followLinks: false) !=
       FileSystemEntityType.directory) {
     throw StateError('UIKit overlay: checkout must be a real directory');
   }
-  final manifest =
-      jsonDecode(manifestFile.readAsStringSync()) as Map<String, dynamic>;
+  final manifest = _readManifest(repoRoot);
   final revision = manifest['revision'] as String;
-  if (!RegExp(r'^[a-f0-9]{40}$').hasMatch(revision)) {
-    throw StateError('UIKit overlay: invalid pinned revision');
-  }
   final head = _git(source, ['rev-parse', 'HEAD']).trim();
   if (head != revision) {
     throw StateError(

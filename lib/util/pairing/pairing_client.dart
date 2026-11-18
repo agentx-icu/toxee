@@ -20,17 +20,15 @@ import 'pairing_wire.dart';
 class PairingClient {
   PairingClient({
     required Future<String> Function(Uint8List profilePlaintext)
-        materializeProfile,
+    materializeProfile,
     Duration connectTimeout = const Duration(seconds: 8),
     Duration transferTimeout = const Duration(seconds: 60),
-  })  : _materializeProfile = materializeProfile,
-        _connectTimeout = connectTimeout,
-        _transferTimeout = transferTimeout;
+  }) : _materializeProfile = materializeProfile,
+       _connectTimeout = connectTimeout,
+       _transferTimeout = transferTimeout;
 
-  /// Materialize the freshly decrypted profile and return its resulting
-  /// toxId. The plan calls for writing to a temp file then calling
-  /// `AccountExportService.importAccountData(filePath)`; abstracting the
-  /// sink here keeps PairingClient testable without disk I/O.
+  /// Materialize the decrypted profile and return its Tox ID. The bytes are
+  /// borrowed until the returned future settles and are then wiped.
   final Future<String> Function(Uint8List profilePlaintext) _materializeProfile;
 
   /// Per CEO plan: "Device B detects connection failure within 8s and shows
@@ -42,6 +40,7 @@ class PairingClient {
   SimpleKeyPair? _ephemeral;
   final _events = StreamController<ClientEvent>.broadcast();
   final _sasConfirmed = Completer<void>();
+  bool _started = false;
   bool _completed = false;
 
   Stream<ClientEvent> get events => _events.stream;
@@ -52,31 +51,32 @@ class PairingClient {
   /// [ClientFailed] events with a [ClientFailureReason] tagging the cause —
   /// the caller doesn't need a try/catch around [connect].
   Future<void> connect(String pairingUrl) async {
-    if (_sock != null) {
+    if (_started) {
       throw StateError('PairingClient.connect() called twice');
     }
+    if (_completed) return;
+    _started = true;
 
     final PairingInvite invite;
     try {
       final parsed = PairingUrl.decode(pairingUrl);
       if (parsed == null) {
-        _fail(ClientFailureReason.invalidUrl,
-            'Not a recognizable pairing QR code');
+        _fail(
+          ClientFailureReason.invalidUrl,
+          'Not a recognizable pairing QR code',
+        );
         return;
       }
       invite = parsed;
     } on PairingUrlException catch (e) {
       // The UI localizes by reason; the English message is diagnostics only.
       AppLogger.info('[PairingClient] rejected invite: ${e.message}');
-      _fail(
-        switch (e.problem) {
-          PairingUrlProblem.unsupportedVersion =>
-            ClientFailureReason.unsupportedVersion,
-          PairingUrlProblem.nonLanAddress => ClientFailureReason.nonLanAddress,
-          PairingUrlProblem.malformed => ClientFailureReason.invalidUrl,
-        },
-        e.detail ?? e.message,
-      );
+      _fail(switch (e.problem) {
+        PairingUrlProblem.unsupportedVersion =>
+          ClientFailureReason.unsupportedVersion,
+        PairingUrlProblem.nonLanAddress => ClientFailureReason.nonLanAddress,
+        PairingUrlProblem.malformed => ClientFailureReason.invalidUrl,
+      }, e.detail ?? e.message);
       return;
     } on FormatException catch (e) {
       // Belt and braces: decode keeps its rejections structured, but any
@@ -89,27 +89,59 @@ class PairingClient {
 
     Socket? sock;
     try {
-      sock = await Socket.connect(invite.ipAddress, invite.port,
-          timeout: _connectTimeout);
+      sock = await Socket.connect(
+        invite.ipAddress,
+        invite.port,
+        timeout: _connectTimeout,
+      );
     } on SocketException catch (e) {
       _fail(ClientFailureReason.lanUnreachable, _formatLanError(e));
       return;
     } on TimeoutException {
       // Endpoint only; the localized connectTimeout sentence wraps it.
-      _fail(ClientFailureReason.connectTimeout,
-          '${invite.ipAddress}:${invite.port}');
+      _fail(
+        ClientFailureReason.connectTimeout,
+        '${invite.ipAddress}:${invite.port}',
+      );
+      return;
+    }
+    if (_completed) {
+      sock.destroy();
       return;
     }
     _sock = sock;
 
     _ephemeral = await PairingCrypto.generateEphemeral();
     final ourPub = Uint8List.fromList(await _extractPublicKey(_ephemeral!));
+    if (_completed) return;
 
     final reader = PairingFrameReader();
+    var receivedProfile = false;
+    // Observe the socket while waiting for local consent. Keep a complete
+    // frame if the host confirms first and closes its end of the socket.
+    final pendingCiphertext = reader.frames.first.then<Uint8List?>(
+      (bytes) {
+        receivedProfile = true;
+        return bytes;
+      },
+      onError: (Object error) {
+        if (error is StateError) {
+          _fail(
+            ClientFailureReason.networkError,
+            'The sending device disconnected before the transfer',
+          );
+        } else {
+          _fail(ClientFailureReason.protocolError, '$error');
+        }
+        return null;
+      },
+    );
     final dataSub = sock.listen(
       reader.feed,
       onError: (Object e, StackTrace st) {
-        _fail(ClientFailureReason.networkError, 'socket error: $e');
+        if (!receivedProfile) {
+          _fail(ClientFailureReason.networkError, 'socket error: $e');
+        }
       },
       onDone: reader.close,
     );
@@ -130,6 +162,7 @@ class PairingClient {
         ourPublicKey: ourPub,
         theirPublicKey: invite.publicKey,
       );
+      if (_completed) return;
       _events.add(ClientAwaitingSas(keys.sas));
 
       // 3. Wait for the user to confirm SAS.
@@ -137,9 +170,13 @@ class PairingClient {
       if (_completed) return;
 
       // 4. Read the AEAD blob and decrypt.
-      final cipher = await reader.frames.first.timeout(_transferTimeout,
-          onTimeout: () => throw TimeoutException(
-              'No ciphertext from host within ${_transferTimeout.inSeconds}s'));
+      final cipher = await pendingCiphertext.timeout(
+        _transferTimeout,
+        onTimeout: () => throw TimeoutException(
+          'No ciphertext from host within ${_transferTimeout.inSeconds}s',
+        ),
+      );
+      if (cipher == null || _completed) return;
       Uint8List plain;
       try {
         plain = await PairingCrypto.aeadDecrypt(
@@ -150,24 +187,32 @@ class PairingClient {
         // AEAD failure means either the wrong key (active MITM somehow
         // bypassed SAS comparison) or a tampered blob. Either way: abort,
         // write nothing.
-        _fail(ClientFailureReason.decryptionFailed,
-            'Failed to decrypt the received profile: $e');
+        _fail(
+          ClientFailureReason.decryptionFailed,
+          'Failed to decrypt the received profile: $e',
+        );
         return;
       }
 
-      // 5. Hand the plaintext to the caller's materializer. They write to
-      // disk + call importAccountData; we just need the resulting toxId for
-      // the UI completion event.
-      final toxId = await _materializeProfile(plain);
+      final String toxId;
+      try {
+        if (_completed) return;
+        toxId = await _materializeProfile(plain);
+      } finally {
+        plain.fillRange(0, plain.length, 0);
+      }
       try {
         await sock.close();
       } catch (e) {
         AppLogger.warn('[PairingClient] socket close after success failed: $e');
       }
       _succeed(toxId);
+    } on PairingImportCancelled {
+      _fail(ClientFailureReason.cancelled, 'Account import cancelled');
     } on TimeoutException catch (e) {
       _fail(ClientFailureReason.timeout, '$e');
     } catch (e, st) {
+      if (_completed) return;
       AppLogger.logError('[PairingClient] handshake error', e, st);
       _fail(ClientFailureReason.protocolError, '$e');
     } finally {
@@ -184,14 +229,7 @@ class PairingClient {
 
   /// Abort cleanly. Idempotent.
   Future<void> cancel({String reason = 'cancelled by user'}) async {
-    if (_completed) return;
-    _completed = true;
-    try {
-      _sock?.destroy();
-    } catch (e) {
-      AppLogger.warn('[PairingClient] socket destroy during cancel failed: $e');
-    }
-    _events.add(ClientFailed(ClientFailureReason.cancelled, reason));
+    _fail(ClientFailureReason.cancelled, reason);
     await _events.close();
   }
 
@@ -205,10 +243,13 @@ class PairingClient {
   void _fail(ClientFailureReason reason, String message) {
     if (_completed) return;
     _completed = true;
+    confirmSas();
     try {
       _sock?.destroy();
     } catch (e) {
-      AppLogger.warn('[PairingClient] socket destroy during failure handling failed: $e');
+      AppLogger.warn(
+        '[PairingClient] socket destroy during failure handling failed: $e',
+      );
     }
     _events.add(ClientFailed(reason, message));
     _events.close();
@@ -224,6 +265,10 @@ class PairingClient {
     final pub = await kp.extractPublicKey();
     return pub.bytes;
   }
+}
+
+class PairingImportCancelled implements Exception {
+  const PairingImportCancelled();
 }
 
 sealed class ClientEvent {

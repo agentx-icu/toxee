@@ -75,26 +75,14 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
   String _conversationId(TencentCloudChatSearchResultItemData r) =>
       r.conversationID;
 
-  static bool _messageMatchesKeyword(V2TimMessage msg, String keyword) {
-    if (keyword.isEmpty) return true;
-    final k = keyword.toLowerCase();
-    final text = msg.textElem?.text ?? '';
-    if (text.toLowerCase().contains(k)) return true;
-    final summary = TencentCloudChatUtils.getMessageSummary(
-      message: msg,
-      needStatus: false,
-    );
-    return summary.toLowerCase().contains(k);
-  }
-
   void _computeFiltered() {
-    final keyword = _filterKeyword.trim();
+    final keyword = _filterKeyword.trim().toLowerCase();
     final list = <(TencentCloudChatSearchResultItemData, List<V2TimMessage>)>[];
     for (final result in widget.messageSearchResults) {
       final messages = keyword.isEmpty
           ? result.messageList
           : result.messageList
-                .where((m) => _messageMatchesKeyword(m, keyword))
+                .where((m) => SearchUtils.messageMatchesKeyword(m, keyword))
                 .toList();
       if (messages.isNotEmpty) {
         list.add((result, messages));
@@ -435,10 +423,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
         final count = messages.length;
         final topMessage = messages.isNotEmpty ? messages.first : null;
         final snippet = topMessage != null
-            ? TencentCloudChatUtils.getMessageSummary(
-                message: topMessage,
-                needStatus: false,
-              )
+            ? SearchUtils.messageSummary(topMessage)
             : l10n.relatedChats(count);
         final row = InkWell(
           key: UiKeys.searchHistoryConversation(result.conversationID),
@@ -599,10 +584,7 @@ class _SearchChatHistoryWindowState extends State<SearchChatHistoryWindow> {
             itemCount: messages.length,
             itemBuilder: (context, index) {
               final msg = messages[index];
-              final summary = TencentCloudChatUtils.getMessageSummary(
-                message: msg,
-                needStatus: false,
-              );
+              final summary = SearchUtils.messageSummary(msg);
               return ListTile(
                 key: UiKeys.searchHistoryMessage(
                   msg.msgID ?? msg.id ?? 'index_$index',

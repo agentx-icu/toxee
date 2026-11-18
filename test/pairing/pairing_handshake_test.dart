@@ -12,19 +12,23 @@ void main() {
       // Fake .tox blob — what matters is that the receiving side ends up with
       // the same bytes. The real AccountExportService is not in the loop here
       // (that's by design; this test is about the pairing transport).
-      final fakeProfile =
-          Uint8List.fromList(List<int>.generate(4096, (i) => (i * 13) & 0xff));
+      final fakeProfile = Uint8List.fromList(
+        List<int>.generate(4096, (i) => (i * 13) & 0xff),
+      );
       const expectedToxId = 'TEST_TOXID_FROM_HANDSHAKE';
 
+      final hostOwnedProfile = Uint8List.fromList(fakeProfile);
       final host = PairingHost(
-        loadProfileBlob: () async => fakeProfile,
+        loadProfileBlob: () async => hostOwnedProfile,
         bindAddress: '127.0.0.1',
       );
 
       Uint8List? received;
+      Uint8List? borrowed;
       final client = PairingClient(
         materializeProfile: (plaintext) async {
-          received = plaintext;
+          received = Uint8List.fromList(plaintext);
+          borrowed = plaintext;
           return expectedToxId;
         },
       );
@@ -63,23 +67,32 @@ void main() {
           if (e is ClientAwaitingSas) clientSas = e.sas;
         }
       }
-      expect(hostSas, equals(clientSas),
-          reason: 'SAS must match on both sides — that is the user-visible '
-              'authentication check.');
+      expect(
+        hostSas,
+        equals(clientSas),
+        reason:
+            'SAS must match on both sides — that is the user-visible '
+            'authentication check.',
+      );
 
       host.confirmSas();
-      client.confirmSas();
-
-      await connectFut;
       await hostDone.future.timeout(const Duration(seconds: 10));
+      expect(received, isNull, reason: 'Device B has not confirmed the codes');
+      client.confirmSas();
+      await connectFut.timeout(const Duration(seconds: 5));
       await clientDone.future.timeout(const Duration(seconds: 10));
 
       expect(hostEvents.last, isA<HostCompleted>());
       expect(clientEvents.last, isA<ClientCompleted>());
       expect((clientEvents.last as ClientCompleted).toxId, expectedToxId);
       expect(received, isNotNull);
-      expect(received, equals(fakeProfile),
-          reason: 'Receiver must see the same plaintext the host sent.');
+      expect(
+        received,
+        equals(fakeProfile),
+        reason: 'Receiver must see the same plaintext the host sent.',
+      );
+      expect(borrowed, everyElement(0));
+      expect(hostOwnedProfile, everyElement(0));
     });
 
     test('SAS-mismatch aborts cleanly (no plaintext written)', () async {
@@ -119,7 +132,7 @@ void main() {
       });
 
       final url = await host.start(advertiseAddress: '127.0.0.1');
-      unawaited(client.connect(url));
+      final connection = client.connect(url);
 
       // Wait for both sides to reach awaitingSas.
       while (!clientEvents.any((e) => e is ClientAwaitingSas) ||
@@ -128,43 +141,88 @@ void main() {
       }
 
       // "User says: nope, codes don't match."
+      addTearDown(host.cancel);
       await client.cancel(reason: 'SAS mismatch (simulated)');
-      await host.cancel(reason: 'SAS mismatch (simulated)');
 
-      await hostDone.future.timeout(const Duration(seconds: 5));
+      await hostDone.future.timeout(const Duration(seconds: 2));
       await clientDone.future.timeout(const Duration(seconds: 5));
+      await connection.timeout(const Duration(seconds: 2));
 
-      expect(materializerCalled, isFalse,
-          reason: 'No plaintext should be materialized when SAS mismatch '
-              'aborts the session.');
+      expect(
+        materializerCalled,
+        isFalse,
+        reason:
+            'No plaintext should be materialized when SAS mismatch '
+            'aborts the session.',
+      );
       expect(hostEvents.whereType<HostCompleted>(), isEmpty);
       expect(clientEvents.whereType<ClientCompleted>(), isEmpty);
-    });
-
-    test('invalid pairing URL fails fast with ClientFailureReason.invalidUrl',
-        () async {
-      final client = PairingClient(
-        materializeProfile: (_) async => 'unreachable',
+      expect(
+        (hostEvents.last as HostFailed).reason,
+        HostFailureReason.networkError,
       );
-      final events = <ClientEvent>[];
-      final done = Completer<void>();
-      client.events.listen((e) {
-        events.add(e);
-        if (e is ClientCompleted || e is ClientFailed) {
-          if (!done.isCompleted) done.complete();
-        }
-      });
-
-      await client.connect('not a pairing url');
-      await done.future.timeout(const Duration(seconds: 5));
-
-      expect(events.last, isA<ClientFailed>());
-      expect((events.last as ClientFailed).reason,
-          ClientFailureReason.invalidUrl);
     });
 
-    test('a malformed query escape fails as invalidUrl, not a throw',
-        () async {
+    test(
+      'host cancellation releases the client waiting for confirmation',
+      () async {
+        final host = PairingHost(
+          loadProfileBlob: () async => throw StateError('must not export'),
+          bindAddress: '127.0.0.1',
+        );
+        final client = PairingClient(
+          materializeProfile: (_) async => throw StateError('must not import'),
+        );
+        addTearDown(host.cancel);
+        addTearDown(client.cancel);
+        final hostSas = host.events.firstWhere((e) => e is HostAwaitingSas);
+        final clientSas = client.events.firstWhere(
+          (e) => e is ClientAwaitingSas,
+        );
+        final failed = client.events.firstWhere((e) => e is ClientFailed);
+        final url = await host.start(advertiseAddress: '127.0.0.1');
+        final connection = client.connect(url);
+        await Future.wait([
+          hostSas,
+          clientSas,
+        ]).timeout(const Duration(seconds: 5));
+
+        await host.cancel();
+
+        final event =
+            await failed.timeout(const Duration(seconds: 2)) as ClientFailed;
+        expect(event.reason, ClientFailureReason.networkError);
+        await connection.timeout(const Duration(seconds: 2));
+      },
+    );
+
+    test(
+      'invalid pairing URL fails fast with ClientFailureReason.invalidUrl',
+      () async {
+        final client = PairingClient(
+          materializeProfile: (_) async => 'unreachable',
+        );
+        final events = <ClientEvent>[];
+        final done = Completer<void>();
+        client.events.listen((e) {
+          events.add(e);
+          if (e is ClientCompleted || e is ClientFailed) {
+            if (!done.isCompleted) done.complete();
+          }
+        });
+
+        await client.connect('not a pairing url');
+        await done.future.timeout(const Duration(seconds: 5));
+
+        expect(events.last, isA<ClientFailed>());
+        expect(
+          (events.last as ClientFailed).reason,
+          ClientFailureReason.invalidUrl,
+        );
+      },
+    );
+
+    test('a malformed query escape fails as invalidUrl, not a throw', () async {
       final client = PairingClient(
         materializeProfile: (_) async => 'unreachable',
       );
@@ -181,13 +239,17 @@ void main() {
         materializeProfile: (_) async => 'unreachable',
       );
       final failed = client.events.firstWhere((e) => e is ClientFailed);
-      await client.connect(PairingUrl.encode(PairingInvite(
-        publicKey: Uint8List(32),
-        ipAddress: '10.0.0.1',
-        port: 4444,
-        nonce: Uint8List(16),
-        version: 999,
-      )));
+      await client.connect(
+        PairingUrl.encode(
+          PairingInvite(
+            publicKey: Uint8List(32),
+            ipAddress: '10.0.0.1',
+            port: 4444,
+            nonce: Uint8List(16),
+            version: 999,
+          ),
+        ),
+      );
       final event =
           await failed.timeout(const Duration(seconds: 5)) as ClientFailed;
       expect(event.reason, ClientFailureReason.unsupportedVersion);

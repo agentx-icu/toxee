@@ -60,52 +60,72 @@ class LocationSender {
         (groupID == null || groupID.isEmpty)) {
       return LocationSendOutcome.failed;
     }
-    bool isCurrent() => context.mounted && _isSessionCurrent();
+    final binding = WidgetsBinding.instance;
+    var leftForeground = _isOutsideForeground(binding.lifecycleState);
+    bool isCurrent() =>
+        !leftForeground && context.mounted && _isSessionCurrent();
     if (!isCurrent()) return LocationSendOutcome.failed;
-    final account = await _currentToxId();
-    if (!isCurrent() || account == null || account.isEmpty) {
-      return LocationSendOutcome.failed;
-    }
+    final lifecycle = AppLifecycleListener(
+      binding: binding,
+      onStateChange: (state) {
+        if (_isOutsideForeground(state)) leftForeground = true;
+      },
+    );
 
-    Future<LocationSendOutcome?> validate() async {
-      final current = await _currentToxId();
-      if (!isCurrent() || current != account) return LocationSendOutcome.failed;
-      final enabled = await LocationPrefs.getLocationEnabled(account);
-      if (!isCurrent()) return LocationSendOutcome.failed;
-      return enabled ? null : LocationSendOutcome.disabled;
-    }
+    try {
+      final account = await _currentToxId();
+      if (!isCurrent() || account == null || account.isEmpty) {
+        return LocationSendOutcome.failed;
+      }
+      final isLocationEnabled = await LocationPrefs.locationEnabledReader(
+        account,
+      );
 
-    var blocked = await validate();
-    if (!context.mounted || !_isSessionCurrent()) {
-      return LocationSendOutcome.failed;
+      LocationSendOutcome? blockedNow() {
+        if (!isCurrent()) return LocationSendOutcome.failed;
+        return isLocationEnabled() ? null : LocationSendOutcome.disabled;
+      }
+
+      if (!context.mounted || leftForeground || !_isSessionCurrent()) {
+        return LocationSendOutcome.failed;
+      }
+      if (!isLocationEnabled()) return LocationSendOutcome.disabled;
+      final allowed = await _permissions.ensure(context);
+      if (!isCurrent() || await _currentToxId() != account) {
+        return LocationSendOutcome.failed;
+      }
+      var blocked = blockedNow();
+      if (blocked != null) return blocked;
+      if (!allowed) return LocationSendOutcome.permissionDenied;
+      final fix = await _source.currentFix();
+      if (!isCurrent() || await _currentToxId() != account) {
+        return LocationSendOutcome.failed;
+      }
+      blocked = blockedNow();
+      if (blocked != null) return blocked;
+      if (fix == null) return LocationSendOutcome.noFix;
+      final dispatch = _dispatch;
+      if (dispatch != null) return await dispatch(fix, userID, groupID);
+      return await _sendThroughUiKit(fix, userID, groupID, blockedNow);
+    } finally {
+      lifecycle.dispose();
     }
-    if (blocked != null) return blocked;
-    final allowed = await _permissions.ensure(context);
-    if (!isCurrent()) return LocationSendOutcome.failed;
-    if (!allowed) return LocationSendOutcome.permissionDenied;
-    blocked = await validate();
-    if (!isCurrent()) return LocationSendOutcome.failed;
-    if (blocked != null) return blocked;
-    final fix = await _source.currentFix();
-    if (!isCurrent()) return LocationSendOutcome.failed;
-    if (fix == null) return LocationSendOutcome.noFix;
-    blocked = await validate();
-    if (!isCurrent()) return LocationSendOutcome.failed;
-    if (blocked != null) return blocked;
-    final dispatch = _dispatch;
-    if (dispatch != null) return dispatch(fix, userID, groupID);
-    return _sendThroughUiKit(fix, userID, groupID, isCurrent);
   }
+
+  // Permission prompts and loss of window focus also produce inactive.
+  static bool _isOutsideForeground(AppLifecycleState? state) =>
+      state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.paused ||
+      state == AppLifecycleState.detached;
 
   static Future<LocationSendOutcome> _sendThroughUiKit(
     LocationFix fix,
     String? userID,
     String? groupID,
-    bool Function() isCurrent,
+    LocationSendOutcome? Function() blockedNow,
   ) async {
-    // Message creation and the UIKit's profile lookup can both suspend. Do
-    // not let either resume into another account's global SDK instance.
-    if (!isCurrent()) return LocationSendOutcome.failed;
+    // Message creation and the UIKit's profile lookup can both suspend. The
+    // hook rechecks consent before UIKit inserts a row or calls the SDK.
     final created = await TencentImSDKPlugin.v2TIMManager
         .getMessageManager()
         .createLocationMessage(
@@ -113,10 +133,11 @@ class LocationSender {
           longitude: fix.longitude,
           latitude: fix.latitude,
         );
-    if (!isCurrent()) return LocationSendOutcome.failed;
+    final blocked = blockedNow();
+    if (blocked != null) return blocked;
     final info = created.data;
     if (created.code != 0 || info == null) return LocationSendOutcome.failed;
-    var cancelled = false;
+    LocationSendOutcome? cancelled;
     final result = await TencentCloudChatMessageDataTools.sendMessage(
       createdMessage: info,
       userID: (userID != null && userID.isNotEmpty) ? userID : null,
@@ -129,15 +150,11 @@ class LocationSender {
             groupID,
             topicID,
           }) {
-            if (!isCurrent()) {
-              cancelled = true;
-              return null;
-            }
-            return createdMessage;
+            cancelled = blockedNow();
+            return cancelled == null ? createdMessage : null;
           },
     );
-    if (cancelled) return LocationSendOutcome.failed;
-    if (result == null) return LocationSendOutcome.sent; // optimistic row shown
+    if (result == null) return cancelled ?? LocationSendOutcome.sent;
     return result.code == 0
         ? LocationSendOutcome.sent
         : LocationSendOutcome.failed;

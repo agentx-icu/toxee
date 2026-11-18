@@ -5,15 +5,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../../i18n/app_localizations.dart';
-import '../../util/account_export_service.dart';
 import '../../util/app_spacing.dart';
 import '../../util/app_theme_config.dart';
 import '../../util/logger.dart';
 import '../../util/pairing/pairing_client.dart';
 import '../../util/pairing/pairing_url.dart';
+import '../login/login_page_controller.dart';
+import '../login/password_prompt_dialog.dart';
+import '../widgets/app_snackbar.dart';
 import '../widgets/qr_scanner_view.dart';
 import 'pairing_centered_message.dart';
 import 'pairing_status_indicator.dart';
@@ -26,6 +26,15 @@ const double _kMaxContentWidth = 480;
 /// the universal scanner convention regardless of theme.
 const Color _kViewfinderStroke = Color(0x99FFFFFF);
 
+final class _PairingImportException implements Exception {
+  const _PairingImportException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Device B page: scans the QR code emitted by Device A's [PairingHostPage]
 /// (or accepts a pasted URL on desktop where camera scanning is awkward).
 class PairingClientPage extends StatefulWidget {
@@ -34,9 +43,7 @@ class PairingClientPage extends StatefulWidget {
     this.materializeProfileForTest,
   });
 
-  /// Test seam — production code writes the plaintext to a temp `.tox` file
-  /// and calls [AccountExportService.importAccountData], returning the
-  /// extracted toxId. Tests inject a deterministic toxId without disk I/O.
+  /// Optional test seam for the durable import that usually follows pairing.
   final Future<String> Function(Uint8List)? materializeProfileForTest;
 
   @override
@@ -50,6 +57,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
   String? _error;
   String? _completedToxId;
   bool _connecting = false;
+  bool _materializing = false;
   // Set as soon as a URL arrives, before the awaited camera stop: a second
   // scan/paste in that window must not start another client.
   bool _urlReceived = false;
@@ -82,39 +90,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
     setState(() => _connecting = true);
 
     final client = PairingClient(
-      materializeProfile: (plaintext) async {
-        if (widget.materializeProfileForTest != null) {
-          return widget.materializeProfileForTest!(plaintext);
-        }
-        // Write to a temp file then hand to the audited importAccountData
-        // path. That extracts the toxId, prompts for an inner password if
-        // the blob itself is password-encrypted, and writes the profile to
-        // the per-account directory. The temp blob lives in
-        // getTemporaryDirectory() (not application support / tim2tox dir)
-        // so the OS is free to clean it up and it never gets backed up if
-        // we crash before the `finally` delete runs.
-        final tmpDir = await getTemporaryDirectory();
-        final tmpPath =
-            '${tmpDir.path}${Platform.pathSeparator}pairing_incoming.tox';
-        await File(tmpPath).writeAsBytes(plaintext);
-        try {
-          final res = await AccountExportService.importAccountData(
-            filePath: tmpPath,
-          );
-          final toxId = res['toxId'] as String?;
-          if (toxId == null || toxId.isEmpty) {
-            throw Exception('Imported profile had no toxId');
-          }
-          return toxId;
-        } finally {
-          try {
-            await File(tmpPath).delete();
-          } catch (e) {
-            AppLogger.warn(
-                '[PairingClientPage] failed to delete temp incoming profile $tmpPath: $e');
-          }
-        }
-      },
+      materializeProfile: _materializeProfile,
     );
     _client = client;
     _sub = client.events.listen(_onEvent);
@@ -126,9 +102,55 @@ class _PairingClientPageState extends State<PairingClientPage> {
         setState(() {
           _error = '$e';
           _connecting = false;
+          _materializing = false;
         });
       }
     }
+  }
+
+  Future<String> _materializeProfile(Uint8List profileBytes) {
+    if (!mounted) throw const PairingImportCancelled();
+    setState(() => _materializing = true);
+    return (widget.materializeProfileForTest ?? _restoreProfile)(profileBytes);
+  }
+
+  Future<String> _restoreProfile(Uint8List profileBytes) async {
+    final controller = LoginPageController();
+    final l10n = AppLocalizations.of(context)!;
+    while (mounted) {
+      final result = await controller.restoreReceivedToxProfile(
+        profileBytes: profileBytes,
+        importedAccountDefaultName: l10n.importedAccountDefaultName,
+        requestPassword: () async {
+          if (!mounted) return null;
+          return showDialog<String>(
+            context: context,
+            builder: (_) =>
+                PasswordPromptDialog(title: l10n.enterPasswordToImport),
+          );
+        },
+      );
+      switch (result) {
+        case RestoreSuccess(:final toxId, :final password):
+          password?.dispose();
+          return toxId;
+        case RestoreFailure(kind: RestoreFailureKind.invalidPassword)
+            when mounted:
+          AppSnackBar.showError(context, l10n.invalidPassword);
+        case RestoreFailure(:final kind, :final detail):
+          final message = switch (kind) {
+            RestoreFailureKind.noFileSelected => l10n.importNoFileSelected,
+            RestoreFailureKind.cancelled => null,
+            RestoreFailureKind.invalidPassword => l10n.invalidPassword,
+            RestoreFailureKind.accountAlreadyExists => l10n.accountAlreadyExists,
+            RestoreFailureKind.notAToxProfile => l10n.restoreFromToxFileInvalidFile,
+            RestoreFailureKind.generalError => l10n.failedToImport(detail ?? ''),
+          };
+          if (message == null) throw const PairingImportCancelled();
+          throw _PairingImportException(message);
+      }
+    }
+    throw const PairingImportCancelled();
   }
 
   void _onEvent(ClientEvent event) {
@@ -141,12 +163,16 @@ class _PairingClientPageState extends State<PairingClientPage> {
         });
         break;
       case ClientCompleted(:final toxId):
-        setState(() => _completedToxId = toxId);
+        setState(() {
+          _completedToxId = toxId;
+          _materializing = false;
+        });
         break;
       case ClientFailed(:final reason, :final message):
         setState(() {
           _error = _localizeFailure(reason, message);
           _connecting = false;
+          _materializing = false;
         });
         break;
     }
@@ -200,19 +226,22 @@ class _PairingClientPageState extends State<PairingClientPage> {
     final l10n = AppLocalizations.of(context)!;
     final reduceMotion =
         MediaQuery.maybeDisableAnimationsOf(context) == true;
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.pairDeviceClientTitle)),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
-            child: AnimatedSwitcher(
-              duration: reduceMotion ? Duration.zero : AppDurations.medium,
-              switchInCurve: AppCurves.standard,
-              switchOutCurve: AppCurves.standard,
-              child: KeyedSubtree(
-                key: ValueKey(_currentStateKey()),
-                child: _buildBody(l10n),
+    return PopScope(
+      canPop: !_materializing,
+      child: Scaffold(
+        appBar: AppBar(title: Text(l10n.pairDeviceClientTitle)),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
+              child: AnimatedSwitcher(
+                duration: reduceMotion ? Duration.zero : AppDurations.medium,
+                switchInCurve: AppCurves.standard,
+                switchOutCurve: AppCurves.standard,
+                child: KeyedSubtree(
+                  key: ValueKey(_currentStateKey()),
+                  child: _buildBody(l10n),
+                ),
               ),
             ),
           ),
@@ -252,7 +281,7 @@ class _PairingClientPageState extends State<PairingClientPage> {
     if (_connecting) {
       return PairingCenteredMessage(
         state: PairingState.connecting,
-        message: l10n.pairingClientCompleted, // generic "working" string
+        message: l10n.establishingEncryptedChannel,
       );
     }
     return _buildScannerOrPaste(l10n);
@@ -394,11 +423,13 @@ class _PairingClientPageState extends State<PairingClientPage> {
           FilledButton.icon(
             icon: const Icon(Icons.check),
             label: Text(l10n.pairingCodesMatch),
-            onPressed: () => _client?.confirmSas(),
+            onPressed: _materializing ? null : () => _client?.confirmSas(),
           ),
           AppSpacing.verticalSm,
           OutlinedButton(
-            onPressed: () => Navigator.of(context).maybePop(),
+            onPressed: _materializing
+                ? null
+                : () => Navigator.of(context).maybePop(),
             child: Text(l10n.cancel),
           ),
         ],

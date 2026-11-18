@@ -678,7 +678,7 @@
   "pairingVerifyCodeHeader": "请确认两台设备显示的验证码相同",
   "pairingVerifyCodeInstructions": "如果验证码与另一台设备显示的一致，请点击下方按钮。如果不一致，请取消——可能有人在拦截连接。",
   "pairingCodesMatch": "验证码一致",
-  "pairingHostCompleted": "账号已发送。另一台设备现在拥有你的账号。",
+  "pairingHostCompleted": "账号已发送。请在接收设备上确认导入是否完成。",
   "pairingClientCompleted": "账号已接收。配对完成。",
   "pairingCancelled": "已取消配对。",
   "pairingTimeout": "配对超时，请重试。",

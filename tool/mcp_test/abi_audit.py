@@ -167,7 +167,6 @@ KNOWN_MISSING = {
     "DartSubscribeUnreadMessageCountByFilter",
     "DartUnsubscribeUnreadMessageCountByFilter",
     # Misc.
-    "DartDeleteFriendApplication",
     "DartSetConversationCustomData",
     "DartRemoveReceiveNewMsgCallback",  # potential callback leak
     # Community / Topic / PermissionGroup leftovers whose names do not share a
@@ -252,6 +251,7 @@ def dart_type(raw: str):
 
 
 def cpp_type(raw: str):
+    raw = re.sub(r"/\*.*?\*/", " ", raw, flags=re.S)
     t = re.sub(r"\s+", " ", raw).strip()
     if "(*" in t:  # function-pointer parameter
         return PTR
@@ -279,7 +279,7 @@ class Sig:
 def parse_dart(path: str) -> dict:
     txt = open(path, encoding="utf-8").read()
     out: dict = {}
-    pat = re.compile(r"_lookup<\s*ffi\.NativeFunction<\s*(.*?)>>\(\s*'(\w+)'\s*\)", re.S)
+    pat = re.compile(r"_lookup<\s*ffi\s*\.\s*NativeFunction<\s*(.*?)>>\(\s*'(\w+)'\s*\)", re.S)
     for m in pat.finditer(txt):
         sig, name = re.sub(r"\s+", " ", m.group(1)), m.group(2)
         if not name.startswith("Dart"):

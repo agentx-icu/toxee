@@ -45,6 +45,7 @@ import '../../util/account_switcher.dart';
 import '../../util/feature_flags.dart';
 
 import '../../util/account_service.dart';
+import '../../util/active_session.dart';
 import '../../util/default_avatar_installer.dart';
 import '../../util/tox_utils.dart';
 import '../../util/logger.dart';
@@ -234,7 +235,12 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  void _updateState(VoidCallback update) => setState(update);
+  final ValueNotifier<int> _mobileAccountSettingsRevision = ValueNotifier(0);
+
+  void _updateState(VoidCallback update) {
+    setState(update);
+    _mobileAccountSettingsRevision.value++;
+  }
 
   bool _autoLogin = true; // Auto-login setting
   final ValueNotifier<bool> _autoLoginNotifier = ValueNotifier<bool>(true);
@@ -330,6 +336,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _avatarUpdatedSubscription?.cancel();
     _lastLoginTimeUpdateTimer?.cancel();
     _autoLoginNotifier.dispose();
+    _mobileAccountSettingsRevision.dispose();
     super.dispose();
   }
 
@@ -402,7 +409,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     final currentToxId = await Prefs.getCurrentAccountToxId();
     if (mounted) {
-      setState(() {
+      _updateState(() {
         _currentAccountToxId = currentToxId;
         _accountList = List<Map<String, String>>.from(accounts)
           ..sort((a, b) {
@@ -1004,11 +1011,23 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Launch the QR pairing host page for the currently active account.
   /// Gated on [FeatureFlags.enableQRPairing].
   Future<void> _startPairingAsHost() async {
-    final toxId = widget.service.accountKey;
+    final service = widget.service;
+    final toxId = service.accountKey;
     if (toxId.isEmpty) return;
-    await Navigator.of(
-      context,
-    ).push<void>(AppPageRoute<void>(page: PairingHostPage(toxId: toxId)));
+    await Navigator.of(context).push<void>(
+      AppPageRoute<void>(
+        page: PairingHostPage(
+          toxId: toxId,
+          saveLiveProfile: () {
+            if (!identical(ActiveSession.current, service) ||
+                ActiveSession.pendingTeardown != null) {
+              throw StateError('Pairing source session has ended');
+            }
+            service.saveToxProfileNow();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _openMobileProfile() async {

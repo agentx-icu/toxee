@@ -8,6 +8,18 @@ part of 'login_page_controller.dart';
 // `_encryptProfileFileFn`, ...), which an extension in another library cannot
 // see. It still reads as `controller.restoreFromToxFile(...)` at every call site.
 extension LoginRestoreFromTox on LoginPageController {
+  /// Restores authenticated pairing bytes through the same durable import
+  /// transaction as a picked .tox file. The caller owns [profileBytes].
+  Future<RestoreResult> restoreReceivedToxProfile({
+    required Uint8List profileBytes,
+    required Future<String?> Function() requestPassword,
+    required String importedAccountDefaultName,
+  }) => restoreFromToxFileImpl(
+    requestPassword: requestPassword,
+    importedAccountDefaultName: importedAccountDefaultName,
+    receivedProfile: profileBytes,
+  );
+
   /// Restore an account from a single `.tox` file. This is the first-class
   /// "lose your phone, get your account back" entry point invoked from the
   /// login page top-level "Restore from .tox file" action.
@@ -35,9 +47,10 @@ extension LoginRestoreFromTox on LoginPageController {
     required Future<String?> Function() requestPassword,
     required String importedAccountDefaultName,
     @visibleForTesting String? filePathOverride,
+    Uint8List? receivedProfile,
   }) async {
-    String? filePath;
     String? rollbackToxId;
+    Uint8List? ownedProfile;
     // See importAccount: the rollback may only delete directories THIS restore
     // created.
     var ownership = const ImportedAccountOwnership.none();
@@ -45,33 +58,40 @@ extension LoginRestoreFromTox on LoginPageController {
     // they are handed to [RestoreSuccess] (or zeroed in the finally).
     SecretPassword? password;
     try {
-      if (filePathOverride != null) {
-        filePath = filePathOverride;
-      } else {
-        filePath = await runL3AwareAccountImportPicker(
-          pickFile: () => pickAccountImportFile(const ['tox']),
-        );
+      String? filePath;
+      if (receivedProfile == null) {
+        filePath =
+            filePathOverride ??
+            await runL3AwareAccountImportPicker(
+              pickFile: () => pickAccountImportFile(const ['tox']),
+            );
         if (filePath == null) {
           return const RestoreFailure(RestoreFailureKind.noFileSelected);
         }
+        if (!filePath.toLowerCase().endsWith('.tox')) {
+          return const RestoreFailure(RestoreFailureKind.notAToxProfile);
+        }
       }
-      if (!filePath.toLowerCase().endsWith('.tox')) {
-        return const RestoreFailure(RestoreFailureKind.notAToxProfile);
+
+      Future<Map<String, dynamic>> readProfile([
+        SecretPassword? password,
+      ]) async {
+        if (receivedProfile != null) {
+          return decodeAccountData(receivedProfile, password: password);
+        }
+        return _importAccountDataFn(filePath: filePath!, password: password);
       }
 
       Map<String, dynamic> accountData;
       try {
-        accountData = await _importAccountDataFn(filePath: filePath);
+        accountData = await readProfile();
       } on PasswordRequiredException {
         password = SecretPassword.fromStringOrNull(await requestPassword());
         if (password == null) {
           return const RestoreFailure(RestoreFailureKind.cancelled);
         }
         try {
-          accountData = await _importAccountDataFn(
-            filePath: filePath,
-            password: password,
-          );
+          accountData = await readProfile(password);
         } catch (e) {
           // Decryption failure with a supplied password is virtually always
           // a wrong password (the only other failure is corruption AFTER the
@@ -98,6 +118,9 @@ extension LoginRestoreFromTox on LoginPageController {
 
       final toxId = accountData['toxId'] as String;
       final toxProfile = accountData['toxProfile'] as Uint8List?;
+      if (receivedProfile != null && !identical(receivedProfile, toxProfile)) {
+        ownedProfile = toxProfile;
+      }
       final importedNickname = (accountData['nickname'] as String?) ?? '';
 
       // Duplicate-account guard: account already registered on this device.
@@ -151,6 +174,7 @@ extension LoginRestoreFromTox on LoginPageController {
         expectsPassword: expectsPassword,
         ownership: ownership,
       );
+      await Prefs.disableAutoLoginBeforeAccountPublication(toxId);
 
       // See importAccount: uniquified so a second .tox restore cannot collide.
       final displayNickname = await ImportedAccountName.allocate(
@@ -228,6 +252,8 @@ extension LoginRestoreFromTox on LoginPageController {
         detail: SafeDiagnostics.describeError(e),
       );
     } finally {
+      final decrypted = ownedProfile;
+      decrypted?.fillRange(0, decrypted.length, 0);
       password?.dispose();
     }
   }

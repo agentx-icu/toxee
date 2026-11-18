@@ -2,9 +2,18 @@
 // of the `Tim2ToxSdkPlatform.searchLocalMessages` fix (the C++
 // `SearchLocalMessages` is an empty stub, so toxee's message search was
 // returning nothing until this override searched the Dart-side history).
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_message_search_param.dart';
+import 'package:tencent_cloud_chat_sdk/native_im/bindings/native_library_manager.dart';
+import 'package:tim2tox_dart/ffi/tim2tox_ffi.dart';
 import 'package:tim2tox_dart/models/chat_message.dart';
 import 'package:tim2tox_dart/sdk/message_search.dart';
+import 'package:tim2tox_dart/sdk/tim2tox_sdk_platform.dart';
+import 'package:tim2tox_dart/service/ffi_chat_service.dart';
+import 'package:tim2tox_dart/utils/message_history_persistence.dart';
 
 ChatMessage _msg(
   String text, {
@@ -23,6 +32,85 @@ ChatMessage _msg(
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setNativeLibraryName('tim2tox_ffi');
+  final nativePath = Platform.environment['TOXEE_TEST_LOG_LIBRARY'];
+  if (nativePath != null) setNativeLibraryPath(nativePath);
+  final nativeAvailable = _nativeAvailable();
+
+  test(
+    'SDK search joins cold, recent, and archived hits without duplicates',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('tim2tox_search_');
+      addTearDown(() => dir.delete(recursive: true));
+      const peer =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const archiveOnly =
+          'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      const coldOnly =
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+      ChatMessage hit(String id, String sender, int seconds) => ChatMessage(
+        text: 'pizza',
+        fromUserId: sender,
+        isSelf: false,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+        msgID: id,
+      );
+
+      final previousHandler = NativeLibraryManager.customCallbackHandler;
+      final persistence = MessageHistoryPersistence(historyDirectory: dir.path);
+      final service = FfiChatService(messageHistoryPersistence: persistence);
+      final platform = Tim2ToxSdkPlatform(ffiService: service);
+      addTearDown(() async {
+        platform.dispose();
+        NativeLibraryManager.customCallbackHandler = previousHandler;
+        await service.dispose();
+      });
+      final recent = hit('recent', peer, 1700000002);
+      final archived = hit('archived', peer, 1700000001);
+      await persistence.saveHistory(peer, [recent]);
+      await persistence.saveHistory(coldOnly, [
+        hit('cold-only', coldOnly, 1700000003),
+      ]);
+      await File('${dir.path}/$peer.archive.jsonl').writeAsString(
+        '${jsonEncode(archived.toJson())}\n${jsonEncode(recent.toJson())}\n',
+      );
+      await File('${dir.path}/$archiveOnly.archive.jsonl').writeAsString(
+        '${jsonEncode(hit('archive-only', archiveOnly, 1700000000).toJson())}\n',
+      );
+      persistence.clearAllCached();
+
+      final scoped = await platform.searchLocalMessages(
+        searchParam: V2TimMessageSearchParam(
+          type: 0,
+          conversationID: 'c2c_$peer',
+          keywordList: ['Pizza'],
+        ),
+      );
+      expect(scoped.code, 0);
+      expect(scoped.data!.totalCount, 2);
+      expect(
+        scoped.data!.messageSearchResultItems!.single.messageList!.map(
+          (m) => m.msgID,
+        ),
+        ['archived', 'recent'],
+      );
+
+      final global = await platform.searchLocalMessages(
+        searchParam: V2TimMessageSearchParam(type: 0, keywordList: ['pizza']),
+      );
+      expect(global.code, 0);
+      expect(global.data!.totalCount, 3);
+      expect(
+        global.data!.messageSearchResultItems!.expand(
+          (item) => item.messageList!.map((m) => m.msgID),
+        ),
+        unorderedEquals(['archived', 'recent', 'archive-only', 'cold-only']),
+      );
+    },
+    skip: nativeAvailable ? null : 'tim2tox FFI library not loadable',
+  );
+
   group('S93 chatMessageMatchesKeywords', () {
     test('case-insensitive substring on the bubble text', () {
       final m = _msg('Order a Pizza tonight');
@@ -106,4 +194,13 @@ void main() {
       expect(effectiveKeywords(['   ']), isEmpty);
     });
   });
+}
+
+bool _nativeAvailable() {
+  try {
+    Tim2ToxFfi.open();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }

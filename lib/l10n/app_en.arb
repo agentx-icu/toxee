@@ -1667,7 +1667,7 @@
   "@pairingVerifyCodeInstructions": {},
   "pairingCodesMatch": "The codes match",
   "@pairingCodesMatch": {},
-  "pairingHostCompleted": "Account sent. The other device now has your account.",
+  "pairingHostCompleted": "Account sent. Check the receiving device to confirm the import.",
   "@pairingHostCompleted": {},
   "pairingClientCompleted": "Account received. You're paired.",
   "@pairingClientCompleted": {},

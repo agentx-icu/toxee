@@ -153,6 +153,37 @@ void main() {
       );
     });
 
+    test('unattributable quarantine still blocks after a cold rescan', () async {
+      final dir = await tombstoneDir();
+      await File(p.join(dir.path, 'unknown.json')).writeAsString('truncated');
+      await AccountDeletionJournalStore.readAll();
+      AccountDeletionJournalStore.resetQuarantineState();
+
+      await expectLater(
+        AppBootstrap.recoverPendingRestoreBeforeAccountExposure(
+          recoverPendingRestore: () async {},
+          recoverPendingDeletions: () async {
+            await AccountDeletionJournalStore.readAll();
+          },
+          retryStrandedVerifiers: () async {},
+          reconcileAccounts: () async {},
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('a refused quarantine still gates only the affected account', () async {
+      final dir = await tombstoneDir();
+      final toxId = 'D' * 76;
+      final target = File(p.join(dir.path, '$toxId.json'));
+      await target.writeAsString('truncated');
+      await Directory('${target.path}.corrupt').create();
+
+      expect(await AccountDeletionJournalStore.hasPendingForToxId(toxId), isTrue);
+      expect(await AccountDeletionJournalStore.hasPendingForToxId('B' * 76), isFalse);
+      expect(await target.readAsString(), 'truncated');
+    });
+
     test('clear() survives a corrupt sibling', () async {
       final dir = await tombstoneDir();
       final target = AccountDeletionTombstone.initial(toxId: 'C' * 76);

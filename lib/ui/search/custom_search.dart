@@ -146,15 +146,8 @@ class _CustomSearchState extends State<CustomSearch> {
     final messageSDK = TencentCloudChat.instance.chatSDKInstance.messageSDK;
     final lowerKeyword = keyword.toLowerCase();
 
-    bool messageMatches(V2TimMessage msg) {
-      final text = msg.textElem?.text ?? '';
-      if (text.toLowerCase().contains(lowerKeyword)) return true;
-      final summary = TencentCloudChatUtils.getMessageSummary(
-        message: msg,
-        needStatus: false,
-      );
-      return summary.toLowerCase().contains(lowerKeyword);
-    }
+    bool messageMatches(V2TimMessage msg) =>
+        SearchUtils.messageMatchesKeyword(msg, lowerKeyword);
 
     for (final c in conversationList) {
       final key = (c.userID != null && c.userID!.isNotEmpty)
@@ -398,8 +391,12 @@ class _CustomSearchState extends State<CustomSearch> {
             final messageSDK =
                 TencentCloudChat.instance.chatSDKInstance.messageSDK;
             final lowerKeyword = keyword.toLowerCase();
-            final List<V2TimMessage> list = UikitDataFacade.getMessageList(key: key);
-            final List<V2TimMessage> allMessages = List<V2TimMessage>.from(list);
+            final List<V2TimMessage> list = UikitDataFacade.getMessageList(
+              key: key,
+            );
+            final List<V2TimMessage> allMessages = List<V2TimMessage>.from(
+              list,
+            );
             if (widget.userID != null || widget.groupID != null) {
               try {
                 String? lastMsgID = allMessages.isEmpty
@@ -424,15 +421,11 @@ class _CustomSearchState extends State<CustomSearch> {
                 );
               }
             }
-            final matching = allMessages.where((msg) {
-              final text = msg.textElem?.text ?? '';
-              if (text.toLowerCase().contains(lowerKeyword)) return true;
-              final summary = TencentCloudChatUtils.getMessageSummary(
-                message: msg,
-                needStatus: false,
-              );
-              return summary.toLowerCase().contains(lowerKeyword);
-            }).toList();
+            final matching = allMessages
+                .where(
+                  (msg) => SearchUtils.messageMatchesKeyword(msg, lowerKeyword),
+                )
+                .toList();
             if (matching.isNotEmpty) {
               final conv = await TencentCloudChat
                   .instance

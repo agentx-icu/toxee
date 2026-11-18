@@ -228,18 +228,20 @@ void main() {
           reason: 'GH-9: the dropped copy id stays resolvable');
     });
 
-    test('alias-less legacy delivery keeps the 2 s content window', () async {
+    test('legacy deliveries from the same hook keep distinct message IDs', () async {
       final persistence = newPersistence();
       BinaryReplacementHistoryHook.initialize(persistence, _self);
-      // Pinned timestamps: taking them from the clock made this depend on the
-      // two saves landing inside the 2s window, which a loaded full-suite run
-      // does not guarantee.
       const sentAt = 1700000000;
       await BinaryReplacementHistoryHook.saveMessage(
           _groupText(msgID: 'msg_0_2_1', text: 'ok', seconds: sentAt));
       await BinaryReplacementHistoryHook.saveMessage(
           _groupText(msgID: 'msg_0_2_2', text: 'ok', seconds: sentAt + 1));
-      expect(persistence.getHistory(_gid), hasLength(1));
+      await BinaryReplacementHistoryHook.saveMessage(
+          _groupText(msgID: 'msg_0_2_2', text: 'ok', seconds: sentAt + 1));
+      expect(
+        persistence.getHistory(_gid).map((row) => row.msgID),
+        ['msg_0_2_1', 'msg_0_2_2'],
+      );
     });
   });
 

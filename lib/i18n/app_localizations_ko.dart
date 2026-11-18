@@ -1633,7 +1633,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get pairingCodesMatch => '코드가 일치합니다';
 
   @override
-  String get pairingHostCompleted => '계정을 보냈습니다. 이제 다른 기기에서 계정을 사용할 수 있습니다.';
+  String get pairingHostCompleted => '계정을 보냈습니다. 받는 기기에서 가져오기가 완료되었는지 확인하세요.';
 
   @override
   String get pairingClientCompleted => '계정을 받았습니다. 페어링이 완료되었습니다.';

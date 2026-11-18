@@ -47,7 +47,7 @@ void main() {
     // ---- The MITM proxy. Listens on a separate port, forwards both ways
     // through the host, and captures every byte the host sends downstream. ----
     final host = PairingHost(
-      loadProfileBlob: () async => fakeProfile,
+      loadProfileBlob: () async => Uint8List.fromList(fakeProfile),
       bindAddress: '127.0.0.1',
     );
     // Drive host.start to discover its port.
@@ -98,7 +98,7 @@ void main() {
     Uint8List? received;
     final client = PairingClient(
       materializeProfile: (plaintext) async {
-        received = plaintext;
+        received = Uint8List.fromList(plaintext);
         return 'TOXID-OK';
       },
     );

@@ -15,6 +15,7 @@ import 'prefs_upgrader.dart';
 import 'profile_open_helpers.dart';
 import 'account_deletion.dart';
 import 'account_password_change.dart';
+import 'account_registration_recovery.dart';
 import 'account_registration_rollback.dart';
 import 'native_dispose.dart';
 import 'native_quarantine.dart';
@@ -349,7 +350,6 @@ class AccountService {
     final previousStatusMessage = await Prefs.getStatusMessage();
     final previousAvatarPath = await Prefs.getAvatarPath();
     FfiChatService? service;
-    String? profileFile;
     // Hoisted so the catch path can clear the post-backfill session-password
     // cache too — see the catch block below for why this matters.
     String? canonicalToxId;
@@ -358,6 +358,13 @@ class AccountService {
 
     try {
       await PrefsUpgrader.runAccountMigrations(migrPrefs, accountPrefix);
+      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
+      final profileFile = AppPaths.profileFileInDirectory(profileDir);
+      final hasProfile = await validateExistingAccountProfile(
+        profileFile,
+        toxId,
+        password: password,
+      );
 
       await AppPaths.migrateAccountDataFromLegacy(toxId);
 
@@ -370,13 +377,7 @@ class AccountService {
       await Directory(historyDirectory).create(recursive: true);
       await Directory(avatarsPath).create(recursive: true);
 
-      final profileDir = await AppPaths.getProfileDirectoryForToxId(toxId);
-      profileFile = AppPaths.profileFileInDirectory(profileDir);
-      if (!await File(profileFile).exists()) {
-        // The pre-multi-account profile is adopted only after proving it is
-        // this account's; an encrypted one is attributed with the caller's
-        // password and stays ciphertext on disk for the native init to open
-        // (see `adoptLegacyProfileForAccount`). Refusals throw.
+      if (!hasProfile) {
         await adoptLegacyProfileForAccount(
           toxId: toxId,
           profileDir: profileDir,
@@ -384,7 +385,6 @@ class AccountService {
           password: password,
         );
       }
-
 
       final prefs = await SharedPreferences.getInstance();
       service = FfiChatService(
@@ -412,6 +412,7 @@ class AccountService {
         throw await classifyInitFailure(e, toxId, profileFile, password);
       }
       await service.login(userId: 'FlutterUIKitClient', userSig: 'dummy_sig');
+      requireAccountProfileIdentity(toxId, service.getSelfToxId());
 
       // F12 backfill: imported accounts land in account_list with a
       // 64-char public key (from `tox_self_get_public_key`); once we're
@@ -455,17 +456,17 @@ class AccountService {
         // the long form, so the session cache must agree or `verifyPassword`
         // on next login would see a stale short-form cache hit.
         SessionPasswordStore.set(activeToxId, password);
-        // A password change this account did not finish (kill between its
-        // steps) is settled now that the profile provably opened with
-        // `password`: promoted, abandoned, or a removal completed.
-        final settled = await Prefs.passwordChanges.reconcileAfterLogin(
+        // Recover an interrupted password change now that the profile is open.
+        // Teardown must follow the rekey even if updating the journal fails.
+        await Prefs.passwordChanges.reconcileAfterLogin(
           activeToxId,
           password,
-          rekeyLive: (pw) async => service!.rekeyLiveProfilePassphraseSecret(pw),
+          rekeyLive: (pw) async {
+            final rekeyed = service!.rekeyLiveProfilePassphraseSecret(pw);
+            if (rekeyed && pw == null) SessionPasswordStore.clear(activeToxId);
+            return rekeyed;
+          },
         );
-        if (settled == PasswordChangeReconcile.removalCompleted) {
-          SessionPasswordStore.clear(activeToxId);
-        }
       }
 
       await Prefs.setCurrentAccountToxId(activeToxId);
@@ -604,11 +605,7 @@ class AccountService {
         // any message/media helper can run. The live account-scoped service is
         // reopened through _createAccountScopedService once the ID is known.
         // Its storage lives under tempDir, never the shared default.
-        tempDir = p.join(
-          root,
-          '.tmp_register_${DateTime.now().millisecondsSinceEpoch}',
-        );
-        await Directory(tempDir).create(recursive: true);
+        tempDir = await AccountRegistrationRecovery.createStage(root);
         final svc = createRegistrationBootstrapService(
           prefs: prefs,
           tempDir: tempDir,
@@ -690,27 +687,27 @@ class AccountService {
         break;
       }
 
-      // 4. Rename temp to final directory. Ownership of `finalDir` begins here
-      // and not a line earlier: if the rename throws (e.g. the destination
-      // exists and is non-empty), the directory is someone else's.
+      // 4. The durable intent moves with the profile's atomic rename.
       final profileDir = finalDir!;
+      await AccountRegistrationRecovery.stage(
+        directory: tempDir!,
+        toxId: toxId!,
+        nickname: nickname,
+        statusMessage: statusMessage,
+        expectsPassword: password.hasValue,
+      );
       if (password.hasValue) {
-        // Verifier BEFORE the account is published: a kill after the rename
-        // must never leave an encrypted profile with no password gate.
-        // Flagged before the attempt, not after success: a refused write can
-        // leave a partial pair behind (hash persisted, salt refused, the
-        // compensating delete refused too), and the rollback must take that
-        // residue with it as well.
+        // Even a refused write can leave part of the verifier behind.
         verifierWritten = true;
-        if (!await Prefs.setAccountPassword(toxId!, password!)) {
+        if (!await Prefs.setAccountPassword(toxId, password!)) {
           throw StateError('Failed to persist account password verifier');
         }
       }
-      await Directory(tempDir!).rename(profileDir);
+      await Directory(tempDir).rename(profileDir);
       ownsFinalDir = true;
 
       final svc = service!;
-      final tid = toxId!;
+      final tid = toxId;
       // Installing the bundled default avatar must never block registration:
       // a missing/corrupt asset (e.g. assets/avatars not bundled) should
       // degrade to "no avatar" rather than abort account creation entirely.
@@ -784,6 +781,7 @@ class AccountService {
           statusMessage: statusMessage,
         );
 
+        await AccountRegistrationRecovery.finish(profileDir);
         return RegisterResult(
           service: newService,
           toxId: tid,
@@ -812,6 +810,7 @@ class AccountService {
         statusMessage: statusMessage,
       );
 
+      await AccountRegistrationRecovery.finish(profileDir);
       return RegisterResult(
         service: scopedService,
         toxId: tid,

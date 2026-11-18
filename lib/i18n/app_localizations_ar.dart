@@ -1674,7 +1674,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get pairingHostCompleted =>
-      'تم إرسال الحساب. أصبح حسابك الآن على الجهاز الآخر.';
+      'تم إرسال الحساب. تحقّق من الجهاز المستلِم للتأكد من اكتمال الاستيراد.';
 
   @override
   String get pairingClientCompleted => 'تم استلام الحساب. اكتمل الإقران.';

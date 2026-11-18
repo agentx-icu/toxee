@@ -367,6 +367,7 @@ extension _CallBusyHandling on CallServiceManager {
     if (!newAttempt) return;
     unawaited(() async {
       final nickname = await _resolveNickname(peerId);
+      if (_disposed) return;
       onCallRecordNeeded?.call(peerId, isVideo, false, 0, 'line_busy');
       try {
         await NotificationService.instance.showMissedCallNotification(

@@ -108,6 +108,9 @@ Dependencies when ToxAV is on:
   macos:   brew install opus libvpx
   windows: vcpkg install opus:<triplet> libvpx:<triplet>
   android/ios: built from pinned sources automatically (tool/ci/build_av_deps.sh)
+
+Android builds from source by default. Set TIM2TOX_ANDROID_LIB_DIR to reuse
+an explicit directory of prebuilt JNI libraries.
 EOF
       exit 0
       ;;
@@ -240,7 +243,7 @@ fi
 # Byte-level second gate on everything this script captures or syncs. The
 # configure flags above cover trees WE configure; packaging also accepts
 # prebuilt binaries (TIM2TOX_ANDROID_LIB_DIR, TIM2TOX_IOS_FRAMEWORK_PATH,
-# TIM2TOX_IOS_DYLIB_PATH, and anything already sitting in jniLibs), which never
+# and TIM2TOX_IOS_DYLIB_PATH), which never
 # saw CMake at all. The forbidden symbol name lives in ONE place:
 # tool/ci/assert_no_test_hooks.sh.
 assert_hook_free_artifact() {
@@ -456,14 +459,6 @@ build_android_ffi_libs() {
   local repo_jni_libs="$REPO_ROOT/android/app/src/main/jniLibs"
   local ndk_path abi
   local -a android_abis=()
-
-  if [[ -z "$source_dir" ]]; then
-    # No `find | grep -q` (pipefail + grep -q early-exit = SIGPIPE false
-    # negative); -print -quit stops find after the first hit instead.
-    if [[ -d "$repo_jni_libs" && -n "$(find "$repo_jni_libs" -type f -name "libtim2tox_ffi.so" -print -quit)" ]]; then
-      source_dir="$repo_jni_libs"
-    fi
-  fi
 
   if [[ -n "$source_dir" ]]; then
     [[ -d "$source_dir" ]] || ci_die "TIM2TOX_ANDROID_LIB_DIR is not a directory: $source_dir"
